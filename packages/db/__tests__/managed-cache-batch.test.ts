@@ -677,8 +677,9 @@ describe('applyManagedCacheBatch', () => {
   });
 
   it('splits large invalidation batches into bounded target queries', async () => {
-    const queryMock = vi.fn(async () => ({ rows: [] }));
+    const queryMock = vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows: [] }));
     const fakeDb = {
+      query: queryMock,
       transaction: async (callback: (tx: { query: typeof queryMock }) => Promise<unknown>) =>
         await callback({ query: queryMock }),
     };
@@ -699,12 +700,173 @@ describe('applyManagedCacheBatch', () => {
     });
 
     const targetMatchQueries = queryMock.mock.calls.filter(([sql]) =>
-      sql.includes('WITH targets(mode, root_id, relative_path, expected_file_record_id)')
+      sql.includes('WITH targets(root_id, relative_path, expected_file_record_id)')
     );
     expect(targetMatchQueries.length).toBeGreaterThan(1);
     for (const [, params] of targetMatchQueries) {
-      expect(params?.length ?? 0).toBeLessThanOrEqual(1 + 250 * 4);
+      expect(params?.length ?? 0).toBeLessThanOrEqual(1 + 250 * 3);
     }
+  });
+
+  it('matches invalidation targets through a path index condition instead of a per-target root scan', async () => {
+    // Regression guard for the 673K-chunk scale collapse: the legacy match
+    // query OR-ed exact/prefix modes together, so the planner could only push
+    // root_id into the index condition and re-filtered EVERY file under the
+    // root once per target (11s per 250-target batch on a real 88K-file
+    // corpus). The path predicate must appear in an Index Cond.
+    await importManagedCacheFile({
+      fileRecordId: 'plan-exact-file',
+      relativePath: 'src/plan/exact.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'plan-prefix-file',
+      relativePath: 'src/plan/dir/child.ts',
+      rootId: 'root-fixture',
+    });
+    // Enough rows under the same root that the planner has a real choice
+    // between "scan everything under the root" and a path index seek — on a
+    // near-empty table every plan degenerates to the same trivial scan.
+    await db.query(
+      `INSERT INTO file_records (id, embedding_set_id, root_id, path, name, size)
+       SELECT 'plan-bulk-' || i, 'set-1', 'root-fixture', 'src/plan/bulk/' || i || '.ts', i || '.ts', 10
+         FROM generate_series(1, 500) AS g(i)`
+    );
+
+    const capturedMatchQueries: Array<{ params: unknown[]; sql: string }> = [];
+    const capturingDb = {
+      query: async (sql: string, params?: unknown[]) => await db.query(sql, params),
+      transaction: async (callback: (tx: { query: typeof db.query }) => Promise<unknown>) =>
+        await db.transaction(async (tx) =>
+          callback({
+            query: (async (sql: string, params?: unknown[]) => {
+              if (sql.includes('WITH targets(')) {
+                capturedMatchQueries.push({ params: params ?? [], sql });
+              }
+              return await tx.query(sql, params);
+            }) as typeof db.query,
+          })
+        ),
+    };
+
+    await invalidateManagedCacheEntriesByIdentity(capturingDb, {
+      embeddingSetId: 'set-1',
+      targets: [
+        { relativePath: 'src/plan/exact.ts', rootId: 'root-fixture' },
+        { mode: 'prefix', relativePathPrefix: 'src/plan/dir', rootId: 'root-fixture' },
+      ],
+    });
+
+    expect(capturedMatchQueries.length).toBeGreaterThan(0);
+    await db.query('ANALYZE file_records');
+    // Force index paths so the plan shape is deterministic on a tiny table.
+    await db.query('SET enable_seqscan = off');
+    try {
+      for (const { params, sql } of capturedMatchQueries) {
+        const plan = await db.query<{ 'QUERY PLAN': string }>(`EXPLAIN ${sql}`, params);
+        const planText = plan.rows.map((row) => row['QUERY PLAN']).join('\n');
+        const pathIndexCondLines = planText
+          .split('\n')
+          .filter((line) => line.includes('Index Cond:') && line.includes('path'));
+        expect(
+          pathIndexCondLines.length,
+          `path not in any Index Cond:\n${planText}`
+        ).toBeGreaterThan(0);
+      }
+    } finally {
+      await db.query('RESET enable_seqscan');
+    }
+  });
+
+  it('commits each invalidation target batch independently so a later batch failure keeps earlier deletions and leaves stats dirty', async () => {
+    // One long transaction across all batches blocks every other query on the
+    // single-statement-at-a-time engine for the whole invalidation (observed:
+    // 30s db-host timeouts). Each batch must commit on its own; the stats
+    // dirty flag records that the final refresh never ran.
+    await seedEmbeddingSet('set-1');
+    await importManagedCacheFile({
+      fileRecordId: 'batch1-file',
+      relativePath: 'batch/0.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'batch2-file',
+      relativePath: 'batch/299.ts',
+      rootId: 'root-fixture',
+    });
+
+    const targets = Array.from({ length: 300 }, (_, index) => ({
+      relativePath: `batch/${index}.ts`,
+      rootId: 'root-fixture',
+    }));
+
+    let transactionCalls = 0;
+    const failingDb = {
+      query: async (sql: string, params?: unknown[]) => await db.query(sql, params),
+      transaction: async (callback: (tx: { query: typeof db.query }) => Promise<unknown>) => {
+        transactionCalls += 1;
+        if (transactionCalls === 2) {
+          throw new Error('injected second-batch failure');
+        }
+        return await db.transaction(async (tx) =>
+          callback({
+            query: ((sql: string, params?: unknown[]) => tx.query(sql, params)) as typeof db.query,
+          })
+        );
+      },
+    };
+
+    await expect(
+      invalidateManagedCacheEntriesByIdentity(failingDb, {
+        embeddingSetId: 'set-1',
+        targets,
+      })
+    ).rejects.toThrow('injected second-batch failure');
+
+    expect(transactionCalls).toBe(2);
+    await expect(fileRecordRepository.findById('batch1-file')).resolves.toBeNull();
+    await expect(fileRecordRepository.findById('batch2-file')).resolves.not.toBeNull();
+    await expect(getCollectionIndexingStats(db, 'set-1')).resolves.toEqual(
+      expect.objectContaining({ dirty: true })
+    );
+  });
+
+  it('invalidates mixed exact and prefix targets in a single call', async () => {
+    await importManagedCacheFile({
+      fileRecordId: 'mixed-exact-file',
+      relativePath: 'src/mixed/exact.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'mixed-prefix-at-path-file',
+      relativePath: 'src/mixed/dir',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'mixed-prefix-descendant-file',
+      relativePath: 'src/mixed/dir/child.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'mixed-untouched-file',
+      relativePath: 'src/mixed/other.ts',
+      rootId: 'root-fixture',
+    });
+
+    const result = await invalidateManagedCacheEntriesByIdentity(db, {
+      embeddingSetId: 'set-1',
+      targets: [
+        { relativePath: 'src/mixed/exact.ts', rootId: 'root-fixture' },
+        { mode: 'prefix', relativePathPrefix: 'src/mixed/dir', rootId: 'root-fixture' },
+      ],
+    });
+
+    expect(result.deletedFileRecordIds).toEqual([
+      'mixed-exact-file',
+      'mixed-prefix-at-path-file',
+      'mixed-prefix-descendant-file',
+    ]);
+    await expect(fileRecordRepository.findById('mixed-untouched-file')).resolves.not.toBeNull();
   });
 
   it('invalidates file records, cascades chunk deletion, refreshes stats, and returns deleted ids', async () => {

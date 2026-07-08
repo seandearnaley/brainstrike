@@ -62,6 +62,7 @@ describe('useQueueHealthMetrics', () => {
           queued: 5,
           running: 2,
           succeeded: 100,
+          succeededLifetime: 100,
         },
       });
 
@@ -77,6 +78,7 @@ describe('useQueueHealthMetrics', () => {
         queued: 5,
         running: 2,
         succeeded: 100,
+        succeededLifetime: 100,
       });
     });
 
@@ -102,6 +104,7 @@ describe('useQueueHealthMetrics', () => {
           queued: 0,
           running: 0,
           succeeded: 0,
+          succeededLifetime: 0,
         },
       });
 
@@ -117,6 +120,7 @@ describe('useQueueHealthMetrics', () => {
         queued: 0,
         running: 0,
         succeeded: 0,
+        succeededLifetime: 0,
       });
     });
   });
@@ -264,6 +268,7 @@ describe('useQueueHealthMetrics', () => {
           queued: 5,
           running: 2,
           succeeded: 100,
+          succeededLifetime: 100,
         },
       });
 

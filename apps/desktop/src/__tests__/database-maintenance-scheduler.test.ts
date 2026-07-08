@@ -104,6 +104,57 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     );
   });
 
+  it('logs a partial maintenance pass as info, not as a skip', async () => {
+    const db = { query: vi.fn() };
+    const runScheduledWork = vi.fn(
+      async <TResult>(
+        _options: DatabaseWorkOptions,
+        work: () => Promise<TResult>
+      ): Promise<TResult> => await work()
+    );
+    const logger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+    };
+    const partialResult: ScheduledDatabaseMaintenanceResult = {
+      activeJobs: 496_198,
+      completedAt: '2026-05-01T12:00:00.300Z',
+      durationMs: 300,
+      prunedTerminalJobs: 5000,
+      reason: 'active-job-queue',
+      startedAt: '2026-05-01T12:00:00.000Z',
+      status: 'partial',
+      vacuumedTables: [],
+    };
+    const scheduler = createDesktopDatabaseMaintenanceScheduler({
+      getDatabase: vi.fn(async () => db),
+      getSchedulerSnapshot: () => ({
+        queued: createQueuedCounts(),
+        runningPriority: null,
+      }),
+      logger,
+      runMaintenance: vi.fn(async () => partialResult),
+      runScheduledWork,
+    });
+
+    const result = await scheduler.runOnce();
+
+    expect(result).toBe(partialResult);
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeJobs: 496_198,
+        prunedTerminalJobs: 5000,
+        status: 'partial',
+      }),
+      'Scheduled database maintenance pruned while queue active (vacuum deferred)'
+    );
+    expect(logger.debug).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'Skipped scheduled database maintenance'
+    );
+  });
+
   it('prevents overlapping maintenance passes', async () => {
     let resolveMaintenance: ((result: ScheduledDatabaseMaintenanceResult) => void) | null = null;
     const runScheduledWork = vi.fn(

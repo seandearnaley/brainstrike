@@ -28,6 +28,8 @@ describe('fileFilter', () => {
         'build/index.html',
         'some/path/.DS_Store',
         'project/.pnpm-store/v10/files/0e',
+        '.turbo/cache/0be49de8c2ded0e8.tar.zst',
+        'project/.turbo/daemon/log.txt',
       ];
 
       for (const path of patterns) {
@@ -44,6 +46,7 @@ describe('fileFilter', () => {
         'build\\index.html',
         'some\\path\\.DS_Store',
         'project\\.pnpm-store\\v10\\files\\0e',
+        'project\\.turbo\\cache\\0be49de8c2ded0e8.tar.zst',
       ];
 
       for (const path of patterns) {

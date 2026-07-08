@@ -145,23 +145,29 @@ export function createDesktopDatabaseMaintenanceScheduler(
         });
       })
       .then((result) => {
-        if (result.status === 'completed') {
-          options.logger.info(
-            {
-              activeJobs: result.activeJobs,
-              durationMs: result.durationMs,
-              prunedTerminalJobs: result.prunedTerminalJobs,
-              vacuumedTables: result.vacuumedTables,
-            },
-            'Scheduled database maintenance completed'
-          );
-        } else {
+        if (result.status === 'skipped') {
           options.logger.debug(
             {
               activeJobs: result.activeJobs,
               reason: result.reason,
             },
             'Skipped scheduled database maintenance'
+          );
+        } else {
+          // 'completed' (idle: full prune + vacuum) and 'partial' (active
+          // queue: bounded prune, vacuum deferred) both did real work; the
+          // message says which so 'completed' never claims a deferred vacuum.
+          options.logger.info(
+            {
+              activeJobs: result.activeJobs,
+              durationMs: result.durationMs,
+              prunedTerminalJobs: result.prunedTerminalJobs,
+              status: result.status,
+              vacuumedTables: result.vacuumedTables,
+            },
+            result.status === 'partial'
+              ? 'Scheduled database maintenance pruned while queue active (vacuum deferred)'
+              : 'Scheduled database maintenance completed'
           );
         }
         return result;

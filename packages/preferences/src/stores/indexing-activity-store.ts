@@ -18,6 +18,8 @@ export interface IndexingQueueSnapshot {
   readonly queued: number;
   readonly running: number;
   readonly succeeded: number;
+  /** Durable, monotonic lifetime total of succeeded jobs — survives pruning. */
+  readonly succeededLifetime: number;
 }
 
 export interface IndexingBackfillSnapshot {

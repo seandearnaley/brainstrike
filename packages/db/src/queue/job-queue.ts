@@ -90,6 +90,23 @@ function computeElapsedMs(startIso: string, endIso: string): number | null {
   return null;
 }
 
+/**
+ * Builds a data-modifying CTE that increments the durable per-queue lifetime
+ * succeeded count from a source CTE of just-completed job rows. Folded into the
+ * same statement as the completion UPDATE so a job can never be marked
+ * succeeded without being counted (atomic on the single-statement engine). The
+ * counter is monotonic — pruning/clearing the succeeded rows never touches it.
+ * `sourceCte` must expose a `queue` column and contain only newly-succeeded rows.
+ */
+function incrementSucceededMetricsCte(sourceCte: string): string {
+  return `metrics AS (
+       INSERT INTO job_queue_metrics (queue, succeeded_total)
+       SELECT queue, COUNT(*) FROM ${sourceCte} GROUP BY queue
+       ON CONFLICT (queue) DO UPDATE
+         SET succeeded_total = job_queue_metrics.succeeded_total + EXCLUDED.succeeded_total
+     )`;
+}
+
 export interface EnqueueParams {
   dedupeKey?: string;
   jobType: JobType;
@@ -698,18 +715,16 @@ export class JobQueue {
     const ids = jobs.map((j) => j.id);
     const leaseTokens = jobs.map((j) => j.leaseToken);
 
-    const sql =
-      idType === 'uuid'
-        ? `UPDATE job_queue AS j
-       SET state = 'succeeded', leased_until = NULL, updated_at = $1
-       FROM unnest($2::uuid[], $3::text[]) AS t(id, lease_token)
-       WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
-       RETURNING j.*`
-        : `UPDATE job_queue AS j
-       SET state = 'succeeded', leased_until = NULL, updated_at = $1
-       FROM unnest($2::text[], $3::text[]) AS t(id, lease_token)
-       WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
-       RETURNING j.*`;
+    const unnestSignature = idType === 'uuid' ? '$2::uuid[], $3::text[]' : '$2::text[], $3::text[]';
+    const sql = `WITH completed AS (
+       UPDATE job_queue AS j
+          SET state = 'succeeded', leased_until = NULL, updated_at = $1
+         FROM unnest(${unnestSignature}) AS t(id, lease_token)
+        WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+        RETURNING j.*
+     ),
+     ${incrementSucceededMetricsCte('completed')}
+     SELECT * FROM completed`;
 
     const res = await this.db.query<JobRow>(sql, [updatedAt, ids, leaseTokens]);
 
@@ -816,7 +831,8 @@ export class JobQueue {
            JOIN updated_chunks AS u ON u.chunk_id = o.chunk_id
           WHERE j.id = o.job_id
           RETURNING j.*
-       )
+       ),
+       ${incrementSucceededMetricsCte('completed_jobs')}
        SELECT * FROM completed_jobs`,
       [updatedAt, ids, leaseTokens, chunkIds, embeddings, embeddingSetIds, embeddingHashes]
     );
@@ -848,9 +864,13 @@ export class JobQueue {
   async complete(params: CompleteParams): Promise<Job | null> {
     const updatedAt = new Date().toISOString();
     const res = await this.db.query<JobRow>(
-      `UPDATE job_queue SET state = 'succeeded', leased_until = NULL, updated_at = $1
-       WHERE id = $2 AND lease_token = $3 AND state = 'running'
-       RETURNING *`,
+      `WITH completed AS (
+         UPDATE job_queue SET state = 'succeeded', leased_until = NULL, updated_at = $1
+          WHERE id = $2 AND lease_token = $3 AND state = 'running'
+          RETURNING *
+       ),
+       ${incrementSucceededMetricsCte('completed')}
+       SELECT * FROM completed`,
       [updatedAt, params.id, params.leaseToken]
     );
     if (!res.rows[0]) {
@@ -1290,6 +1310,7 @@ export class JobQueue {
       running: number;
       failed: number;
       succeeded: number;
+      succeededLifetime: number;
       nextRunnableAt?: string | null;
     }[]
   > {
@@ -1298,8 +1319,17 @@ export class JobQueue {
       string,
       { queued: number; running: number; failed: number; succeeded: number }
     >();
+    const ensureEntry = (q: string) => {
+      const existing = queues.get(q);
+      if (existing) {
+        return existing;
+      }
+      const created = { failed: 0, queued: 0, running: 0, succeeded: 0 };
+      queues.set(q, created);
+      return created;
+    };
     for (const c of counts) {
-      const entry = queues.get(c.queue) ?? { failed: 0, queued: 0, running: 0, succeeded: 0 };
+      const entry = ensureEntry(c.queue);
       if (c.state === 'queued') {
         entry.queued += c.count;
       }
@@ -1312,7 +1342,19 @@ export class JobQueue {
       if (c.state === 'succeeded') {
         entry.succeeded += c.count;
       }
-      queues.set(c.queue, entry);
+    }
+
+    // Durable lifetime succeeded totals. A queue whose live rows were all pruned
+    // still has a metrics row, so surface it even with zero live counts —
+    // otherwise the HUD's cumulative "Success" would vanish after a prune.
+    const metricsRes = await this.db.query<{ queue: string; succeeded_total: string | number }>(
+      `SELECT queue, succeeded_total FROM job_queue_metrics ${queue ? 'WHERE queue = $1' : ''}`,
+      queue ? [queue] : []
+    );
+    const succeededLifetime = new Map<string, number>();
+    for (const row of metricsRes.rows) {
+      succeededLifetime.set(row.queue, Number(row.succeeded_total ?? 0));
+      ensureEntry(row.queue);
     }
 
     const res = await this.db.query<{ queue: string; run_at: string }>(
@@ -1334,6 +1376,7 @@ export class JobQueue {
       queued: stats.queued,
       running: stats.running,
       succeeded: stats.succeeded,
+      succeededLifetime: succeededLifetime.get(q) ?? 0,
     }));
   }
 

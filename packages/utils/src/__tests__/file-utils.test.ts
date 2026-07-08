@@ -20,6 +20,18 @@ describe('file-utils', () => {
     expect(isBinaryFile('python.wasm')).toBe(true);
   });
 
+  it('treats modern compression artifacts as binary', () => {
+    // .turbo/cache tarballs are .tar.zst — without 'zst' in the binary set the
+    // token indexer content-read multi-MB archives every pass just to fail
+    // with "Binary file - cannot count tokens".
+    expect(isBinaryFile('0be49de8c2ded0e8.tar.zst')).toBe(true);
+    expect(isBinaryFile('bundle.tgz')).toBe(true);
+    expect(isBinaryFile('data.xz')).toBe(true);
+    expect(isBinaryFile('asset.br')).toBe(true);
+    expect(isBinaryFile('frame.lz4')).toBe(true);
+    expect(isBinaryFile('dump.bz2')).toBe(true);
+  });
+
   describe('getBaseFilename', () => {
     it('extracts base from simple filenames', () => {
       expect(getBaseFilename('file.txt')).toBe('file');

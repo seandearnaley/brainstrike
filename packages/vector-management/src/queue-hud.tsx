@@ -28,6 +28,7 @@ interface QueueMetrics {
   queued: number;
   running: number;
   succeeded: number;
+  succeededLifetime: number;
 }
 
 interface QueueHudViewProps {
@@ -125,14 +126,14 @@ function QueueHudStatusBar({
   retryLabel,
   onRetry,
 }: QueueHudViewProps): ReactElement {
-  const { queued, running, failed, succeeded, nextRunnableAt } = metrics;
+  const { queued, running, failed, succeededLifetime, nextRunnableAt } = metrics;
 
   return (
     <div className="flex items-center gap-2 text-[10px]" data-testid="status-bar-queue">
       <Tooltip>
         <TooltipTrigger asChild>
           <div
-            aria-label={`Embedding queue: ${queued} queued, ${running} running, ${failed} failed, ${succeeded} succeeded`}
+            aria-label={`Embedding queue: ${queued} queued, ${running} running, ${failed} failed, ${succeededLifetime} succeeded`}
             aria-live="polite"
             className="flex items-center gap-2 rounded px-1 py-0.5 text-[10px] text-muted-foreground"
             role="status"
@@ -156,7 +157,7 @@ function QueueHudStatusBar({
             </span>
             <span className="flex items-center gap-1">
               <span>OK</span>
-              <span className="font-semibold text-foreground">{succeeded}</span>
+              <span className="font-semibold text-foreground">{succeededLifetime}</span>
             </span>
           </div>
         </TooltipTrigger>
@@ -166,7 +167,7 @@ function QueueHudStatusBar({
             <div>Queued: {queued}</div>
             <div>Running: {running}</div>
             <div>Failed: {failed}</div>
-            <div>Success: {succeeded}</div>
+            <div>Success: {succeededLifetime}</div>
             {nextRunnableAt && (
               <div>
                 Next: <span className="font-mono">{nextRunnableAt}</span>
@@ -202,7 +203,7 @@ function QueueHudCard({
   retryLabel,
   onRetry,
 }: QueueHudViewProps): ReactElement {
-  const { queued, running, failed, succeeded, nextRunnableAt } = metrics;
+  const { queued, running, failed, succeededLifetime, nextRunnableAt } = metrics;
 
   return (
     <Card>
@@ -243,7 +244,7 @@ function QueueHudCard({
           <div>
             <div className="text-[9px] text-muted-foreground">Success</div>
             <div className="font-semibold text-green-600 text-sm dark:text-green-400">
-              {succeeded}
+              {succeededLifetime}
             </div>
           </div>
         </div>
@@ -275,6 +276,7 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}): ReactElement
     queued: 0,
     running: 0,
     succeeded: 0,
+    succeededLifetime: 0,
   };
 
   if (!enabled) {

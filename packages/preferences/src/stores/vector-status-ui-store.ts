@@ -112,7 +112,10 @@ export interface QueueStatsSnapshot {
   nextRunnableAt: string | null;
   queued: number;
   running: number;
+  /** Live count of `succeeded` rows currently in job_queue (pruned over time). */
   succeeded: number;
+  /** Durable, monotonic lifetime total of succeeded jobs — survives pruning. */
+  succeededLifetime: number;
 }
 
 export interface BackfillProgressSnapshot {
@@ -227,6 +230,7 @@ function areQueueStatsSnapshotsEqual(
     left.queued === right.queued &&
     left.running === right.running &&
     left.succeeded === right.succeeded &&
+    left.succeededLifetime === right.succeededLifetime &&
     left.nextRunnableAt === right.nextRunnableAt
   );
 }

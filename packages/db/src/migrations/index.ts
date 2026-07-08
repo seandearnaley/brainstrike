@@ -47,6 +47,7 @@ import { migration045DimensionIndexMaintenance } from './045-dimension-index-mai
 import { migration046AssistantRunUsage } from './046-assistant-run-usage.js';
 import { migration047RunUsageRootId } from './047-run-usage-root-id.js';
 import { migration048FileRecordsNameTrgm } from './048-file-records-name-trgm.js';
+import { migration049JobQueueMetrics } from './049-job-queue-metrics.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -100,6 +101,7 @@ export const migrations: Migration[] = [
   migration046AssistantRunUsage,
   migration047RunUsageRootId,
   migration048FileRecordsNameTrgm,
+  migration049JobQueueMetrics,
 ];
 
 // Export base migrations (without chunks table) for test environments

@@ -127,6 +127,68 @@ describe('JobQueue Batch Operations', () => {
       claimed!.id,
     ]);
     expect(job.rows[0]?.state).toBe('running');
+
+    // The stale completion wrote nothing, so the lifetime metric must be
+    // untouched: an empty completed set yields no GROUP BY rows to upsert.
+    const metrics = await queue.getQueueStats('embeddings');
+    expect(metrics[0]?.succeededLifetime ?? 0).toBe(0);
+  });
+
+  it('increments the durable lifetime succeeded count on embedding completion', async () => {
+    const queue = new JobQueue(db);
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-lifetime-completion';
+    const fileId = 'file-lifetime-completion';
+    const chunkId = 'chunk-lifetime-completion';
+    const embedding = Array.from({ length: 768 }, (_, index) => index / 1000);
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, 'local::test-model', 'test-model', 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+      [
+        fileId,
+        'lifetime-completion.ts',
+        '/lifetime-completion.ts',
+        100,
+        'content',
+        'lifetime-completion-hash',
+        10,
+        embeddingSetId,
+        now,
+      ]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+       VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
+      [chunkId, fileId, 'content', 'lifetime-completion-hash', 10, now]
+    );
+
+    await queue.enqueue({
+      jobType: 'embed_chunk',
+      payload: { chunkId, embeddingSetId },
+      queue: 'embeddings',
+    });
+    const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
+
+    const completed = await queue.completeEmbeddingChunkBatch([
+      {
+        chunkId,
+        embedding,
+        embeddingHash: 'lifetime-completion-embedding-hash',
+        embeddingSetId,
+        id: claimed!.id,
+        leaseToken: claimed!.lease_token!,
+      },
+    ]);
+    expect(completed).toHaveLength(1);
+
+    const metrics = await queue.getQueueStats('embeddings');
+    expect(metrics[0].succeededLifetime).toBe(1);
   });
 
   describe('enqueueBatch', () => {
