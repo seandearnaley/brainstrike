@@ -13,7 +13,9 @@ function stubRepository(candidates: GrepCandidate[], calls: GrepCandidateOptions
 }
 
 const CHUNK_A: GrepCandidate = {
+  chunkId: 'chunk-a',
   content: 'const gate = createGate();\nawait gate.open();\nreturn gate;',
+  endLine: 12,
   filePath: 'src/alpha.ts',
   startLine: 10,
 };
@@ -28,6 +30,9 @@ describe('GrepSearchService', () => {
       {
         after: ['return gate;'],
         before: ['const gate = createGate();'],
+        chunkEndLine: 12,
+        chunkId: 'chunk-a',
+        chunkStartLine: 10,
         line: 11,
         lineText: 'await gate.open();',
         path: 'src/alpha.ts',
@@ -85,9 +90,27 @@ describe('GrepSearchService', () => {
 
   it('dedupes overlapping chunks on (path, line) and sorts by path then line', async () => {
     const overlapping: GrepCandidate[] = [
-      { content: 'needle here\nfiller', filePath: 'src/b.ts', startLine: 5 },
-      { content: 'previous\nneedle here', filePath: 'src/b.ts', startLine: 4 },
-      { content: 'needle first', filePath: 'src/a.ts', startLine: 1 },
+      {
+        chunkId: 'chunk-b2',
+        content: 'needle here\nfiller',
+        endLine: 6,
+        filePath: 'src/b.ts',
+        startLine: 5,
+      },
+      {
+        chunkId: 'chunk-b1',
+        content: 'previous\nneedle here',
+        endLine: 5,
+        filePath: 'src/b.ts',
+        startLine: 4,
+      },
+      {
+        chunkId: 'chunk-a',
+        content: 'needle first',
+        endLine: 1,
+        filePath: 'src/a.ts',
+        startLine: 1,
+      },
     ];
     const service = new GrepSearchService(stubRepository(overlapping));
     const result = await service.search({ pattern: 'needle' });
@@ -97,7 +120,13 @@ describe('GrepSearchService', () => {
 
   it('caps results at maxResults and reports truncation + totalMatches', async () => {
     const many: GrepCandidate[] = [
-      { content: 'hit\nhit\nhit\nhit', filePath: 'src/c.ts', startLine: 1 },
+      {
+        chunkId: 'chunk-c',
+        content: 'hit\nhit\nhit\nhit',
+        endLine: 4,
+        filePath: 'src/c.ts',
+        startLine: 1,
+      },
     ];
     const service = new GrepSearchService(stubRepository(many));
     const result = await service.search({ maxResults: 2, pattern: 'hit' });
@@ -108,7 +137,13 @@ describe('GrepSearchService', () => {
 
   it('skips chunks without startLine and counts them', async () => {
     const noLines: GrepCandidate[] = [
-      { content: 'needle but no line metadata', filePath: 'src/d.ts', startLine: null },
+      {
+        chunkId: 'chunk-d',
+        content: 'needle but no line metadata',
+        endLine: null,
+        filePath: 'src/d.ts',
+        startLine: null,
+      },
     ];
     const service = new GrepSearchService(stubRepository(noLines));
     const result = await service.search({ pattern: 'needle' });
@@ -124,7 +159,9 @@ describe('GrepSearchService', () => {
   it('carries rootId and rootName from the candidate onto each match', async () => {
     const rooted: GrepCandidate[] = [
       {
+        chunkId: 'chunk-x',
         content: 'needle here',
+        endLine: 1,
         filePath: 'src/x.ts',
         rootId: 'r1',
         rootName: 'Alpha',
@@ -142,14 +179,18 @@ describe('GrepSearchService', () => {
     // is that a (path, line) dedupe key collapses these into one match.
     const sameRelativePath: GrepCandidate[] = [
       {
+        chunkId: 'chunk-readme-a',
         content: 'needle',
+        endLine: 1,
         filePath: 'README.md',
         rootId: 'root-a',
         rootName: 'ProjectA',
         startLine: 1,
       },
       {
+        chunkId: 'chunk-readme-b',
         content: 'needle',
+        endLine: 1,
         filePath: 'README.md',
         rootId: 'root-b',
         rootName: 'ProjectB',
