@@ -10,6 +10,7 @@ const DEFAULT_IGNORE_PATTERNS = [
   'node_modules',
   '.pnpm-store',
   '.next',
+  '.turbo',
   'dist',
   'build',
   '.DS_Store',
