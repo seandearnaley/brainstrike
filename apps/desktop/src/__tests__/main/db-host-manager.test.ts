@@ -602,6 +602,59 @@ describe('DbHostManager', () => {
     }
   });
 
+  it('evicts a permanently-abandoned entry once it exceeds the staleness ceiling, so the map cannot stay wedged full forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        maintenanceRequestTimeoutMs: 50,
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      // Fill the abandoned-request map to capacity with requests that never
+      // reply — the "wedged host, never terminated" scenario the bounded map
+      // must still recover from.
+      const fillPromises = Array.from({ length: 64 }, (_, index) =>
+        database.query(`SELECT ${index}`, [])
+      );
+      for (const promise of fillPromises) {
+        promise.catch(() => undefined);
+      }
+      await vi.advanceTimersByTimeAsync(5);
+
+      // None of the 64 ever reply. Once they've outlived the maintenance
+      // staleness ceiling, a new timeout must still be able to evict the
+      // oldest one and get tracked — not be dropped as "map full" forever.
+      await vi.advanceTimersByTimeAsync(50);
+      const lateQueryPromise = database.query('SELECT 64', []);
+      lateQueryPromise.catch(() => undefined);
+      const lateMessage = latestProcess().messages.at(-1) as PostedMessage;
+      await vi.advanceTimersByTimeAsync(5);
+      loggerWarnMock.mockClear();
+
+      await vi.advanceTimersByTimeAsync(20);
+      latestProcess().reply(lateMessage, { rows: [] });
+      await flushMicrotasks();
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 25,
+          ok: true,
+          requestKind: 'query',
+        }),
+        'DB host request completed after timeout'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses the maintenance timeout for explicit maintenance exec requests', async () => {
     vi.useFakeTimers();
     try {

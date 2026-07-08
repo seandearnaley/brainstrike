@@ -80,6 +80,7 @@ describe('IndexingStatusItem', () => {
       queued: 8,
       running: 1,
       succeeded: 12,
+      succeededLifetime: 12,
     });
     useIndexingActivityStore.getState().setBackfills([
       {

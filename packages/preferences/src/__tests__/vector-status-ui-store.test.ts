@@ -397,6 +397,7 @@ describe('vector-status-ui-store', () => {
         queued: 4,
         running: 1,
         succeeded: 9,
+        succeededLifetime: 9,
       };
 
       store.getState().setDurableQueueStats(initialStats);
@@ -408,6 +409,7 @@ describe('vector-status-ui-store', () => {
         queued: 4,
         running: 1,
         succeeded: 9,
+        succeededLifetime: 9,
       });
 
       expect(store.getState()).toBe(before);
@@ -422,6 +424,7 @@ describe('vector-status-ui-store', () => {
         queued: 1,
         running: 0,
         succeeded: 0,
+        succeededLifetime: 0,
       });
       expect(vectorStatusUISelectors.durableQueueStats(store.getState())?.queued).toBe(1);
 
@@ -431,6 +434,7 @@ describe('vector-status-ui-store', () => {
         queued: 2,
         running: 0,
         succeeded: 0,
+        succeededLifetime: 0,
       });
       expect(vectorStatusUISelectors.durableQueueStats(store.getState())?.queued).toBe(2);
 

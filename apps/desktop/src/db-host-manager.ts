@@ -738,7 +738,7 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   #recordAbandonedRequest(id: string, request: AbandonedRequest): void {
-    if (this.#abandoned.size >= MAX_ABANDONED_REQUESTS) {
+    if (this.#abandoned.size >= MAX_ABANDONED_REQUESTS && !this.#evictStaleAbandonedRequest()) {
       // Keep the OLDEST entries: the host runs one statement at a time, so in
       // a timeout burst the oldest abandoned request is the statement that is
       // actually wedging the host — evicting it would silently drop exactly
@@ -751,6 +751,31 @@ class DefaultDbHostManager implements DbHostManager {
       return;
     }
     this.#abandoned.set(id, request);
+  }
+
+  // A request that NEVER replies (host alive, statement truly wedged
+  // forever — no termination-triggering request kind ever fires to clear()
+  // the map) would otherwise occupy its slot for the life of the host,
+  // permanently disabling this log for every subsequent timeout once the map
+  // fills. Once an entry has outlived the longest legitimate in-flight
+  // request (the maintenance-timeout ceiling), it can only be dead weight —
+  // evict it to make room for tracking new timeouts.
+  #evictStaleAbandonedRequest(): boolean {
+    const oldest = this.#abandoned.entries().next().value as [string, AbandonedRequest] | undefined;
+    if (!oldest) {
+      return false;
+    }
+    const [oldestId, oldestRequest] = oldest;
+    const age = Date.now() - oldestRequest.startedAt;
+    if (age < this.#maintenanceRequestTimeoutMs) {
+      return false;
+    }
+    this.#abandoned.delete(oldestId);
+    logger.debug(
+      { ageMs: age, requestId: oldestId, requestKind: oldestRequest.requestKind },
+      'Abandoned-request entry exceeded staleness ceiling without a late response; evicting'
+    );
+    return true;
   }
 
   #acceptResponse(message: DbHostResponseEnvelope): void {

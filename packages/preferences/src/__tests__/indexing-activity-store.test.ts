@@ -88,6 +88,7 @@ describe('indexing-activity-store', () => {
       queued: 0,
       running: 0,
       succeeded: 4,
+      succeededLifetime: 4,
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
@@ -98,6 +99,7 @@ describe('indexing-activity-store', () => {
         queued: 0,
         running: 0,
         succeeded: 4,
+        succeededLifetime: 4,
       },
       status: 'idle',
     });
@@ -128,6 +130,7 @@ describe('indexing-activity-store', () => {
       queued: 8,
       running: 2,
       succeeded: 20,
+      succeededLifetime: 20,
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
@@ -138,6 +141,7 @@ describe('indexing-activity-store', () => {
         queued: 8,
         running: 2,
         succeeded: 20,
+        succeededLifetime: 20,
       },
       status: 'active',
     });
@@ -198,6 +202,7 @@ describe('indexing-activity-store', () => {
       queued: 0,
       running: 0,
       succeeded: 2,
+      succeededLifetime: 2,
     });
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
@@ -247,6 +252,7 @@ describe('indexing-activity-store', () => {
       queued: 0,
       running: 0,
       succeeded: 2,
+      succeededLifetime: 2,
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
@@ -261,6 +267,7 @@ describe('indexing-activity-store', () => {
       queued: 0,
       running: 0,
       succeeded: 2,
+      succeededLifetime: 2,
     });
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
@@ -293,6 +300,7 @@ describe('indexing-activity-store', () => {
       queued: 1,
       running: 0,
       succeeded: 0,
+      succeededLifetime: 0,
     });
 
     useIndexingActivityStore.getState().resetIndexingActivity();

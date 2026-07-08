@@ -74,7 +74,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { failed: 3, queue: 'embeddings', queued: 1, running: 2, succeeded: 4 },
+        {
+          failed: 3,
+          queue: 'embeddings',
+          queued: 1,
+          running: 2,
+          succeeded: 4,
+          succeededLifetime: 4,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -137,7 +144,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 2, running: 1, succeeded: 5 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 2,
+          running: 1,
+          succeeded: 5,
+          succeededLifetime: 5,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -243,7 +257,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -332,7 +353,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 13 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 13,
+          succeededLifetime: 13,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(async () => 13),
       requeueFailed: vi.fn(async () => 13),
@@ -409,7 +437,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { failed: 13, queue: 'embeddings', queued: 13, running: 0, succeeded: 0 },
+        {
+          failed: 13,
+          queue: 'embeddings',
+          queued: 13,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(async () => 13),
       requeueFailed: vi.fn(async () => 13),
@@ -431,10 +466,31 @@ describe('vector-queue-service', () => {
 
   it('backfill splits large enqueue work into cooperative batches', async () => {
     const queueStatsSequence = [
-      { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
-      { failed: 0, queue: 'embeddings', queued: 32, running: 0, succeeded: 0 },
-      { failed: 0, queue: 'embeddings', queued: 64, running: 0, succeeded: 0 },
-      { failed: 0, queue: 'embeddings', queued: 24, running: 8, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0, succeededLifetime: 0 },
+      {
+        failed: 0,
+        queue: 'embeddings',
+        queued: 32,
+        running: 0,
+        succeeded: 0,
+        succeededLifetime: 0,
+      },
+      {
+        failed: 0,
+        queue: 'embeddings',
+        queued: 64,
+        running: 0,
+        succeeded: 0,
+        succeededLifetime: 0,
+      },
+      {
+        failed: 0,
+        queue: 'embeddings',
+        queued: 24,
+        running: 8,
+        succeeded: 0,
+        succeededLifetime: 0,
+      },
     ];
     const finalQueueStats = {
       failed: 0,
@@ -442,6 +498,7 @@ describe('vector-queue-service', () => {
       queued: 56,
       running: 8,
       succeeded: 0,
+      succeededLifetime: 0,
     };
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
       clear: vi.fn(),
@@ -526,7 +583,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 1, running: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 1,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -589,7 +653,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { failed: 1, queue: 'embeddings', queued: 1, running: 0, succeeded: 0 },
+        {
+          failed: 1,
+          queue: 'embeddings',
+          queued: 1,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -650,7 +721,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 64, running: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 64,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -704,7 +782,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 64, running: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 64,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -762,7 +847,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 64, running: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 64,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -816,7 +908,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -881,7 +980,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -944,7 +1050,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 3, running: 0, succeeded: 10 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 3,
+          running: 0,
+          succeeded: 10,
+          succeededLifetime: 10,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),
@@ -1015,7 +1128,14 @@ describe('vector-queue-service', () => {
       clear: vi.fn(),
       enqueueBatch: vi.fn(async () => []),
       getQueueStats: vi.fn(async () => [
-        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
       repairUnclaimableQueued: vi.fn(),
       requeueFailed: vi.fn(),

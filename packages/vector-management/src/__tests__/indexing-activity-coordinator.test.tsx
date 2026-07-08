@@ -233,6 +233,8 @@ describe('IndexingActivityCoordinator', () => {
           queued: '7',
           running: '1',
           succeeded: '23',
+          // Durable lifetime total arrives as a bigint string from PGlite.
+          succeededLifetime: '177355',
         },
       ],
     }));
@@ -249,6 +251,7 @@ describe('IndexingActivityCoordinator', () => {
           queued: 7,
           running: 1,
           succeeded: 23,
+          succeededLifetime: 177_355,
         },
         status: 'active',
       });
@@ -263,6 +266,7 @@ describe('IndexingActivityCoordinator', () => {
       queued: 7,
       running: 1,
       succeeded: 23,
+      succeededLifetime: 177_355,
     });
     expect(useVectorStatusUIStore.getState().isJobQueueActive).toBe(true);
   });

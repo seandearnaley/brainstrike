@@ -28,6 +28,10 @@ const QUEUE_AGGREGATE_QUERY = `
     COUNT(*) FILTER (WHERE state = 'running')::int AS "running",
     COUNT(*) FILTER (WHERE state = 'failed')::int AS "failed",
     COUNT(*) FILTER (WHERE state = 'succeeded')::int AS "succeeded",
+    COALESCE(
+      (SELECT succeeded_total FROM job_queue_metrics WHERE queue = $1),
+      0
+    )::bigint AS "succeededLifetime",
     MIN(run_at) FILTER (WHERE state = 'queued') AS "nextRunnableAt"
   FROM job_queue
   WHERE queue = $1
@@ -41,6 +45,7 @@ interface QueueAggregateRow {
   readonly queued: number | string | null;
   readonly running: number | string | null;
   readonly succeeded: number | string | null;
+  readonly succeededLifetime: number | string | null;
 }
 
 function toNonNegativeInteger(value: number | string | null, fieldName: string): number {
@@ -58,6 +63,7 @@ function toQueueSnapshot(row: QueueAggregateRow): IndexingQueueSnapshot {
     queued: toNonNegativeInteger(row.queued, 'queued'),
     running: toNonNegativeInteger(row.running, 'running'),
     succeeded: toNonNegativeInteger(row.succeeded, 'succeeded'),
+    succeededLifetime: toNonNegativeInteger(row.succeededLifetime, 'succeededLifetime'),
   };
 }
 
