@@ -355,10 +355,23 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
   }
 }
 
+interface AbandonedRequest {
+  readonly requestKind: string;
+  readonly startedAt: number;
+  readonly timeoutMs: number;
+}
+
+// Bounded memory of requests that timed out client-side while the DB host may
+// still be executing them (the host runs one statement at a time; an IPC
+// timeout does NOT cancel the statement). A late response for one of these
+// must be logged, never dropped silently.
+const MAX_ABANDONED_REQUESTS = 64;
+
 class DefaultDbHostManager implements DbHostManager {
   readonly #entryPath: string;
   readonly #liveQueries = new Map<string, RemoteLiveQuery<unknown>>();
   readonly #pending = new Map<string, PendingRequest>();
+  readonly #abandoned = new Map<string, AbandonedRequest>();
   readonly #closeTimeoutMs: number;
   readonly #initializationTimeoutMs: number;
   readonly #maintenanceRequestTimeoutMs: number;
@@ -476,6 +489,11 @@ class DefaultDbHostManager implements DbHostManager {
           'DB host request timed out'
         );
         this.#pending.delete(id);
+        this.#recordAbandonedRequest(id, {
+          requestKind: request.kind,
+          startedAt,
+          timeoutMs,
+        });
         reject(error);
         if (requiresHostTerminationOnTimeout(request)) {
           this.#terminateHost(error);
@@ -719,9 +737,35 @@ class DefaultDbHostManager implements DbHostManager {
     this.#acceptResponse(message);
   }
 
+  #recordAbandonedRequest(id: string, request: AbandonedRequest): void {
+    if (this.#abandoned.size >= MAX_ABANDONED_REQUESTS) {
+      const oldestId = this.#abandoned.keys().next().value;
+      if (oldestId !== undefined) {
+        this.#abandoned.delete(oldestId);
+      }
+    }
+    this.#abandoned.set(id, request);
+  }
+
   #acceptResponse(message: DbHostResponseEnvelope): void {
     const pending = this.#pending.get(message.id);
     if (!pending) {
+      const abandoned = this.#abandoned.get(message.id);
+      if (abandoned) {
+        this.#abandoned.delete(message.id);
+        // The statement outlived its IPC timeout and kept the single-threaded
+        // host busy the whole time — surface how long it actually ran.
+        logger.warn(
+          {
+            elapsedMs: Math.max(0, Date.now() - abandoned.startedAt),
+            ok: message.ok,
+            requestId: message.id,
+            requestKind: abandoned.requestKind,
+            timeoutMs: abandoned.timeoutMs,
+          },
+          'DB host request completed after timeout'
+        );
+      }
       return;
     }
     this.#pending.delete(message.id);
@@ -739,6 +783,8 @@ class DefaultDbHostManager implements DbHostManager {
       pending.reject(error);
       this.#pending.delete(id);
     }
+    // A dead host can never deliver the late responses we were watching for.
+    this.#abandoned.clear();
   }
 
   #failAllLiveQueries(error: Error): void {

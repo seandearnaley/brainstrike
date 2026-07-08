@@ -514,6 +514,50 @@ describe('DbHostManager', () => {
     }
   });
 
+  it('logs when a timed-out request eventually completes instead of dropping the late response silently', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      const queryPromise = database.query('SELECT COUNT(*) FROM job_queue', []);
+      const timeoutAssertion = expect(queryPromise).rejects.toThrow(
+        'DB host request timed out: query'
+      );
+      const queryMessage = latestProcess().messages.at(-1) as PostedMessage;
+      await vi.advanceTimersByTimeAsync(5);
+      await timeoutAssertion;
+      loggerWarnMock.mockClear();
+
+      // The DB host executes one statement at a time, so a timed-out request
+      // usually means the statement is STILL RUNNING and still blocking the
+      // host. Its eventual completion must be visible in logs, not vanish.
+      await vi.advanceTimersByTimeAsync(20);
+      latestProcess().reply(queryMessage, { rows: [] });
+      await flushMicrotasks();
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 25,
+          ok: true,
+          requestKind: 'query',
+          timeoutMs: 5,
+        }),
+        'DB host request completed after timeout'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses the maintenance timeout for explicit maintenance exec requests', async () => {
     vi.useFakeTimers();
     try {
