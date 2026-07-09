@@ -56,10 +56,12 @@
     "./database-demo-panel": {
       "types": "./dist/database-demo-panel.d.ts",
       "import": "./dist/database-demo-panel.js"
-    }
+    },
+    "./styles.css": "./styles.css"
   },
   "files": [
-    "dist"
+    "dist",
+    "styles.css"
   ],
   "license": "ISC",
   "main": "dist/index.js",

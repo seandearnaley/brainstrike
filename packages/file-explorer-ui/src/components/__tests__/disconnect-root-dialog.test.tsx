@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import * as React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { DisconnectRootDialog } from '../disconnect-root-dialog';
 
@@ -52,7 +53,7 @@ describe('DisconnectRootDialog', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('resets the checkbox when reopened', async () => {
+  it('resets the checkbox when reopened after a prop-driven close', async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
     const { rerender } = render(
@@ -64,6 +65,7 @@ describe('DisconnectRootDialog', () => {
       />
     );
     await user.click(screen.getByRole('checkbox', { name: /also delete indexed data/i }));
+    expect(screen.getByRole('checkbox', { name: /also delete indexed data/i })).toBeChecked();
 
     rerender(
       <DisconnectRootDialog
@@ -82,7 +84,41 @@ describe('DisconnectRootDialog', () => {
       />
     );
 
-    // A destructive opt-in must NEVER survive a close/reopen cycle.
+    // A destructive opt-in must NEVER survive a close/reopen cycle
+    // (reset via remount key, not an Effect syncing open → state).
     expect(screen.getByRole('checkbox', { name: /also delete indexed data/i })).not.toBeChecked();
+    expect(screen.getByText(/indexed data is kept/i)).toBeInTheDocument();
+  });
+
+  it('resets the checkbox after Cancel closes and the dialog reopens', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+
+    function Harness() {
+      const [open, setOpen] = React.useState(true);
+      return (
+        <>
+          <button onClick={() => setOpen(true)} type="button">
+            Reopen
+          </button>
+          <DisconnectRootDialog
+            displayName="my-project"
+            onConfirm={onConfirm}
+            onOpenChange={setOpen}
+            open={open}
+          />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole('checkbox', { name: /also delete indexed data/i }));
+    expect(screen.getByRole('checkbox', { name: /also delete indexed data/i })).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByRole('button', { name: 'Reopen' }));
+
+    expect(screen.getByRole('checkbox', { name: /also delete indexed data/i })).not.toBeChecked();
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });

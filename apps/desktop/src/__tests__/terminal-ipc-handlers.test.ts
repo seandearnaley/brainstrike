@@ -204,6 +204,9 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     }
     const { terminalId, cwd } = created.value;
     expect(cwd).toBe(dir);
+    expect(terminalId).toMatch(
+      /^pty-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
     expect(liveTerminalCountForTest()).toBe(1);
 
     // Drive the shell: print a unique marker, then read it from the data stream.

@@ -206,6 +206,23 @@ export interface SortState {
 }
 
 /**
+ * Checkbox state for tri-state parent checkboxes.
+ */
+export type CheckboxState = 'checked' | 'unchecked' | 'indeterminate';
+
+/**
+ * Next state requested by a user checkbox interaction.
+ * Indeterminate always resolves to `'checked'` (check) on activation.
+ */
+export type TreeTableCheckboxNextState = 'checked' | 'unchecked';
+
+/**
+ * Visible checkbox states plus an explicit hide sentinel.
+ * `undefined` from `getCheckboxState` is treated the same as `'hidden'`.
+ */
+export type TreeTableCheckboxRenderState = CheckboxState | 'hidden';
+
+/**
  * Main props for the TreeTable component.
  */
 export interface TreeTableProps<T> {
@@ -250,6 +267,16 @@ export interface TreeTableProps<T> {
   /** Set of expanded node IDs */
   expandedIds: Set<string>;
 
+  // Checkbox
+  /**
+   * Pluggable per-node checkbox state. When provided, TreeTable renders a
+   * checkbox for each node whose return value is a visible CheckboxState. Return
+   * `'hidden'` or `undefined` to omit the checkbox for that row (e.g. match
+   * leaves under a chunk). Takes precedence over the built-in
+   * `multiSelectedIds` cascade when resolving visual state.
+   */
+  getCheckboxState?: (node: TreeNode<T>) => TreeTableCheckboxRenderState | undefined;
+
   // Highlighting (e.g., search results)
   /** Set of highlighted node IDs */
   highlightedIds?: Set<string>;
@@ -269,6 +296,13 @@ export interface TreeTableProps<T> {
    * row virtualization, keyboard navigation, and ARIA row metadata.
    */
   nodesArePreFlattened?: boolean;
+  /**
+   * Pluggable checkbox change handler. Receives the node and the next
+   * checked/unchecked state. When provided, replaces the built-in
+   * select-descendants cascade from `onMultiSelectChange` for checkbox
+   * clicks (and Space when the pluggable path is active).
+   */
+  onCheckboxChange?: (node: TreeNode<T>, nextState: TreeTableCheckboxNextState) => void;
   /** Callback to collapse all nodes */
   onCollapseAll?: () => void;
   /**
@@ -312,8 +346,6 @@ export interface TreeTableProps<T> {
   selectedId?: string | null;
   /** Selection mode */
   selectionMode?: SelectionMode;
-
-  // Checkbox
   /** Whether to show checkboxes for row selection */
   showCheckbox?: boolean;
   /** Whether to render the header row. Prefer this prop over CSS-only header hiding. */
@@ -325,11 +357,6 @@ export interface TreeTableProps<T> {
   /** Windowing strategy for row rendering */
   windowingStrategy?: TreeTableWindowingStrategy;
 }
-
-/**
- * Checkbox state for tri-state parent checkboxes.
- */
-export type CheckboxState = 'checked' | 'unchecked' | 'indeterminate';
 
 /**
  * Props for the TreeTableRow component.
@@ -349,7 +376,10 @@ export interface TreeTableRowProps<T> {
   isFocused?: boolean;
   /** Ref callback for measuring element */
   measureRef?: (node: HTMLTableRowElement | null) => void;
-  /** Callback when checkbox is toggled */
+  /**
+   * Callback when checkbox is toggled.
+   * Built-in path passes nodeId only; pluggable path is wired at TreeTable.
+   */
   onCheckboxChange?: ((nodeId: string) => void) | undefined;
   /** Callback when row is clicked */
   onClick?: (nodeId: string, event: React.MouseEvent) => void;

@@ -13,4 +13,11 @@ describe('Switch', () => {
     await user.click(sw);
     expect(sw).toHaveAttribute('data-state', 'checked');
   });
+
+  it('uses explicit transition properties instead of transition-all', () => {
+    render(<Switch />);
+    const sw = screen.getByRole('switch');
+    expect(sw.className).toContain('transition-[background-color,border-color,box-shadow,opacity]');
+    expect(sw.className).not.toContain('transition-all');
+  });
 });

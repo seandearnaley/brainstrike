@@ -897,7 +897,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   if (selectedFiles.size === 0) {
     return (
-      <div className="@container flex h-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
+      <div className="@container flex h-full flex-col overflow-hidden bg-panel-surface">
         <PreviewPanelFooter
           folderSummaryThreshold={folderSummaryThreshold ?? 5}
           footerMode={footerMode}
@@ -929,7 +929,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }
 
   return (
-    <div className="@container flex h-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
+    <div className="@container flex h-full flex-col overflow-hidden bg-panel-surface">
       <PreviewPanelFooter
         folderSummaryThreshold={folderSummaryThreshold ?? 5}
         footerMode={footerMode}

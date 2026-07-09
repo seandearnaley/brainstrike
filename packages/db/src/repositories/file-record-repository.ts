@@ -1,25 +1,9 @@
-import type { PGlite } from '@electric-sql/pglite';
 import { BaseFileRecordRepository } from './base-repository.js';
-import type { IDatabase } from './interfaces.js';
 
 /**
- * Adapter to make PGlite compatible with IDatabase interface
+ * File-record repository for direct database access (web, Node, and desktop
+ * assistant-server paths). Accepts the shared {@link IDatabase} surface so
+ * callers can pass PGlite, RemoteDbClient, or any queryable handle without
+ * cast chains.
  */
-class PGliteAdapter implements IDatabase {
-  constructor(private readonly pgLite: PGlite) {}
-
-  async query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
-    const result = await this.pgLite.query<T>(sql, params || []);
-    return { rows: result.rows };
-  }
-}
-
-/**
- * PGlite implementation of FileRecordRepository
- * Used for direct database access in web and Node.js environments
- */
-export class FileRecordRepository extends BaseFileRecordRepository {
-  constructor(db: PGlite) {
-    super(new PGliteAdapter(db));
-  }
-}
+export class FileRecordRepository extends BaseFileRecordRepository {}
