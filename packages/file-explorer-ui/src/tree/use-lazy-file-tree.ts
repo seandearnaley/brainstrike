@@ -969,6 +969,7 @@ export function useLazyFileTree(
   const {
     childAbortControllersRef,
     createAbortController,
+    cancelAllChildLoading,
     cancelAllLoading,
     cancelChildLoading,
     removeChildController,
@@ -1059,7 +1060,7 @@ export function useLazyFileTree(
   const filterTreeOption = filterTreeFn ? { filterTreeFn } : {};
 
   const folderSelectHookOptions = {
-    cancelLoadOperations: cancelAllLoading,
+    cancelLoadOperations: cancelAllChildLoading,
     fileSystemAdapter,
     getSubtreeByPath: (path: string) =>
       materializeNormalizedSubtree(normalizedTreeRef.current, path),
@@ -1068,7 +1069,7 @@ export function useLazyFileTree(
   };
 
   const selectAllHookOptions = {
-    cancelLoadOperations: cancelAllLoading,
+    cancelLoadOperations: cancelAllChildLoading,
     fileSystemAdapter,
     getCurrentTree: () => materializeNormalizedFileTree(normalizedTreeRef.current),
     onError: handleWorkerError,
@@ -1445,7 +1446,7 @@ export function useLazyFileTree(
 
   const cancelExpandAllLoads = useCallback(() => {
     portRef.current?.abort();
-    cancelAllLoading();
+    cancelAllChildLoading();
     const loadingPaths = Array.from(
       new Set([...loadingPathsRef.current, ...childAbortControllersRef.current.keys()])
     );
@@ -1470,7 +1471,7 @@ export function useLazyFileTree(
       fileTree: nextTree,
       loadingPaths: new Set(),
     }));
-  }, [cancelAllLoading, commitNormalizedTree, portRef]);
+  }, [cancelAllChildLoading, commitNormalizedTree, portRef]);
 
   const runWorkerExpandAll = useCallback(
     async (_args: ExpandAllExecutorArgs): Promise<ExpandAllExecutorResult | null> => {
