@@ -37,8 +37,10 @@ function shouldStretchDefaultRange(ranges: TapestryRange[]): ranges is [Tapestry
   // Use the userModified flag rather than position heuristics. A range that
   // was never manually adjusted should auto-stretch when content loads and
   // totalLines changes. The startLine===0 guard is a safety net for ranges
-  // created before the userModified flag existed.
-  return firstRange.startLine === 0 && !firstRange.userModified;
+  // created before the userModified flag existed. search-origin ranges are
+  // owned by the workspace-search bridge and are never the auto-created default,
+  // so they must never be stretched even when they sit at startLine 0.
+  return firstRange.startLine === 0 && !firstRange.userModified && firstRange.origin !== 'search';
 }
 
 function stretchDefaultRange(range: TapestryRange, totalLines: number): TapestryRange[] {
@@ -83,23 +85,36 @@ export function syncTapestryRanges(args: {
   const nextTotals = new Map(args.totals);
 
   for (const [compositeKey, base] of args.bases) {
-    const previousTotal = nextTotals.get(compositeKey);
-    nextTotals.set(compositeKey, base.totalLines);
+    // Before content loads, base.totalLines is an untrusted placeholder/estimate.
+    // Clamping or stretching against it destroys ranges written by programmatic
+    // writers (e.g. the workspace-search bridge squashed [1,8) -> [0,1) against a
+    // ~1-line placeholder). Only a 'ready' base carries a trustworthy total.
+    const isContentReady = base.contentStatus === 'ready';
 
     if (!next[compositeKey]) {
+      // Default creation for a rangeless file stays even before content is ready
+      // so a newly selected file gets its full-file default immediately.
       next[compositeKey] = createDefaultTapestryRanges(compositeKey, base.totalLines);
       changed = true;
+      if (isContentReady) {
+        nextTotals.set(compositeKey, base.totalLines);
+      }
       continue;
     }
 
+    if (!isContentReady) {
+      // Untrusted total: do not record a baseline, clamp, or stretch. This
+      // protects any range already written for this key until content lands.
+      continue;
+    }
+
+    const previousTotal = nextTotals.get(compositeKey);
+    nextTotals.set(compositeKey, base.totalLines);
+
     const ranges = next[compositeKey];
-    if (
-      previousTotal !== undefined &&
-      previousTotal !== base.totalLines &&
-      shouldStretchDefaultRange(ranges)
-    ) {
+    if (previousTotal !== base.totalLines && shouldStretchDefaultRange(ranges)) {
       const [firstRange] = ranges;
-      if (firstRange) {
+      if (firstRange.endLine !== base.totalLines) {
         next[compositeKey] = stretchDefaultRange(firstRange, base.totalLines);
         changed = true;
       }

@@ -27,6 +27,11 @@ function makeRange(overrides: Partial<TapestryRange>): TapestryRange {
   };
 }
 
+/** A range owned by the search bridge — the only kind its toggles may mutate. */
+function makeSearchRange(overrides: Partial<TapestryRange>): TapestryRange {
+  return makeRange({ ...overrides, origin: 'search' });
+}
+
 function createWrapper() {
   const storageAdapter = new MemoryStorageAdapter();
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -61,7 +66,7 @@ describe('useSearchSelectionBridge', () => {
     expect(result.current.store.getState().selectedFilePaths.has(KEY)).toBe(true);
 
     act(() =>
-      curationState().setTapestryRangesForKey(KEY, [makeRange({ endLine: 5, startLine: 1 })])
+      curationState().setTapestryRangesForKey(KEY, [makeSearchRange({ endLine: 5, startLine: 1 })])
     );
 
     act(() => result.current.bridge.toggleFile(KEY, false));
@@ -70,20 +75,22 @@ describe('useSearchSelectionBridge', () => {
     expect(curationState().tapestryRangesByKey[KEY]).toEqual([]);
   });
 
-  it('toggleFile(false) preserves userModified ranges while clearing the rest', () => {
+  it('toggleFile(false) preserves userModified + default ranges while clearing search-owned', () => {
     const { result } = renderBridge();
     const userRange = makeRange({ endLine: 5, id: 'u', startLine: 1, userModified: true });
+    const defaultRange = makeRange({ endLine: 40, id: 'd', startLine: 0 });
 
     act(() => result.current.bridge.toggleFile(KEY, true));
     act(() =>
       curationState().setTapestryRangesForKey(KEY, [
         userRange,
-        makeRange({ endLine: 10, id: 'x', startLine: 8 }),
+        defaultRange,
+        makeSearchRange({ endLine: 10, id: 'x', startLine: 8 }),
       ])
     );
 
     act(() => result.current.bridge.toggleFile(KEY, false));
-    expect(curationState().tapestryRangesByKey[KEY]).toEqual([userRange]);
+    expect(curationState().tapestryRangesByKey[KEY]).toEqual([userRange, defaultRange]);
   });
 
   it('toggleChunk(true) on an unselected file selects it and writes the coalesced range', () => {
@@ -96,26 +103,52 @@ describe('useSearchSelectionBridge', () => {
     expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
     const ranges = curationState().tapestryRangesByKey[KEY];
     expect(ranges).toHaveLength(1);
-    expect(ranges?.[0]).toMatchObject({ endLine: 15, isActive: true, startLine: 10 });
+    expect(ranges?.[0]).toMatchObject({
+      endLine: 15,
+      isActive: true,
+      origin: 'search',
+      startLine: 10,
+    });
     expect(result.current.bridge.chunkState(KEY, chunk)).toBe('checked');
   });
 
-  it('toggleChunk(false) removes covered non-userModified ranges; userModified survives', () => {
+  it('toggleChunk(false) removes the covered search-owned range; a non-overlapping userModified survives', () => {
     const { result } = renderBridge();
     const chunk = { endLine: 14, startLine: 10 };
-    const userRange = makeRange({ endLine: 15, id: 'u', startLine: 10, userModified: true });
+    // userModified range elsewhere so it does not cover the unchecked chunk.
+    const userRange = makeRange({ endLine: 35, id: 'u', startLine: 30, userModified: true });
 
     act(() => result.current.bridge.toggleFile(KEY, true));
     act(() =>
       curationState().setTapestryRangesForKey(KEY, [
         userRange,
-        makeRange({ endLine: 15, id: 'x', startLine: 10 }),
+        makeSearchRange({ endLine: 15, id: 'x', startLine: 10 }),
       ])
     );
 
     act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
 
     expect(curationState().tapestryRangesByKey[KEY]).toEqual([userRange]);
+    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
+  });
+
+  it('toggleChunk(false) under an auto-created default range deselects the file and never mutates the default', () => {
+    const { result } = renderBridge();
+    const chunk = { endLine: 14, startLine: 10 };
+    const defaultRange = makeRange({ endLine: 50, id: 'd', startLine: 0 });
+
+    // File selected via the explorer store; preview panel wrote the full-file default.
+    act(() => result.current.store.getState().addSelectedFile(ROOT, PATH));
+    act(() => curationState().setTapestryRangesForKey(KEY, [defaultRange]));
+    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('checked');
+
+    // The default covers the chunk and the bridge may not trim it, so unchecking
+    // one chunk deselects the WHOLE file; the default range is left verbatim.
+    act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
+
+    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
+    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('unchecked');
+    expect(curationState().tapestryRangesByKey[KEY]).toEqual([defaultRange]);
   });
 
   it('check -> uncheck round trip on an unselected file ends unselected + chunk unchecked', () => {

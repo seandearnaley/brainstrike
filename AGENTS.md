@@ -500,11 +500,23 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   target and falls back to the restored scroll position instead of re-scrolling
   to the stale match line.
 - **Bridge invariant (no silent data loss).** `use-search-selection-bridge.ts`
-  writes ONLY explorer file-selection + search-managed `tapestryRangesByKey`; it
-  NEVER mutates/removes `userModified` Tapestry ranges. The curation store's
-  snapshot producer remains the preview panel. Chunk check→uncheck is idempotent:
-  unchecking the last active range also deselects the file (else a zero-range
-  selected file reads as whole-file 'checked').
+  writes ONLY explorer file-selection + `tapestryRangesByKey`, and MUTATES ONLY
+  the ranges it owns: those stamped `origin: 'search'` (see `range-math.ts`
+  `isSearchManaged`). It NEVER mutates/removes `userModified` ranges OR the
+  preview panel's auto-created full-file default (`origin` undefined) — both are
+  preserved verbatim through add/remove and through a file deselect (which clears
+  only `origin:'search'` ranges). The curation store's snapshot producer remains
+  the preview panel. Chunk check→uncheck is idempotent: unchecking the last
+  search-owned range also deselects the file. Explorer-whole-file asymmetry: when
+  a chunk's coverage comes from a NON search-owned range (the default, a
+  userModified range, or the zero-range whole-file 'checked' rule) the model can't
+  express "whole file minus one chunk", so unchecking any single chunk deselects
+  the ENTIRE file instead.
+- **Not-ready sync guard.** `syncTapestryRanges` (`tapestry-range-sync.ts`) never
+  clamps/stretches or records a `previousTotal` baseline for a file whose
+  `contentStatus !== 'ready'` — pre-content `totalLines` is an untrusted
+  placeholder that would otherwise squash a bridge-written `[1,8)` span to `[0,1)`
+  and then stretch it to whole-file. Ranges only reconcile once content lands.
 - **Session-only.** The store is not persisted; it is reset on factory reset via
   the `registerFactoryResetSessionStore` seam (app-shell registers it — see
   FACTORY RESET CONTRACT). The active Explorer|Search tab persists in

@@ -12,6 +12,7 @@ import {
   type CoverageState,
   chunkCoverage,
   removeChunkRange,
+  toTapestrySpan,
 } from './range-math';
 
 export interface SearchSelectionBridge {
@@ -49,9 +50,10 @@ function isKeySelected(slices: SelectionSlices, compositeKey: string): boolean {
  * own checkboxes drive: file membership -> the file-explorer selection store,
  * chunk ranges -> the workspace-context curation (tapestry) store.
  *
- * INVARIANT (no silent data loss): hand-curated userModified tapestry ranges are
- * never removed, trimmed, or absorbed by search-driven toggles (see range-math.ts);
- * deselecting a file clears only search-managed ranges.
+ * INVARIANT (no silent data loss): search-driven toggles mutate ONLY the bridge's
+ * own `origin:'search'` ranges (see range-math.ts). Hand-curated userModified ranges
+ * AND the preview panel's auto-created full-file default (origin undefined) are never
+ * removed, trimmed, or absorbed; deselecting a file clears only search-owned ranges.
  */
 export function useSearchSelectionBridge(): SearchSelectionBridge {
   const explorerStore = useFileExplorerStoreContext();
@@ -86,12 +88,13 @@ export function useSearchSelectionBridge(): SearchSelectionBridge {
         return;
       }
       removeSelectedFile(folderId, path);
-      // Clear search-managed ranges; hand-curated (userModified) ranges survive.
+      // Clear only the bridge's own `origin:'search'` ranges; hand-curated
+      // userModified ranges AND the auto-created full-file default survive.
       const existing =
         useWorkspaceContextCurationStore.getState().tapestryRangesByKey[compositeKey] ?? [];
       setTapestryRangesForKey(
         compositeKey,
-        existing.filter((range) => range.userModified)
+        existing.filter((range) => range.origin !== 'search')
       );
     },
     [addSelectedFile, removeSelectedFile, setTapestryRangesForKey]
@@ -110,21 +113,42 @@ export function useSearchSelectionBridge(): SearchSelectionBridge {
         setTapestryRangesForKey(compositeKey, addChunkRange(existing, chunk, makeId));
         return;
       }
+      // KNOWN ASYMMETRY (defensible, intentional): the range model can't express
+      // "whole file minus one chunk". If the chunk's coverage comes from a NON
+      // search-owned range — the explorer/preview auto-created full-file default,
+      // a hand-curated userModified range, or the zero-range whole-file selection
+      // (chunkCoverage's zero-ranges 'checked' rule) — there is nothing the bridge
+      // may trim (it only mutates its own `origin:'search'` ranges). So unchecking
+      // deselects the ENTIRE file and clears only the bridge's own ranges, leaving
+      // the default + userModified ranges verbatim.
+      const span = toTapestrySpan(chunk);
+      const nonSearchCoversChunk = existing.some(
+        (range) =>
+          range.isActive &&
+          range.origin !== 'search' &&
+          range.startLine < span.endLine &&
+          range.endLine > span.startLine
+      );
+      if (nonSearchCoversChunk || existing.length === 0) {
+        if (isKeySelected(explorerStore.getState(), compositeKey)) {
+          const { folderId, path } = decodeFileSelection(compositeKey);
+          removeSelectedFile(folderId, path);
+        }
+        setTapestryRangesForKey(
+          compositeKey,
+          existing.filter((range) => range.origin !== 'search')
+        );
+        return;
+      }
+
       const updated = removeChunkRange(existing, chunk);
       setTapestryRangesForKey(compositeKey, updated);
       // Idempotence guard (check -> uncheck must return to the start): toggleChunk(true)
       // auto-selects the file, so if unchecking removes the last range that kept the file
       // in context we must ALSO deselect the file. Otherwise a selected file with zero
       // active ranges reads as whole-file 'checked' (chunkCoverage's zero-ranges rule),
-      // silently pulling the ENTIRE file into the assistant context. An active
-      // search-managed OR a userModified range keeps the file selected.
-      //
-      // KNOWN ASYMMETRY (defensible, intentional): a file selected whole-file via the
-      // EXPLORER tree (not search) also has zero ranges, so `existing` is empty here too.
-      // The range model can't express "whole file minus one chunk" — there is no range
-      // to trim, so unchecking ANY single chunk of such a file deselects the ENTIRE file
-      // rather than leaving it partially checked. This mirrors the existing zero-ranges
-      // 'checked' rule rather than fighting it with a new representation.
+      // silently pulling the ENTIRE file into the assistant context. An active range OR
+      // a userModified range keeps the file selected.
       const hasActiveSelection = updated.some((range) => range.isActive || range.userModified);
       if (!hasActiveSelection && isKeySelected(explorerStore.getState(), compositeKey)) {
         const { folderId, path } = decodeFileSelection(compositeKey);

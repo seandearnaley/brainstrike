@@ -39,11 +39,13 @@ export function toTapestrySpan(chunk: ChunkBounds): TapestrySpan {
 }
 
 /**
- * A range that search toggles may coalesce/trim: active AND not user-modified.
- * userModified ranges are hand-curated Tapestry state and MUST survive verbatim.
+ * A range that search toggles may coalesce/trim: active AND owned by the search
+ * bridge (`origin: 'search'`). Everything else — hand-curated userModified ranges
+ * AND the preview panel's auto-created full-file default (origin undefined) — is
+ * off-limits and MUST survive verbatim; the bridge only ever mutates its own ranges.
  */
 function isSearchManaged(range: TapestryRange): boolean {
-  return range.isActive && !range.userModified;
+  return range.isActive && range.origin === 'search';
 }
 
 interface MergeCandidate {
@@ -101,6 +103,7 @@ export function addChunkRange(
         endLine: groupEnd,
         id: makeId(),
         isActive: true,
+        origin: 'search',
         startLine: first.startLine,
       });
     }

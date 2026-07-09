@@ -22,8 +22,16 @@ function range(
     id: overrides.id ?? 'r',
     isActive: overrides.isActive ?? true,
     startLine: overrides.startLine,
+    ...(overrides.origin === undefined ? {} : { origin: overrides.origin }),
     ...(overrides.userModified === undefined ? {} : { userModified: overrides.userModified }),
   };
+}
+
+/** A range owned by the search bridge (origin: 'search') — mutable by toggles. */
+function searchRange(
+  overrides: Partial<TapestryRange> & Pick<TapestryRange, 'startLine' | 'endLine'>
+): TapestryRange {
+  return range({ ...overrides, origin: 'search' });
 }
 
 const fixedId = (): string => 'new-id';
@@ -35,35 +43,35 @@ describe('toTapestrySpan', () => {
 });
 
 describe('addChunkRange', () => {
-  it('empty existing -> one active range colored by count 0', () => {
+  it('empty existing -> one active search-owned range colored by count 0', () => {
     const result = addChunkRange([], { endLine: 14, startLine: 10 }, fixedId);
     expect(result).toEqual([
-      { color: RED, endLine: 15, id: 'new-id', isActive: true, startLine: 10 },
+      { color: RED, endLine: 15, id: 'new-id', isActive: true, origin: 'search', startLine: 10 },
     ]);
   });
 
-  it('coalesces an overlapping active range: [10,15) + chunk {13,20} -> [10,21)', () => {
-    const existing = [range({ endLine: 15, id: 'a', startLine: 10 })];
+  it('coalesces an overlapping search-owned range: [10,15) + chunk {13,20} -> [10,21)', () => {
+    const existing = [searchRange({ endLine: 15, id: 'a', startLine: 10 })];
     const result = addChunkRange(existing, { endLine: 20, startLine: 13 }, fixedId);
     expect(result).toEqual([
-      { color: ORANGE, endLine: 21, id: 'new-id', isActive: true, startLine: 10 },
+      { color: ORANGE, endLine: 21, id: 'new-id', isActive: true, origin: 'search', startLine: 10 },
     ]);
   });
 
-  it('coalesces an adjacent active range: [10,15) + chunk {15,18} -> [10,19)', () => {
-    const existing = [range({ endLine: 15, id: 'a', startLine: 10 })];
+  it('coalesces an adjacent search-owned range: [10,15) + chunk {15,18} -> [10,19)', () => {
+    const existing = [searchRange({ endLine: 15, id: 'a', startLine: 10 })];
     const result = addChunkRange(existing, { endLine: 18, startLine: 15 }, fixedId);
     expect(result).toEqual([
-      { color: ORANGE, endLine: 19, id: 'new-id', isActive: true, startLine: 10 },
+      { color: ORANGE, endLine: 19, id: 'new-id', isActive: true, origin: 'search', startLine: 10 },
     ]);
   });
 
-  it('keeps disjoint ranges separate and sorted', () => {
-    const existing = [range({ endLine: 15, id: 'a', startLine: 10 })];
+  it('keeps disjoint search-owned ranges separate and sorted', () => {
+    const existing = [searchRange({ endLine: 15, id: 'a', startLine: 10 })];
     const result = addChunkRange(existing, { endLine: 25, startLine: 20 }, fixedId);
     expect(result).toEqual([
-      range({ endLine: 15, id: 'a', startLine: 10 }),
-      { color: ORANGE, endLine: 26, id: 'new-id', isActive: true, startLine: 20 },
+      searchRange({ endLine: 15, id: 'a', startLine: 10 }),
+      { color: ORANGE, endLine: 26, id: 'new-id', isActive: true, origin: 'search', startLine: 20 },
     ]);
   });
 
@@ -72,34 +80,44 @@ describe('addChunkRange', () => {
     const result = addChunkRange([userRange], { endLine: 16, startLine: 12 }, fixedId);
     expect(result).toEqual([
       userRange,
-      { color: ORANGE, endLine: 17, id: 'new-id', isActive: true, startLine: 12 },
+      { color: ORANGE, endLine: 17, id: 'new-id', isActive: true, origin: 'search', startLine: 12 },
     ]);
     // Never mutated or absorbed.
     expect(result[0]).toBe(userRange);
   });
 
+  it('never coalesces the auto-created default (origin undefined) — preserves it alongside', () => {
+    const defaultRange = range({ endLine: 30, id: 'd', startLine: 0 });
+    const result = addChunkRange([defaultRange], { endLine: 16, startLine: 12 }, fixedId);
+    expect(result).toEqual([
+      defaultRange,
+      { color: ORANGE, endLine: 17, id: 'new-id', isActive: true, origin: 'search', startLine: 12 },
+    ]);
+    expect(result[0]).toBe(defaultRange);
+  });
+
   it('does not coalesce with inactive ranges', () => {
-    const inactive = range({ endLine: 15, id: 'i', isActive: false, startLine: 10 });
+    const inactive = searchRange({ endLine: 15, id: 'i', isActive: false, startLine: 10 });
     const result = addChunkRange([inactive], { endLine: 18, startLine: 12 }, fixedId);
     expect(result).toEqual([
       inactive,
-      { color: ORANGE, endLine: 19, id: 'new-id', isActive: true, startLine: 12 },
+      { color: ORANGE, endLine: 19, id: 'new-id', isActive: true, origin: 'search', startLine: 12 },
     ]);
   });
 });
 
 describe('removeChunkRange', () => {
-  it('removes an exactly-covering non-userModified active range', () => {
-    const existing = [range({ color: RED, endLine: 15, id: 'a', startLine: 10 })];
+  it('removes an exactly-covering search-owned active range', () => {
+    const existing = [searchRange({ color: RED, endLine: 15, id: 'a', startLine: 10 })];
     expect(removeChunkRange(existing, { endLine: 14, startLine: 10 })).toEqual([]);
   });
 
-  it('trims a wider range: [5,30) minus chunk {10,14} -> [5,10) + [15,30)', () => {
-    const existing = [range({ color: RED, endLine: 30, id: 'a', startLine: 5 })];
+  it('trims a wider search-owned range and both remainders keep origin:"search"', () => {
+    const existing = [searchRange({ color: RED, endLine: 30, id: 'a', startLine: 5 })];
     const result = removeChunkRange(existing, { endLine: 14, startLine: 10 });
     expect(result).toEqual([
-      { color: RED, endLine: 10, id: 'a', isActive: true, startLine: 5 },
-      { color: RED, endLine: 30, id: 'a:15', isActive: true, startLine: 15 },
+      { color: RED, endLine: 10, id: 'a', isActive: true, origin: 'search', startLine: 5 },
+      { color: RED, endLine: 30, id: 'a:15', isActive: true, origin: 'search', startLine: 15 },
     ]);
   });
 
@@ -110,13 +128,20 @@ describe('removeChunkRange', () => {
     expect(removeChunkRange(existing, { endLine: 20, startLine: 10 })).toEqual(existing);
   });
 
-  it('leaves inactive ranges untouched', () => {
-    const existing = [range({ color: RED, endLine: 15, id: 'i', isActive: false, startLine: 10 })];
+  it('never removes or trims the auto-created default (origin undefined)', () => {
+    const existing = [range({ color: RED, endLine: 30, id: 'd', startLine: 0 })];
     expect(removeChunkRange(existing, { endLine: 14, startLine: 10 })).toEqual(existing);
   });
 
-  it('keeps a non-overlapping active range verbatim', () => {
-    const existing = [range({ color: RED, endLine: 25, id: 'a', startLine: 20 })];
+  it('leaves inactive ranges untouched', () => {
+    const existing = [
+      searchRange({ color: RED, endLine: 15, id: 'i', isActive: false, startLine: 10 }),
+    ];
+    expect(removeChunkRange(existing, { endLine: 14, startLine: 10 })).toEqual(existing);
+  });
+
+  it('keeps a non-overlapping search-owned range verbatim', () => {
+    const existing = [searchRange({ color: RED, endLine: 25, id: 'a', startLine: 20 })];
     expect(removeChunkRange(existing, { endLine: 14, startLine: 10 })).toEqual(existing);
   });
 });
