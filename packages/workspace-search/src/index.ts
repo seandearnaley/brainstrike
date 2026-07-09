@@ -1,3 +1,17 @@
+export {
+  addChunkRange,
+  type ChunkBounds,
+  type CoverageState,
+  chunkCoverage,
+  fileCoverage,
+  removeChunkRange,
+  type TapestrySpan,
+  toTapestrySpan,
+} from './bridge/range-math';
+export {
+  type SearchSelectionBridge,
+  useSearchSelectionBridge,
+} from './bridge/use-search-selection-bridge';
 export type {
   ResultProvenance,
   WorkspaceSearchChild,
