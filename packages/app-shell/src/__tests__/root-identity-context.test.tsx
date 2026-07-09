@@ -36,6 +36,18 @@ describe('RootIdentityProvider', () => {
     expect(result.current?.resolveAdapterRootId('D2')).toBe('A2');
   });
 
+  it('exposes the mounted roots DB ids as workspaceDbRootIds', () => {
+    const forward = new Map([
+      ['A1', 'D1'],
+      ['A2', 'D2'],
+    ]);
+    const { result } = renderHook(() => useOptionalRootIdentity(), {
+      wrapper: wrapper(forward),
+    });
+
+    expect([...(result.current?.workspaceDbRootIds ?? [])].sort()).toEqual(['D1', 'D2']);
+  });
+
   it('returns null and logs ONCE for a DB id with no adapter mapping', () => {
     const records: LogRecord[] = [];
     const remove = addLogListener((record) => {

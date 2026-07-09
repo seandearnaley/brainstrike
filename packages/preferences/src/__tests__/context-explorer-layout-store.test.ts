@@ -34,6 +34,74 @@ describe('context-explorer-layout-store', () => {
     expect(state.showLeftPanel).toBe(false);
     expect(state.showRightPanel).toBe(true);
     expect(state.showConsole).toBe(false);
+    expect(state.explorerActiveTab).toBe('explorer');
+  });
+
+  it('sets the explorer active tab', () => {
+    store.getState().setExplorerActiveTab('search');
+    expect(store.getState().explorerActiveTab).toBe('search');
+
+    store.getState().setExplorerActiveTab('explorer');
+    expect(store.getState().explorerActiveTab).toBe('explorer');
+  });
+
+  it('persists the explorer active tab through partialize', async () => {
+    const storage = createMemoryStorageAdapter();
+    const persistedStore = createContextExplorerLayoutStore(storage);
+
+    persistedStore.getState().setExplorerActiveTab('search');
+
+    const raw = await storage.getItem(STORE_NAME);
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw as string) as {
+      state: { explorerActiveTab?: string };
+      version: number;
+    };
+    expect(parsed.state.explorerActiveTab).toBe('search');
+    expect(parsed.version).toBe(3);
+  });
+
+  it('migrates a v2 payload to v3 defaulting explorerActiveTab to explorer', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      STORE_NAME,
+      JSON.stringify({
+        state: {
+          showConsole: false,
+          showLeftPanel: false,
+          showRightPanel: true,
+          sizes: [25, 20, 20],
+        },
+        version: 2,
+      })
+    );
+
+    const persistedStore = createContextExplorerLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().explorerActiveTab).toBe('explorer');
+  });
+
+  it('preserves a persisted v3 explorerActiveTab during rehydration', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      STORE_NAME,
+      JSON.stringify({
+        state: {
+          explorerActiveTab: 'search',
+          showConsole: false,
+          showLeftPanel: false,
+          showRightPanel: true,
+          sizes: [25, 20, 20],
+        },
+        version: 3,
+      })
+    );
+
+    const persistedStore = createContextExplorerLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().explorerActiveTab).toBe('search');
   });
 
   it('toggles panel visibility and accepts direct partial state updates', () => {

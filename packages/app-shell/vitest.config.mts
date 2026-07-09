@@ -70,6 +70,17 @@ export default defineConfig({
         ),
       },
       {
+        find: '@brainstrike/db-explorer/embedding-models',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../db-explorer/src/utils/embedding-models.ts'
+        ),
+      },
+      {
+        find: /^@brainstrike\/workspace-search$/,
+        replacement: path.resolve(import.meta.dirname, '../workspace-search/src/index.ts'),
+      },
+      {
         find: /^@brainstrike\/db-explorer$/,
         replacement: path.resolve(import.meta.dirname, '../db-explorer/src/index.ts'),
       },

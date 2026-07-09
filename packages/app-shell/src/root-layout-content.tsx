@@ -1,10 +1,6 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db';
-import {
-  FileExplorerPanel,
-  RootDataDeletionProvider,
-  useFileSystem,
-} from '@brainstrike/file-explorer-ui/shell';
+import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
@@ -43,6 +39,7 @@ import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace
 import { CommandPaletteHost } from './command-palette-host';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
@@ -265,7 +262,7 @@ function ContextExplorerSurface({
     setState,
   });
   const resolvedPanelContent = useMemo(
-    () => contextExplorerPanelContent ?? <FileExplorerPanel />,
+    () => contextExplorerPanelContent ?? <ExplorerSearchTabs />,
     [contextExplorerPanelContent]
   );
 

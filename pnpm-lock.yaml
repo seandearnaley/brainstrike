@@ -789,6 +789,9 @@ importers:
       '@brainstrike/vector-management':
         specifier: workspace:*
         version: link:../vector-management
+      '@brainstrike/workspace-search':
+        specifier: workspace:*
+        version: link:../workspace-search
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0

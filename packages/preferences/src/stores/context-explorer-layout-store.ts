@@ -5,7 +5,12 @@ import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
+export type ExplorerActiveTab = 'explorer' | 'search';
+
 export interface ContextExplorerLayoutStoreState {
+  /** Which surface the left workspace panel shows: the file tree or search. */
+  explorerActiveTab: ExplorerActiveTab;
+  setExplorerActiveTab: (tab: ExplorerActiveTab) => void;
   setSizes: (sizes: number[]) => void;
   setState: (next: Partial<ContextExplorerLayoutStoreState>) => void;
   showConsole: boolean;
@@ -19,8 +24,9 @@ export interface ContextExplorerLayoutStoreState {
 
 const DEFAULT_STATE: Omit<
   ContextExplorerLayoutStoreState,
-  'setSizes' | 'toggleLeft' | 'toggleRight' | 'toggleConsole' | 'setState'
+  'setSizes' | 'toggleLeft' | 'toggleRight' | 'toggleConsole' | 'setState' | 'setExplorerActiveTab'
 > = {
+  explorerActiveTab: 'explorer',
   showConsole: false,
   showLeftPanel: false,
   showRightPanel: true,
@@ -30,7 +36,7 @@ const DEFAULT_STATE: Omit<
 // Note: STORE_NAME is intentionally frozen at '.v1' to prevent orphaning persisted layout
 // data for existing users. The active schema version is tracked separately by STORE_VERSION.
 const STORE_NAME = 'context-explorer-layout-store.v1' as const;
-const STORE_VERSION = 2 as const;
+const STORE_VERSION = 3 as const;
 const MIN_PANEL_SIZE = 10;
 const logger = createLogger('ContextExplorerLayoutStore');
 
@@ -39,6 +45,7 @@ const creator: StateCreator<ContextExplorerLayoutStoreState, [['zustand/persist'
   get
 ) => ({
   ...DEFAULT_STATE,
+  setExplorerActiveTab: (explorerActiveTab: ExplorerActiveTab) => set({ explorerActiveTab }),
 
   setSizes: (sizes: number[]) => {
     const normalized = normalizeSizes(sizes);
@@ -60,7 +67,7 @@ const creator: StateCreator<ContextExplorerLayoutStoreState, [['zustand/persist'
 
 type PersistedContextExplorerLayoutState = Pick<
   ContextExplorerLayoutStoreState,
-  'sizes' | 'showLeftPanel' | 'showRightPanel' | 'showConsole'
+  'sizes' | 'showLeftPanel' | 'showRightPanel' | 'showConsole' | 'explorerActiveTab'
 >;
 interface PersistedContextExplorerStorageValue {
   state: PersistedContextExplorerLayoutState;
@@ -198,10 +205,20 @@ function persistOptions(
         };
       }
 
+      if (version < 3) {
+        // v3 adds the Explorer|Search tab strip. Pre-v3 payloads have no
+        // persisted tab; default to the file tree (the prior sole surface).
+        state = {
+          ...state,
+          explorerActiveTab: 'explorer',
+        };
+      }
+
       return state;
     },
     name: STORE_NAME,
     partialize: (state): PersistedContextExplorerLayoutState => ({
+      explorerActiveTab: state.explorerActiveTab,
       showConsole: state.showConsole,
       showLeftPanel: state.showLeftPanel,
       showRightPanel: state.showRightPanel,
