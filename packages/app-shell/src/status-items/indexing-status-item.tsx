@@ -104,25 +104,37 @@ function getDisplayStatus(args: {
     syncStatus.state === 'error' ||
     (snapshot.status === 'error' && snapshot.phase === 'background-indexing')
   ) {
-    return { busy: false, toneClassName: 'text-amber-600', value: 'Blocked' };
+    return {
+      busy: false,
+      toneClassName: 'text-amber-700 dark:text-amber-300',
+      value: 'Blocked',
+    };
   }
   if (snapshot.status === 'error' || managedStats.status === 'error') {
-    return { busy: false, toneClassName: 'text-amber-600', value: 'Issue' };
+    return {
+      busy: false,
+      toneClassName: 'text-amber-700 dark:text-amber-300',
+      value: 'Issue',
+    };
   }
   if (paused || syncStatus.state === 'paused' || snapshot.status === 'paused') {
-    return { busy: false, toneClassName: 'text-red-600', value: 'Paused' };
+    return { busy: false, toneClassName: 'text-red-700 dark:text-red-300', value: 'Paused' };
   }
   if (snapshot.activeBackfills.some((backfill) => backfill.source === 'manual')) {
-    return { busy: true, toneClassName: 'text-sky-600', value: 'Backfilling' };
+    return {
+      busy: true,
+      toneClassName: 'text-sky-700 dark:text-sky-300',
+      value: 'Backfilling',
+    };
   }
   const syncValue = formatSyncState(syncStatus.state);
   if (syncValue) {
-    return { busy: true, toneClassName: 'text-sky-600', value: syncValue };
+    return { busy: true, toneClassName: 'text-sky-700 dark:text-sky-300', value: syncValue };
   }
   if (snapshot.status === 'active') {
     return {
       busy: true,
-      toneClassName: 'text-sky-600',
+      toneClassName: 'text-sky-700 dark:text-sky-300',
       value: formatSnapshotActivity(snapshot),
     };
   }
@@ -132,7 +144,11 @@ function getDisplayStatus(args: {
   if (!enabled) {
     return { busy: false, toneClassName: 'text-muted-foreground', value: 'Off' };
   }
-  return { busy: false, toneClassName: 'text-emerald-600', value: 'Ready' };
+  return {
+    busy: false,
+    toneClassName: 'text-emerald-700 dark:text-emerald-300',
+    value: 'Ready',
+  };
 }
 
 function truncateMiddle(value: string, maxLength = 64): string {

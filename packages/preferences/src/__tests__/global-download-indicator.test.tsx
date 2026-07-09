@@ -24,7 +24,7 @@ describe('GlobalDownloadIndicator', () => {
 
     render(<GlobalDownloadIndicator />);
 
-    const label = screen.getByText('Downloading model...');
+    const label = screen.getByText('Downloading model…');
     const indicator = label.parentElement;
     expect(indicator).toHaveClass('w-16', 'min-w-0', 'md:w-32', 'lg:w-auto');
     expect(label).toHaveClass('hidden', 'lg:block');

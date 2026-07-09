@@ -27,7 +27,7 @@ export function GlobalDownloadIndicator() {
         aria-hidden="true"
         className="h-3 w-3 shrink-0 animate-pulse motion-reduce:animate-none"
       />
-      <span className="hidden max-w-[100px] truncate lg:block">Downloading model...</span>
+      <span className="hidden max-w-[100px] truncate lg:block">Downloading model…</span>
       <Progress
         aria-label="Global model download progress"
         className="h-1.5 w-8 shrink-0 md:w-16"

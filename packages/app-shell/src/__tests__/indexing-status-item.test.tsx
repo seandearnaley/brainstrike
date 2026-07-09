@@ -124,6 +124,32 @@ describe('IndexingStatusItem', () => {
     expect(screen.getAllByRole('status')).toHaveLength(1);
   });
 
+  it('uses contrast-safe semantic tones in light and dark themes', () => {
+    useBackgroundIndexingPreferencesStore.setState({ enabled: true, paused: false });
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: null,
+      managedCollectionId: 'collection-a',
+      managedCollectionName: 'Workspace Index',
+      paused: false,
+      pauseReasons: [],
+      state: 'idle',
+    });
+
+    render(<IndexingStatusItem />);
+
+    const status = screen.getByTestId('indexing-status-item');
+    expect(status).toHaveTextContent('Workspace IndexReady');
+    expect(status).toHaveClass('text-emerald-700', 'dark:text-emerald-300');
+
+    act(() => {
+      useBackgroundIndexingPreferencesStore.setState({ paused: true });
+    });
+
+    expect(status).toHaveTextContent('Workspace IndexPaused');
+    expect(status).toHaveClass('text-red-700', 'dark:text-red-300');
+  });
+
   it('unifies managed counts, sync progress, queue activity, and diagnostics', async () => {
     useBackgroundIndexingPreferencesStore.getState().setIndexingPolicyPreset('full-root');
     useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
@@ -206,6 +232,10 @@ describe('IndexingStatusItem', () => {
 
     expect(screen.getByTestId('indexing-status-item')).toHaveTextContent(
       'Workspace IndexBackfilling'
+    );
+    expect(screen.getByTestId('indexing-status-item')).toHaveClass(
+      'text-sky-700',
+      'dark:text-sky-300'
     );
     await userEvent.click(screen.getByTestId('indexing-status-trigger'));
 
@@ -310,6 +340,10 @@ describe('IndexingStatusItem', () => {
     render(<IndexingStatusItem />);
 
     expect(screen.getByTestId('indexing-status-item')).toHaveTextContent('Workspace IndexBlocked');
+    expect(screen.getByTestId('indexing-status-item')).toHaveClass(
+      'text-amber-700',
+      'dark:text-amber-300'
+    );
     await userEvent.click(screen.getByTestId('indexing-status-trigger'));
 
     const activityRegion = await screen.findByTestId('indexing-activity-region');
