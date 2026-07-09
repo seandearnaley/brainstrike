@@ -44,7 +44,11 @@ export {
   type EmbeddingSpaceStats,
   type ListEmbeddingSpacesOptions,
 } from './embedding-sets-repository.js';
-export { FileChunkRepository } from './file-chunk-repository.js';
+export {
+  type FileChunkDatabase,
+  type FileChunkQueryTx,
+  FileChunkRepository,
+} from './file-chunk-repository.js';
 export { FileRecordRepository } from './file-record-repository.js';
 export type {
   IDatabase,

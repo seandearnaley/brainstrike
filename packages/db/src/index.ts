@@ -101,7 +101,11 @@ export type {
 // Queue
 export { JobQueue } from './queue/index.js';
 export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from './repositories/_shared.js';
-export { FileChunkRepository } from './repositories/file-chunk-repository.js';
+export {
+  type FileChunkDatabase,
+  type FileChunkQueryTx,
+  FileChunkRepository,
+} from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';
 // Schema types for embedding cache (BST-170)

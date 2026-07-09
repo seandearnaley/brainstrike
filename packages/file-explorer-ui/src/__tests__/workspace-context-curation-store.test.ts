@@ -108,3 +108,27 @@ describe('workspace context curation store', () => {
     });
   });
 });
+
+describe('setTapestryRanges empty ≡ absent normalization (whole-map setter)', () => {
+  it('drops keys with empty arrays from a functional update', () => {
+    const store = useWorkspaceContextCurationStore;
+    store
+      .getState()
+      .setTapestryRangesForKey('root|@|a.ts', [
+        { color: '#fff', endLine: 5, id: 'r1', isActive: true, startLine: 1 },
+      ]);
+    store.getState().setTapestryRanges((prev) => ({ ...prev, 'root|@|a.ts': [] }));
+    expect(store.getState().tapestryRangesByKey).not.toHaveProperty('root|@|a.ts');
+  });
+
+  it('drops empty-array keys from a direct map write while keeping non-empty ones', () => {
+    const store = useWorkspaceContextCurationStore;
+    store.getState().setTapestryRanges({
+      'root|@|empty.ts': [],
+      'root|@|kept.ts': [{ color: '#fff', endLine: 3, id: 'r2', isActive: true, startLine: 1 }],
+    });
+    const map = store.getState().tapestryRangesByKey;
+    expect(map).not.toHaveProperty('root|@|empty.ts');
+    expect(map['root|@|kept.ts']).toHaveLength(1);
+  });
+});

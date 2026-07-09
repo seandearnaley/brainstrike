@@ -42,6 +42,7 @@ export * from './label';
 // Export layout components
 export * from './layout';
 export { useIdeFileEditor } from './layout/ide-layout';
+export * from './lib/panel-surface';
 export * from './lib/utils';
 export * from './lightweight-checkbox';
 export * from './loading-fallback';

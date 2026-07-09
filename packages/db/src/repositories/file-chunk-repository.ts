@@ -1,4 +1,3 @@
-import type { PGlite } from '@electric-sql/pglite';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -30,6 +29,19 @@ import {
   type UpdateBuilder,
   validateEmbeddingDimensions,
 } from './_shared.js';
+
+export interface FileChunkQueryTx {
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+}
+
+/**
+ * Minimal transactional query surface used by FileChunkRepository.
+ * Both PGlite and the desktop RemoteDbClient satisfy this structurally, so
+ * assistant-server tools can pass `getDatabase()` without cast chains.
+ */
+export interface FileChunkDatabase extends FileChunkQueryTx {
+  transaction: <T>(fn: (tx: FileChunkQueryTx) => Promise<T>) => Promise<T>;
+}
 
 // Type definition for database row returned by PGlite
 interface FileChunkRow {
@@ -72,7 +84,7 @@ interface FileChunkStatsRow {
 }
 
 export class FileChunkRepository {
-  constructor(private readonly db: PGlite) {}
+  constructor(private readonly db: FileChunkDatabase) {}
 
   async findById(id: string): Promise<FileChunk | null> {
     const result = await this.db.query(
@@ -221,10 +233,7 @@ export class FileChunkRepository {
     return allResults;
   }
 
-  async insertManyWithTx(
-    tx: Pick<PGlite, 'query'>,
-    chunks: FileChunkInsert[]
-  ): Promise<FileChunk[]> {
+  async insertManyWithTx(tx: FileChunkQueryTx, chunks: FileChunkInsert[]): Promise<FileChunk[]> {
     if (chunks.length === 0) {
       return [];
     }

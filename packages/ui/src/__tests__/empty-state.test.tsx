@@ -34,4 +34,11 @@ describe('EmptyState', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(screen.queryByText('No files are available.')).not.toBeInTheDocument();
   });
+
+  it('applies the shared panel surface gradient token', () => {
+    const { container } = render(<EmptyState title="Token check" />);
+    const root = container.firstElementChild;
+    expect(root).toBeTruthy();
+    expect(root?.className).toContain('bg-panel-surface');
+  });
 });
