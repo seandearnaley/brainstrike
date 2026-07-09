@@ -21,7 +21,7 @@ import {
   IndexingActivityCoordinator,
   SearchEmbedderProvider,
 } from '@brainstrike/vector-management';
-import { useWorkspaceSearchStore } from '@brainstrike/workspace-search';
+import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/core';
 import {
   memo,
   type ReactElement,

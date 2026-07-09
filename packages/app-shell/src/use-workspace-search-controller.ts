@@ -24,7 +24,7 @@ import {
   useWorkspaceSearchStore,
   WorkspaceSearchExecutor,
   type WorkspaceSearchMode,
-} from '@brainstrike/workspace-search';
+} from '@brainstrike/workspace-search/core';
 import { useCallback, useMemo } from 'react';
 import { useOptionalRootIdentity } from './roots/root-identity-context';
 

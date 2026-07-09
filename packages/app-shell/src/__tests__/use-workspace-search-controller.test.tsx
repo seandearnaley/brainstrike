@@ -3,8 +3,8 @@ import type {
   SemanticSearchRequest,
   TextSearchRequest,
   WorkspaceSearchResults,
-} from '@brainstrike/workspace-search';
-import { useWorkspaceSearchStore } from '@brainstrike/workspace-search';
+} from '@brainstrike/workspace-search/core';
+import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/core';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
