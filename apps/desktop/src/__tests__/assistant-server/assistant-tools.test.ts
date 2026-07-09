@@ -491,7 +491,6 @@ describe('assistant-tools', () => {
         selectedOutputApproxTokens: 140,
         selectedSourceApproxTokens: 240,
         tokenBudget: 8192,
-        useTapestryRanges: true,
       },
       workspaceRootPath,
     } as RuntimeData);
@@ -510,8 +509,8 @@ describe('assistant-tools', () => {
       selectedOutputApproxTokens: 140,
       selectedSourceApproxTokens: 240,
       tokenBudget: 8192,
-      useTapestryRanges: true,
     });
+    expect(conciseResult.curatedContextSummary).not.toHaveProperty('useTapestryRanges');
     expect(conciseResult.truncated).toBe(false);
 
     const result = await tools['brainstrike.listWorkspaceContext'].execute({
@@ -534,7 +533,6 @@ describe('assistant-tools', () => {
       selectedOutputApproxTokens: 140,
       selectedSourceApproxTokens: 240,
       tokenBudget: 8192,
-      useTapestryRanges: true,
     });
     expect(result.tokenEstimates).toEqual([
       { approxTokens: 200, path: '/src/main.ts' },
@@ -648,6 +646,39 @@ describe('assistant-tools', () => {
     }
   });
 
+  it('reads a rangeless (empty ranges) context file as a bare whole-file read', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      selectionFilePaths: ['/src/main.ts'],
+      workspaceContext: {
+        files: [
+          {
+            path: '/src/main.ts',
+            ranges: [],
+          },
+        ],
+      },
+      workspaceRootPath,
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.readWorkspaceContext'].execute({
+      context: {
+        maxCharsPerFile: 200,
+        tokenBudget: 100,
+        useTapestrySelections: true,
+      },
+    });
+
+    expect(result.includedCount).toBe(1);
+    expect(result.files[0]).not.toHaveProperty('tapestryRangeCount');
+    expect(result.files[0]?.content).toContain('line 1');
+    expect(result.files[0]?.content).toContain('line 2');
+    expect(result.files[0]?.content).toContain('line 3');
+    expect(result.files[0]?.content).toContain('line 4');
+    expect(result.files[0]?.content).not.toContain('<selection');
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
   it('reads selected workspace context through curated tapestry line ranges', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
@@ -659,7 +690,6 @@ describe('assistant-tools', () => {
             ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
           },
         ],
-        useTapestryRanges: true,
       },
       workspaceRootPath,
     } as RuntimeData);
@@ -700,7 +730,6 @@ describe('assistant-tools', () => {
             ],
           },
         ],
-        useTapestryRanges: true,
       },
       workspaceRootPath,
     } as RuntimeData);
@@ -736,7 +765,6 @@ describe('assistant-tools', () => {
             ranges: [{ endLine: 2, isActive: true, startLine: 2 }],
           },
         ],
-        useTapestryRanges: true,
       },
       workspaceRootPath,
     } as RuntimeData);

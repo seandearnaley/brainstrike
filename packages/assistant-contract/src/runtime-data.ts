@@ -97,7 +97,6 @@ export interface RuntimeWorkspaceContextMetadata {
   selectedOutputApproxTokens?: number | null;
   selectedSourceApproxTokens?: number | null;
   tokenBudget?: number;
-  useTapestryRanges?: boolean;
 }
 
 export type RuntimeWorkspaceIndexStatusState =

@@ -1091,7 +1091,6 @@ interface CuratedContextSummary {
   selectedOutputApproxTokens?: number | null;
   selectedSourceApproxTokens?: number | null;
   tokenBudget?: number;
-  useTapestryRanges?: boolean;
 }
 
 /** Counts and token budgets only — the per-file range metadata stays behind detail: true. */
@@ -1102,9 +1101,6 @@ function summarizeCuratedContext(context: RuntimeWorkspaceContextMetadata): Cura
     fileCount: files.length,
     rangeCount,
     ...(context.tokenBudget === undefined ? {} : { tokenBudget: context.tokenBudget }),
-    ...(context.useTapestryRanges === undefined
-      ? {}
-      : { useTapestryRanges: context.useTapestryRanges }),
     ...(context.includeProjectTree === undefined
       ? {}
       : { includeProjectTree: context.includeProjectTree }),
@@ -1578,10 +1574,9 @@ async function runReadWorkspaceContext(
   const maxFiles = input.maxFiles ?? DEFAULT_CONTEXT_MAX_FILES;
   const maxCharsPerFile = input.maxCharsPerFile ?? DEFAULT_CONTEXT_MAX_CHARS_PER_FILE;
   const useTapestrySelections = input.useTapestrySelections !== false;
-  const tapestryRangesByPath =
-    useTapestrySelections && getRuntimeWorkspaceContext(runtimeData)?.useTapestryRanges !== false
-      ? buildRuntimeTapestryRangesByPath(runtimeData)
-      : new Map<string, RuntimeWorkspaceContextRangeMetadata[]>();
+  const tapestryRangesByPath = useTapestrySelections
+    ? buildRuntimeTapestryRangesByPath(runtimeData)
+    : new Map<string, RuntimeWorkspaceContextRangeMetadata[]>();
   const files: WorkspaceContextFileResult[] = [];
   const skippedFiles: WorkspaceContextSkippedFile[] = [];
   let totalApproxTokens = 0;

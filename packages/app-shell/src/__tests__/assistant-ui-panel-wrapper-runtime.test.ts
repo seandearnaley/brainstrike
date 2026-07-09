@@ -263,7 +263,6 @@ describe('assistant runtime helpers', () => {
         projectTreeTokenCountLoading: false,
         selectedOutputApproxTokens: 0,
         selectedSourceApproxTokens: 0,
-        useTapestryRanges: false,
       },
       workspaceIndex: {
         ...baseWorkspaceIndex,

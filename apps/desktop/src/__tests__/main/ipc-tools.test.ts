@@ -204,7 +204,7 @@ describe('ipc-tools', () => {
       });
     });
 
-    it('passes only structurally valid workspace context metadata to assistant runtime tools', async () => {
+    it('passes only structurally valid workspace context metadata to assistant runtime tools (flag-less payload)', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
       vi.mocked(buildDesktopAssistantTools).mockReturnValue({
@@ -240,7 +240,6 @@ describe('ipc-tools', () => {
             selectedOutputApproxTokens: null,
             selectedSourceApproxTokens: 320,
             tokenBudget: 8192,
-            useTapestryRanges: true,
           },
           workspaceRootPath: '/tmp/test-workspace',
         }
@@ -268,7 +267,6 @@ describe('ipc-tools', () => {
             selectedOutputApproxTokens: null,
             selectedSourceApproxTokens: 320,
             tokenBudget: 8192,
-            useTapestryRanges: true,
           },
           workspaceRootPath: '/tmp/test-workspace',
         },
