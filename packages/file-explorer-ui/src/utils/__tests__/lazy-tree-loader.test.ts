@@ -409,6 +409,31 @@ describe('lazy-tree-loader', () => {
       expect(batches[0]!.nodes).toHaveLength(1);
     });
 
+    it('preserves the signal reason when the non-streaming fallback is aborted during read', async () => {
+      const adapter = createMockAdapter();
+      const parentNode = createDirectoryNode({
+        depth: 0,
+        name: 'parent',
+        path: '/root/parent',
+        rootFolderId: 'root',
+      });
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled child fallback');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        return [];
+      });
+      const onBatch = vi.fn();
+
+      await expect(
+        loadDirectoryChildrenStreaming(adapter, parentNode, onBatch, {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
+    });
+
     it('uses streaming when adapter supports it', async () => {
       const adapter = createMockAdapter();
       adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
@@ -478,6 +503,26 @@ describe('lazy-tree-loader', () => {
       expect(batches).toHaveLength(1);
       expect(batches[0]!.done).toBe(true);
       expect(batches[0]!.nodes).toHaveLength(1);
+    });
+
+    it('preserves the signal reason when the root fallback is aborted during read', async () => {
+      const adapter = createMockAdapter();
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled root fallback');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        return [];
+      });
+      const onBatch = vi.fn();
+
+      await expect(
+        loadRootDirectoryStreaming(adapter, handle, onBatch, {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
     });
 
     it('uses streaming when adapter supports it', async () => {

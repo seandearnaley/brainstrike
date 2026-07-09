@@ -116,10 +116,7 @@ export async function loadRootDirectory(
     includeMetadata,
   });
 
-  // Check for cancellation after async operation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
-  }
+  abortSignal?.throwIfAborted();
 
   // Filter ignored paths and transform nodes for lazy loading
   const lazyNodes: IFileNode[] = children
@@ -182,10 +179,7 @@ export async function loadDirectoryChildren(
     includeMetadata,
   });
 
-  // Check for cancellation after async operation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
-  }
+  abortSignal?.throwIfAborted();
 
   // Filter ignored paths and transform nodes for lazy loading
   const lazyNodes: IFileNode[] = children
