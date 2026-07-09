@@ -76,7 +76,6 @@ describe('computeContextSelectedTokenSummary', () => {
     expect(summary.outputSelectedTokens).toBe(0);
     expect(summary.rangeAdjustedFilesCount).toBe(1);
     expect(summary.activeRangeFilesCount).toBe(0);
-    expect(summary.activeRangeFilesCount > 0).toBe(false);
   });
 
   it('counts full file tokens for a rangeless selected file (no explicit ranges entry)', () => {
@@ -90,6 +89,25 @@ describe('computeContextSelectedTokenSummary', () => {
       // No entry for 'a.ts' — the per-file rule always applies, with no
       // separate toggle: rangeless selected files count their full tokens.
       tapestryRangesByKey: {} satisfies TapestryRangeMap,
+      tokenCountByFile: new Map([['a.ts', 42]]),
+    });
+
+    expect(summary.outputSelectedTokens).toBe(42);
+    expect(summary.rangeAdjustedFilesCount).toBe(0);
+    expect(summary.activeRangeFilesCount).toBe(0);
+  });
+
+  it('counts full file tokens for a literally-present EMPTY range array (empty ≡ absent)', () => {
+    const summary = computeContextSelectedTokenSummary({
+      fileContents: {
+        'a.ts': 'a\nb',
+      },
+      selectedFiles: new Set(['a.ts']),
+      sourcePendingCount: 0,
+      sourceSelectedTokens: 42,
+      // A stray present-but-empty array must behave exactly like absence: full
+      // file tokens, NOT a range-adjusted 0.
+      tapestryRangesByKey: { 'a.ts': [] } satisfies TapestryRangeMap,
       tokenCountByFile: new Map([['a.ts', 42]]),
     });
 

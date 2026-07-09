@@ -59,6 +59,42 @@ describe('workspace context curation store', () => {
     expect(useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toEqual({});
   });
 
+  it('deletes the key when set with an empty range list (empty ≡ absent, no `[]` residue)', () => {
+    const KEY = 'folder::src/app.ts';
+    useWorkspaceContextCurationStore.getState().setTapestryRangesForKey(KEY, [createRange()]);
+    expect(KEY in useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toBe(true);
+
+    // Writing [] must DELETE the key, never store a present-but-empty array —
+    // the whole-file invariant relies on absence, not `[]`.
+    useWorkspaceContextCurationStore.getState().setTapestryRangesForKey(KEY, []);
+
+    const map = useWorkspaceContextCurationStore.getState().tapestryRangesByKey;
+    expect(KEY in map).toBe(false);
+    expect(map).toEqual({});
+  });
+
+  it('leaves other keys intact when deleting one key via an empty write', () => {
+    const KEEP = 'folder::src/keep.ts';
+    const DROP = 'folder::src/drop.ts';
+    useWorkspaceContextCurationStore.getState().setTapestryRangesForKey(KEEP, [createRange()]);
+    useWorkspaceContextCurationStore.getState().setTapestryRangesForKey(DROP, [createRange()]);
+
+    useWorkspaceContextCurationStore.getState().setTapestryRangesForKey(DROP, []);
+
+    expect(useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toEqual({
+      [KEEP]: [createRange()],
+    });
+  });
+
+  it('is a no-op (stable identity) when an empty write targets an already-absent key', () => {
+    const before = useWorkspaceContextCurationStore.getState().tapestryRangesByKey;
+
+    useWorkspaceContextCurationStore.getState().setTapestryRangesForKey('folder::missing.ts', []);
+
+    // No spurious new object: absence stays absence.
+    expect(useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toBe(before);
+  });
+
   it('keeps tapestry ranges when the selection folder is unchanged', () => {
     useWorkspaceContextCurationStore.getState().setContextSnapshot(createSnapshot('folder-a'));
     useWorkspaceContextCurationStore

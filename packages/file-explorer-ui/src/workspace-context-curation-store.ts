@@ -69,11 +69,25 @@ export const useWorkspaceContextCurationStore = create<WorkspaceContextCurationS
         typeof ranges === 'function' ? ranges(state.tapestryRangesByKey) : ranges,
     })),
   setTapestryRangesForKey: (compositeKey, ranges) =>
-    set((state) => ({
-      tapestryRangesByKey: {
-        ...state.tapestryRangesByKey,
-        [compositeKey]: ranges,
-      },
-    })),
+    set((state) => {
+      // Invariant: absence of ranges = whole file. A present-but-EMPTY entry
+      // must never linger — it diverges from absence for the report generator
+      // and token summary. Delete the key instead of storing `[]` (mirrors
+      // clearTapestryRanges / handleResetTapestryRanges).
+      if (ranges.length === 0) {
+        if (!(compositeKey in state.tapestryRangesByKey)) {
+          return state;
+        }
+        const next = { ...state.tapestryRangesByKey };
+        delete next[compositeKey];
+        return { tapestryRangesByKey: next };
+      }
+      return {
+        tapestryRangesByKey: {
+          ...state.tapestryRangesByKey,
+          [compositeKey]: ranges,
+        },
+      };
+    }),
   tapestryRangesByKey: {},
 }));

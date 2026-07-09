@@ -46,8 +46,11 @@ export function WorkspaceSearchPanel({
   const wholeWord = useWorkspaceSearchStore((state) => state.wholeWord);
   const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
 
+  // Output (post-range) tokens match the per-file range model + the meters'
+  // locked "output" language — source tokens would show a huge-file total even
+  // when only one chunk is checked.
   const approxTokens = useWorkspaceContextCurationStore(
-    (state) => state.contextSnapshot?.selectedSourceApproxTokens
+    (state) => state.contextSnapshot?.selectedOutputApproxTokens
   );
 
   const onSubmit = mode === 'semantic' ? runSemanticSearch : runTextSearch;
@@ -170,7 +173,7 @@ export function WorkspaceSearchPanel({
 
       {/* Fixed footer: selection summary, matching the Explorer footer tone. */}
       <footer className="flex items-center border-t bg-gradient-to-t from-muted/20 to-transparent px-3 py-2 text-muted-foreground text-xs">
-        <span>~{approxTokens ?? 0} tokens selected</span>
+        <span>~{approxTokens ?? 0} tokens in context</span>
       </footer>
     </div>
   );

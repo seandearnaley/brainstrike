@@ -80,6 +80,33 @@ describe('useSearchSelectionBridge', () => {
     expect(result.current.store.getState().selectedFilePaths.has(KEY)).toBe(false);
   });
 
+  it('toggleFile(true) leaves NO tapestryRangesByKey entry (empty ≡ absent, whole file)', () => {
+    const { result } = renderBridge();
+
+    act(() => result.current.bridge.toggleFile(KEY, true));
+
+    // Whole-file selection = absence of ranges. The store must not linger a `[]`
+    // entry — the report generator + token summary read absence as whole file.
+    expect(KEY in useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toBe(false);
+  });
+
+  it('unchecking the last chunk deletes the key (not `[]`) so re-selecting reads whole file', () => {
+    const { result } = renderBridge();
+    const only = chunk('only', 1, 10);
+
+    act(() => result.current.bridge.toggleChunk(KEY, only, true, [only]));
+    expect(searchSpans()).toEqual([{ endLine: 11, startLine: 1 }]);
+
+    // Uncheck the only chunk: search set empties -> key must be DELETED.
+    act(() => result.current.bridge.toggleChunk(KEY, only, false, [only]));
+    expect(KEY in useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toBe(false);
+
+    // Re-selecting the file yields whole-file semantics (still no `[]` residue).
+    act(() => result.current.bridge.toggleFile(KEY, true));
+    expect(result.current.bridge.fileState(KEY)).toBe('checked');
+    expect(KEY in useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toBe(false);
+  });
+
   it('toggleChunk(true) on an unselected file selects it and derives the chunk span', () => {
     const { result } = renderBridge();
     const c = chunk('c1', 10, 14);

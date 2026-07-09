@@ -243,9 +243,13 @@ ${content}
     return fullFileContextContent;
   }
 
-  const hasExplicitRangesForFile = selectedLineRangesByFile
-    ? Object.hasOwn(selectedLineRangesByFile, filePath)
-    : false;
+  // Invariant: absence of ranges = whole file. A present-but-EMPTY array is
+  // equivalent to absence (empty ≡ absent), so it must be treated as whole file
+  // too — only a present, NON-EMPTY range list is "explicit". A present list of
+  // all-inactive ranges stays explicit (length > 0) and falls through to the
+  // <selection_summary> exclusion notice below.
+  const explicitRanges = selectedLineRangesByFile?.[filePath];
+  const hasExplicitRangesForFile = explicitRanges !== undefined && explicitRanges.length > 0;
 
   // If a file has no explicit tapestry ranges, treat it as fully selected.
   // This preserves expected "default hot" behavior for context export.
