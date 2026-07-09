@@ -124,6 +124,10 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
   return sortTreeNodes(nodes);
 }
 
+function createRootIdentityKey(rootPath: string, rootFolderId: string): string {
+  return JSON.stringify([rootPath, rootFolderId]);
+}
+
 /**
  * Check if loadRoot should skip execution.
  *
@@ -135,8 +139,8 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
  * 1. expand-all in progress for same root - prevents duplicate loading
  * 2. already initialized for this root with files - prevents unnecessary reloads
  *
- * IMPORTANT: refreshTree must reset initializedRoot to null before calling
- * loadRoot to bypass the "already initialized" check and force a reload.
+ * IMPORTANT: refreshTree bypasses this check explicitly so cancellation can
+ * retain the initialized identity of its committed snapshot.
  *
  * @param rootPath - The path of the root to load
  * @param isExpandingAll - Whether expand-all operation is in progress
@@ -163,40 +167,27 @@ function shouldSkipLoadRoot(
   return { skip: false };
 }
 
-/**
- * Handle loadRoot early exit when prerequisites are missing.
- * Extracted to reduce cognitive complexity of loadRoot.
- *
- * @param setState - State setter for updating file tree state
- * @param initializedRootRef - Ref to reset when clearing state
- */
-function handleLoadRootNoHandle(
-  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
-  initializedRootRef: React.RefObject<string | null>
-): void {
-  setState((s) => ({
-    ...s,
-    error: null,
-    fileTree: [],
-    isInitialLoading: false,
-  }));
-  initializedRootRef.current = null;
+function resolveLoadRootSkip(
+  force: boolean,
+  rootPath: string,
+  isExpandingAll: boolean,
+  initializedRoot: string | null,
+  fileTreeLength: number
+): { skip: boolean; reason?: string } {
+  if (force) {
+    return { skip: false };
+  }
+  return shouldSkipLoadRoot(rootPath, isExpandingAll, initializedRoot, fileTreeLength);
 }
 
-function createLoadRootPendingState(
-  currentState: LazyFileTreeState,
-  startedSharedRequest: boolean
-): LazyFileTreeState {
-  if (startedSharedRequest) {
-    return {
-      ...currentState,
-      error: null,
-      fileTree: [],
-      isInitialLoading: true,
-      loadingPaths: new Set(),
-    };
-  }
+function hasCommittedRootIdentityChanged(
+  committedIdentity: string | null,
+  nextIdentity: string
+): boolean {
+  return committedIdentity !== null && committedIdentity !== nextIdentity;
+}
 
+function createLoadRootPendingState(currentState: LazyFileTreeState): LazyFileTreeState {
   if (
     currentState.isInitialLoading &&
     currentState.error === null &&
@@ -221,6 +212,35 @@ function isActiveLoadRootRun(
   return !isUnmountedRef.current && loadRootRunIdRef.current === currentRunId;
 }
 
+function shouldApplyLoadRootResult(
+  isUnmountedRef: React.RefObject<boolean>,
+  loadRootRunIdRef: React.RefObject<number>,
+  currentRunId: number,
+  lastAppliedRequest: InFlightRootLoad | null,
+  nextRequest: InFlightRootLoad
+): boolean {
+  return (
+    isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId) &&
+    lastAppliedRequest !== nextRequest
+  );
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function notifyRootNodesIndexed(
+  children: IFileNode[],
+  onNodesIndexedRef?: React.RefObject<
+    ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
+  >
+): void {
+  if (children.length === 0) {
+    return;
+  }
+  onNodesIndexedRef?.current?.(children, null);
+}
+
 /**
  * Process successful root load result.
  * Extracted to reduce cognitive complexity of loadRoot.
@@ -232,7 +252,6 @@ function isActiveLoadRootRun(
  * @param setState - State setter
  * @param initializedRootRef - Ref to mark as initialized
  * @param rootFolderId - Canonical root folder id for worker init
- * @param onNodesIndexedRef - Optional callback ref for indexing nodes
  */
 function handleLoadRootSuccess(
   children: IFileNode[],
@@ -241,13 +260,9 @@ function handleLoadRootSuccess(
   portRef: React.RefObject<FileTreeWorkerPort | null>,
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
   initializedRootRef: React.RefObject<string | null>,
-  rootFolderId: string,
-  onNodesIndexedRef?: React.RefObject<
-    ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
-  >
+  rootFolderId: string
 ): void {
-  // Build handle map from root children
-  handleMapRef.current = buildHandleMap(children);
+  const nextHandleMap = buildHandleMap(children);
 
   // Initialize worker with root nodes
   if (portRef.current) {
@@ -262,6 +277,8 @@ function handleLoadRootSuccess(
     portRef.current.init(workerNodes, rootFolderId);
   }
 
+  handleMapRef.current = nextHandleMap;
+
   setState({
     error: null,
     fileTree: children,
@@ -271,11 +288,6 @@ function handleLoadRootSuccess(
 
   // Mark this root as initialized to prevent redundant reinits
   initializedRootRef.current = rootPath;
-
-  // Notify indexing callback for root-level nodes
-  if (onNodesIndexedRef?.current && children.length > 0) {
-    onNodesIndexedRef.current(children, null);
-  }
 }
 
 /**
@@ -283,26 +295,30 @@ function handleLoadRootSuccess(
  * Extracted to reduce cognitive complexity of loadRoot.
  *
  * @param err - The error that occurred
- * @param handleMapRef - Handle map ref to clear
- * @param initializedRootRef - Initialized root ref to clear
  * @param setState - State setter
  */
 function handleLoadRootError(
   err: unknown,
-  handleMapRef: React.RefObject<Map<string, unknown>>,
-  initializedRootRef: React.RefObject<string | null>,
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>
 ): void {
   if (!isAbortError(err)) {
-    // Clear stale handles from previous root to prevent incorrect lookups
-    handleMapRef.current.clear();
-    initializedRootRef.current = null;
-
     setState((s) => ({
       ...s,
-      error: err instanceof Error ? err : new Error(String(err)),
+      error: toError(err),
       isInitialLoading: false,
     }));
+  }
+}
+
+function handleActiveLoadRootError(
+  err: unknown,
+  isUnmountedRef: React.RefObject<boolean>,
+  loadRootRunIdRef: React.RefObject<number>,
+  currentRunId: number,
+  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>
+): void {
+  if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
+    handleLoadRootError(err, setState);
   }
 }
 
@@ -461,6 +477,22 @@ function loadRootChildren(args: RootLoadArguments): RootLoadSubscription {
     request,
     started: true,
   };
+}
+
+function logStartedRootLoad(
+  subscription: RootLoadSubscription,
+  fileTreeLength: number,
+  initializedRoot: string | null,
+  rootPath: string
+): void {
+  if (!subscription.started) {
+    return;
+  }
+  logger.debug('loadRoot running - will reinitialize worker', {
+    fileTreeLength,
+    initializedRoot,
+    rootPath,
+  });
 }
 
 function shouldSkipSpecificPathLoad(
@@ -898,6 +930,7 @@ export function useLazyFileTree(
   const isLoadingRootRef = useRef(false);
   const loadRootRunIdRef = useRef(0);
   const lastAppliedRootLoadRef = useRef<InFlightRootLoad | null>(null);
+  const committedRootIdentityRef = useRef<string | null>(null);
 
   // Error handler for worker
   const handleWorkerError = useCallback((error: Error) => {
@@ -957,6 +990,47 @@ export function useLazyFileTree(
     onError: handleWorkerError,
     onProgress: handleProgress,
   });
+
+  const resetCommittedRootState = useCallback(
+    (nextIdentity: string | null, nextRootFolderId: string, isInitialLoading: boolean): boolean => {
+      fileTreeRef.current = [];
+      normalizedTreeRef.current = createEmptyNormalizedFileTreeState();
+      handleMapRef.current.clear();
+      initializedRootRef.current = null;
+      lastAppliedRootLoadRef.current = null;
+      committedRootIdentityRef.current = nextIdentity;
+      setNormalizedTreeVersion((version) => version + 1);
+      setState({
+        error: null,
+        fileTree: [],
+        isInitialLoading,
+        loadingPaths: new Set(),
+      });
+
+      const port = portRef.current;
+      if (!port) {
+        return true;
+      }
+
+      try {
+        port.init([], nextRootFolderId);
+        return true;
+      } catch (error) {
+        const workerError = toError(error);
+        logger.error('Failed to reset root worker snapshot', {
+          error: workerError.message,
+          rootFolderId: nextRootFolderId,
+        });
+        setState((currentState) => ({
+          ...currentState,
+          error: workerError,
+          isInitialLoading: false,
+        }));
+        return false;
+      }
+    },
+    [handleMapRef, portRef]
+  );
 
   // Keep root handle ref in sync. The RootId is threaded alongside so that
   // worker-loaded (expand-all) subtree nodes carry the durable identity
@@ -1020,99 +1094,116 @@ export function useLazyFileTree(
   /**
    * Load root directory contents
    */
-  const loadRoot = useCallback(async () => {
-    // CRITICAL: Guard against concurrent loadRoot calls FIRST
-    // This must be checked and set atomically before any other logic to prevent
-    // race conditions during React StrictMode double-mount or rapid re-renders
-    if (isLoadingRootRef.current) {
-      logger.debug('loadRoot skipped - already loading');
-      return;
-    }
-    // Set flag IMMEDIATELY after guard passes - before any other code
-    isLoadingRootRef.current = true;
-    const currentRunId = ++loadRootRunIdRef.current;
+  const loadRoot = useCallback(
+    async (force = false) => {
+      // CRITICAL: Guard against concurrent loadRoot calls FIRST
+      // This must be checked and set atomically before any other logic to prevent
+      // race conditions during React StrictMode double-mount or rapid re-renders
+      if (isLoadingRootRef.current) {
+        logger.debug('loadRoot skipped - already loading');
+        return;
+      }
+      // Set flag IMMEDIATELY after guard passes - before any other code
+      isLoadingRootRef.current = true;
+      const currentRunId = ++loadRootRunIdRef.current;
 
-    if (!(rootDirectoryHandle && fileSystemAdapter)) {
-      handleLoadRootNoHandle(setState, initializedRootRef);
-      isLoadingRootRef.current = false;
-      return;
-    }
+      if (!(rootDirectoryHandle && fileSystemAdapter)) {
+        resetCommittedRootState(null, '', false);
+        isLoadingRootRef.current = false;
+        return;
+      }
 
-    const rootPath = rootDirectoryHandle.path;
+      const rootPath = rootDirectoryHandle.path;
+      const rootIdentity = createRootIdentityKey(rootPath, resolvedRootFolderId);
 
-    // Check if we should skip loading (expand-all in progress or already initialized)
-    const skipCheck = shouldSkipLoadRoot(
-      rootPath,
-      isExpandingAllRef.current,
-      initializedRootRef.current,
-      fileTreeRef.current.length
-    );
+      if (hasCommittedRootIdentityChanged(committedRootIdentityRef.current, rootIdentity)) {
+        const resetSucceeded = resetCommittedRootState(rootIdentity, resolvedRootFolderId, true);
+        if (!resetSucceeded) {
+          isLoadingRootRef.current = false;
+          return;
+        }
+      }
 
-    if (skipCheck.skip) {
-      logger.debug(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
-      isLoadingRootRef.current = false;
-      return;
-    }
-
-    try {
-      const rootConsumerController = createAbortController(null);
-      const rootLoadRequest = loadRootChildren({
-        consumerSignal: rootConsumerController.signal,
-        fileSystemAdapter,
-        rootDirectoryHandle,
-        rootFolderId: resolvedRootFolderId,
+      // Check if we should skip loading (expand-all in progress or already initialized)
+      const skipCheck = resolveLoadRootSkip(
+        force,
         rootPath,
-      });
+        isExpandingAllRef.current,
+        initializedRootRef.current,
+        fileTreeRef.current.length
+      );
 
-      if (rootLoadRequest.started) {
-        logger.debug('loadRoot running - will reinitialize worker', {
-          fileTreeLength: fileTreeRef.current.length,
-          initializedRoot: initializedRootRef.current,
+      if (skipCheck.skip) {
+        logger.debug(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
+        isLoadingRootRef.current = false;
+        return;
+      }
+
+      try {
+        const rootConsumerController = createAbortController(null);
+        const rootLoadRequest = loadRootChildren({
+          consumerSignal: rootConsumerController.signal,
+          fileSystemAdapter,
+          rootDirectoryHandle,
+          rootFolderId: resolvedRootFolderId,
           rootPath,
         });
-      }
 
-      setState((s) => createLoadRootPendingState(s, rootLoadRequest.started));
-
-      const children = await rootLoadRequest.consumerPromise;
-
-      if (
-        isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId) &&
-        lastAppliedRootLoadRef.current !== rootLoadRequest.request
-      ) {
-        lastAppliedRootLoadRef.current = rootLoadRequest.request;
-        handleLoadRootSuccess(
-          children,
-          rootPath,
-          handleMapRef,
-          portRef,
-          setState,
-          initializedRootRef,
-          // Storage v5: worker init uses the resolved RootId so that worker-
-          // side composite keys match the store's identity.
-          resolvedRootFolderId,
-          onNodesIndexedRef
+        logStartedRootLoad(
+          rootLoadRequest,
+          fileTreeRef.current.length,
+          initializedRootRef.current,
+          rootPath
         );
-        syncNormalizedTree(children);
+
+        setState(createLoadRootPendingState);
+
+        const children = await rootLoadRequest.consumerPromise;
+
+        if (
+          shouldApplyLoadRootResult(
+            isUnmountedRef,
+            loadRootRunIdRef,
+            currentRunId,
+            lastAppliedRootLoadRef.current,
+            rootLoadRequest.request
+          )
+        ) {
+          handleLoadRootSuccess(
+            children,
+            rootPath,
+            handleMapRef,
+            portRef,
+            setState,
+            initializedRootRef,
+            // Storage v5: worker init uses the resolved RootId so that worker-
+            // side composite keys match the store's identity.
+            resolvedRootFolderId
+          );
+          syncNormalizedTree(children);
+          committedRootIdentityRef.current = rootIdentity;
+          lastAppliedRootLoadRef.current = rootLoadRequest.request;
+          notifyRootNodesIndexed(children, onNodesIndexedRef);
+        }
+      } catch (err) {
+        handleActiveLoadRootError(err, isUnmountedRef, loadRootRunIdRef, currentRunId, setState);
+      } finally {
+        if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
+          isLoadingRootRef.current = false;
+        }
       }
-    } catch (err) {
-      if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
-        handleLoadRootError(err, handleMapRef, initializedRootRef, setState);
-      }
-    } finally {
-      if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
-        isLoadingRootRef.current = false;
-      }
-    }
-  }, [
-    rootDirectoryHandle,
-    fileSystemAdapter,
-    createAbortController,
-    handleMapRef,
-    portRef,
-    syncNormalizedTree,
-    resolvedRootFolderId,
-  ]);
+    },
+    [
+      rootDirectoryHandle,
+      fileSystemAdapter,
+      createAbortController,
+      handleMapRef,
+      portRef,
+      resetCommittedRootState,
+      syncNormalizedTree,
+      resolvedRootFolderId,
+    ]
+  );
 
   /**
    * Handle successful directory load.
@@ -1499,9 +1590,9 @@ export function useLazyFileTree(
   /**
    * Refresh the entire tree from root.
    *
-   * Resets initializedRootRef to force loadRoot to reload the tree.
-   * Without this reset, shouldSkipLoadRoot would return skip=true for
-   * "already initialized" roots, preventing the tree from actually refreshing.
+   * Forces enumeration without clearing the committed root identity. Keeping
+   * that identity intact lets cancellation retain one coherent snapshot across
+   * the visible tree, normalized cache, handles, and worker.
    *
    * @example
    * ```tsx
@@ -1511,10 +1602,7 @@ export function useLazyFileTree(
    * ```
    */
   const refreshTree = useCallback(async () => {
-    // Reset initialized ref to force loadRoot to reload the tree
-    // Without this, shouldSkipLoadRoot returns skip=true for "already initialized" roots
-    initializedRootRef.current = null;
-    await loadRoot();
+    await loadRoot(true);
   }, [loadRoot]);
 
   /**
@@ -1610,12 +1698,16 @@ export function useLazyFileTree(
 
   // Auto-load root when handle changes
   // Dependencies are minimal - only things that should actually trigger a reload
-  // biome-ignore lint/plugin: This is initialization logic, not derived state
   useEffect(() => {
     if (rootDirectoryPath && rootDirectoryHandle) {
+      const nextRootIdentity = createRootIdentityKey(rootDirectoryPath, resolvedRootFolderId);
+      const rootIdentityChanged = hasCommittedRootIdentityChanged(
+        committedRootIdentityRef.current,
+        nextRootIdentity
+      );
       // If expand-all is in progress but root has CHANGED, cancel and proceed with new root
       // This prevents race condition where switching folders leaves new folder empty
-      if (isExpandingAllRef.current && initializedRootRef.current !== rootDirectoryPath) {
+      if (isExpandingAllRef.current && rootIdentityChanged) {
         logger.debug('loadRoot: cancelling expand-all for different root', {
           newRoot: rootDirectoryPath,
           oldRoot: initializedRootRef.current,
@@ -1623,23 +1715,13 @@ export function useLazyFileTree(
         cancelExpandAll();
       }
       // Skip if expand-all is in progress for THIS root (same folder)
-      if (isExpandingAllRef.current && initializedRootRef.current === rootDirectoryPath) {
+      if (isExpandingAllRef.current && !rootIdentityChanged) {
         logger.debug('loadRoot skipped - expand-all in progress for same root');
         return;
       }
       void loadRootRef.current();
     } else {
-      // Clear handle map and initialized ref when root changes
-      handleMapRef.current.clear();
-      initializedRootRef.current = null;
-      normalizedTreeRef.current = createEmptyNormalizedFileTreeState();
-      setNormalizedTreeVersion((version) => version + 1);
-      setState({
-        error: null,
-        fileTree: [],
-        isInitialLoading: false,
-        loadingPaths: new Set(),
-      });
+      resetCommittedRootState(null, '', false);
     }
 
     // Cleanup on unmount or handle change
@@ -1657,11 +1739,12 @@ export function useLazyFileTree(
     };
   }, [
     rootDirectoryPath,
-    handleMapRef,
+    resolvedRootFolderId,
     cancelAllLoading,
     portRef,
     isExpandingAllRef,
     cancelExpandAll,
+    resetCommittedRootState,
   ]);
 
   return {
