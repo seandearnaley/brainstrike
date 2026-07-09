@@ -1,6 +1,6 @@
 import { ComposerPrimitive, type Unstable_SlashCommandAction } from '@assistant-ui/react';
 import { SlashIcon } from 'lucide-react';
-import type { ComponentType, FC, ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { TriggerAdapter } from './file-mentions';
 
 /**
@@ -36,11 +36,11 @@ export interface ComposerTriggerPopoverProps {
   readonly iconMap: ReadonlyMap<string, ComponentType<{ className?: string }>>;
 }
 
-export const ComposerTriggerPopover: FC<ComposerTriggerPopoverProps> = ({
+export const ComposerTriggerPopover = ({
   adapter,
   action,
   iconMap,
-}) => (
+}: ComposerTriggerPopoverProps) => (
   <ComposerPrimitive.Unstable_TriggerPopover
     adapter={adapter}
     aria-label="Slash commands"

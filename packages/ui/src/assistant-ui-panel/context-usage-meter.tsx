@@ -17,7 +17,7 @@ import {
   formatTokenCount,
   formatUsdCost,
 } from '@brainstrike/utils/token-counting-heuristics';
-import { type FC, useMemo } from 'react';
+import { useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { getMessageParts } from './assistant-run-timeline';
 import { useContextUsageStore } from './context-usage-store';
@@ -146,7 +146,7 @@ interface OmMeterSectionProps {
  * budget segment — it does not consume this turn's input budget (see OmMeterState
  * doc). Extracted so ContextUsageMeter stays under the cognitive-complexity budget.
  */
-const OmMeterSection: FC<OmMeterSectionProps> = ({ state }) => {
+const OmMeterSection = ({ state }: OmMeterSectionProps) => {
   if (state.kind === 'stats') {
     return (
       <div
@@ -184,14 +184,14 @@ const OmMeterSection: FC<OmMeterSectionProps> = ({ state }) => {
 
 OmMeterSection.displayName = 'OmMeterSection';
 
-export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
+export const ContextUsageMeter = ({
   threadKey,
   contextWindow,
   cumulativeUsage,
   effectiveInputBudget,
   estimatedTokens,
   omSegment,
-}) => {
+}: ContextUsageMeterProps) => {
   const key = threadKey ?? 'active';
   const usage = useContextUsageStore((s) => s.usageByThread[key]);
 
@@ -334,13 +334,13 @@ export interface ThreadContextMeterProps {
   threadKey: string | undefined;
 }
 
-export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
+export const ThreadContextMeter = ({
   contextWindow,
   cumulativeUsage,
   effectiveInputBudget,
   omSegment,
   threadKey,
-}) => {
+}: ThreadContextMeterProps) => {
   // Access all messages to build a heuristic token estimate.
   const messages = useAuiState((s) => s.thread.messages);
   // Exact usage for this thread — when present, skip the message walk entirely

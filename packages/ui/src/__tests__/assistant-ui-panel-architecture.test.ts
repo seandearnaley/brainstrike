@@ -46,7 +46,10 @@ describe('assistant UI panel architecture', () => {
     // wrappers were replaced by one shared Unstable_TriggerPopoverRoot ("/" and
     // "@" popovers as siblings, not nested), which needed a few extra doc lines
     // on ComposerInputWithTriggers explaining the sibling model.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1730);
+    // Bumped 1730 → 1735 for React.FC → plain function typings: explicit
+    // destructured props + inline type annotations add a few lines per component
+    // without changing runtime behavior.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1735);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -69,8 +72,8 @@ describe('assistant UI panel architecture', () => {
     const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
     expect(source).toContain("from './assistant-message-error'");
 
-    const assistantMessageStart = source.indexOf('const AssistantMessage: FC');
-    const assistantActionBarStart = source.indexOf('const AssistantActionBar: FC');
+    const assistantMessageStart = source.indexOf('const AssistantMessage =');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
     const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
     expect(assistantMessageSource).toContain('<AssistantMessageError />');
 
@@ -81,10 +84,10 @@ describe('assistant UI panel architecture', () => {
 
   it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {
     const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
-    const assistantMessageStart = source.indexOf('const AssistantMessage: FC');
-    const assistantActionBarStart = source.indexOf('const AssistantActionBar: FC');
+    const assistantMessageStart = source.indexOf('const AssistantMessage =');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
     const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
-    const localChainOfThoughtStart = source.indexOf('const LocalChainOfThought: FC');
+    const localChainOfThoughtStart = source.indexOf('const LocalChainOfThought =');
     const collapsedHistoryStart = source.indexOf('const COLLAPSED_HISTORY_VISIBLE_MESSAGES');
     const localChainOfThoughtSource = source.slice(localChainOfThoughtStart, collapsedHistoryStart);
 

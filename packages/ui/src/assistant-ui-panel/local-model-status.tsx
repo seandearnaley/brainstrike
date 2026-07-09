@@ -1,4 +1,3 @@
-import type { FC } from 'react';
 import { Badge } from '../badge';
 import { cn } from '../lib/utils';
 import { Progress } from '../progress';
@@ -11,7 +10,7 @@ import type { LocalModelLoadingState } from './use-local-model-loading';
  * added/removed the file line, the percent span, and the meter row, producing
  * constant layout shift.
  */
-export const LocalModelStatus: FC<{ state: LocalModelLoadingState }> = ({ state }) => {
+export const LocalModelStatus = ({ state }: { state: LocalModelLoadingState }) => {
   const progress = clampProgress(state.progress);
   const showPercent = (state.stage === 'downloading' || state.stage === 'loading') && progress > 0;
 
