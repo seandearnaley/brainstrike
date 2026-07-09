@@ -410,6 +410,73 @@ paired tests in packages/agent and packages/app-shell.
 
 ---
 
+## ASSISTANT RUN NOTIFICATIONS
+
+OS-level `Notification` API alerts for three run-lifecycle events — run
+finished, run failed (including watchdog stalls surfacing as `run.failed`),
+and tool approval required — fired only while the app is NOT the user's
+active focus. One code path for Electron renderer AND web: the standard web
+`Notification` constructor, no Electron `Notification` module, no new IPC.
+
+Layers:
+1. **Preferences** (`packages/preferences/src/stores/notification-preferences-store.ts`) —
+   persisted master toggle (`masterEnabled`, default OFF) + per-event toggles
+   (`events.{runFinished,runFailed,toolApprovalRequired}`, default ON).
+   PERSISTED via the same `createBrowserJsonStorage` pattern as sibling
+   stores. Registered in the factory-reset pipeline: like
+   `permission-policy-store`, `resetNotificationPreferencesStoreToDefaults`
+   is called directly from `factory-reset-helpers.ts`'s `clearBrowserStorage`
+   (not `registerFactoryResetSessionStore` — that seam is for stores OUTSIDE
+   the `preferences` package) so the live in-memory toggle never survives a
+   reset that does not reload the page (web path).
+2. **Decision + dispatch** (`packages/preferences/src/notifications/`) —
+   `should-notify.ts` is a PURE gate (`shouldNotify`): master on, event on,
+   `Notification.permission === 'granted'`, and the window is unfocused
+   (`document.visibilityState === 'hidden' || !document.hasFocus()`,
+   evaluated AT EVENT TIME). `notification-permission.ts` wraps
+   `Notification.permission`/`requestPermission()` — permission is requested
+   ONLY from the Settings toggle-on click (never on load), and the store
+   never persists `masterEnabled: true` when the browser denies or has not
+   granted permission. `run-notification-dispatcher.ts`
+   (`createRunNotificationDispatcher`) evaluates the gate and constructs (at
+   most once per `runId:kind`) a `Notification` with privacy-safe copy — the
+   input type carries only `runId`/`kind`/an optional `threadTitle`, never
+   message content or tool args — and wires `onclick` to `window.focus()`.
+3. **Settings UI** (`packages/preferences/src/settings/system/notification-settings-section.tsx`,
+   registered via `createNotificationSettingsCategory()` in both
+   `apps/web/src/app/settings/page-content.tsx` and
+   `apps/desktop/src/renderer/components/settings/page-content.tsx`) —
+   master + per-event toggles, surfaces a "blocked by your browser/OS"
+   message when permission is denied/unsupported.
+4. **Trigger source** (`packages/ui/src/assistant-ui-panel/run-lifecycle-notifications.ts`) —
+   pure selectors (`selectTerminalRunEvents`, `selectOpenToolApprovalRequests`)
+   scan thread messages for `run.finished`/`run.failed`
+   (`ASSISTANT_RUN_EVENT_DATA_NAME`) and tool-approval-required
+   (`TOOL_APPROVAL_DATA_NAME`) data parts. `useRunLifecycleNotifications`
+   reports each NEW one exactly once (deduped via refs) through THREE new
+   optional `AssistantUiPanelProps` callbacks
+   (`onRunFinished`/`onRunFailed`/`onToolApprovalRequired`) that thread the
+   SAME 5 layers as `onUsage` (`AssistantUiPanel` → `LocalRuntimeChat`/
+   `DataStreamRuntimeChat` → `ChatThreadUI`, which mounts
+   `RunLifecycleNotificationBridge`). This package NEVER touches
+   `window.Notification` or the preferences store — it only reports raw
+   events, mirroring the `onUsage` seam.
+5. **Composition** (`packages/app-shell/src/use-assistant-run-notifications.ts`,
+   wired into `assistant-ui-panel-wrapper.tsx`) — the ONLY layer that reads
+   live `document.hasFocus()`/`visibilityState` and owns a
+   `createRunNotificationDispatcher` instance (stable for the panel's
+   lifetime, so per-run coalescing is meaningful). Desktop's hidden
+   embedding/llm hosts (`embedding-host-app.tsx`, `llm-host-app.tsx`) never
+   import `AssistantUiPanel` at all, so they structurally can never notify —
+   this hook only ever runs inside the visible assistant surface.
+
+When changing this flow, update this section and the paired tests
+(`packages/preferences/src/__tests__/notification-*.test.ts(x)`,
+`packages/ui/src/assistant-ui-panel/__tests__/run-lifecycle-notifications.test.ts`,
+`packages/app-shell/src/__tests__/use-assistant-run-notifications.test.ts`).
+
+---
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.
