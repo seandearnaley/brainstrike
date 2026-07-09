@@ -111,3 +111,6 @@
 ## 2026-07-05 - Web streamed file-handle caching scans root segments
 **Learning:** `packages/file-system/src/adapters/web-adapter.ts` resolves the root id for every cached file handle produced by web directory streaming. The old `path.split('/').find(...)` scanned and allocated the full path for each file; a first-segment scan measured 806.51ms -> 198.82ms over 100k representative cached node paths x 80 rounds on Node 24.16.0 with identical checksum.
 **Action:** Keep web file-handle root-id extraction on an early-exit slash scan; do not reintroduce whole-path split/find in streaming cache paths.
+## 2026-07-09 - Chunk language detection scans final extension
+**Learning:** `packages/file-import/src/embedding-context.ts` detects a file's language during text-splitter chunking decisions. The old `filePath.split('.').pop()` plus per-call language map allocation measured 5299.36ms over 100k representative paths x 40 rounds on Node 24.16.0; `lastIndexOf('.')` plus one suffix slice and a hoisted map measured 235.67ms with identical checksum.
+**Action:** Keep chunk language detection on final-dot scanning and a module-scope language map instead of splitting the full path or rebuilding the map per file.
