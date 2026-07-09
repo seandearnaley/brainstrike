@@ -41,7 +41,7 @@ import {
   type TableRowData,
 } from '../utils/grouping-configs';
 import { buildGroupedPageSections, getVisibleFilesOnPage } from '../utils/preview-pagination';
-import { createDefaultTapestryRanges, syncTapestryRanges } from '../utils/tapestry-range-sync';
+import { syncTapestryRanges } from '../utils/tapestry-range-sync';
 import { getTokenUsageMetrics } from '../utils/token-usage-metrics';
 import { useWorkspaceContextCurationStore } from '../workspace-context-curation-store';
 import { tapestryLineRangeToToolRange } from '../workspace-context-line-ranges';
@@ -792,22 +792,15 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setTapestryRangesByKey((prev) => ({ ...prev, [fileId]: ranges }));
   }, []);
 
-  const handleResetTapestryRanges = useCallback(
-    (fileIds: string[]) => {
-      setTapestryRangesByKey((prev) => {
-        const next = { ...prev };
-        for (const fileId of fileIds) {
-          const base = tapestryFileBaseByKey.get(fileId);
-          if (!base) {
-            continue;
-          }
-          next[fileId] = createDefaultTapestryRanges(fileId, base.totalLines);
-        }
-        return next;
-      });
-    },
-    [tapestryFileBaseByKey]
-  );
+  const handleResetTapestryRanges = useCallback((fileIds: string[]) => {
+    setTapestryRangesByKey((prev) => {
+      const next = { ...prev };
+      for (const fileId of fileIds) {
+        delete next[fileId];
+      }
+      return next;
+    });
+  }, []);
 
   // Keep export payload synchronized with the latest range edits and tree toggle state.
   const contextExportOptions = useMemo<ContextExportOptions>(

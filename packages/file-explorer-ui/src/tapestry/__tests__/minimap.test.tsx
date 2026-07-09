@@ -103,6 +103,48 @@ describe('Minimap', () => {
     expect(onRequestFileContent).not.toHaveBeenCalled();
   });
 
+  it('shows a whole-file affordance when a file has no ranges', () => {
+    const file = { ...createFile(), selections: [] };
+
+    render(
+      <TooltipProvider>
+        <Minimap
+          file={file}
+          getGlobalIndex={() => 1}
+          isSelected={false}
+          onToggleRange={vi.fn()}
+          onToggleSelection={vi.fn()}
+          scale={2}
+          smartStart={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    expect(screen.getByText(/whole file.*drag to select lines/i)).toBeInTheDocument();
+    // The create-range background affordance stays available alongside it.
+    expect(screen.getByRole('button', { name: /create range in app\.tsx/i })).toBeInTheDocument();
+  });
+
+  it('does not show the whole-file affordance when the file already has ranges', () => {
+    const file = createFile();
+
+    render(
+      <TooltipProvider>
+        <Minimap
+          file={file}
+          getGlobalIndex={() => 1}
+          isSelected={false}
+          onToggleRange={vi.fn()}
+          onToggleSelection={vi.fn()}
+          scale={2}
+          smartStart={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    expect(screen.queryByText(/whole file.*drag to select lines/i)).not.toBeInTheDocument();
+  });
+
   it('uses smartStart to create a range when clicking the background', () => {
     const file = createFile();
     const smartStart = vi.fn();
