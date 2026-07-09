@@ -17,6 +17,7 @@ export function DatabaseStatusItem() {
   if (loading) {
     return (
       <StatusBarItem
+        announce
         icon={Database}
         label="Storage:"
         status="loading"
@@ -31,6 +32,7 @@ export function DatabaseStatusItem() {
 
   return (
     <StatusBarItem
+      announce
       icon={Database}
       label={`Storage: ${displayLocation}`}
       status={connected ? 'connected' : 'disconnected'}

@@ -4,6 +4,8 @@ import { cn } from '../lib/utils';
 export type StatusBarItemStatus = 'connected' | 'disconnected' | 'loading' | 'warning';
 
 export interface StatusBarItemProps {
+  /** Announce value changes as a polite, atomic live status */
+  announce?: boolean;
   /** Additional CSS classes */
   className?: string;
   /** Icon component to display */
@@ -30,6 +32,7 @@ const statusClasses: Record<StatusBarItemStatus, string> = {
  * Displays an optional icon, label, and value with color based on status.
  */
 export function StatusBarItem({
+  announce = false,
   icon: Icon,
   label,
   value,
@@ -39,8 +42,10 @@ export function StatusBarItem({
 }: StatusBarItemProps): React.ReactElement {
   return (
     <span
+      aria-atomic={announce ? true : undefined}
       className={cn('flex items-center gap-1', statusClasses[status], className)}
       data-testid={testId}
+      role={announce ? 'status' : undefined}
     >
       {Icon && (
         <Icon

@@ -60,6 +60,14 @@ describe('StatusBarItem', () => {
     expect(screen.getByTestId('test-item')).toHaveClass('custom-class');
   });
 
+  it('announces only items that explicitly opt into live status semantics', () => {
+    const { rerender } = render(<StatusBarItem label="Quiet" testId="test-item" />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    rerender(<StatusBarItem announce label="Storage: IPC" testId="test-item" />);
+    expect(screen.getByRole('status')).toHaveTextContent('Storage: IPC');
+  });
+
   describe('Snapshots', () => {
     it('renders connected status', () => {
       const { container } = render(
