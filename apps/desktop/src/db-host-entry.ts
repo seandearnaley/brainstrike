@@ -323,7 +323,7 @@ function nextRunnableRequest(): DbHostRequestEnvelope | null {
 }
 
 async function getQueryableDatabase(): Promise<QueryableDatabase> {
-  return (await getDatabase()) as QueryableDatabase;
+  return await getDatabase();
 }
 
 function requireParamsArray(params: unknown, context: string): readonly unknown[] | undefined {
