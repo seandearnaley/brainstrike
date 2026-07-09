@@ -9,8 +9,10 @@
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { vector } from '@electric-sql/pglite-pgvector';
+import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
+import { DrizzleFileChunkRepository } from '../src/repositories/drizzle/file-chunk-repository.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { createGrepSearchService } from '../src/search/grep-search-service.js';
 import { createHybridSearchService } from '../src/search/hybrid-search-service.js';
@@ -136,6 +138,78 @@ describe('searchSimilar rootIds scoping', () => {
       threshold: 0,
     });
     expect(results.map((r) => r.chunk.fileRecordId)).toEqual([FILE_A]);
+  });
+});
+
+describe('DrizzleFileChunkRepository rootIds scoping (web path)', () => {
+  // Construct exactly as db-provider.tsx does: drizzle(db) → DrizzleFileChunkRepository.
+  function makeRepo(): DrizzleFileChunkRepository {
+    return new DrizzleFileChunkRepository(drizzle(db));
+  }
+
+  describe('searchSimilar', () => {
+    it('scopes to the given roots and excludes NULL-root legacy rows', async () => {
+      const repo = makeRepo();
+      const results = await repo.searchSimilar([0.1, 0.2, 0.3, 0.4], {
+        embeddingSetId: SET_ID,
+        limit: 10,
+        rootIds: [ROOT_A],
+        threshold: 0,
+      });
+      expect(results.map((r) => r.chunk.fileRecordId)).toEqual([FILE_A]);
+    });
+
+    it('rootIds spanning both roots returns both files but never the legacy row', async () => {
+      const repo = makeRepo();
+      const results = await repo.searchSimilar([0.1, 0.2, 0.3, 0.4], {
+        embeddingSetId: SET_ID,
+        limit: 10,
+        rootIds: [ROOT_A, ROOT_B],
+        threshold: 0,
+      });
+      expect(results.map((r) => r.chunk.fileRecordId).sort()).toEqual([FILE_A, FILE_B].sort());
+    });
+
+    it('an empty rootIds allowlist matches nothing', async () => {
+      const repo = makeRepo();
+      const results = await repo.searchSimilar([0.1, 0.2, 0.3, 0.4], {
+        embeddingSetId: SET_ID,
+        limit: 10,
+        rootIds: [],
+        threshold: 0,
+      });
+      expect(results).toHaveLength(0);
+    });
+  });
+
+  describe('fullTextSearch', () => {
+    it('only returns chunks whose file is in the given roots', async () => {
+      const repo = makeRepo();
+      const results = await repo.fullTextSearch('needleToken', {
+        limit: 10,
+        rootIds: [ROOT_B],
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0]?.chunk.fileRecordId).toBe(FILE_B);
+    });
+
+    it('excludes NULL-root legacy rows even when spanning both roots', async () => {
+      const repo = makeRepo();
+      const results = await repo.fullTextSearch('needleToken', {
+        limit: 10,
+        rootIds: [ROOT_A, ROOT_B],
+      });
+      expect(results.map((r) => r.chunk.fileRecordId).sort()).toEqual([FILE_A, FILE_B].sort());
+    });
+
+    it('an empty rootIds allowlist matches nothing', async () => {
+      const repo = makeRepo();
+      const results = await repo.fullTextSearch('needleToken', {
+        limit: 10,
+        rootIds: [],
+      });
+      expect(results).toHaveLength(0);
+    });
   });
 });
 
