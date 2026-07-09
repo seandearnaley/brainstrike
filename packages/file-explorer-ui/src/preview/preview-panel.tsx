@@ -278,13 +278,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       sourceSelectedTokens: totalStats.totalTokens,
       tapestryRangesByKey: deferredTapestryRangesByKey,
       tokenCountByFile,
-      useTapestryRangesForContextOutput,
     });
   }, [
     deferredFlatListItems,
     totalStats,
     selectedFiles,
-    useTapestryRangesForContextOutput,
     deferredTapestryRangesByKey,
     selectedFileContentSnapshot,
   ]);

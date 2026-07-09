@@ -34,7 +34,6 @@ interface ContextSelectedTokenSummaryArgs {
   sourceSelectedTokens: number;
   tapestryRangesByKey: TapestryRangeMap;
   tokenCountByFile: Map<string, number>;
-  useTapestryRangesForContextOutput: boolean;
 }
 
 function buildLinePrefixLengths(lines: string[]): number[] {
@@ -189,10 +188,6 @@ export function computeContextSelectedTokenSummary(
     sourcePendingCount: args.sourcePendingCount,
     sourceSelectedTokens: args.sourceSelectedTokens,
   };
-
-  if (!args.useTapestryRangesForContextOutput) {
-    return summary;
-  }
 
   let sourceTokensFromKnownFiles = 0;
   let outputTokensFromKnownFiles = 0;

@@ -672,7 +672,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
                 sourceSelectedTokens={tokenUsage.sourceSelectedTokens}
                 treeTokens={tokenUsage.includedTreeTokens}
                 usedTokens={tokenUsage.usedTokens}
-                useTapestryRanges={useTapestryRanges}
               />
             </div>
 
@@ -690,7 +689,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
                 totalFiles={totalFiles}
                 treeLoading={treeLoading}
                 treeTokens={tokenUsage.includedTreeTokens}
-                useTapestryRanges={useTapestryRanges}
               />
 
               {!isCompact && (

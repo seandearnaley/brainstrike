@@ -22,10 +22,10 @@ describe('TokenSummaryBar', () => {
   };
 
   describe('BST-153: estimating state', () => {
-    it('shows "selected" when no files are pending', () => {
+    it('shows "output" when no files are pending', () => {
       render(<TokenSummaryBar {...defaultProps} selectedTokensPendingCount={0} />);
 
-      expect(screen.getByText(/5,000 selected/)).toBeInTheDocument();
+      expect(screen.getByText(/5,000 output/)).toBeInTheDocument();
     });
 
     it('shows "estimating..." when files are pending', () => {
@@ -45,11 +45,11 @@ describe('TokenSummaryBar', () => {
     it('defaults to not estimating when prop is omitted', () => {
       render(<TokenSummaryBar {...defaultProps} />);
 
-      expect(screen.getByText(/5,000 selected/)).toBeInTheDocument();
+      expect(screen.getByText(/5,000 output/)).toBeInTheDocument();
       expect(screen.queryByText(/estimating/)).not.toBeInTheDocument();
     });
 
-    it('shows output/source breakdown when tapestry range mode is enabled', () => {
+    it('always shows the source token breakdown alongside output tokens (single presentation, no toggle)', () => {
       render(
         <TokenSummaryBar
           {...defaultProps}
@@ -57,7 +57,6 @@ describe('TokenSummaryBar', () => {
           rangeAdjustedFilesCount={3}
           selectedTokens={3200}
           sourceSelectedTokens={5000}
-          useTapestryRanges
         />
       );
 
