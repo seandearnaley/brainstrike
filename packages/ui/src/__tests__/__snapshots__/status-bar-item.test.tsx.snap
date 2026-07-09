@@ -7,7 +7,7 @@ exports[`StatusBarItem > Snapshots > renders connected status 1`] = `
 >
   <svg
     aria-hidden="true"
-    class="lucide lucide-database h-3 w-3"
+    class="lucide lucide-database h-3 w-3 shrink-0"
     fill="none"
     height="24"
     stroke="currentColor"
@@ -44,7 +44,7 @@ exports[`StatusBarItem > Snapshots > renders disconnected status 1`] = `
 >
   <svg
     aria-hidden="true"
-    class="lucide lucide-database h-3 w-3"
+    class="lucide lucide-database h-3 w-3 shrink-0"
     fill="none"
     height="24"
     stroke="currentColor"
@@ -76,12 +76,12 @@ exports[`StatusBarItem > Snapshots > renders disconnected status 1`] = `
 
 exports[`StatusBarItem > Snapshots > renders loading status 1`] = `
 <span
-  class="flex items-center gap-1 text-muted-foreground animate-pulse"
+  class="flex items-center gap-1 text-muted-foreground"
   data-testid="db-status"
 >
   <svg
     aria-hidden="true"
-    class="lucide lucide-database h-3 w-3"
+    class="lucide lucide-database h-3 w-3 shrink-0 animate-pulse motion-reduce:animate-none"
     fill="none"
     height="24"
     stroke="currentColor"

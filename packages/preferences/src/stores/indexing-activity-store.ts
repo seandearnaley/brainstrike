@@ -45,6 +45,23 @@ export interface IndexingWorkerSnapshot {
   readonly state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping' | 'unknown';
 }
 
+export interface IndexingManagedCollectionStats {
+  readonly chunkCount: number;
+  readonly dirty: boolean;
+  readonly embeddedChunkCount: number;
+  readonly embeddingSetId: string;
+  readonly fileCount: number;
+  readonly lastRefreshedAt: string;
+  readonly pendingChunkCount: number;
+}
+
+export interface IndexingManagedCollectionStatsState {
+  readonly collectionId: string | null;
+  readonly error: string | null;
+  readonly stats: IndexingManagedCollectionStats | null;
+  readonly status: 'unavailable' | 'loading' | 'pending' | 'ready' | 'error';
+}
+
 export type IndexingDatabaseWorkPriority = 'foreground' | 'normal' | 'background';
 
 export interface IndexingDatabaseWorkSnapshot {
@@ -95,6 +112,7 @@ export interface IndexingActivitySnapshot {
 
 interface IndexingActivityData {
   readonly indexingActivityError: string | null;
+  readonly managedCollectionStats: IndexingManagedCollectionStatsState;
   readonly snapshot: IndexingActivitySnapshot;
 }
 
@@ -104,6 +122,7 @@ interface IndexingActivityActions {
   readonly setBackgroundSnapshot: (background: IndexingBackgroundSnapshot) => void;
   readonly setDatabaseWorkSnapshot: (databaseWork: IndexingDatabaseWorkSnapshot | null) => void;
   readonly setIndexingActivityError: (error: string | null) => void;
+  readonly setManagedCollectionStats: (state: IndexingManagedCollectionStatsState) => void;
   readonly setQueueSnapshot: (queue: IndexingQueueSnapshot | null) => void;
   readonly setWorkerSnapshot: (worker: IndexingWorkerSnapshot | null) => void;
 }
@@ -137,6 +156,13 @@ const DEFAULT_INDEXING_ACTIVITY_SNAPSHOT: IndexingActivitySnapshot = {
   queue: null,
   status: 'unavailable',
   worker: null,
+};
+
+const DEFAULT_MANAGED_COLLECTION_STATS: IndexingManagedCollectionStatsState = {
+  collectionId: null,
+  error: null,
+  stats: null,
+  status: 'unavailable',
 };
 
 function isQueueActive(queue: IndexingQueueSnapshot | null): boolean {
@@ -383,9 +409,11 @@ function now(): number {
 
 export const useIndexingActivityStore = create<IndexingActivityStore>()((set) => ({
   indexingActivityError: null,
+  managedCollectionStats: DEFAULT_MANAGED_COLLECTION_STATS,
   resetIndexingActivity: () =>
     set({
       indexingActivityError: null,
+      managedCollectionStats: DEFAULT_MANAGED_COLLECTION_STATS,
       snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
     }),
   setBackfills: (backfills: readonly IndexingBackfillSnapshot[]) =>
@@ -417,6 +445,8 @@ export const useIndexingActivityStore = create<IndexingActivityStore>()((set) =>
       indexingActivityError: error,
       snapshot: deriveNextSnapshot(state.snapshot, error, { lastUpdatedAt: now() }),
     })),
+  setManagedCollectionStats: (managedCollectionStats: IndexingManagedCollectionStatsState) =>
+    set({ managedCollectionStats }),
   setQueueSnapshot: (queue: IndexingQueueSnapshot | null) =>
     set((state) => ({
       snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
@@ -437,6 +467,7 @@ export const useIndexingActivityStore = create<IndexingActivityStore>()((set) =>
 export function __resetIndexingActivityStoreForTests(): void {
   useIndexingActivityStore.setState({
     indexingActivityError: null,
+    managedCollectionStats: DEFAULT_MANAGED_COLLECTION_STATS,
     snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
   });
 }

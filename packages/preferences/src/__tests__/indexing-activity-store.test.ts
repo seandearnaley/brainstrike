@@ -3,8 +3,19 @@ import {
   __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
   type IndexingDatabaseWorkSnapshot,
+  type IndexingManagedCollectionStats,
   useIndexingActivityStore,
 } from '../stores/indexing-activity-store';
+
+const MANAGED_COLLECTION_STATS: IndexingManagedCollectionStats = {
+  chunkCount: 42,
+  dirty: false,
+  embeddedChunkCount: 30,
+  embeddingSetId: 'workspace-index-a',
+  fileCount: 7,
+  lastRefreshedAt: '2026-07-09T12:00:00.000Z',
+  pendingChunkCount: 12,
+};
 
 function createPriorityStats(
   overrides: Partial<IndexingDatabaseWorkPriorityStats> = {}
@@ -78,6 +89,74 @@ describe('indexing-activity-store', () => {
       queue: null,
       status: 'unavailable',
       worker: null,
+    });
+  });
+
+  it('starts managed collection stats explicitly unavailable', () => {
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: null,
+      error: null,
+      stats: null,
+      status: 'unavailable',
+    });
+  });
+
+  it('stores explicit managed collection stats lifecycle states without inventing zeroes', () => {
+    const { setManagedCollectionStats } = useIndexingActivityStore.getState();
+
+    setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: null,
+      status: 'loading',
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: null,
+      status: 'loading',
+    });
+
+    setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: null,
+      status: 'pending',
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: null,
+      status: 'pending',
+    });
+
+    setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'ready',
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'ready',
+    });
+  });
+
+  it('allows an error state to retain last-known stats for the same managed collection', () => {
+    useIndexingActivityStore.getState().setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: 'Managed collection stats query failed',
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'error',
+    });
+
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: 'workspace-index-a',
+      error: 'Managed collection stats query failed',
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'error',
     });
   });
 
@@ -302,6 +381,12 @@ describe('indexing-activity-store', () => {
       succeeded: 0,
       succeededLifetime: 0,
     });
+    useIndexingActivityStore.getState().setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'ready',
+    });
 
     useIndexingActivityStore.getState().resetIndexingActivity();
 
@@ -309,6 +394,12 @@ describe('indexing-activity-store', () => {
       lastUpdatedAt: null,
       phase: null,
       queue: null,
+      status: 'unavailable',
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: null,
+      error: null,
+      stats: null,
       status: 'unavailable',
     });
   });

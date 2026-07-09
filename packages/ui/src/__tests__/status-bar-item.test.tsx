@@ -42,11 +42,12 @@ describe('StatusBarItem', () => {
     expect(screen.getByTestId('test-item')).toHaveClass('text-yellow-600');
   });
 
-  it('applies loading status styling with animation', () => {
-    render(<StatusBarItem label="Loading" status="loading" testId="test-item" />);
+  it('animates only the loading icon and respects reduced motion', () => {
+    render(<StatusBarItem icon={Database} label="Loading" status="loading" testId="test-item" />);
     const item = screen.getByTestId('test-item');
     expect(item).toHaveClass('text-muted-foreground');
-    expect(item).toHaveClass('animate-pulse');
+    expect(item).not.toHaveClass('animate-pulse');
+    expect(item.querySelector('svg')).toHaveClass('animate-pulse', 'motion-reduce:animate-none');
   });
 
   it('defaults to connected status when not specified', () => {

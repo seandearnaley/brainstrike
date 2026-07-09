@@ -21,7 +21,7 @@ export interface StatusBarItemProps {
 const statusClasses: Record<StatusBarItemStatus, string> = {
   connected: 'text-green-600',
   disconnected: 'text-red-600',
-  loading: 'text-muted-foreground animate-pulse',
+  loading: 'text-muted-foreground',
   warning: 'text-yellow-600',
 };
 
@@ -42,7 +42,14 @@ export function StatusBarItem({
       className={cn('flex items-center gap-1', statusClasses[status], className)}
       data-testid={testId}
     >
-      {Icon && <Icon className="h-3 w-3" />}
+      {Icon && (
+        <Icon
+          className={cn(
+            'h-3 w-3 shrink-0',
+            status === 'loading' && 'animate-pulse motion-reduce:animate-none'
+          )}
+        />
+      )}
       {label && <span>{label}</span>}
       {value && <span>{value}</span>}
     </span>

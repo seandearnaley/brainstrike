@@ -1,11 +1,13 @@
 import {
   createPriorityDbHandle,
+  getCollectionIndexingStats,
   getDatabaseWorkScheduler,
   usePGliteDatabase,
 } from '@brainstrike/db';
 import {
   type IndexingBackfillSnapshot,
   type IndexingDatabaseWorkSnapshot,
+  type IndexingManagedCollectionStatsState,
   type IndexingQueueSnapshot,
   type IndexingWorkerSnapshot,
   useBackgroundIndexingPreferencesStore,
@@ -37,6 +39,7 @@ const QUEUE_AGGREGATE_QUERY = `
   WHERE queue = $1
 `.trim();
 const DATABASE_WORK_SNAPSHOT_POLL_MS = 500;
+const MANAGED_COLLECTION_STATS_POLL_MS = 1000;
 const QUEUE_SNAPSHOT_POLL_MS = 1000;
 
 interface QueueAggregateRow {
@@ -104,6 +107,42 @@ function normalizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+type CollectionStatsDatabase = Parameters<typeof getCollectionIndexingStats>[0];
+
+async function readManagedCollectionStats(
+  db: CollectionStatsDatabase,
+  collectionId: string
+): Promise<IndexingManagedCollectionStatsState> {
+  const stats = await getCollectionIndexingStats(db, collectionId, {
+    label: 'managed collection stats',
+    priority: 'background',
+  });
+  if (stats && stats.embeddingSetId !== collectionId) {
+    throw new Error(
+      `Managed collection stats identity mismatch: expected ${collectionId}, received ${stats.embeddingSetId}`
+    );
+  }
+  return {
+    collectionId,
+    error: null,
+    stats,
+    status: stats ? 'ready' : 'pending',
+  };
+}
+
+function createManagedCollectionStatsErrorState(
+  collectionId: string,
+  error: unknown
+): IndexingManagedCollectionStatsState {
+  const current = useIndexingActivityStore.getState().managedCollectionStats;
+  return {
+    collectionId,
+    error: normalizeError(error),
+    stats: current.collectionId === collectionId ? current.stats : null,
+    status: 'error',
+  };
+}
+
 async function readQueueSnapshot(
   db: ReturnType<typeof usePGliteDatabase>
 ): Promise<IndexingQueueSnapshot | null> {
@@ -138,6 +177,9 @@ export function IndexingActivityCoordinator(): null {
   );
   const setIndexingActivityError = useIndexingActivityStore(
     (state) => state.setIndexingActivityError
+  );
+  const setManagedCollectionStats = useIndexingActivityStore(
+    (state) => state.setManagedCollectionStats
   );
   const setDurableQueueStats = useVectorStatusUIStore((state) => state.setDurableQueueStats);
   const setIsJobQueueActive = useVectorStatusUIStore((state) => state.setIsJobQueueActive);
@@ -346,6 +388,71 @@ export function IndexingActivityCoordinator(): null {
   useEffect(() => {
     setBackgroundSnapshot(backgroundSnapshot);
   }, [backgroundSnapshot, setBackgroundSnapshot]);
+
+  useEffect(() => {
+    if (!managedCollectionId) {
+      setManagedCollectionStats({
+        collectionId: null,
+        error: null,
+        stats: null,
+        status: 'unavailable',
+      });
+      return;
+    }
+
+    if (!backgroundDb || typeof backgroundDb.query !== 'function') {
+      setManagedCollectionStats({
+        collectionId: managedCollectionId,
+        error: null,
+        stats: null,
+        status: 'unavailable',
+      });
+      return;
+    }
+
+    let disposed = false;
+    let refreshInFlight = false;
+
+    setManagedCollectionStats({
+      collectionId: managedCollectionId,
+      error: null,
+      stats: null,
+      status: 'loading',
+    });
+
+    const refresh = async (): Promise<void> => {
+      if (refreshInFlight) {
+        return;
+      }
+      refreshInFlight = true;
+      try {
+        const state = await readManagedCollectionStats(backgroundDb, managedCollectionId);
+        refreshInFlight = false;
+        if (disposed) {
+          return;
+        }
+        setManagedCollectionStats(state);
+      } catch (error) {
+        refreshInFlight = false;
+        if (disposed) {
+          return;
+        }
+        setManagedCollectionStats(
+          createManagedCollectionStatsErrorState(managedCollectionId, error)
+        );
+      }
+    };
+
+    void refresh();
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, MANAGED_COLLECTION_STATS_POLL_MS);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, [backgroundDb, managedCollectionId, setManagedCollectionStats]);
 
   return null;
 }
