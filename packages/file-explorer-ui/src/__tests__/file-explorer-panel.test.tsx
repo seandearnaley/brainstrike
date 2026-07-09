@@ -1,10 +1,10 @@
 import type { PendingRestoreState } from '@brainstrike/file-explorer-hooks';
-import type { DirectoryHandle } from '@brainstrike/file-system';
+import { type DirectoryHandle, MockFileSystemAdapter } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { FileExplorerState } from '@brainstrike/types';
-import { screen, waitFor } from '@testing-library/react';
+import { act, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { FileExplorerPanel } from '../shell/file-explorer-panel';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import {
@@ -13,6 +13,8 @@ import {
 } from '../shell/file-explorer-refresh-event';
 import { useFileExplorer } from '../shell/use-file-explorer-context';
 import { useSelectionManager } from '../shell/use-selection-manager-context';
+import { type FileTreeRefreshResult, useFileTree } from '../tree/use-file-tree-context';
+import { __resetInFlightRootLoads } from '../tree/use-lazy-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 // biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
@@ -134,8 +136,8 @@ const Wrapper = composeWrappers(({ children }) => (
 ));
 const renderWithProviders = makeRenderWithProviders(Wrapper);
 
-let refreshFileExplorerMock: ReturnType<typeof vi.fn>;
-let showToastMock: ReturnType<typeof vi.fn>;
+let refreshFileExplorerMock: Mock<() => Promise<FileTreeRefreshResult>>;
+let showToastMock: Mock<(options: unknown) => void>;
 let handleDirectorySelectErrorMock: ReturnType<typeof vi.fn>;
 let setFiltersMock: ReturnType<typeof vi.fn>;
 let applyFileFiltersMock: ReturnType<typeof vi.fn>;
@@ -238,7 +240,9 @@ describe('FileExplorerPanel', () => {
 
     handleRootDirectorySelectMock = vi.fn();
     applyFileFiltersMock = vi.fn();
-    refreshFileExplorerMock = vi.fn();
+    refreshFileExplorerMock = vi
+      .fn<() => Promise<FileTreeRefreshResult>>()
+      .mockResolvedValue({ status: 'completed' });
     isFileSystemAccessSupportedMock = vi.fn(() => ({ reason: '', supported: true }));
     fileExplorerReturnValue = {
       addRootDirectory: vi.fn().mockResolvedValue(null),
@@ -311,7 +315,7 @@ describe('FileExplorerPanel', () => {
       wouldExceedSelectionLimit: vi.fn(),
     } as unknown as ReturnType<typeof useSelectionManager>);
 
-    showToastMock = vi.fn();
+    showToastMock = vi.fn<(options: unknown) => void>();
     handleDirectorySelectErrorMock = vi.fn();
   });
 
@@ -662,20 +666,24 @@ describe('FileExplorerPanel', () => {
   it('triggers refresh and shows toast when refresh button is clicked', async () => {
     const user = userEvent.setup();
     const refreshEvents: CustomEvent<FileExplorerRefreshEventDetail>[] = [];
+    const downstreamFullSync = vi.fn();
     const onRefresh = (event: Event): void => {
       refreshEvents.push(event as CustomEvent<FileExplorerRefreshEventDetail>);
+      downstreamFullSync();
     };
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
 
     try {
+      refreshFileExplorerMock.mockResolvedValueOnce({ status: 'completed' });
       renderWithProviders(<FileExplorerPanel />);
 
       // Click the refresh button which is now rendered by FileExplorerPanel itself
       await user.click(screen.getByTestId('refresh-button-small'));
 
       expect(refreshFileExplorerMock).toHaveBeenCalledTimes(1);
-      expect(showToastMock).toHaveBeenCalled();
+      expect(showToastMock).toHaveBeenCalledTimes(1);
       expect(refreshEvents).toHaveLength(1);
+      expect(downstreamFullSync).toHaveBeenCalledOnce();
       expect(refreshEvents[0]?.detail).toEqual({
         roots: [],
         scope: 'full',
@@ -683,6 +691,103 @@ describe('FileExplorerPanel', () => {
       });
     } finally {
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+    }
+  });
+
+  it('does not report a cancelled real root refresh as successful', async () => {
+    __resetInFlightRootLoads();
+    const mockAdapter = new MockFileSystemAdapter();
+    mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+    const handle = await mockAdapter.requestDirectoryAccess();
+    const { useAdapters, useToastManager } = await import('@brainstrike/file-explorer-hooks');
+    vi.mocked(useAdapters).mockReturnValue({
+      fileSystemAdapter: mockAdapter,
+      storageAdapter: {} as ReturnType<typeof useAdapters>['storageAdapter'],
+    });
+
+    const TestWrapper = ({ children }: { children: React.ReactNode }) =>
+      FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+    const treeHook = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+    await waitFor(() => expect(treeHook.result.current.isLoading).toBe(false));
+
+    const committedTree = treeHook.result.current.fileTree;
+    let releaseRefresh: (() => void) | null = null;
+    const readDirectoryStreamingSpy = vi
+      .spyOn(mockAdapter, 'readDirectoryStreaming')
+      .mockImplementation(async (_handle, onBatch) => {
+        await new Promise<void>((resolve) => {
+          releaseRefresh = () => {
+            onBatch(committedTree, { done: true, total: committedTree.length });
+            resolve();
+          };
+        });
+      });
+
+    let refreshOutcome: FileTreeRefreshResult | undefined;
+    refreshFileExplorerMock.mockImplementation(async () => {
+      refreshOutcome = await treeHook.result.current.refreshTree();
+      return refreshOutcome;
+    });
+    const handleRefreshError = vi.fn();
+    vi.mocked(useToastManager).mockReturnValue({
+      handleBrowserCompatibilityError: vi.fn(),
+      handleDirectorySelectError: vi.fn(),
+      handlePartialRefreshError: vi.fn(),
+      handleRefreshError,
+      showToast: (toastOptions) => showToastMock(toastOptions),
+      toast: vi.fn(),
+    });
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      cancelOperation: () => treeHook.result.current.cancelOperation(),
+      refreshFileExplorer: refreshFileExplorerMock,
+      rootDirectoryHandle: handle,
+    });
+
+    const refreshEvents: CustomEvent<FileExplorerRefreshEventDetail>[] = [];
+    const downstreamFullSync = vi.fn();
+    const onRefresh = (event: Event): void => {
+      refreshEvents.push(event as CustomEvent<FileExplorerRefreshEventDetail>);
+      downstreamFullSync();
+    };
+    window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+
+    try {
+      const user = userEvent.setup();
+      renderWithProviders(<FileExplorerPanel />);
+      showToastMock.mockClear();
+
+      await user.click(screen.getByTestId('refresh-button-small'));
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(treeHook.result.current.isLoading).toBe(true);
+      });
+
+      act(() => {
+        treeHook.result.current.cancelOperation();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const refreshIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      await act(async () => {
+        releaseRefresh?.();
+        await refreshIoPromise;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+
+      await waitFor(() => expect(refreshOutcome).toEqual({ status: 'cancelled' }));
+      expect(showToastMock).not.toHaveBeenCalled();
+      expect(refreshEvents).toEqual([]);
+      expect(downstreamFullSync).not.toHaveBeenCalled();
+      expect(handleRefreshError).not.toHaveBeenCalled();
+      expect(treeHook.result.current.fileTree).toEqual(committedTree);
+      expect(treeHook.result.current.isLoading).toBe(false);
+    } finally {
+      window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+      treeHook.unmount();
+      __resetInFlightRootLoads();
     }
   });
 
@@ -826,6 +931,11 @@ describe('FileExplorerPanel', () => {
   it('handles refresh errors', async () => {
     const error = new Error('Refresh failed');
     const handleRefreshErrorMock = vi.fn();
+    const errorShowToast = vi.fn();
+    const refreshEvents: Event[] = [];
+    const onRefresh = (event: Event): void => {
+      refreshEvents.push(event);
+    };
 
     refreshFileExplorerMock.mockRejectedValueOnce(error);
 
@@ -836,16 +946,24 @@ describe('FileExplorerPanel', () => {
       handleDirectorySelectError: vi.fn(),
       handlePartialRefreshError: vi.fn(),
       handleRefreshError: handleRefreshErrorMock,
-      showToast: vi.fn(),
+      showToast: errorShowToast,
       toast: vi.fn(),
     });
 
-    const user = userEvent.setup();
-    renderWithProviders(<FileExplorerPanel />);
+    window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+    try {
+      const user = userEvent.setup();
+      renderWithProviders(<FileExplorerPanel />);
 
-    await user.click(screen.getByTestId('refresh-button-small'));
+      await user.click(screen.getByTestId('refresh-button-small'));
 
-    expect(handleRefreshErrorMock).toHaveBeenCalledWith(error);
+      expect(handleRefreshErrorMock).toHaveBeenCalledOnce();
+      expect(handleRefreshErrorMock).toHaveBeenCalledWith(error);
+      expect(errorShowToast).not.toHaveBeenCalled();
+      expect(refreshEvents).toEqual([]);
+    } finally {
+      window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
+    }
   });
 
   it('does not show action buttons when no root directory is selected', async () => {

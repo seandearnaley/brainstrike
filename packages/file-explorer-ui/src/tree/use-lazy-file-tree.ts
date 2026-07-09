@@ -180,6 +180,78 @@ function resolveLoadRootSkip(
   return shouldSkipLoadRoot(rootPath, isExpandingAll, initializedRoot, fileTreeLength);
 }
 
+interface RootLoadPreflightArguments {
+  committedRootIdentity: string | null;
+  fileSystemAdapter: ReturnType<typeof useAdapters>['fileSystemAdapter'];
+  fileTreeLength: number;
+  force: boolean;
+  initializedRoot: string | null;
+  isExpandingAll: boolean;
+  resetCommittedRootState: (
+    nextIdentity: string | null,
+    nextRootFolderId: string,
+    isInitialLoading: boolean
+  ) => Error | null;
+  resolvedRootFolderId: string;
+  rootDirectoryHandle: DirectoryHandle | null;
+}
+
+type RootLoadPreflightResult =
+  | {
+      fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
+      rootDirectoryHandle: DirectoryHandle;
+      rootIdentity: string;
+      rootPath: string;
+      status: 'ready';
+    }
+  | { outcome: RootLoadOutcome; status: 'stopped' };
+
+function prepareRootLoad(args: RootLoadPreflightArguments): RootLoadPreflightResult {
+  const { fileSystemAdapter, resetCommittedRootState, rootDirectoryHandle } = args;
+  if (!(rootDirectoryHandle && fileSystemAdapter)) {
+    const resetError = resetCommittedRootState(null, '', false);
+    if (resetError) {
+      return { outcome: { error: resetError, status: 'failed' }, status: 'stopped' };
+    }
+    return { outcome: { status: 'skipped' }, status: 'stopped' };
+  }
+
+  const rootPath = rootDirectoryHandle.path;
+  const rootIdentity = createRootIdentityKey(rootPath, args.resolvedRootFolderId);
+  const rootIdentityChanged = hasCommittedRootIdentityChanged(
+    args.committedRootIdentity,
+    rootIdentity
+  );
+  if (rootIdentityChanged) {
+    const resetError = resetCommittedRootState(rootIdentity, args.resolvedRootFolderId, true);
+    if (resetError) {
+      return { outcome: { error: resetError, status: 'failed' }, status: 'stopped' };
+    }
+  }
+
+  if (!rootIdentityChanged) {
+    const skipCheck = resolveLoadRootSkip(
+      args.force,
+      rootPath,
+      args.isExpandingAll,
+      args.initializedRoot,
+      args.fileTreeLength
+    );
+    if (skipCheck.skip) {
+      logger.debug(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
+      return { outcome: { status: 'skipped' }, status: 'stopped' };
+    }
+  }
+
+  return {
+    fileSystemAdapter,
+    rootDirectoryHandle,
+    rootIdentity,
+    rootPath,
+    status: 'ready',
+  };
+}
+
 function hasCommittedRootIdentityChanged(
   committedIdentity: string | null,
   nextIdentity: string
@@ -210,19 +282,6 @@ function isActiveLoadRootRun(
   currentRunId: number
 ): boolean {
   return !isUnmountedRef.current && loadRootRunIdRef.current === currentRunId;
-}
-
-function shouldApplyLoadRootResult(
-  isUnmountedRef: React.RefObject<boolean>,
-  loadRootRunIdRef: React.RefObject<number>,
-  currentRunId: number,
-  lastAppliedRequest: InFlightRootLoad | null,
-  nextRequest: InFlightRootLoad
-): boolean {
-  return (
-    isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId) &&
-    lastAppliedRequest !== nextRequest
-  );
 }
 
 function toError(error: unknown): Error {
@@ -320,6 +379,35 @@ function handleActiveLoadRootError(
   if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
     handleLoadRootError(err, setState);
   }
+}
+
+interface RootLoadErrorArguments {
+  currentRunId: number;
+  error: unknown;
+  isUnmountedRef: React.RefObject<boolean>;
+  loadRootRunIdRef: React.RefObject<number>;
+  rootConsumerController: AbortController | null;
+  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>;
+}
+
+function resolveRootLoadError(args: RootLoadErrorArguments): RootLoadOutcome {
+  if (
+    args.rootConsumerController?.signal.aborted ||
+    isAbortError(args.error) ||
+    !isActiveLoadRootRun(args.isUnmountedRef, args.loadRootRunIdRef, args.currentRunId)
+  ) {
+    return { status: 'cancelled' };
+  }
+
+  const error = toError(args.error);
+  handleActiveLoadRootError(
+    error,
+    args.isUnmountedRef,
+    args.loadRootRunIdRef,
+    args.currentRunId,
+    args.setState
+  );
+  return { error, status: 'failed' };
 }
 
 interface RootLoadArguments {
@@ -747,6 +835,13 @@ export interface LazyFileTreeState {
   loadingPaths: Set<string>;
 }
 
+export type FileTreeRefreshResult = { status: 'cancelled' } | { status: 'completed' };
+
+type RootLoadOutcome =
+  | FileTreeRefreshResult
+  | { error: Error; status: 'failed' }
+  | { status: 'skipped' };
+
 export interface UseLazyFileTreeReturn {
   /** @internal get cached descendant file count without tree traversal */
   __internalGetDescendantFileCount: (path: string) => number;
@@ -794,7 +889,7 @@ export interface UseLazyFileTreeReturn {
   /** Set of paths currently being loaded */
   loadingPaths: Set<string>;
   /** Load root directory contents */
-  loadRoot: () => Promise<void>;
+  loadRoot: () => Promise<RootLoadOutcome>;
   /** Load specific paths using worker (for restoration) */
   loadSpecificPaths: (
     paths: string[],
@@ -805,7 +900,7 @@ export interface UseLazyFileTreeReturn {
   /** Force refresh a directory (reload its children) */
   refreshDirectory: (path: string) => Promise<void>;
   /** Refresh the entire tree from root */
-  refreshTree: () => Promise<void>;
+  refreshTree: () => Promise<FileTreeRefreshResult>;
   /** Loading progress for select all (if available) */
   selectAllLoadingProgress: { loaded: number; total: number } | null;
   /**
@@ -993,7 +1088,11 @@ export function useLazyFileTree(
   });
 
   const resetCommittedRootState = useCallback(
-    (nextIdentity: string | null, nextRootFolderId: string, isInitialLoading: boolean): boolean => {
+    (
+      nextIdentity: string | null,
+      nextRootFolderId: string,
+      isInitialLoading: boolean
+    ): Error | null => {
       fileTreeRef.current = [];
       normalizedTreeRef.current = createEmptyNormalizedFileTreeState();
       handleMapRef.current.clear();
@@ -1010,12 +1109,12 @@ export function useLazyFileTree(
 
       const port = portRef.current;
       if (!port) {
-        return true;
+        return null;
       }
 
       try {
         port.init([], nextRootFolderId);
-        return true;
+        return null;
       } catch (error) {
         const workerError = toError(error);
         logger.error('Failed to reset root worker snapshot', {
@@ -1027,7 +1126,7 @@ export function useLazyFileTree(
           error: workerError,
           isInitialLoading: false,
         }));
-        return false;
+        return workerError;
       }
     },
     [handleMapRef, portRef]
@@ -1096,56 +1195,42 @@ export function useLazyFileTree(
    * Load root directory contents
    */
   const loadRoot = useCallback(
-    async (force = false) => {
+    async (force = false): Promise<RootLoadOutcome> => {
       // CRITICAL: Guard against concurrent loadRoot calls FIRST
       // This must be checked and set atomically before any other logic to prevent
       // race conditions during React StrictMode double-mount or rapid re-renders
       if (isLoadingRootRef.current) {
         logger.debug('loadRoot skipped - already loading');
-        return;
+        return { status: 'skipped' };
       }
       // Set flag IMMEDIATELY after guard passes - before any other code
       isLoadingRootRef.current = true;
       const currentRunId = ++loadRootRunIdRef.current;
 
-      if (!(rootDirectoryHandle && fileSystemAdapter)) {
-        resetCommittedRootState(null, '', false);
-        isLoadingRootRef.current = false;
-        return;
-      }
-
-      const rootPath = rootDirectoryHandle.path;
-      const rootIdentity = createRootIdentityKey(rootPath, resolvedRootFolderId);
-
-      if (hasCommittedRootIdentityChanged(committedRootIdentityRef.current, rootIdentity)) {
-        const resetSucceeded = resetCommittedRootState(rootIdentity, resolvedRootFolderId, true);
-        if (!resetSucceeded) {
-          isLoadingRootRef.current = false;
-          return;
-        }
-      }
-
-      // Check if we should skip loading (expand-all in progress or already initialized)
-      const skipCheck = resolveLoadRootSkip(
+      const preflight = prepareRootLoad({
+        committedRootIdentity: committedRootIdentityRef.current,
+        fileSystemAdapter,
+        fileTreeLength: fileTreeRef.current.length,
         force,
-        rootPath,
-        isExpandingAllRef.current,
-        initializedRootRef.current,
-        fileTreeRef.current.length
-      );
-
-      if (skipCheck.skip) {
-        logger.debug(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
+        initializedRoot: initializedRootRef.current,
+        isExpandingAll: isExpandingAllRef.current,
+        resetCommittedRootState,
+        resolvedRootFolderId,
+        rootDirectoryHandle,
+      });
+      if (preflight.status === 'stopped') {
         isLoadingRootRef.current = false;
-        return;
+        return preflight.outcome;
       }
+      const { rootIdentity, rootPath } = preflight;
 
+      let rootConsumerController: AbortController | null = null;
       try {
-        const rootConsumerController = createAbortController(null);
+        rootConsumerController = createAbortController(null);
         const rootLoadRequest = loadRootChildren({
           consumerSignal: rootConsumerController.signal,
-          fileSystemAdapter,
-          rootDirectoryHandle,
+          fileSystemAdapter: preflight.fileSystemAdapter,
+          rootDirectoryHandle: preflight.rootDirectoryHandle,
           rootFolderId: resolvedRootFolderId,
           rootPath,
         });
@@ -1157,37 +1242,46 @@ export function useLazyFileTree(
           rootPath
         );
 
-        setState(createLoadRootPendingState);
+        const requestAlreadyApplied = lastAppliedRootLoadRef.current === rootLoadRequest.request;
+        if (!requestAlreadyApplied) {
+          setState(createLoadRootPendingState);
+        }
 
         const children = await rootLoadRequest.consumerPromise;
 
-        if (
-          shouldApplyLoadRootResult(
-            isUnmountedRef,
-            loadRootRunIdRef,
-            currentRunId,
-            lastAppliedRootLoadRef.current,
-            rootLoadRequest.request
-          )
-        ) {
-          handleLoadRootSuccess(
-            children,
-            rootPath,
-            handleMapRef,
-            portRef,
-            setState,
-            initializedRootRef,
-            // Storage v5: worker init uses the resolved RootId so that worker-
-            // side composite keys match the store's identity.
-            resolvedRootFolderId
-          );
-          syncNormalizedTree(children);
-          committedRootIdentityRef.current = rootIdentity;
-          lastAppliedRootLoadRef.current = rootLoadRequest.request;
-          notifyRootNodesIndexed(children, onNodesIndexedRef);
+        if (!isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
+          return { status: 'cancelled' };
         }
+        if (requestAlreadyApplied || lastAppliedRootLoadRef.current === rootLoadRequest.request) {
+          setState((currentState) => ({ ...currentState, isInitialLoading: false }));
+          return { status: 'completed' };
+        }
+
+        handleLoadRootSuccess(
+          children,
+          rootPath,
+          handleMapRef,
+          portRef,
+          setState,
+          initializedRootRef,
+          // Storage v5: worker init uses the resolved RootId so that worker-
+          // side composite keys match the store's identity.
+          resolvedRootFolderId
+        );
+        syncNormalizedTree(children);
+        committedRootIdentityRef.current = rootIdentity;
+        lastAppliedRootLoadRef.current = rootLoadRequest.request;
+        notifyRootNodesIndexed(children, onNodesIndexedRef);
+        return { status: 'completed' };
       } catch (err) {
-        handleActiveLoadRootError(err, isUnmountedRef, loadRootRunIdRef, currentRunId, setState);
+        return resolveRootLoadError({
+          currentRunId,
+          error: err,
+          isUnmountedRef,
+          loadRootRunIdRef,
+          rootConsumerController,
+          setState,
+        });
       } finally {
         if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
           isLoadingRootRef.current = false;
@@ -1602,8 +1696,15 @@ export function useLazyFileTree(
    * await refreshTree();
    * ```
    */
-  const refreshTree = useCallback(async () => {
-    await loadRoot(true);
+  const refreshTree = useCallback(async (): Promise<FileTreeRefreshResult> => {
+    const outcome = await loadRoot(true);
+    if (outcome.status === 'failed') {
+      throw outcome.error;
+    }
+    if (outcome.status === 'completed') {
+      return outcome;
+    }
+    return { status: 'cancelled' };
   }, [loadRoot]);
 
   /**

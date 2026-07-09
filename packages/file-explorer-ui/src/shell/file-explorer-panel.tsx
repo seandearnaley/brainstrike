@@ -627,7 +627,11 @@ const FileExplorerPanelInner = React.memo(() => {
 
     setIsRefreshing(true);
     try {
-      await refreshFileExplorer();
+      const refreshResult = await refreshFileExplorer();
+      if (refreshResult.status === 'cancelled') {
+        setIsRefreshing(false);
+        return;
+      }
       window.dispatchEvent(
         createFileExplorerRefreshEvent({
           roots: [],
@@ -639,11 +643,10 @@ const FileExplorerPanelInner = React.memo(() => {
         description: FileExplorerStrings.success.refreshSuccess,
         title: FileExplorerStrings.success.title,
       });
-      setIsRefreshing(false);
     } catch (error) {
       handleRefreshError(error);
-      setIsRefreshing(false);
     }
+    setIsRefreshing(false);
   }, [rootDirectoryHandle, refreshFileExplorer, showToast, handleRefreshError]);
 
   const handleDirectorySelect = useCallback(async () => {

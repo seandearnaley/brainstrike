@@ -8,7 +8,7 @@ import { addLogListener, LogLevel, resetLogger, setLogLevel } from '@brainstrike
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileTree } from '../tree/use-file-tree-context';
+import { type FileTreeRefreshResult, useFileTree } from '../tree/use-file-tree-context';
 import { __resetInFlightRootLoads } from '../tree/use-lazy-file-tree';
 import * as normalizedFileTree from '../utils/normalized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -413,7 +413,9 @@ describe('useFileTree (lazy loading version)', () => {
           });
         });
 
-      let refreshPromise = Promise.resolve();
+      let refreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'completed',
+      });
       act(() => {
         refreshPromise = result.current.refreshTree();
       });
@@ -425,15 +427,17 @@ describe('useFileTree (lazy loading version)', () => {
         result.current.cancelOperation();
       });
       const refreshIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      let refreshOutcome: FileTreeRefreshResult = { status: 'completed' };
       await act(async () => {
         releaseRefresh?.();
-        await refreshPromise;
+        refreshOutcome = await refreshPromise;
         await refreshIoPromise;
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       });
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       expect(refreshSignal?.aborted).toBe(true);
+      expect(refreshOutcome).toEqual({ status: 'cancelled' });
       expect(result.current.fileTree).toEqual(committedTree);
       expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toEqual(
         committedRootPaths
@@ -505,7 +509,9 @@ describe('useFileTree (lazy loading version)', () => {
       await waitFor(() => expect(result.current.isExpandingAll).toBe(true));
 
       let refreshSettled = false;
-      let refreshPromise = Promise.resolve();
+      let refreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'cancelled',
+      });
       act(() => {
         refreshPromise = result.current.refreshTree();
         void refreshPromise.then(() => {
@@ -528,10 +534,11 @@ describe('useFileTree (lazy loading version)', () => {
       const refreshWasLoadingAfterExpandCancel = result.current.isLoading;
 
       const refreshIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      let refreshOutcome: FileTreeRefreshResult = { status: 'cancelled' };
       await act(async () => {
         releaseRefresh?.();
         await refreshIoPromise;
-        await refreshPromise;
+        refreshOutcome = await refreshPromise;
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       });
 
@@ -542,6 +549,7 @@ describe('useFileTree (lazy loading version)', () => {
       });
 
       expect(rootWasAbortedByExpandCancel).toBe(false);
+      expect(refreshOutcome).toEqual({ status: 'completed' });
       expect(refreshWasPendingAfterExpandCancel).toBe(true);
       expect(refreshWasLoadingAfterExpandCancel).toBe(true);
       expect(mockWorkerPort.abort).toHaveBeenCalled();
@@ -600,7 +608,9 @@ describe('useFileTree (lazy loading version)', () => {
         });
 
       let refreshSettled = false;
-      let refreshPromise = Promise.resolve();
+      let refreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'cancelled',
+      });
       act(() => {
         refreshPromise = result.current.refreshTree();
         void refreshPromise.then(() => {
@@ -622,14 +632,16 @@ describe('useFileTree (lazy loading version)', () => {
       const refreshWasPendingAfterRecursiveCancel = !refreshSettled;
 
       const refreshIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      let refreshOutcome: FileTreeRefreshResult = { status: 'cancelled' };
       await act(async () => {
         releaseRefresh?.();
         await refreshIoPromise;
-        await refreshPromise;
+        refreshOutcome = await refreshPromise;
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       });
 
       expect(rootWasAbortedByRecursiveCancel).toBe(false);
+      expect(refreshOutcome).toEqual({ status: 'completed' });
       expect(refreshWasPendingAfterRecursiveCancel).toBe(true);
       expect(result.current.isLoading).toBe(false);
       expect(result.current.fileTree).toHaveLength(refreshedTree.length);
@@ -734,7 +746,7 @@ describe('useFileTree (lazy loading version)', () => {
         onBatch(lateChildren, { done: true, total: lateChildren.length });
       });
       await act(async () => {
-        await result.current.refreshTree();
+        await expect(result.current.refreshTree()).resolves.toEqual({ status: 'completed' });
       });
 
       expect(result.current.error).toBeNull();
@@ -804,10 +816,12 @@ describe('useFileTree (lazy loading version)', () => {
         { error: 'Handle not found', path: staleDirectoryPath },
       ]);
 
+      let retryOutcome: FileTreeRefreshResult = { status: 'cancelled' };
       await act(async () => {
-        await result.current.refreshTree();
+        retryOutcome = await result.current.refreshTree();
       });
 
+      expect(retryOutcome).toEqual({ status: 'completed' });
       expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
       expect(result.current.error).toBeNull();
       expect(result.current.isLoading).toBe(false);
@@ -820,6 +834,29 @@ describe('useFileTree (lazy loading version)', () => {
   });
 
   describe('Error handling', () => {
+    it('rejects a manual refresh with the exact adapter error', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const refreshError = new Error('manual refresh failed');
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockRejectedValueOnce(refreshError);
+
+      await act(async () => {
+        await expect(result.current.refreshTree()).rejects.toBe(refreshError);
+      });
+
+      expect(result.current.error).toBe(refreshError);
+      expect(result.current.isLoading).toBe(false);
+    });
+
     it('should handle non-Error exceptions properly', async () => {
       const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
       mockAdapter.setMockFileSystem(mockFS);
@@ -881,7 +918,7 @@ describe('useFileTree (lazy loading version)', () => {
       });
 
       await act(async () => {
-        await result.current.refreshTree();
+        await expect(result.current.refreshTree()).rejects.toBe(workerInitError);
       });
 
       expect(result.current.error).toBe(workerInitError);
@@ -899,10 +936,12 @@ describe('useFileTree (lazy loading version)', () => {
         [expect.objectContaining({ children: expect.any(Array), path: committedDirectoryPath })]
       );
 
+      let retryOutcome: FileTreeRefreshResult = { status: 'cancelled' };
       await act(async () => {
-        await result.current.refreshTree();
+        retryOutcome = await result.current.refreshTree();
       });
 
+      expect(retryOutcome).toEqual({ status: 'completed' });
       expect(result.current.error).toBeNull();
       expect(result.current.isLoading).toBe(false);
       expect(result.current.fileTree).toEqual(refreshedTree);
@@ -1050,9 +1089,8 @@ describe('useFileTree (lazy loading version)', () => {
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-      // Refresh should work without throwing
       await act(async () => {
-        await expect(result.current.refreshTree()).resolves.not.toThrow();
+        await expect(result.current.refreshTree()).resolves.toEqual({ status: 'completed' });
       });
     });
 
@@ -1108,7 +1146,7 @@ describe('useFileTree (lazy loading version)', () => {
       });
 
       await act(async () => {
-        await result.current.refreshTree();
+        await expect(result.current.refreshTree()).resolves.toEqual({ status: 'cancelled' });
       });
 
       const handle = await mockAdapter.requestDirectoryAccess();
@@ -1295,8 +1333,12 @@ describe('useFileTree (lazy loading version)', () => {
           });
         });
 
-      let starterRefreshPromise = Promise.resolve();
-      let joinerRefreshPromise = Promise.resolve();
+      let starterRefreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'completed',
+      });
+      let joinerRefreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'completed',
+      });
       act(() => {
         starterRefreshPromise = starterHook.result.current.refreshTree();
         joinerRefreshPromise = joinerHook.result.current.refreshTree();
@@ -1318,15 +1360,21 @@ describe('useFileTree (lazy loading version)', () => {
       expect(joinerHook.result.current.fileTree).toEqual(joinerSnapshot);
 
       const sharedRefreshIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      let starterOutcome: FileTreeRefreshResult = { status: 'completed' };
+      let joinerOutcome: FileTreeRefreshResult = { status: 'cancelled' };
       await act(async () => {
         releaseSharedRefresh?.();
         await sharedRefreshIoPromise;
-        await starterRefreshPromise;
-        await joinerRefreshPromise;
+        [starterOutcome, joinerOutcome] = await Promise.all([
+          starterRefreshPromise,
+          joinerRefreshPromise,
+        ]);
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       });
 
       expect(sharedRefreshSignal?.aborted).toBe(false);
+      expect(starterOutcome).toEqual({ status: 'cancelled' });
+      expect(joinerOutcome).toEqual({ status: 'completed' });
       expect(starterHook.result.current.fileTree).toEqual(starterSnapshot);
       expect(joinerHook.result.current.fileTree).toEqual(refreshedTree);
       expect(starterHook.result.current.isLoading).toBe(false);
