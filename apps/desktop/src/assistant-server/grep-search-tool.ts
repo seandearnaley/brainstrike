@@ -27,6 +27,31 @@ export type GrepMatchSource = 'index' | 'live' | 'both';
 /** A grep match labelled with the engine(s) that produced it. */
 export type LabeledGrepMatch = GrepMatch & { source: GrepMatchSource };
 
+/**
+ * The match shape returned to the MODEL. The chunk-locator fields
+ * (`chunkId`/`chunkStartLine`/`chunkEndLine`) are inherited from the indexed
+ * `GrepMatch` for internal merge/dedup, but the model never uses them — they are
+ * stripped here so each match costs fewer tokens in the tool result.
+ */
+export type ModelFacingGrepMatch = Omit<
+  LabeledGrepMatch,
+  'chunkId' | 'chunkStartLine' | 'chunkEndLine'
+>;
+
+/** Drop the internal chunk-locator fields, keeping only model-facing data. */
+function toModelFacingMatch(match: LabeledGrepMatch): ModelFacingGrepMatch {
+  return {
+    after: match.after,
+    before: match.before,
+    line: match.line,
+    lineText: match.lineText,
+    path: match.path,
+    source: match.source,
+    ...(match.rootId === undefined ? {} : { rootId: match.rootId }),
+    ...(match.rootName === undefined ? {} : { rootName: match.rootName }),
+  };
+}
+
 const DEFAULT_CONTENT_MATCHES = 50;
 /**
  * Internal match cap for 'files' mode aggregation. The service caps the
@@ -80,7 +105,7 @@ export interface GrepFilesToolResult extends GrepToolResultBase {
 }
 
 export interface GrepContentToolResult extends GrepToolResultBase {
-  matches: LabeledGrepMatch[];
+  matches: ModelFacingGrepMatch[];
   outputMode: 'content';
   /** Chunks that matched but lack startLine metadata (cannot report path:line). */
   skippedMissingLineMetadata: number;
@@ -312,7 +337,12 @@ function buildContentResult(
   requestedMatches: number,
   serviceCap: number
 ): GrepContentToolResult {
-  const pagedMatches = mergedResult.matches.slice(offset, offset + requestedMatches);
+  // Strip the internal chunk-locator fields BEFORE budget-fitting so the token
+  // budget reflects the trimmed model-facing shape (and never spends budget on
+  // fields the model never reads).
+  const pagedMatches = mergedResult.matches
+    .slice(offset, offset + requestedMatches)
+    .map(toModelFacingMatch);
 
   const { result } = fitItemsToCharBudget(pagedMatches, (matches): GrepContentToolResult => {
     const truncated = offset + matches.length < mergedResult.totalMatches;

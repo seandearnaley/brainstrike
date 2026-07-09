@@ -319,13 +319,12 @@ describe('assistant-tools', () => {
       context: { outputMode: 'content', pattern: 'needle' },
     });
 
+    // The internal chunk-locator fields (chunkId/chunkStartLine/chunkEndLine) are
+    // stripped from the model-facing output to save tokens.
     expect(result.matches).toEqual([
       {
         after: ['omega'],
         before: ['alpha'],
-        chunkEndLine: undefined,
-        chunkId: undefined,
-        chunkStartLine: 10,
         line: 11,
         lineText: 'needle line',
         path: 'src/x.ts',
