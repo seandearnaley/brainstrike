@@ -51,7 +51,6 @@ describe('file-explorer-ui index exports', () => {
       'use-file-tree-context.ts',
       'use-file-tree-node-selection.ts',
       'use-lazy-file-tree.ts',
-      'use-virtual-list.ts',
     ];
 
     const rootFiles = treeImplementationFiles.filter((fileName) =>

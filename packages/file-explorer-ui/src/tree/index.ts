@@ -14,4 +14,3 @@ export {
 export * from './use-file-tree-context';
 export * from './use-file-tree-node-selection';
 export * from './use-lazy-file-tree';
-export * from './use-virtual-list';

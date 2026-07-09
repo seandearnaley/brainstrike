@@ -19,4 +19,13 @@ describe('Button', () => {
     const link = screen.getByRole('link', { name: 'Link' });
     expect(link).toHaveAttribute('href', '/link');
   });
+
+  it('uses explicit transition properties instead of transition-all', () => {
+    render(<Button>Click</Button>);
+    const button = screen.getByRole('button', { name: 'Click' });
+    expect(button.className).toContain(
+      'transition-[color,background-color,border-color,box-shadow,opacity,transform]'
+    );
+    expect(button.className).not.toContain('transition-all');
+  });
 });

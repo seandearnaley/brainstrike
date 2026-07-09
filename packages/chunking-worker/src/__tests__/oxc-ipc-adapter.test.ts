@@ -226,4 +226,42 @@ describe('oxcIpcAdapter', () => {
     const id2 = (fakeSelf.postMessage.mock.calls[1]?.[0] as { requestId: string }).requestId;
     expect(id1).not.toBe(id2);
   });
+
+  it('uses crypto.randomUUID-backed oxc-ipc requestIds', async () => {
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+
+    void oxcIpcAdapter.parse('const x = 1', baseOptions);
+
+    const sent = fakeSelf.postMessage.mock.calls[0]?.[0] as { requestId: string };
+    expect(sent.requestId).toMatch(
+      /^oxc-ipc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
+  });
+
+  it('throws when crypto.randomUUID is unavailable', async () => {
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: {},
+      writable: true,
+    });
+    vi.resetModules();
+    fakeSelf = installFakeSelf();
+    const { oxcIpcAdapter, __resetIpcAdapterForTesting } = await import(
+      '../parsers/oxc-ipc-adapter'
+    );
+    __resetIpcAdapterForTesting();
+
+    try {
+      expect(() => {
+        void oxcIpcAdapter.parse('const x = 1', baseOptions);
+      }).toThrow(/crypto\.randomUUID/);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', {
+        configurable: true,
+        value: originalCrypto,
+        writable: true,
+      });
+    }
+  });
 });

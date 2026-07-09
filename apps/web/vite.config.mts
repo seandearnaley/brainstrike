@@ -243,6 +243,14 @@ export default defineConfig({
         __dirname,
         '../../packages/app-shell/styles.css'
       ),
+      '@brainstrike/db-explorer/styles.css': path.resolve(
+        __dirname,
+        '../../packages/db-explorer/styles.css'
+      ),
+      '@brainstrike/workspace-search/styles.css': path.resolve(
+        __dirname,
+        '../../packages/workspace-search/styles.css'
+      ),
       '@brainstrike/app-shell': path.resolve(__dirname, '../../packages/app-shell/src'),
       '@brainstrike/chunking-worker': path.resolve(__dirname, '../../packages/chunking-worker/src'),
       // Source-alias like every other @brainstrike package. Resolving these to

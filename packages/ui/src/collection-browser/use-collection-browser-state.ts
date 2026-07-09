@@ -39,6 +39,21 @@ const SORT_KEY_TO_COLUMN: Record<CollectionSortKey, string> = {
   status: 'status',
 };
 
+/**
+ * Apply a deferred search query onto filter state.
+ * When the deferred value lags behind keystrokes, keep the previous query so
+ * expensive filtering (and selection-clear side effects) do not run eagerly.
+ */
+export function withDeferredSearchQuery(
+  filters: CollectionBrowserFilters,
+  deferredSearchQuery: string
+): CollectionBrowserFilters {
+  if (deferredSearchQuery === filters.searchQuery) {
+    return filters;
+  }
+  return { ...filters, searchQuery: deferredSearchQuery };
+}
+
 interface UseCollectionBrowserStateOptions {
   data: CollectionTreeInput;
   expandedIds?: Set<string> | undefined;
@@ -113,6 +128,15 @@ export function useCollectionBrowserState({
   }));
   const filters = controlledFilters ?? internalFilters;
 
+  // Defer the search query to keep typing responsive on large trees.
+  // Expensive tree filtering runs in a lower-priority render while the
+  // input stays responsive — same pattern as file-explorer quick filter.
+  const deferredSearchQuery = React.useDeferredValue(filters.searchQuery);
+  const deferredFilters = React.useMemo(
+    () => withDeferredSearchQuery(filters, deferredSearchQuery),
+    [deferredSearchQuery, filters]
+  );
+
   const [internalSelectedId, setInternalSelectedId] = React.useState<string | null>(null);
   const selectedId = controlledSelectedId === undefined ? internalSelectedId : controlledSelectedId;
   const setSelectedId = onSelectedIdChange ?? setInternalSelectedId;
@@ -143,7 +167,7 @@ export function useCollectionBrowserState({
   } = useCollectionTree({
     data,
     expandedIds,
-    filters,
+    filters: deferredFilters,
     ...(sortState ? { sortState } : {}),
     ...(shouldFilterToSemanticResults
       ? { filterToSemanticResults: true, semanticResults: semanticResults ?? [] }
@@ -151,7 +175,7 @@ export function useCollectionBrowserState({
     ...(groupBy ? { groupBy } : {}),
   });
 
-  const prevSearchQuery = React.useRef(filters.searchQuery);
+  const prevSearchQuery = React.useRef(deferredSearchQuery);
   const prevSemanticResultsLength = React.useRef<number | undefined>(undefined);
 
   const expandForSearch = React.useCallback(
@@ -171,15 +195,15 @@ export function useCollectionBrowserState({
   );
 
   React.useEffect(() => {
-    const queryChanged = filters.searchQuery !== prevSearchQuery.current;
+    const queryChanged = deferredSearchQuery !== prevSearchQuery.current;
     if (!queryChanged) {
       return;
     }
-    prevSearchQuery.current = filters.searchQuery;
-    if (filters.searchQuery && searchExpandIds.size > 0) {
+    prevSearchQuery.current = deferredSearchQuery;
+    if (deferredSearchQuery && searchExpandIds.size > 0) {
       expandForSearch(searchExpandIds);
     }
-  }, [filters.searchQuery, searchExpandIds, expandForSearch]);
+  }, [deferredSearchQuery, searchExpandIds, expandForSearch]);
 
   React.useEffect(() => {
     if (!(isSemanticMode && semanticResults)) {
