@@ -1,5 +1,5 @@
 import { isAbortError } from '@brainstrike/utils/error-utils';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 export type AssistantAvailabilityStatus =
   | { state: 'loading' }
@@ -10,8 +10,27 @@ export type AssistantAvailabilityStatus =
 export type AssistantStatusFetcher = (signal: AbortSignal) => Promise<AssistantAvailabilityStatus>;
 
 const defaultFetcher: AssistantStatusFetcher = (signal) => fetchAssistantStatusState({ signal });
+const loadingStatus: AssistantAvailabilityStatus = { state: 'loading' };
 export const ASSISTANT_AVAILABILITY_OVERRIDE_EVENT =
   'brainstrike:assistant-availability-override-changed';
+
+interface AssistantAvailabilityOverrideSnapshot {
+  readonly override: AssistantAvailabilityStatus | undefined;
+  readonly revision: number;
+}
+
+interface FetchedAssistantAvailability {
+  readonly fetcher: AssistantStatusFetcher;
+  readonly overrideRevision: number;
+  readonly status: AssistantAvailabilityStatus;
+}
+
+const serverOverrideSnapshot: AssistantAvailabilityOverrideSnapshot = {
+  override: undefined,
+  revision: 0,
+};
+const overrideListeners = new Set<() => void>();
+let overrideSnapshot = serverOverrideSnapshot;
 
 declare global {
   interface Window {
@@ -22,33 +41,21 @@ declare global {
 export function useAssistantAvailability(
   fetcher: AssistantStatusFetcher = defaultFetcher
 ): AssistantAvailabilityStatus {
-  const override = readAssistantAvailabilityOverride();
-  const [status, setStatus] = useState<AssistantAvailabilityStatus>(
-    override ?? { state: 'loading' }
+  const { override, revision: overrideRevision } = useSyncExternalStore(
+    subscribeToAssistantAvailabilityOverride,
+    getAssistantAvailabilityOverrideSnapshot,
+    getServerAssistantAvailabilityOverrideSnapshot
+  );
+  const [fetchedAvailability, setFetchedAvailability] = useState<FetchedAssistantAvailability>(
+    () => ({
+      fetcher,
+      overrideRevision,
+      status: loadingStatus,
+    })
   );
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const syncOverride = (): void => {
-      const nextOverride = readAssistantAvailabilityOverride();
-      if (nextOverride) {
-        setStatus(nextOverride);
-      }
-    };
-
-    window.addEventListener(ASSISTANT_AVAILABILITY_OVERRIDE_EVENT, syncOverride);
-    syncOverride();
-    return () => {
-      window.removeEventListener(ASSISTANT_AVAILABILITY_OVERRIDE_EVENT, syncOverride);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (override) {
-      setStatus(override);
+    if (override !== undefined) {
       return;
     }
 
@@ -58,7 +65,11 @@ export function useAssistantAvailability(
     fetcher(controller.signal)
       .then((next) => {
         if (!cancelled) {
-          setStatus(next);
+          setFetchedAvailability({
+            fetcher,
+            overrideRevision,
+            status: next,
+          });
         }
       })
       .catch((error) => {
@@ -68,9 +79,13 @@ export function useAssistantAvailability(
         if (isAbortError(error)) {
           return;
         }
-        setStatus({
-          message: error instanceof Error ? error.message : String(error),
-          state: 'error',
+        setFetchedAvailability({
+          fetcher,
+          overrideRevision,
+          status: {
+            message: error instanceof Error ? error.message : String(error),
+            state: 'error',
+          },
         });
       });
 
@@ -78,13 +93,73 @@ export function useAssistantAvailability(
       cancelled = true;
       controller.abort();
     };
-  }, [fetcher, override]);
+  }, [fetcher, override, overrideRevision]);
 
-  return status;
+  if (override !== undefined) {
+    return override;
+  }
+
+  if (
+    fetchedAvailability.fetcher !== fetcher ||
+    fetchedAvailability.overrideRevision !== overrideRevision
+  ) {
+    return loadingStatus;
+  }
+
+  return fetchedAvailability.status;
 }
 
 function readAssistantAvailabilityOverride(): AssistantAvailabilityStatus | undefined {
   return typeof window === 'undefined' ? undefined : window.__assistantAvailabilityOverride;
+}
+
+function getAssistantAvailabilityOverrideSnapshot(): AssistantAvailabilityOverrideSnapshot {
+  const override = readAssistantAvailabilityOverride();
+  if (overrideSnapshot.override !== override) {
+    overrideSnapshot = {
+      override,
+      revision: overrideSnapshot.revision + 1,
+    };
+  }
+  return overrideSnapshot;
+}
+
+function getServerAssistantAvailabilityOverrideSnapshot(): AssistantAvailabilityOverrideSnapshot {
+  return serverOverrideSnapshot;
+}
+
+function publishAssistantAvailabilityOverride(): void {
+  overrideSnapshot = {
+    override: readAssistantAvailabilityOverride(),
+    revision: overrideSnapshot.revision + 1,
+  };
+  for (const listener of overrideListeners) {
+    listener();
+  }
+}
+
+function subscribeToAssistantAvailabilityOverride(onStoreChange: () => void): () => void {
+  if (typeof window === 'undefined') {
+    return () => undefined;
+  }
+
+  if (overrideListeners.size === 0) {
+    window.addEventListener(
+      ASSISTANT_AVAILABILITY_OVERRIDE_EVENT,
+      publishAssistantAvailabilityOverride
+    );
+  }
+  overrideListeners.add(onStoreChange);
+
+  return () => {
+    overrideListeners.delete(onStoreChange);
+    if (overrideListeners.size === 0) {
+      window.removeEventListener(
+        ASSISTANT_AVAILABILITY_OVERRIDE_EVENT,
+        publishAssistantAvailabilityOverride
+      );
+    }
+  };
 }
 
 export async function resolveAssistantStatusUrl(): Promise<string> {
