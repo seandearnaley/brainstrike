@@ -71,7 +71,15 @@ import {
 
 const logger = createLogger('LazyFileTree');
 interface InFlightRootLoad {
+  abortController: AbortController;
+  consumers: Set<symbol>;
   promise: Promise<IFileNode[]>;
+}
+
+interface RootLoadSubscription {
+  consumerPromise: Promise<IFileNode[]>;
+  request: InFlightRootLoad;
+  started: boolean;
 }
 
 interface CountableTreeNode {
@@ -298,30 +306,66 @@ function handleLoadRootError(
   }
 }
 
-function loadRootChildren(args: {
+interface RootLoadArguments {
+  consumerSignal: AbortSignal;
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
   rootDirectoryHandle: DirectoryHandle;
-  rootPath: string;
   /** Storage v5: durable RootId UUID to stamp on loaded nodes. Falls back to rootPath. */
   rootFolderId?: string;
-}): { request: InFlightRootLoad; started: boolean } {
-  const { fileSystemAdapter, rootDirectoryHandle, rootPath, rootFolderId } = args;
-  // Dedup by path AND identity: in forest mode the FOCUSED root is loaded by
-  // BOTH its section loader (rootId = UUID) and the legacy panel loader (no
-  // rootId → path-stamped). Keying by path alone let them share one in-flight
-  // load, so whichever registered first stamped the other's nodes — directory
-  // recursive-select then keyed composite selections by the wrong identity and
-  // the selection vanished into an unread folderState.
-  const loadKey = `${rootPath}::${rootFolderId ?? ''}`;
-  const existingRequest = inFlightRootLoads.get(loadKey);
-  if (existingRequest) {
-    logger.debug('loadRoot joined existing in-flight request', { loadKey, rootPath });
-    return {
-      request: existingRequest,
-      started: false,
-    };
-  }
+  rootPath: string;
+}
 
+function createRootLoadConsumerPromise(
+  request: InFlightRootLoad,
+  signal: AbortSignal
+): Promise<IFileNode[]> {
+  signal.throwIfAborted();
+  const consumer = Symbol('root-load-consumer');
+  request.consumers.add(consumer);
+
+  return new Promise<IFileNode[]>((resolve, reject) => {
+    let active = true;
+    const cleanup = (): boolean => {
+      if (!active) {
+        return false;
+      }
+      active = false;
+      signal.removeEventListener('abort', handleAbort);
+      request.consumers.delete(consumer);
+      return true;
+    };
+    const handleAbort = (): void => {
+      if (!cleanup()) {
+        return;
+      }
+      if (request.consumers.size === 0 && !request.abortController.signal.aborted) {
+        request.abortController.abort(signal.reason);
+      }
+      reject(signal.reason);
+    };
+
+    signal.addEventListener('abort', handleAbort, { once: true });
+    void request.promise.then(
+      (children) => {
+        if (cleanup()) {
+          resolve(children);
+        }
+      },
+      (error: unknown) => {
+        if (cleanup()) {
+          reject(error);
+        }
+      }
+    );
+  });
+}
+
+function createInFlightRootLoad(
+  args: Omit<RootLoadArguments, 'consumerSignal'>,
+  loadKey: string
+): InFlightRootLoad {
+  const { fileSystemAdapter, rootDirectoryHandle, rootPath, rootFolderId } = args;
+  const abortController = new AbortController();
   const promise = (async (): Promise<IFileNode[]> => {
     if (supportsStreaming(fileSystemAdapter)) {
       let finalChildren: IFileNode[] | null = null;
@@ -334,6 +378,7 @@ function loadRootChildren(args: {
           }
         },
         {
+          abortSignal: abortController.signal,
           sortFileNodes,
           ...(rootFolderId !== undefined && { rootFolderId }),
         }
@@ -352,6 +397,7 @@ function loadRootChildren(args: {
     }
 
     const children = await loadRootDirectory(fileSystemAdapter, rootDirectoryHandle, {
+      abortSignal: abortController.signal,
       sortFileNodes,
       ...(rootFolderId !== undefined && { rootFolderId }),
     });
@@ -362,7 +408,11 @@ function loadRootChildren(args: {
     return children;
   })();
 
-  const request: InFlightRootLoad = { promise };
+  const request: InFlightRootLoad = {
+    abortController,
+    consumers: new Set(),
+    promise,
+  };
   inFlightRootLoads.set(loadKey, request);
   void promise
     .finally(() => {
@@ -371,8 +421,43 @@ function loadRootChildren(args: {
       }
     })
     .catch(() => {});
+  return request;
+}
+
+function loadRootChildren(args: RootLoadArguments): RootLoadSubscription {
+  const { consumerSignal, fileSystemAdapter, rootDirectoryHandle, rootPath, rootFolderId } = args;
+  // Dedup by path AND identity: in forest mode the FOCUSED root is loaded by
+  // BOTH its section loader (rootId = UUID) and the legacy panel loader (no
+  // rootId → path-stamped). Keying by path alone let them share one in-flight
+  // load, so whichever registered first stamped the other's nodes — directory
+  // recursive-select then keyed composite selections by the wrong identity and
+  // the selection vanished into an unread folderState.
+  const loadKey = `${rootPath}::${rootFolderId ?? ''}`;
+  const existingRequest = inFlightRootLoads.get(loadKey);
+  if (existingRequest && !existingRequest.abortController.signal.aborted) {
+    logger.debug('loadRoot joined existing in-flight request', { loadKey, rootPath });
+    return {
+      consumerPromise: createRootLoadConsumerPromise(existingRequest, consumerSignal),
+      request: existingRequest,
+      started: false,
+    };
+  }
+  if (existingRequest) {
+    inFlightRootLoads.delete(loadKey);
+  }
+
+  const request = createInFlightRootLoad(
+    {
+      fileSystemAdapter,
+      rootDirectoryHandle,
+      rootPath,
+      ...(rootFolderId !== undefined && { rootFolderId }),
+    },
+    loadKey
+  );
 
   return {
+    consumerPromise: createRootLoadConsumerPromise(request, consumerSignal),
     request,
     started: true,
   };
@@ -970,7 +1055,9 @@ export function useLazyFileTree(
     }
 
     try {
+      const rootConsumerController = createAbortController(null);
       const rootLoadRequest = loadRootChildren({
+        consumerSignal: rootConsumerController.signal,
         fileSystemAdapter,
         rootDirectoryHandle,
         rootFolderId: resolvedRootFolderId,
@@ -983,13 +1070,11 @@ export function useLazyFileTree(
           initializedRoot: initializedRootRef.current,
           rootPath,
         });
-
-        createAbortController(null);
       }
 
       setState((s) => createLoadRootPendingState(s, rootLoadRequest.started));
 
-      const children = await rootLoadRequest.request.promise;
+      const children = await rootLoadRequest.consumerPromise;
 
       if (
         isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId) &&
@@ -1257,9 +1342,12 @@ export function useLazyFileTree(
    * Cancel all pending load operations
    */
   const cancelLoading = useCallback(() => {
+    loadRootRunIdRef.current += 1;
+    isLoadingRootRef.current = false;
     cancelAllLoading();
     setState((s) => ({
       ...s,
+      isInitialLoading: false,
       loadingPaths: new Set(),
     }));
   }, [cancelAllLoading]);

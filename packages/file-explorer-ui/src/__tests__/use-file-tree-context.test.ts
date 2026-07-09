@@ -334,6 +334,52 @@ describe('useFileTree (lazy loading version)', () => {
 
       expect(result.current.isCancelling).toBe(false);
     });
+
+    it('passes a signal to root streaming and ignores a terminal batch after cancellation', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const terminalNodes = await mockAdapter.readDirectory(handle);
+      let releaseRootLoad: (() => void) | null = null;
+      let rootSignal: AbortSignal | undefined;
+
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch, options) => {
+          rootSignal = options?.signal;
+          await new Promise<void>((resolve) => {
+            releaseRootLoad = () => {
+              onBatch(terminalNodes, { done: true, total: terminalNodes.length });
+              resolve();
+            };
+          });
+        });
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(result.current.isLoading).toBe(true);
+      });
+
+      act(() => {
+        result.current.cancelOperation();
+      });
+      const wasLoadingAfterCancel = result.current.isLoading;
+
+      await act(async () => {
+        releaseRootLoad?.();
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      expect(rootSignal).toBeInstanceOf(AbortSignal);
+      expect(rootSignal?.aborted).toBe(true);
+      expect(wasLoadingAfterCancel).toBe(false);
+      expect(result.current.fileTree).toEqual([]);
+      expect(mockWorkerPort.init).not.toHaveBeenCalled();
+    });
   });
 
   describe('Error handling', () => {
@@ -638,6 +684,66 @@ describe('useFileTree (lazy loading version)', () => {
       expect(readDirectoryStreamingSpy).toHaveBeenCalledTimes(1);
       expect(firstHook.result.current.fileTree.length).toBeGreaterThan(0);
       expect(secondHook.result.current.fileTree.length).toBeGreaterThan(0);
+    });
+
+    it('keeps a shared root request alive until its last consumer cancels', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const terminalNodes = await mockAdapter.readDirectory(handle);
+      let releaseRootLoad: (() => void) | null = null;
+      let rootSignal: AbortSignal | undefined;
+
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch, options) => {
+          rootSignal = options?.signal;
+          await new Promise<void>((resolve) => {
+            releaseRootLoad = () => {
+              onBatch(terminalNodes, { done: true, total: terminalNodes.length });
+              resolve();
+            };
+          });
+        });
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const firstHook = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+      const secondHook = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(firstHook.result.current.isLoading).toBe(true);
+        expect(secondHook.result.current.isLoading).toBe(true);
+      });
+
+      act(() => {
+        firstHook.result.current.cancelOperation();
+      });
+      const wasUnderlyingAbortedAfterFirstCancel = rootSignal?.aborted;
+      const wasFirstConsumerLoadingAfterCancel = firstHook.result.current.isLoading;
+      const wasSecondConsumerLoadingAfterFirstCancel = secondHook.result.current.isLoading;
+
+      act(() => {
+        secondHook.result.current.cancelOperation();
+      });
+      const wasUnderlyingAbortedAfterLastCancel = rootSignal?.aborted;
+
+      await act(async () => {
+        releaseRootLoad?.();
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(firstHook.result.current.isLoading).toBe(false);
+        expect(secondHook.result.current.isLoading).toBe(false);
+      });
+
+      expect(rootSignal).toBeInstanceOf(AbortSignal);
+      expect(wasUnderlyingAbortedAfterFirstCancel).toBe(false);
+      expect(wasUnderlyingAbortedAfterLastCancel).toBe(true);
+      expect(wasFirstConsumerLoadingAfterCancel).toBe(false);
+      expect(wasSecondConsumerLoadingAfterFirstCancel).toBe(true);
+      expect(firstHook.result.current.fileTree).toEqual([]);
+      expect(secondHook.result.current.fileTree).toEqual([]);
     });
 
     it('does NOT share a root load between loaders with different rootId (no rootFolderId contamination)', async () => {
