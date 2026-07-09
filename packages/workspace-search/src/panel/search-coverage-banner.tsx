@@ -1,6 +1,8 @@
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import type { WorkspaceCollectionSyncState } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import { Loader2 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import {
   COLLECTION_STATS_QUERY,
@@ -20,6 +22,23 @@ interface TotalFilesRow {
 
 const TOTAL_WORKSPACE_FILES_QUERY =
   'SELECT COUNT(*)::int AS total FROM file_records WHERE root_id = ANY($1::text[])';
+
+/**
+ * Shared status-strip shell so the coverage banner reads like the Explorer's
+ * status rows (RestorationStatus / DirectoryStatus): a quiet rounded muted strip
+ * with an optional leading icon.
+ */
+function CoverageStrip({ children, icon }: { children: ReactNode; icon?: ReactNode }): ReactNode {
+  return (
+    <div
+      className="flex items-center gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-muted-foreground text-xs"
+      role="status"
+    >
+      {icon}
+      <span className="truncate">{children}</span>
+    </div>
+  );
+}
 
 /**
  * Background-indexer states that mean "actively doing work on the managed
@@ -82,9 +101,11 @@ export function SearchCoverageBanner({ collectionId, rootIds }: SearchCoverageBa
   // so the banner never flickers to "complete" while indexing is still running.
   if (indexingActive) {
     return (
-      <p className="text-muted-foreground text-xs" role="status">
+      <CoverageStrip
+        icon={<Loader2 aria-hidden="true" className="h-3 w-3 shrink-0 animate-spin" />}
+      >
         Indexing…
-      </p>
+      </CoverageStrip>
     );
   }
 
@@ -100,9 +121,11 @@ export function SearchCoverageBanner({ collectionId, rootIds }: SearchCoverageBa
 
   if (pendingChunkCount > 0) {
     return (
-      <p className="text-muted-foreground text-xs" role="status">
+      <CoverageStrip
+        icon={<Loader2 aria-hidden="true" className="h-3 w-3 shrink-0 animate-spin" />}
+      >
         Indexing… ({embeddedChunkCount}/{chunkCount} chunks, {fileCount}/{totalFiles} files)
-      </p>
+      </CoverageStrip>
     );
   }
 
@@ -118,9 +141,5 @@ export function SearchCoverageBanner({ collectionId, rootIds }: SearchCoverageBa
     return null;
   }
 
-  return (
-    <p className="text-muted-foreground text-xs" role="status">
-      {fileCount} of {totalFiles} files indexed
-    </p>
-  );
+  return <CoverageStrip>{`${fileCount} of ${totalFiles} files indexed`}</CoverageStrip>;
 }

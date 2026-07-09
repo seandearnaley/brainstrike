@@ -1,6 +1,7 @@
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import { Button } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { AlertCircle, Loader2, Search } from 'lucide-react';
 import type * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
@@ -126,45 +127,63 @@ export function WorkspaceSearchPanel({
   }, [onSubmit]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 p-2">
-      <div className="flex items-center gap-2">
-        <SearchModeToggle />
-        <div className="min-w-0 flex-1">
-          <SearchCollectionPicker />
+    <div className="grid h-full grid-rows-[auto_1fr_auto]">
+      {/* Fixed header: search controls, query input, coverage status. */}
+      <div className="flex flex-col gap-2 border-b p-2">
+        <div className="flex items-center gap-2">
+          <SearchModeToggle />
+          <div className="min-w-0 flex-1">
+            <SearchCollectionPicker />
+          </div>
         </div>
+
+        <SearchInputBar onSubmit={onSubmit} />
+
+        <SearchCoverageBanner collectionId={collectionId} rootIds={workspaceDbRootIds} />
       </div>
 
-      <SearchInputBar onSubmit={onSubmit} />
-
-      <SearchCoverageBanner collectionId={collectionId} rootIds={workspaceDbRootIds} />
-
-      <div className="flex min-h-0 flex-1 flex-col">
+      {/* Scrollable results / status area. */}
+      <div className="flex min-h-0 flex-col overflow-hidden">
         {status === 'idle' ? (
-          <p className="p-3 text-muted-foreground text-sm">
-            Search your workspace by text or meaning.
-          </p>
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
+            <Search className="h-8 w-8 opacity-40" />
+            <p className="text-sm">Search your workspace by text or meaning.</p>
+          </div>
         ) : null}
         {status === 'searching' ? (
-          <p className="p-3 text-muted-foreground text-sm" role="status">
-            Searching…
-          </p>
+          <div
+            className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground"
+            role="status"
+          >
+            <Loader2 className="h-6 w-6 animate-spin opacity-60" />
+            <p className="text-sm">Searching…</p>
+          </div>
         ) : null}
         {status === 'error' ? (
-          <div className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3">
-            <p className="text-destructive text-sm" role="alert">
-              {error ?? 'Search failed'}
-            </p>
-            <Button className="self-start" onClick={handleRetry} size="sm" variant="outline">
-              Retry
-            </Button>
+          <div className="p-2">
+            <div className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+              <p className="flex items-center gap-2 text-destructive text-sm" role="alert">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {error ?? 'Search failed'}
+              </p>
+              <Button className="self-start" onClick={handleRetry} size="sm" variant="outline">
+                Retry
+              </Button>
+            </div>
           </div>
         ) : null}
         {status === 'results' ? (
-          <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
+          <div className="min-h-0 flex-1 overflow-hidden p-2">
+            <SearchResultsTree
+              onOpenFile={onOpenFile}
+              resolveAdapterRootId={resolveAdapterRootId}
+            />
+          </div>
         ) : null}
       </div>
 
-      <footer className="flex items-center justify-between border-border border-t pt-1 text-muted-foreground text-xs">
+      {/* Fixed footer: selection summary, matching the Explorer footer tone. */}
+      <footer className="flex items-center justify-between border-t bg-gradient-to-t from-muted/20 to-transparent px-3 py-2 text-muted-foreground text-xs">
         <span>~{approxTokens ?? 0} tokens selected</span>
         {hasChunkRanges ? <span>Ranges apply in Tapestry ranges mode</span> : null}
       </footer>

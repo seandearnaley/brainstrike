@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@brainstrike/ui';
+import { Database } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 import {
@@ -51,12 +52,17 @@ export function SearchCollectionPicker({ onCollectionChange }: SearchCollectionP
 
   if (rows.length < 2) {
     const [only] = rows;
-    return <span className="text-muted-foreground text-sm">{only?.name ?? 'Workspace Index'}</span>;
+    return (
+      <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-sm">
+        <Database aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">{only?.name ?? 'Workspace Index'}</span>
+      </span>
+    );
   }
 
   return (
     <Select onValueChange={handleChange} value={effectiveId}>
-      <SelectTrigger className="w-full">
+      <SelectTrigger className="h-8 w-full">
         <SelectValue placeholder="Select collection" />
       </SelectTrigger>
       <SelectContent>

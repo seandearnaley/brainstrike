@@ -1,5 +1,6 @@
 import { Badge, Checkbox, type TreeNode, TreeTable } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { File as FileIcon, TextQuote } from 'lucide-react';
 import type * as React from 'react';
 import { useCallback, useMemo } from 'react';
 import type { SelectedChunk } from '../bridge/chunk-selection-store';
@@ -141,8 +142,9 @@ function FileRow({
         onCheckedChange={onToggle}
         onClick={(event) => event.stopPropagation()}
       />
+      <FileIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />
       <span className="truncate font-medium text-sm">{file.path}</span>
-      <span className="shrink-0 text-muted-foreground text-xs">
+      <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
         {file.children.length} {file.children.length === 1 ? 'match' : 'matches'}
       </span>
       {ctx.showRootBadge && file.rootDisplayName ? (
@@ -181,10 +183,13 @@ function ChunkRow({
 
   const content =
     data.kind === 'text-chunk' ? (
-      <span className="truncate text-muted-foreground text-xs">
-        Lines {chunk.startLine}–{chunk.endLine}
-        {data.matchCount > 1 ? ` · ${data.matchCount} matches` : ''}
-      </span>
+      <>
+        <TextQuote aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate text-muted-foreground text-xs">
+          Lines {chunk.startLine}–{chunk.endLine}
+          {data.matchCount > 1 ? ` · ${data.matchCount} matches` : ''}
+        </span>
+      </>
     ) : (
       <span className="truncate font-mono text-muted-foreground text-xs">
         {renderSegments(
@@ -228,8 +233,10 @@ function MatchRow({
 
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <span className="shrink-0 text-muted-foreground text-xs tabular-nums">{match.line}</span>
-      <span className="truncate font-mono text-muted-foreground text-xs">{content}</span>
+      <span className="w-9 shrink-0 text-right font-mono text-muted-foreground/70 text-xs tabular-nums">
+        {match.line}
+      </span>
+      <span className="truncate font-mono text-foreground/80 text-xs">{content}</span>
     </span>
   );
 }

@@ -6,7 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { CaseSensitive, Regex, WholeWord } from 'lucide-react';
+import { CaseSensitive, Regex, Search, WholeWord } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 
@@ -28,8 +28,9 @@ function ToggleIconButton({ active, icon, label, onClick }: ToggleIconButtonProp
         <Button
           aria-label={label}
           aria-pressed={active}
+          className="h-8 w-8 shrink-0"
           onClick={onClick}
-          size="icon-sm"
+          size="icon"
           type="button"
           variant={active ? 'secondary' : 'ghost'}
         >
@@ -89,13 +90,20 @@ export function SearchInputBar({ onSubmit }: SearchInputBarProps) {
     <TooltipProvider>
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-1">
-          <Input
-            aria-invalid={blocksSubmit}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search workspace"
-            value={query}
-          />
+          <div className="relative min-w-0 flex-1">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              aria-invalid={blocksSubmit}
+              className="h-8 w-full bg-background pl-9 text-sm"
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Search workspace"
+              value={query}
+            />
+          </div>
           <ToggleIconButton
             active={caseSensitive}
             icon={<CaseSensitive />}
