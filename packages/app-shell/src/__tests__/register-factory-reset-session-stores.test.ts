@@ -39,7 +39,6 @@ describe('register-factory-reset-session-stores', () => {
       selectedSourceApproxTokens: null,
       selectionFolderId: 'folder-a',
       tokenBudget: null,
-      useTapestryRanges: true,
     });
     useWorkspaceContextCurationStore
       .getState()
