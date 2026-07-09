@@ -75,6 +75,7 @@ import {
   ThreadContextMeter,
 } from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
+import { deriveTaskListFromParts } from './derive-task-list';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { LocalModelStatus } from './local-model-status';
@@ -84,6 +85,7 @@ import {
   type SlashCommand,
   toSlashCommandAdapterOptions,
 } from './slash-commands';
+import { TaskListToolCard, TodoProgress } from './todo-progress';
 import { runEventsSpanMs, summarizeToolActivity } from './tool-activity';
 import { ToolDurationProvider } from './tool-duration-context';
 import { collectToolDurations } from './tool-durations';
@@ -496,6 +498,7 @@ const LocalChainOfThought = () => {
   const toolActivity = useMemo(() => summarizeToolActivity(messageParts), [messageParts]);
   const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
   const toolDurations = useMemo(() => collectToolDurations(messageParts), [messageParts]);
+  const taskList = useMemo(() => deriveTaskListFromParts(messageParts), [messageParts]);
 
   const initializedRef = useRef(false);
   const reasoningPanelId = useId();
@@ -530,6 +533,15 @@ const LocalChainOfThought = () => {
           /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
           Reasoning: collapsed ? HiddenReasoningPart : LocalReasoningPart,
           tools: {
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
+            by_name: {
+              // The plan renders once as <TodoProgress>; collapse the raw
+              // manageTaskList cards to a compact expander so the plan is not
+              // shown twice (dotted + Mastra-sanitized tool names).
+              // biome-ignore lint/style/useNamingConvention: Mastra-sanitized tool name key
+              brainstrike_manageTaskList: TaskListToolCard,
+              'brainstrike.manageTaskList': TaskListToolCard,
+            },
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
             Fallback: ToolFallback,
           },
@@ -578,6 +590,7 @@ const LocalChainOfThought = () => {
 
   return (
     <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
+      {taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>{content}</ToolDurationProvider>
     </ChainOfThoughtPrimitive.Root>
   );
