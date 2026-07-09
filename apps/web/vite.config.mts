@@ -253,6 +253,13 @@ export default defineConfig({
       '@brainstrike/commands': path.resolve(__dirname, '../../packages/commands/src'),
       '@brainstrike/context-actions': path.resolve(__dirname, '../../packages/context-actions/src'),
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
+      // Subpath alias must precede the package-root alias: the `./embedding-models`
+      // export maps to `src/utils/embedding-models.ts`, but the prefix-replacing
+      // root alias would resolve it to the non-existent `src/embedding-models`.
+      '@brainstrike/db-explorer/embedding-models': path.resolve(
+        __dirname,
+        '../../packages/db-explorer/src/utils/embedding-models.ts'
+      ),
       '@brainstrike/db-explorer': path.resolve(__dirname, '../../packages/db-explorer/src'),
       '@brainstrike/embedding-worker': path.resolve(
         __dirname,
