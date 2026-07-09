@@ -178,15 +178,18 @@ describe('lazy-tree-loader', () => {
       expect(result[0]!.rootFolderId).toBe('/my-project');
     });
 
-    it('throws on abort signal', async () => {
+    it('preserves the signal reason when aborted before the root read', async () => {
       const adapter = createMockAdapter([]);
       const handle = createDirectoryHandle();
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled root load');
+      abortController.abort(abortReason);
 
       await expect(
         loadRootDirectory(adapter, handle, { abortSignal: abortController.signal })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+
+      expect(adapter.readDirectory).not.toHaveBeenCalled();
     });
   });
 
@@ -261,6 +264,20 @@ describe('lazy-tree-loader', () => {
       await expect(loadDirectoryChildren(adapter, fileNode)).rejects.toThrow(
         'Cannot load children of non-directory node'
       );
+    });
+
+    it('preserves the signal reason when aborted before the child read', async () => {
+      const adapter = createMockAdapter([]);
+      const parentNode = createDirectoryNode({ path: '/root/parent' });
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled child load');
+      abortController.abort(abortReason);
+
+      await expect(
+        loadDirectoryChildren(adapter, parentNode, { abortSignal: abortController.signal })
+      ).rejects.toBe(abortReason);
+
+      expect(adapter.readDirectory).not.toHaveBeenCalled();
     });
   });
 

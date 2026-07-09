@@ -98,10 +98,7 @@ export async function loadRootDirectory(
     sortFileNodes = defaultSortFileNodes,
   } = options;
 
-  // Check for cancellation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
-  }
+  abortSignal?.throwIfAborted();
 
   if (!rootHandle.path) {
     throw new Error('Root directory handle is missing its canonical path');
@@ -166,10 +163,7 @@ export async function loadDirectoryChildren(
 
   const { abortSignal, includeMetadata = false, sortFileNodes = defaultSortFileNodes } = options;
 
-  // Check for cancellation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
-  }
+  abortSignal?.throwIfAborted();
 
   // Build DirectoryHandle from the node
   const handle = buildDirectoryHandle(parentNode);
