@@ -161,33 +161,60 @@ describe('PgliteMemoryStore', () => {
   });
 
   it('lets an automated title name a still-unnamed thread', async () => {
-    // Mastra auto-creates threads with an empty title; our repository seeds
-    // 'New Thread'. Both are placeholders the observer is free to name.
-    for (const placeholder of ['', 'New Thread']) {
-      const threadId = `thread-placeholder-${placeholder || 'empty'}`;
-      await store.saveThread({
-        thread: {
-          createdAt: new Date('2026-04-22T10:00:00Z'),
-          id: threadId,
-          resourceId: 'workspace-a',
-          title: placeholder,
-          updatedAt: new Date('2026-04-22T10:00:00Z'),
-        },
-      });
+    // Mastra auto-creates threads with an empty title — fair game for the
+    // observer's auto-title.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-placeholder-empty',
+        resourceId: 'workspace-a',
+        title: '',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
 
-      const updated = await store.updateThread({
-        id: threadId,
-        metadata: {},
+    const updated = await store.updateThread({
+      id: 'thread-placeholder-empty',
+      metadata: {},
+      title: 'Paris Weather Chat',
+    });
+
+    expect(updated.title).toBe('Paris Weather Chat');
+    // The write stamps the OM marker so a later topic-change re-title stays
+    // eligible (see the next test).
+    expect(updated.metadata).toMatchObject({ titleSource: 'om' });
+  });
+
+  it('lets an automated title rename a thread whose title carries the OM marker', async () => {
+    // A title the observer itself set earlier (or a seeded placeholder
+    // stamped with the marker) is still system content, not user-chosen, so
+    // a later topic-change re-title from the observer may replace it.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-om-named',
+        metadata: { titleSource: 'om' },
+        resourceId: 'workspace-a',
         title: 'Paris Weather Chat',
-      });
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
 
-      expect(updated.title).toBe('Paris Weather Chat');
-    }
+    const updated = await store.updateThread({
+      id: 'thread-om-named',
+      metadata: { note: 'topic shifted' },
+      title: 'Lyon Restaurant Picks',
+    });
+
+    expect(updated.title).toBe('Lyon Restaurant Picks');
+    expect(updated.metadata).toMatchObject({ note: 'topic shifted', titleSource: 'om' });
   });
 
   it('never lets an automated title overwrite an established (user-owned) title', async () => {
-    // Manual rename writes a real title via a dedicated raw-SQL path; a later
-    // observer-driven updateThread with a DIFFERENT title must not clobber it.
+    // A real, non-empty title with no OM marker is user-owned — whether it
+    // arrived through a manual rename (a dedicated raw-SQL path) or was
+    // otherwise set directly — and a later observer-driven updateThread with
+    // a DIFFERENT title must not clobber it.
     await store.saveThread({
       thread: {
         createdAt: new Date('2026-04-22T10:00:00Z'),
@@ -206,6 +233,29 @@ describe('PgliteMemoryStore', () => {
 
     expect(updated.title).toBe('My Paris Trip');
     expect(updated.metadata).toMatchObject({ note: 'observer metadata still lands' });
+    expect(updated.metadata).not.toHaveProperty('titleSource');
+  });
+
+  it('lands metadata-only observer persists (title unchanged) without touching the title', async () => {
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-metadata-only',
+        resourceId: 'workspace-a',
+        title: 'My Paris Trip',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-metadata-only',
+      metadata: { currentTask: 'booking a hotel' },
+      title: 'My Paris Trip',
+    });
+
+    expect(updated.title).toBe('My Paris Trip');
+    expect(updated.metadata).toMatchObject({ currentTask: 'booking a hotel' });
+    expect(updated.metadata).not.toHaveProperty('titleSource');
   });
 
   it('persists messages and supports thread/resource recall queries', async () => {
