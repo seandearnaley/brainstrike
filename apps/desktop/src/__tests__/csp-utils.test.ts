@@ -12,7 +12,7 @@ describe('Desktop CSP Utils', () => {
       );
       expect(devCSP).toContain("worker-src 'self' blob:");
       expect(devCSP).toContain("style-src 'self' 'unsafe-inline' http://localhost:*");
-      expect(devCSP).toContain("img-src 'self' data: blob: http://localhost:*");
+      expect(devCSP).toContain("img-src 'self' data: blob: brainstrike-asset: http://localhost:*");
       expect(devCSP).toContain("font-src 'self' data: http://localhost:*");
       // Allowances for development connectivity
       expect(devCSP).toContain("connect-src 'self'");
@@ -37,7 +37,7 @@ describe('Desktop CSP Utils', () => {
       expect(prodCSP).toContain("script-src 'self' blob: 'unsafe-eval' https://cdn.jsdelivr.net");
       expect(prodCSP).toContain("worker-src 'self' blob:");
       expect(prodCSP).toContain("style-src 'self' 'unsafe-inline'");
-      expect(prodCSP).toContain("img-src 'self' data: blob:");
+      expect(prodCSP).toContain("img-src 'self' data: blob: brainstrike-asset:");
       expect(prodCSP).toContain("font-src 'self' data:");
       // Production connect-src allows local assistant runtime plus embeddings/CDN
       expect(prodCSP).toContain("connect-src 'self'");
@@ -143,6 +143,14 @@ describe('Desktop CSP Utils', () => {
       // Fonts can be data: URIs
       expect(devCSP).toMatch(/font-src[^;]*data:/);
       expect(prodCSP).toMatch(/font-src[^;]*data:/);
+    });
+
+    it('allows the root-validated brainstrike-asset: protocol for local images', () => {
+      const devCSP = getCSP('development');
+      const prodCSP = getCSP('production');
+
+      expect(devCSP).toMatch(/img-src[^;]*brainstrike-asset:/);
+      expect(prodCSP).toMatch(/img-src[^;]*brainstrike-asset:/);
     });
 
     it('maintains consistent CSP format', () => {
