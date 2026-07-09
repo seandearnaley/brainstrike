@@ -68,9 +68,6 @@
       "@brainstrike/utils/crypto": [
         "../../packages/utils/dist/crypto.d.ts"
       ],
-      "@brainstrike/utils/safe-storage": [
-        "../../packages/utils/dist/safe-storage.d.ts"
-      ],
       "@brainstrike/utils/workspace-indexing-qos": [
         "../../packages/utils/dist/workspace-indexing-qos.d.ts"
       ],

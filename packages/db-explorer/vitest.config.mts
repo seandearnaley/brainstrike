@@ -36,6 +36,10 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../preferences/src/$1'),
       },
       {
+        find: '@brainstrike/storage',
+        replacement: resolve(import.meta.dirname, '../storage/src/index.ts'),
+      },
+      {
         find: '@brainstrike/preferences',
         replacement: resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },

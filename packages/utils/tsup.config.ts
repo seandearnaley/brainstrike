@@ -31,7 +31,6 @@ export default defineConfig({
     'quick-filter-utils': 'src/quick-filter-utils.ts',
     'relative-file-path': 'src/relative-file-path.ts',
     'report-generator': 'src/report-generator.ts',
-    'safe-storage': 'src/safe-storage.ts',
     'selection-utils': 'src/selection-utils.ts',
     'string-utils': 'src/string-utils.ts',
     'token-constants': 'src/token-constants.ts',
