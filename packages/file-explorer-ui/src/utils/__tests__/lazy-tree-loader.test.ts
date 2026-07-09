@@ -191,6 +191,22 @@ describe('lazy-tree-loader', () => {
 
       expect(adapter.readDirectory).not.toHaveBeenCalled();
     });
+
+    it('preserves the signal reason when the root read rejects after cancellation', async () => {
+      const adapter = createMockAdapter([]);
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled rejected root read');
+      const readError = new Error('root directory I/O failed');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        throw readError;
+      });
+
+      await expect(
+        loadRootDirectory(adapter, handle, { abortSignal: abortController.signal })
+      ).rejects.toBe(abortReason);
+    });
   });
 
   describe('loadDirectoryChildren', () => {
@@ -278,6 +294,22 @@ describe('lazy-tree-loader', () => {
       ).rejects.toBe(abortReason);
 
       expect(adapter.readDirectory).not.toHaveBeenCalled();
+    });
+
+    it('preserves the signal reason when the child read rejects after cancellation', async () => {
+      const adapter = createMockAdapter([]);
+      const parentNode = createDirectoryNode({ path: '/root/parent' });
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled rejected child read');
+      const readError = new Error('child directory I/O failed');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        throw readError;
+      });
+
+      await expect(
+        loadDirectoryChildren(adapter, parentNode, { abortSignal: abortController.signal })
+      ).rejects.toBe(abortReason);
     });
   });
 

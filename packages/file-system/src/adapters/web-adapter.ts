@@ -871,50 +871,55 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     let batch: IFileNode[] = [];
     let total = 0;
 
-    for await (const [name, entryHandle] of dirHandle.entries()) {
-      signal?.throwIfAborted();
-
-      // Create node using extracted helper functions
-      const node =
-        entryHandle.kind === 'directory'
-          ? createDirectoryNode(
-              name,
-              handle.path,
-              entryHandle as FileSystemDirectoryHandle,
-              handle.name
-            )
-          : await createFileNode(
-              name,
-              handle.path,
-              entryHandle as FileSystemFileHandle,
-              handle.name,
-              includeMetadata
-            );
-      signal?.throwIfAborted();
-
-      if (entryHandle.kind === 'file') {
-        this.cacheFileHandleForPath(node.path, entryHandle as FileSystemFileHandle);
-      }
-
-      batch.push(node);
-      total++;
-
-      // Emit batch when full
-      if (batch.length >= batchSize) {
-        onBatch(batch, { done: false, total });
-        batch = [];
+    try {
+      for await (const [name, entryHandle] of dirHandle.entries()) {
         signal?.throwIfAborted();
+
+        // Create node using extracted helper functions
+        const node =
+          entryHandle.kind === 'directory'
+            ? createDirectoryNode(
+                name,
+                handle.path,
+                entryHandle as FileSystemDirectoryHandle,
+                handle.name
+              )
+            : await createFileNode(
+                name,
+                handle.path,
+                entryHandle as FileSystemFileHandle,
+                handle.name,
+                includeMetadata
+              );
+        signal?.throwIfAborted();
+
+        if (entryHandle.kind === 'file') {
+          this.cacheFileHandleForPath(node.path, entryHandle as FileSystemFileHandle);
+        }
+
+        batch.push(node);
+        total++;
+
+        // Emit batch when full
+        if (batch.length >= batchSize) {
+          onBatch(batch, { done: false, total });
+          batch = [];
+          signal?.throwIfAborted();
+        }
       }
-    }
 
-    signal?.throwIfAborted();
+      signal?.throwIfAborted();
 
-    // Emit any remaining entries
-    if (batch.length > 0 || total === 0) {
-      onBatch(batch, { done: true, total });
-    } else {
-      // Signal completion with empty batch if last batch was exactly full
-      onBatch([], { done: true, total });
+      // Emit any remaining entries
+      if (batch.length > 0 || total === 0) {
+        onBatch(batch, { done: true, total });
+      } else {
+        // Signal completion with empty batch if last batch was exactly full
+        onBatch([], { done: true, total });
+      }
+    } catch (error) {
+      signal?.throwIfAborted();
+      throw error;
     }
   }
 

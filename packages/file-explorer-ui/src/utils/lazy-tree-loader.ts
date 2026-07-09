@@ -109,9 +109,15 @@ export async function loadRootDirectory(
   const resolvedRootFolderId = rootFolderIdOverride ?? rootHandle.path;
 
   // Read immediate children only
-  const children = await adapter.readDirectory(rootHandle, {
-    includeMetadata,
-  });
+  let children: IFileNode[];
+  try {
+    children = await adapter.readDirectory(rootHandle, {
+      includeMetadata,
+    });
+  } catch (error) {
+    abortSignal?.throwIfAborted();
+    throw error;
+  }
 
   abortSignal?.throwIfAborted();
 
@@ -169,9 +175,15 @@ export async function loadDirectoryChildren(
   const handle = buildDirectoryHandle(parentNode);
 
   // Read immediate children only
-  const children = await adapter.readDirectory(handle, {
-    includeMetadata,
-  });
+  let children: IFileNode[];
+  try {
+    children = await adapter.readDirectory(handle, {
+      includeMetadata,
+    });
+  } catch (error) {
+    abortSignal?.throwIfAborted();
+    throw error;
+  }
 
   abortSignal?.throwIfAborted();
 

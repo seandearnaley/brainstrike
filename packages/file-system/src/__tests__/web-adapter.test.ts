@@ -1029,6 +1029,82 @@ describe('WebFileSystemAdapter', () => {
       expect(fileHandle.getFile).not.toHaveBeenCalled();
     });
 
+    it('rejects with the signal reason when iteration rejects after cancellation', async () => {
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled rejected directory iteration');
+      const iteratorError = new Error('directory iterator I/O failed');
+      const rejectedEntries = () => ({
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+        async next(): Promise<never> {
+          abortController.abort(abortReason);
+          throw iteratorError;
+        },
+      });
+      const dirHandle = {
+        entries: rejectedEntries,
+        kind: 'directory',
+        name: 'root',
+      } as unknown as FileSystemDirectoryHandle;
+      const onBatch = vi.fn();
+
+      await expect(
+        adapter.readDirectoryStreaming(
+          {
+            _internal: dirHandle,
+            kind: 'directory',
+            name: 'root',
+            path: 'root',
+            platform: 'web',
+          },
+          onBatch,
+          { signal: abortController.signal }
+        )
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
+    });
+
+    it('rejects with the signal reason when metadata lookup rejects after cancellation', async () => {
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled rejected metadata lookup');
+      const metadataError = new Error('file metadata I/O failed');
+      const fileHandle = {
+        getFile: vi.fn(async () => {
+          abortController.abort(abortReason);
+          throw metadataError;
+        }),
+        kind: 'file',
+        name: 'file.txt',
+      } as unknown as FileSystemFileHandle;
+      async function* entries() {
+        yield ['file.txt', fileHandle] as const;
+      }
+      const dirHandle = {
+        entries,
+        kind: 'directory',
+        name: 'root',
+      } as unknown as FileSystemDirectoryHandle;
+      const onBatch = vi.fn();
+
+      await expect(
+        adapter.readDirectoryStreaming(
+          {
+            _internal: dirHandle,
+            kind: 'directory',
+            name: 'root',
+            path: 'root',
+            platform: 'web',
+          },
+          onBatch,
+          { includeMetadata: true, signal: abortController.signal }
+        )
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
+    });
+
     it('rejects a pre-aborted read with the exact signal reason', async () => {
       const abortController = new AbortController();
       const abortReason = new Error('caller cancelled before enumeration');
