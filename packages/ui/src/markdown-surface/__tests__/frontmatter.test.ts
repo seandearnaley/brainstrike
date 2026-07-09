@@ -29,6 +29,10 @@ describe('extractFrontmatter', () => {
     expect(r.data).toBeNull();
     expect(r.error).toMatch(/mapping/i);
   });
+  it('treats empty frontmatter as no properties block, stripped from body', () => {
+    const r = extractFrontmatter('---\n---\n# Body\n');
+    expect(r).toEqual({ body: '# Body\n', data: null, error: null, raw: null });
+  });
   it('does not treat a mid-document --- as frontmatter', () => {
     const src = 'intro\n---\ntitle: nope\n---\n';
     expect(extractFrontmatter(src).body).toBe(src);
