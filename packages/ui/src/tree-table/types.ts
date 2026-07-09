@@ -283,16 +283,6 @@ export interface TreeTableProps<T> {
    */
   getCheckboxState?: (node: TreeNode<T>) => TreeTableCheckboxRenderState | undefined;
 
-  // Checkbox
-  /**
-   * Pluggable per-node checkbox state. When provided, TreeTable renders a
-   * checkbox for each node whose return value is a visible CheckboxState. Return
-   * `'hidden'` or `undefined` to omit the checkbox for that row (e.g. match
-   * leaves under a chunk). Takes precedence over the built-in
-   * `multiSelectedIds` cascade when resolving visual state.
-   */
-  getCheckboxState?: (node: TreeNode<T>) => TreeTableCheckboxRenderState | undefined;
-
   // Highlighting (e.g., search results)
   /** Set of highlighted node IDs */
   highlightedIds?: Set<string>;
