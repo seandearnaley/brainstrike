@@ -107,10 +107,11 @@ export function extractHeadingPath(content: string): string | undefined {
  * @returns Language name or undefined if not recognized
  */
 export function detectLanguage(filePath: string): string | undefined {
-  const ext = filePath.split('.').pop()?.toLowerCase();
-  if (!ext) {
+  const dotIndex = filePath.lastIndexOf('.');
+  if (dotIndex < 0 || dotIndex === filePath.length - 1) {
     return;
   }
+  const ext = filePath.slice(dotIndex + 1).toLowerCase();
 
   const languageMap: Record<string, string> = {
     bash: 'shell',
@@ -172,5 +173,7 @@ export function detectLanguage(filePath: string): string | undefined {
     yml: 'yaml',
   };
 
+  // Chunking calls this for every file; avoid splitting the full path when
+  // only the suffix after the final dot matters.
   return languageMap[ext];
 }
