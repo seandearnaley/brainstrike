@@ -25,9 +25,9 @@ interface FileExplorerMiddlePanelBaseProps {
   estimateTokenCost?: (tokens: number) => number;
 }
 
-export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBaseProps> = ({
+export const FileExplorerMiddlePanelBase = ({
   estimateTokenCost,
-}) => {
+}: FileExplorerMiddlePanelBaseProps) => {
   const {
     fileContents,
     loadingFiles,

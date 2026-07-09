@@ -58,7 +58,7 @@ interface SelectionSettingsPanelProps {
   rulesEditorAvailable: boolean;
 }
 
-const SelectionSettingsPanel: React.FC<SelectionSettingsPanelProps> = ({
+const SelectionSettingsPanel = ({
   draft,
   error,
   hasRules,
@@ -74,7 +74,7 @@ const SelectionSettingsPanel: React.FC<SelectionSettingsPanelProps> = ({
   onSubmitMaxSelectionCount,
   onToggleOpen,
   rulesEditorAvailable,
-}) => (
+}: SelectionSettingsPanelProps) => (
   <div className="space-y-4">
     <div className="space-y-1">
       <h4 className="font-medium text-sm">Selection Settings</h4>

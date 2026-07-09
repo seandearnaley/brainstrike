@@ -1,15 +1,11 @@
 import { Label } from '@brainstrike/ui';
-import type React from 'react';
 
 interface FolderSummaryThresholdSettingProps {
   onChange: (value: number) => void;
   value: number;
 }
 
-const FolderSummaryThresholdSetting: React.FC<FolderSummaryThresholdSettingProps> = ({
-  value,
-  onChange,
-}) => (
+const FolderSummaryThresholdSetting = ({ value, onChange }: FolderSummaryThresholdSettingProps) => (
   <div className="space-y-2">
     <Label htmlFor="folder-summary-threshold">Folder Summary Threshold</Label>
     <input

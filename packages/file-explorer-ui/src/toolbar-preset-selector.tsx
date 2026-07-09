@@ -127,19 +127,7 @@ function resolveSelectedPreset(
  * Internal component that handles store connection and persistence.
  * Separated to ensure stable hook order for React Compiler.
  */
-const ToolbarPresetSelectorInner: React.FC<
-  ToolbarPresetSelectorProps & {
-    excludeFilters: readonly string[];
-    includeFilters: readonly string[];
-    viewFilterPresetId: string | null;
-    useRegex: boolean;
-    setViewFilterPresetId: (id: string | null) => void;
-    setFilters: (includes: string[], excludes: string[]) => void;
-    setUseRegex: (useRegex: boolean) => void;
-    isHydrated: boolean;
-    persistNow: () => Promise<void>;
-  }
-> = React.memo(
+const ToolbarPresetSelectorInner = React.memo(
   ({
     onFilterChange,
     className,
@@ -152,6 +140,16 @@ const ToolbarPresetSelectorInner: React.FC<
     setUseRegex,
     isHydrated,
     persistNow,
+  }: ToolbarPresetSelectorProps & {
+    excludeFilters: readonly string[];
+    includeFilters: readonly string[];
+    viewFilterPresetId: string | null;
+    useRegex: boolean;
+    setViewFilterPresetId: (id: string | null) => void;
+    setFilters: (includes: string[], excludes: string[]) => void;
+    setUseRegex: (useRegex: boolean) => void;
+    isHydrated: boolean;
+    persistNow: () => Promise<void>;
   }) => {
     // Load presets from database
     const { presets, loading, error, createPreset, updatePreset, deletePreset } =
@@ -287,8 +285,8 @@ ToolbarPresetSelectorInner.displayName = 'ToolbarPresetSelectorInner';
  * Provides a compact dropdown for quick preset selection in the toolbar.
  * Connects to the file explorer store and persists changes automatically.
  */
-const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
-  ({ onFilterChange, className }) => {
+const ToolbarPresetSelector = React.memo(
+  ({ onFilterChange, className }: ToolbarPresetSelectorProps) => {
     const store = useFileExplorerStoreContext();
     const { storageAdapter } = useAdapters();
     const isHydrated = useStoreHydrated(store);

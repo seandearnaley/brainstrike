@@ -163,7 +163,17 @@ function buildRuleSet(
 }
 
 /** Inner dialog content - render only, no hooks */
-const RulesEditorContent: React.FC<{
+const RulesEditorContent = ({
+  includePatterns,
+  excludePatterns,
+  excludeRoots,
+  onIncludePatternsChange,
+  onExcludePatternsChange,
+  onExcludeRootsChange,
+  onApply,
+  onCancel,
+  onApplyDefaults,
+}: {
   folderId: string;
   includePatterns: PatternInput[];
   excludePatterns: PatternInput[];
@@ -174,16 +184,6 @@ const RulesEditorContent: React.FC<{
   onApply: () => void;
   onCancel: () => void;
   onApplyDefaults: () => void;
-}> = ({
-  includePatterns,
-  excludePatterns,
-  excludeRoots,
-  onIncludePatternsChange,
-  onExcludePatternsChange,
-  onExcludeRootsChange,
-  onApply,
-  onCancel,
-  onApplyDefaults,
 }) => {
   const addIncludePattern = () => {
     onIncludePatternsChange([...includePatterns, { id: generateUUID(), pattern: '' }]);
@@ -459,13 +459,19 @@ const RulesEditorContent: React.FC<{
 };
 
 /** Stateful container - isolates hooks from compiled content */
-const RulesEditorContainer: React.FC<{
+const RulesEditorContainer = ({
+  isOpen,
+  onOpenChange,
+  folderId,
+  existingRuleSetJson,
+  onSave,
+}: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   folderId: string;
   existingRuleSetJson: string | null;
   onSave: (ruleSetJson: string) => void;
-}> = ({ isOpen, onOpenChange, folderId, existingRuleSetJson, onSave }) => {
+}) => {
   // Parse existing rules when dialog opens
   const initialState = useMemo(
     () => parseExistingRules(existingRuleSetJson),

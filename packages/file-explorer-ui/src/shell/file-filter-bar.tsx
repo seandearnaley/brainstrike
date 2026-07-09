@@ -16,8 +16,8 @@ interface FileFilterBarProps {
   value: string;
 }
 
-export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
-  ({ value, onChange, onClear, isFiltering, trailing }) => (
+export const FileFilterBar = React.memo(
+  ({ value, onChange, onClear, isFiltering, trailing }: FileFilterBarProps) => (
     <div className="relative flex w-full items-center gap-2">
       <div className="relative min-w-0 flex-1">
         <Search

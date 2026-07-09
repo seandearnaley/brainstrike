@@ -34,12 +34,12 @@ export interface DisconnectRootDialogProps {
  * close/reopen cycle. Mirrors the repo's destructive-confirm Dialog pattern
  * (see delete-embedding-set-dialog.tsx in vector-management).
  */
-export const DisconnectRootDialog: React.FC<DisconnectRootDialogProps> = ({
+export const DisconnectRootDialog = ({
   displayName,
   onConfirm,
   onOpenChange,
   open,
-}) => {
+}: DisconnectRootDialogProps) => {
   const [deleteData, setDeleteData] = React.useState(false);
 
   // A destructive opt-in must never survive a close/reopen cycle.

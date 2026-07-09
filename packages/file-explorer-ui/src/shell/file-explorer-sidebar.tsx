@@ -392,7 +392,7 @@ function RootSelectAllCheckbox({
 // loadingPathForSelection, but those are bound to the FOCUSED root's
 // provider — forest sections deliberately ignore them and use their own
 // tree context.
-const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
+const PerRootTreePane = ({
   rootDirectoryHandle,
   loadingFiles,
   currentFolderId,
@@ -400,7 +400,7 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   isLoadingForSelectAll = false,
   isLoading: isLoadingProp,
   rootId,
-}) => {
+}: PerRootTreePaneProps) => {
   // Reads the real file tree for THIS root from its enclosing FileTreeProvider,
   // then applies the GLOBAL workspace view filters for display — every section
   // shows exactly what the (same-filtered) scans can select.
@@ -541,13 +541,13 @@ interface RootSectionProps extends PerRootTreePaneProps {
   setFocusedRoot?: ((path: string) => void) | undefined;
 }
 
-const RootSection: React.FC<RootSectionProps> = ({
+const RootSection = ({
   onRemoveRoot,
   rootDirectoryHandle,
   setFocusedRoot,
   rootIdByPath,
   ...rest
-}) => {
+}: RootSectionProps) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
   // Storage v5: the canonical identity for this root. Prefer the stamped
@@ -633,7 +633,7 @@ const RootSection: React.FC<RootSectionProps> = ({
   );
 };
 
-const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
+const FileExplorerSidebar = memo(
   ({
     rootDirectoryHandle,
     rootDirectoryHandles,
@@ -655,7 +655,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
     isLoadingForSelection,
     loadingPathForSelection,
     isLoadingForSelectAll = false,
-  }) => {
+  }: FileExplorerSidebarProps) => {
     // React 19: useDeferredValue keeps showing the old tree while new one renders
     // This prevents "flash" during rapid tree updates (like expand-all)
     const deferredTree = useDeferredValue(quickFilteredTree);

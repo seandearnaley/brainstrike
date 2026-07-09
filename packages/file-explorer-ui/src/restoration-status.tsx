@@ -28,8 +28,8 @@ export interface RestorationStatusProps {
   progress: RestorationProgress | null;
 }
 
-export const RestorationStatus: React.FC<RestorationStatusProps> = React.memo(
-  ({ isRestoring, progress, className }) => {
+export const RestorationStatus = React.memo(
+  ({ isRestoring, progress, className }: RestorationStatusProps) => {
     const percentage = useMemo(() => {
       if (!progress || progress.total === 0) {
         return 0;
