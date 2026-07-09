@@ -32,6 +32,25 @@ describe('editor-view-state-store', () => {
     expect(useEditorViewStateStore.getState().getTargetLine(key)).toBeUndefined();
   });
 
+  it('clearTargetLine consumes only the target line, leaving scrollTop and selection intact', () => {
+    const key = 'root:/foo/consume.ts';
+    const st = useEditorViewStateStore.getState();
+    st.setScrollTop(key, 30);
+    st.setSelection(key, 1, 2);
+    st.setTargetLine(key, 10);
+
+    st.clearTargetLine(key);
+
+    const after = useEditorViewStateStore.getState();
+    expect(after.getTargetLine(key)).toBeUndefined();
+    expect(after.getScrollTop(key)).toBe(30);
+    expect(after.getSelection(key)).toEqual({ end: 2, start: 1 });
+
+    // Idempotent — clearing an already-clear (or never-set) key is a no-op.
+    expect(() => after.clearTargetLine(key)).not.toThrow();
+    expect(() => after.clearTargetLine('root:/foo/never-set.ts')).not.toThrow();
+  });
+
   it('excludes target lines from persistence (one-shot scroll target)', () => {
     const key = 'root:/foo/persist.ts';
     const st = useEditorViewStateStore.getState();

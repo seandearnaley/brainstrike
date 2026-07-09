@@ -786,6 +786,7 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
   const getScrollTop = useEditorViewStateStore((s) => s.getScrollTop);
   const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
   const getTargetLine = useEditorViewStateStore((s) => s.getTargetLine);
+  const clearTargetLine = useEditorViewStateStore((s) => s.clearTargetLine);
 
   const handleScrollTopChange = useCallback(
     (scrollTop: number) => {
@@ -793,6 +794,21 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     },
     [setScrollTop, tab.compositeKey]
   );
+
+  // One-shot consumption: only clear once `content` is actually a string, i.e.
+  // once CodeSurface below has genuinely mounted with whatever `initialLine`
+  // this render read (content loads async — clearing on every compositeKey
+  // change regardless of content would erase the target before CodeSurface
+  // ever mounts to consume it). Without this, switching tabs away and back (or
+  // closing and reopening) remounts CodeSurface — keyed on compositeKey — and
+  // its mount effect re-reads a stale target, yanking the view back to the
+  // match line and discarding the user's scroll position.
+  useEffect(() => {
+    if (typeof content !== 'string') {
+      return;
+    }
+    clearTargetLine(tab.compositeKey);
+  }, [clearTargetLine, content, tab.compositeKey]);
 
   if (status?.status === 'needs-permission') {
     return (

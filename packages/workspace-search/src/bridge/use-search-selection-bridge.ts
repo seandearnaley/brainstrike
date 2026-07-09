@@ -118,6 +118,13 @@ export function useSearchSelectionBridge(): SearchSelectionBridge {
       // active ranges reads as whole-file 'checked' (chunkCoverage's zero-ranges rule),
       // silently pulling the ENTIRE file into the assistant context. An active
       // search-managed OR a userModified range keeps the file selected.
+      //
+      // KNOWN ASYMMETRY (defensible, intentional): a file selected whole-file via the
+      // EXPLORER tree (not search) also has zero ranges, so `existing` is empty here too.
+      // The range model can't express "whole file minus one chunk" — there is no range
+      // to trim, so unchecking ANY single chunk of such a file deselects the ENTIRE file
+      // rather than leaving it partially checked. This mirrors the existing zero-ranges
+      // 'checked' rule rather than fighting it with a new representation.
       const hasActiveSelection = updated.some((range) => range.isActive || range.userModified);
       if (!hasActiveSelection && isKeySelected(explorerStore.getState(), compositeKey)) {
         const { folderId, path } = decodeFileSelection(compositeKey);

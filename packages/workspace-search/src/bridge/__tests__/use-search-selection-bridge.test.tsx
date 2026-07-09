@@ -152,6 +152,31 @@ describe('useSearchSelectionBridge', () => {
     expect(curationState().tapestryRangesByKey[KEY]).toEqual([userRange]);
   });
 
+  it('deselects the entire file when unchecking one chunk of an explorer whole-file (zero-range) selection', () => {
+    const { result } = renderBridge();
+    const chunk = { endLine: 14, startLine: 10 };
+    const otherChunk = { endLine: 40, startLine: 30 };
+
+    // Select the file the way the EXPLORER tree checkbox does — directly via the
+    // file-explorer store, NOT the bridge's toggleChunk — leaving zero tapestry
+    // ranges. chunkCoverage's zero-ranges rule then reads every chunk as 'checked'.
+    act(() => result.current.store.getState().addSelectedFile(ROOT, PATH));
+    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
+    expect(curationState().tapestryRangesByKey[KEY]).toBeUndefined();
+    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('checked');
+    expect(result.current.bridge.chunkState(KEY, otherChunk)).toBe('checked');
+
+    // Unchecking a single chunk can't be expressed as "whole file minus one
+    // chunk" in the range model, so the bridge deselects the WHOLE file.
+    act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
+
+    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
+    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('unchecked');
+    // A different, never-toggled chunk in the same file reads unchecked too —
+    // proof this deselected the whole file, not just a partial range.
+    expect(result.current.bridge.chunkState(KEY, otherChunk)).toBe('unchecked');
+  });
+
   it('chunkState reflects both stores live', () => {
     const { result } = renderBridge();
     const chunk = { endLine: 14, startLine: 10 };

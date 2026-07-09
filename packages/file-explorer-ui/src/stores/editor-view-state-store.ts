@@ -18,6 +18,14 @@ interface EditorViewStateData {
 
 interface EditorViewStateActions {
   clear: (key?: Key) => void;
+  /**
+   * Consume the one-shot target line for a key WITHOUT touching scrollTop or
+   * selection. Callers (e.g. workspace-tab-host's FileTabBody) call this right
+   * after the opening render has used the target line, so a later remount of
+   * the same key (tab switch away/back, close/reopen) reads no target and
+   * falls back to the restored scroll position instead of re-scrolling.
+   */
+  clearTargetLine: (key: Key) => void;
   getScrollTop: (key: Key) => number;
   getSelection: (key: Key) => { start: number; end: number } | undefined;
   getTargetLine: (key: Key) => number | undefined;
@@ -45,6 +53,14 @@ export const useEditorViewStateStore = create<EditorViewStateStore>()(
         const { [key]: _b, ...restSel } = selections;
         const { [key]: _c, ...restTargets } = targetLines;
         set({ scrollTops: restScrolls, selections: restSel, targetLines: restTargets });
+      },
+      clearTargetLine: (key) => {
+        const { targetLines } = get();
+        if (!(key in targetLines)) {
+          return;
+        }
+        const { [key]: _removed, ...restTargets } = targetLines;
+        set({ targetLines: restTargets });
       },
       getScrollTop: (key) => get().scrollTops[key] ?? 0,
       getSelection: (key) => get().selections[key],

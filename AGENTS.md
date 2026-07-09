@@ -494,6 +494,11 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   `workspace-tab-host` records a one-shot `targetLine` (transient, non-persisted
   slice of `editor-view-state-store`) → `CodeSurface` `initialLine` scrolls it
   into view on first render, winning over restored scroll position.
+  `FileTabBody` clears the store's `targetLine` for that key once `content` has
+  rendered (consuming it exactly once) — so a later tab-switch-away-and-back or
+  close/reopen, which remounts `CodeSurface` (keyed on `compositeKey`), reads no
+  target and falls back to the restored scroll position instead of re-scrolling
+  to the stale match line.
 - **Bridge invariant (no silent data loss).** `use-search-selection-bridge.ts`
   writes ONLY explorer file-selection + search-managed `tapestryRangesByKey`; it
   NEVER mutates/removes `userModified` Tapestry ranges. The curation store's
