@@ -74,10 +74,6 @@ export default defineConfig({
         replacement: resolve(__dirname, '../utils/src/env-utils.ts'),
       },
       {
-        find: '@brainstrike/utils/safe-storage',
-        replacement: resolve(__dirname, '../utils/src/safe-storage.ts'),
-      },
-      {
         find: /^@brainstrike\/utils\/(.*)$/,
         replacement: resolve(__dirname, '../utils/src/$1.ts'),
       },

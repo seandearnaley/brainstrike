@@ -30,7 +30,10 @@ function listFiles(root: string): string[] {
 }
 
 describe('ui architecture boundaries', () => {
-  it('does not import storage adapters directly', () => {
+  // Shared-foundation @brainstrike/storage (safe JSON / Zustand helpers) is allowed.
+  // The Electron-only subpath must stay out of renderer UI — that was the original
+  // architecture-reset invariant (theme/provider must not pull main-process adapters).
+  it('does not import Electron storage adapters', () => {
     const packageFiles: [relativePath: string, text: string][] = [
       ['package.json', readPackageFile('package.json')],
       ['tsconfig.json', readPackageFile('tsconfig.json')],
@@ -43,7 +46,7 @@ describe('ui architecture boundaries', () => {
       ]);
 
     const violatingFiles = [...packageFiles, ...sourceFiles]
-      .filter(([, text]) => text.includes('@brainstrike/storage'))
+      .filter(([, text]) => text.includes('@brainstrike/storage/electron'))
       .map(([relativePath]) => relativePath);
 
     expect(violatingFiles).toEqual([]);

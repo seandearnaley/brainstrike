@@ -1,4 +1,4 @@
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
+import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 

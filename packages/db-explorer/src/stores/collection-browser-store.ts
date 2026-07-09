@@ -1,3 +1,4 @@
+import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
 import type {
   CollectionSortDirection,
   CollectionSortKey,
@@ -6,7 +7,6 @@ import type {
   GroupByKey,
   SearchMode,
 } from '@brainstrike/ui';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 

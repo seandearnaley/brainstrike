@@ -1,4 +1,4 @@
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
+import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { Category, Prompt, PromptFilter, PromptRevision } from './types';

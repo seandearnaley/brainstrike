@@ -8,10 +8,6 @@ export default defineConfig({
       '@brainstrike/queue': resolve(import.meta.dirname, '../queue/src/index.ts'),
       '@brainstrike/utils': resolve(import.meta.dirname, '../utils/src'),
       '@brainstrike/utils/logger': resolve(import.meta.dirname, '../utils/src/logger.ts'),
-      '@brainstrike/utils/safe-storage': resolve(
-        import.meta.dirname,
-        '../utils/src/safe-storage.ts'
-      ),
       '@brainstrike/utils/token-counting-runtime': resolve(
         import.meta.dirname,
         '../utils/src/token-counting-runtime.ts'

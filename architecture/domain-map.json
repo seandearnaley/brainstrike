@@ -121,8 +121,7 @@
       "packages": [
         "@brainstrike/db",
         "@brainstrike/preferences",
-        "@brainstrike/queue",
-        "@brainstrike/storage"
+        "@brainstrike/queue"
       ],
       "mayDependOn": [
         "shared-foundation",
@@ -140,6 +139,7 @@
         "@brainstrike/file-system",
         "@brainstrike/hooks",
         "@brainstrike/indexing-contract",
+        "@brainstrike/storage",
         "@brainstrike/test-utils",
         "@brainstrike/types",
         "@brainstrike/ui",
