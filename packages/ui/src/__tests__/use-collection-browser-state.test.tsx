@@ -159,6 +159,24 @@ describe('useCollectionBrowserState', () => {
     expect(caughtUp).toBe(filters);
   });
 
+  it('withDeferredSearchQuery reuses the prior composed filters while search lags', () => {
+    const first = makeFilters({ searchQuery: 'abc' });
+    const lagged = withDeferredSearchQuery(first, 'ab');
+    // Parent rebuilds filters on every keystroke (new object + new nodeTypes Set).
+    const rebuilt = makeFilters({ searchQuery: 'abcd' });
+    const reused = withDeferredSearchQuery(rebuilt, 'ab', lagged);
+    expect(reused).toBe(lagged);
+
+    const nodeTypesChanged = makeFilters({
+      nodeTypes: new Set(['file'] as const) as CollectionBrowserFilters['nodeTypes'],
+      searchQuery: 'abcd',
+    });
+    const recomputed = withDeferredSearchQuery(nodeTypesChanged, 'ab', lagged);
+    expect(recomputed).not.toBe(lagged);
+    expect(recomputed.searchQuery).toBe('ab');
+    expect(recomputed.nodeTypes).toEqual(new Set(['file']));
+  });
+
   it('filters nodes by search query and preserves selection when the match stays visible', async () => {
     const { result, rerender } = renderHook(
       ({ filters }: { filters: CollectionBrowserFilters }) =>

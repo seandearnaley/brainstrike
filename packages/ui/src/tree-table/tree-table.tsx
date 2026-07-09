@@ -767,6 +767,13 @@ export function TreeTable<T>({
         return;
       }
 
+      // Getter-only pluggable mode: do not mix with the built-in cascade.
+      // checkboxStates is empty when getCheckboxState is set, so falling through
+      // would treat every click as "unchecked → select".
+      if (getCheckboxState !== undefined) {
+        return;
+      }
+
       if (!onMultiSelectChange) {
         return;
       }
@@ -792,6 +799,7 @@ export function TreeTable<T>({
     [
       nodeById,
       onCheckboxChange,
+      getCheckboxState,
       resolveRowCheckboxState,
       resolveNextCheckboxState,
       onMultiSelectChange,
@@ -799,11 +807,6 @@ export function TreeTable<T>({
       multiSelectedIds,
       checkboxStates,
     ]
-  );
-
-  const shouldShowRowCheckbox = React.useCallback(
-    (node: TreeNode<T>): boolean => resolveRowCheckboxState(node) !== null,
-    [resolveRowCheckboxState]
   );
 
   const resolveRowCheckboxAriaLabel = React.useCallback(
@@ -1158,54 +1161,56 @@ export function TreeTable<T>({
                     return null;
                   }
 
+                  const rowCheckboxState = resolveRowCheckboxState(row.node);
+                  const rowShowsCheckbox = rowCheckboxState !== null;
                   return (
                     <TreeTableRow
                       ariaRole={tableAriaRole}
                       checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
-                      checkboxState={resolveRowCheckboxState(row.node) ?? 'unchecked'}
+                      checkboxState={rowCheckboxState ?? 'unchecked'}
                       className={getRowClassName(row.node)}
                       columns={columns}
                       insetTreeControls={insetTreeControls}
                       isFocused={keyboard.state.focusedId === row.node.id}
                       key={row.node.id}
-                      onCheckboxChange={
-                        shouldShowRowCheckbox(row.node) ? handleCheckboxChange : undefined
-                      }
+                      onCheckboxChange={rowShowsCheckbox ? handleCheckboxChange : undefined}
                       onClick={handleRowClick}
                       onContextMenu={handleRowContextMenu}
                       onDoubleClick={handleRowDoubleClick}
                       onToggleExpand={onToggleExpand}
                       row={row}
-                      showCheckbox={shouldShowRowCheckbox(row.node)}
+                      showCheckbox={rowShowsCheckbox}
                       totalRowCount={totalRowCount}
                       virtualIndex={virtualRow.index}
                       {...virtualRowMeasureProps}
                     />
                   );
                 })
-              : displayedRows.map((row) => (
-                  <TreeTableRow
-                    ariaRole={tableAriaRole}
-                    checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
-                    checkboxState={resolveRowCheckboxState(row.node) ?? 'unchecked'}
-                    className={getRowClassName(row.node)}
-                    columns={columns}
-                    insetTreeControls={insetTreeControls}
-                    isFocused={keyboard.state.focusedId === row.node.id}
-                    key={row.node.id}
-                    onCheckboxChange={
-                      shouldShowRowCheckbox(row.node) ? handleCheckboxChange : undefined
-                    }
-                    onClick={handleRowClick}
-                    onContextMenu={handleRowContextMenu}
-                    onDoubleClick={handleRowDoubleClick}
-                    onToggleExpand={onToggleExpand}
-                    row={row}
-                    showCheckbox={shouldShowRowCheckbox(row.node)}
-                    totalRowCount={totalRowCount}
-                    virtualIndex={row.index}
-                  />
-                ))}
+              : displayedRows.map((row) => {
+                  const rowCheckboxState = resolveRowCheckboxState(row.node);
+                  const rowShowsCheckbox = rowCheckboxState !== null;
+                  return (
+                    <TreeTableRow
+                      ariaRole={tableAriaRole}
+                      checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
+                      checkboxState={rowCheckboxState ?? 'unchecked'}
+                      className={getRowClassName(row.node)}
+                      columns={columns}
+                      insetTreeControls={insetTreeControls}
+                      isFocused={keyboard.state.focusedId === row.node.id}
+                      key={row.node.id}
+                      onCheckboxChange={rowShowsCheckbox ? handleCheckboxChange : undefined}
+                      onClick={handleRowClick}
+                      onContextMenu={handleRowContextMenu}
+                      onDoubleClick={handleRowDoubleClick}
+                      onToggleExpand={onToggleExpand}
+                      row={row}
+                      showCheckbox={rowShowsCheckbox}
+                      totalRowCount={totalRowCount}
+                      virtualIndex={row.index}
+                    />
+                  );
+                })}
 
             {isVirtualWindowing && paddingBottom > 0 && (
               <tr>

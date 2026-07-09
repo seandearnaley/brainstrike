@@ -124,6 +124,18 @@ export const SearchModeBar = React.memo(function SearchModeBar({
 
   const popoverOpen = isSearchExpanded && optionsOpen;
 
+  // Parent-driven collapse (isSearchExpanded flipped without our collapse
+  // handler) must still clear stored open state — otherwise the cog reopens
+  // automatically on the next expand. The popoverOpen AND-gate only masks UI.
+  const wasSearchExpandedRef = React.useRef(isSearchExpanded);
+  React.useEffect(() => {
+    const wasExpanded = wasSearchExpandedRef.current;
+    wasSearchExpandedRef.current = isSearchExpanded;
+    if (wasExpanded && !isSearchExpanded && optionsOpen) {
+      setOptionsOpen(false);
+    }
+  }, [isSearchExpanded, optionsOpen, setOptionsOpen]);
+
   const handleToggleExpanded = React.useCallback(() => {
     if (disabled) {
       return;

@@ -1218,6 +1218,27 @@ describe('TreeTable', () => {
       );
     });
 
+    it('does not fall through to onMultiSelectChange when only getCheckboxState is provided', () => {
+      const handleMultiSelect = vi.fn();
+      const nodes: TreeNode<TestData>[] = [createTestNode('a', 'A')];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'checked'}
+          multiSelectedIds={new Set(['a'])}
+          nodes={nodes}
+          onMultiSelectChange={handleMultiSelect}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      fireEvent.click(screen.getByLabelText('Select a'));
+      expect(handleMultiSelect).not.toHaveBeenCalled();
+    });
+
     it('does not call onMultiSelectChange when pluggable onCheckboxChange is provided', () => {
       const handleMultiSelect = vi.fn();
       const handleCheckboxChange = vi.fn();
