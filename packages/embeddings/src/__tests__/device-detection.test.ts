@@ -45,17 +45,17 @@ describe('device-detection', () => {
     it('detects WebGPU when adapter is available', async () => {
       const mockAdapter = {
         features: new Set(['texture-compression-bc']),
-        isFallbackAdapter: false,
+        info: {
+          architecture: 'ampere',
+          description: 'NVIDIA GeForce RTX 3080',
+          isFallbackAdapter: false,
+          vendor: 'nvidia',
+        },
         limits: {
           maxBufferSize: 2_147_483_647,
           maxComputeWorkgroupsPerDimension: 65_535,
           maxStorageBufferBindingSize: 2_147_483_647,
         },
-        requestAdapterInfo: vi.fn().mockResolvedValue({
-          architecture: 'ampere',
-          description: 'NVIDIA GeForce RTX 3080',
-          vendor: 'nvidia',
-        }),
       };
 
       vi.stubGlobal('navigator', {
@@ -80,9 +80,9 @@ describe('device-detection', () => {
         info: {
           architecture: 'apple-gpu',
           description: 'Apple GPU',
+          isFallbackAdapter: false,
           vendor: 'apple',
         },
-        isFallbackAdapter: false,
         limits: {
           maxBufferSize: 2_147_483_647,
           maxComputeWorkgroupsPerDimension: 65_535,
@@ -148,17 +148,17 @@ describe('device-detection', () => {
     it('recommends WASM when WebGPU uses fallback adapter', async () => {
       const mockFallbackAdapter = {
         features: new Set([]),
-        isFallbackAdapter: true,
+        info: {
+          architecture: 'software',
+          description: 'llvmpipe (software)',
+          isFallbackAdapter: true,
+          vendor: 'mesa',
+        },
         limits: {
           maxBufferSize: 1_073_741_824,
           maxComputeWorkgroupsPerDimension: 65_535,
           maxStorageBufferBindingSize: 1_073_741_824,
         },
-        requestAdapterInfo: vi.fn().mockResolvedValue({
-          architecture: 'software',
-          description: 'llvmpipe (software)',
-          vendor: 'mesa',
-        }),
       };
 
       vi.stubGlobal('navigator', {
@@ -178,15 +178,17 @@ describe('device-detection', () => {
     it('caches detection results', async () => {
       const mockAdapter = {
         features: new Set([]),
-        isFallbackAdapter: false,
+        info: {
+          architecture: '',
+          description: 'Test GPU',
+          isFallbackAdapter: false,
+          vendor: 'test',
+        },
         limits: {
           maxBufferSize: 2_147_483_647,
           maxComputeWorkgroupsPerDimension: 65_535,
           maxStorageBufferBindingSize: 2_147_483_647,
         },
-        requestAdapterInfo: vi
-          .fn()
-          .mockResolvedValue({ architecture: '', description: 'Test GPU', vendor: 'test' }),
       };
 
       vi.stubGlobal('navigator', {
@@ -206,15 +208,17 @@ describe('device-detection', () => {
     it('refreshes cache when forceRefresh is true', async () => {
       const mockAdapter = {
         features: new Set([]),
-        isFallbackAdapter: false,
+        info: {
+          architecture: '',
+          description: 'Test GPU',
+          isFallbackAdapter: false,
+          vendor: 'test',
+        },
         limits: {
           maxBufferSize: 2_147_483_647,
           maxComputeWorkgroupsPerDimension: 65_535,
           maxStorageBufferBindingSize: 2_147_483_647,
         },
-        requestAdapterInfo: vi
-          .fn()
-          .mockResolvedValue({ architecture: '', description: 'Test GPU', vendor: 'test' }),
       };
 
       vi.stubGlobal('navigator', {
