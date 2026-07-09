@@ -125,6 +125,39 @@ const DEFAULT_MESSAGES_PER_PAGE = 40;
 const THREAD_ORDER_FIELDS = new Set<ThreadOrderBy>(['createdAt', 'updatedAt']);
 const THREAD_ORDER_DIRECTIONS = new Set<ThreadSortDirection>(['ASC', 'DESC']);
 
+// Titles a freshly created thread carries before anyone has named it: Mastra's
+// createThread seeds an empty string; our repository seeds 'New Thread'. Either
+// is fair game for the observer's auto-title.
+const PLACEHOLDER_THREAD_TITLES = new Set(['', 'New Thread']);
+
+function isPlaceholderThreadTitle(title: string | null | undefined): boolean {
+  return title === null || title === undefined || PLACEHOLDER_THREAD_TITLES.has(title.trim());
+}
+
+/**
+ * Decide which title an `updateThread` should persist. Automated (observer)
+ * title writes may name a still-unnamed thread, but must never overwrite an
+ * established title — a rename the user made (or a title a prior run set). When
+ * the stored title is a real one and a DIFFERENT title is proposed, the stored
+ * title wins. Metadata-only updates (proposed === stored) pass through.
+ */
+function resolveAutoTitleWrite(
+  existingTitle: string | null | undefined,
+  proposedTitle: string
+): string {
+  if (
+    existingTitle === null ||
+    existingTitle === undefined ||
+    isPlaceholderThreadTitle(existingTitle)
+  ) {
+    return proposedTitle;
+  }
+  if (proposedTitle.trim() === existingTitle.trim()) {
+    return proposedTitle;
+  }
+  return existingTitle;
+}
+
 /** Inline run-event detail like "12 messages" / "1 record". */
 function formatCountDetail(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -637,12 +670,26 @@ export class PgliteMemoryStore extends MemoryStorage {
     title: string;
     metadata: Record<string, unknown>;
   }): Promise<StorageThreadType> {
+    const existing = await this.getThreadById({ threadId: id });
+    const effectiveTitle = resolveAutoTitleWrite(existing?.title, title);
+    if (existing && effectiveTitle !== title) {
+      // The observational-memory thread-title extractor is the only actor that
+      // writes titles through this adapter; manual rename uses a dedicated
+      // raw-SQL path that bypasses it. Preserve an established title so an
+      // auto-generated title never clobbers the one a user (or a prior run)
+      // already set — user-owned titles win.
+      logger.debug('Preserving established thread title against auto-title update', {
+        existingTitle: existing.title,
+        proposedTitle: title,
+        threadId: id,
+      });
+    }
     const now = new Date();
     await this.database.query(
       `UPDATE ${MASTRA_MEMORY_TABLES.threads}
        SET title = $2, metadata = $3::jsonb, "updatedAt" = $4
        WHERE id = $1`,
-      [id, title, toJsonString(metadata), now]
+      [id, effectiveTitle, toJsonString(metadata), now]
     );
     const updated = await this.getThreadById({ threadId: id });
     if (!updated) {

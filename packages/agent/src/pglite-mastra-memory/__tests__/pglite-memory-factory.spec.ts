@@ -58,13 +58,69 @@ describe('createPgliteMastraMemory', () => {
       options: {
         observationalMemory: {
           model: 'anthropic/claude-haiku-4-5',
-          observation: { messageTokens: 18_000 },
+          observation: { messageTokens: 18_000, threadTitle: true },
           reflection: { observationTokens: 36_000 },
           retrieval: { scope: 'resource' },
           scope: 'resource',
         },
         semanticRecall: false,
       },
+    });
+  });
+
+  it('opts into observer thread-title extraction whenever observational memory is enabled', async () => {
+    await createPgliteMastraMemory({
+      database: db,
+      memorySettings: {
+        observationalMemory: {
+          enabled: true,
+          messageTokens: 12_000,
+          modelTarget: 'openai/gpt-5.4-mini',
+          observationTokens: 24_000,
+          retrievalMode: 'off',
+          scope: 'thread',
+        },
+        semanticRecall: {
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+          messageRange: 2,
+          scope: 'resource',
+          topK: 5,
+        },
+      },
+    });
+
+    const options = (memoryConstructorCalls[0] as { options: { observationalMemory: unknown } })
+      .options;
+    expect(options.observationalMemory).toMatchObject({
+      observation: { threadTitle: true },
+    });
+  });
+
+  it('does not construct an observational memory option (or its thread-title flag) when disabled', async () => {
+    await createPgliteMastraMemory({
+      database: db,
+      memorySettings: {
+        observationalMemory: {
+          enabled: false,
+          messageTokens: 12_000,
+          modelTarget: 'openai/gpt-5.4-mini',
+          observationTokens: 24_000,
+          retrievalMode: 'off',
+          scope: 'thread',
+        },
+        semanticRecall: {
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+          messageRange: 2,
+          scope: 'resource',
+          topK: 5,
+        },
+      },
+    });
+
+    expect(memoryConstructorCalls[0]).toMatchObject({
+      options: { observationalMemory: false },
     });
   });
 

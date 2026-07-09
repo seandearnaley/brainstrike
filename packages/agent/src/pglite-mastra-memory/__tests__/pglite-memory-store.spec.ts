@@ -160,6 +160,54 @@ describe('PgliteMemoryStore', () => {
     ).resolves.toBeNull();
   });
 
+  it('lets an automated title name a still-unnamed thread', async () => {
+    // Mastra auto-creates threads with an empty title; our repository seeds
+    // 'New Thread'. Both are placeholders the observer is free to name.
+    for (const placeholder of ['', 'New Thread']) {
+      const threadId = `thread-placeholder-${placeholder || 'empty'}`;
+      await store.saveThread({
+        thread: {
+          createdAt: new Date('2026-04-22T10:00:00Z'),
+          id: threadId,
+          resourceId: 'workspace-a',
+          title: placeholder,
+          updatedAt: new Date('2026-04-22T10:00:00Z'),
+        },
+      });
+
+      const updated = await store.updateThread({
+        id: threadId,
+        metadata: {},
+        title: 'Paris Weather Chat',
+      });
+
+      expect(updated.title).toBe('Paris Weather Chat');
+    }
+  });
+
+  it('never lets an automated title overwrite an established (user-owned) title', async () => {
+    // Manual rename writes a real title via a dedicated raw-SQL path; a later
+    // observer-driven updateThread with a DIFFERENT title must not clobber it.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-user-named',
+        resourceId: 'workspace-a',
+        title: 'My Paris Trip',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-user-named',
+      metadata: { note: 'observer metadata still lands' },
+      title: 'Weather In France',
+    });
+
+    expect(updated.title).toBe('My Paris Trip');
+    expect(updated.metadata).toMatchObject({ note: 'observer metadata still lands' });
+  });
+
   it('persists messages and supports thread/resource recall queries', async () => {
     await store.saveThread({
       thread: {

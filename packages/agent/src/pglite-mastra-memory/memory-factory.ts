@@ -55,6 +55,11 @@ function buildObservationalMemoryOption(
       : {}),
     observation: {
       messageTokens: settings.messageTokens,
+      // Opt into the built-in observer thread-title extractor so threads are
+      // auto-named as observations run. The extracted title lands in
+      // mastra_threads.title through PgliteMemoryStore.updateThread, which
+      // guards user-owned titles from being clobbered.
+      threadTitle: true,
     },
     reflection: {
       observationTokens: settings.observationTokens,
