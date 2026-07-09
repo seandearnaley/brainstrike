@@ -16,6 +16,8 @@ import {
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
+  type ManageTaskListInput,
+  ManageTaskListInputSchema,
   type QueryEmbeddingSpaceInput,
   QueryEmbeddingSpaceInputSchema,
   type ReadWorkspaceContextInput,
@@ -64,6 +66,7 @@ import { EXECUTE_COMMAND_TOOL_ID, runExecuteCommand } from './execute-command-to
 import { findSymbolMatches } from './find-workspace-symbol';
 import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
+import { MANAGE_TASK_LIST_TOOL_ID, runManageTaskList } from './manage-task-list-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
@@ -2142,6 +2145,21 @@ export function buildDesktopAssistantTools(
       },
       id: LIST_EMBEDDING_SPACES_TOOL_ID,
       inputSchema: ListEmbeddingSetsInputSchema,
+    },
+    [MANAGE_TASK_LIST_TOOL_ID]: {
+      description:
+        'Record and update a structured plan for the current thread as a task list. Whole-list replace: pass the FULL desired list every call. When a task is multi-step, break it into tasks up front; keep exactly one task in_progress at a time and mark tasks completed as you finish them. Each task is { content (imperative label), activeForm (present-tense in-progress label), status: pending | in_progress | completed }. The list is re-injected into your instructions each turn (so it survives context truncation) and shown to the user as a progress checklist.',
+      execute: async (input: ToolExecuteInput<ManageTaskListInput>) => {
+        const resolvedInput = parseToolExecuteInput(ManageTaskListInputSchema, input);
+        try {
+          return await runManageTaskList(resolvedInput, runtimeData);
+        } catch (error) {
+          logToolFailure('manageTaskList failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: MANAGE_TASK_LIST_TOOL_ID,
+      inputSchema: ManageTaskListInputSchema,
     },
     [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
       description:

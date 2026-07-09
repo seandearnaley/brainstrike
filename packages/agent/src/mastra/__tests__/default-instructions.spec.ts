@@ -1,9 +1,67 @@
+import type { AssistantTaskItem } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {
   buildContextBudgetNote,
+  buildCurrentTaskListNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
 } from '../default-instructions';
+
+describe('buildCurrentTaskListNote', () => {
+  const tasks: AssistantTaskItem[] = [
+    {
+      activeForm: 'Implementing the parser',
+      content: 'Implement the parser',
+      id: 'a',
+      status: 'in_progress',
+    },
+    { activeForm: 'Writing the tests', content: 'Write the tests', id: 'b', status: 'pending' },
+    { activeForm: 'Reading the spec', content: 'Read the spec', id: 'c', status: 'completed' },
+  ];
+
+  it('renders a <current-task-list> block with one line per task in stored order', () => {
+    const note = buildCurrentTaskListNote(tasks);
+    expect(note).not.toBeNull();
+    const value = note ?? '';
+    expect(value).toContain('<current-task-list count="3">');
+    expect(value).toContain('</current-task-list>');
+    expect(value).toContain('[in_progress] Implement the parser');
+    expect(value).toContain('[pending] Write the tests');
+    expect(value).toContain('[completed] Read the spec');
+    // Stored order is preserved.
+    expect(value.indexOf('Implement the parser')).toBeLessThan(value.indexOf('Write the tests'));
+    expect(value.indexOf('Write the tests')).toBeLessThan(value.indexOf('Read the spec'));
+    // Framed as an automatic snapshot, not a user instruction.
+    expect(value).toContain('automatic snapshot');
+  });
+
+  it('returns null for an empty or undefined list (no block)', () => {
+    expect(buildCurrentTaskListNote([])).toBeNull();
+    expect(buildCurrentTaskListNote(undefined)).toBeNull();
+  });
+});
+
+describe('manageTaskList advertisement', () => {
+  it('advertises the tool only when it is registered', () => {
+    const withTool = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_manageTaskList', 'brainstrike.manageTaskList']])
+    );
+    expect(withTool).toContain('brainstrike_manageTaskList');
+    expect(withTool).toContain('in_progress');
+
+    const withoutTool = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
+    );
+    expect(withoutTool).not.toContain('manageTaskList');
+  });
+
+  it('does NOT advertise the task-list tool in the compact local instructions (v1)', () => {
+    const local = buildLocalDefaultInstructions(
+      new Map<string, string>([['brainstrike_manageTaskList', 'brainstrike.manageTaskList']])
+    );
+    expect(local).not.toContain('manageTaskList');
+  });
+});
 
 describe('default assistant instructions', () => {
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {
