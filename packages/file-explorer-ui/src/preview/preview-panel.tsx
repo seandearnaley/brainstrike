@@ -388,10 +388,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       selectedSourceApproxTokens: contextSelectedTokenSummary.sourceSelectedTokens,
       selectionFolderId,
       tokenBudget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-      // Task 4 removes this: the preference was retired in Task 3 and ranges
-      // now always feed context output, but WorkspaceContextCurationSnapshot
-      // still declares the field.
-      useTapestryRanges: true,
     });
   }, [
     contextSelectedTokenSummary.outputSelectedTokens,
@@ -802,10 +798,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     () => ({
       projectTreeUsesViewFilters,
       selectedLineRangesByFile: tapestryRangesByKey,
-      // Task 4 removes this: the preference was retired in Task 3 and ranges
-      // now always feed context output, but ContextExportOptions still
-      // declares the field.
-      useTapestryRanges: true,
     }),
     [projectTreeUsesViewFilters, tapestryRangesByKey]
   );

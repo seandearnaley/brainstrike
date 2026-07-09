@@ -38,7 +38,6 @@ export interface ContextGenerationOptions {
    */
   rootDisplayInfoById?: Record<string, RootDisplayInfo>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
-  useTapestryRanges?: boolean;
 }
 
 /**
@@ -229,9 +228,8 @@ function buildFileContextContent(args: {
   displayPath?: string;
   fileContents: Record<string, string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
-  useTapestryRanges: boolean;
 }): string {
-  const { filePath, displayPath, fileContents, selectedLineRangesByFile, useTapestryRanges } = args;
+  const { filePath, displayPath, fileContents, selectedLineRangesByFile } = args;
   const escapedFilePath = escapeXmlAttribute(displayPath ?? filePath);
   const content =
     fileContents[filePath] ?? `Unable to read file content for ${displayPath ?? filePath}`;
@@ -239,7 +237,9 @@ function buildFileContextContent(args: {
 ${content}
 </file>`;
 
-  if (!(useTapestryRanges && filePath in fileContents)) {
+  // A file whose content was never loaded cannot be sliced by ranges — emit the
+  // full/fallback `<file>` path instead of an empty selection.
+  if (!(filePath in fileContents)) {
     return fullFileContextContent;
   }
 
@@ -303,7 +303,6 @@ ${Array.from(selectedFiles)
       ...(options.selectedLineRangesByFile
         ? { selectedLineRangesByFile: options.selectedLineRangesByFile }
         : {}),
-      useTapestryRanges: options.useTapestryRanges ?? false,
     })
   )
   .join('\n')}

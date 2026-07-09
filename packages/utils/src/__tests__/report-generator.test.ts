@@ -660,7 +660,6 @@ describe('reportGenerator', () => {
         selectedLineRangesByFile: {
           'src/lib/utils.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
         },
-        useTapestryRanges: true,
       }
     );
 
@@ -683,7 +682,6 @@ describe('reportGenerator', () => {
         selectedLineRangesByFile: {
           'src/lib/utils.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
         },
-        useTapestryRanges: true,
       }
     );
 
@@ -711,7 +709,6 @@ describe('reportGenerator', () => {
         selectedLineRangesByFile: {
           'src/lib/utils.ts': [{ endLine: 1, isActive: false, startLine: 0 }],
         },
-        useTapestryRanges: true,
       }
     );
 

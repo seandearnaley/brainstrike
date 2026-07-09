@@ -11,7 +11,6 @@ function createSnapshot(selectionFolderId: string | null) {
     selectedSourceApproxTokens: null,
     selectionFolderId,
     tokenBudget: null,
-    useTapestryRanges: true,
   };
 }
 

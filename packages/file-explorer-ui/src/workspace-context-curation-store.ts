@@ -29,7 +29,6 @@ export interface WorkspaceContextCurationSnapshot {
   selectedSourceApproxTokens: number | null;
   selectionFolderId: string | null;
   tokenBudget: number | null;
-  useTapestryRanges: boolean;
 }
 
 interface WorkspaceContextCurationState {

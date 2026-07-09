@@ -28,7 +28,6 @@ const createReportGenerator = vi.fn(
           ...(request.selectedLineRangesByFile
             ? { selectedLineRangesByFile: request.selectedLineRangesByFile }
             : {}),
-          useTapestryRanges: request.useTapestryRanges ?? false,
         }
       );
     }
@@ -90,7 +89,6 @@ describe('useReportGeneration', () => {
       mockFolderSummaryThreshold,
       {
         projectTreeUsesViewFilters: false,
-        useTapestryRanges: false,
       }
     );
 
@@ -213,7 +211,6 @@ describe('useReportGeneration', () => {
         mockFolderSummaryThreshold,
         {
           projectTreeUsesViewFilters: false,
-          useTapestryRanges: false,
         }
       );
     });
@@ -291,7 +288,6 @@ describe('useReportGeneration', () => {
         expect.anything(),
         {
           projectTreeUsesViewFilters: false,
-          useTapestryRanges: false,
         }
       );
     });
@@ -332,7 +328,6 @@ describe('useReportGeneration', () => {
         expect.anything(),
         {
           projectTreeUsesViewFilters: false,
-          useTapestryRanges: false,
         }
       );
     });
@@ -367,7 +362,6 @@ describe('useReportGeneration', () => {
         mockFolderSummaryThreshold,
         {
           projectTreeUsesViewFilters: false,
-          useTapestryRanges: false,
         }
       );
     });
