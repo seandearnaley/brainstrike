@@ -47,14 +47,14 @@ export interface CreateToolsSettingsCategoryOptions {
  *
  * @example
  * ```tsx
- * // Web app - native tools only
+ * // Web app - native tools only (operations supplied by the host)
  * const toolsCategory = createToolsSettingsCategory({
  *   operations: {
- *     getTools: async () => unifiedToolRegistry.getAllTools(),
- *     getStats: async () => unifiedToolRegistry.getStats(),
- *     enableTools: async (ids) => unifiedToolRegistry.enableTools(ids),
- *     disableTools: async (ids) => unifiedToolRegistry.disableTools(ids),
- *     resetTools: async () => unifiedToolRegistry.reset(),
+ *     getTools: async () => listNativeTools(),
+ *     getStats: async () => getNativeToolStats(),
+ *     enableTools: async (ids) => enableNativeTools(ids),
+ *     disableTools: async (ids) => disableNativeTools(ids),
+ *     resetTools: async () => resetNativeTools(),
  *   },
  * });
  *
@@ -72,7 +72,6 @@ export interface CreateToolsSettingsCategoryOptions {
  *     getMcpServerStatus: async () => window.mcp.getServerStatus(),
  *   },
  *   mcpAvailable: true,
- *   budgetManager: createBudgetManagerForTier('large'),
  *   onToolsChanged: () => saveToolPreferences(),
  * });
  * ```

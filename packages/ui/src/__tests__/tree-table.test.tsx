@@ -1071,6 +1071,206 @@ describe('TreeTable', () => {
     });
   });
 
+  describe('pluggable checkbox API', () => {
+    it('renders checkbox state from getCheckboxState, including indeterminate', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('file', 'File', null, true, 0),
+        createTestNode('chunk', 'Chunk', 'file', false, 1),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['file'])}
+          getCheckboxState={(node) => (node.id === 'file' ? 'indeterminate' : 'checked')}
+          nodes={nodes}
+          onCheckboxChange={() => {}}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByLabelText('Select file')).toHaveAttribute('data-state', 'indeterminate');
+      expect(screen.getByLabelText('Select chunk')).toHaveAttribute('data-state', 'checked');
+    });
+
+    it('hides the checkbox when getCheckboxState returns hidden or undefined', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('file', 'File', null, true, 0),
+        createTestNode('match', 'Match', 'file', false, 1),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['file'])}
+          getCheckboxState={(node) => (node.id === 'file' ? 'checked' : 'hidden')}
+          nodes={nodes}
+          onCheckboxChange={() => {}}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByLabelText('Select file')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Select match')).not.toBeInTheDocument();
+    });
+
+    it('hides the checkbox when getCheckboxState returns undefined', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('file', 'File', null, true, 0),
+        createTestNode('match', 'Match', 'file', false, 1),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['file'])}
+          getCheckboxState={(node) => (node.id === 'file' ? 'checked' : undefined)}
+          nodes={nodes}
+          onCheckboxChange={() => {}}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByLabelText('Select file')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Select match')).not.toBeInTheDocument();
+    });
+
+    it('uses getCheckboxAriaLabel when provided, else defaults to Select node.id', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('file', 'File', null, true, 0),
+        createTestNode('chunk', 'Chunk', 'file', false, 1),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['file'])}
+          getCheckboxAriaLabel={(node) => (node.id === 'chunk' ? 'Select lines 8-12' : undefined)}
+          getCheckboxState={() => 'unchecked'}
+          nodes={nodes}
+          onCheckboxChange={() => {}}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByLabelText('Select lines 8-12')).toBeInTheDocument();
+      expect(screen.getByLabelText('Select file')).toBeInTheDocument();
+    });
+
+    it('calls onCheckboxChange with the node and next checked/unchecked state', () => {
+      const handleCheckboxChange = vi.fn();
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('a', 'A', null, false, 0),
+        createTestNode('b', 'B', null, false, 0),
+      ];
+      const stateById: Record<string, 'checked' | 'unchecked' | 'indeterminate'> = {
+        a: 'unchecked',
+        b: 'indeterminate',
+      };
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          getCheckboxState={(node) => stateById[node.id] ?? 'unchecked'}
+          nodes={nodes}
+          onCheckboxChange={handleCheckboxChange}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      fireEvent.click(screen.getByLabelText('Select a'));
+      expect(handleCheckboxChange).toHaveBeenCalledTimes(1);
+      expect(handleCheckboxChange.mock.calls[0]?.[0]).toMatchObject({ id: 'a' });
+      expect(handleCheckboxChange.mock.calls[0]?.[1]).toBe('checked');
+
+      fireEvent.click(screen.getByLabelText('Select b'));
+      expect(handleCheckboxChange).toHaveBeenCalledTimes(2);
+      expect(handleCheckboxChange.mock.calls[1]?.[0]).toMatchObject({ id: 'b' });
+      expect(handleCheckboxChange.mock.calls[1]?.[1]).toBe('checked');
+    });
+
+    it('toggles checked → unchecked via onCheckboxChange', () => {
+      const handleCheckboxChange = vi.fn();
+      const nodes: TreeNode<TestData>[] = [createTestNode('a', 'A')];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'checked'}
+          nodes={nodes}
+          onCheckboxChange={handleCheckboxChange}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      fireEvent.click(screen.getByLabelText('Select a'));
+      expect(handleCheckboxChange).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'a' }),
+        'unchecked'
+      );
+    });
+
+    it('does not call onMultiSelectChange when pluggable onCheckboxChange is provided', () => {
+      const handleMultiSelect = vi.fn();
+      const handleCheckboxChange = vi.fn();
+      const nodes: TreeNode<TestData>[] = [createTestNode('a', 'A')];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'unchecked'}
+          multiSelectedIds={new Set()}
+          nodes={nodes}
+          onCheckboxChange={handleCheckboxChange}
+          onMultiSelectChange={handleMultiSelect}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          showCheckbox
+          windowingStrategy="none"
+        />
+      );
+
+      fireEvent.click(screen.getByLabelText('Select a'));
+      expect(handleCheckboxChange).toHaveBeenCalled();
+      expect(handleMultiSelect).not.toHaveBeenCalled();
+    });
+
+    it('Space on a focused row invokes pluggable onCheckboxChange', () => {
+      const handleCheckboxChange = vi.fn();
+      const nodes: TreeNode<TestData>[] = [createTestNode('a', 'A')];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'unchecked'}
+          nodes={nodes}
+          onCheckboxChange={handleCheckboxChange}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      const table = screen.getByRole('treegrid');
+      fireEvent.keyDown(table, { key: 'ArrowDown' });
+      fireEvent.keyDown(table, { key: ' ' });
+
+      expect(handleCheckboxChange).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'a' }),
+        'checked'
+      );
+    });
+  });
+
   describe('selection', () => {
     it('calls onSelect when row clicked in single mode', () => {
       const handleSelect = vi.fn();

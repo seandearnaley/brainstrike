@@ -29,9 +29,9 @@ export type ToolRiskCategory = 'read' | 'edit' | 'execute' | 'mcp';
 /**
  * The minimal metadata the resolver needs to classify a tool's risk.
  *
- * This is a structural subset shared by the contract-level
- * `NativeToolDefaultMetadata` and the agent-level `UnifiedToolMetadata`, so the
- * resolver works against either without importing the agent package.
+ * This is a structural subset of the contract-level
+ * `NativeToolDefaultMetadata`, so the resolver works against catalog metadata
+ * without importing the agent package.
  */
 export interface ToolRiskMetadata {
   /** Load-ordering / UI category (NOT the risk category). */

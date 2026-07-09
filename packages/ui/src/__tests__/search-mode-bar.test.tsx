@@ -356,22 +356,28 @@ describe('SearchModeBar', () => {
     expect(screen.queryByRole('button', { name: /search options/i })).not.toBeInTheDocument();
   });
 
-  it('closes the advanced-options popover when the search panel collapses', () => {
-    // The popover content portals to document.body, so if the panel collapses
-    // while it is open the floating panel would linger over a hidden trigger.
+  it('closes the advanced-options popover on the collapse event path', () => {
+    // The popover content portals to document.body, so collapsing the panel
+    // while it is open must close the cog on the same event handler (not an
+    // Effect watching isSearchExpanded) — otherwise floating content lingers.
     const onAdvancedOptionsOpenChange = vi.fn();
-    const props = {
-      advancedOptions: <div data-testid="advanced-options-slot" />,
-      advancedOptionsOpen: true,
-      onAdvancedOptionsOpenChange,
-    };
-    const { rerender } = render(
-      <SearchModeBar {...createProps({ ...props, isSearchExpanded: true })} />
+    const onSearchExpandedChange = vi.fn();
+    render(
+      <SearchModeBar
+        {...createProps({
+          advancedOptions: <div data-testid="advanced-options-slot" />,
+          advancedOptionsOpen: true,
+          isSearchExpanded: true,
+          onAdvancedOptionsOpenChange,
+          onSearchExpandedChange,
+        })}
+      />
     );
     expect(onAdvancedOptionsOpenChange).not.toHaveBeenCalled();
 
-    rerender(<SearchModeBar {...createProps({ ...props, isSearchExpanded: false })} />);
+    fireEvent.click(screen.getByRole('button', { name: /collapse hybrid search/i }));
 
+    expect(onSearchExpandedChange).toHaveBeenCalledWith(false);
     expect(onAdvancedOptionsOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -379,19 +385,53 @@ describe('SearchModeBar', () => {
     // Shared @brainstrike/ui consumers may mount the cog without wiring the
     // open-control props. The portaled content must still not linger over the
     // now-hidden trigger when the panel collapses.
-    const props = {
-      advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
-    };
-    const { rerender } = render(
-      <SearchModeBar {...createProps({ ...props, isSearchExpanded: true })} />
-    );
+    function Harness() {
+      const [expanded, setExpanded] = React.useState(true);
+      return (
+        <SearchModeBar
+          {...createProps({
+            advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+            isSearchExpanded: expanded,
+            onSearchExpandedChange: setExpanded,
+          })}
+        />
+      );
+    }
+    render(<Harness />);
 
-    // Open via the cog — Radix manages the open state internally here.
+    // Open via the cog — SearchModeBar owns open state internally here.
     fireEvent.click(screen.getByRole('button', { name: /search options/i }));
     expect(screen.getByTestId('advanced-options-slot')).toBeInTheDocument();
 
-    // Collapsing the panel must close the floating popover content.
-    rerender(<SearchModeBar {...createProps({ ...props, isSearchExpanded: false })} />);
+    // Collapsing via the trigger event path must close the floating popover.
+    fireEvent.click(screen.getByRole('button', { name: /collapse hybrid search/i }));
+    expect(screen.queryByTestId('advanced-options-slot')).not.toBeInTheDocument();
+  });
+
+  it('hides portaled cog content when the panel is collapsed by the parent', () => {
+    // Safety gate: even if open state lags (parent flips isSearchExpanded
+    // without going through our collapse handler), popoverOpen is AND-gated
+    // so portaled content cannot float over a hidden trigger.
+    const { rerender } = render(
+      <SearchModeBar
+        {...createProps({
+          advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+          advancedOptionsOpen: true,
+          isSearchExpanded: true,
+        })}
+      />
+    );
+    expect(screen.getByTestId('advanced-options-slot')).toBeInTheDocument();
+
+    rerender(
+      <SearchModeBar
+        {...createProps({
+          advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+          advancedOptionsOpen: true,
+          isSearchExpanded: false,
+        })}
+      />
+    );
     expect(screen.queryByTestId('advanced-options-slot')).not.toBeInTheDocument();
   });
 

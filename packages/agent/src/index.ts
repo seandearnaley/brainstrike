@@ -187,55 +187,22 @@ export {
   PROVIDER_MODELS,
   type SupportedProvider,
 } from './providers/types';
-// Unified tool registry and loading
+// Tool metadata (categories / native defaults; Mastra owns live tool assembly)
 export {
-  // Token budget management
-  type BudgetAllocation,
-  type BudgetUtilizationReport,
-  COMMON_CONTEXT_WINDOWS,
   compareByLoadPriority,
-  createBudgetManagerForTier,
-  createTokenBudgetManager,
-  createToolLoader,
-  createUnifiedToolRegistry,
-  DEFAULT_BUDGET_ALLOCATION,
-  DEFAULT_SELECTION_PRIORITY,
   getCategoryInfo,
   getNativeToolDefaults,
   getTierInfo,
   isNativeTool,
-  loadToolsForAgent,
-  type McpToolRegistrationOptions,
   NATIVE_TOOL_DEFAULTS,
   type NativeToolDefaultMetadata,
-  type NativeToolRegistrationOptions,
-  type OnDemandLoadOptions,
-  type OnDemandLoadResult,
   TOOL_CATEGORIES,
   TOOL_LOADING_TIERS,
-  TokenBudgetManager,
-  type TokenBudgetManagerOptions,
-  // Categories
   type ToolCategory,
   type ToolCategoryInfo,
-  type ToolFilterConfig,
-  ToolLoader,
-  type ToolLoadingOptions,
-  // Tool loader
-  type ToolLoadingResult,
   type ToolLoadingTier,
   type ToolLoadingTierInfo,
-  type ToolRegistryListener,
-  type ToolRegistryStats,
-  type ToolSelectionPriority,
-  type ToolSelectionResult,
   type ToolSource,
-  type ToolsByCategory,
-  type ToolsBySource,
-  // Unified registry
-  type UnifiedToolMetadata,
-  UnifiedToolRegistry,
-  unifiedToolRegistry,
 } from './registry';
 export {
   ASSISTANT_RUN_EVENT_DATA_NAME,

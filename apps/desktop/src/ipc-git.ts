@@ -1,5 +1,4 @@
 import { ipcMain } from 'electron';
-import type { WorkspaceRootsQueryable } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
 import {
   createDatabaseRootResolver,
@@ -16,15 +15,10 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
  * against the DB-backed workspace roots, then runs `git` via `execFile` (no
  * shell) and returns a structured `GitResult`. See {@link createGitIpcHandlers}.
  *
- * `getDatabase` returns an untyped compatibility facade; it structurally
- * satisfies {@link WorkspaceRootsQueryable} (a `query<T>(sql, params)` method),
- * so we narrow it here rather than leaking `any` into the handler layer.
  */
 export function registerGitIpcHandlers(
   handlers: GitIpcHandlers = createGitIpcHandlers({
-    resolver: createDatabaseRootResolver(
-      async () => (await getDatabase()) as WorkspaceRootsQueryable
-    ),
+    resolver: createDatabaseRootResolver(getDatabase),
   })
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
