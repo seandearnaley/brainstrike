@@ -24,7 +24,10 @@ import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { clampResultLimit, type SearchConfig, type SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { type EmbeddingSetModelInfo, useSearchEmbedder } from '@brainstrike/vector-management';
+import {
+  type EmbeddingSetModelInfo,
+  useSharedSearchEmbedder,
+} from '@brainstrike/vector-management';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { SearchExecutor } from '../contexts/semantic-search-context';
 import {
@@ -378,7 +381,9 @@ export function useSemanticSearchExecutor({
   const models = useModelRegistryStore((state) => state.models);
   // Shared embedder resolution + WebGPU device-loss recovery lives in
   // @brainstrike/vector-management so the workspace-search feature can reuse it.
-  const { embedQueryWithRecovery } = useSearchEmbedder();
+  // The provider owns ONE cache shared across every search surface (a private
+  // per-hook embedder would double local-model memory when both are live).
+  const { embedQueryWithRecovery } = useSharedSearchEmbedder();
 
   useEnsureModelRegistry({ db });
 

@@ -55,6 +55,16 @@ export function WorkspaceSearchPanel({
 
   const onSubmit = mode === 'semantic' ? runSemanticSearch : runTextSearch;
 
+  // Show-more paging (text mode only, Task P2): bump the store's cap, then
+  // rerun the current text search — `beginSearch()` inside `runTextSearch`
+  // supplies the generation guard, so a mode switch (or any other invalidating
+  // change) right after this click drops the late results instead of
+  // resurrecting a now-stale run.
+  const handleShowMore = useCallback(() => {
+    useWorkspaceSearchStore.getState().increaseTextResultLimit();
+    runTextSearch();
+  }, [runTextSearch]);
+
   // Latest-value refs keep the debounce effect's dependency list scoped to the
   // query controls (not the run-callback/mode identity) while still calling the
   // current callback and checking the live mode at fire time. Assigned in an
@@ -165,6 +175,7 @@ export function WorkspaceSearchPanel({
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
             <SearchResultsTree
               onOpenFile={onOpenFile}
+              onShowMore={handleShowMore}
               resolveAdapterRootId={resolveAdapterRootId}
             />
           </div>

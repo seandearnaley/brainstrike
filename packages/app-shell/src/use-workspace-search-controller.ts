@@ -18,13 +18,13 @@ import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-reg
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useSearchEmbedder } from '@brainstrike/vector-management';
+import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
   type ResolvedFileInfo,
   useWorkspaceSearchStore,
   WorkspaceSearchExecutor,
   type WorkspaceSearchMode,
-} from '@brainstrike/workspace-search';
+} from '@brainstrike/workspace-search/core';
 import { useCallback, useMemo } from 'react';
 import { useOptionalRootIdentity } from './roots/root-identity-context';
 
@@ -148,7 +148,8 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
   runTextSearch: () => void;
 } {
   const run = (mode: WorkspaceSearchMode): void => {
-    const { query, isRegex, caseSensitive, wholeWord } = useWorkspaceSearchStore.getState();
+    const { query, isRegex, caseSensitive, wholeWord, textResultLimit } =
+      useWorkspaceSearchStore.getState();
     // Capture the run token so a superseded run's completion (results OR rejection)
     // is dropped by the store instead of clobbering a newer run's state.
     const generation = useWorkspaceSearchStore.getState().beginSearch();
@@ -161,6 +162,7 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
                 caseSensitive,
                 embeddingSetId,
                 isRegex,
+                maxResults: textResultLimit,
                 query,
                 rootIds: deps.workspaceDbRootIds,
                 wholeWord,
@@ -200,7 +202,9 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   const rootIdentity = useOptionalRootIdentity();
   const { openFileInTab } = useIdeFileEditor();
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
-  const { embedQueryWithRecovery } = useSearchEmbedder();
+  // Shared embedder cache (mounted by SearchEmbedderProvider in root-layout-content):
+  // the workspace-search surface and the collection browser reuse ONE embedder.
+  const { embedQueryWithRecovery } = useSharedSearchEmbedder();
   const models = useModelRegistryStore((state) => state.models);
   useEnsureModelRegistry({ db });
 

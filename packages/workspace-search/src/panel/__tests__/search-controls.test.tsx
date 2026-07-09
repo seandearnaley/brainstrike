@@ -198,6 +198,10 @@ describe('SearchInputBar', () => {
 describe('SearchModeToggle', () => {
   beforeEach(() => {
     useWorkspaceSearchStore.getState().reset();
+    vi.clearAllMocks();
+    // SearchModeToggle now reads collection stats to gate the Semantic button;
+    // seed embedded chunks so semantic stays enabled for these baseline tests.
+    mockLiveQuery({ files: () => ({ rows: [makeRow({ embeddedChunkCount: 5 })] }) });
   });
 
   it('renders Text and Semantic buttons with Text active by default', () => {

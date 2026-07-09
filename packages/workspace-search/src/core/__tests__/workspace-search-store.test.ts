@@ -250,4 +250,48 @@ describe('useWorkspaceSearchStore', () => {
     expect(state.results).toBeNull();
     expect(state.expandedIds.size).toBe(0);
   });
+
+  describe('textResultLimit (Show-more paging)', () => {
+    it('starts at the 200 default', () => {
+      expect(useWorkspaceSearchStore.getState().textResultLimit).toBe(200);
+    });
+
+    it('increaseTextResultLimit bumps by 200 without touching generation/results/status', () => {
+      seedResults();
+      const before = useWorkspaceSearchStore.getState();
+      const beforeGeneration = before.generation;
+      const beforeStatus = before.status;
+      const beforeResults = before.results;
+
+      useWorkspaceSearchStore.getState().increaseTextResultLimit();
+
+      const after = useWorkspaceSearchStore.getState();
+      expect(after.textResultLimit).toBe(400);
+      expect(after.generation).toBe(beforeGeneration);
+      expect(after.status).toBe(beforeStatus);
+      expect(after.results).toBe(beforeResults);
+    });
+
+    it('increaseTextResultLimit compounds across repeated calls', () => {
+      useWorkspaceSearchStore.getState().increaseTextResultLimit();
+      useWorkspaceSearchStore.getState().increaseTextResultLimit();
+      expect(useWorkspaceSearchStore.getState().textResultLimit).toBe(600);
+    });
+
+    it.each([
+      ['setMode', () => useWorkspaceSearchStore.getState().setMode('semantic')],
+      ['setCollectionId', () => useWorkspaceSearchStore.getState().setCollectionId('set-1')],
+      ['toggleCase', () => useWorkspaceSearchStore.getState().toggleCase()],
+      ['toggleRegex', () => useWorkspaceSearchStore.getState().toggleRegex()],
+      ['toggleWholeWord', () => useWorkspaceSearchStore.getState().toggleWholeWord()],
+      ['clearResults', () => useWorkspaceSearchStore.getState().clearResults()],
+      ['setQuery', () => useWorkspaceSearchStore.getState().setQuery('foo')],
+      ['reset', () => useWorkspaceSearchStore.getState().reset()],
+    ])('%s resets textResultLimit back to 200', (_name, act) => {
+      useWorkspaceSearchStore.getState().increaseTextResultLimit();
+      expect(useWorkspaceSearchStore.getState().textResultLimit).toBe(400);
+      act();
+      expect(useWorkspaceSearchStore.getState().textResultLimit).toBe(200);
+    });
+  });
 });

@@ -8,7 +8,7 @@
  * since pgvector operators aren't natively supported by the query builder.
  */
 
-import { count, eq, inArray, sql } from 'drizzle-orm';
+import { count, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import type {
   ChunkSearchOptions,
@@ -449,11 +449,11 @@ export class DrizzleFileChunkRepository {
     // matches nothing; NULL-root legacy rows are excluded. Mirrors
     // FileChunkRepository / ElectronFileChunkRepository scoping.
     if (rootIds !== undefined) {
-      const rootScopedIds = await this.resolveRootScopedFileIds(rootIds);
-      if (rootScopedIds.length === 0) {
+      const rootScopeCondition = this.rootScopedFileIdCondition(rootIds);
+      if (rootScopeCondition === null) {
         return [];
       }
-      baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, rootScopedIds)}`;
+      baseQuery = sql`${baseQuery} AND ${rootScopeCondition}`;
     }
     if (normalizedSnapshotId) {
       baseQuery = sql`${baseQuery} AND EXISTS (
@@ -583,11 +583,11 @@ export class DrizzleFileChunkRepository {
     // Scope to a set of workspace roots (see searchSimilar above for the empty /
     // NULL-root semantics). Mirrors the PGlite + Electron repos.
     if (rootIds !== undefined) {
-      const rootScopedIds = await this.resolveRootScopedFileIds(rootIds);
-      if (rootScopedIds.length === 0) {
+      const rootScopeCondition = this.rootScopedFileIdCondition(rootIds);
+      if (rootScopeCondition === null) {
         return [];
       }
-      baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, rootScopedIds)}`;
+      baseQuery = sql`${baseQuery} AND ${rootScopeCondition}`;
     }
     if (normalizedSnapshotId) {
       baseQuery = sql`${baseQuery} AND EXISTS (
@@ -662,21 +662,27 @@ export class DrizzleFileChunkRepository {
   }
 
   /**
-   * Resolve the file-record ids owned by a set of workspace roots, for scoping
-   * a search to `rootIds`. Returns `[]` for an empty allowlist (matches
-   * nothing) or when no file belongs to the roots; NULL-root legacy rows are
-   * never included (their root_id is not in the list). Callers turn `[]` into an
-   * empty result set. Mirrors the PGlite/Electron repos' root scoping.
+   * Build the `file_record_id ∈ (roots' files)` predicate for scoping a search
+   * to `rootIds`. Returns `null` for an EMPTY allowlist (matches nothing — the
+   * caller short-circuits to an empty result set), otherwise a subquery
+   * predicate: `file_record_id IN (SELECT id FROM file_records WHERE root_id IN
+   * (…))`. The subquery keeps the id set in SQL instead of materializing every
+   * owned file id into a JS array and re-binding it (a large workspace would
+   * round-trip thousands of ids per search). NULL-root legacy rows are never
+   * matched (their root_id is not in the list). Mirrors the raw-SQL subqueries
+   * the PGlite/Electron repos already use for the same scoping.
    */
-  private async resolveRootScopedFileIds(rootIds: readonly string[]): Promise<string[]> {
+  private rootScopedFileIdCondition(rootIds: readonly string[]): SQL | null {
     if (rootIds.length === 0) {
-      return [];
+      return null;
     }
-    const rows = await this.db
-      .select({ id: fileRecords.id })
-      .from(fileRecords)
-      .where(inArray(fileRecords.rootId, Array.from(rootIds)));
-    return rows.map((row) => row.id).filter(Boolean);
+    return inArray(
+      fileChunks.fileRecordId,
+      this.db
+        .select({ id: fileRecords.id })
+        .from(fileRecords)
+        .where(inArray(fileRecords.rootId, Array.from(rootIds)))
+    );
   }
 
   private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {

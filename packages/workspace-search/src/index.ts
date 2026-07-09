@@ -24,20 +24,18 @@ export type {
   WorkspaceSearchNotices,
   WorkspaceSearchResults,
   WorkspaceSearchTextMatch,
-} from './core/search-result-model';
+} from './core';
 export {
   buildGrepPattern,
   escapeRegExpLiteral,
   type ResolvedFileInfo,
   type SemanticSearchRequest,
   type TextSearchRequest,
+  useWorkspaceSearchStore,
   WorkspaceSearchExecutor,
   type WorkspaceSearchExecutorDeps,
-} from './core/workspace-search-executor';
-export {
-  useWorkspaceSearchStore,
   type WorkspaceSearchStatus,
-} from './core/workspace-search-store';
+} from './core';
 export {
   buildSearchTreeNodes,
   childNodeId,

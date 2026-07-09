@@ -288,8 +288,18 @@ export function normalizeRRFScores<T = string>(results: FusedResult<T>[]): Fused
   }
 
   const maxScore = firstResult.rrfScore; // Already sorted descending
-  if (maxScore === 0) {
-    return results;
+  const lastResult = results.at(-1);
+  const minScore = lastResult ? lastResult.rrfScore : maxScore; // sorted descending
+
+  // All scores identical → the score range collapses (max === min). Any
+  // range-based normalization (min-max, or divide-by-max when max is 0) would
+  // divide by zero and emit NaN. There is no discriminating signal, so map every
+  // item to the top of the range: 1.0 for a non-zero equal set, and 0 for an
+  // all-zero set (nothing matched — keep it at the floor). This guard makes the
+  // degenerate case explicit and NaN-proof regardless of the mapping below.
+  if (maxScore === minScore) {
+    const collapsedScore = maxScore === 0 ? 0 : 1;
+    return results.map((result) => ({ ...result, rrfScore: collapsedScore }));
   }
 
   return results.map((result) => ({

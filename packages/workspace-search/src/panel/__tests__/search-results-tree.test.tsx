@@ -246,8 +246,10 @@ describe('SearchResultsTree', () => {
     render(
       <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
     );
-    const [fileCheckbox] = screen.getAllByRole('checkbox');
+    // [0] is the select-all header checkbox; [1] is the file row checkbox.
+    const [, fileCheckbox] = screen.getAllByRole('checkbox');
     fireEvent.click(fileCheckbox as HTMLElement);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(1);
     expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', true);
     expect(onOpenFile).not.toHaveBeenCalled();
   });
@@ -258,8 +260,9 @@ describe('SearchResultsTree', () => {
     );
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
     const checkboxes = screen.getAllByRole('checkbox');
-    // [0] is the file row, [1] is the chunk row; match rows carry NO checkbox.
-    fireEvent.click(checkboxes[1] as HTMLElement);
+    // [0] is the select-all header, [1] is the file row, [2] is the chunk row;
+    // match rows carry NO checkbox.
+    fireEvent.click(checkboxes[2] as HTMLElement);
     expect(bridgeMock.toggleChunk).toHaveBeenCalledTimes(1);
     expect(bridgeMock.toggleChunk).toHaveBeenCalledWith(
       'adapter-root-mounted|@|src/a.ts',
@@ -282,9 +285,10 @@ describe('SearchResultsTree', () => {
       ])
     );
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
-    // file checkbox + ONE chunk checkbox — two matches share one chunk.
+    // select-all header + file checkbox + ONE chunk checkbox — two matches
+    // share one chunk.
     const checkboxes = screen.getAllByRole('checkbox');
-    expect(checkboxes).toHaveLength(2);
+    expect(checkboxes).toHaveLength(3);
     expect(screen.getByRole('checkbox', { name: 'Select lines 8-12' })).toBeInTheDocument();
   });
 
@@ -361,6 +365,26 @@ describe('SearchResultsTree', () => {
     expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
   });
 
+  it('never shows "Show more" in semantic mode even when onShowMore is passed (no semantic paging)', () => {
+    const onShowMore = vi.fn();
+    // Semantic truncated is always false in real results, but the tree itself
+    // must not render a semantic paging affordance even if a caller mistakenly
+    // wires onShowMore + a hypothetical truncated notice through.
+    seedResults(makeResults([fileResult({ children: [chunkHit()] })], { truncated: true }), {
+      mode: 'semantic',
+    });
+    render(
+      <SearchResultsTree
+        onOpenFile={vi.fn()}
+        onShowMore={onShowMore}
+        resolveAdapterRootId={resolveAdapterRootId}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    // The honest fallback copy still renders instead.
+    expect(screen.getByText(/Results limited to first/)).toBeInTheDocument();
+  });
+
   it('renders the missing-line-metadata notice with a count and honest cause copy', () => {
     seedResults(makeResults([fileResult()], { skippedMissingLineMetadata: 3 }));
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
@@ -410,5 +434,133 @@ describe('SearchResultsTree', () => {
     );
     const grid = within(container).getByRole('treegrid');
     expect(grid).toBeInTheDocument();
+  });
+});
+
+describe('SearchResultsTree select-all header', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
+    (bridgeMock.chunkState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
+    useWorkspaceSearchStore.getState().reset();
+  });
+
+  it('renders with the exact "Select {N} shown" label/aria-label for N loaded files', () => {
+    seedResults(
+      makeResults([
+        fileResult({ path: 'src/a.ts' }),
+        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
+      ])
+    );
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
+    expect(header).toBeInTheDocument();
+    expect(screen.getByText('Select 2 shown')).toBeInTheDocument();
+  });
+
+  it('renders no header when zero files are rendered', () => {
+    seedResults(makeResults([]));
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    expect(screen.queryByRole('checkbox', { name: /Select .* shown/ })).not.toBeInTheDocument();
+  });
+
+  it('reads checked when every rendered file is checked', () => {
+    seedResults(
+      makeResults([
+        fileResult({ path: 'src/a.ts' }),
+        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
+      ])
+    );
+    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('checked');
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
+    expect(header).toHaveAttribute('data-state', 'checked');
+  });
+
+  it('reads indeterminate when some but not all rendered files are checked', () => {
+    seedResults(
+      makeResults([
+        fileResult({ path: 'src/a.ts' }),
+        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
+      ])
+    );
+    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockImplementation(
+      (key: string): FileSelectionState => (key.endsWith('src/a.ts') ? 'checked' : 'unchecked')
+    );
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
+    expect(header).toHaveAttribute('data-state', 'indeterminate');
+  });
+
+  it('counts a chunk-refined file (fileState "indeterminate") as "some" -> header indeterminate', () => {
+    seedResults(
+      makeResults([
+        fileResult({ path: 'src/a.ts' }),
+        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
+      ])
+    );
+    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockImplementation(
+      (key: string): FileSelectionState =>
+        key.endsWith('src/a.ts') ? 'indeterminate' : 'unchecked'
+    );
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
+    expect(header).toHaveAttribute('data-state', 'indeterminate');
+  });
+
+  it('reads unchecked when no rendered file is selected', () => {
+    seedResults(
+      makeResults([
+        fileResult({ path: 'src/a.ts' }),
+        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
+      ])
+    );
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    const header = screen.getByRole('checkbox', { name: 'Select 2 shown' });
+    expect(header).toHaveAttribute('data-state', 'unchecked');
+  });
+
+  it('clicking while unchecked/indeterminate calls toggleFile(key, true) for every rendered file', () => {
+    seedResults(
+      makeResults([
+        fileResult({ path: 'src/a.ts' }),
+        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
+      ])
+    );
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select 2 shown' }));
+    expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(2);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', true);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-b|@|src/b.ts', true);
+  });
+
+  it('clicking while checked calls toggleFile(key, false) for every rendered file', () => {
+    seedResults(
+      makeResults([
+        fileResult({ path: 'src/a.ts' }),
+        fileResult({ dbRootId: 'root-b', path: 'src/b.ts' }),
+      ])
+    );
+    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('checked');
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select 2 shown' }));
+    expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(2);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', false);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-b|@|src/b.ts', false);
+  });
+
+  it('never touches files whose root is unmounted (omitted from the rendered set)', () => {
+    seedResults(
+      makeResults([
+        fileResult({ path: 'src/a.ts' }),
+        fileResult({ dbRootId: 'root-unmounted', path: 'src/unmounted.ts' }),
+      ])
+    );
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    // Only 1 file is actually rendered/loaded (the unmounted-root file is omitted).
+    const header = screen.getByRole('checkbox', { name: 'Select 1 shown' });
+    fireEvent.click(header);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledTimes(1);
+    expect(bridgeMock.toggleFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', true);
   });
 });

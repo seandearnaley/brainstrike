@@ -65,19 +65,22 @@ describe('grep search tool', () => {
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode result');
     }
+    // The internal chunk-locator fields (chunkId/chunkStartLine/chunkEndLine) are
+    // stripped from the model-facing output to save tokens.
     expect(result.matches).toEqual([
       {
         after: ['omega'],
         before: ['alpha'],
-        chunkEndLine: undefined,
-        chunkId: undefined,
-        chunkStartLine: 10,
         line: 11,
         lineText: 'needle line',
         path: 'src/x.ts',
         source: 'index',
       },
     ]);
+    const [match] = result.matches;
+    expect(match).not.toHaveProperty('chunkId');
+    expect(match).not.toHaveProperty('chunkStartLine');
+    expect(match).not.toHaveProperty('chunkEndLine');
     expect(result.truncated).toBe(false);
   });
 

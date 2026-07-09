@@ -270,6 +270,12 @@ async function buildSemanticResults(
       candidatesTruncated: false,
       scanLimited: false,
       skippedMissingLineMetadata: grouped.skippedMissingLineMetadata,
+      // NO semantic paging (Task P2): `truncated` is hardcoded false — the
+      // hybrid search always requests exactly `limit` results (no larger
+      // candidate pool to page into), so there is nothing honest to page
+      // through. If semantic gains its own limit/paging model later, this is
+      // the seam to wire it; until then the UI's "Show more" affordance stays
+      // text-mode only (see SearchResultsTree).
       truncated: false,
     },
     totalMatches,

@@ -32,6 +32,14 @@ interface WorkspaceSearchState {
    * are gated on it so stale async completions are dropped. Never decreases.
    */
   generation: number;
+  /**
+   * Bumps `textResultLimit` by 200 (Show-more paging, text mode only). Does
+   * NOT bump `generation` — the caller reruns the search after bumping, and
+   * that rerun's own `beginSearch()` is what invalidates any prior in-flight
+   * run. Bumping generation here too would be redundant, not incorrect, but
+   * keeping this single-purpose keeps the invalidation contract in one place.
+   */
+  increaseTextResultLimit: () => void;
   isRegex: boolean;
   mode: WorkspaceSearchMode;
   query: string;
@@ -43,6 +51,11 @@ interface WorkspaceSearchState {
   setMode: (m: WorkspaceSearchMode) => void;
   setQuery: (q: string) => void;
   status: WorkspaceSearchStatus;
+  /** Show-more paging cap for text-mode results (default 200, +200 per click).
+   * Reset to the default by any change that starts a fresh search (mode,
+   * collection, toggles, query, `clearResults`, `reset`) — a new search should
+   * never inherit a deep limit from a previous one. */
+  textResultLimit: number;
   toggleCase: () => void;
   toggleExpanded: (nodeId: string) => void;
   toggleRegex: () => void;
@@ -74,6 +87,10 @@ function toDefaultExpandedIds(results: WorkspaceSearchResults): Set<string> {
   return ids;
 }
 
+/** Default + increment for the text-mode Show-more paging cap. */
+const DEFAULT_TEXT_RESULT_LIMIT = 200;
+const TEXT_RESULT_LIMIT_INCREMENT = 200;
+
 const initialState = {
   caseSensitive: false,
   collectionId: null,
@@ -85,6 +102,7 @@ const initialState = {
   query: '',
   results: null,
   status: 'idle' as const,
+  textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
   wholeWord: false,
 } satisfies Omit<
   WorkspaceSearchState,
@@ -99,6 +117,7 @@ const initialState = {
   | 'resolveResults'
   | 'failSearch'
   | 'clearResults'
+  | 'increaseTextResultLimit'
   | 'reset'
 >;
 
@@ -115,9 +134,12 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
       generation: state.generation + 1,
       results: null,
       status: 'idle',
+      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
     })),
   failSearch: (message, generation) =>
     set((state) => (state.generation === generation ? { error: message, status: 'error' } : {})),
+  increaseTextResultLimit: () =>
+    set((state) => ({ textResultLimit: state.textResultLimit + TEXT_RESULT_LIMIT_INCREMENT })),
   // Keep `generation` monotonic across resets so a run started before the reset
   // can never match a run started after it.
   reset: () =>
@@ -142,6 +164,7 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
       generation: state.generation + 1,
       results: null,
       status: 'idle',
+      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
     })),
   setMode: (m) =>
     set((state) => ({
@@ -149,14 +172,19 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
       mode: m,
       results: null,
       status: 'idle',
+      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
     })),
-  setQuery: (q) => set({ query: q }),
+  // A new query is a new search, so the Show-more cap resets here too — even
+  // though setQuery does not bump `generation`/touch results/status (the
+  // debounced auto-search owns that transition).
+  setQuery: (q) => set({ query: q, textResultLimit: DEFAULT_TEXT_RESULT_LIMIT }),
   toggleCase: () =>
     set((state) => ({
       caseSensitive: !state.caseSensitive,
       generation: state.generation + 1,
       results: null,
       status: 'idle',
+      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
     })),
   toggleExpanded: (nodeId) =>
     set((state) => {
@@ -174,12 +202,14 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
       isRegex: !state.isRegex,
       results: null,
       status: 'idle',
+      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
     })),
   toggleWholeWord: () =>
     set((state) => ({
       generation: state.generation + 1,
       results: null,
       status: 'idle',
+      textResultLimit: DEFAULT_TEXT_RESULT_LIMIT,
       wholeWord: !state.wholeWord,
     })),
 }));
