@@ -149,6 +149,14 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/app-shell/styles.css'),
       },
       {
+        find: '@brainstrike/workspace-search/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/workspace-search/styles.css'),
+      },
+      {
+        find: '@brainstrike/db-explorer/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/db-explorer/styles.css'),
+      },
+      {
         find: '@brainstrike/file-explorer-ui/styles.css',
         replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
       },
