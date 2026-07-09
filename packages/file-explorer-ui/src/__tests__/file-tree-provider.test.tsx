@@ -237,6 +237,34 @@ describe('FileTreeProvider', () => {
     );
   });
 
+  it('keeps FileTreeContext value identity stable across re-renders when deps are unchanged', () => {
+    // Mount may re-render once for index registration (version bump); that must
+    // NOT mint a new FileTreeContext value when fileTree/restoration/root deps
+    // are unchanged.
+    const seen: unknown[] = [];
+    function ValueProbe(): null {
+      seen.push(useFileTreeContext());
+      return null;
+    }
+
+    const { rerender } = render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle}>
+        <ValueProbe />
+      </FileTreeProvider>
+    );
+    const afterMount = seen.at(-1);
+    expect(afterMount).toBeDefined();
+    const lengthAfterMount = seen.length;
+
+    rerender(
+      <FileTreeProvider rootDirectoryHandle={rootHandle}>
+        <ValueProbe />
+      </FileTreeProvider>
+    );
+    expect(seen.length).toBeGreaterThan(lengthAfterMount);
+    expect(seen.at(-1)).toBe(afterMount);
+  });
+
   it('throws for required hooks outside the provider and returns null for optional hooks', () => {
     expect(() => renderHook(() => useFileTreeContext())).toThrow(
       'useFileTreeContext must be used within a FileTreeProvider'

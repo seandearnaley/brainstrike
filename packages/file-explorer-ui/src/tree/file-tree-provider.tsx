@@ -298,10 +298,58 @@ export function FileTreeProvider({
     [getNode, getHandle, index, indexVersion]
   );
 
+  // Same stability pattern as indexContextValue / normalizedContextValue:
+  // avoid a fresh object identity every render so consumers don't thrash.
+  // Depend on individual fields — useFileTree / useExpandedPathRestoration
+  // return a new object literal each render, so object-identity deps would
+  // defeat the memo.
+  const fileTreeContextValue = useMemo<FileTreeContextType>(
+    () => ({
+      ...fileTreeState,
+      ...restorationState,
+      rootDirectoryHandle,
+    }),
+    [
+      fileTreeState.__internalGetDescendantFileCount,
+      fileTreeState.__internalGetDescendantFilePaths,
+      fileTreeState.__internalMaterializeSubtree,
+      fileTreeState.__internalNormalizedTreeRef,
+      fileTreeState.__internalNormalizedTreeVersion,
+      fileTreeState.cancelChildLoading,
+      fileTreeState.cancelExpandAll,
+      fileTreeState.cancellable,
+      fileTreeState.cancelOperation,
+      fileTreeState.cancelRecursiveSelect,
+      fileTreeState.cancelSelectAll,
+      fileTreeState.error,
+      fileTreeState.expandAllProgress,
+      fileTreeState.expandAllProgressively,
+      fileTreeState.fileTree,
+      fileTreeState.isCancelling,
+      fileTreeState.isExpandingAll,
+      fileTreeState.isLoading,
+      fileTreeState.isLoadingForSelectAll,
+      fileTreeState.isLoadingForSelection,
+      fileTreeState.loadChildren,
+      fileTreeState.loadingPathForSelection,
+      fileTreeState.loadingPaths,
+      fileTreeState.loadingProgress.isInitialLoading,
+      fileTreeState.loadingProgress.loadingCount,
+      fileTreeState.loadSpecificPaths,
+      fileTreeState.refreshDirectory,
+      fileTreeState.refreshTree,
+      fileTreeState.selectAllRecursively,
+      fileTreeState.selectFolderRecursively,
+      fileTreeState.workerPortRef,
+      restorationState.isRestorationSettled,
+      restorationState.isRestoringExpandedPaths,
+      restorationState.restorationProgress,
+      rootDirectoryHandle,
+    ]
+  );
+
   return (
-    <FileTreeContext.Provider
-      value={{ ...fileTreeState, ...restorationState, rootDirectoryHandle }}
-    >
+    <FileTreeContext.Provider value={fileTreeContextValue}>
       <FileTreeNormalizedContext.Provider value={normalizedContextValue}>
         <FileTreeIndexContext.Provider value={indexContextValue}>
           <FileTreeIndexRegistryContext.Provider value={registry}>
