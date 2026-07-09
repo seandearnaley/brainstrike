@@ -1,3 +1,4 @@
+import { EditorView } from '@codemirror/view';
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodeSurface } from '../code-surface';
@@ -113,5 +114,61 @@ describe('CodeSurface', () => {
     unmount();
 
     expect(cancelAnimationFrame).toHaveBeenCalled();
+  });
+
+  it('scrolls initialLine into view and lets it win over initialScrollTop', async () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      }
+    );
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    // Spy but call through so a real scroll effect is still dispatched.
+    const scrollIntoView = vi.spyOn(EditorView, 'scrollIntoView');
+
+    const { rerender } = render(
+      <CodeSurface
+        initialLine={50}
+        initialScrollTop={72}
+        path="src/example.ts"
+        testId="line-preview"
+        value={Array.from({ length: 100 }, (_, index) => `const line${index} = ${index};`).join(
+          '\n'
+        )}
+      />
+    );
+
+    const surface = await screen.findByTestId('line-preview');
+    const scroller = surface.querySelector<HTMLElement>('.cm-scroller');
+    expect(scroller).not.toBeNull();
+
+    for (const animationFrame of animationFrames) {
+      animationFrame(performance.now());
+    }
+
+    // The line target scrolled a real position into view...
+    expect(scrollIntoView).toHaveBeenCalled();
+    const firstArg = scrollIntoView.mock.calls[0]?.[0];
+    expect(typeof firstArg).toBe('number');
+    expect(firstArg).toBeGreaterThan(0);
+    // ...and initialScrollTop was NOT applied (initialLine wins).
+    expect(scroller?.scrollTop).toBe(0);
+
+    // A later rerender must not re-apply initialLine (first-render only).
+    scrollIntoView.mockClear();
+    rerender(
+      <CodeSurface
+        initialLine={50}
+        initialScrollTop={72}
+        path="src/example.ts"
+        testId="line-preview"
+        value={Array.from({ length: 100 }, (_, index) => `const line${index} = ${index};`).join(
+          '\n'
+        )}
+      />
+    );
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

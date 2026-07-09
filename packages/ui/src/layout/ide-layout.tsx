@@ -16,10 +16,19 @@ import { DEFAULT_PANEL_SIZES, MIN_PANEL_SIZE_THRESHOLD } from '../lib/panel-cons
 import { cn } from '../lib/utils';
 import { usePanelLayout } from '../providers/panel-layout-provider';
 
+/** Options for {@link FileEditorContextValue.openFileInTab}. */
+export interface OpenFileInTabOptions {
+  /** 1-based line to scroll into view on first render of the opened tab. */
+  line?: number;
+}
+
+/** Opens (or focuses) the file tab for a compositeKey, optionally line-targeted. */
+export type OpenFileInTab = (compositeKey: string, options?: OpenFileInTabOptions) => void;
+
 // Context for sharing file editor functionality between main content and console
 interface FileEditorContextValue {
-  openFileInTab: ((compositeKey: string) => void) | undefined;
-  registerOpenFileInTab: (fn: (compositeKey: string) => void) => void;
+  openFileInTab: OpenFileInTab | undefined;
+  registerOpenFileInTab: (fn: OpenFileInTab) => void;
 }
 
 const IdeFileEditorContext = createContext<FileEditorContextValue>({
@@ -596,11 +605,9 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
 
 // Custom hook for managing file editor context
 function useFileEditorContext() {
-  const [openFileInTabFn, setOpenFileInTabFn] = React.useState<
-    ((compositeKey: string) => void) | null
-  >(null);
+  const [openFileInTabFn, setOpenFileInTabFn] = React.useState<OpenFileInTab | null>(null);
 
-  const registerOpenFileInTab = useCallback((fn: (compositeKey: string) => void) => {
+  const registerOpenFileInTab = useCallback((fn: OpenFileInTab) => {
     setOpenFileInTabFn(() => fn);
   }, []);
 

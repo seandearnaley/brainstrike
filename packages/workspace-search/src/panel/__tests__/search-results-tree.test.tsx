@@ -269,10 +269,22 @@ describe('SearchResultsTree', () => {
     expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
   });
 
-  it('renders the missing-line-metadata notice with a count', () => {
+  it('renders the missing-line-metadata notice with a count and honest cause copy', () => {
     seedResults(makeResults([fileResult()], { skippedMissingLineMetadata: 3 }));
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
-    expect(screen.getByText('3 results need a rebuilt index')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        '3 results hidden (stale or unattributed index rows — reindexing fixes this)'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('renders the candidatesTruncated notice', () => {
+    seedResults(makeResults([fileResult()], { candidatesTruncated: true }));
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    expect(
+      screen.getByText('Match list may be incomplete (candidate pool capped) — narrow the query.')
+    ).toBeInTheDocument();
   });
 
   it('passes the search windowing context to the tree', () => {

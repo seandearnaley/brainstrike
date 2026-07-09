@@ -63,13 +63,37 @@ export function WorkspaceSearchPanel({
   runTextSearchRef.current = runTextSearch;
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  // Trimmed length of the query the previous effect run observed. `null` on the
+  // initial mount so a seeded results/searching state is not wiped on first
+  // render — only an actual shrink across the threshold clears results.
+  const prevQueryLengthRef = useRef<number | null>(null);
 
   // caseSensitive/isRegex/wholeWord/collectionId are load-bearing deps even
   // though the body reads them via the run callback, not directly: changing any
   // search parameter must restart the 250ms debounce so a fresh query fires.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional restart triggers, not effect-body reads.
   useEffect(() => {
-    if (query.trim().length < MIN_TEXT_QUERY_LENGTH) {
+    const trimmedLength = query.trim().length;
+    const previousLength = prevQueryLengthRef.current;
+    prevQueryLengthRef.current = trimmedLength;
+    if (trimmedLength < MIN_TEXT_QUERY_LENGTH) {
+      // The query is too short to auto-search. In text mode, drop any results
+      // (and any in-flight run) from a previous longer query so shrinking the
+      // box below the threshold never leaves stale matches on screen. We clear
+      // ONLY on an actual shrink across the threshold (previousLength was at or
+      // above the minimum) — never on the initial mount, so an intentionally
+      // seeded results/searching state survives first render. Semantic mode is
+      // submit-driven and left untouched.
+      if (
+        modeRef.current === 'text' &&
+        previousLength !== null &&
+        previousLength >= MIN_TEXT_QUERY_LENGTH
+      ) {
+        const store = useWorkspaceSearchStore.getState();
+        if (store.results !== null || store.status === 'searching') {
+          store.clearResults();
+        }
+      }
       return;
     }
     const timer = setTimeout(() => {

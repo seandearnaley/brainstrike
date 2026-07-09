@@ -29,6 +29,13 @@ export interface CodeSurfaceProps {
   readonly ariaLabel?: string | undefined;
   readonly className?: string | undefined;
   readonly editable?: boolean | undefined;
+  /**
+   * 1-based line to scroll into view on first content render (e.g. a
+   * search-match target). When provided it WINS over {@link initialScrollTop}
+   * (see the mount effect) — line targeting is an explicit intent that
+   * supersedes restored scroll position. First-render only, like initialScrollTop.
+   */
+  readonly initialLine?: number | undefined;
   readonly initialScrollTop?: number | undefined;
   readonly language?: string | undefined;
   readonly lineWrapping?: boolean | undefined;
@@ -111,6 +118,7 @@ export function CodeSurface({
   ariaLabel = 'Code viewer',
   className,
   editable = false,
+  initialLine,
   initialScrollTop = 0,
   language,
   lineWrapping = false,
@@ -136,6 +144,7 @@ export function CodeSurface({
   const initialConfigRef = useRef({
     ariaLabel,
     editable,
+    initialLine,
     initialScrollTop,
     lineWrapping,
     value,
@@ -203,6 +212,18 @@ export function CodeSurface({
     viewRef.current = view;
     const restoreScrollFrame = window.requestAnimationFrame(() => {
       if (viewRef.current !== view) {
+        return;
+      }
+      // Precedence: an explicit `initialLine` (line-targeted open, e.g. a
+      // workspace-search match) wins over `initialScrollTop` (restored scroll
+      // position). Both apply on first render only; initialLine only when
+      // provided, so ordinary reopen-restore is unaffected.
+      const targetLine = initialConfig.initialLine;
+      if (typeof targetLine === 'number' && targetLine > 0) {
+        const lineCount = view.state.doc.lines;
+        const clampedLine = Math.min(Math.max(1, Math.floor(targetLine)), lineCount);
+        const linePos = view.state.doc.line(clampedLine).from;
+        view.dispatch({ effects: EditorView.scrollIntoView(linePos, { y: 'center' }) });
         return;
       }
       view.scrollDOM.scrollTop = Math.max(0, initialConfig.initialScrollTop);

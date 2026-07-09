@@ -484,8 +484,16 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   excluded. Empty rootIds = no results (never an unscoped scan).
 - **In-flight invalidation.** The session store (`workspace-search-store.ts`)
   carries a monotonic `generation`; `beginSearch` + every mode/collection/toggle
-  change increment it, and `resolveResults`/`failSearch` no-op unless the
-  generation still matches — a superseded run can never clobber fresher state.
+  change (and `clearResults`) increment it, and `resolveResults`/`failSearch`
+  no-op unless the generation still matches — a superseded run can never clobber
+  fresher state. A text query shrinking below the 3-char minimum calls
+  `clearResults` (drops stale matches + bumps the generation so the in-flight
+  longer-query run cannot resurrect them).
+- **Line-targeted open.** Row click → `onOpenFile(compositeKey, line)` →
+  controller `openFileInTab(compositeKey, { line })` (ide-layout seam) →
+  `workspace-tab-host` records a one-shot `targetLine` (transient, non-persisted
+  slice of `editor-view-state-store`) → `CodeSurface` `initialLine` scrolls it
+  into view on first render, winning over restored scroll position.
 - **Bridge invariant (no silent data loss).** `use-search-selection-bridge.ts`
   writes ONLY explorer file-selection + search-managed `tapestryRangesByKey`; it
   NEVER mutates/removes `userModified` Tapestry ranges. The curation store's

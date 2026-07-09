@@ -291,10 +291,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   );
 
   const onOpenFile = useCallback(
-    // The `line` target cannot be honored yet: `IdeFileEditorContext.openFileInTab`
-    // accepts only the compositeKey (see packages/ui/src/layout/ide-layout.tsx).
-    // Line-targeted open is a documented follow-up, not wired here.
-    (compositeKey: string, _line?: number): void => {
+    (compositeKey: string, line?: number): void => {
       if (!openFileInTab) {
         logger.error('Workspace search selected a file but the file-open seam is unavailable', {
           compositeKey,
@@ -303,7 +300,10 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       }
       // Match quick-open: surface the explorer route so the opened tab is visible.
       setActiveTab('explorer');
-      openFileInTab(compositeKey);
+      // Forward the match line so the opened tab scrolls to it (the tab host's
+      // CodeSurface honors `initialLine`). Omit the options object entirely when
+      // no line is provided (exactOptionalPropertyTypes: no `{ line: undefined }`).
+      openFileInTab(compositeKey, line === undefined ? undefined : { line });
     },
     [openFileInTab, setActiveTab]
   );

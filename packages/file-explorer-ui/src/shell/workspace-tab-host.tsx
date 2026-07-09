@@ -11,6 +11,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  type OpenFileInTab,
   useIdeFileEditor,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -287,9 +288,10 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     loadingFilesRef.current = loadingFiles;
   }, [fileContents, loadingFiles]);
 
+  const setTargetLine = useEditorViewStateStore((s) => s.setTargetLine);
   const { registerOpenFileInTab } = useIdeFileEditor();
-  const handleOpenFileInTab = useCallback(
-    (compositeKey: string) => {
+  const handleOpenFileInTab = useCallback<OpenFileInTab>(
+    (compositeKey, options) => {
       // Decode defensively — keys come from trusted internal callers today, but a
       // malformed key would otherwise propagate as an unhandled error from the click
       // event. FileTabBody wraps the same call in try/catch; mirror that here.
@@ -303,6 +305,12 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         });
         return;
       }
+      // Record the one-shot scroll target BEFORE mounting the tab so FileTabBody's
+      // CodeSurface reads it on its first (keyed) render. A later open of the same
+      // key overwrites it; there is no reopen-with-new-line remount in v1.
+      if (typeof options?.line === 'number' && options.line > 0) {
+        setTargetLine(compositeKey, options.line);
+      }
       // tabId is the compositeKey itself — stable across reloads (it already encodes the
       // folder identity), unlike the legacy `${rootFolderId}:${compositeKey}` form.
       const tabId = compositeKey;
@@ -315,7 +323,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         void loadFileContent(compositeKey);
       }
     },
-    [openTab, selectFile, loadFileContent]
+    [openTab, selectFile, loadFileContent, setTargetLine]
   );
   useEffect(() => {
     registerOpenFileInTab(handleOpenFileInTab);
@@ -777,6 +785,7 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
 
   const getScrollTop = useEditorViewStateStore((s) => s.getScrollTop);
   const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
+  const getTargetLine = useEditorViewStateStore((s) => s.getTargetLine);
 
   const handleScrollTopChange = useCallback(
     (scrollTop: number) => {
@@ -854,6 +863,7 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
   return (
     <CodeSurface
       ariaLabel={`Source preview for ${path}`}
+      initialLine={getTargetLine(tab.compositeKey)}
       initialScrollTop={getScrollTop(tab.compositeKey)}
       key={tab.compositeKey}
       onScrollTopChange={handleScrollTopChange}

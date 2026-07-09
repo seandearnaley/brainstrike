@@ -128,9 +128,6 @@ Both modes run **renderer-side against the DB** on both platforms (the collectio
 - **Show-more paging (§3)** — user-approved deferral; truncated results state an
   honest "Results limited to first N matches" instead of an active pager. Wire
   `onShowMore` + offset paging when adding it.
-- **Line-targeted `openFileInTab`** — controller `onOpenFile` drops the `line`
-  arg (`IdeFileEditorContext` accepts only the compositeKey). Extend that seam to
-  scroll the opened tab to the match line.
 - **Nightly seeded-fixture E2E** — the results→selection round trip (seed an
   indexed fixture → Search → assert a treegrid result row + checkbox drives
   selection); the fast smokes only assert mount/wire + honest error state.

@@ -12,6 +12,13 @@ interface WorkspaceSearchState {
    * returns the new generation so the caller can tag its async completion. */
   beginSearch: () => number;
   caseSensitive: boolean;
+  /**
+   * Clears any rendered results back to the idle empty state AND bumps
+   * `generation`, so an in-flight run whose query is no longer valid (e.g. a
+   * text query shrunk below the min length) can neither leave stale results on
+   * screen nor resurrect them when it resolves. No-op-safe to call when idle.
+   */
+  clearResults: () => void;
   /** embedding_sets.id; null = resolve the workspace-index set at query time. */
   collectionId: string | null;
   error: string | null;
@@ -72,6 +79,7 @@ const initialState = {
   | 'beginSearch'
   | 'resolveResults'
   | 'failSearch'
+  | 'clearResults'
   | 'reset'
 >;
 
@@ -82,6 +90,13 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
     set({ error: null, generation, status: 'searching' });
     return generation;
   },
+  clearResults: () =>
+    set((state) => ({
+      error: null,
+      generation: state.generation + 1,
+      results: null,
+      status: 'idle',
+    })),
   failSearch: (message, generation) =>
     set((state) => (state.generation === generation ? { error: message, status: 'error' } : {})),
   // Keep `generation` monotonic across resets so a run started before the reset

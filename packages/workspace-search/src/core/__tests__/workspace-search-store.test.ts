@@ -169,6 +169,27 @@ describe('useWorkspaceSearchStore', () => {
     expect(useWorkspaceSearchStore.getState().expandedIds.has('f:root-1:src/a.ts')).toBe(false);
   });
 
+  it('clearResults nulls results, resets to idle, and bumps the generation', () => {
+    seedResults();
+    const before = useWorkspaceSearchStore.getState().generation;
+    useWorkspaceSearchStore.getState().clearResults();
+    const state = useWorkspaceSearchStore.getState();
+    expect(state.results).toBeNull();
+    expect(state.status).toBe('idle');
+    expect(state.error).toBeNull();
+    expect(state.generation).toBe(before + 1);
+  });
+
+  it('clearResults bumps the generation so a superseded run cannot resurrect results', () => {
+    const generation = useWorkspaceSearchStore.getState().beginSearch();
+    useWorkspaceSearchStore.getState().clearResults();
+    // The in-flight run resolving with the pre-clear generation must be dropped.
+    useWorkspaceSearchStore.getState().resolveResults(makeResults(), generation);
+    const state = useWorkspaceSearchStore.getState();
+    expect(state.results).toBeNull();
+    expect(state.status).toBe('idle');
+  });
+
   it('setQuery updates the query without touching results/status', () => {
     seedResults();
     useWorkspaceSearchStore.getState().setQuery('foo');

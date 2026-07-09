@@ -304,7 +304,13 @@ export function SearchResultsTree({
       ) : null}
       {notices && notices.skippedMissingLineMetadata > 0 ? (
         <p className="text-muted-foreground text-xs" role="status">
-          {notices.skippedMissingLineMetadata} results need a rebuilt index
+          {notices.skippedMissingLineMetadata} results hidden (stale or unattributed index rows —
+          reindexing fixes this)
+        </p>
+      ) : null}
+      {notices?.candidatesTruncated ? (
+        <p className="text-muted-foreground text-xs" role="status">
+          Match list may be incomplete (candidate pool capped) — narrow the query.
         </p>
       ) : null}
       <div className="min-h-0 flex-1">

@@ -208,6 +208,33 @@ describe('WorkspaceSearchPanel', () => {
     renderPanel();
     expect(screen.getByText('~0 tokens selected')).toBeInTheDocument();
   });
+
+  it('clears stale results and drops a late resolve when the text query shrinks below min length', () => {
+    // A previous longer query produced results.
+    act(() => {
+      useWorkspaceSearchStore.getState().setQuery('foobar');
+      const generation = useWorkspaceSearchStore.getState().generation;
+      useWorkspaceSearchStore.getState().resolveResults(makeResults(), generation);
+    });
+    const staleGeneration = useWorkspaceSearchStore.getState().generation;
+    renderPanel();
+    expect(useWorkspaceSearchStore.getState().results).not.toBeNull();
+
+    // Shrink the query below the 3-char threshold.
+    act(() => {
+      useWorkspaceSearchStore.getState().setQuery('fo');
+    });
+    expect(useWorkspaceSearchStore.getState().results).toBeNull();
+    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
+
+    // The in-flight longer-query run resolving late (with the pre-clear
+    // generation) must be dropped, not resurrect the cleared results.
+    act(() => {
+      useWorkspaceSearchStore.getState().resolveResults(makeResults(), staleGeneration);
+    });
+    expect(useWorkspaceSearchStore.getState().results).toBeNull();
+    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
+  });
 });
 
 const TEXT_DEBOUNCE_ADVANCE = 300;

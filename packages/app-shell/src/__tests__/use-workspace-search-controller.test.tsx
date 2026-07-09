@@ -4,7 +4,7 @@ import type {
   WorkspaceSearchResults,
 } from '@brainstrike/workspace-search';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootIdentityProvider } from '../roots/root-identity-context';
@@ -13,6 +13,17 @@ import {
   resolveGrepRepository,
   useWorkspaceSearchController,
 } from '../use-workspace-search-controller';
+
+// The controller resolves the file-open seam via `useIdeFileEditor()`. Mock it so
+// the line-forwarding contract is observable without a full IdeLayout host.
+const { openFileInTabMock } = vi.hoisted(() => ({ openFileInTabMock: vi.fn() }));
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...actual,
+    useIdeFileEditor: () => ({ openFileInTab: openFileInTabMock, registerOpenFileInTab: vi.fn() }),
+  };
+});
 
 function makeTextResults(overrides?: Partial<WorkspaceSearchResults>): WorkspaceSearchResults {
   return {
@@ -208,6 +219,70 @@ describe('createWorkspaceSearchRunners', () => {
     expect(useWorkspaceSearchStore.getState().error).toBeNull();
     expect(useWorkspaceSearchStore.getState().results?.totalMatches).toBe(1);
   });
+
+  // F3 pin: no abandonment path may strand status at 'searching' with no live run,
+  // and the LATEST run always wins regardless of completion order.
+  it('rapid re-dispatch: the second run wins; a late first resolve cannot clobber it', async () => {
+    let resolveFirst: (r: WorkspaceSearchResults) => void = () => {};
+    const searchText = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<WorkspaceSearchResults>((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockImplementationOnce(async () => makeTextResults({ totalMatches: 2 }));
+    const runners = createWorkspaceSearchRunners({
+      executor: { searchSemantic: vi.fn(), searchText },
+      resolveEffectiveEmbeddingSetId: async () => 'set-1',
+      workspaceDbRootIds: [],
+    });
+
+    runners.runTextSearch(); // first run, left in-flight
+    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(1));
+    runners.runTextSearch(); // second run supersedes and resolves
+    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+    expect(useWorkspaceSearchStore.getState().results?.totalMatches).toBe(2);
+
+    // The first run resolves late with the stale generation → dropped.
+    resolveFirst(makeTextResults({ totalMatches: 99 }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useWorkspaceSearchStore.getState().status).toBe('results');
+    expect(useWorkspaceSearchStore.getState().results?.totalMatches).toBe(2);
+  });
+
+  it('a toggle mid-flight with no new run lands on idle (never a stuck "searching")', async () => {
+    let resolveText: (r: WorkspaceSearchResults) => void = () => {};
+    const searchText = vi.fn(
+      () =>
+        new Promise<WorkspaceSearchResults>((resolve) => {
+          resolveText = resolve;
+        })
+    );
+    const runners = createWorkspaceSearchRunners({
+      executor: { searchSemantic: vi.fn(), searchText },
+      resolveEffectiveEmbeddingSetId: async () => 'set-1',
+      workspaceDbRootIds: [],
+    });
+
+    runners.runTextSearch();
+    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(1));
+    expect(useWorkspaceSearchStore.getState().status).toBe('searching');
+
+    // A toggle abandons the in-flight run (advances the generation) with NO new run.
+    act(() => {
+      useWorkspaceSearchStore.getState().toggleCase();
+    });
+    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
+
+    // The abandoned run resolving late must not resurrect 'searching'/'results'.
+    resolveText(makeTextResults());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
+    expect(useWorkspaceSearchStore.getState().results).toBeNull();
+  });
 });
 
 describe('resolveGrepRepository', () => {
@@ -243,6 +318,9 @@ describe('resolveGrepRepository', () => {
 });
 
 describe('useWorkspaceSearchController', () => {
+  beforeEach(() => {
+    openFileInTabMock.mockClear();
+  });
   afterEach(() => {
     useWorkspaceSearchStore.getState().reset();
   });
@@ -266,6 +344,26 @@ describe('useWorkspaceSearchController', () => {
     expect([...result.current.workspaceDbRootIds].sort()).toEqual(['D1', 'D2']);
     expect(result.current.resolveAdapterRootId('D1')).toBe('A1');
     expect(result.current.resolveAdapterRootId('missing')).toBeNull();
+  });
+
+  it('onOpenFile forwards the match line to the file-open seam as { line }', () => {
+    const { result } = renderHook(() => useWorkspaceSearchController(), {
+      wrapper: withRootIdentity(new Map()),
+    });
+    act(() => {
+      result.current.onOpenFile('root-a|@|src/a.ts', 42);
+    });
+    expect(openFileInTabMock).toHaveBeenCalledWith('root-a|@|src/a.ts', { line: 42 });
+  });
+
+  it('onOpenFile omits the options object when no line is given', () => {
+    const { result } = renderHook(() => useWorkspaceSearchController(), {
+      wrapper: withRootIdentity(new Map()),
+    });
+    act(() => {
+      result.current.onOpenFile('root-a|@|src/a.ts');
+    });
+    expect(openFileInTabMock).toHaveBeenCalledWith('root-a|@|src/a.ts', undefined);
   });
 
   it('fails the search honestly when the database is not ready (no executor)', async () => {
