@@ -148,7 +148,8 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
   runTextSearch: () => void;
 } {
   const run = (mode: WorkspaceSearchMode): void => {
-    const { query, isRegex, caseSensitive, wholeWord } = useWorkspaceSearchStore.getState();
+    const { query, isRegex, caseSensitive, wholeWord, textResultLimit } =
+      useWorkspaceSearchStore.getState();
     // Capture the run token so a superseded run's completion (results OR rejection)
     // is dropped by the store instead of clobbering a newer run's state.
     const generation = useWorkspaceSearchStore.getState().beginSearch();
@@ -161,6 +162,7 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
                 caseSensitive,
                 embeddingSetId,
                 isRegex,
+                maxResults: textResultLimit,
                 query,
                 rootIds: deps.workspaceDbRootIds,
                 wholeWord,

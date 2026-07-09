@@ -365,6 +365,26 @@ describe('SearchResultsTree', () => {
     expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
   });
 
+  it('never shows "Show more" in semantic mode even when onShowMore is passed (no semantic paging)', () => {
+    const onShowMore = vi.fn();
+    // Semantic truncated is always false in real results, but the tree itself
+    // must not render a semantic paging affordance even if a caller mistakenly
+    // wires onShowMore + a hypothetical truncated notice through.
+    seedResults(makeResults([fileResult({ children: [chunkHit()] })], { truncated: true }), {
+      mode: 'semantic',
+    });
+    render(
+      <SearchResultsTree
+        onOpenFile={vi.fn()}
+        onShowMore={onShowMore}
+        resolveAdapterRootId={resolveAdapterRootId}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    // The honest fallback copy still renders instead.
+    expect(screen.getByText(/Results limited to first/)).toBeInTheDocument();
+  });
+
   it('renders the missing-line-metadata notice with a count and honest cause copy', () => {
     seedResults(makeResults([fileResult()], { skippedMissingLineMetadata: 3 }));
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);

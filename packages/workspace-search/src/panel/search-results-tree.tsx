@@ -525,7 +525,11 @@ export function SearchResultsTree({
         />
       </div>
       {notices?.truncated ? (
-        onShowMore ? (
+        // NO semantic paging: the Show-more affordance is text-mode only, even
+        // if a caller passes onShowMore while semantic is active (defense in
+        // depth — see the `truncated: false` comment in
+        // workspace-search-executor.ts's buildSemanticResults).
+        mode === 'text' && onShowMore ? (
           <button
             className="self-start text-primary text-xs underline"
             onClick={onShowMore}

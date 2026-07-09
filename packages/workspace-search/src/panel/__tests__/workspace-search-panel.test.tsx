@@ -70,7 +70,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import { WorkspaceSearchPanel } from '../workspace-search-panel';
 
-function makeResults(): WorkspaceSearchResults {
+function makeResults(overrides?: Partial<WorkspaceSearchResults>): WorkspaceSearchResults {
   return {
     files: [
       {
@@ -100,6 +100,7 @@ function makeResults(): WorkspaceSearchResults {
       truncated: false,
     },
     totalMatches: 1,
+    ...overrides,
   };
 }
 
@@ -291,6 +292,47 @@ describe('WorkspaceSearchPanel', () => {
     });
     expect(useWorkspaceSearchStore.getState().results).toBeNull();
     expect(useWorkspaceSearchStore.getState().status).toBe('idle');
+  });
+
+  it('Show more bumps the text result limit by 200 and reruns the text search', () => {
+    const truncatedResults = makeResults({
+      notices: {
+        candidatesTruncated: false,
+        scanLimited: false,
+        skippedMissingLineMetadata: 0,
+        truncated: true,
+      },
+    });
+    act(() => {
+      const generation = useWorkspaceSearchStore.getState().generation;
+      useWorkspaceSearchStore.getState().resolveResults(truncatedResults, generation);
+    });
+    const before = useWorkspaceSearchStore.getState().textResultLimit;
+    const { props } = renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+
+    expect(useWorkspaceSearchStore.getState().textResultLimit).toBe(before + 200);
+    expect(props.runTextSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer Show more in semantic mode (no semantic paging)', () => {
+    const truncatedSemanticResults = makeResults({
+      mode: 'semantic',
+      notices: {
+        candidatesTruncated: false,
+        scanLimited: false,
+        skippedMissingLineMetadata: 0,
+        truncated: true,
+      },
+    });
+    act(() => {
+      useWorkspaceSearchStore.setState({ mode: 'semantic' });
+      const generation = useWorkspaceSearchStore.getState().generation;
+      useWorkspaceSearchStore.getState().resolveResults(truncatedSemanticResults, generation);
+    });
+    renderPanel();
+    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
   });
 });
 

@@ -90,6 +90,73 @@ describe('createWorkspaceSearchRunners', () => {
     expect(searchText).toHaveBeenCalledTimes(1);
   });
 
+  it('runTextSearch passes the store default textResultLimit (200) as maxResults', async () => {
+    let capturedReq: TextSearchRequest | undefined;
+    const searchText = vi.fn(async (req: TextSearchRequest): Promise<WorkspaceSearchResults> => {
+      capturedReq = req;
+      return makeTextResults();
+    });
+    const runners = createWorkspaceSearchRunners({
+      executor: { searchSemantic: vi.fn(), searchText },
+      resolveEffectiveEmbeddingSetId: async () => 'set-42',
+      workspaceDbRootIds: ['D1'],
+    });
+
+    runners.runTextSearch();
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+    expect(capturedReq?.maxResults).toBe(200);
+  });
+
+  it('runTextSearch passes the CURRENT (bumped) textResultLimit as maxResults', async () => {
+    useWorkspaceSearchStore.getState().increaseTextResultLimit();
+    let capturedReq: TextSearchRequest | undefined;
+    const searchText = vi.fn(async (req: TextSearchRequest): Promise<WorkspaceSearchResults> => {
+      capturedReq = req;
+      return makeTextResults();
+    });
+    const runners = createWorkspaceSearchRunners({
+      executor: { searchSemantic: vi.fn(), searchText },
+      resolveEffectiveEmbeddingSetId: async () => 'set-42',
+      workspaceDbRootIds: ['D1'],
+    });
+
+    runners.runTextSearch();
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+    expect(capturedReq?.maxResults).toBe(400);
+  });
+
+  // Show-more generation safety: a mode switch immediately after a Show-more
+  // click (increaseTextResultLimit + rerun) must still drop late results —
+  // the bump itself never touches generation, so the rerun's own
+  // beginSearch() is what the mode switch races against.
+  it('a mode switch right after a Show-more bump+rerun drops the late text result (stale generation)', async () => {
+    let resolveText: (r: WorkspaceSearchResults) => void = () => {};
+    const searchText = vi.fn(
+      () =>
+        new Promise<WorkspaceSearchResults>((resolve) => {
+          resolveText = resolve;
+        })
+    );
+    const runners = createWorkspaceSearchRunners({
+      executor: { searchSemantic: vi.fn(), searchText },
+      resolveEffectiveEmbeddingSetId: async () => 'set-1',
+      workspaceDbRootIds: [],
+    });
+
+    // Simulate the panel's Show-more handler: bump, then rerun.
+    useWorkspaceSearchStore.getState().increaseTextResultLimit();
+    runners.runTextSearch();
+    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(1));
+
+    // A mode change right after the click invalidates the in-flight run.
+    useWorkspaceSearchStore.getState().setMode('semantic');
+    resolveText(makeTextResults());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
+    expect(useWorkspaceSearchStore.getState().results).toBeNull();
+  });
+
   it('runSemanticSearch forwards the scope and populates the store', async () => {
     const searchSemantic = vi.fn(
       async (req: SemanticSearchRequest): Promise<WorkspaceSearchResults | null> => {
