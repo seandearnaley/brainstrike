@@ -138,6 +138,7 @@ function TreeTableRowInner<T>({
   showCheckbox = false,
   insetTreeControls = false,
   checkboxState,
+  checkboxAriaLabel,
   onCheckboxChange,
   totalRowCount,
   ariaRole = 'treegrid',
@@ -255,6 +256,7 @@ function TreeTableRowInner<T>({
 
             renderedCells.push(
               <TreeTableCellComponent
+                checkboxAriaLabel={checkboxAriaLabel}
                 checkboxState={checkboxState ?? 'unchecked'}
                 colSpan={colSpan}
                 column={column}
@@ -284,6 +286,7 @@ function TreeTableRowInner<T>({
  * which includes indentation, checkbox, and the expand/collapse toggle.
  */
 interface TreeTableCellInternalProps<T> {
+  checkboxAriaLabel: string | undefined;
   checkboxState: 'checked' | 'unchecked' | 'indeterminate';
   colSpan: number;
   column: TreeTableColumn<T>;
@@ -338,6 +341,7 @@ function TreeTableCellComponent<T>({
   onExpandClick,
   showCheckbox,
   checkboxState,
+  checkboxAriaLabel,
   onCheckboxChange,
 }: TreeTableCellInternalProps<T>) {
   const { node, isExpanded, isSelected, isHighlighted, isInContext, index } = row;
@@ -379,7 +383,7 @@ function TreeTableCellComponent<T>({
           {/* Checkbox for multi-select */}
           {showCheckbox && (
             <Checkbox
-              aria-label={`Select ${node.id}`}
+              aria-label={checkboxAriaLabel ?? `Select ${node.id}`}
               checked={
                 checkboxState === 'indeterminate' ? 'indeterminate' : checkboxState === 'checked'
               }

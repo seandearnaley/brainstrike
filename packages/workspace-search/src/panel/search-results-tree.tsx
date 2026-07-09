@@ -1,4 +1,11 @@
-import { Badge, Checkbox, type TreeNode, TreeTable } from '@brainstrike/ui';
+import {
+  Badge,
+  Checkbox,
+  type CheckboxState,
+  type TreeNode,
+  TreeTable,
+  type TreeTableCheckboxNextState,
+} from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { File as FileIcon, TextQuote } from 'lucide-react';
 import type * as React from 'react';
@@ -124,13 +131,10 @@ function openTargetForData(data: SearchNodeData): SearchOpenTarget | undefined {
 }
 
 interface RowRenderContext {
-  bridge: ReturnType<typeof useSearchSelectionBridge>;
   caseSensitive: boolean;
   highlightEnabled: boolean;
   query: string;
   showRootBadge: boolean;
-  /** compositeKey -> the file's full result-chunk list (for whole-file convert). */
-  siblingChunksByKey: Map<string, SelectedChunk[]>;
 }
 
 function FileRow({
@@ -140,26 +144,10 @@ function FileRow({
   data: Extract<SearchNodeData, { kind: 'file' }>;
   ctx: RowRenderContext;
 }): React.ReactNode {
-  const { file, compositeKey } = data;
-  // File is the ONLY tri-state checkbox; read it straight from the bridge (no
-  // rollup from children — the selected-chunk set already knows the answer).
-  const state = compositeKey === null ? 'unchecked' : ctx.bridge.fileState(compositeKey);
-
-  const onToggle = useCallback(() => {
-    if (compositeKey !== null) {
-      ctx.bridge.toggleFile(compositeKey, state !== 'checked');
-    }
-  }, [ctx.bridge, compositeKey, state]);
-
+  const { file } = data;
+  // Checkbox lives on TreeTable via the pluggable API (file = only tri-state).
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <Checkbox
-        aria-label={`Select ${file.path}`}
-        checked={state === 'indeterminate' ? 'indeterminate' : state === 'checked'}
-        data-state={state}
-        onCheckedChange={onToggle}
-        onClick={(event) => event.stopPropagation()}
-      />
       <FileIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />
       <span className="truncate font-medium text-sm">{file.path}</span>
       <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
@@ -175,30 +163,17 @@ function FileRow({
 }
 
 /**
- * Chunk-level row: the ONLY child-checkbox level in both modes. Text mode groups
- * matches under a "Lines X–Y · N matches" chunk; semantic mode renders the chunk
- * headline/content. The checkbox drives the selection bridge with the chunk
- * bounds (identical wiring for both kinds).
+ * Chunk-level row content: the ONLY child-checkbox level in both modes (checkbox
+ * itself is rendered by TreeTable). Text mode groups matches under a
+ * "Lines X–Y · N matches" chunk; semantic mode renders the chunk headline/content.
  */
 function ChunkRow({
   data,
-  ctx,
 }: {
   data: Extract<SearchNodeData, { kind: 'chunk' | 'text-chunk' }>;
-  ctx: RowRenderContext;
 }): React.ReactNode {
-  const { compositeKey } = data;
   const chunk = chunkRowSelected(data);
-  const state =
-    compositeKey === null ? 'unchecked' : ctx.bridge.chunkState(compositeKey, chunk.chunkId);
-
-  const onToggle = useCallback(() => {
-    if (compositeKey !== null) {
-      const siblings = ctx.siblingChunksByKey.get(compositeKey) ?? [chunk];
-      ctx.bridge.toggleChunk(compositeKey, chunk, state !== 'checked', siblings);
-    }
-  }, [ctx.bridge, ctx.siblingChunksByKey, compositeKey, chunk, state]);
-
+  // Checkbox lives on TreeTable via the pluggable API (chunk = binary only).
   const content =
     data.kind === 'text-chunk' ? (
       <>
@@ -216,18 +191,7 @@ function ChunkRow({
       </span>
     );
 
-  return (
-    <span className="flex min-w-0 items-center gap-2">
-      <Checkbox
-        aria-label={`Select lines ${chunk.startLine}-${chunk.endLine}`}
-        checked={state === 'checked'}
-        data-state={state}
-        onCheckedChange={onToggle}
-        onClick={(event) => event.stopPropagation()}
-      />
-      {content}
-    </span>
-  );
+  return <span className="flex min-w-0 items-center gap-2">{content}</span>;
 }
 
 /**
@@ -343,8 +307,9 @@ export interface SearchResultsTreeProps {
 /**
  * Results tree for workspace search. Composes the shared TreeTable over the
  * pre-flattened row model from `buildSearchTreeNodes`. Row CLICK navigates;
- * the per-row checkbox drives the selection bridge directly (tri-state), which
- * TreeTable's Set-based `showCheckbox` cannot express — see the report.
+ * checkboxes use TreeTable's pluggable API (`getCheckboxState` /
+ * `onCheckboxChange`) so the selected-chunk set stays the source of truth —
+ * file = tri-state, chunk = binary, match leaves = hidden.
  */
 export function SearchResultsTree({
   onOpenFile,
@@ -416,14 +381,59 @@ export function SearchResultsTree({
 
   const ctx = useMemo<RowRenderContext>(
     () => ({
-      bridge,
       caseSensitive,
       highlightEnabled: mode === 'text' && !isRegex,
       query: query.trim(),
       showRootBadge,
-      siblingChunksByKey,
     }),
-    [bridge, caseSensitive, mode, isRegex, query, showRootBadge, siblingChunksByKey]
+    [caseSensitive, mode, isRegex, query, showRootBadge]
+  );
+
+  const getCheckboxState = useCallback(
+    (node: TreeNode<SearchNodeData>): CheckboxState | 'hidden' => {
+      const { data } = node;
+      if (data.kind === 'match' || data.compositeKey === null) {
+        return 'hidden';
+      }
+      if (data.kind === 'file') {
+        return bridge.fileState(data.compositeKey);
+      }
+      // chunk | text-chunk — binary only (bridge never returns indeterminate).
+      return bridge.chunkState(data.compositeKey, chunkRowSelected(data).chunkId);
+    },
+    [bridge]
+  );
+
+  const getCheckboxAriaLabel = useCallback((node: TreeNode<SearchNodeData>): string | undefined => {
+    const { data } = node;
+    if (data.kind === 'file') {
+      return `Select ${data.file.path}`;
+    }
+    if (data.kind === 'chunk' || data.kind === 'text-chunk') {
+      const chunk = chunkRowSelected(data);
+      return `Select lines ${chunk.startLine}-${chunk.endLine}`;
+    }
+    return;
+  }, []);
+
+  const onCheckboxChange = useCallback(
+    (node: TreeNode<SearchNodeData>, nextState: TreeTableCheckboxNextState) => {
+      const { data } = node;
+      if (data.compositeKey === null) {
+        return;
+      }
+      const nextChecked = nextState === 'checked';
+      if (data.kind === 'file') {
+        bridge.toggleFile(data.compositeKey, nextChecked);
+        return;
+      }
+      if (data.kind === 'chunk' || data.kind === 'text-chunk') {
+        const chunk = chunkRowSelected(data);
+        const siblings = siblingChunksByKey.get(data.compositeKey) ?? [chunk];
+        bridge.toggleChunk(data.compositeKey, chunk, nextChecked, siblings);
+      }
+    },
+    [bridge, siblingChunksByKey]
   );
 
   const columns = useMemo(
@@ -436,7 +446,7 @@ export function SearchResultsTree({
             case 'match':
               return <MatchRow ctx={ctx} data={node.data} />;
             default:
-              return <ChunkRow ctx={ctx} data={node.data} />;
+              return <ChunkRow data={node.data} />;
           }
         },
         header: 'Results',
@@ -513,11 +523,14 @@ export function SearchResultsTree({
           columns={columns}
           emptyState={<p className="p-3 text-muted-foreground text-sm">No matches found</p>}
           expandedIds={expandedIds}
+          getCheckboxAriaLabel={getCheckboxAriaLabel}
+          getCheckboxState={getCheckboxState}
           // Fill the scroll region (mirrors the Explorer tree) — the default
           // 600px cap would fight the panel's grid-rows-[auto_1fr_auto] middle.
           maxHeight="100%"
           nodes={nodes}
           nodesArePreFlattened
+          onCheckboxChange={onCheckboxChange}
           onSelect={handleSelect}
           onToggleExpand={toggleExpanded}
           showHeader={false}

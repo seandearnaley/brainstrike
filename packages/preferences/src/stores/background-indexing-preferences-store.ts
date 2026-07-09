@@ -1,7 +1,7 @@
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 export type BackgroundIndexingMode = 'root-folder-cache';
 

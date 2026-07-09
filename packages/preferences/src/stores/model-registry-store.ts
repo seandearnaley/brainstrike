@@ -1,5 +1,6 @@
 import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
 import type { DbHandle, IDatabase } from '@brainstrike/db';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createLogger } from '@brainstrike/utils/logger';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -8,7 +9,6 @@ import {
   getModelRegistryFetchErrorTestOverride,
   getModelRegistrySnapshotTestOverride,
 } from '../settings-test-runtime-access';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;

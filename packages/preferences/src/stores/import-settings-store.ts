@@ -4,9 +4,9 @@ import {
   getChunkingPreset,
   isChunkingStrategy,
 } from '@brainstrike/indexing-contract';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createBrowserJsonStorage } from './browser-json-storage';
 import { useTokenPreferencesStore } from './token-preferences-store';
 
 interface ImportSettingsData {

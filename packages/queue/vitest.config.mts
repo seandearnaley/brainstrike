@@ -14,10 +14,6 @@ export default defineConfig({
       ),
       '@brainstrike/utils': resolve(__dirname, '../../packages/utils/src'),
       '@brainstrike/utils/logger': resolve(__dirname, '../../packages/utils/src/logger.ts'),
-      '@brainstrike/utils/safe-storage': resolve(
-        __dirname,
-        '../../packages/utils/src/safe-storage.ts'
-      ),
       '@brainstrike/utils/token-counting-runtime': resolve(
         __dirname,
         '../../packages/utils/src/token-counting-runtime.ts'

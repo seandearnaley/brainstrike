@@ -12,6 +12,7 @@
     "@brainstrike/commands": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
+    "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@codemirror/language": "^6.12.4",
@@ -75,6 +76,10 @@
     "./assistant-ui-panel": {
       "types": "./dist/assistant-ui-panel/index.d.ts",
       "import": "./dist/assistant-ui-panel/index.js"
+    },
+    "./assistant-ui-panel/context-usage-store": {
+      "types": "./dist/assistant-ui-panel/context-usage-store.d.ts",
+      "import": "./dist/assistant-ui-panel/context-usage-store.js"
     },
     "./globals.css": "./dist/globals.css",
     "./styles.css": "./styles.css",

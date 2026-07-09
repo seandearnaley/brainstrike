@@ -77,6 +77,20 @@ export default defineConfig({
         ),
       },
       {
+        find: '@brainstrike/workspace-search/chunk-selection-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../workspace-search/src/bridge/chunk-selection-store.ts'
+        ),
+      },
+      {
+        find: '@brainstrike/workspace-search/workspace-search-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../workspace-search/src/core/workspace-search-store.ts'
+        ),
+      },
+      {
         find: /^@brainstrike\/workspace-search$/,
         replacement: path.resolve(import.meta.dirname, '../workspace-search/src/index.ts'),
       },
@@ -134,6 +148,13 @@ export default defineConfig({
       {
         find: /^@brainstrike\/preferences\/(.*)$/,
         replacement: path.resolve(import.meta.dirname, '../preferences/src/$1'),
+      },
+      {
+        find: '@brainstrike/ui/assistant-ui-panel/context-usage-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../ui/src/assistant-ui-panel/context-usage-store.ts'
+        ),
       },
       {
         find: '@brainstrike/ui/assistant-ui-panel',

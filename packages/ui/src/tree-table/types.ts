@@ -266,6 +266,12 @@ export interface TreeTableProps<T> {
   // Expansion state
   /** Set of expanded node IDs */
   expandedIds: Set<string>;
+  /**
+   * Optional accessible name for a row's checkbox. Defaults to `Select ${node.id}`
+   * when omitted. Use this when the node id is not a human-readable label (e.g.
+   * search chunk rows that should read "Select lines 8–12").
+   */
+  getCheckboxAriaLabel?: (node: TreeNode<T>) => string | undefined;
 
   // Checkbox
   /**
@@ -364,6 +370,8 @@ export interface TreeTableProps<T> {
 export interface TreeTableRowProps<T> {
   /** ARIA role inherited from the table container */
   ariaRole?: 'treegrid' | 'grid' | undefined;
+  /** Accessible name for the row checkbox (defaults to `Select ${node.id}`). */
+  checkboxAriaLabel?: string | undefined;
   /** Checkbox state (for tri-state parent logic) */
   checkboxState?: CheckboxState | undefined;
   /** Additional CSS class */
