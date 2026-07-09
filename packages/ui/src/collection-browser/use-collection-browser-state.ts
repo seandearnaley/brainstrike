@@ -39,17 +39,50 @@ const SORT_KEY_TO_COLUMN: Record<CollectionSortKey, string> = {
   status: 'status',
 };
 
+function sameNodeTypes(
+  left: ReadonlySet<CollectionNodeType>,
+  right: ReadonlySet<CollectionNodeType>
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Apply a deferred search query onto filter state.
  * When the deferred value lags behind keystrokes, keep the previous query so
  * expensive filtering (and selection-clear side effects) do not run eagerly.
+ *
+ * Controlled parents (e.g. CollectionBrowserView) often rebuild a fresh `filters`
+ * object on every keystroke — including a new `nodeTypes` Set with the same
+ * members. While search is lagging, reuse the previous composed filters object
+ * so `useCollectionTree` memos are not defeated by identity churn.
  */
 export function withDeferredSearchQuery(
   filters: CollectionBrowserFilters,
-  deferredSearchQuery: string
+  deferredSearchQuery: string,
+  previousDeferredFilters: CollectionBrowserFilters | null = null
 ): CollectionBrowserFilters {
   if (deferredSearchQuery === filters.searchQuery) {
     return filters;
+  }
+  if (
+    previousDeferredFilters !== null &&
+    previousDeferredFilters.searchQuery === deferredSearchQuery &&
+    previousDeferredFilters.embeddingStatus === filters.embeddingStatus &&
+    previousDeferredFilters.searchMatchesOnly === filters.searchMatchesOnly &&
+    sameNodeTypes(previousDeferredFilters.nodeTypes, filters.nodeTypes)
+  ) {
+    return previousDeferredFilters;
   }
   return { ...filters, searchQuery: deferredSearchQuery };
 }
@@ -132,10 +165,16 @@ export function useCollectionBrowserState({
   // Expensive tree filtering runs in a lower-priority render while the
   // input stays responsive — same pattern as file-explorer quick filter.
   const deferredSearchQuery = React.useDeferredValue(filters.searchQuery);
-  const deferredFilters = React.useMemo(
-    () => withDeferredSearchQuery(filters, deferredSearchQuery),
-    [deferredSearchQuery, filters]
-  );
+  const previousDeferredFiltersRef = React.useRef<CollectionBrowserFilters | null>(null);
+  const deferredFilters = React.useMemo(() => {
+    const next = withDeferredSearchQuery(
+      filters,
+      deferredSearchQuery,
+      previousDeferredFiltersRef.current
+    );
+    previousDeferredFiltersRef.current = next;
+    return next;
+  }, [deferredSearchQuery, filters]);
 
   const [internalSelectedId, setInternalSelectedId] = React.useState<string | null>(null);
   const selectedId = controlledSelectedId === undefined ? internalSelectedId : controlledSelectedId;
