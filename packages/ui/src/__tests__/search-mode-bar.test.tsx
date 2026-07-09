@@ -408,6 +408,35 @@ describe('SearchModeBar', () => {
     expect(screen.queryByTestId('advanced-options-slot')).not.toBeInTheDocument();
   });
 
+  it('clears advanced-options open state when the parent collapses the panel', () => {
+    // Masking via popoverOpen is not enough: stored open=true would reopen the
+    // cog automatically on the next expand. Parent-driven collapse must clear it.
+    const onAdvancedOptionsOpenChange = vi.fn();
+    const { rerender } = render(
+      <SearchModeBar
+        {...createProps({
+          advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+          advancedOptionsOpen: true,
+          isSearchExpanded: true,
+          onAdvancedOptionsOpenChange,
+        })}
+      />
+    );
+
+    rerender(
+      <SearchModeBar
+        {...createProps({
+          advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+          advancedOptionsOpen: true,
+          isSearchExpanded: false,
+          onAdvancedOptionsOpenChange,
+        })}
+      />
+    );
+
+    expect(onAdvancedOptionsOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it('hides portaled cog content when the panel is collapsed by the parent', () => {
     // Safety gate: even if open state lags (parent flips isSearchExpanded
     // without going through our collapse handler), popoverOpen is AND-gated

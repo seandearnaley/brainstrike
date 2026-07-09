@@ -307,6 +307,11 @@ export interface TreeTableProps<T> {
    * checked/unchecked state. When provided, replaces the built-in
    * select-descendants cascade from `onMultiSelectChange` for checkbox
    * clicks (and Space when the pluggable path is active).
+   *
+   * Providing `getCheckboxState` without this handler is supported for
+   * read-only/display use: checkbox clicks and Space are ignored (they do not
+   * fall through to `onMultiSelectChange`, whose cascade map is empty in that
+   * mode).
    */
   onCheckboxChange?: (node: TreeNode<T>, nextState: TreeTableCheckboxNextState) => void;
   /** Callback to collapse all nodes */
