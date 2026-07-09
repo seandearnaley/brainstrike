@@ -67,10 +67,6 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../utils/src/file-utils.ts'),
       },
       {
-        find: '@brainstrike/utils/safe-storage',
-        replacement: resolve(import.meta.dirname, '../utils/src/safe-storage.ts'),
-      },
-      {
         find: /^@brainstrike\/utils\/(.*)$/,
         replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
       },

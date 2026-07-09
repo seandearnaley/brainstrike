@@ -53,6 +53,10 @@
       "types": "./dist/preview/index.d.ts",
       "import": "./dist/preview/index.js"
     },
+    "./workspace-context-curation-store": {
+      "types": "./dist/workspace-context-curation-store.d.ts",
+      "import": "./dist/workspace-context-curation-store.js"
+    },
     "./shell": {
       "types": "./dist/shell/index.d.ts",
       "import": "./dist/shell/index.js"

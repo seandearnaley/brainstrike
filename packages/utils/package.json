@@ -148,11 +148,6 @@
       "import": "./dist/report-generator.mjs",
       "require": "./dist/report-generator.js"
     },
-    "./safe-storage": {
-      "types": "./dist/safe-storage.d.ts",
-      "import": "./dist/safe-storage.mjs",
-      "require": "./dist/safe-storage.js"
-    },
     "./selection-utils": {
       "types": "./dist/selection-utils.d.ts",
       "import": "./dist/selection-utils.mjs",

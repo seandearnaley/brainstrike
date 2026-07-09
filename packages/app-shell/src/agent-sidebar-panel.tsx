@@ -1,5 +1,5 @@
+import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { Database, MessagesSquare } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { preloadDatabaseTab } from './database-tab';

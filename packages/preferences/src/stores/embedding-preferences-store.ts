@@ -1,7 +1,7 @@
 import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 /**
  * Map of enabled models per provider

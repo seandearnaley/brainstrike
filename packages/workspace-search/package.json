@@ -30,7 +30,15 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./styles.css": "./styles.css"
+    "./chunk-selection-store": {
+      "types": "./dist/bridge/chunk-selection-store.d.ts",
+      "import": "./dist/bridge/chunk-selection-store.js"
+    },
+    "./styles.css": "./styles.css",
+    "./workspace-search-store": {
+      "types": "./dist/core/workspace-search-store.d.ts",
+      "import": "./dist/core/workspace-search-store.js"
+    }
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
