@@ -265,6 +265,17 @@ describe('createBrowserJsonStorage', () => {
     expect(window.localStorage.getItem('prefs')).toBeNull();
   });
 
+  it('does not report corrupt JSON clears as persistence issues', () => {
+    const issues: PersistenceIssue[] = [];
+    const storage = createBrowserJsonStorage({
+      onPersistenceIssue: (issue) => issues.push(issue),
+    });
+    window.localStorage.setItem('prefs', '{not-valid-json');
+
+    expect(storage.getItem('prefs')).toBeNull();
+    expect(issues).toEqual([]);
+  });
+
   it('keeps cleanup best-effort when storage remove is blocked', () => {
     const storage = createBrowserJsonStorage();
 

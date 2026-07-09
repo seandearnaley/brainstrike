@@ -285,7 +285,14 @@ export function createSafeJsonStateStorage(
           key: name,
         });
       }
-      notifyListeners(listenerOptions, 'get', name, error);
+      // Parse failures are self-heal events, not persistence-area failures.
+      // Preserve the utils contract (errorHandler) without firing onPersistenceIssue
+      // (browser-json storage historically stayed silent on corrupt JSON).
+      try {
+        errorHandler?.({ error, key: name, operation: 'get' });
+      } catch {
+        // Listener failures must not break the storage fallback path.
+      }
       removeLocalStorage(name);
       memory.delete(name);
       return null;
