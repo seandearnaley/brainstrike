@@ -590,7 +590,7 @@ async function triggerEditedFileReindex(args: {
 }): Promise<void> {
   let db: ReindexDatabaseHandle;
   try {
-    db = (await getDatabase()) as unknown as ReindexDatabaseHandle;
+    db = await getDatabase();
   } catch (error) {
     // DB unavailable (no DB initialized). Non-fatal and expected outside a
     // running app — log at debug so it is traceable without alarming.

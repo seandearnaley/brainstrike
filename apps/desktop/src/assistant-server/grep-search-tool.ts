@@ -7,7 +7,6 @@ import {
 import type { GrepMatch, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher, FileChunkRepository, GrepSearchService } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { PGlite } from '@electric-sql/pglite';
 import { getDatabase } from '../db-main';
 import { type LiveGrepResult, runLiveGrep } from './live-grep';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
@@ -423,7 +422,7 @@ export async function runGrepSearch(
   input: GrepSearchInput,
   runtimeData: RuntimeData | undefined
 ): Promise<GrepToolResult> {
-  const db = (await getDatabase()) as unknown as PGlite;
+  const db = await getDatabase();
   const repository = new FileChunkRepository(db);
   const service = new GrepSearchService(repository);
 

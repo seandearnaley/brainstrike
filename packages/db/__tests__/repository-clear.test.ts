@@ -1,20 +1,22 @@
-import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BaseFileRecordRepository } from '../src/repositories/base-repository';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository';
 import type { IDatabase } from '../src/repositories/interfaces';
 
 describe('Repository clearAll functionality', () => {
-  let mockDb: IDatabase;
+  let mockDb: IDatabase & {
+    transaction: NonNullable<IDatabase['transaction']>;
+  };
   let fileRepository: BaseFileRecordRepository;
   let chunkRepository: FileChunkRepository;
 
   beforeEach(() => {
     mockDb = {
       query: vi.fn(),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn() })),
     };
     fileRepository = new BaseFileRecordRepository(mockDb, 'file_records');
-    chunkRepository = new FileChunkRepository(mockDb as unknown as PGlite);
+    chunkRepository = new FileChunkRepository(mockDb);
   });
 
   describe('BaseFileRecordRepository clearAll', () => {
