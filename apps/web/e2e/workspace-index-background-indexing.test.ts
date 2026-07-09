@@ -1,7 +1,7 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { resetAppState } from './utils/app-state';
-import { waitForAppLoad } from './utils/layout-helpers';
+import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 const WORKSPACE_INDEX_TREE: FileTree = {
@@ -79,6 +79,24 @@ declare global {
   interface Window {
     __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: WorkspaceIndexDebugApi;
   }
+}
+
+async function requireBoundingBox(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error('Expected a visible indexing surface with measurable geometry.');
+  }
+  return box;
+}
+
+function expectStableRect(
+  before: { height: number; width: number; x: number; y: number },
+  after: { height: number; width: number; x: number; y: number }
+): void {
+  expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.width - before.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
 }
 
 async function readWorkspaceIndexStartupSummary(
@@ -179,8 +197,46 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
     const finalSummary = await readWorkspaceIndexStartupSummary(page);
     expect(finalSummary?.state).not.toBe('disabled');
     expect(indexingConsoleIssues).toEqual([]);
-    await expect(page.getByTestId('collection-sync-status-item')).toBeVisible({
+    const indexingTrigger = page.getByTestId('indexing-status-trigger');
+    await expect(indexingTrigger).toBeVisible({
       timeout: 15_000,
     });
+
+    const triggerBeforePause = await requireBoundingBox(indexingTrigger);
+    await indexingTrigger.click();
+
+    const indexingPopover = page.getByTestId('indexing-status-popover');
+    await expect(indexingPopover).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => {
+        const value = await indexingPopover.getByTestId('managed-stat-files').textContent();
+        return Number(value?.replaceAll(',', '') ?? Number.NaN);
+      })
+      .toBe(3);
+    await expect
+      .poll(async () => {
+        const value = await indexingPopover.getByTestId('managed-stat-chunks').textContent();
+        return Number(value?.replaceAll(',', '') ?? Number.NaN);
+      })
+      .toBeGreaterThan(0);
+
+    const popoverBeforePause = await requireBoundingBox(indexingPopover);
+    await indexingPopover.getByRole('button', { name: 'Pause workspace index' }).click();
+    await expect(indexingTrigger).toContainText('Paused', { timeout: 15_000 });
+
+    expectStableRect(triggerBeforePause, await requireBoundingBox(indexingTrigger));
+    expectStableRect(popoverBeforePause, await requireBoundingBox(indexingPopover));
+
+    await indexingPopover.getByRole('button', { name: 'Resume workspace index' }).click();
+    await expect(indexingTrigger).not.toContainText('Paused', { timeout: 15_000 });
+    expectStableRect(triggerBeforePause, await requireBoundingBox(indexingTrigger));
+    expectStableRect(popoverBeforePause, await requireBoundingBox(indexingPopover));
+
+    await page.keyboard.press('Escape');
+    await ensureRightPanelVisible(page);
+    await page.getByRole('tab', { name: /database/i }).click();
+    const databasePanel = page.getByRole('tabpanel', { name: /database/i });
+    await expect(databasePanel.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
+    await expect(databasePanel.getByText('Workspace Index', { exact: true })).toHaveCount(0);
   });
 });

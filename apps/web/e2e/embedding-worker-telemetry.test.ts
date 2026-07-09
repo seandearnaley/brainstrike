@@ -1,6 +1,14 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Locator, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { ensureRightPanelVisible } from './utils/layout-helpers';
+
+async function requireBoundingBox(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error('Expected a visible indexing surface with measurable geometry.');
+  }
+  return box;
+}
 
 test.describe('Embedding Worker Telemetry @stateful @web-db-startup', { tag: '@smoke' }, () => {
   /**
@@ -25,15 +33,34 @@ test.describe('Embedding Worker Telemetry @stateful @web-db-startup', { tag: '@s
     await expect(databasePanel).toBeVisible({ timeout: panelTimeout });
 
     const indexingStatusItem = page.getByTestId('indexing-status-item');
+    const indexingTrigger = page.getByTestId('indexing-status-trigger');
+    const statusBarRight = page.getByTestId('status-bar-right');
     await expect(indexingStatusItem).toBeVisible({ timeout: panelTimeout });
-    await expect(indexingStatusItem).toContainText(/Indexing:/);
+    await expect(indexingStatusItem).toContainText('Workspace Index');
+    await expect(statusBarRight).toContainText('Workspace Index');
 
-    await page.getByTestId('indexing-status-trigger').click();
+    const triggerBox = await requireBoundingBox(indexingTrigger);
+    const rightSlotBox = await requireBoundingBox(statusBarRight);
+    expect(Math.abs(triggerBox.width - 192)).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(triggerBox.x + triggerBox.width - (rightSlotBox.x + rightSlotBox.width))
+    ).toBeLessThanOrEqual(1);
 
-    await expect(page.getByText('Indexing activity')).toBeVisible({ timeout: panelTimeout });
+    await indexingTrigger.click();
+
     const indexingPopover = page.getByTestId('indexing-status-popover');
-    await expect(indexingPopover.getByText('Queue', { exact: true })).toBeVisible();
-    await expect(page.getByText(/queued \/ .*running \/ .*failed \/ .*succeeded/)).toBeVisible();
-    await expect(indexingPopover.getByText('Worker', { exact: true })).toBeVisible();
+    await expect(indexingPopover).toBeVisible({ timeout: panelTimeout });
+    await expect(indexingPopover.getByText('Files', { exact: true })).toBeVisible();
+    await expect(indexingPopover.getByText('Chunks', { exact: true })).toBeVisible();
+    await expect(indexingPopover.getByText('Embedded', { exact: true })).toBeVisible();
+    await expect(indexingPopover.getByText('Pending', { exact: true })).toBeVisible();
+    await expect(indexingPopover.getByText('Embedding queue', { exact: true })).toBeVisible();
+
+    const popoverBox = await requireBoundingBox(indexingPopover);
+    expect(Math.abs(popoverBox.width - 512)).toBeLessThanOrEqual(1);
+    expect(Math.abs(popoverBox.height - 512)).toBeLessThanOrEqual(1);
+
+    await indexingPopover.getByRole('button', { name: 'Worker and database diagnostics' }).click();
+    await expect(indexingPopover.getByText('Worker state', { exact: true })).toBeVisible();
   });
 });

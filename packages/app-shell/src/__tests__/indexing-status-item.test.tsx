@@ -316,6 +316,26 @@ describe('IndexingStatusItem', () => {
     expect(screen.getByTestId('indexing-action-region')).toHaveClass('h-11');
   });
 
+  it('keeps the pause action available while a bound Workspace Index waits for restore', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      managedCollectionId: 'collection-a',
+      paused: false,
+    });
+    useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+      managedCollectionId: 'collection-a',
+      managedCollectionName: 'Workspace Index',
+      state: 'waiting',
+    });
+
+    render(<IndexingStatusItem />);
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+
+    expect(
+      await screen.findByRole('button', { name: 'Pause workspace index' })
+    ).toBeInTheDocument();
+  });
+
   it('marks retained dirty statistics as updating without moving the metric layout', async () => {
     useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
     seedReadyManagedStats();

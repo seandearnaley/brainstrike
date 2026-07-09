@@ -157,6 +157,7 @@ export function shouldShowWorkspaceCollectionSyncPauseControl(
   return (
     state === 'idle' ||
     state === 'paused' ||
+    state === 'waiting' ||
     state === 'recovering' ||
     state === 'scanning' ||
     state === 'importing' ||
