@@ -550,7 +550,7 @@ function AppTabButton({ app, isActive, onSelect }: AppTabButtonProps) {
       aria-controls={`workspace-app-panel-${app.id}`}
       aria-selected={isActive}
       className={cn(
-        'flex items-center gap-1.5 px-3 py-2 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'flex items-center gap-1.5 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         isActive
           ? 'border-primary border-b-2 bg-background text-foreground'
           : 'border-transparent border-b-2 text-muted-foreground hover:bg-muted/60 hover:text-foreground'
@@ -622,7 +622,7 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
         aria-controls={panelId}
         aria-selected={isActive}
         className={cn(
-          'flex items-center gap-2 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'flex items-center gap-2 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           status?.status === 'needs-permission' && 'text-amber-600 dark:text-amber-400',
           status?.status === 'not-found' && 'text-destructive'
         )}

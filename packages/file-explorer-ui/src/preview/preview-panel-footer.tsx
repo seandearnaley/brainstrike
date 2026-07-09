@@ -519,7 +519,7 @@ const DetailedFooterControls = memo<DetailedFooterControlsProps>(function Detail
               Tree detail:
             </label>
             <input
-              className="h-7 w-14 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-7 w-14 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               id="folder-summary-threshold-footer"
               min="0"
               onChange={(event) => {

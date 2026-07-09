@@ -157,7 +157,7 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
   const triggerButton = (
     <button
       aria-label={tooltipLabel}
-      className={`flex @[300px]:h-9 h-8 items-center @[300px]:gap-1.5 gap-1 rounded-md border @[300px]:px-2.5 px-2 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${statusStyles} ${
+      className={`flex @[300px]:h-9 h-8 items-center @[300px]:gap-1.5 gap-1 rounded-md border @[300px]:px-2.5 px-2 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${statusStyles} ${
         isEditable ? 'cursor-pointer' : 'cursor-default'
       }`}
       disabled={!isEditable}
