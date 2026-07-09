@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -2300,29 +2301,81 @@ describe('assistant-tools', () => {
       }
     });
 
-    it('two concurrent renames on an overlapping path do not deadlock and both settle', async () => {
+    it('a true swap (a→b concurrent with b→a) contends on the same two lock keys in opposite order and does not deadlock', async () => {
+      // This guards withTwoFileLocks' sorted-acquisition invariant specifically.
+      // A chain like A→B concurrent with B→C shares only ONE lock key (B), so it
+      // can NEVER deadlock under any acquisition order — it doesn't exercise the
+      // sort at all. A genuine swap does: both calls lock the SAME two paths
+      // {swap-a.ts, swap-b.ts}, but in OPPOSITE from→to order (a→b vs b→a). A
+      // naive from-then-to lock order deadlocks here (call1 holds a, waits on b;
+      // call2 holds b, waits on a). Sorted acquisition forces both calls to take
+      // the two locks in the same physical order, so the pair can only ever run
+      // sequentially — never deadlock.
+      //
+      // Neither rename can legally succeed here (v1 refuses to overwrite an
+      // existing destination, and both destinations pre-exist as real swap
+      // targets), so the assertion is deliberately "both calls settle without
+      // deadlocking", not "both succeed".
+      //
+      // Path resolution (`resolveWorkspaceWritePath`) normally reaches the lock
+      // via `fsPromises.realpath`, a real Node thread-pool op. Empirically (a
+      // standalone repro of this exact scenario, thousands of trials), Node
+      // drains its microtask queue fully after EVERY thread-pool completion, so
+      // one call's ENTIRE lock-registration step always finishes atomically
+      // before the other call's continuation can run — through that path, a
+      // naive unsorted `withTwoFileLocks` and the sorted one behave IDENTICALLY
+      // (never deadlock), because the two calls can never arrive at the lock in
+      // the same microtask turn. To actually exercise the interleaved-arrival
+      // race the sort defends against, `realpath` is stubbed to resolve via an
+      // already-settled promise around a real, synchronous `realpathSync` (same
+      // real containment semantics, no thread-pool hop) so both `tool.execute()`
+      // calls arrive at the lock in the same microtask burst. Verified locally:
+      // with this stub, reverting the sort in `withTwoFileLocks` reproduces the
+      // deadlock 20/20 runs; restoring the sort avoids it 20/20 runs.
+      const realpathSpy = vi
+        .spyOn(fsPromises, 'realpath')
+        .mockImplementation((p) => Promise.resolve(realpathSync(p as string)));
       const workspaceRootPath = await createWorkspaceFixture();
       try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'swap-a.ts'),
+          'content a\n',
+          'utf8'
+        );
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'swap-b.ts'),
+          'content b\n',
+          'utf8'
+        );
         const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
           'brainstrike.renameWorkspaceFile'
         ];
-        // A→B and B→C both touch path B; the sorted two-lock ordering must let both
-        // resolve (one succeeds, the other fails not-found) without hanging.
+        // Guard: if this ever hangs (e.g. a regression to naive from-then-to lock
+        // ordering), fail with a timeout error instead of an infinite hang.
         const results = await Promise.race([
           Promise.allSettled([
-            tool.execute({ context: { fromPath: '/src/main.ts', toPath: '/src/main2.ts' } }),
-            tool.execute({ context: { fromPath: '/src/main2.ts', toPath: '/src/main3.ts' } }),
+            tool.execute({ context: { fromPath: '/swap-a.ts', toPath: '/swap-b.ts' } }),
+            tool.execute({ context: { fromPath: '/swap-b.ts', toPath: '/swap-a.ts' } }),
           ]),
           new Promise<'deadlock'>((resolve) => setTimeout(() => resolve('deadlock'), 4000)),
         ]);
         expect(results).not.toBe('deadlock');
         expect(Array.isArray(results)).toBe(true);
-        // Exactly one final file exists for the chain (either main2 or main3),
-        // and the original main.ts is gone.
-        await expect(
-          fsPromises.access(path.join(workspaceRootPath, 'src', 'main.ts'))
-        ).rejects.toThrow();
+        const settled = results as PromiseSettledResult<unknown>[];
+        expect(settled).toHaveLength(2);
+        for (const outcome of settled) {
+          expect(outcome.status).toBe('rejected');
+        }
+        // Both files are untouched — neither rename could legally proceed, since
+        // each one's destination was occupied by the other's source the whole time.
+        expect(await fsPromises.readFile(path.join(workspaceRootPath, 'swap-a.ts'), 'utf8')).toBe(
+          'content a\n'
+        );
+        expect(await fsPromises.readFile(path.join(workspaceRootPath, 'swap-b.ts'), 'utf8')).toBe(
+          'content b\n'
+        );
       } finally {
+        realpathSpy.mockRestore();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });

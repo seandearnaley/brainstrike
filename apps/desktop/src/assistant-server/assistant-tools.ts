@@ -846,6 +846,11 @@ async function triggerFileDeletionInvalidation(args: {
  * path had a stale row. Reading the content is bounded (2 MB + binary probe); a
  * binary/oversized/unreadable destination simply skips (non-fatal — the file is
  * already renamed on disk).
+ *
+ * Gated up front on `workspaceIndexEmbeddingSetId` (same derivation as
+ * {@link triggerFileDeletionInvalidation}): with no Workspace Index configured
+ * there is nothing to re-index, so this returns before paying for the up-to-2MB
+ * destination read.
  */
 async function triggerRenamedDestinationReindex(args: {
   runtimeData: RuntimeData | undefined;
@@ -854,6 +859,11 @@ async function triggerRenamedDestinationReindex(args: {
   workspacePath: string;
   absolutePath: string;
 }): Promise<void> {
+  const embeddingSetId = args.runtimeData?.workspaceIndexEmbeddingSetId?.trim();
+  if (!embeddingSetId) {
+    return;
+  }
+
   let file: { content: string; size: number };
   try {
     file = await readWorkspaceTextFile({
