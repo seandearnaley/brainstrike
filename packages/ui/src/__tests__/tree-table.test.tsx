@@ -1138,6 +1138,29 @@ describe('TreeTable', () => {
       expect(screen.queryByLabelText('Select match')).not.toBeInTheDocument();
     });
 
+    it('uses getCheckboxAriaLabel when provided, else defaults to Select node.id', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('file', 'File', null, true, 0),
+        createTestNode('chunk', 'Chunk', 'file', false, 1),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['file'])}
+          getCheckboxAriaLabel={(node) => (node.id === 'chunk' ? 'Select lines 8-12' : undefined)}
+          getCheckboxState={() => 'unchecked'}
+          nodes={nodes}
+          onCheckboxChange={() => {}}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByLabelText('Select lines 8-12')).toBeInTheDocument();
+      expect(screen.getByLabelText('Select file')).toBeInTheDocument();
+    });
+
     it('calls onCheckboxChange with the node and next checked/unchecked state', () => {
       const handleCheckboxChange = vi.fn();
       const nodes: TreeNode<TestData>[] = [

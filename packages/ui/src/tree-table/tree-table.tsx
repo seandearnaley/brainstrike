@@ -597,6 +597,7 @@ export function TreeTable<T>({
   showHeader = true,
   showCheckbox = false,
   getCheckboxState,
+  getCheckboxAriaLabel,
   onCheckboxChange,
   insetTreeControls = false,
   onRowDoubleClick,
@@ -803,6 +804,11 @@ export function TreeTable<T>({
   const shouldShowRowCheckbox = React.useCallback(
     (node: TreeNode<T>): boolean => resolveRowCheckboxState(node) !== null,
     [resolveRowCheckboxState]
+  );
+
+  const resolveRowCheckboxAriaLabel = React.useCallback(
+    (node: TreeNode<T>): string => getCheckboxAriaLabel?.(node) ?? `Select ${node.id}`,
+    [getCheckboxAriaLabel]
   );
 
   const getRowHeight = React.useCallback(
@@ -1155,6 +1161,7 @@ export function TreeTable<T>({
                   return (
                     <TreeTableRow
                       ariaRole={tableAriaRole}
+                      checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
                       checkboxState={resolveRowCheckboxState(row.node) ?? 'unchecked'}
                       className={getRowClassName(row.node)}
                       columns={columns}
@@ -1179,6 +1186,7 @@ export function TreeTable<T>({
               : displayedRows.map((row) => (
                   <TreeTableRow
                     ariaRole={tableAriaRole}
+                    checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
                     checkboxState={resolveRowCheckboxState(row.node) ?? 'unchecked'}
                     className={getRowClassName(row.node)}
                     columns={columns}
