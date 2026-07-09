@@ -37,6 +37,18 @@ describe('workspace context curation store', () => {
     expect(useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toEqual({});
   });
 
+  it('keeps tapestry ranges set before the first snapshot (session init, not a folder change)', () => {
+    useWorkspaceContextCurationStore
+      .getState()
+      .setTapestryRangesForKey('folder-a::src/app.ts', [createRange()]);
+
+    useWorkspaceContextCurationStore.getState().setContextSnapshot(createSnapshot('folder-a'));
+
+    expect(useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toEqual({
+      'folder-a::src/app.ts': [createRange()],
+    });
+  });
+
   it('prunes tapestry ranges when the selection folder changes', () => {
     useWorkspaceContextCurationStore.getState().setContextSnapshot(createSnapshot('folder-a'));
     useWorkspaceContextCurationStore
