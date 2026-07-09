@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
@@ -18,6 +17,30 @@ export class PathTraversalError extends Error {
     super(`Path traversal detected: "${attemptedPath}" escapes base directory "${basePath}"`);
     this.name = 'PathTraversalError';
   }
+}
+
+/**
+ * Error thrown when Electron provides a path that cannot safely persist storage.
+ */
+export class InvalidUserDataPathError extends Error {
+  constructor(userDataPath: string) {
+    super(`Invalid Electron userData path: "${userDataPath}"`);
+    this.name = 'InvalidUserDataPathError';
+  }
+}
+
+/**
+ * Error thrown when existing durable storage cannot be loaded safely.
+ */
+export class StorageFileLoadError extends Error {
+  constructor(storePath: string, cause: unknown) {
+    super(`Failed to load Electron storage file: "${storePath}"`, { cause });
+    this.name = 'StorageFileLoadError';
+  }
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error;
 }
 
 /**
@@ -51,7 +74,7 @@ function validatePathContainment(resolvedPath: string, basePath: string): void {
  * Security features:
  * - Atomic writes: Uses temp file + rename to prevent corruption on crash
  * - Path containment: Validates paths stay within userData directory
- * - Warning logs: Alerts when persistence is disabled
+ * - Failure visibility: Rejects operations when durable storage is unavailable or corrupt
  */
 export class ElectronStorageAdapter implements StorageAdapter {
   private storePath = '';
@@ -62,16 +85,19 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
   constructor(storeFile = 'electron-storage.json') {
     this.ready = this.initialize(storeFile).catch((error) => {
-      // Rethrow security-critical errors - these should not be silently swallowed
-      if (error instanceof PathTraversalError) {
-        throw error;
+      if (!(error instanceof PathTraversalError)) {
+        logger.error('Electron storage initialization failed', {
+          error: error instanceof Error ? error.message : String(error),
+          storeFile,
+        });
       }
 
-      logger.warn('Electron import failed, using in-memory storage only', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      this.cache = {};
+      throw error;
     });
+
+    // Avoid a global unhandled-rejection event if initialization finishes before the
+    // first operation. The original ready promise stays rejected for every caller.
+    void this.ready.catch(() => undefined);
   }
 
   /**
@@ -83,12 +109,7 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
     const userDataPath = app.getPath('userData');
     if (!this.isValidUserDataPath(userDataPath)) {
-      logger.warn('Persistence disabled: userData path is invalid or equals cwd', {
-        cwd: process.cwd(),
-        userDataPath,
-      });
-      this.cache = {};
-      return;
+      throw new InvalidUserDataPathError(userDataPath);
     }
 
     const fullPath = this.validateAndResolvePath(storeFile, userDataPath);
@@ -132,19 +153,15 @@ export class ElectronStorageAdapter implements StorageAdapter {
    * Loads the existing cache from disk if the file exists.
    */
   private async loadExistingCache(): Promise<void> {
-    if (!fs.existsSync(this.storePath)) {
-      return;
-    }
-
     try {
       const data = await fsPromises.readFile(this.storePath, 'utf8');
       this.cache = JSON.parse(data) as Record<string, string>;
-    } catch (parseError) {
-      logger.warn('Storage file corrupted or unreadable, starting with empty cache', {
-        error: parseError instanceof Error ? parseError.message : String(parseError),
-        storePath: this.storePath,
-      });
-      this.cache = {};
+    } catch (error) {
+      if (isErrnoException(error) && error.code === 'ENOENT') {
+        return;
+      }
+
+      throw new StorageFileLoadError(this.storePath, error);
     }
   }
 
@@ -154,9 +171,18 @@ export class ElectronStorageAdapter implements StorageAdapter {
    * Uses a write lock to serialize operations and prevent race conditions.
    */
   private async persist(): Promise<void> {
-    // Chain persist operations to prevent race conditions
-    this.persistLock = this.persistLock.then(() => this.doPersist());
-    return this.persistLock;
+    const operation = this.persistLock.then(() => this.doPersist());
+
+    // Keep the serialization tail usable after failure while returning the original
+    // operation so the caller still observes its persistence error.
+    this.persistLock = operation.catch((error) => {
+      logger.error('Electron storage persist failed', {
+        error: error instanceof Error ? error.message : String(error),
+        storePath: this.storePath,
+      });
+    });
+
+    return operation;
   }
 
   /**
@@ -164,11 +190,6 @@ export class ElectronStorageAdapter implements StorageAdapter {
    */
   private async doPersist(): Promise<void> {
     await this.ready;
-
-    // Don't persist if storePath wasn't set (e.g., electron import failed)
-    if (!this.storePath) {
-      return;
-    }
 
     // Generate a unique temp file name in the same directory
     // Using the same directory ensures rename is atomic (same filesystem)
