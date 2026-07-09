@@ -3,6 +3,7 @@ export * from './components/restore-access-banner';
 export * from './components/restore-access-modal';
 export * from './context-actions';
 export * from './contexts/file-editor-context';
+export * from './contexts/markdown-preview-capabilities';
 export { default as FileExplorerErrorBoundary } from './file-explorer-error-boundary';
 export { default as FileRow } from './file-row';
 export * from './folder-badge';
