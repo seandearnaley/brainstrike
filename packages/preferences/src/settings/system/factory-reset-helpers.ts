@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/utils/logger';
+import { resetNotificationPreferencesStoreToDefaults } from '../../stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
 
 const logger = createLogger('FactoryReset');
@@ -315,6 +316,15 @@ function clearBrowserStorage(): void {
     resetPermissionPolicyStoreToDefaults();
   } catch (error) {
     logger.warn('Failed to reset permission policy store', { error });
+  }
+
+  // Same rationale as the permission-policy store above: `masterEnabled` is a
+  // live in-memory toggle that a reset without a reload (the web path) would
+  // otherwise leave on.
+  try {
+    resetNotificationPreferencesStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset notification preferences store', { error });
   }
 
   // Drain externally-registered session-store resetters (see the registry doc

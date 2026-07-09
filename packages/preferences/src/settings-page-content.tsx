@@ -1,6 +1,7 @@
 import { cn, Input, ThemeSettings } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
 import {
+  Bell,
   ChevronRight,
   Cpu,
   Key,
@@ -16,6 +17,7 @@ import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
+import { NotificationSettingsSection } from './settings/system/notification-settings-section';
 import { PermissionSettingsSection } from './settings/system/permission-settings-section';
 import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
@@ -492,6 +494,25 @@ export function createPermissionSettingsCategory(): SettingsCategory {
       'guardrails',
     ],
     title: 'Permissions',
+  };
+}
+
+export function createNotificationSettingsCategory(): SettingsCategory {
+  return {
+    content: <NotificationSettingsSection />,
+    description: 'Get an OS notification when a run finishes, fails, or needs your approval.',
+    icon: Bell,
+    id: 'notifications',
+    keywords: [
+      'notifications',
+      'notification',
+      'desktop notification',
+      'alert',
+      'run finished',
+      'run failed',
+      'tool approval',
+    ],
+    title: 'Notifications',
   };
 }
 
