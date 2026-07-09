@@ -34,6 +34,7 @@ import {
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
+import { app } from 'electron';
 
 type AssistantUiMessage = AssistantUiMessageStrict;
 
@@ -670,6 +671,10 @@ function isAllowedAssistantOrigin(origin: string): boolean {
   // remove this allowance and require explicit origin whitelisting.
   if (origin === ASSISTANT_CORS_NULL_ORIGIN) {
     return true;
+  }
+
+  if (app.isPackaged) {
+    return false;
   }
 
   let parsedOrigin: URL;

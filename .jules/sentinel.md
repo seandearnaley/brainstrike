@@ -27,4 +27,4 @@
 ## 2026-07-09 - Desktop assistant CORS must stay renderer-bound
 **Vulnerability:** The loopback desktop assistant server accepted any `http://localhost:*` Origin, allowing unrelated local web apps to reach provider-backed assistant endpoints.
 **Learning:** Loopback binding is not an origin boundary for browser callers; the assistant server carries ambient desktop authority and stored-provider access.
-**Prevention:** Keep assistant CORS restricted to packaged Electron's `Origin: null` and the configured desktop renderer origin from `DESKTOP_DEV_RENDERER_URL`.
+**Prevention:** Keep packaged assistant CORS restricted to Electron's `Origin: null`; only unpackaged dev-server launches may allow the configured renderer origin from `DESKTOP_DEV_RENDERER_URL`.
