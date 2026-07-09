@@ -33,6 +33,7 @@ export * from './performance-measure-guard';
 export * from './provider-model-key';
 export * from './quick-filter-utils';
 export * from './relative-file-path';
+export * from './relative-path';
 export * from './report-generator';
 export * from './selection-utils';
 export * from './string-utils';
