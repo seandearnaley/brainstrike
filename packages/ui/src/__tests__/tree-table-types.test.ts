@@ -163,6 +163,32 @@ describe('tree-table types', () => {
       ).toBeUndefined();
     });
 
+    it('types getCheckboxAriaLabel as optional string return', () => {
+      const getCheckboxAriaLabel: NonNullable<
+        TreeTableProps<{ name: string }>['getCheckboxAriaLabel']
+      > = (node) => (node.type === 'chunk' ? `Select lines for ${node.id}` : undefined);
+      expect(
+        getCheckboxAriaLabel({
+          data: { name: 'c' },
+          depth: 1,
+          hasChildren: false,
+          id: 'c',
+          parentId: 'f',
+          type: 'chunk',
+        })
+      ).toBe('Select lines for c');
+      expect(
+        getCheckboxAriaLabel({
+          data: { name: 'f' },
+          depth: 0,
+          hasChildren: true,
+          id: 'f',
+          parentId: null,
+          type: 'file',
+        })
+      ).toBeUndefined();
+    });
+
     it('types onCheckboxChange nextState as checked | unchecked', () => {
       const next: TreeTableCheckboxNextState = 'checked';
       const onCheckboxChange: NonNullable<TreeTableProps<{ name: string }>['onCheckboxChange']> = (
