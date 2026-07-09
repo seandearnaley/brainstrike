@@ -134,6 +134,16 @@ export interface NativeToolDefaultMetadata {
  * Tool IDs follow the namespace.toolName pattern.
  */
 export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
+  // Deletes a single workspace FILE. riskCategory 'edit' so the permission engine
+  // gates it (→ 'ask' by default) like the other file-mutation tools; directory
+  // deletes are refused by the tool itself.
+  'brainstrike.deleteWorkspaceFile': {
+    category: 'action',
+    estimatedTokens: 130,
+    loadingTier: 'critical',
+    requiresApproval: true,
+    riskCategory: 'edit',
+  },
   // Arbitrary shell execution — THE highest-risk native tool. There is NO
   // sandbox, so it is pinned to the 'execute' risk bucket and requires approval.
   // When the permission engine enforces a policy and `execute` is `'ask'` (the
@@ -206,6 +216,16 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     estimatedTokens: 140,
     loadingTier: 'critical',
     requiresApproval: false,
+  },
+  // Renames/moves a single workspace FILE within one root. riskCategory 'edit' so
+  // the permission engine gates it (→ 'ask' by default) like the other
+  // file-mutation tools; cross-root moves and overwrites are refused by the tool.
+  'brainstrike.renameWorkspaceFile': {
+    category: 'action',
+    estimatedTokens: 150,
+    loadingTier: 'critical',
+    requiresApproval: true,
+    riskCategory: 'edit',
   },
   // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an oldStr
   // block and replaces it. Same edit-risk gating.

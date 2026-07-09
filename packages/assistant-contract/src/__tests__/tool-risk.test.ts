@@ -102,6 +102,8 @@ describe('resolveToolRiskCategory', () => {
         'brainstrike.updateWorkspaceTapestrySelections',
         'brainstrike.writeWorkspaceFile',
         'brainstrike.stringReplaceWorkspaceFile',
+        'brainstrike.deleteWorkspaceFile',
+        'brainstrike.renameWorkspaceFile',
         // The shell tool is the first 'execute'-risk native tool.
         'brainstrike.executeCommand',
       ]);
@@ -124,6 +126,8 @@ describe('buildNativeToolRiskMap', () => {
     'brainstrike.updateWorkspaceTapestrySelections',
     'brainstrike.writeWorkspaceFile',
     'brainstrike.stringReplaceWorkspaceFile',
+    'brainstrike.deleteWorkspaceFile',
+    'brainstrike.renameWorkspaceFile',
   ];
 
   it('maps every native tool id to its resolved risk category', () => {

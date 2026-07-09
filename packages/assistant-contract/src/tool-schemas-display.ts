@@ -42,6 +42,30 @@ export interface ToolSchemaDisplay {
  * This is a browser-safe representation of the Zod schemas.
  */
 export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
+  'brainstrike.deleteWorkspaceFile': {
+    description:
+      'Delete a single file from the selected workspace root. FILES ONLY — a directory path is refused (use executeCommand for directory removal). Workspace-scoped: the path can never escape the open folder. Removes the file from the workspace index when it was indexed. Requires approval (edit-risk).',
+    parameters: [
+      {
+        description: 'Workspace-relative file path to delete (the file must already exist)',
+        minLength: 1,
+        name: 'path',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Folder name or id to delete from when multiple folders are open (omit when one)',
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Delete result: ok: true, the normalized workspace path, rootName, and indexInvalidated (true when the file had workspace-index rows that were removed)',
+    toolId: 'brainstrike.deleteWorkspaceFile',
+  },
+
   'brainstrike.executeCommand': {
     description:
       "Run an arbitrary shell command on the user's machine (e.g. pnpm test, git status, a build). This is ARBITRARY COMMAND EXECUTION with NO sandbox: a command can read or change anything the user can. By default the call suspends for the user's per-call approval before running (execute resolves to 'ask'); the user can let it run unprompted or deny it entirely. The command starts in the selected workspace root (pin it elsewhere with cwd, which must still resolve inside an open folder) and runs in the user's shell. On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Prefer non-destructive commands.",
@@ -572,6 +596,38 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns:
       'File content payload with metadata, including truncation status and approximate token count',
     toolId: 'brainstrike.readWorkspaceFile',
+  },
+
+  'brainstrike.renameWorkspaceFile': {
+    description:
+      'Rename or move a single file within the selected workspace root. FILES ONLY. The destination must NOT already exist (no overwrite — delete the target first if needed). Both paths stay inside ONE open folder (cross-root moves are refused); missing destination parent directories are created. Prefer this over a shell "mv" so the workspace index stays coherent. Requires approval (edit-risk).',
+    parameters: [
+      {
+        description: 'Existing workspace-relative file path to rename/move from',
+        minLength: 1,
+        name: 'fromPath',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Destination workspace-relative file path (must not already exist; parent directories are created)',
+        minLength: 1,
+        name: 'toPath',
+        required: true,
+        type: 'string',
+      },
+      {
+        description:
+          'Folder name or id to operate in when multiple folders are open (omit when one)',
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Rename result: ok: true, the normalized fromPath and toPath, rootName, and indexInvalidated (true when the source path had workspace-index rows that were removed; the destination is re-indexed by the background sync)',
+    toolId: 'brainstrike.renameWorkspaceFile',
   },
 
   'brainstrike.stringReplaceWorkspaceFile': {

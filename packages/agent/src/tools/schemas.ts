@@ -195,6 +195,40 @@ export const StringReplaceWorkspaceFileInputSchema = z
 
 export type StringReplaceWorkspaceFileInput = z.infer<typeof StringReplaceWorkspaceFileInputSchema>;
 
+export const DeleteWorkspaceFileInputSchema = z
+  .object({
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        'Workspace-relative file path to delete (same path convention as readWorkspaceFile). Must be a FILE, not a directory — directory deletes are refused.'
+      ),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+  })
+  .strict();
+
+export type DeleteWorkspaceFileInput = z.infer<typeof DeleteWorkspaceFileInputSchema>;
+
+export const RenameWorkspaceFileInputSchema = z
+  .object({
+    fromPath: z
+      .string()
+      .min(1)
+      .describe(
+        'Existing workspace-relative file path to rename/move FROM (same path convention as readWorkspaceFile). Must be a FILE.'
+      ),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+    toPath: z
+      .string()
+      .min(1)
+      .describe(
+        'Destination workspace-relative file path to rename/move TO, within the SAME workspace root. Must NOT already exist (no overwrite); missing parent directories are created.'
+      ),
+  })
+  .strict();
+
+export type RenameWorkspaceFileInput = z.infer<typeof RenameWorkspaceFileInputSchema>;
+
 export const ReadWorkspaceDirectoryInputSchema = z
   .object({
     depth: z.number().int().min(0).max(5).optional().describe('Maximum traversal depth'),
@@ -640,6 +674,7 @@ export const ExecuteCommandInputSchema = z
 export type ExecuteCommandInput = z.infer<typeof ExecuteCommandInputSchema>;
 
 const schemaMap: Record<string, z.ZodSchema> = {
+  'brainstrike.deleteWorkspaceFile': DeleteWorkspaceFileInputSchema,
   'brainstrike.executeCommand': ExecuteCommandInputSchema,
   // Minimal BrainStrike native tools
   'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
@@ -651,6 +686,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
+  'brainstrike.renameWorkspaceFile': RenameWorkspaceFileInputSchema,
   'brainstrike.stringReplaceWorkspaceFile': StringReplaceWorkspaceFileInputSchema,
   'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
   'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,

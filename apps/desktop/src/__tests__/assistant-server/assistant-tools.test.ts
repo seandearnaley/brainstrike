@@ -18,9 +18,16 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const { getDatabaseMock, getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
+const {
+  getDatabaseMock,
+  getAllWindowsMock,
+  invalidateManagedCacheMock,
+  loggerErrorMock,
+  loggerWarnMock,
+} = vi.hoisted(() => ({
   getAllWindowsMock: vi.fn(),
   getDatabaseMock: vi.fn(),
+  invalidateManagedCacheMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
@@ -28,6 +35,17 @@ const { getDatabaseMock, getAllWindowsMock, loggerErrorMock, loggerWarnMock } = 
 vi.mock('../../db-main', () => ({
   getDatabase: getDatabaseMock,
 }));
+
+// Keep the real @brainstrike/db exports (EmbeddingSetsRepository, etc.) but stub
+// the index-invalidation seam so delete/rename tests assert this tool's honest
+// indexInvalidated reporting without emulating the invalidator's internals.
+vi.mock('@brainstrike/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/db')>();
+  return {
+    ...actual,
+    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
+  };
+});
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -1940,6 +1958,396 @@ describe('assistant-tools', () => {
       await expect(
         tool.execute({ context: { newStr: 'b', oldStr: 'a', path: '/x.ts' } })
       ).rejects.toThrow(/No folder is open/i);
+    });
+  });
+
+  describe('deleteWorkspaceFile', () => {
+    it('deletes an existing file and reports indexInvalidated: false when no workspace index', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.deleteWorkspaceFile'
+        ];
+
+        const result = await tool.execute({ context: { path: '/src/lib/math.ts' } });
+
+        expect(result).toMatchObject({
+          indexInvalidated: false,
+          ok: true,
+          path: '/src/lib/math.ts',
+        });
+        await expect(
+          fsPromises.access(path.join(workspaceRootPath, 'src', 'lib', 'math.ts'))
+        ).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('invalidates the workspace index when the file was indexed (indexInvalidated: true)', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      getDatabaseMock.mockResolvedValue({ query: vi.fn(async () => ({ rows: [] })) });
+      invalidateManagedCacheMock.mockResolvedValue({
+        canceledEmbeddingJobCount: 1,
+        deletedChunkIds: ['chunk-1'],
+        deletedFileRecordIds: ['rec-1'],
+      });
+      try {
+        const tool = buildDesktopAssistantTools({
+          workspaceIndexEmbeddingSetId: 'set-1',
+          workspaceRootPath,
+        } as RuntimeData)['brainstrike.deleteWorkspaceFile'];
+
+        const result = await tool.execute({ context: { path: '/src/lib/math.ts' } });
+
+        expect(result.ok).toBe(true);
+        expect(result.indexInvalidated).toBe(true);
+        // The invalidation targets the root-relative path (no leading slash),
+        // scoped to the configured workspace-index embedding set.
+        expect(invalidateManagedCacheMock).toHaveBeenCalledWith(expect.anything(), {
+          embeddingSetId: 'set-1',
+          targets: [{ mode: 'exact', relativePath: 'src/lib/math.ts', rootId: workspaceRootPath }],
+        });
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('throws a not-found error for a missing file', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.deleteWorkspaceFile'
+        ];
+        await expect(tool.execute({ context: { path: '/src/does-not-exist.ts' } })).rejects.toThrow(
+          /does not exist/i
+        );
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('refuses to delete a directory (suggests executeCommand)', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.deleteWorkspaceFile'
+        ];
+        await expect(tool.execute({ context: { path: '/src' } })).rejects.toThrow(
+          /is a directory.*executeCommand/is
+        );
+        // The directory is untouched.
+        await expect(
+          fsPromises.access(path.join(workspaceRootPath, 'src'))
+        ).resolves.toBeUndefined();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('clamps a "../" escape to inside the root (deletes the in-root file, never the sibling)', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-del-esc-'));
+      const outsideFile = path.join(path.dirname(workspaceRootPath), 'escaped.txt');
+      const siblingFile = path.join(outsideRoot, 'escaped.txt');
+      await fsPromises.writeFile(outsideFile, 'do not delete', 'utf8');
+      await fsPromises.writeFile(siblingFile, 'do not delete', 'utf8');
+      // The clamped path "/escaped.txt" lives INSIDE the root.
+      await fsPromises.writeFile(path.join(workspaceRootPath, 'escaped.txt'), 'in root', 'utf8');
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.deleteWorkspaceFile'
+        ];
+        const result = await tool.execute({ context: { path: '../escaped.txt' } });
+        // Unrooted input keeps the relative convention; ".." is clamped so it
+        // resolves to the in-root file, never the sibling dir.
+        expect(result.path).toBe('escaped.txt');
+        // The in-root file is gone; the two outside files are untouched.
+        await expect(
+          fsPromises.access(path.join(workspaceRootPath, 'escaped.txt'))
+        ).rejects.toThrow();
+        expect(await fsPromises.readFile(outsideFile, 'utf8')).toBe('do not delete');
+        expect(await fsPromises.readFile(siblingFile, 'utf8')).toBe('do not delete');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
+        await fsPromises.rm(outsideFile, { force: true });
+      }
+    });
+
+    it('rejects deleting through a symlinked directory that escapes the root', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-del-link-'));
+      const outsideTarget = path.join(outsideRoot, 'secret.txt');
+      await fsPromises.writeFile(outsideTarget, 'secret', 'utf8');
+      const linkDir = path.join(workspaceRootPath, 'src', 'linked');
+      try {
+        try {
+          await fsPromises.symlink(outsideRoot, linkDir, 'dir');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.deleteWorkspaceFile'
+        ];
+        await expect(tool.execute({ context: { path: '/src/linked/secret.txt' } })).rejects.toThrow(
+          /outside the selected workspace root/i
+        );
+        // The outside file was NOT deleted through the symlink.
+        expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('secret');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
+      }
+    });
+
+    it('fails explicitly when no workspace folder is open', async () => {
+      const tool = buildDesktopAssistantTools(undefined)['brainstrike.deleteWorkspaceFile'];
+      await expect(tool.execute({ context: { path: '/x.ts' } })).rejects.toThrow(
+        /No folder is open/i
+      );
+    });
+  });
+
+  describe('renameWorkspaceFile', () => {
+    it('renames a file within the root and reports both paths', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+
+        const result = await tool.execute({
+          context: { fromPath: '/src/lib/math.ts', toPath: '/src/lib/arithmetic.ts' },
+        });
+
+        expect(result).toMatchObject({
+          fromPath: '/src/lib/math.ts',
+          indexInvalidated: false,
+          ok: true,
+          toPath: '/src/lib/arithmetic.ts',
+        });
+        await expect(
+          fsPromises.access(path.join(workspaceRootPath, 'src', 'lib', 'math.ts'))
+        ).rejects.toThrow();
+        expect(
+          await fsPromises.readFile(
+            path.join(workspaceRootPath, 'src', 'lib', 'arithmetic.ts'),
+            'utf8'
+          )
+        ).toBe('export const add = () => 1;\n');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('creates missing destination parent directories', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+        await tool.execute({
+          context: { fromPath: '/README.md', toPath: '/docs/moved/README.md' },
+        });
+        expect(
+          await fsPromises.readFile(
+            path.join(workspaceRootPath, 'docs', 'moved', 'README.md'),
+            'utf8'
+          )
+        ).toBe('# Test Workspace\n');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('invalidates the source path in the workspace index (indexInvalidated: true)', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      // getDatabase resolves; the destination re-index seam looks up file_records
+      // by identity and finds none (new path → no-op).
+      getDatabaseMock.mockResolvedValue({ query: vi.fn(async () => ({ rows: [] })) });
+      invalidateManagedCacheMock.mockResolvedValue({
+        canceledEmbeddingJobCount: 0,
+        deletedChunkIds: ['chunk-src'],
+        deletedFileRecordIds: ['rec-src'],
+      });
+      try {
+        const tool = buildDesktopAssistantTools({
+          workspaceIndexEmbeddingSetId: 'set-1',
+          workspaceRootPath,
+        } as RuntimeData)['brainstrike.renameWorkspaceFile'];
+
+        const result = await tool.execute({
+          context: { fromPath: '/src/lib/math.ts', toPath: '/src/lib/arithmetic.ts' },
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.indexInvalidated).toBe(true);
+        // Invalidation targets the SOURCE path (root-relative, no leading slash).
+        expect(invalidateManagedCacheMock).toHaveBeenCalledWith(expect.anything(), {
+          embeddingSetId: 'set-1',
+          targets: [{ mode: 'exact', relativePath: 'src/lib/math.ts', rootId: workspaceRootPath }],
+        });
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('refuses to overwrite an existing destination (no overwrite in v1)', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+        await expect(
+          tool.execute({ context: { fromPath: '/src/lib/math.ts', toPath: '/README.md' } })
+        ).rejects.toThrow(/already exists/i);
+        // Both files are untouched.
+        expect(
+          await fsPromises.readFile(path.join(workspaceRootPath, 'src', 'lib', 'math.ts'), 'utf8')
+        ).toBe('export const add = () => 1;\n');
+        expect(await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8')).toBe(
+          '# Test Workspace\n'
+        );
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('throws a not-found error when the source file is missing', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+        await expect(
+          tool.execute({ context: { fromPath: '/src/nope.ts', toPath: '/src/yep.ts' } })
+        ).rejects.toThrow(/does not exist/i);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('refuses to rename a directory', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+        await expect(
+          tool.execute({ context: { fromPath: '/src/lib', toPath: '/src/library' } })
+        ).rejects.toThrow(/is a directory/i);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('clamps a "../" escape in the destination to inside the root', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+        const result = await tool.execute({
+          context: { fromPath: '/README.md', toPath: '../escaped.md' },
+        });
+        // Unrooted destination keeps the relative convention; ".." is clamped so
+        // it resolves INSIDE the root, never the sibling dir.
+        expect(result.toPath).toBe('escaped.md');
+        await expect(
+          fsPromises.access(path.join(path.dirname(workspaceRootPath), 'escaped.md'))
+        ).rejects.toThrow();
+        expect(await fsPromises.readFile(path.join(workspaceRootPath, 'escaped.md'), 'utf8')).toBe(
+          '# Test Workspace\n'
+        );
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('rejects renaming through a symlinked destination directory that escapes the root', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-mv-link-'));
+      const linkDir = path.join(workspaceRootPath, 'src', 'linked');
+      try {
+        try {
+          await fsPromises.symlink(outsideRoot, linkDir, 'dir');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+        await expect(
+          tool.execute({ context: { fromPath: '/README.md', toPath: '/src/linked/pwned.md' } })
+        ).rejects.toThrow(/outside the selected workspace root/i);
+        // Nothing landed in the outside dir and the source is intact.
+        await expect(fsPromises.access(path.join(outsideRoot, 'pwned.md'))).rejects.toThrow();
+        expect(await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8')).toBe(
+          '# Test Workspace\n'
+        );
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
+      }
+    });
+
+    it('two concurrent renames on an overlapping path do not deadlock and both settle', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+        // A→B and B→C both touch path B; the sorted two-lock ordering must let both
+        // resolve (one succeeds, the other fails not-found) without hanging.
+        const results = await Promise.race([
+          Promise.allSettled([
+            tool.execute({ context: { fromPath: '/src/main.ts', toPath: '/src/main2.ts' } }),
+            tool.execute({ context: { fromPath: '/src/main2.ts', toPath: '/src/main3.ts' } }),
+          ]),
+          new Promise<'deadlock'>((resolve) => setTimeout(() => resolve('deadlock'), 4000)),
+        ]);
+        expect(results).not.toBe('deadlock');
+        expect(Array.isArray(results)).toBe(true);
+        // Exactly one final file exists for the chain (either main2 or main3),
+        // and the original main.ts is gone.
+        await expect(
+          fsPromises.access(path.join(workspaceRootPath, 'src', 'main.ts'))
+        ).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('fails explicitly when no workspace folder is open', async () => {
+      const tool = buildDesktopAssistantTools(undefined)['brainstrike.renameWorkspaceFile'];
+      await expect(
+        tool.execute({ context: { fromPath: '/a.ts', toPath: '/b.ts' } })
+      ).rejects.toThrow(/No folder is open/i);
+    });
+  });
+
+  it('marks deleteWorkspaceFile as an edit-risk approval-gated action tool', () => {
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.deleteWorkspaceFile']).toMatchObject({
+      category: 'action',
+      requiresApproval: true,
+      riskCategory: 'edit',
+    });
+  });
+
+  it('marks renameWorkspaceFile as an edit-risk approval-gated action tool', () => {
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.renameWorkspaceFile']).toMatchObject({
+      category: 'action',
+      requiresApproval: true,
+      riskCategory: 'edit',
     });
   });
 
