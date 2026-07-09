@@ -55,6 +55,25 @@ function toFileNodeId(file: WorkspaceSearchFileResult): string {
   return `f:${file.dbRootId}:${file.path}`;
 }
 
+/**
+ * Default expansion set: every file id plus every text-mode chunk-group id
+ * (`c:${chunkId}`) so text results render fully expanded to their match rows.
+ * Semantic children are file-direct (no second level), so they need no chunk
+ * entries here — files alone expand them.
+ */
+function toDefaultExpandedIds(results: WorkspaceSearchResults): Set<string> {
+  const ids = new Set<string>();
+  for (const file of results.files) {
+    ids.add(toFileNodeId(file));
+    for (const child of file.children) {
+      if (child.kind === 'match') {
+        ids.add(`c:${child.chunkId}`);
+      }
+    }
+  }
+  return ids;
+}
+
 const initialState = {
   caseSensitive: false,
   collectionId: null,
@@ -111,7 +130,7 @@ export const useWorkspaceSearchStore = create<WorkspaceSearchState>((set, get) =
     set((state) =>
       state.generation === generation
         ? {
-            expandedIds: new Set(r.files.map(toFileNodeId)),
+            expandedIds: toDefaultExpandedIds(r),
             results: r,
             status: 'results',
           }

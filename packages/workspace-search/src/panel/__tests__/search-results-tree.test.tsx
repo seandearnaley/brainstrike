@@ -100,12 +100,26 @@ function makeResults(
   };
 }
 
+/** Mirror the store's default expansion: file ids + text-mode chunk-group ids. */
+function defaultExpandedIds(results: WorkspaceSearchResults): Set<string> {
+  const ids = new Set<string>();
+  for (const f of results.files) {
+    ids.add(`f:${f.dbRootId}:${f.path}`);
+    for (const child of f.children) {
+      if (child.kind === 'match') {
+        ids.add(`c:${child.chunkId}`);
+      }
+    }
+  }
+  return ids;
+}
+
 function seedResults(
   results: WorkspaceSearchResults,
   patch: Partial<ReturnType<typeof useWorkspaceSearchStore.getState>> = {}
 ): void {
   useWorkspaceSearchStore.setState({
-    expandedIds: new Set(results.files.map((f) => `f:${f.dbRootId}:${f.path}`)),
+    expandedIds: defaultExpandedIds(results),
     mode: 'text',
     query: '',
     results,
@@ -226,19 +240,77 @@ describe('SearchResultsTree', () => {
     expect(onOpenFile).not.toHaveBeenCalled();
   });
 
-  it('toggles a chunk range via the bridge from a child checkbox', () => {
+  it('toggles a chunk range via the bridge from the chunk checkbox', () => {
     seedResults(
       makeResults([fileResult({ children: [textMatch({ chunkEndLine: 12, chunkStartLine: 8 })] })])
     );
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
     const checkboxes = screen.getAllByRole('checkbox');
-    // [0] is the file row, [1] is the child row.
+    // [0] is the file row, [1] is the chunk row; match rows carry NO checkbox.
     fireEvent.click(checkboxes[1] as HTMLElement);
+    expect(bridgeMock.toggleChunk).toHaveBeenCalledTimes(1);
     expect(bridgeMock.toggleChunk).toHaveBeenCalledWith(
       'adapter-root-mounted|@|src/a.ts',
       { endLine: 12, startLine: 8 },
       true
     );
+  });
+
+  it('puts the checkbox on the chunk row (aria-label Select lines X-Y), never on match rows', () => {
+    seedResults(
+      makeResults([
+        fileResult({
+          children: [
+            textMatch({ chunkEndLine: 12, chunkId: 'chunk-1', chunkStartLine: 8, line: 9 }),
+            textMatch({ chunkEndLine: 12, chunkId: 'chunk-1', chunkStartLine: 8, line: 11 }),
+          ],
+        }),
+      ])
+    );
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    // file checkbox + ONE chunk checkbox — two matches share one chunk.
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes).toHaveLength(2);
+    expect(screen.getByRole('checkbox', { name: 'Select lines 8-12' })).toBeInTheDocument();
+  });
+
+  it('renders the "· N matches" chunk label only when N > 1', () => {
+    seedResults(
+      makeResults([
+        fileResult({
+          children: [
+            textMatch({ chunkId: 'chunk-1', line: 9 }),
+            textMatch({ chunkId: 'chunk-1', line: 11 }),
+          ],
+          path: 'src/multi.ts',
+        }),
+      ])
+    );
+    const multi = render(
+      <SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />
+    );
+    expect(multi.getByText(/· 2 matches/)).toBeInTheDocument();
+    multi.unmount();
+
+    seedResults(
+      makeResults([fileResult({ children: [textMatch({ chunkId: 'chunk-1', line: 9 })] })])
+    );
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    expect(screen.queryByText(/matches/)).not.toBeInTheDocument();
+  });
+
+  it('navigates to the chunk startLine when a text chunk row is clicked', () => {
+    const onOpenFile = vi.fn();
+    seedResults(
+      makeResults([
+        fileResult({ children: [textMatch({ chunkStartLine: 8, line: 10 })], path: 'src/a.ts' }),
+      ])
+    );
+    render(
+      <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
+    );
+    fireEvent.click(screen.getByText(/Lines 8–/));
+    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', 8);
   });
 
   it('renders the scanLimited notice', () => {

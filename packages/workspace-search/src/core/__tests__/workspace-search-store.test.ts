@@ -70,6 +70,47 @@ describe('useWorkspaceSearchStore', () => {
     expect(state.expandedIds).toEqual(new Set(['f:root-1:src/a.ts', 'f:root-1:src/b.ts']));
   });
 
+  it('resolveResults also expands text-mode chunk-group ids so matches render', () => {
+    const results = makeResults({
+      files: [
+        {
+          children: [
+            {
+              after: [],
+              before: [],
+              chunkEndLine: 12,
+              chunkId: 'chunk-1',
+              chunkStartLine: 8,
+              kind: 'match',
+              line: 9,
+              lineText: 'a',
+              provenance: 'index',
+            },
+            {
+              after: [],
+              before: [],
+              chunkEndLine: 20,
+              chunkId: 'chunk-2',
+              chunkStartLine: 14,
+              kind: 'match',
+              line: 15,
+              lineText: 'b',
+              provenance: 'index',
+            },
+          ],
+          dbRootId: 'root-1',
+          path: 'src/a.ts',
+          rootDisplayName: 'root-1-display',
+        },
+      ],
+    });
+    const generation = useWorkspaceSearchStore.getState().generation;
+    useWorkspaceSearchStore.getState().resolveResults(results, generation);
+    expect(useWorkspaceSearchStore.getState().expandedIds).toEqual(
+      new Set(['f:root-1:src/a.ts', 'c:chunk-1', 'c:chunk-2'])
+    );
+  });
+
   it('failSearch sets status error and surfaces the message', () => {
     const generation = useWorkspaceSearchStore.getState().generation;
     useWorkspaceSearchStore.getState().failSearch('search backend unavailable', generation);

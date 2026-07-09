@@ -87,8 +87,27 @@ function childBounds(child: WorkspaceSearchChild): ChunkBounds {
     : { endLine: child.endLine, startLine: child.startLine };
 }
 
-function childOpenLine(child: WorkspaceSearchChild): number {
-  return child.kind === 'match' ? child.line : child.startLine;
+/** Chunk bounds for a chunk-level row (semantic chunk or grouped text chunk). */
+function chunkRowBounds(
+  data: Extract<SearchNodeData, { kind: 'chunk' | 'text-chunk' }>
+): ChunkBounds {
+  return data.kind === 'text-chunk'
+    ? { endLine: data.chunkEndLine, startLine: data.chunkStartLine }
+    : { endLine: data.chunk.endLine, startLine: data.chunk.startLine };
+}
+
+/** Line a row click navigates to; `undefined` for file rows (no line). */
+function openLineForData(data: SearchNodeData): number | undefined {
+  switch (data.kind) {
+    case 'file':
+      return;
+    case 'match':
+      return data.match.line;
+    case 'text-chunk':
+      return data.chunkStartLine;
+    default:
+      return data.chunk.startLine;
+  }
 }
 
 interface RowRenderContext {
@@ -142,15 +161,21 @@ function FileRow({
   );
 }
 
-function ChildRow({
+/**
+ * Chunk-level row: the ONLY child-checkbox level in both modes. Text mode groups
+ * matches under a "Lines X–Y · N matches" chunk; semantic mode renders the chunk
+ * headline/content. The checkbox drives the selection bridge with the chunk
+ * bounds (identical wiring for both kinds).
+ */
+function ChunkRow({
   data,
   ctx,
 }: {
-  data: Extract<SearchNodeData, { kind: 'child' }>;
+  data: Extract<SearchNodeData, { kind: 'chunk' | 'text-chunk' }>;
   ctx: RowRenderContext;
 }): React.ReactNode {
-  const { child, compositeKey } = data;
-  const bounds = childBounds(child);
+  const { compositeKey } = data;
+  const bounds = chunkRowBounds(data);
   const state = compositeKey === null ? 'unchecked' : ctx.bridge.chunkState(compositeKey, bounds);
 
   const onToggle = useCallback(() => {
@@ -160,13 +185,18 @@ function ChildRow({
   }, [ctx.bridge, compositeKey, bounds, state]);
 
   const content =
-    child.kind === 'match'
-      ? renderSegments(
-          ctx.highlightEnabled
-            ? highlightQuery(child.lineText, ctx.query, ctx.caseSensitive)
-            : [child.lineText]
-        )
-      : renderSegments(child.headline ? splitHeadline(child.headline) : [child.content]);
+    data.kind === 'text-chunk' ? (
+      <span className="truncate text-muted-foreground text-xs">
+        Lines {bounds.startLine}–{bounds.endLine}
+        {data.matchCount > 1 ? ` · ${data.matchCount} matches` : ''}
+      </span>
+    ) : (
+      <span className="truncate font-mono text-muted-foreground text-xs">
+        {renderSegments(
+          data.chunk.headline ? splitHeadline(data.chunk.headline) : [data.chunk.content]
+        )}
+      </span>
+    );
 
   return (
     <span className="flex min-w-0 items-center gap-2">
@@ -177,6 +207,33 @@ function ChildRow({
         onCheckedChange={onToggle}
         onClick={(event) => event.stopPropagation()}
       />
+      {content}
+    </span>
+  );
+}
+
+/**
+ * Text match row: a navigation-only leaf under its chunk. No checkbox — the
+ * containing chunk is the selection unit — just the line number and the
+ * highlighted matched line. Row click navigates to the match line.
+ */
+function MatchRow({
+  data,
+  ctx,
+}: {
+  data: Extract<SearchNodeData, { kind: 'match' }>;
+  ctx: RowRenderContext;
+}): React.ReactNode {
+  const { match } = data;
+  const content = renderSegments(
+    ctx.highlightEnabled
+      ? highlightQuery(match.lineText, ctx.query, ctx.caseSensitive)
+      : [match.lineText]
+  );
+
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="shrink-0 text-muted-foreground text-xs tabular-nums">{match.line}</span>
       <span className="truncate font-mono text-muted-foreground text-xs">{content}</span>
     </span>
   );
@@ -255,14 +312,21 @@ export function SearchResultsTree({
   const columns = useMemo(
     () => [
       {
-        cell: ({ node }: { node: TreeNode<SearchNodeData> }) =>
-          node.data.kind === 'file' ? (
-            <FileRow ctx={ctx} data={node.data} />
-          ) : (
-            <ChildRow ctx={ctx} data={node.data} />
-          ),
+        cell: ({ node }: { node: TreeNode<SearchNodeData> }) => {
+          switch (node.data.kind) {
+            case 'file':
+              return <FileRow ctx={ctx} data={node.data} />;
+            case 'match':
+              return <MatchRow ctx={ctx} data={node.data} />;
+            default:
+              return <ChunkRow ctx={ctx} data={node.data} />;
+          }
+        },
         header: 'Results',
         id: 'result',
+        // Match rows (leaves) are navigation-only; don't reserve empty toggle
+        // space for them so they read as tight children of their chunk.
+        reserveToggleSpace: false,
       },
     ],
     [ctx]
@@ -277,21 +341,28 @@ export function SearchResultsTree({
       if (!node || node.data.compositeKey === null) {
         return;
       }
-      if (node.data.kind === 'file') {
+      const line = openLineForData(node.data);
+      if (line === undefined) {
         onOpenFile(node.data.compositeKey);
         return;
       }
-      onOpenFile(node.data.compositeKey, childOpenLine(node.data.child));
+      onOpenFile(node.data.compositeKey, line);
     },
     [nodeById, onOpenFile]
   );
 
   const notices = results?.notices;
 
-  // Count the match/chunk rows actually rendered so the truncated notice can name
-  // an honest limit ("first N matches") instead of a false "Show more" affordance.
+  // Count the leaf result rows actually rendered (text matches + semantic chunks)
+  // so the truncated notice can name an honest limit ("first N matches") instead
+  // of a false "Show more" affordance.
   const renderedMatchCount = useMemo(
-    () => nodes.reduce((count, node) => (node.data.kind === 'child' ? count + 1 : count), 0),
+    () =>
+      nodes.reduce(
+        (count, node) =>
+          node.data.kind === 'match' || node.data.kind === 'chunk' ? count + 1 : count,
+        0
+      ),
     [nodes]
   );
 

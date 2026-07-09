@@ -52,6 +52,7 @@ export {
   SearchResultsTree,
   type SearchResultsTreeProps,
   splitHeadline,
+  textChunkNodeId,
   WorkspaceSearchPanel,
   type WorkspaceSearchPanelProps,
 } from './panel';

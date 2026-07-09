@@ -489,6 +489,13 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   fresher state. A text query shrinking below the 3-char minimum calls
   `clearResults` (drops stale matches + bumps the generation so the in-flight
   longer-query run cannot resurrect them).
+- **Tree shape (chunk-first).** Text mode is `file → chunk → match`
+  (`build-tree-nodes.ts` groups matches by `chunkId`, node id `c:${chunkId}`):
+  the CHUNK row carries the only child checkbox (bridge `toggleChunk`/`chunkState`
+  with the chunk bounds), match rows (`m:${chunkId}:${line}`) are navigation-only
+  leaves. Semantic mode stays `file → chunk`. The chunk is the single visible
+  selection unit — a per-match checkbox flipped its chunk siblings. `resolveResults`
+  default-expands file ids AND every text `c:${chunkId}`.
 - **Line-targeted open.** Row click → `onOpenFile(compositeKey, line)` →
   controller `openFileInTab(compositeKey, { line })` (ide-layout seam) →
   `workspace-tab-host` records a one-shot `targetLine` (transient, non-persisted

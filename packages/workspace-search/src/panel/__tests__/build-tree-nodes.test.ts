@@ -83,9 +83,16 @@ describe('buildSearchTreeNodes', () => {
     expect(nodes.every((n) => !n.id.includes('root-unmounted'))).toBe(true);
   });
 
-  it('emits only the file row (hasChildren + childCount) when collapsed', () => {
+  it('emits only the file row (hasChildren + chunk-group childCount) when collapsed', () => {
+    // Two matches sharing chunk-1 collapse to a single chunk group.
     const results = makeResults([
-      fileResult({ children: [textMatch(), textMatch({ line: 11 })], path: 'src/a.ts' }),
+      fileResult({
+        children: [
+          textMatch({ chunkId: 'chunk-1', line: 10 }),
+          textMatch({ chunkId: 'chunk-1', line: 11 }),
+        ],
+        path: 'src/a.ts',
+      }),
     ]);
 
     const nodes = buildSearchTreeNodes({
@@ -101,13 +108,94 @@ describe('buildSearchTreeNodes', () => {
     expect(file?.parentId).toBeNull();
     expect(file?.depth).toBe(0);
     expect(file?.hasChildren).toBe(true);
-    expect(file?.childCount).toBe(2);
+    expect(file?.childCount).toBe(1);
   });
 
-  it('emits file row plus depth-1 child rows when expanded', () => {
-    const match = textMatch({ chunkId: 'chunk-1', line: 10 });
-    const chunk = chunkHit({ chunkId: 'chunk-9' });
-    const results = makeResults([fileResult({ children: [match, chunk], path: 'src/a.ts' })]);
+  it('groups two matches sharing a chunk into ONE chunk node with two match children', () => {
+    const results = makeResults([
+      fileResult({
+        children: [
+          textMatch({ chunkEndLine: 12, chunkId: 'chunk-1', chunkStartLine: 8, line: 9 }),
+          textMatch({ chunkEndLine: 12, chunkId: 'chunk-1', chunkStartLine: 8, line: 11 }),
+        ],
+        path: 'src/a.ts',
+      }),
+    ]);
+
+    const nodes = buildSearchTreeNodes({
+      expandedIds: new Set(['f:root-mounted:src/a.ts', 'c:chunk-1']),
+      resolveAdapterRootId,
+      results,
+    });
+
+    // file, chunk, match, match
+    expect(nodes.map((n) => n.id)).toEqual([
+      'f:root-mounted:src/a.ts',
+      'c:chunk-1',
+      'm:chunk-1:9',
+      'm:chunk-1:11',
+    ]);
+    const [, chunkRow, first, second] = nodes;
+    expect(chunkRow?.type).toBe('chunk');
+    expect(chunkRow?.depth).toBe(1);
+    expect(chunkRow?.hasChildren).toBe(true);
+    expect(chunkRow?.childCount).toBe(2);
+    const chunkData = chunkRow?.data as Extract<SearchNodeData, { kind: 'text-chunk' }>;
+    expect(chunkData.kind).toBe('text-chunk');
+    expect(chunkData.matchCount).toBe(2);
+    expect(chunkData.chunkStartLine).toBe(8);
+    expect(chunkData.chunkEndLine).toBe(12);
+    expect(first?.parentId).toBe('c:chunk-1');
+    expect(first?.depth).toBe(2);
+    expect(first?.hasChildren).toBe(false);
+    expect(second?.parentId).toBe('c:chunk-1');
+  });
+
+  it('emits two chunk nodes in first-seen order for two chunks in one file', () => {
+    const results = makeResults([
+      fileResult({
+        children: [
+          textMatch({ chunkId: 'chunk-b', line: 30 }),
+          textMatch({ chunkId: 'chunk-a', line: 10 }),
+        ],
+        path: 'src/a.ts',
+      }),
+    ]);
+
+    const nodes = buildSearchTreeNodes({
+      expandedIds: new Set(['f:root-mounted:src/a.ts', 'c:chunk-a', 'c:chunk-b']),
+      resolveAdapterRootId,
+      results,
+    });
+
+    const chunkIds = nodes.filter((n) => n.depth === 1).map((n) => n.id);
+    expect(chunkIds).toEqual(['c:chunk-b', 'c:chunk-a']);
+  });
+
+  it('hides match rows when their chunk is collapsed but keeps the chunk visible', () => {
+    const results = makeResults([
+      fileResult({
+        children: [textMatch({ chunkId: 'chunk-1', line: 9 })],
+        path: 'src/a.ts',
+      }),
+    ]);
+
+    const nodes = buildSearchTreeNodes({
+      // File expanded, chunk NOT expanded.
+      expandedIds: new Set(['f:root-mounted:src/a.ts']),
+      resolveAdapterRootId,
+      results,
+    });
+
+    expect(nodes.map((n) => n.id)).toEqual(['f:root-mounted:src/a.ts', 'c:chunk-1']);
+    expect(nodes.some((n) => n.depth === 2)).toBe(false);
+    expect(nodes.find((n) => n.id === 'c:chunk-1')?.hasChildren).toBe(true);
+  });
+
+  it('leaves the semantic shape unchanged: file → chunk with a checkbox-level chunk id', () => {
+    const results = makeResults([
+      fileResult({ children: [chunkHit({ chunkId: 'chunk-9', startLine: 14 })], path: 'src/a.ts' }),
+    ]);
 
     const nodes = buildSearchTreeNodes({
       expandedIds: new Set(['f:root-mounted:src/a.ts']),
@@ -115,28 +203,31 @@ describe('buildSearchTreeNodes', () => {
       results,
     });
 
-    expect(nodes).toHaveLength(3);
-    const [, matchRow, chunkRow] = nodes;
-    expect(matchRow?.id).toBe('m:chunk-1:10');
-    expect(matchRow?.parentId).toBe('f:root-mounted:src/a.ts');
-    expect(matchRow?.depth).toBe(1);
-    expect(matchRow?.hasChildren).toBe(false);
+    expect(nodes).toHaveLength(2);
+    const [, chunkRow] = nodes;
     expect(chunkRow?.id).toBe('m:chunk-9');
+    expect(chunkRow?.type).toBe('chunk');
+    expect(chunkRow?.depth).toBe(1);
+    expect(chunkRow?.hasChildren).toBe(false);
+    expect((chunkRow?.data as Extract<SearchNodeData, { kind: 'chunk' }>).kind).toBe('chunk');
   });
 
-  it('sets the compositeKey from the adapter root id on file and child rows', () => {
+  it('sets the compositeKey from the adapter root id on file, chunk, and match rows', () => {
     const results = makeResults([fileResult({ children: [textMatch()], path: 'src/a.ts' })]);
     const nodes = buildSearchTreeNodes({
-      expandedIds: new Set(['f:root-mounted:src/a.ts']),
+      expandedIds: new Set(['f:root-mounted:src/a.ts', 'c:chunk-1']),
       resolveAdapterRootId,
       results,
     });
 
     const expectedKey = encodeFileSelection('adapter-root-mounted', 'src/a.ts');
     const fileData = nodes[0]?.data as Extract<SearchNodeData, { kind: 'file' }>;
-    const childData = nodes[1]?.data as Extract<SearchNodeData, { kind: 'child' }>;
+    const chunkData = nodes[1]?.data as Extract<SearchNodeData, { kind: 'text-chunk' }>;
+    const matchData = nodes[2]?.data as Extract<SearchNodeData, { kind: 'match' }>;
     expect(fileData.compositeKey).toBe(expectedKey);
-    expect(childData.compositeKey).toBe(expectedKey);
-    expect(childData.filePath).toBe('src/a.ts');
+    expect(chunkData.compositeKey).toBe(expectedKey);
+    expect(chunkData.filePath).toBe('src/a.ts');
+    expect(matchData.compositeKey).toBe(expectedKey);
+    expect(matchData.filePath).toBe('src/a.ts');
   });
 });

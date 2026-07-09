@@ -3,6 +3,7 @@ export {
   childNodeId,
   fileNodeId,
   type SearchNodeData,
+  textChunkNodeId,
 } from './build-tree-nodes';
 export {
   SearchCollectionPicker,
