@@ -1,4 +1,5 @@
 import * as fileExplorer from '@brainstrike/file-explorer';
+import { clearPersistentUiStateWithResult } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -105,5 +106,26 @@ describe('FileExplorerProvider', () => {
     });
 
     expect(result.current.selection).toBe(initialSelection);
+  });
+
+  it('clears live file selections when factory reset drains session stores', async () => {
+    // Search bridge selects containing files alongside chunks. Clearing only
+    // the chunk store would leave whole-file selections after reset.
+    const storage = new MemoryStorageAdapter();
+    const { result } = renderHook(() => useFileExplorerStoreContext(), {
+      wrapper: wrapper(storage),
+    });
+
+    act(() => {
+      result.current.getState().setFolderSelection('root-a', ['root-a|@|src/a.ts']);
+      result.current.getState().setSelectedFiles(new Set(['root-a|@|src/a.ts']));
+    });
+    expect(result.current.getState().selectedFilePaths.size).toBe(1);
+    expect(result.current.getState().folderStates['root-a']?.selectedFilePaths.size).toBe(1);
+
+    const resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    expect(resetResult.success).toBe(true);
+    expect(result.current.getState().selectedFilePaths.size).toBe(0);
+    expect(result.current.getState().folderStates['root-a']?.selectedFilePaths.size).toBe(0);
   });
 });

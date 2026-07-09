@@ -21,6 +21,9 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
+  // Chunk subset only. Containing-file selections are cleared by
+  // FileExplorerProvider's live registerFactoryResetSessionStore callback
+  // (search bridge selects files alongside chunks).
   useChunkSelectionStore.getState().clearAll();
 });
 
