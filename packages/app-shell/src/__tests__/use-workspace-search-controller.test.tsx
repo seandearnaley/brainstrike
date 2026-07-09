@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootIdentityProvider } from '../roots/root-identity-context';
 import {
   createWorkspaceSearchRunners,
+  resolveGrepRepository,
   useWorkspaceSearchController,
 } from '../use-workspace-search-controller';
 
@@ -145,6 +146,99 @@ describe('createWorkspaceSearchRunners', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(useWorkspaceSearchStore.getState().status).toBe('searching');
     expect(useWorkspaceSearchStore.getState().results).toBeNull();
+  });
+
+  it('drops results that resolve AFTER a mode change (stale generation)', async () => {
+    let resolveText: (r: WorkspaceSearchResults) => void = () => {};
+    const searchText = vi.fn(
+      () =>
+        new Promise<WorkspaceSearchResults>((resolve) => {
+          resolveText = resolve;
+        })
+    );
+    const runners = createWorkspaceSearchRunners({
+      executor: { searchSemantic: vi.fn(), searchText },
+      resolveEffectiveEmbeddingSetId: async () => 'set-1',
+      workspaceDbRootIds: [],
+    });
+
+    runners.runTextSearch();
+    await waitFor(() => expect(searchText).toHaveBeenCalledTimes(1));
+
+    // A mode change invalidates the in-flight run (advances the store generation).
+    useWorkspaceSearchStore.getState().setMode('semantic');
+    resolveText(makeTextResults());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useWorkspaceSearchStore.getState().status).toBe('idle');
+    expect(useWorkspaceSearchStore.getState().results).toBeNull();
+  });
+
+  it('an older run rejection cannot clobber a newer run that already resolved', async () => {
+    let rejectOld: (e: Error) => void = () => {};
+    const oldRun = createWorkspaceSearchRunners({
+      executor: {
+        searchSemantic: vi.fn(),
+        searchText: () =>
+          new Promise<WorkspaceSearchResults>((_, reject) => {
+            rejectOld = reject;
+          }),
+      },
+      resolveEffectiveEmbeddingSetId: async () => 'set-1',
+      workspaceDbRootIds: [],
+    });
+
+    oldRun.runTextSearch();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // A newer run supersedes it and resolves.
+    const newRun = createWorkspaceSearchRunners({
+      executor: { searchSemantic: vi.fn(), searchText: async () => makeTextResults() },
+      resolveEffectiveEmbeddingSetId: async () => 'set-1',
+      workspaceDbRootIds: [],
+    });
+    newRun.runTextSearch();
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+
+    // The old run rejects late — it must NOT flip status to 'error'.
+    rejectOld(new Error('stale grep died'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useWorkspaceSearchStore.getState().status).toBe('results');
+    expect(useWorkspaceSearchStore.getState().error).toBeNull();
+    expect(useWorkspaceSearchStore.getState().results?.totalMatches).toBe(1);
+  });
+});
+
+describe('resolveGrepRepository', () => {
+  it('uses the platform repo directly when it exposes findGrepCandidates (desktop)', async () => {
+    const findGrepCandidates = vi.fn(async () => []);
+    const platformRepo = { findGrepCandidates } as unknown as Parameters<
+      typeof resolveGrepRepository
+    >[0];
+    const dbQuery = vi.fn(async () => ({ rows: [] }));
+    const db = { query: dbQuery } as unknown as Parameters<typeof resolveGrepRepository>[1];
+
+    const repo = resolveGrepRepository(platformRepo, db);
+    await repo.findGrepCandidates({ caseSensitive: false, likePattern: 'x', limit: 10 });
+
+    expect(findGrepCandidates).toHaveBeenCalledTimes(1);
+    // The platform repo is used verbatim, so the raw db.query seam is untouched.
+    expect(dbQuery).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a query-only PGlite repo when the platform repo has no grep method (web)', async () => {
+    const platformRepo = { fullTextSearch: vi.fn() } as unknown as Parameters<
+      typeof resolveGrepRepository
+    >[0];
+    const dbQuery = vi.fn(async () => ({ rows: [] }));
+    const db = { query: dbQuery } as unknown as Parameters<typeof resolveGrepRepository>[1];
+
+    const repo = resolveGrepRepository(platformRepo, db);
+    await repo.findGrepCandidates({ caseSensitive: false, likePattern: 'x', limit: 10 });
+
+    // The fallback FileChunkRepository reads candidates through db.query.
+    expect(dbQuery).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -110,9 +110,21 @@ export function useSearchSelectionBridge(): SearchSelectionBridge {
         setTapestryRangesForKey(compositeKey, addChunkRange(existing, chunk, makeId));
         return;
       }
-      setTapestryRangesForKey(compositeKey, removeChunkRange(existing, chunk));
+      const updated = removeChunkRange(existing, chunk);
+      setTapestryRangesForKey(compositeKey, updated);
+      // Idempotence guard (check -> uncheck must return to the start): toggleChunk(true)
+      // auto-selects the file, so if unchecking removes the last range that kept the file
+      // in context we must ALSO deselect the file. Otherwise a selected file with zero
+      // active ranges reads as whole-file 'checked' (chunkCoverage's zero-ranges rule),
+      // silently pulling the ENTIRE file into the assistant context. An active
+      // search-managed OR a userModified range keeps the file selected.
+      const hasActiveSelection = updated.some((range) => range.isActive || range.userModified);
+      if (!hasActiveSelection && isKeySelected(explorerStore.getState(), compositeKey)) {
+        const { folderId, path } = decodeFileSelection(compositeKey);
+        removeSelectedFile(folderId, path);
+      }
     },
-    [explorerStore, addSelectedFile, setTapestryRangesForKey]
+    [explorerStore, addSelectedFile, removeSelectedFile, setTapestryRangesForKey]
   );
 
   return useMemo(

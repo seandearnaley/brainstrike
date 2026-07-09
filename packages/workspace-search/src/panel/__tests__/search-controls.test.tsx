@@ -211,17 +211,20 @@ describe('SearchModeToggle', () => {
   });
 
   it('switching mode calls setMode and clears results', () => {
-    useWorkspaceSearchStore.getState().resolveResults({
-      files: [],
-      mode: 'text',
-      notices: {
-        candidatesTruncated: false,
-        scanLimited: false,
-        skippedMissingLineMetadata: 0,
-        truncated: false,
+    useWorkspaceSearchStore.getState().resolveResults(
+      {
+        files: [],
+        mode: 'text',
+        notices: {
+          candidatesTruncated: false,
+          scanLimited: false,
+          skippedMissingLineMetadata: 0,
+          truncated: false,
+        },
+        totalMatches: 0,
       },
-      totalMatches: 0,
-    });
+      useWorkspaceSearchStore.getState().generation
+    );
 
     render(<SearchModeToggle />);
     fireEvent.click(screen.getByRole('button', { name: 'Semantic' }));

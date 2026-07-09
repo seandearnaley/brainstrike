@@ -30,6 +30,12 @@ function makeResults(overrides?: Partial<WorkspaceSearchResults>): WorkspaceSear
   };
 }
 
+/** Seed results tagged with the CURRENT generation so they actually apply. */
+function seedResults(overrides?: Partial<WorkspaceSearchResults>): void {
+  const generation = useWorkspaceSearchStore.getState().generation;
+  useWorkspaceSearchStore.getState().resolveResults(makeResults(overrides), generation);
+}
+
 describe('useWorkspaceSearchStore', () => {
   beforeEach(() => {
     useWorkspaceSearchStore.getState().reset();
@@ -56,7 +62,8 @@ describe('useWorkspaceSearchStore', () => {
 
   it('resolveResults populates results, sets status results, and expands all file ids', () => {
     const results = makeResults();
-    useWorkspaceSearchStore.getState().resolveResults(results);
+    const generation = useWorkspaceSearchStore.getState().generation;
+    useWorkspaceSearchStore.getState().resolveResults(results, generation);
     const state = useWorkspaceSearchStore.getState();
     expect(state.status).toBe('results');
     expect(state.results).toBe(results);
@@ -64,14 +71,54 @@ describe('useWorkspaceSearchStore', () => {
   });
 
   it('failSearch sets status error and surfaces the message', () => {
-    useWorkspaceSearchStore.getState().failSearch('search backend unavailable');
+    const generation = useWorkspaceSearchStore.getState().generation;
+    useWorkspaceSearchStore.getState().failSearch('search backend unavailable', generation);
     const state = useWorkspaceSearchStore.getState();
     expect(state.status).toBe('error');
     expect(state.error).toBe('search backend unavailable');
   });
 
+  it('beginSearch increments the generation and returns the new value', () => {
+    const before = useWorkspaceSearchStore.getState().generation;
+    const generation = useWorkspaceSearchStore.getState().beginSearch();
+    expect(generation).toBe(before + 1);
+    expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
+  });
+
+  it('resolveResults is a no-op when the generation is stale (superseded run)', () => {
+    const staleGeneration = useWorkspaceSearchStore.getState().beginSearch();
+    // A newer run (or any invalidating change) advances the generation.
+    useWorkspaceSearchStore.getState().setMode('semantic');
+    useWorkspaceSearchStore.getState().resolveResults(makeResults(), staleGeneration);
+    const state = useWorkspaceSearchStore.getState();
+    expect(state.results).toBeNull();
+    expect(state.status).toBe('idle');
+  });
+
+  it('failSearch is a no-op when the generation is stale (superseded run)', () => {
+    const staleGeneration = useWorkspaceSearchStore.getState().beginSearch();
+    const freshGeneration = useWorkspaceSearchStore.getState().beginSearch();
+    useWorkspaceSearchStore.getState().resolveResults(makeResults(), freshGeneration);
+    // Older run rejects after the newer run resolved — must not clobber results.
+    useWorkspaceSearchStore.getState().failSearch('stale grep died', staleGeneration);
+    const state = useWorkspaceSearchStore.getState();
+    expect(state.status).toBe('results');
+    expect(state.error).toBeNull();
+    expect(state.results).not.toBeNull();
+  });
+
+  it('invalidating changes advance the generation', () => {
+    const start = useWorkspaceSearchStore.getState().generation;
+    useWorkspaceSearchStore.getState().setMode('semantic');
+    useWorkspaceSearchStore.getState().setCollectionId('set-1');
+    useWorkspaceSearchStore.getState().toggleCase();
+    useWorkspaceSearchStore.getState().toggleRegex();
+    useWorkspaceSearchStore.getState().toggleWholeWord();
+    expect(useWorkspaceSearchStore.getState().generation).toBe(start + 5);
+  });
+
   it('setMode clears results, resets status to idle, and updates mode', () => {
-    useWorkspaceSearchStore.getState().resolveResults(makeResults());
+    seedResults();
     useWorkspaceSearchStore.getState().setMode('semantic');
     const state = useWorkspaceSearchStore.getState();
     expect(state.mode).toBe('semantic');
@@ -80,7 +127,7 @@ describe('useWorkspaceSearchStore', () => {
   });
 
   it('setCollectionId clears results and resets status to idle', () => {
-    useWorkspaceSearchStore.getState().resolveResults(makeResults());
+    seedResults();
     useWorkspaceSearchStore.getState().setCollectionId('embedding-set-1');
     const state = useWorkspaceSearchStore.getState();
     expect(state.collectionId).toBe('embedding-set-1');
@@ -89,7 +136,7 @@ describe('useWorkspaceSearchStore', () => {
   });
 
   it('toggleCase clears results and resets status to idle', () => {
-    useWorkspaceSearchStore.getState().resolveResults(makeResults());
+    seedResults();
     useWorkspaceSearchStore.getState().toggleCase();
     const state = useWorkspaceSearchStore.getState();
     expect(state.caseSensitive).toBe(true);
@@ -98,7 +145,7 @@ describe('useWorkspaceSearchStore', () => {
   });
 
   it('toggleRegex clears results and resets status to idle', () => {
-    useWorkspaceSearchStore.getState().resolveResults(makeResults());
+    seedResults();
     useWorkspaceSearchStore.getState().toggleRegex();
     const state = useWorkspaceSearchStore.getState();
     expect(state.isRegex).toBe(true);
@@ -107,7 +154,7 @@ describe('useWorkspaceSearchStore', () => {
   });
 
   it('toggleWholeWord clears results and resets status to idle', () => {
-    useWorkspaceSearchStore.getState().resolveResults(makeResults());
+    seedResults();
     useWorkspaceSearchStore.getState().toggleWholeWord();
     const state = useWorkspaceSearchStore.getState();
     expect(state.wholeWord).toBe(true);
@@ -123,7 +170,7 @@ describe('useWorkspaceSearchStore', () => {
   });
 
   it('setQuery updates the query without touching results/status', () => {
-    useWorkspaceSearchStore.getState().resolveResults(makeResults());
+    seedResults();
     useWorkspaceSearchStore.getState().setQuery('foo');
     const state = useWorkspaceSearchStore.getState();
     expect(state.query).toBe('foo');
@@ -133,7 +180,7 @@ describe('useWorkspaceSearchStore', () => {
 
   it('reset restores initial state', () => {
     useWorkspaceSearchStore.getState().setQuery('foo');
-    useWorkspaceSearchStore.getState().resolveResults(makeResults());
+    seedResults();
     useWorkspaceSearchStore.getState().reset();
     const state = useWorkspaceSearchStore.getState();
     expect(state.query).toBe('');

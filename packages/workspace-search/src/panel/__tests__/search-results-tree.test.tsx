@@ -261,6 +261,14 @@ describe('SearchResultsTree', () => {
     expect(onShowMore).toHaveBeenCalledTimes(1);
   });
 
+  it('states the honest limit (no false "Show more") for truncated results without onShowMore', () => {
+    seedResults(makeResults([fileResult()], { truncated: true }));
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    // One match row rendered -> "first 1 matches"; no clickable affordance.
+    expect(screen.getByText('Results limited to first 1 matches')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+  });
+
   it('renders the missing-line-metadata notice with a count', () => {
     seedResults(makeResults([fileResult()], { skippedMissingLineMetadata: 3 }));
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);

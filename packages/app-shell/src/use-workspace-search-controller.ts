@@ -2,7 +2,10 @@ import {
   createGrepSearchService,
   createHybridSearchService,
   type DbHandle,
+  type DrizzleFileChunkRepository,
+  type ElectronFileChunkRepository,
   FileChunkRepository,
+  type GrepSearchRepository,
   useFileChunkRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
@@ -100,6 +103,31 @@ async function resolveFilesFromDb(
   return resolved;
 }
 
+type PlatformChunkRepository = DrizzleFileChunkRepository | ElectronFileChunkRepository;
+
+/**
+ * Resolve the repository the grep service reads candidates from. The dependency
+ * is structural (`GrepSearchRepository = { findGrepCandidates }`), so:
+ *  - Desktop's ElectronFileChunkRepository implements `findGrepCandidates` against
+ *    the real IPC db — prefer it so the platform repo's method is LIVE (not dead).
+ *  - Web's DrizzleFileChunkRepository has no grep method, so fall back to the
+ *    PGlite-direct FileChunkRepository. Its grep path (findGrepCandidates) touches
+ *    ONLY `db.query`, which the DbHandle provides with a PGlite-compatible
+ *    signature — so we pass a query-only view of the handle rather than asserting
+ *    the handle is a whole PGlite client (the smallest honest seam).
+ */
+export function resolveGrepRepository(
+  chunkRepository: PlatformChunkRepository,
+  db: DbHandle
+): GrepSearchRepository {
+  if (typeof (chunkRepository as Partial<GrepSearchRepository>).findGrepCandidates === 'function') {
+    return chunkRepository as GrepSearchRepository;
+  }
+  type FileChunkRepositoryCtorDb = ConstructorParameters<typeof FileChunkRepository>[0];
+  const grepDb = { query: db.query.bind(db) } as unknown as FileChunkRepositoryCtorDb;
+  return new FileChunkRepository(grepDb);
+}
+
 interface WorkspaceSearchRunnerDeps {
   executor: Pick<WorkspaceSearchExecutor, 'searchSemantic' | 'searchText'>;
   resolveEffectiveEmbeddingSetId: () => Promise<string>;
@@ -118,7 +146,9 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
 } {
   const run = (mode: WorkspaceSearchMode): void => {
     const { query, isRegex, caseSensitive, wholeWord } = useWorkspaceSearchStore.getState();
-    useWorkspaceSearchStore.getState().beginSearch();
+    // Capture the run token so a superseded run's completion (results OR rejection)
+    // is dropped by the store instead of clobbering a newer run's state.
+    const generation = useWorkspaceSearchStore.getState().beginSearch();
     void (async () => {
       try {
         const embeddingSetId = await deps.resolveEffectiveEmbeddingSetId();
@@ -140,11 +170,11 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
         if (results === null) {
           return;
         }
-        useWorkspaceSearchStore.getState().resolveResults(results);
+        useWorkspaceSearchStore.getState().resolveResults(results, generation);
       } catch (error) {
         useWorkspaceSearchStore
           .getState()
-          .failSearch(error instanceof Error ? error.message : String(error));
+          .failSearch(error instanceof Error ? error.message : String(error), generation);
       }
     })();
   };
@@ -224,13 +254,10 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     if (!(db && chunkRepository)) {
       return null;
     }
-    // Grep needs `findGrepCandidates`, which the Drizzle chunk repo (used for
-    // hybrid) does not expose — only FileChunkRepository does. It touches only
-    // `db.query`, so a DbHandle is a structural fit on both web and desktop
-    // (the desktop grep-search-tool constructs it the same way).
-    const grepRepository = new FileChunkRepository(
-      db as unknown as ConstructorParameters<typeof FileChunkRepository>[0]
-    );
+    // Prefer the platform chunk repo when it exposes findGrepCandidates (desktop's
+    // ElectronFileChunkRepository — makes that method LIVE); web's Drizzle repo has
+    // no grep method, so fall back to a query-only PGlite FileChunkRepository.
+    const grepRepository = resolveGrepRepository(chunkRepository, db);
     return new WorkspaceSearchExecutor({
       embedQuery,
       grepService: createGrepSearchService(grepRepository),
@@ -244,9 +271,10 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   const runners = useMemo(() => {
     if (!executor) {
       const unavailable = (): void => {
+        const generation = useWorkspaceSearchStore.getState().beginSearch();
         useWorkspaceSearchStore
           .getState()
-          .failSearch('Workspace search is unavailable: the database is not ready.');
+          .failSearch('Workspace search is unavailable: the database is not ready.', generation);
       };
       return { runSemanticSearch: unavailable, runTextSearch: unavailable };
     }

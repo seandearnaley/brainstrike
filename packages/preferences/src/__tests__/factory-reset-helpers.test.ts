@@ -5,6 +5,7 @@ import {
   clearPersistentUiState,
   clearPersistentUiStateWithResult,
   FALLBACK_INDEXED_DB_NAMES,
+  registerFactoryResetSessionStore,
 } from '../settings/system/factory-reset-helpers';
 
 interface FakeRequest {
@@ -18,6 +19,39 @@ const globalWindow = window as Window &
     indexedDB?: IDBFactory;
     caches?: CacheStorage;
   };
+
+describe('registerFactoryResetSessionStore', () => {
+  it('drains registered session-store resetters during a factory reset', async () => {
+    const reset = vi.fn();
+    const dispose = registerFactoryResetSessionStore(reset);
+    try {
+      await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+      expect(reset).toHaveBeenCalledTimes(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('stops draining a resetter once it is disposed', async () => {
+    const reset = vi.fn();
+    const dispose = registerFactoryResetSessionStore(reset);
+    dispose();
+    await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('a throwing resetter does not abort the reset', async () => {
+    const dispose = registerFactoryResetSessionStore(() => {
+      throw new Error('boom');
+    });
+    try {
+      const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+      expect(result.success).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+});
 
 describe('FALLBACK_INDEXED_DB_NAMES engine versioning', () => {
   it('includes the PG18 engine-versioned database names so Safari/Firefox fallback wipes them', () => {

@@ -144,7 +144,8 @@ describe('WorkspaceSearchPanel', () => {
 
   it('renders the results tree when the search resolves', () => {
     act(() => {
-      useWorkspaceSearchStore.getState().resolveResults(makeResults());
+      const generation = useWorkspaceSearchStore.getState().generation;
+      useWorkspaceSearchStore.getState().resolveResults(makeResults(), generation);
     });
     renderPanel();
     expect(screen.getByRole('treegrid')).toBeInTheDocument();

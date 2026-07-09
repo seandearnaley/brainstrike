@@ -288,6 +288,13 @@ export function SearchResultsTree({
 
   const notices = results?.notices;
 
+  // Count the match/chunk rows actually rendered so the truncated notice can name
+  // an honest limit ("first N matches") instead of a false "Show more" affordance.
+  const renderedMatchCount = useMemo(
+    () => nodes.reduce((count, node) => (node.data.kind === 'child' ? count + 1 : count), 0),
+    [nodes]
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1">
       {notices?.scanLimited ? (
@@ -325,8 +332,10 @@ export function SearchResultsTree({
             Show more
           </button>
         ) : (
+          // No paging affordance is wired: state the honest limit instead of a
+          // false "Show more" that does nothing.
           <p className="text-muted-foreground text-xs" role="status">
-            Show more
+            Results limited to first {renderedMatchCount} matches
           </p>
         )
       ) : null}

@@ -123,6 +123,29 @@ Both modes run **renderer-side against the DB** on both platforms (the collectio
 - Foreground-gate coordination for visible-renderer query embeddings (pre-existing gap).
 - Include/exclude glob filters (VS Code parity nicety — add post-v1 if wanted).
 - Activity-bar entry point (second entry point deferred; tab strip is the v1 entry).
+- **Header select-all (§4)** — user-approved deferral; per-row tri-state
+  checkboxes only in v1 (no group/header "select all matches").
+- **Show-more paging (§3)** — user-approved deferral; truncated results state an
+  honest "Results limited to first N matches" instead of an active pager. Wire
+  `onShowMore` + offset paging when adding it.
+- **Line-targeted `openFileInTab`** — controller `onOpenFile` drops the `line`
+  arg (`IdeFileEditorContext` accepts only the compositeKey). Extend that seam to
+  scroll the opened tab to the match line.
+- **Nightly seeded-fixture E2E** — the results→selection round trip (seed an
+  indexed fixture → Search → assert a treegrid result row + checkbox drives
+  selection); the fast smokes only assert mount/wire + honest error state.
+- **Assistant grep tool carries chunk metadata** — `GrepMatch` now includes
+  `chunkId`/`chunkStartLine`/`chunkEndLine` (needed by workspace-search text
+  mode); consider stripping these in the assistant tool-result mapping so they
+  don't spend the tool-output token budget.
+- **Root-barrel import partially defeats code-split** — app-shell statically
+  imports `@brainstrike/workspace-search` (controller + the factory-reset store
+  registration in root-layout-content), pulling the panel into the main bundle
+  and defeating the lazy split in `explorer-search-tabs.tsx`. A `core` subpath
+  export (store/model only) would let always-mounted code register without the
+  panel/UI graph.
+- **Picker zero-sets label** — the collection picker's empty-state copy when no
+  embedding sets exist.
 
 ## 9. Key existing seams (reference)
 

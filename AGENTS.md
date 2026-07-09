@@ -467,6 +467,40 @@ Adding/renaming an assistant native tool is multi-registry: zod schema + schemaM
 
 ---
 
+## WORKSPACE SEARCH
+
+The Explorer|Search panel (`packages/workspace-search`, composed by
+`packages/app-shell/src/use-workspace-search-controller.ts` +
+`explorer-search-tabs.tsx`).
+
+- **Renderer-only execution.** BOTH modes (text/grep and semantic) query the DB
+  from the renderer via the platform repositories — NO assistant-server
+  dependency. Text mode uses `GrepSearchService`; the controller prefers the
+  platform `chunkRepository` when it exposes `findGrepCandidates` (desktop's
+  ElectronFileChunkRepository) and falls back to a query-only PGlite
+  `FileChunkRepository` on web.
+- **Always workspace-scoped.** Every query passes `rootIds` = live mounted
+  workspace roots (`rootIdentity.workspaceDbRootIds`); legacy NULL-root rows are
+  excluded. Empty rootIds = no results (never an unscoped scan).
+- **In-flight invalidation.** The session store (`workspace-search-store.ts`)
+  carries a monotonic `generation`; `beginSearch` + every mode/collection/toggle
+  change increment it, and `resolveResults`/`failSearch` no-op unless the
+  generation still matches — a superseded run can never clobber fresher state.
+- **Bridge invariant (no silent data loss).** `use-search-selection-bridge.ts`
+  writes ONLY explorer file-selection + search-managed `tapestryRangesByKey`; it
+  NEVER mutates/removes `userModified` Tapestry ranges. The curation store's
+  snapshot producer remains the preview panel. Chunk check→uncheck is idempotent:
+  unchecking the last active range also deselects the file (else a zero-range
+  selected file reads as whole-file 'checked').
+- **Session-only.** The store is not persisted; it is reset on factory reset via
+  the `registerFactoryResetSessionStore` seam (app-shell registers it — see
+  FACTORY RESET CONTRACT). The active Explorer|Search tab persists in
+  context-explorer-layout-store v3 (`explorerActiveTab`).
+
+When changing this flow, update this section and the paired tests.
+
+---
+
 ## CONTEXT USAGE METER (TOKEN AWARENESS)
 
 One derivation feeds three consumers per request — keep them consistent:

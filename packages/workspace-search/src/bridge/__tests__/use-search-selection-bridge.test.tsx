@@ -118,6 +118,40 @@ describe('useSearchSelectionBridge', () => {
     expect(curationState().tapestryRangesByKey[KEY]).toEqual([userRange]);
   });
 
+  it('check -> uncheck round trip on an unselected file ends unselected + chunk unchecked', () => {
+    const { result } = renderBridge();
+    const chunk = { endLine: 14, startLine: 10 };
+    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
+
+    // toggleChunk(true) auto-selects the file and writes a search-managed range.
+    act(() => result.current.bridge.toggleChunk(KEY, chunk, true));
+    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
+
+    // toggleChunk(false) removes the only range AND must deselect the file so the
+    // round trip is idempotent (no zero-range whole-file 'checked' collapse).
+    act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
+    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
+    expect(result.current.store.getState().selectedFilePaths.has(KEY)).toBe(false);
+    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('unchecked');
+  });
+
+  it('check -> uncheck round trip keeps the file selected when a userModified range remains', () => {
+    const { result } = renderBridge();
+    const chunk = { endLine: 14, startLine: 10 };
+    const userRange = makeRange({ endLine: 30, id: 'u', startLine: 25, userModified: true });
+
+    // Pre-existing hand-curated range on a selected file.
+    act(() => result.current.bridge.toggleFile(KEY, true));
+    act(() => curationState().setTapestryRangesForKey(KEY, [userRange]));
+
+    act(() => result.current.bridge.toggleChunk(KEY, chunk, true));
+    act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
+
+    // The userModified range survives verbatim and keeps the file selected.
+    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
+    expect(curationState().tapestryRangesByKey[KEY]).toEqual([userRange]);
+  });
+
   it('chunkState reflects both stores live', () => {
     const { result } = renderBridge();
     const chunk = { endLine: 14, startLine: 10 };

@@ -3,6 +3,7 @@ import { type DbHandle, usePGliteDatabase } from '@brainstrike/db';
 import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
+import { registerFactoryResetSessionStore } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
 import {
   type PanelTab,
@@ -19,6 +20,7 @@ import {
   EmbeddingRuntimeProvider,
   IndexingActivityCoordinator,
 } from '@brainstrike/vector-management';
+import { useWorkspaceSearchStore } from '@brainstrike/workspace-search';
 import {
   memo,
   type ReactElement,
@@ -43,6 +45,16 @@ import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
+
+// Wire the session-only workspace-search store into the factory-reset pipeline
+// per the FACTORY RESET CONTRACT. preferences owns the reset but cannot import
+// workspace-search (cycle), so app-shell (which composes both) registers the
+// resetter here — mirroring how preferences resets its own permission-policy
+// store. Registered at module load so a reset works even if the search panel
+// was never opened this session.
+registerFactoryResetSessionStore(() => {
+  useWorkspaceSearchStore.getState().reset();
+});
 
 interface DebouncedPanelLayoutState {
   readonly showConsole: boolean;

@@ -2452,6 +2452,9 @@ importers:
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../file-explorer-ui
+      '@brainstrike/preferences':
+        specifier: workspace:*
+        version: link:../preferences
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
