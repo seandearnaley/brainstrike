@@ -492,10 +492,14 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
 - **Tree shape (chunk-first).** Text mode is `file → chunk → match`
   (`build-tree-nodes.ts` groups matches by `chunkId`, node id `c:${chunkId}`):
   the CHUNK row carries the only child checkbox (bridge `toggleChunk`/`chunkState`
-  with the chunk bounds), match rows (`m:${chunkId}:${line}`) are navigation-only
+  keyed by `chunkId`), match rows (`m:${chunkId}:${line}`) are navigation-only
   leaves. Semantic mode stays `file → chunk`. The chunk is the single visible
   selection unit — a per-match checkbox flipped its chunk siblings. `resolveResults`
-  default-expands file ids AND every text `c:${chunkId}`.
+  default-expands file ids AND every text `c:${chunkId}`. Every row reserves the
+  expand-toggle column (`reserveToggleSpace` default) so file (depth 0) and chunk
+  (depth 1) checkboxes align per level at `depth*20 + 28`px — a leaf chunk without
+  the reserved spacer would indent LEFT of the file checkbox (pinned in
+  `search-results-tree.test.tsx`).
 - **Line-targeted open.** Row click → `onOpenFile(compositeKey, line)` →
   controller `openFileInTab(compositeKey, { line })` (ide-layout seam) →
   `workspace-tab-host` records a one-shot `targetLine` (transient, non-persisted
@@ -506,19 +510,27 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   close/reopen, which remounts `CodeSurface` (keyed on `compositeKey`), reads no
   target and falls back to the restored scroll position instead of re-scrolling
   to the stale match line.
-- **Bridge invariant (no silent data loss).** `use-search-selection-bridge.ts`
-  writes ONLY explorer file-selection + `tapestryRangesByKey`, and MUTATES ONLY
-  the ranges it owns: those stamped `origin: 'search'` (see `range-math.ts`
-  `isSearchManaged`). It NEVER mutates/removes `userModified` ranges OR the
-  preview panel's auto-created full-file default (`origin` undefined) — both are
-  preserved verbatim through add/remove and through a file deselect (which clears
-  only `origin:'search'` ranges). The curation store's snapshot producer remains
-  the preview panel. Chunk check→uncheck is idempotent: unchecking the last
-  search-owned range also deselects the file. Explorer-whole-file asymmetry: when
-  a chunk's coverage comes from a NON search-owned range (the default, a
-  userModified range, or the zero-range whole-file 'checked' rule) the model can't
-  express "whole file minus one chunk", so unchecking any single chunk deselects
-  the ENTIRE file instead.
+- **Bridge invariant (set-based, no silent data loss).** The selected-chunk SET
+  is the SOURCE OF TRUTH (`chunk-selection-store.ts`: session-lived
+  `selectionsByKey[compositeKey][chunkId] = {chunkId,startLine,endLine}`). Tapestry
+  ranges are a ONE-WAY derived OUTPUT — after every set mutation
+  `use-search-selection-bridge.ts` re-emits `deriveSearchRanges(setValues)` (spans
+  sorted + merged into the minimal covering set, stamped `origin:'search'`)
+  alongside the preserved non-search ranges. Because ranges are output-only,
+  merging is now SAFE (checkbox state reads the set, never the ranges) — this is
+  the fix for the old subtraction-bleed defect where unchecking one overlapping
+  chunk flipped its sibling. Chunk checkboxes are BINARY (`chunkState` by
+  `chunkId`); the file checkbox is the ONLY tri-state (`fileState`: whole-file
+  `checked` when selected with empty subset, `indeterminate` when a chunk subset
+  exists, else `unchecked`). Whole-file minus one chunk is now expressible:
+  unchecking a chunk under a whole-file selection CONVERTS to "every sibling result
+  chunk except this one" (`toggleChunk`'s 4th arg is the file's full result-chunk
+  list). Search still writes ONLY explorer file-selection + its own
+  `origin:'search'` ranges; `userModified` ranges AND the preview panel's
+  auto-created full-file default (`origin` undefined) are preserved verbatim
+  through every mutation. Round trips are idempotent: emptying the chunk subset
+  (or the last chunk) also deselects the file. The curation store's snapshot
+  producer remains the preview panel.
 - **Not-ready sync guard.** `syncTapestryRanges` (`tapestry-range-sync.ts`) never
   clamps/stretches or records a `previousTotal` baseline for a file whose
   `contentStatus !== 'ready'` — pre-content `totalLines` is an untrusted
