@@ -140,7 +140,7 @@ export const TokenBudgetControl = memo<TokenBudgetControlProps>(function TokenBu
   const triggerButton = (
     <button
       aria-label={tooltipLabel}
-      className={`group flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-accent-foreground/20 hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+      className={`group flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-accent-foreground/20 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
         isEditable ? 'cursor-pointer' : 'cursor-default'
       }`}
       disabled={!isEditable}
