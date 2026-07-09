@@ -119,7 +119,7 @@ describe('IndexingStatusItem', () => {
     expect(status).toHaveAttribute('data-testid', 'indexing-status-item');
     expect(status).toHaveAttribute('aria-atomic', 'true');
     expect(status).toHaveTextContent('Workspace IndexUnavailable');
-    expect(screen.getByText('Workspace Index')).toHaveClass('hidden', 'md:block');
+    expect(screen.getByText('Workspace Index')).toHaveClass('sr-only', 'md:not-sr-only');
     expect(value).toHaveClass('sr-only', 'md:not-sr-only', 'md:w-20', 'tabular-nums');
     expect(screen.getAllByRole('status')).toHaveLength(1);
   });

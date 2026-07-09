@@ -450,7 +450,7 @@ export function IndexingStatusItem() {
             role="status"
           >
             <StatusIcon displayStatus={displayStatus} />
-            <span className="hidden min-w-0 flex-1 truncate md:block">Workspace Index</span>
+            <span className="sr-only min-w-0 flex-1 truncate md:not-sr-only">Workspace Index</span>
             <span
               className={`sr-only shrink-0 truncate text-right font-medium tabular-nums md:not-sr-only ${STATUS_VALUE_WIDTH_CLASS}`}
               data-testid="indexing-status-value"
