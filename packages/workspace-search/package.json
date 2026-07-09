@@ -34,6 +34,7 @@
       "types": "./dist/bridge/chunk-selection-store.d.ts",
       "import": "./dist/bridge/chunk-selection-store.js"
     },
+    "./styles.css": "./styles.css",
     "./workspace-search-store": {
       "types": "./dist/core/workspace-search-store.d.ts",
       "import": "./dist/core/workspace-search-store.js"
