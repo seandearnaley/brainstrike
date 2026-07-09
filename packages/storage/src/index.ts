@@ -2,5 +2,5 @@
 export * from './adapters/memory-storage-adapter.js';
 export * from './adapters/web-storage-adapter.js';
 export * from './factory.js';
-export * from './safe-json-state-storage.js';
+export * from './safe-storage.js';
 export * from './types.js';
