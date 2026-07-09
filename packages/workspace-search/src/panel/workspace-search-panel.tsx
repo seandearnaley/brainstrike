@@ -1,9 +1,8 @@
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import { Button } from '@brainstrike/ui';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { AlertCircle, Loader2, Search } from 'lucide-react';
 import type * as React from 'react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 import { SearchCollectionPicker } from './search-collection-picker';
 import { SearchCoverageBanner } from './search-coverage-banner';
@@ -46,13 +45,9 @@ export function WorkspaceSearchPanel({
   const isRegex = useWorkspaceSearchStore((state) => state.isRegex);
   const wholeWord = useWorkspaceSearchStore((state) => state.wholeWord);
   const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
-  const results = useWorkspaceSearchStore((state) => state.results);
 
   const approxTokens = useWorkspaceContextCurationStore(
     (state) => state.contextSnapshot?.selectedSourceApproxTokens
-  );
-  const tapestryRangesByKey = useWorkspaceContextCurationStore(
-    (state) => state.tapestryRangesByKey
   );
 
   const onSubmit = mode === 'semantic' ? runSemanticSearch : runTextSearch;
@@ -109,23 +104,6 @@ export function WorkspaceSearchPanel({
     }, TEXT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [query, caseSensitive, isRegex, wholeWord, collectionId]);
-
-  const hasChunkRanges = useMemo(() => {
-    if (!results) {
-      return false;
-    }
-    for (const file of results.files) {
-      const adapterRootId = resolveAdapterRootId(file.dbRootId);
-      if (adapterRootId === null) {
-        continue;
-      }
-      const ranges = tapestryRangesByKey[encodeFileSelection(adapterRootId, file.path)];
-      if (ranges && ranges.length > 0) {
-        return true;
-      }
-    }
-    return false;
-  }, [results, tapestryRangesByKey, resolveAdapterRootId]);
 
   const handleRetry = useCallback(() => {
     onSubmit();
@@ -191,9 +169,8 @@ export function WorkspaceSearchPanel({
       </div>
 
       {/* Fixed footer: selection summary, matching the Explorer footer tone. */}
-      <footer className="flex items-center justify-between border-t bg-gradient-to-t from-muted/20 to-transparent px-3 py-2 text-muted-foreground text-xs">
+      <footer className="flex items-center border-t bg-gradient-to-t from-muted/20 to-transparent px-3 py-2 text-muted-foreground text-xs">
         <span>~{approxTokens ?? 0} tokens selected</span>
-        {hasChunkRanges ? <span>Ranges apply in Tapestry ranges mode</span> : null}
       </footer>
     </div>
   );

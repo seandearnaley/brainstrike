@@ -14,7 +14,7 @@
 | Rangeless selected file in Tapestry | Rendered as an IMPLICIT whole-file state: soft full tint, "Whole file" affordance, NO drag handles/slice chrome. |
 | First refinement (Tapestry drag, or Search chunk check) | Creates explicit ranges; file switches visually to "refined" mode with real slices. |
 | Context assembly (report generator, `listWorkspaceContext`, token summary) | Rangeless → whole file. Ranges present → union of ACTIVE ranges. Per-file, no global switch. |
-| `useTapestryRanges` global toggle | RETIRED. Replaced by per-file semantics + a per-file "Reset to whole file" action (clears that file's ranges). |
+| `useTapestryRanges` global toggle | RETIRED. Replaced by per-file semantics; the existing `TapestryControls` "Reset ranges" button now clears (never re-seeds) each targeted file's ranges instead of restoring a default slice — no new dedicated single-file reset control was added. |
 | Search-managed ranges (`origin:'search'`) | Unchanged: derived one-way from the selected-chunk set; never touch userModified/default ranges (there IS no default range anymore). |
 
 ## 2. What gets deleted (the payoff)
@@ -29,7 +29,7 @@ Clamping of out-of-bounds ranges to real totals stays (content-ready-gated, as l
 ## 3. Blast radius (each site needs a task)
 
 1. `packages/file-explorer-ui/src/utils/tapestry-range-sync.ts` — remove default creation + stretch; keep ready-gated clamp.
-2. `packages/file-explorer-ui/src/tapestry/*` — minimap/view renders implicit-whole-file state for rangeless files; drag-to-create-first-range interaction (today the first range exists to be resized — verify create-by-drag works on an empty file and add it if the interaction assumed the default slice); per-file "Reset to whole file" action.
+2. `packages/file-explorer-ui/src/tapestry/*` — minimap/view renders implicit-whole-file state for rangeless files; drag-to-create-first-range interaction (today the first range exists to be resized — verify create-by-drag works on an empty file and add it if the interaction assumed the default slice); repoint the existing "Reset ranges" control to clear instead of re-seed.
 3. `packages/file-explorer-ui/src/preview/preview-panel.tsx` + `utils/context-selected-token-summary.ts` — snapshot building: rangeless file → whole-file tokens; ranged file → range tokens. Delete useTapestryRanges branches.
 4. `packages/app-shell/src/assistant-ui-panel-wrapper-runtime.ts` (`toRuntimeWorkspaceContext`, `buildAssistantTapestryRange`) — same per-file rule for what the assistant's `listWorkspaceContext` reports.
 5. Report generator — find every consumer of `useTapestryRanges`/`snapshot.files[].ranges` (grep) and convert to the per-file rule.
@@ -40,7 +40,7 @@ Clamping of out-of-bounds ranges to real totals stays (content-ready-gated, as l
 ## 4. UX details
 
 - Implicit whole-file rendering: full-height soft tint in the minimap (distinct from an explicit full-file range's solid slice), label "Whole file", tooltip "Drag to select specific lines".
-- Refined file: existing slice rendering; a "Reset to whole file" button/context action clears ranges (userModified included — it's an explicit user action; confirm-free, undoable by re-dragging).
+- Refined file: existing slice rendering; the pre-existing `TapestryControls` "Reset ranges" button clears ranges for its targeted files (userModified included — it's an explicit user action; confirm-free, undoable by re-dragging) instead of restoring a default slice. Shipped as-is (no new per-file-only reset control); see `preview-panel.tsx`'s `handleResetTapestryRanges`.
 - Search panel footer note ("Ranges apply in Tapestry ranges mode") becomes obsolete → remove; token count is now always live-accurate per-file.
 - Explorer/preview flows must FEEL unchanged for pure file-pickers: select files → whole files in context (same as today with the toggle off/on default paths — verify what today's default effectively is and preserve effective behavior for that path).
 
