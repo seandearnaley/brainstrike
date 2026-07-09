@@ -1,13 +1,21 @@
 // Types — all inline type definitions live in types.ts
 
 export {
+  ASSISTANT_TASK_STATUSES,
+  type AssistantTaskItem,
+  type AssistantTaskItemInput,
+  type AssistantTaskListSummary,
+  type AssistantTaskStatus,
+  assignTaskIds,
   decodeFileMentionId,
   encodeFileMentionId,
   FILE_MENTION_DIRECTIVE_TYPE,
   type FileMentionDirective,
+  type ManageTaskListResult,
   type ParsedFileMention,
   parseFileMentionDirectives,
   serializeFileMentionDirective,
+  summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
 export {
   type AssistantToolApprovalAction,
@@ -353,6 +361,8 @@ export {
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
+  type ManageTaskListInput,
+  ManageTaskListInputSchema,
   type QueryEmbeddingSpaceInput,
   QueryEmbeddingSpaceInputSchema,
   type ReadWorkspaceContextInput,

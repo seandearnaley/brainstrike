@@ -325,6 +325,25 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.listWorkspaceContext',
   },
 
+  'brainstrike.manageTaskList': {
+    description:
+      'Record and update a structured plan for the current thread as a task list. Whole-list replace: pass the full desired list every call. Keep exactly one task in_progress and mark tasks completed as you finish them. The list is re-injected into your instructions each turn and shown to the user as a progress checklist.',
+    parameters: [
+      {
+        arrayItemType: 'object',
+        description:
+          'The full task list to store (whole-list replace). Each item is { content (imperative label), activeForm (present-tense in-progress label), status: pending | in_progress | completed }. Maximum 50 tasks.',
+        max: 50,
+        name: 'tasks',
+        required: true,
+        type: 'array',
+      },
+    ],
+    returns:
+      'The stored tasks (with stable server-assigned ids) and a summary of counts by status (total, completed, inProgress, pending)',
+    toolId: 'brainstrike.manageTaskList',
+  },
+
   'brainstrike.queryEmbeddingSpace': {
     description:
       'Query semantic workspace context. Omit embeddingSetId for codebase searches to use the Workspace Index; provide embeddingSetId only to query a specific non-default embedding space.',

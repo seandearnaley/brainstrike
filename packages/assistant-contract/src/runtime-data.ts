@@ -1,3 +1,4 @@
+import type { AssistantTaskItem } from './assistant-task-list.js';
 import type { RuntimeAssistantMemorySettings } from './memory-settings.js';
 
 export type RuntimeJsonObject = Record<string, unknown>;
@@ -162,6 +163,13 @@ export interface RuntimeData {
   selectionFolderId?: string;
   selectionSnapshotId?: string;
   signal?: AbortSignal;
+  /**
+   * The current per-thread assistant task list, read server-side at request
+   * start and re-serialized into the system instructions every turn (see the
+   * `<current-task-list>` block in the agent runtime). Populated server-side
+   * only — the client never sends it.
+   */
+  taskList?: readonly AssistantTaskItem[];
   tokenBudget?: number | null;
   workspaceContext?: RuntimeWorkspaceContextMetadata;
   workspaceIndexBlockedReason?: string | null;

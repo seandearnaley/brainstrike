@@ -11,6 +11,8 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'List available embedding spaces, workspace-index status, and optional coverage statistics',
   'brainstrike.listWorkspaceContext':
     'Inspect the current workspace root, selected context paths, and workspace index hint without reading file contents; compact summary by default, detail: true for per-file Tapestry ranges',
+  'brainstrike.manageTaskList':
+    'Record and update a structured plan for the current thread as a task list (whole-list replace). Each task has content (imperative label), activeForm (present-tense in-progress label), and status pending/in_progress/completed. Keep exactly one task in_progress; mark tasks completed as you finish them. The list is re-shown to you every turn and rendered to the user as a progress checklist',
   'brainstrike.queryEmbeddingSpace':
     'Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default',
   'brainstrike.readWorkspaceContext':

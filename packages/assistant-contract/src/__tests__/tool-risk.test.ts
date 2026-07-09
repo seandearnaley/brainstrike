@@ -164,4 +164,12 @@ describe('buildNativeToolRiskMap', () => {
     expect(first).not.toBe(second);
     expect(first).toEqual(second);
   });
+
+  it("classifies manageTaskList as 'read' so plan updates never suspend for approval", () => {
+    // It is category:'action' (UI/load taxonomy) but mutates only the assistant's
+    // own ephemeral todo list, so its risk bucket must stay 'read'.
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageTaskList']?.category).toBe('action');
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageTaskList']?.requiresApproval).toBe(false);
+    expect(buildNativeToolRiskMap()['brainstrike.manageTaskList']).toBe('read');
+  });
 });

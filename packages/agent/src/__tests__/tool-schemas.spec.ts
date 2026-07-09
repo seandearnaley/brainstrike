@@ -173,6 +173,59 @@ describe('tool schemas', () => {
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeDefined();
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeDefined();
   });
+
+  it('validates manageTaskList input and rejects malformed lists (strict)', () => {
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        tasks: [
+          { activeForm: 'Reading the spec', content: 'Read the spec', status: 'completed' },
+          {
+            activeForm: 'Implementing the parser',
+            content: 'Implement parser',
+            status: 'in_progress',
+          },
+        ],
+      }).ok
+    ).toBe(true);
+    // An empty list is a valid whole-list-replace (clears the plan).
+    expect(validateToolInput('brainstrike.manageTaskList', { tasks: [] }).ok).toBe(true);
+    // Unknown status → rejected.
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        tasks: [{ activeForm: 'Doing', content: 'Do', status: 'blocked' }],
+      }).ok
+    ).toBe(false);
+    // Missing activeForm → rejected.
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        tasks: [{ content: 'Do', status: 'pending' }],
+      }).ok
+    ).toBe(false);
+    // Over the 50-task cap → rejected.
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        tasks: Array.from({ length: 51 }, (_, index) => ({
+          activeForm: `Doing ${index}`,
+          content: `Do ${index}`,
+          status: 'pending' as const,
+        })),
+      }).ok
+    ).toBe(false);
+    // Unknown field → rejected by .strict().
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        bogus: true,
+        tasks: [{ activeForm: 'Doing', content: 'Do', status: 'pending' }],
+      }).ok
+    ).toBe(false);
+  });
+
+  it('documents manageTaskList in schema display metadata', () => {
+    const display = getToolSchemaDisplay('brainstrike.manageTaskList');
+    expect(display).toBeDefined();
+    expect(display?.parameters.find((param) => param.name === 'tasks')?.required).toBe(true);
+    expect(display?.parameters.find((param) => param.name === 'tasks')?.type).toBe('array');
+  });
 });
 
 describe('UpdateWorkspaceTapestrySelectionsInputSchema color', () => {
