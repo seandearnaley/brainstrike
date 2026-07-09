@@ -6,10 +6,13 @@
  * Filename remains `use-report-manager.ts` during the staged report->context migration.
  */
 
+import { createClipboardService } from '@brainstrike/context-actions';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { error as logError } from '@brainstrike/utils/logger';
 import { useCallback } from 'react';
+
+const clipboard = createClipboardService();
 
 type ContextGenerator<O> = (options?: O) => Promise<string>;
 
@@ -165,7 +168,10 @@ export const useReportManager = <A = unknown, O = unknown>({
       executeWithToast(
         options,
         async (context) => {
-          await navigator.clipboard.writeText(context);
+          const outcome = await clipboard.writeText(context);
+          if (!outcome.ok) {
+            throw new Error(outcome.error);
+          }
         },
         FileExplorerStrings.success.contextCopied,
         FileExplorerStrings.error.contextCopyFailed

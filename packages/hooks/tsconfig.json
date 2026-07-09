@@ -29,6 +29,9 @@
   ],
   "references": [
     {
+      "path": "../context-actions"
+    },
+    {
       "path": "../types"
     },
     {

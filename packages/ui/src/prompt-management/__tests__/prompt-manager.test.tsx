@@ -49,6 +49,12 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock('@brainstrike/context-actions', () => ({
+  createClipboardService: () => ({
+    writeText: mocks.clipboardWriteText,
+  }),
+}));
+
 vi.mock('../store', () => ({
   usePromptStore: () => mocks.store,
 }));
@@ -216,17 +222,12 @@ describe('PromptManager', () => {
     mocks.store.toggleFavorite.mockReset();
     mocks.toast.mockReset();
     mocks.clipboardWriteText.mockReset();
-    mocks.clipboardWriteText.mockResolvedValue(undefined);
+    mocks.clipboardWriteText.mockResolvedValue({ ok: true });
 
     vi.stubGlobal('confirm', vi.fn().mockReturnValueOnce(false).mockReturnValue(true));
-    vi.stubGlobal('navigator', {
-      clipboard: {
-        writeText: mocks.clipboardWriteText,
-      },
-    });
   });
 
-  it('wires prompt actions, create flow, and edit flow', () => {
+  it('wires prompt actions, create flow, and edit flow', async () => {
     render(<PromptManager />);
 
     fireEvent.click(screen.getByText('mock-filter'));
@@ -237,9 +238,11 @@ describe('PromptManager', () => {
 
     fireEvent.click(screen.getByText('mock-copy'));
     expect(mocks.clipboardWriteText).toHaveBeenCalledWith('copied content');
-    expect(mocks.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Copied to clipboard' })
-    );
+    await vi.waitFor(() => {
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Copied to clipboard' })
+      );
+    });
 
     fireEvent.click(screen.getByText('mock-delete'));
     expect(mocks.store.deletePrompt).not.toHaveBeenCalled();
@@ -326,6 +329,30 @@ describe('PromptManager', () => {
 
     fireEvent.click(screen.getByText('mock-close-editor'));
     expect(screen.queryByText('editing-prompt-1')).not.toBeInTheDocument();
+  });
+
+  it('surfaces clipboard failures instead of claiming success', async () => {
+    mocks.clipboardWriteText.mockResolvedValue({
+      error: 'Desktop clipboard bridge rejected the write',
+      ok: false,
+    });
+
+    render(<PromptManager />);
+
+    fireEvent.click(screen.getByText('mock-copy'));
+    expect(mocks.clipboardWriteText).toHaveBeenCalledWith('copied content');
+    await vi.waitFor(() => {
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: 'Desktop clipboard bridge rejected the write',
+          title: 'Copy failed',
+          variant: 'destructive',
+        })
+      );
+    });
+    expect(mocks.toast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Copied to clipboard' })
+    );
   });
 
   it('does not version unchanged full model settings and versions optional setting edits', () => {
