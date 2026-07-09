@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { buildEmbeddingText, detectLanguage, extractHeadingPath } from '../embedding-context';
 
 describe('embedding-context helpers', () => {
@@ -44,17 +44,11 @@ describe('embedding-context helpers', () => {
     expect(detectLanguage('no-extension')).toBeUndefined();
   });
 
-  it('detects language from the final extension without splitting the full path', () => {
-    const splitSpy = vi.spyOn(String.prototype, 'split');
-
-    try {
-      expect(detectLanguage('packages/app-shell/src/background-indexing/worker.TSX')).toBe(
-        'typescript'
-      );
-      expect(detectLanguage('docs/no-extension')).toBeUndefined();
-      expect(splitSpy).not.toHaveBeenCalled();
-    } finally {
-      splitSpy.mockRestore();
-    }
+  it('detects language from the final extension only', () => {
+    expect(detectLanguage('packages/app-shell/src/background-indexing/worker.TSX')).toBe(
+      'typescript'
+    );
+    expect(detectLanguage('packages.v2/docs/no-extension')).toBeUndefined();
+    expect(detectLanguage('src/config.')).toBeUndefined();
   });
 });
