@@ -326,7 +326,7 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     ).resolves.toBe('example.ts content');
   });
 
-  it('returns empty directory listings for unknown fixture paths and can short-circuit streaming when aborted', async () => {
+  it('returns empty directory listings for unknown fixture paths', async () => {
     const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
     await adapter.loadInlineFixture(FIXTURE);
 
@@ -337,23 +337,32 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
       platform: 'web',
     };
     await expect(adapter.readDirectory(unknownDir)).resolves.toEqual([]);
+  });
+
+  it('rejects fixture streaming with the exact reason without emitting completion when aborted', async () => {
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    await adapter.loadInlineFixture(FIXTURE);
 
     const abortedController = new AbortController();
-    abortedController.abort();
+    const abortReason = new Error('fixture enumeration cancelled');
+    abortedController.abort(abortReason);
     const streamed: Array<{ done: boolean; total: number }> = [];
-    await adapter.readDirectoryStreaming?.(
-      {
-        kind: 'directory',
-        name: 'src',
-        path: 'fixture-root/src',
-        platform: 'web',
-      },
-      (_nodes, meta) => {
-        streamed.push({ done: meta.done, total: meta.total });
-      },
-      { batchSize: 1, signal: abortedController.signal }
-    );
-    expect(streamed).toEqual([{ done: true, total: 0 }]);
+    await expect(
+      adapter.readDirectoryStreaming?.(
+        {
+          kind: 'directory',
+          name: 'src',
+          path: 'fixture-root/src',
+          platform: 'web',
+        },
+        (_nodes, meta) => {
+          streamed.push({ done: meta.done, total: meta.total });
+        },
+        { batchSize: 1, signal: abortedController.signal }
+      )
+    ).rejects.toBe(abortReason);
+
+    expect(streamed).toEqual([]);
   });
 
   it('restores folders from fixture when active and delegates when inactive', async () => {

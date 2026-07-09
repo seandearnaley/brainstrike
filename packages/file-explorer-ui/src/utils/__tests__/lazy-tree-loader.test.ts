@@ -453,13 +453,14 @@ describe('lazy-tree-loader', () => {
       const adapter = createMockAdapter([]);
       const parentNode = createDirectoryNode({ path: '/root/parent' });
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled child enumeration');
+      abortController.abort(abortReason);
 
       await expect(
         loadDirectoryChildrenStreaming(adapter, parentNode, vi.fn(), {
           abortSignal: abortController.signal,
         })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
     });
   });
 
@@ -531,13 +532,43 @@ describe('lazy-tree-loader', () => {
       const adapter = createMockAdapter([]);
       const handle = createDirectoryHandle();
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled root enumeration');
+      abortController.abort(abortReason);
 
       await expect(
         loadRootDirectoryStreaming(adapter, handle, vi.fn(), {
           abortSignal: abortController.signal,
         })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+    });
+
+    it('propagates cancellation after a partial batch without emitting successful completion', async () => {
+      const adapter = createMockAdapter();
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      const abortReason = new DOMException('Directory enumeration cancelled', 'AbortError');
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch, options) => {
+        onBatch([createFileNode({ name: 'partial.ts', path: '/root/partial.ts' })], {
+          done: false,
+          total: 1,
+        });
+        abortController.abort(abortReason);
+        options?.signal?.throwIfAborted();
+      });
+      const batches: Array<{ done: boolean; names: string[] }> = [];
+
+      await expect(
+        loadRootDirectoryStreaming(
+          adapter,
+          handle,
+          (nodes, meta) => {
+            batches.push({ done: meta.done, names: nodes.map((node) => node.name) });
+          },
+          { abortSignal: abortController.signal }
+        )
+      ).rejects.toBe(abortReason);
+
+      expect(batches).toEqual([{ done: false, names: ['partial.ts'] }]);
     });
   });
 

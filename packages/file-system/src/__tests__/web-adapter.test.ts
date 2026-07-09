@@ -969,7 +969,7 @@ describe('WebFileSystemAdapter', () => {
       expect(splitSpy).not.toHaveBeenCalled();
     });
 
-    it('streams an empty final batch for empty directories and stops when aborted', async () => {
+    it('streams an empty final batch for empty directories', async () => {
       async function* emptyEntries() {}
       const emptyDirHandle = {
         entries: emptyEntries,
@@ -990,15 +990,18 @@ describe('WebFileSystemAdapter', () => {
       );
 
       expect(emptyBatchSpy).toHaveBeenCalledWith([], { done: true, total: 0 });
+    });
 
+    it('rejects with the signal reason without emitting completion when aborted', async () => {
       const abortController = new AbortController();
+      const abortReason = new DOMException('Directory enumeration cancelled', 'AbortError');
       const fileHandle = {
         getFile: vi.fn(),
         kind: 'file',
         name: 'skipped.txt',
       } as unknown as FileSystemFileHandle;
       async function* abortedEntries() {
-        abortController.abort();
+        abortController.abort(abortReason);
         yield ['skipped.txt', fileHandle];
       }
       const abortedDirHandle = {
@@ -1008,20 +1011,49 @@ describe('WebFileSystemAdapter', () => {
       } as unknown as FileSystemDirectoryHandle;
       const abortedBatchSpy = vi.fn();
 
-      await adapter.readDirectoryStreaming(
-        {
-          _internal: abortedDirHandle,
-          kind: 'directory',
-          name: 'root',
-          path: 'root',
-          platform: 'web',
-        },
-        abortedBatchSpy,
-        { signal: abortController.signal }
-      );
+      await expect(
+        adapter.readDirectoryStreaming(
+          {
+            _internal: abortedDirHandle,
+            kind: 'directory',
+            name: 'root',
+            path: 'root',
+            platform: 'web',
+          },
+          abortedBatchSpy,
+          { signal: abortController.signal }
+        )
+      ).rejects.toBe(abortReason);
 
-      expect(abortedBatchSpy).toHaveBeenCalledWith([], { done: true, total: 0 });
+      expect(abortedBatchSpy).not.toHaveBeenCalled();
       expect(fileHandle.getFile).not.toHaveBeenCalled();
+    });
+
+    it('rejects a pre-aborted read with the exact signal reason', async () => {
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled before enumeration');
+      abortController.abort(abortReason);
+      const dirHandle = {
+        entries: vi.fn(),
+        kind: 'directory',
+        name: 'root',
+      } as unknown as FileSystemDirectoryHandle;
+
+      await expect(
+        adapter.readDirectoryStreaming(
+          {
+            _internal: dirHandle,
+            kind: 'directory',
+            name: 'root',
+            path: 'root',
+            platform: 'web',
+          },
+          vi.fn(),
+          { signal: abortController.signal }
+        )
+      ).rejects.toBe(abortReason);
+
+      expect(dirHandle.entries).not.toHaveBeenCalled();
     });
   });
 
