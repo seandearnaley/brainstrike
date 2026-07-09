@@ -7,8 +7,29 @@ export interface ShellIpcResult {
 }
 
 interface ShellLike {
+  openExternal: (url: string) => Promise<void>;
   openPath: (target: string) => Promise<string>;
   showItemInFolder: (target: string) => void;
+}
+
+const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+
+export function validateExternalUrl(
+  value: unknown
+): { ok: true; url: string } | { ok: false; error: string } {
+  if (typeof value !== 'string' || value.length === 0) {
+    return { error: 'URL must be a non-empty string', ok: false };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return { error: 'Invalid URL', ok: false };
+  }
+  if (!ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol)) {
+    return { error: `Blocked protocol: ${parsed.protocol}`, ok: false };
+  }
+  return { ok: true, url: parsed.toString() };
 }
 
 interface ShellIpcDependencies {
@@ -75,6 +96,18 @@ export function createShellIpcHandlers({
   statPath = fsPromises.stat,
 }: ShellIpcDependencies) {
   return {
+    openExternal: async (url: unknown): Promise<ShellIpcResult> => {
+      const validated = validateExternalUrl(url);
+      if (!validated.ok) {
+        return { error: validated.error, ok: false };
+      }
+      try {
+        await shell.openExternal(validated.url);
+        return { ok: true };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
     openPath: async (rawPath: unknown): Promise<ShellIpcResult> => {
       const absolutePath = validateAbsolutePath(rawPath);
       if (!absolutePath) {

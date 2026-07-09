@@ -107,6 +107,7 @@ export const DESKTOP_IPC_CHANNELS = {
     save: 'secrets:save',
   },
   shell: {
+    openExternal: 'shell:open-external',
     openPath: 'shell:open-path',
     showItemInFolder: 'shell:show-item-in-folder',
   },

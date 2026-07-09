@@ -298,6 +298,7 @@ declare global {
       ) => () => void;
     };
     platform?: {
+      openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
       openPath: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
       showItemInFolder: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
     };
