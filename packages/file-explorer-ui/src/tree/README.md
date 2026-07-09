@@ -2,7 +2,7 @@
 
 ## Ownership
 
-Owns tree rendering, virtualized rows, lazy loading, file-tree provider state, file-tree index helpers, row-level selection behavior, and tree selection-count projections.
+Owns tree rendering (via shared TreeTable treegrid primitives from `@brainstrike/ui`), lazy loading, file-tree provider state, file-tree index helpers, row-level selection behavior, and tree selection-count projections. Do not reintroduce a local virtual-list hook — TreeTable is the canonical treegrid (see root AGENTS.md TREEGRID CONVERGENCE CONTRACT).
 
 Top churn owned here:
 - `optimized-file-tree.tsx`
@@ -24,5 +24,5 @@ Allowed inward dependencies are shell store selectors, file-tree-worker helpers,
 ## Focused local test
 
 ```bash
-pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/optimized-file-tree.test.tsx src/__tests__/optimized-file-tree-selection.test.tsx src/__tests__/optimized-file-tree-query-expansion.test.tsx src/__tests__/optimized-file-tree-selection-mutations.test.tsx src/__tests__/file-tree-provider.test.tsx src/__tests__/use-file-tree-context.test.ts src/__tests__/use-virtual-list.test.tsx
+pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/optimized-file-tree.test.tsx src/__tests__/optimized-file-tree-selection.test.tsx src/__tests__/optimized-file-tree-query-expansion.test.tsx src/__tests__/optimized-file-tree-selection-mutations.test.tsx src/__tests__/file-tree-provider.test.tsx src/__tests__/use-file-tree-context.test.ts
 ```
