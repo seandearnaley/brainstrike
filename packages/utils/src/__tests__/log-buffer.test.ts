@@ -251,10 +251,26 @@ describe('LogBuffer', () => {
       expect(buffer.getRecords()[0]?.args[0]).not.toBe(arg);
     });
 
+    it('preserves circular references when full cloning with structuredClone', () => {
+      const buffer = new LogBuffer({ maxArgSize: 0 });
+      const arg: Record<string, unknown> = { name: 'cycle' };
+      arg['self'] = arg;
+
+      buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [arg]));
+
+      const cloned = buffer.getRecords()[0]?.args[0] as Record<string, unknown>;
+      expect(cloned).not.toBe(arg);
+      expect(cloned['name']).toBe('cycle');
+      expect(cloned['self']).toBe(cloned);
+    });
+
     it('stringifies unclonable objects when full cloning fails', () => {
       const buffer = new LogBuffer({ maxArgSize: 0 });
-      const arg: Record<string, unknown> = {};
-      arg['self'] = arg;
+      const arg = {
+        fn() {
+          return 'nope';
+        },
+      };
 
       buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [arg]));
 

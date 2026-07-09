@@ -47,7 +47,13 @@ function hasArrayOutput(value: unknown): value is { output: unknown[] } {
 }
 
 function cloneJson<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  // Prefer structuredClone (matches JSONB round-trip semantics for plain data).
+  // Fall back to JSON for non-cloneable caller-supplied step results (functions, etc.).
+  try {
+    return structuredClone(value);
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
 }
 
 function toDate(value: Date | string): Date {

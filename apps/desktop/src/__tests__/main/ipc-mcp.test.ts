@@ -192,6 +192,68 @@ describe('ipc-mcp handlers', () => {
     });
   });
 
+  describe('mcp:tools:list serialization', () => {
+    it('returns a structured-cloneable deep copy that does not alias registry metadata', async () => {
+      const handler = handlers.get('mcp:tools:list');
+      if (!handler) {
+        throw new Error('tools:list handler not registered');
+      }
+
+      const registryTools = {
+        filesystem: [
+          {
+            description: 'Read a file',
+            discoveredAt: 1,
+            enabled: true,
+            id: 'filesystem.read_file',
+            inputSchema: {
+              properties: { path: { type: 'string' } },
+              required: ['path'],
+              type: 'object',
+            },
+            serverName: 'filesystem',
+          },
+        ],
+      };
+      const getAllToolsSpy = vi
+        .spyOn(mcpToolRegistry, 'getAllTools')
+        .mockReturnValue(registryTools);
+
+      try {
+        const listed = (await handler()) as typeof registryTools;
+
+        expect(listed).toEqual(registryTools);
+        expect(listed).not.toBe(registryTools);
+        expect(listed.filesystem[0]).not.toBe(registryTools.filesystem[0]);
+        expect(listed.filesystem[0]?.inputSchema).not.toBe(
+          registryTools.filesystem[0]?.inputSchema
+        );
+
+        // Electron IPC uses the structured-clone algorithm; success here means the payload
+        // is safe to send without JSON stripping.
+        expect(() => structuredClone(listed)).not.toThrow();
+
+        const listedTool = listed.filesystem[0];
+        if (!listedTool) {
+          throw new Error('expected filesystem tool in list payload');
+        }
+        listedTool.enabled = false;
+        listedTool.description = 'mutated';
+        listedTool.inputSchema.required.push('extra');
+
+        expect(registryTools.filesystem[0]?.enabled).toBe(true);
+        expect(registryTools.filesystem[0]?.description).toBe('Read a file');
+        expect(registryTools.filesystem[0]?.inputSchema).toEqual({
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+          type: 'object',
+        });
+      } finally {
+        getAllToolsSpy.mockRestore();
+      }
+    });
+  });
+
   describe('mcp:config:get', () => {
     it('should load config and initialize clients when config exists', async () => {
       const mockConfig = {

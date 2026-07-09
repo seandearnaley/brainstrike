@@ -182,7 +182,7 @@ export class LogBuffer {
     if (this.maxArgSize === 0) {
       // No size limit - do a full clone
       try {
-        return JSON.parse(JSON.stringify(arg));
+        return structuredClone(arg);
       } catch {
         return String(arg);
       }
