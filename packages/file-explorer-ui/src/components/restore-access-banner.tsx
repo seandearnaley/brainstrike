@@ -1,6 +1,5 @@
 import { Button, Card, CardContent } from '@brainstrike/ui';
 import { AlertTriangle, FolderClock, FolderOpen } from 'lucide-react';
-import type * as React from 'react';
 
 export type RestoreAccessBannerVariant = 'pending' | 'denied' | 'stale';
 
@@ -31,13 +30,13 @@ const variantTitle: Record<Exclude<RestoreAccessBannerVariant, 'pending'>, strin
   stale: 'Stored folder is no longer accessible',
 };
 
-export const RestoreAccessBanner: React.FC<RestoreAccessBannerProps> = ({
+export const RestoreAccessBanner = ({
   folderNames,
   variant,
   onRestore,
   onChooseDifferent,
   onDismiss,
-}) => {
+}: RestoreAccessBannerProps) => {
   const description = variantDescription[variant];
   const title = variant === 'pending' ? pendingTitle(folderNames.length) : variantTitle[variant];
   const Icon = variant === 'pending' ? FolderClock : AlertTriangle;

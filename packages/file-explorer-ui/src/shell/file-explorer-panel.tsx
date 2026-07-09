@@ -231,7 +231,7 @@ function runFocusedTreeExpandAll(
  * FileExplorerPanel - Contains the file tree and toolbar
  * This component can be used independently in a panel of an IDE layout
  */
-const FileExplorerPanelInner: React.FC = React.memo(() => {
+const FileExplorerPanelInner = React.memo(() => {
   const { fileSystemAdapter, storageAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const [
@@ -1250,7 +1250,7 @@ FileExplorerPanelInner.displayName = 'FileExplorerPanelInner';
  * so toolbar Expand All / Collapse All can drive every root section's own
  * tree context (the inner panel and the sidebar sections both consume it).
  */
-export const FileExplorerPanel: React.FC = () => (
+export const FileExplorerPanel = () => (
   <ForestTreeActionsProvider>
     <FileExplorerPanelInner />
   </ForestTreeActionsProvider>

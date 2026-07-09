@@ -12,7 +12,7 @@ export interface FileEditorProviderProps {
   value: FileEditorContextValue;
 }
 
-export const FileEditorProvider: React.FC<FileEditorProviderProps> = ({ children, value }) => (
+export const FileEditorProvider = ({ children, value }: FileEditorProviderProps) => (
   <FileEditorContext.Provider value={value}>{children}</FileEditorContext.Provider>
 );
 
