@@ -46,7 +46,10 @@ describe('assistant UI panel architecture', () => {
     // wrappers were replaced by one shared Unstable_TriggerPopoverRoot ("/" and
     // "@" popovers as siblings, not nested), which needed a few extra doc lines
     // on ComposerInputWithTriggers explaining the sibling model.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1730);
+    // Bumped 1730 → 1735 for React.FC → plain function typings: explicit
+    // destructured props + inline type annotations add a few lines per component
+    // without changing runtime behavior.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1735);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
