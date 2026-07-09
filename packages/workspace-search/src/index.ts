@@ -36,6 +36,11 @@ export {
   type WorkspaceSearchStatus,
 } from './core/workspace-search-store';
 export {
+  buildSearchTreeNodes,
+  childNodeId,
+  fileNodeId,
+  type HeadlineSegment,
+  highlightQuery,
   SearchCollectionPicker,
   type SearchCollectionPickerProps,
   SearchCoverageBanner,
@@ -43,4 +48,10 @@ export {
   SearchInputBar,
   type SearchInputBarProps,
   SearchModeToggle,
+  type SearchNodeData,
+  SearchResultsTree,
+  type SearchResultsTreeProps,
+  splitHeadline,
+  WorkspaceSearchPanel,
+  type WorkspaceSearchPanelProps,
 } from './panel';
