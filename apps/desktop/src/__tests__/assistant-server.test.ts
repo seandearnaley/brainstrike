@@ -458,6 +458,20 @@ describe('assistant-server', () => {
       expect(data.error).toBe('forbidden_origin');
     });
 
+    it('should reject arbitrary localhost origins on other ports', async () => {
+      const response = await runRequest({
+        headers: { origin: 'http://localhost:3000' },
+        method: 'GET',
+        url: '/assistant/status',
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
     it('should reject localhost origins over https', async () => {
       const response = await runRequest({
         headers: { origin: `https://localhost:${new URL(DESKTOP_DEV_RENDERER_URL).port}` },

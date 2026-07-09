@@ -24,3 +24,7 @@
 **Vulnerability:** Desktop API keys were saved as base64 plaintext when Electron `safeStorage` encryption was unavailable, and decrypt failures silently fell back to base64 decoding.
 **Learning:** The settings UI already had an `encryption_unavailable` path, but the storage service never threw it; the service fallback weakened stored provider keys instead of refusing the write.
 **Prevention:** Desktop secret storage must require `safeStorage.isEncryptionAvailable()` before writes and must return no secret when encrypted payload decryption fails.
+## 2026-07-09 - Desktop assistant CORS must stay renderer-bound
+**Vulnerability:** The loopback desktop assistant server accepted any `http://localhost:*` Origin, allowing unrelated local web apps to reach provider-backed assistant endpoints.
+**Learning:** Loopback binding is not an origin boundary for browser callers; the assistant server carries ambient desktop authority and stored-provider access.
+**Prevention:** Keep assistant CORS restricted to packaged Electron's `Origin: null` and the configured desktop renderer origin from `DESKTOP_DEV_RENDERER_URL`.

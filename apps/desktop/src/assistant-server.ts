@@ -67,6 +67,7 @@ import {
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
+import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
@@ -660,7 +661,7 @@ const ASSISTANT_CORS_ALLOWED_HEADERS = 'Accept, Content-Type, Last-Event-ID';
 const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
 const ASSISTANT_CORS_ALLOW_CREDENTIALS = 'true';
 const ASSISTANT_CORS_NULL_ORIGIN = 'null';
-const ASSISTANT_CORS_ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+const ASSISTANT_CORS_ALLOWED_RENDERER_ORIGIN = new URL(DESKTOP_DEV_RENDERER_URL).origin;
 
 function isAllowedAssistantOrigin(origin: string): boolean {
   // Packaged Electron loads from file:// and sends Origin: null.
@@ -678,13 +679,7 @@ function isAllowedAssistantOrigin(origin: string): boolean {
     return false;
   }
 
-  const isHttpProtocol = parsedOrigin.protocol === 'http:';
-  if (!isHttpProtocol) {
-    return false;
-  }
-
-  // Intentionally allow any localhost port to support custom dev port mappings.
-  return ASSISTANT_CORS_ALLOWED_HOSTS.has(parsedOrigin.hostname);
+  return parsedOrigin.origin === ASSISTANT_CORS_ALLOWED_RENDERER_ORIGIN;
 }
 
 function resolveRequestOrigin(req: http.IncomingMessage): string {
