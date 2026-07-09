@@ -32,6 +32,12 @@ export interface UseTreeKeyboardOptions<T> {
   multiSelectedIds?: Set<string>;
   /** All tree nodes (for parent/child lookup) */
   nodes: TreeNode<T>[];
+  /**
+   * Optional Space handler for pluggable checkboxes.
+   * Return true when the key was handled so the default multi-select
+   * Space toggle is skipped.
+   */
+  onCheckboxSpace?: (nodeId: string) => boolean;
   /** Callback when multi-selection changes */
   onMultiSelectChange?: (ids: Set<string>) => void;
   /** Callback when a node should be scrolled into view */
@@ -75,6 +81,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     onSelect,
     multiSelectedIds = EMPTY_MULTI_SELECTED_IDS,
     onMultiSelectChange,
+    onCheckboxSpace,
     isTableFocused = true,
     onScrollToNode,
   } = options;
@@ -408,12 +415,15 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
 
   // Handle space key action
   const handleSpaceKey = React.useCallback(() => {
+    if (focusedId && onCheckboxSpace?.(focusedId)) {
+      return;
+    }
     if (selectionMode === 'multi') {
       toggleFocused();
     } else {
       selectFocused();
     }
-  }, [selectionMode, toggleFocused, selectFocused]);
+  }, [focusedId, onCheckboxSpace, selectionMode, toggleFocused, selectFocused]);
 
   // Activate navigation on first arrow key press
   const activateNavigation = React.useCallback(() => {
