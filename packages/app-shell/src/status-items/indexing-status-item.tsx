@@ -24,6 +24,7 @@ import {
 } from '@brainstrike/ui';
 import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { CirclePause, Database, Loader2, TriangleAlert } from 'lucide-react';
+import { useId } from 'react';
 
 const STATUS_VALUE_WIDTH_CLASS = 'md:w-20';
 const EMPTY_METRIC_VALUE = '—';
@@ -106,35 +107,35 @@ function getDisplayStatus(args: {
   ) {
     return {
       busy: false,
-      toneClassName: 'text-amber-700 dark:text-amber-300',
+      toneClassName: 'text-amber-800 dark:text-amber-300',
       value: 'Blocked',
     };
   }
   if (snapshot.status === 'error' || managedStats.status === 'error') {
     return {
       busy: false,
-      toneClassName: 'text-amber-700 dark:text-amber-300',
+      toneClassName: 'text-amber-800 dark:text-amber-300',
       value: 'Issue',
     };
   }
   if (paused || syncStatus.state === 'paused' || snapshot.status === 'paused') {
-    return { busy: false, toneClassName: 'text-red-700 dark:text-red-300', value: 'Paused' };
+    return { busy: false, toneClassName: 'text-red-800 dark:text-red-300', value: 'Paused' };
   }
   if (snapshot.activeBackfills.some((backfill) => backfill.source === 'manual')) {
     return {
       busy: true,
-      toneClassName: 'text-sky-700 dark:text-sky-300',
+      toneClassName: 'text-sky-800 dark:text-sky-300',
       value: 'Backfilling',
     };
   }
   const syncValue = formatSyncState(syncStatus.state);
   if (syncValue) {
-    return { busy: true, toneClassName: 'text-sky-700 dark:text-sky-300', value: syncValue };
+    return { busy: true, toneClassName: 'text-sky-800 dark:text-sky-300', value: syncValue };
   }
   if (snapshot.status === 'active') {
     return {
       busy: true,
-      toneClassName: 'text-sky-700 dark:text-sky-300',
+      toneClassName: 'text-sky-800 dark:text-sky-300',
       value: formatSnapshotActivity(snapshot),
     };
   }
@@ -146,7 +147,7 @@ function getDisplayStatus(args: {
   }
   return {
     busy: false,
-    toneClassName: 'text-emerald-700 dark:text-emerald-300',
+    toneClassName: 'text-emerald-800 dark:text-emerald-300',
     value: 'Ready',
   };
 }
@@ -421,6 +422,7 @@ function IndexingActivityRegion({
 }
 
 export function IndexingStatusItem() {
+  const popoverTitleId = useId();
   const snapshot = useIndexingActivityStore((state) => state.snapshot);
   const managedStats = useIndexingActivityStore((state) => state.managedCollectionStats);
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
@@ -452,6 +454,15 @@ export function IndexingStatusItem() {
 
   return (
     <Popover>
+      <span
+        aria-atomic="true"
+        aria-live="polite"
+        className="sr-only"
+        data-testid="indexing-status-announcement"
+        role="status"
+      >
+        Workspace Index status: {displayStatus.value}
+      </span>
       <PopoverTrigger asChild>
         <button
           aria-label={`Workspace Index status: ${displayStatus.value}. Open indexing activity`}
@@ -460,10 +471,8 @@ export function IndexingStatusItem() {
           type="button"
         >
           <span
-            aria-atomic="true"
             className={`flex w-full items-center gap-1.5 ${displayStatus.toneClassName}`}
             data-testid="indexing-status-item"
-            role="status"
           >
             <StatusIcon displayStatus={displayStatus} />
             <span className="sr-only min-w-0 flex-1 truncate md:not-sr-only">Workspace Index</span>
@@ -479,6 +488,7 @@ export function IndexingStatusItem() {
 
       <PopoverContent
         align="end"
+        aria-labelledby={popoverTitleId}
         className="h-[min(32rem,var(--radix-popover-content-available-height))] w-[min(32rem,calc(100vw-1rem))] overflow-y-auto p-0"
         collisionPadding={8}
         data-testid="indexing-status-popover"
@@ -488,7 +498,9 @@ export function IndexingStatusItem() {
         <div className="border-b bg-muted/20 px-4 py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="font-semibold text-sm">Workspace Index</div>
+              <div className="font-semibold text-sm" id={popoverTitleId}>
+                Workspace Index
+              </div>
               <div className="truncate text-muted-foreground text-xs" title={collectionName}>
                 {collectionName}
               </div>

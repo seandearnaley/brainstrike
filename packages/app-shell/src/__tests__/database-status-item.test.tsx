@@ -23,17 +23,17 @@ describe('DatabaseStatusItem', () => {
   it('announces meaningful database connection transitions', () => {
     render(<DatabaseStatusItem />);
 
-    expect(screen.getByRole('status')).toHaveTextContent('Storage:Connecting...');
+    expect(screen.getByRole('status')).toHaveTextContent('Storage connecting');
 
     act(() => {
       useDatabaseStatusStore.getState().setConnected('Main Process', 'Connected (IPC)');
     });
-    expect(screen.getByRole('status')).toHaveTextContent('Storage: IPC');
+    expect(screen.getByRole('status')).toHaveTextContent('Storage connected: IPC');
 
     act(() => {
-      useDatabaseStatusStore.getState().setDisconnected('Unknown', 'Connection failed');
+      useDatabaseStatusStore.getState().setDisconnected('Main Process', 'Connection failed');
     });
-    expect(screen.getByRole('status')).toHaveTextContent('Storage: Unknown');
+    expect(screen.getByRole('status')).toHaveTextContent('Storage disconnected: IPC');
   });
 
   it('shows connected state with IPC location', () => {

@@ -68,6 +68,22 @@ describe('StatusBarItem', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Storage: IPC');
   });
 
+  it('uses explicit announcement text without duplicating compact visual content', () => {
+    render(
+      <StatusBarItem
+        announce
+        announcement="Storage connected: IPC"
+        label="Storage: IPC"
+        testId="test-item"
+      />
+    );
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Storage connected: IPC');
+    expect(screen.getByText('Storage connected: IPC')).toHaveClass('sr-only');
+    expect(screen.getByText('Storage: IPC').closest('[aria-hidden="true"]')).not.toBeNull();
+  });
+
   describe('Snapshots', () => {
     it('renders connected status', () => {
       const { container } = render(

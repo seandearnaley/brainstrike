@@ -100,11 +100,12 @@ describe('IndexingStatusItem', () => {
     });
   });
 
-  it('keeps one coarse live status in a fixed-width interactive trigger', () => {
+  it('keeps one coarse live status outside a fixed-width interactive trigger', () => {
     render(<IndexingStatusItem />);
 
     const trigger = screen.getByTestId('indexing-status-trigger');
     const status = screen.getByRole('status');
+    const visualStatus = screen.getByTestId('indexing-status-item');
     const value = screen.getByTestId('indexing-status-value');
 
     expect(trigger).toHaveClass(
@@ -116,12 +117,23 @@ describe('IndexingStatusItem', () => {
       'focus-visible:ring-1',
       'focus-visible:ring-inset'
     );
-    expect(status).toHaveAttribute('data-testid', 'indexing-status-item');
+    expect(status).toHaveAttribute('data-testid', 'indexing-status-announcement');
     expect(status).toHaveAttribute('aria-atomic', 'true');
-    expect(status).toHaveTextContent('Workspace IndexUnavailable');
-    expect(screen.getByText('Workspace Index')).toHaveClass('sr-only', 'md:not-sr-only');
+    expect(status).toHaveTextContent('Workspace Index status: Unavailable');
+    expect(status.closest('button')).toBeNull();
+    expect(visualStatus).not.toHaveAttribute('role');
+    expect(within(visualStatus).getByText('Workspace Index')).toHaveClass(
+      'sr-only',
+      'md:not-sr-only'
+    );
     expect(value).toHaveClass('sr-only', 'md:not-sr-only', 'md:w-20', 'tabular-nums');
     expect(screen.getAllByRole('status')).toHaveLength(1);
+
+    act(() => {
+      useBackgroundIndexingPreferencesStore.setState({ paused: true });
+    });
+
+    expect(status).toHaveTextContent('Workspace Index status: Paused');
   });
 
   it('uses contrast-safe semantic tones in light and dark themes', () => {
@@ -140,14 +152,14 @@ describe('IndexingStatusItem', () => {
 
     const status = screen.getByTestId('indexing-status-item');
     expect(status).toHaveTextContent('Workspace IndexReady');
-    expect(status).toHaveClass('text-emerald-700', 'dark:text-emerald-300');
+    expect(status).toHaveClass('text-emerald-800', 'dark:text-emerald-300');
 
     act(() => {
       useBackgroundIndexingPreferencesStore.setState({ paused: true });
     });
 
     expect(status).toHaveTextContent('Workspace IndexPaused');
-    expect(status).toHaveClass('text-red-700', 'dark:text-red-300');
+    expect(status).toHaveClass('text-red-800', 'dark:text-red-300');
   });
 
   it('unifies managed counts, sync progress, queue activity, and diagnostics', async () => {
@@ -234,12 +246,13 @@ describe('IndexingStatusItem', () => {
       'Workspace IndexBackfilling'
     );
     expect(screen.getByTestId('indexing-status-item')).toHaveClass(
-      'text-sky-700',
+      'text-sky-800',
       'dark:text-sky-300'
     );
     await userEvent.click(screen.getByTestId('indexing-status-trigger'));
 
     const popover = await screen.findByTestId('indexing-status-popover');
+    expect(screen.getByRole('dialog', { name: 'Workspace Index' })).toBe(popover);
     expect(popover.className).toContain('w-[min(32rem,calc(100vw-1rem))]');
     expect(popover.className).toContain(
       'h-[min(32rem,var(--radix-popover-content-available-height))]'
@@ -341,7 +354,7 @@ describe('IndexingStatusItem', () => {
 
     expect(screen.getByTestId('indexing-status-item')).toHaveTextContent('Workspace IndexBlocked');
     expect(screen.getByTestId('indexing-status-item')).toHaveClass(
-      'text-amber-700',
+      'text-amber-800',
       'dark:text-amber-300'
     );
     await userEvent.click(screen.getByTestId('indexing-status-trigger'));

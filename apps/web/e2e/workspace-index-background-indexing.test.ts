@@ -99,6 +99,98 @@ function expectStableRect(
   expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
 }
 
+async function readRenderedContrastRatio(locator: Locator): Promise<number> {
+  return await locator.evaluate((element) => {
+    type Rgba = readonly [red: number, green: number, blue: number, alpha: number];
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) {
+      throw new Error('Canvas 2D context is required to verify rendered color contrast.');
+    }
+
+    const parseColor = (color: string): Rgba => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
+      return [red ?? 0, green ?? 0, blue ?? 0, (alpha ?? 0) / 255];
+    };
+
+    const composite = (foreground: Rgba, background: Rgba): Rgba => {
+      const alpha = foreground[3] + background[3] * (1 - foreground[3]);
+      if (alpha === 0) {
+        return [0, 0, 0, 0];
+      }
+      return [
+        (foreground[0] * foreground[3] + background[0] * background[3] * (1 - foreground[3])) /
+          alpha,
+        (foreground[1] * foreground[3] + background[1] * background[3] * (1 - foreground[3])) /
+          alpha,
+        (foreground[2] * foreground[3] + background[2] * background[3] * (1 - foreground[3])) /
+          alpha,
+        alpha,
+      ];
+    };
+
+    const ancestors: Element[] = [];
+    for (let current: Element | null = element; current; current = current.parentElement) {
+      ancestors.push(current);
+    }
+    let background: Rgba = [255, 255, 255, 1];
+    for (const ancestor of ancestors.reverse()) {
+      background = composite(parseColor(getComputedStyle(ancestor).backgroundColor), background);
+    }
+
+    const foreground = parseColor(getComputedStyle(element).color);
+    const linearize = (channel: number): number => {
+      const normalized = channel / 255;
+      return normalized <= 0.040_45 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = (color: Rgba): number =>
+      0.2126 * linearize(color[0]) + 0.7152 * linearize(color[1]) + 0.0722 * linearize(color[2]);
+    const foregroundLuminance = luminance(foreground);
+    const backgroundLuminance = luminance(background);
+    return (
+      (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+      (Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
+    );
+  });
+}
+
+async function verifySemanticHoverContrasts(page: Page): Promise<void> {
+  const toneClasses = [
+    ['blocked', 'text-amber-800'],
+    ['paused', 'text-red-800'],
+    ['active', 'text-sky-800'],
+    ['ready', 'text-emerald-800'],
+  ] as const;
+  await page.evaluate((tones) => {
+    const probe = document.createElement('div');
+    probe.dataset['testid'] = 'indexing-contrast-probe';
+    probe.className = 'bg-accent';
+    probe.style.position = 'fixed';
+    probe.style.left = '-10000px';
+    for (const [name, className] of tones) {
+      const swatch = document.createElement('span');
+      swatch.dataset['testid'] = `indexing-contrast-${name}`;
+      swatch.className = className;
+      swatch.textContent = name;
+      probe.append(swatch);
+    }
+    document.body.append(probe);
+  }, toneClasses);
+
+  for (const [name] of toneClasses) {
+    const ratio = await readRenderedContrastRatio(page.getByTestId(`indexing-contrast-${name}`));
+    expect(ratio, `${name} tone contrast on the hover surface`).toBeGreaterThanOrEqual(4.5);
+  }
+
+  await page.getByTestId('indexing-contrast-probe').evaluate((element) => element.remove());
+}
+
 async function readWorkspaceIndexStartupSummary(
   page: Page
 ): Promise<WorkspaceIndexStartupSummary | null> {
@@ -201,6 +293,11 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
     await expect(indexingTrigger).toBeVisible({
       timeout: 15_000,
     });
+    const indexingStatus = page.getByTestId('indexing-status-item');
+    expect(await readRenderedContrastRatio(indexingStatus)).toBeGreaterThanOrEqual(4.5);
+    await indexingTrigger.hover();
+    expect(await readRenderedContrastRatio(indexingStatus)).toBeGreaterThanOrEqual(4.5);
+    await verifySemanticHoverContrasts(page);
 
     const triggerBeforePause = await requireBoundingBox(indexingTrigger);
     await indexingTrigger.click();

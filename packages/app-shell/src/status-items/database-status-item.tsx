@@ -18,6 +18,7 @@ export function DatabaseStatusItem() {
     return (
       <StatusBarItem
         announce
+        announcement="Storage connecting"
         icon={Database}
         label="Storage:"
         status="loading"
@@ -33,6 +34,7 @@ export function DatabaseStatusItem() {
   return (
     <StatusBarItem
       announce
+      announcement={`Storage ${connected ? 'connected' : 'disconnected'}: ${displayLocation}`}
       icon={Database}
       label={`Storage: ${displayLocation}`}
       status={connected ? 'connected' : 'disconnected'}

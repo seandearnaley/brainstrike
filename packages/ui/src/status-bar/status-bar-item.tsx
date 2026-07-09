@@ -6,6 +6,8 @@ export type StatusBarItemStatus = 'connected' | 'disconnected' | 'loading' | 'wa
 export interface StatusBarItemProps {
   /** Announce value changes as a polite, atomic live status */
   announce?: boolean;
+  /** Explicit screen-reader text when the compact visual label omits state */
+  announcement?: string;
   /** Additional CSS classes */
   className?: string;
   /** Icon component to display */
@@ -33,6 +35,7 @@ const statusClasses: Record<StatusBarItemStatus, string> = {
  */
 export function StatusBarItem({
   announce = false,
+  announcement,
   icon: Icon,
   label,
   value,
@@ -40,13 +43,8 @@ export function StatusBarItem({
   className,
   testId,
 }: StatusBarItemProps): React.ReactElement {
-  return (
-    <span
-      aria-atomic={announce ? true : undefined}
-      className={cn('flex items-center gap-1', statusClasses[status], className)}
-      data-testid={testId}
-      role={announce ? 'status' : undefined}
-    >
+  const visualContent = (
+    <>
       {Icon && (
         <Icon
           className={cn(
@@ -57,6 +55,26 @@ export function StatusBarItem({
       )}
       {label && <span>{label}</span>}
       {value && <span>{value}</span>}
+    </>
+  );
+
+  return (
+    <span
+      aria-atomic={announce ? true : undefined}
+      className={cn('flex items-center gap-1', statusClasses[status], className)}
+      data-testid={testId}
+      role={announce ? 'status' : undefined}
+    >
+      {announcement ? (
+        <>
+          <span aria-hidden="true" className="contents">
+            {visualContent}
+          </span>
+          <span className="sr-only">{announcement}</span>
+        </>
+      ) : (
+        visualContent
+      )}
     </span>
   );
 }
