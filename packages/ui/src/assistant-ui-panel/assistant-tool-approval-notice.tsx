@@ -9,8 +9,19 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
+import { CodeSurface } from '../code-surface';
+import { DiffView } from '../diff-view';
 
 const logger = createLogger('AssistantToolApprovalNotice');
+
+/**
+ * Registered ids of the two file-mutating tools whose approval cards render a
+ * real code preview instead of raw JSON. These are the sanitized-name-resolved
+ * ids the approval chunk carries (see `makeApprovalRequiredChunks` in the agent
+ * runtime), NOT the model-facing names.
+ */
+const STRING_REPLACE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile';
+const WRITE_FILE_TOOL_ID = 'brainstrike.writeWorkspaceFile';
 
 interface AssistantToolApprovalNoticeProps {
   data: unknown;
@@ -18,6 +29,137 @@ interface AssistantToolApprovalNoticeProps {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+interface StringReplaceApprovalArgs {
+  newStr: string;
+  oldStr: string;
+  path: string;
+  root?: string;
+}
+
+interface WriteFileApprovalArgs {
+  content: string;
+  path: string;
+  root?: string;
+}
+
+/**
+ * Structural guard mirroring the agent-package `StringReplaceWorkspaceFileInput`
+ * shape. The UI package does not depend on `@brainstrike/agent`, so this is a
+ * minimal local narrowing (path/oldStr/newStr strings, optional root) rather than
+ * a shared zod parse. A failure returns `null` so the card falls back to the raw
+ * JSON view with a visible note — never a confidently-wrong empty diff.
+ */
+function narrowStringReplaceArgs(value: unknown): StringReplaceApprovalArgs | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { path, oldStr, newStr, root } = value;
+  if (typeof path !== 'string' || path.length === 0) {
+    return null;
+  }
+  if (typeof oldStr !== 'string' || typeof newStr !== 'string') {
+    return null;
+  }
+  if (root !== undefined && typeof root !== 'string') {
+    return null;
+  }
+  return { newStr, oldStr, path, ...(typeof root === 'string' ? { root } : {}) };
+}
+
+/** Structural guard mirroring the agent-package `WriteWorkspaceFileInput` shape. */
+function narrowWriteFileArgs(value: unknown): WriteFileApprovalArgs | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { path, content, root } = value;
+  if (typeof path !== 'string' || path.length === 0) {
+    return null;
+  }
+  if (typeof content !== 'string') {
+    return null;
+  }
+  if (root !== undefined && typeof root !== 'string') {
+    return null;
+  }
+  return { content, path, ...(typeof root === 'string' ? { root } : {}) };
+}
+
+function RootLabel({ root }: { root: string }) {
+  return (
+    <span className="ml-2 rounded border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+      {root}
+    </span>
+  );
+}
+
+function PreviewParseError() {
+  return (
+    <p
+      className="mt-3 text-amber-700 text-xs dark:text-amber-400"
+      data-testid="approval-preview-parse-error"
+    >
+      Could not render a preview for these arguments — see the raw arguments below.
+    </p>
+  );
+}
+
+/**
+ * File-mutating approvals render a real code preview: `stringReplace` → a
+ * side-by-side/unified diff of `oldStr` → `newStr`; `write` → a
+ * syntax-highlighted full-file preview. Every other tool (and any file-tool
+ * whose args fail narrowing) renders `null` here and keeps the raw-JSON view.
+ */
+function ApprovalPreview({ toolName, args }: { toolName: string; args: unknown }) {
+  if (toolName === STRING_REPLACE_TOOL_ID) {
+    const parsed = narrowStringReplaceArgs(args);
+    if (!parsed) {
+      return <PreviewParseError />;
+    }
+    return (
+      <div className="mt-3">
+        <p className="truncate font-medium text-foreground/90 text-xs">
+          <span className="font-mono">{parsed.path}</span>
+          {parsed.root ? <RootLabel root={parsed.root} /> : null}
+        </p>
+        <div className="mt-1.5 h-72 overflow-hidden rounded-md border border-border">
+          <DiffView
+            ariaLabel={`Proposed changes to ${parsed.path}`}
+            filename={parsed.path}
+            modified={parsed.newStr}
+            original={parsed.oldStr}
+            testId="approval-diff-view"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (toolName === WRITE_FILE_TOOL_ID) {
+    const parsed = narrowWriteFileArgs(args);
+    if (!parsed) {
+      return <PreviewParseError />;
+    }
+    return (
+      <div className="mt-3">
+        <p className="truncate font-medium text-foreground/90 text-xs">
+          Creates or overwrites <span className="font-mono">{parsed.path}</span>
+          {parsed.root ? <RootLabel root={parsed.root} /> : null}
+        </p>
+        <div className="mt-1.5 h-64 overflow-hidden rounded-md border border-border">
+          <CodeSurface
+            ariaLabel={`New content for ${parsed.path}`}
+            path={parsed.path}
+            testId="approval-write-preview"
+            value={parsed.content}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function isAssistantToolApprovalRequest(value: unknown): value is AssistantToolApprovalRequest {
@@ -297,6 +439,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
               Requires approval: {approvalReason}
             </p>
           ) : null}
+          <ApprovalPreview args={approval.args} toolName={approval.toolName} />
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               aria-label={`Approve ${approval.toolName}`}
