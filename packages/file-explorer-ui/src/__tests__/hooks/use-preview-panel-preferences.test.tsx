@@ -9,7 +9,6 @@ describe('usePreviewPanelPreferences', () => {
     groupingConfig: 'none',
     sortDirection: 'asc' as const,
     sortField: 'path' as const,
-    useTapestryRangesForContextOutput: true,
   };
 
   afterEach(() => {
@@ -85,7 +84,6 @@ describe('usePreviewPanelPreferences', () => {
         pageSize: 100,
         sortDirection: 'desc',
         sortField: 'tokens',
-        useTapestryRangesForContextOutput: false,
       })
     );
 
@@ -97,7 +95,6 @@ describe('usePreviewPanelPreferences', () => {
     expect(result.current.pageSize).toBe(100);
     expect(result.current.sortDirection).toBe('desc');
     expect(result.current.sortField).toBe('tokens');
-    expect(result.current.useTapestryRangesForContextOutput).toBe(false);
 
     act(() => {
       result.current.setActiveTab('table');
@@ -117,8 +114,37 @@ describe('usePreviewPanelPreferences', () => {
       pageSize: 250,
       sortDirection: 'desc',
       sortField: 'tokens',
-      useTapestryRangesForContextOutput: false,
     });
+  });
+
+  it('tolerates a stale useTapestryRangesForContextOutput field in a persisted blob (no migration mechanism, field silently ignored)', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem(
+      'previewPanelPreferences.v1',
+      JSON.stringify({
+        activeTab: 'tapestry',
+        sortField: 'tokens',
+        useTapestryRangesForContextOutput: false,
+      })
+    );
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    // The blob loads cleanly and the stale field is simply absent from state.
+    expect(result.current.activeTab).toBe('tapestry');
+    expect(result.current.sortField).toBe('tokens');
+    expect(result.current).not.toHaveProperty('useTapestryRangesForContextOutput');
+
+    act(() => {
+      result.current.setSortField('path');
+    });
+
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    const saved = JSON.parse(localStorage.getItem('previewPanelPreferences.v1') ?? '{}');
+    expect(saved).not.toHaveProperty('useTapestryRangesForContextOutput');
   });
 
   it('falls back to defaults when stored preferences cannot be parsed', () => {

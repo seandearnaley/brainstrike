@@ -7,45 +7,7 @@
 
 import type { buildTapestryFileBase } from '../tapestry/tapestry-adapter';
 import type { TapestryRange } from '../tapestry/types';
-import { createRangeId, getStableColorForKey } from '../tapestry/utils';
 import type { TapestryRangeMap } from './context-selected-token-summary';
-
-export function createDefaultTapestryRanges(
-  compositeKey: string,
-  totalLines: number
-): TapestryRange[] {
-  return [
-    {
-      color: getStableColorForKey(compositeKey),
-      endLine: totalLines,
-      id: createRangeId(),
-      isActive: true,
-      startLine: 0,
-      userModified: false,
-    },
-  ];
-}
-
-function shouldStretchDefaultRange(ranges: TapestryRange[]): ranges is [TapestryRange] {
-  if (ranges.length !== 1) {
-    return false;
-  }
-  const firstRange = ranges[0];
-  if (!firstRange) {
-    return false;
-  }
-  // Use the userModified flag rather than position heuristics. A range that
-  // was never manually adjusted should auto-stretch when content loads and
-  // totalLines changes. The startLine===0 guard is a safety net for ranges
-  // created before the userModified flag existed. search-origin ranges are
-  // owned by the workspace-search bridge and are never the auto-created default,
-  // so they must never be stretched even when they sit at startLine 0.
-  return firstRange.startLine === 0 && !firstRange.userModified && firstRange.origin !== 'search';
-}
-
-function stretchDefaultRange(range: TapestryRange, totalLines: number): TapestryRange[] {
-  return [{ ...range, endLine: totalLines }];
-}
 
 function clampRangeToTotal(range: TapestryRange, totalLines: number): TapestryRange {
   if (totalLines <= 0) {
@@ -92,10 +54,8 @@ export function syncTapestryRanges(args: {
     const isContentReady = base.contentStatus === 'ready';
 
     if (!next[compositeKey]) {
-      // Default creation for a rangeless file stays even before content is ready
-      // so a newly selected file gets its full-file default immediately.
-      next[compositeKey] = createDefaultTapestryRanges(compositeKey, base.totalLines);
-      changed = true;
+      // A rangeless selected file stays rangeless — no ranges means whole
+      // file (the app's per-file rule), so there is nothing to seed here.
       if (isContentReady) {
         nextTotals.set(compositeKey, base.totalLines);
       }
@@ -103,22 +63,12 @@ export function syncTapestryRanges(args: {
     }
 
     if (!isContentReady) {
-      // Untrusted total: do not record a baseline, clamp, or stretch. This
-      // protects any range already written for this key until content lands.
+      // Untrusted total: do not record a baseline or clamp. This protects
+      // any range already written for this key until content lands.
       continue;
     }
 
-    const previousTotal = nextTotals.get(compositeKey);
     nextTotals.set(compositeKey, base.totalLines);
-
-    const ranges = next[compositeKey];
-    if (previousTotal !== base.totalLines && shouldStretchDefaultRange(ranges)) {
-      const [firstRange] = ranges;
-      if (firstRange.endLine !== base.totalLines) {
-        next[compositeKey] = stretchDefaultRange(firstRange, base.totalLines);
-        changed = true;
-      }
-    }
 
     const clamped = clampRangesToTotal(next[compositeKey], base.totalLines);
     if (clamped.changed) {

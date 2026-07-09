@@ -41,7 +41,7 @@ import {
   type TableRowData,
 } from '../utils/grouping-configs';
 import { buildGroupedPageSections, getVisibleFilesOnPage } from '../utils/preview-pagination';
-import { createDefaultTapestryRanges, syncTapestryRanges } from '../utils/tapestry-range-sync';
+import { syncTapestryRanges } from '../utils/tapestry-range-sync';
 import { getTokenUsageMetrics } from '../utils/token-usage-metrics';
 import { useWorkspaceContextCurationStore } from '../workspace-context-curation-store';
 import { tapestryLineRangeToToolRange } from '../workspace-context-line-ranges';
@@ -55,8 +55,6 @@ import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
 const TAPESTRY_MAX_PAGE_SIZE = 24;
-// Keep a stable reference for the "empty snapshot" state to preserve memo identity optimizations.
-const EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT: Record<string, string> = {};
 const EMPTY_PAGINATION_INFO = {};
 
 interface PreviewPanelProps {
@@ -215,8 +213,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setFooterMode,
     sortDirection,
     sortField,
-    setUseTapestryRangesForContextOutput,
-    useTapestryRangesForContextOutput,
     footerMode,
   } = usePreviewPanelPreferences({
     activeTab: 'table',
@@ -224,14 +220,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     groupingConfig: 'none',
     sortDirection: 'asc',
     sortField: 'rootFolderId',
-    // Keep range-aware export on by default so context output follows the active tapestry selection model.
-    useTapestryRangesForContextOutput: true,
   });
 
   // Gate expensive Tapestry computations behind active tab.
   const isTapestryActive = activeTab === 'tapestry';
-  const shouldSyncTapestryRanges = isTapestryActive || useTapestryRangesForContextOutput;
-
   const effectiveColumnVisibility = useMemo(() => {
     // Folder-based grouping already carries the root context in the group row,
     // so keeping the standalone folder column only duplicates that information.
@@ -257,16 +249,15 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const deferredFlatListItems = useDeferredValue(flatListItems);
   // Compute the content snapshot for context-selected token summary.
   // Uses a pure useMemo — no ref access during render.
-  const selectedFileContentSnapshot = useMemo(() => {
-    if (!useTapestryRangesForContextOutput) {
-      return EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT;
-    }
-    return createSelectedFileContentSnapshot({
-      fileContents,
-      selectedFiles,
-      tapestryRangesByKey: deferredTapestryRangesByKey,
-    });
-  }, [fileContents, selectedFiles, deferredTapestryRangesByKey, useTapestryRangesForContextOutput]);
+  const selectedFileContentSnapshot = useMemo(
+    () =>
+      createSelectedFileContentSnapshot({
+        fileContents,
+        selectedFiles,
+        tapestryRangesByKey: deferredTapestryRangesByKey,
+      }),
+    [fileContents, selectedFiles, deferredTapestryRangesByKey]
+  );
 
   const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
     const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
@@ -278,13 +269,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       sourceSelectedTokens: totalStats.totalTokens,
       tapestryRangesByKey: deferredTapestryRangesByKey,
       tokenCountByFile,
-      useTapestryRangesForContextOutput,
     });
   }, [
     deferredFlatListItems,
     totalStats,
     selectedFiles,
-    useTapestryRangesForContextOutput,
     deferredTapestryRangesByKey,
     selectedFileContentSnapshot,
   ]);
@@ -395,7 +384,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       selectedSourceApproxTokens: contextSelectedTokenSummary.sourceSelectedTokens,
       selectionFolderId,
       tokenBudget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-      useTapestryRanges: useTapestryRangesForContextOutput,
     });
   }, [
     contextSelectedTokenSummary.outputSelectedTokens,
@@ -409,15 +397,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     tableData,
     deferredTapestryRangesByKey,
     tokenBudget,
-    useTapestryRangesForContextOutput,
   ]);
 
   const tapestryFileBaseByKey = useMemo(() => {
-    // Skip expensive computation unless ranges must be rendered or exported.
-    if (!shouldSyncTapestryRanges) {
-      return new Map<string, ReturnType<typeof buildTapestryFileBase>>();
-    }
-
     // Read-only access to previous-commit cache; written in the useEffect below.
     const cache = tapestryBaseCacheRef.current;
     const map = new Map<string, ReturnType<typeof buildTapestryFileBase>>();
@@ -440,7 +422,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }
 
     return map;
-  }, [shouldSyncTapestryRanges, tableData, fileContents, loadingFiles]);
+  }, [tableData, fileContents, loadingFiles]);
 
   // Persist per-file cache after render — useEffect is a safe place for ref mutation.
   // biome-ignore lint/plugin: Not fetching data — updating a local memoization cache ref.
@@ -469,15 +451,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }, [tapestryFileBaseByKey, tableData, fileContents, loadingFiles]);
 
   useEffect(() => {
-    // Keep ranges synchronized while Tapestry is visible or when range-based export is enabled.
-    if (!shouldSyncTapestryRanges) {
-      return;
-    }
-
     // Capture pending totals outside the setState updater to avoid mutating the
     // ref inside the callback. React 18 Strict Mode invokes updaters twice — if
     // the ref were mutated inside, the second (real) invocation would see
-    // corrupted previousTotal values and skip range stretching on content load.
+    // corrupted previousTotal values, so syncTapestryRanges could not detect a
+    // per-file line-total change on content load.
     let pendingTotals: Map<string, number> | null = null;
     setTapestryRangesByKey((prev) => {
       const { next, changed, totals } = syncTapestryRanges({
@@ -491,7 +469,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     if (pendingTotals) {
       tapestryTotalsRef.current = pendingTotals;
     }
-  }, [shouldSyncTapestryRanges, tapestryFileBaseByKey]);
+  }, [tapestryFileBaseByKey]);
 
   // Toggle group collapse
   const toggleGroupCollapse = useCallback(
@@ -792,31 +770,23 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setTapestryRangesByKey((prev) => ({ ...prev, [fileId]: ranges }));
   }, []);
 
-  const handleResetTapestryRanges = useCallback(
-    (fileIds: string[]) => {
-      setTapestryRangesByKey((prev) => {
-        const next = { ...prev };
-        for (const fileId of fileIds) {
-          const base = tapestryFileBaseByKey.get(fileId);
-          if (!base) {
-            continue;
-          }
-          next[fileId] = createDefaultTapestryRanges(fileId, base.totalLines);
-        }
-        return next;
-      });
-    },
-    [tapestryFileBaseByKey]
-  );
+  const handleResetTapestryRanges = useCallback((fileIds: string[]) => {
+    setTapestryRangesByKey((prev) => {
+      const next = { ...prev };
+      for (const fileId of fileIds) {
+        delete next[fileId];
+      }
+      return next;
+    });
+  }, []);
 
   // Keep export payload synchronized with the latest range edits and tree toggle state.
   const contextExportOptions = useMemo<ContextExportOptions>(
     () => ({
       projectTreeUsesViewFilters,
       selectedLineRangesByFile: tapestryRangesByKey,
-      useTapestryRanges: useTapestryRangesForContextOutput,
     }),
-    [projectTreeUsesViewFilters, tapestryRangesByKey, useTapestryRangesForContextOutput]
+    [projectTreeUsesViewFilters, tapestryRangesByKey]
   );
 
   const handleDownloadContext = useCallback(() => {
@@ -939,7 +909,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
           onTokenBudgetChange={onTokenBudgetChange}
-          onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
           projectTreeUsesViewFilters={projectTreeUsesViewFilters}
           selectedFilesCount={selectedFiles.size}
           selectedTokensPendingCount={0}
@@ -947,7 +916,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           tokenUsage={tokenUsage}
           totalFiles={0}
           treeLoading={projectTreeTokenCountLoading}
-          useTapestryRanges={useTapestryRangesForContextOutput}
         />
         <div className="flex-1">
           <EmptyState
@@ -973,7 +941,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
         onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
         onTokenBudgetChange={onTokenBudgetChange}
-        onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
         projectTreeUsesViewFilters={projectTreeUsesViewFilters}
         selectedFilesCount={selectedFiles.size}
         selectedTokensPendingCount={contextSelectedTokenSummary.outputPendingCount}
@@ -981,7 +948,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         tokenUsage={tokenUsage}
         totalFiles={totalStats.totalFiles}
         treeLoading={projectTreeTokenCountLoading}
-        useTapestryRanges={useTapestryRangesForContextOutput}
       />
 
       <Tabs className="flex min-h-0 flex-1 flex-col" onValueChange={setActiveTab} value={activeTab}>

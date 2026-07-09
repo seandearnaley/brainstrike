@@ -1048,7 +1048,6 @@ describe('AssistantUiPanelWrapper', () => {
       selectedOutputApproxTokens: 180,
       selectedSourceApproxTokens: 320,
       tokenBudget: 8192,
-      useTapestryRanges: true,
     };
     mockDb.query.mockImplementation(async (sql: string) => {
       if (sql.includes('token_count')) {
@@ -1119,7 +1118,6 @@ describe('AssistantUiPanelWrapper', () => {
       selectedSourceApproxTokens: 320,
       selectionFolderId: 'other-folder',
       tokenBudget: 8192,
-      useTapestryRanges: true,
     };
 
     await renderAssistantPanel(['openai'], () =>

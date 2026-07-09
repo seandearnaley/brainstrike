@@ -573,9 +573,15 @@ export const Minimap = memo(
             </div>
           )}
 
-          {/* Background button for range creation */}
+          {/* Background button for range creation. When no ranges exist the
+              whole file is selected, so the accessible name announces that
+              state (the "Whole file" visual affordance is aria-hidden). */}
           <button
-            aria-label={`Create range in ${file.name}`}
+            aria-label={
+              file.selections.length === 0
+                ? `Whole file selected — create range in ${file.name}`
+                : `Create range in ${file.name}`
+            }
             className="no-depress absolute inset-0 z-0 h-full w-full cursor-crosshair rounded-md bg-transparent"
             onPointerDown={handlePointerDown}
             ref={containerRef}
@@ -599,6 +605,17 @@ export const Minimap = memo(
                 {structureRects}
               </svg>
             </div>
+
+            {/* No ranges = whole file. Presentation-only affordance layered over
+                the same background used to drag-create a range. */}
+            {file.selections.length === 0 && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-20 flex select-none items-center justify-center px-2 text-center text-[10px] text-muted-foreground/70"
+              >
+                Whole file — drag to select lines
+              </div>
+            )}
           </button>
 
           {/* Ranges rendered as siblings of the background button to avoid nesting */}

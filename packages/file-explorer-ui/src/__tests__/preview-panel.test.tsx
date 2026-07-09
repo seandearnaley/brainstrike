@@ -215,13 +215,13 @@ describe('PreviewPanel', () => {
       );
     });
 
-    it('switches to compact summary mode and hides advanced toggles', async () => {
+    it('switches to compact summary mode and never renders the retired tapestry-ranges toggle', async () => {
       const user = userEvent.setup();
       render(<PreviewPanel {...mockProps} />);
 
       expect(
-        screen.getByRole('switch', { name: /use tapestry ranges in context output/i })
-      ).toBeInTheDocument();
+        screen.queryByRole('switch', { name: /use tapestry ranges in context output/i })
+      ).not.toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: /compact summary mode/i }));
 

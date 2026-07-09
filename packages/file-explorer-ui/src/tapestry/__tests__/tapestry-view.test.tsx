@@ -115,30 +115,11 @@ const TapestryHarness = memo(
       );
     };
 
+    // Mirrors preview-panel.tsx's handleResetTapestryRanges: reset clears
+    // ranges (no re-seeded default) — a rangeless file is the whole file.
     const handleResetRanges = (fileIds: string[]) => {
       setFiles((prev) =>
-        prev.map((file) => {
-          if (!fileIds.includes(file.id)) {
-            return file;
-          }
-          const baseRange =
-            file.selections[0] ??
-            ({
-              color: '#ff0000',
-              endLine: file.totalLines,
-              id: `range-${file.id}-reset`,
-              isActive: true,
-              startLine: 0,
-            } satisfies TapestryRange);
-          const resetRange: TapestryRange = {
-            color: baseRange.color,
-            endLine: file.totalLines,
-            id: baseRange.id,
-            isActive: baseRange.isActive,
-            startLine: 0,
-          };
-          return { ...file, selections: [resetRange] };
-        })
+        prev.map((file) => (fileIds.includes(file.id) ? { ...file, selections: [] } : file))
       );
     };
 
@@ -389,10 +370,12 @@ describe('TapestryView', () => {
     expect(sliders.length).toBeGreaterThanOrEqual(13);
   });
 
-  it('resets ranges when button is clicked', async () => {
+  it('resets ranges when button is clicked (clears ranges, does not re-seed a default)', async () => {
     await act(async () => {
       render(<TapestryHarness />);
     });
+
+    expect(screen.getAllByRole('slider', { name: /^range/i })).toHaveLength(12);
 
     const resetButton = screen.getByRole('button', { name: /Reset ranges/i });
     await act(async () => {
@@ -400,6 +383,10 @@ describe('TapestryView', () => {
     });
 
     expect(screen.getAllByText(/file-\d+\.ts/i)).toHaveLength(12);
+    // No ranges remain — a rangeless file renders no range sliders, and each
+    // minimap shows the whole-file affordance instead.
+    expect(screen.queryAllByRole('slider', { name: /^range/i })).toHaveLength(0);
+    expect(screen.getAllByText(/whole file.*drag to select lines/i)).toHaveLength(12);
   });
 
   it('prevents range creation on overlap when disabled', async () => {

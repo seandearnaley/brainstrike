@@ -185,7 +185,6 @@ describe('FileExplorerMiddlePanelBase', () => {
     const exportOptions = {
       projectTreeUsesViewFilters: false,
       selectedLineRangesByFile: {},
-      useTapestryRanges: false,
     };
     props.onDownloadContext?.(exportOptions);
     props.onCopyContext?.(exportOptions);

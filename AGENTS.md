@@ -530,22 +530,67 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   unchecking a chunk under a whole-file selection CONVERTS to "every sibling result
   chunk except this one" (`toggleChunk`'s 4th arg is the file's full result-chunk
   list). Search still writes ONLY explorer file-selection + its own
-  `origin:'search'` ranges; `userModified` ranges AND the preview panel's
-  auto-created full-file default (`origin` undefined) are preserved verbatim
-  through every mutation. Round trips are idempotent: emptying the chunk subset
-  (or the last chunk) also deselects the file. The curation store's snapshot
-  producer remains the preview panel.
+  `origin:'search'` ranges; it preserves every range with `origin !== 'search'`
+  on the same file verbatim through every mutation. There is no default/auto-created
+  range to preserve (see TAPESTRY below) — a rangeless file is simply whole-file.
+  An emptied search set writes no `[]` residue: the curation store deletes the
+  key so absence-of-ranges = whole-file everywhere (empty ≡ absent).
+  Round trips are idempotent: emptying the chunk subset (or the last chunk) also
+  deselects the file. The curation store's snapshot producer remains the
+  preview panel.
 - **Not-ready sync guard.** `syncTapestryRanges` (`tapestry-range-sync.ts`) never
-  clamps/stretches or records a `previousTotal` baseline for a file whose
-  `contentStatus !== 'ready'` — pre-content `totalLines` is an untrusted
-  placeholder that would otherwise squash a bridge-written `[1,8)` span to `[0,1)`
-  and then stretch it to whole-file. Ranges only reconcile once content lands.
+  clamps or records a `totals` baseline for a file whose `contentStatus !==
+  'ready'` — pre-content `totalLines` is an untrusted placeholder that would
+  otherwise squash a bridge-written `[1,8)` span to `[0,1)`. Ranges only
+  reconcile (clamp to the real total) once content lands; there is no
+  default-range stretch step (see TAPESTRY below — rangeless files stay
+  rangeless).
 - **Session-only.** The store is not persisted; it is reset on factory reset via
   the `registerFactoryResetSessionStore` seam (app-shell registers it — see
   FACTORY RESET CONTRACT). The active Explorer|Search tab persists in
   context-explorer-layout-store v3 (`explorerActiveTab`).
 
 When changing this flow, update this section and the paired tests.
+
+---
+
+## TAPESTRY
+
+The per-file range model spans Explorer, Search, Tapestry, and every context
+consumer (report generator, `listWorkspaceContext`, token meters).
+
+- **Per-file rule, no global toggle.** "Files are membership, ranges are
+  refinement, no ranges = whole file" — unconditional everywhere
+  (`useTapestryRanges` retired). Selecting a file is membership ONLY; nothing
+  seeds a materialized whole-file range. `syncTapestryRanges`
+  (`tapestry-range-sync.ts`) never creates ranges for a rangeless key, only
+  clamps existing ones once content is ready. Tapestry renders a rangeless
+  selected file as an implicit whole-file state (soft tint, "Whole file"
+  label, no drag handles); the first drag or a Search chunk check creates
+  explicit ranges.
+- **Reset means clear.** `TapestryControls`' "Reset ranges" button →
+  `TapestryView`'s `onResetRanges` → `preview-panel.tsx`'s
+  `handleResetTapestryRanges` deletes each visible file's range-map entry
+  (never re-seeds a default), including `userModified` ranges — an explicit,
+  undoable user action (re-drag to recreate).
+- **`origin:'search'` is one-way derived.** Workspace Search's chunk-selection
+  set drives it (see WORKSPACE SEARCH's bridge invariant above); hand-edit
+  machinery never writes or reads it, and any `userModified` ranges on the
+  same file survive every search mutation untouched.
+- **Four deliberate default-user behavior changes (spec-approved; do not "fix"
+  back):** (a) `report-generator.ts` framing flips from a whole-file
+  `<selection>` wrapper to bare `<file>` for untouched files (content
+  identical); (b) `rangeAdjustedFilesCount`/`activeRangeFilesCount` stop
+  counting untouched (rangeless) files; (c) `outputApproxTokens` is the file's
+  real token count instead of `null` when rangeless; (d) token meters/
+  summaries lock to the single "Output" presentation (no per-mode toggle).
+- **Key files:** `packages/file-explorer-ui/src/utils/tapestry-range-sync.ts`,
+  `packages/file-explorer-ui/src/preview/preview-panel.tsx`,
+  `packages/utils/src/report-generator.ts`,
+  `apps/desktop/src/assistant-server/assistant-tools.ts` (`listWorkspaceContext`
+  `detail: true` gate for per-file ranges).
+
+When changing this flow, update this section and the related tests.
 
 ---
 

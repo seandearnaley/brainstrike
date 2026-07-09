@@ -828,11 +828,13 @@ test.describe('File Explorer', () => {
       // `sourceSelectedTokens` is the always-rendered, mode-independent total
       // (it represents tokens across complete selected files BEFORE any
       // tapestry-range filtering, which is what we want to validate here).
-      // The "<n> selected" / "<n> output" wording flips with the
-      // useTapestryRanges flag and would couple this assertion to that
-      // setting's default. Without the indexer fix, this value would stall
-      // at 0 because no handle is ever resolved for files inside the
-      // unexpanded `src/` and `src/inner/` subfolders.
+      // The "<n> output" badge is locked to the single per-file Output
+      // presentation (there is no useTapestryRanges toggle anymore) and, with
+      // no ranges applied in this fixture, would read identically to source —
+      // asserting on source keeps this test independent of that presentation
+      // detail. Without the indexer fix, this value would stall at 0 because
+      // no handle is ever resolved for files inside the unexpanded `src/` and
+      // `src/inner/` subfolders.
       await expect(page.getByText(`${expectedTokens.toLocaleString()} source`)).toBeVisible({
         timeout: 30_000,
       });

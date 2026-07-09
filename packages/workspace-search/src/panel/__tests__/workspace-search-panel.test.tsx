@@ -67,6 +67,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import { WorkspaceSearchPanel } from '../workspace-search-panel';
 
 function makeResults(): WorkspaceSearchResults {
@@ -120,6 +121,7 @@ describe('WorkspaceSearchPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useWorkspaceSearchStore.getState().reset();
+    useWorkspaceContextCurationStore.setState({ contextSnapshot: null });
   });
 
   it('shows the idle empty state before any search', () => {
@@ -174,7 +176,7 @@ describe('WorkspaceSearchPanel', () => {
     const footer = rows.at(-1) as HTMLElement;
     expect(footer.tagName).toBe('FOOTER');
     expect(footer.className).toContain('border-t');
-    expect(footer).toHaveTextContent('~0 tokens selected');
+    expect(footer).toHaveTextContent('~0 tokens in context');
 
     // The results tree lives in the middle (1fr) row's scroll region, never
     // inside the footer.
@@ -241,7 +243,27 @@ describe('WorkspaceSearchPanel', () => {
 
   it('shows selected token count in the footer', () => {
     renderPanel();
-    expect(screen.getByText('~0 tokens selected')).toBeInTheDocument();
+    expect(screen.getByText('~0 tokens in context')).toBeInTheDocument();
+  });
+
+  it('reports OUTPUT (post-range) tokens in the footer, not source tokens', () => {
+    // The per-file range model means checking one chunk of a huge file must show
+    // the small output number, never the full source total.
+    act(() => {
+      useWorkspaceContextCurationStore.getState().setContextSnapshot({
+        files: [],
+        includeProjectTree: false,
+        projectTreeApproxTokens: null,
+        projectTreeTokenCountLoading: false,
+        selectedOutputApproxTokens: 12,
+        selectedSourceApproxTokens: 9999,
+        selectionFolderId: null,
+        tokenBudget: null,
+      });
+    });
+    renderPanel();
+    expect(screen.getByText('~12 tokens in context')).toBeInTheDocument();
+    expect(screen.queryByText('~9999 tokens in context')).not.toBeInTheDocument();
   });
 
   it('clears stale results and drops a late resolve when the text query shrinks below min length', () => {

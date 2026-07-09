@@ -345,7 +345,6 @@ export function toRuntimeWorkspaceContext(
     projectTreeTokenCountLoading: snapshot.projectTreeTokenCountLoading,
     selectedOutputApproxTokens: snapshot.selectedOutputApproxTokens,
     selectedSourceApproxTokens: snapshot.selectedSourceApproxTokens,
-    useTapestryRanges: snapshot.useTapestryRanges,
     ...(snapshot.tokenBudget === null ? {} : { tokenBudget: snapshot.tokenBudget }),
   };
 }

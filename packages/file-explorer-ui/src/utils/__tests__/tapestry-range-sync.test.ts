@@ -96,42 +96,29 @@ describe('syncTapestryRanges — not-ready guard (regression)', () => {
 });
 
 describe('syncTapestryRanges — ready-content behavior', () => {
-  it('creates a full-file default for a rangeless ready file and records its total', () => {
+  it('does not create ranges for a rangeless ready file (no ranges = whole file)', () => {
     const result = sync({
       base: makeBase(12, 'ready'),
       prev: {},
       totals: new Map(),
     });
-    const ranges = result.next[KEY];
-    expect(ranges).toHaveLength(1);
-    expect(ranges?.[0]).toMatchObject({ endLine: 12, isActive: true, startLine: 0 });
+    expect(result.next[KEY]).toBeUndefined();
+    expect(Object.hasOwn(result.next, KEY)).toBe(false);
     expect(result.totals.get(KEY)).toBe(12);
-    expect(result.changed).toBe(true);
+    expect(result.changed).toBe(false);
   });
 
-  it('stretches a true default when the total changes across ready passes', () => {
+  it('stays rangeless across repeated ready passes with changing totals (no seeding, ever)', () => {
     const first = sync({ base: makeBase(12, 'ready'), prev: {}, totals: new Map() });
+    expect(first.next[KEY]).toBeUndefined();
+
     const second = sync({
       base: makeBase(20, 'ready'),
       prev: first.next,
       totals: first.totals,
     });
-    expect(second.next[KEY]).toEqual([{ ...first.next[KEY]?.[0], endLine: 20 }]);
-  });
-
-  it('stretches a default created before content to the real total once ready (first-ready)', () => {
-    // Rangeless while loading -> default created at the placeholder/estimate total.
-    const loading = sync({ base: makeBase(12, 'loading'), prev: {}, totals: new Map() });
-    expect(loading.next[KEY]?.[0]).toMatchObject({ endLine: 12, startLine: 0 });
-    expect(loading.totals.has(KEY)).toBe(false);
-
-    // Content ready at the real total -> the untouched default stretches to it.
-    const ready = sync({
-      base: makeBase(200, 'ready'),
-      prev: loading.next,
-      totals: loading.totals,
-    });
-    expect(ready.next[KEY]?.[0]).toMatchObject({ endLine: 200, startLine: 0 });
+    expect(second.next[KEY]).toBeUndefined();
+    expect(second.totals.get(KEY)).toBe(20);
   });
 
   it('clamps an out-of-bounds range when ready', () => {
@@ -144,7 +131,19 @@ describe('syncTapestryRanges — ready-content behavior', () => {
     expect(result.next[KEY]).toEqual([{ ...range, endLine: 12, startLine: 5 }]);
   });
 
-  it('does NOT stretch an origin:"search" single range at startLine 0 even when ready and totals change', () => {
+  it('leaves an existing range set untouched (same reference, no churn) when already in bounds', () => {
+    const range = makeRange({ endLine: 8, id: 'r1', startLine: 1 });
+    const prev: TapestryRangeMap = { [KEY]: [range] };
+    const result = sync({
+      base: makeBase(12, 'ready'),
+      prev,
+      totals: new Map(),
+    });
+    expect(result.next[KEY]).toBe(prev[KEY]);
+    expect(result.changed).toBe(false);
+  });
+
+  it('leaves an origin:"search" range unchanged across ready passes with changing totals', () => {
     const searchRange = makeRange({ endLine: 8, id: 'range-1', origin: 'search', startLine: 0 });
     const first = sync({
       base: makeBase(12, 'ready'),

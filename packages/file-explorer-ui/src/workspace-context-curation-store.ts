@@ -29,7 +29,6 @@ export interface WorkspaceContextCurationSnapshot {
   selectedSourceApproxTokens: number | null;
   selectionFolderId: string | null;
   tokenBudget: number | null;
-  useTapestryRanges: boolean;
 }
 
 interface WorkspaceContextCurationState {
@@ -68,16 +67,42 @@ export const useWorkspaceContextCurationStore = create<WorkspaceContextCurationS
       };
     }),
   setTapestryRanges: (ranges) =>
-    set((state) => ({
-      tapestryRangesByKey:
-        typeof ranges === 'function' ? ranges(state.tapestryRangesByKey) : ranges,
-    })),
+    set((state) => {
+      const next = typeof ranges === 'function' ? ranges(state.tapestryRangesByKey) : ranges;
+      // Same empty ≡ absent invariant as setTapestryRangesForKey: the whole-map
+      // setter must not be the one write path that can leave a present-but-empty
+      // entry behind (it diverges from absence for the report generator and
+      // token summary). Normalize by dropping empty arrays.
+      const emptyKeys = Object.keys(next).filter((key) => next[key]?.length === 0);
+      if (emptyKeys.length === 0) {
+        return { tapestryRangesByKey: next };
+      }
+      const normalized = { ...next };
+      for (const key of emptyKeys) {
+        delete normalized[key];
+      }
+      return { tapestryRangesByKey: normalized };
+    }),
   setTapestryRangesForKey: (compositeKey, ranges) =>
-    set((state) => ({
-      tapestryRangesByKey: {
-        ...state.tapestryRangesByKey,
-        [compositeKey]: ranges,
-      },
-    })),
+    set((state) => {
+      // Invariant: absence of ranges = whole file. A present-but-EMPTY entry
+      // must never linger — it diverges from absence for the report generator
+      // and token summary. Delete the key instead of storing `[]` (mirrors
+      // clearTapestryRanges / handleResetTapestryRanges).
+      if (ranges.length === 0) {
+        if (!(compositeKey in state.tapestryRangesByKey)) {
+          return state;
+        }
+        const next = { ...state.tapestryRangesByKey };
+        delete next[compositeKey];
+        return { tapestryRangesByKey: next };
+      }
+      return {
+        tapestryRangesByKey: {
+          ...state.tapestryRangesByKey,
+          [compositeKey]: ranges,
+        },
+      };
+    }),
   tapestryRangesByKey: {},
 }));
