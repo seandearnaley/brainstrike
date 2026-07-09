@@ -1,5 +1,6 @@
 import type { TreeNode } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import type { SelectedChunk } from '../bridge/chunk-selection-store';
 import type {
   WorkspaceSearchChild,
   WorkspaceSearchChunkHit,
@@ -30,6 +31,7 @@ export type SearchNodeData =
     }
   | {
       chunkEndLine: number;
+      chunkId: string;
       chunkStartLine: number;
       compositeKey: string | null;
       filePath: string;
@@ -163,6 +165,7 @@ export function buildSearchTreeNodes(args: {
         childCount: group.matches.length,
         data: {
           chunkEndLine: group.chunkEndLine,
+          chunkId: group.chunkId,
           chunkStartLine: group.chunkStartLine,
           compositeKey,
           filePath: file.path,
@@ -194,4 +197,26 @@ export function buildSearchTreeNodes(args: {
   }
 
   return rows;
+}
+
+/**
+ * The file's full result-chunk list as `SelectedChunk`s (semantic chunk hits and
+ * grouped text-mode chunks alike), independent of tree expansion. The selection
+ * bridge needs this to CONVERT a whole-file selection into "everything except the
+ * unchecked chunk" — so it must be the authoritative list, not just visible rows.
+ */
+export function fileResultChunks(file: WorkspaceSearchFileResult): SelectedChunk[] {
+  return groupFileChildren(file.children).map((entry) =>
+    entry.type === 'chunk'
+      ? {
+          chunkId: entry.chunk.chunkId,
+          endLine: entry.chunk.endLine,
+          startLine: entry.chunk.startLine,
+        }
+      : {
+          chunkId: entry.group.chunkId,
+          endLine: entry.group.chunkEndLine,
+          startLine: entry.group.chunkStartLine,
+        }
+  );
 }

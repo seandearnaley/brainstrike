@@ -9,12 +9,17 @@ import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { type SelectedChunk, useChunkSelectionStore } from '../chunk-selection-store';
 import { useSearchSelectionBridge } from '../use-search-selection-bridge';
 
 const ROOT = 'root-1';
 const OTHER_ROOT = 'root-2';
 const PATH = 'src/a.ts';
 const KEY = encodeFileSelection(ROOT, PATH);
+
+function chunk(id: string, startLine: number, endLine: number): SelectedChunk {
+  return { chunkId: id, endLine, startLine };
+}
 
 function makeRange(overrides: Partial<TapestryRange>): TapestryRange {
   return {
@@ -25,11 +30,6 @@ function makeRange(overrides: Partial<TapestryRange>): TapestryRange {
     startLine: 1,
     ...overrides,
   };
-}
-
-/** A range owned by the search bridge — the only kind its toggles may mutate. */
-function makeSearchRange(overrides: Partial<TapestryRange>): TapestryRange {
-  return makeRange({ ...overrides, origin: 'search' });
 }
 
 function createWrapper() {
@@ -49,190 +49,201 @@ function renderBridge() {
   );
 }
 
-function curationState() {
-  return useWorkspaceContextCurationStore.getState();
+function ranges(): TapestryRange[] {
+  return useWorkspaceContextCurationStore.getState().tapestryRangesByKey[KEY] ?? [];
+}
+
+/** Search-owned covering spans (exclusive [start,end)), sorted, sans ids/colors. */
+function searchSpans(): Array<{ endLine: number; startLine: number }> {
+  return ranges()
+    .filter((r) => r.origin === 'search')
+    .map((r) => ({ endLine: r.endLine, startLine: r.startLine }))
+    .sort((a, b) => a.startLine - b.startLine);
 }
 
 beforeEach(() => {
   useWorkspaceContextCurationStore.setState({ tapestryRangesByKey: {} });
+  useChunkSelectionStore.setState({ selectionsByKey: {} });
 });
 
 describe('useSearchSelectionBridge', () => {
-  it('toggleFile(true) selects the file; toggleFile(false) deselects and clears ranges', () => {
+  it('toggleFile(true) selects the file with no search ranges; toggleFile(false) deselects', () => {
     const { result } = renderBridge();
 
     act(() => result.current.bridge.toggleFile(KEY, true));
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
+    expect(result.current.bridge.fileState(KEY)).toBe('checked');
     expect(result.current.store.getState().selectedFilePaths.has(KEY)).toBe(true);
-
-    act(() =>
-      curationState().setTapestryRangesForKey(KEY, [makeSearchRange({ endLine: 5, startLine: 1 })])
-    );
+    expect(searchSpans()).toEqual([]);
 
     act(() => result.current.bridge.toggleFile(KEY, false));
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
+    expect(result.current.bridge.fileState(KEY)).toBe('unchecked');
     expect(result.current.store.getState().selectedFilePaths.has(KEY)).toBe(false);
-    expect(curationState().tapestryRangesByKey[KEY]).toEqual([]);
   });
 
-  it('toggleFile(false) preserves userModified + default ranges while clearing search-owned', () => {
+  it('toggleChunk(true) on an unselected file selects it and derives the chunk span', () => {
     const { result } = renderBridge();
-    const userRange = makeRange({ endLine: 5, id: 'u', startLine: 1, userModified: true });
-    const defaultRange = makeRange({ endLine: 40, id: 'd', startLine: 0 });
+    const c = chunk('c1', 10, 14);
+
+    act(() => result.current.bridge.toggleChunk(KEY, c, true, [c]));
+
+    expect(result.current.bridge.fileState(KEY)).toBe('indeterminate');
+    expect(result.current.bridge.chunkState(KEY, 'c1')).toBe('checked');
+    expect(searchSpans()).toEqual([{ endLine: 15, startLine: 10 }]);
+  });
+
+  it('OVERLAPPING chunks are reversible: uncheck A leaves exactly B (the core fix)', () => {
+    const { result } = renderBridge();
+    // Overlapping spans: A [1,26) and B [22,50) (chunks share lines 22–25).
+    const a = chunk('a', 1, 25);
+    const b = chunk('b', 22, 49);
+    const siblings = [a, b];
+
+    act(() => result.current.bridge.toggleChunk(KEY, a, true, siblings));
+    act(() => result.current.bridge.toggleChunk(KEY, b, true, siblings));
+    expect(result.current.bridge.chunkState(KEY, 'a')).toBe('checked');
+    expect(result.current.bridge.chunkState(KEY, 'b')).toBe('checked');
+
+    // Unchecking A must NOT flip B: B stays checked, ranges = exactly B's span.
+    act(() => result.current.bridge.toggleChunk(KEY, a, false, siblings));
+    expect(result.current.bridge.chunkState(KEY, 'a')).toBe('unchecked');
+    expect(result.current.bridge.chunkState(KEY, 'b')).toBe('checked');
+    expect(searchSpans()).toEqual([{ endLine: 50, startLine: 22 }]);
+
+    // Unchecking B clears everything and deselects the file.
+    act(() => result.current.bridge.toggleChunk(KEY, b, false, siblings));
+    expect(result.current.bridge.chunkState(KEY, 'b')).toBe('unchecked');
+    expect(searchSpans()).toEqual([]);
+    expect(result.current.bridge.fileState(KEY)).toBe('unchecked');
+  });
+
+  it('IDENTICAL/NESTED spans toggle independently by chunkId', () => {
+    const { result } = renderBridge();
+    const outer = chunk('outer', 10, 30);
+    const inner = chunk('inner', 15, 20); // nested inside outer
+    const twin = chunk('twin', 10, 30); // identical span, different id
+    const siblings = [outer, inner, twin];
+
+    act(() => result.current.bridge.toggleChunk(KEY, outer, true, siblings));
+    act(() => result.current.bridge.toggleChunk(KEY, inner, true, siblings));
+    act(() => result.current.bridge.toggleChunk(KEY, twin, true, siblings));
+
+    // Unchecking inner leaves outer + twin selected (independent set membership).
+    act(() => result.current.bridge.toggleChunk(KEY, inner, false, siblings));
+    expect(result.current.bridge.chunkState(KEY, 'outer')).toBe('checked');
+    expect(result.current.bridge.chunkState(KEY, 'twin')).toBe('checked');
+    expect(result.current.bridge.chunkState(KEY, 'inner')).toBe('unchecked');
+    // Derived output still covers [10,31) — merge is output-only, safe.
+    expect(searchSpans()).toEqual([{ endLine: 31, startLine: 10 }]);
+  });
+
+  it('whole-file: unchecking one of three chunks converts to the other two', () => {
+    const { result } = renderBridge();
+    const c1 = chunk('c1', 1, 10);
+    const c2 = chunk('c2', 11, 20);
+    const c3 = chunk('c3', 21, 30);
+    const siblings = [c1, c2, c3];
+
+    // Whole-file selection: file selected, empty chunk subset.
+    act(() => result.current.bridge.toggleFile(KEY, true));
+    expect(result.current.bridge.chunkState(KEY, 'c2')).toBe('checked');
+
+    // Uncheck c2 -> convert to {c1, c3}; file stays selected (indeterminate).
+    act(() => result.current.bridge.toggleChunk(KEY, c2, false, siblings));
+    expect(result.current.bridge.fileState(KEY)).toBe('indeterminate');
+    expect(result.current.bridge.chunkState(KEY, 'c1')).toBe('checked');
+    expect(result.current.bridge.chunkState(KEY, 'c3')).toBe('checked');
+    expect(result.current.bridge.chunkState(KEY, 'c2')).toBe('unchecked');
+    expect(result.current.store.getState().selectedFilePaths.has(KEY)).toBe(true);
+    expect(searchSpans()).toEqual([
+      { endLine: 11, startLine: 1 },
+      { endLine: 31, startLine: 21 },
+    ]);
+  });
+
+  it('whole-file: unchecking the only chunk deselects the file entirely', () => {
+    const { result } = renderBridge();
+    const only = chunk('only', 1, 10);
 
     act(() => result.current.bridge.toggleFile(KEY, true));
+    act(() => result.current.bridge.toggleChunk(KEY, only, false, [only]));
+
+    expect(result.current.bridge.fileState(KEY)).toBe('unchecked');
+    expect(result.current.store.getState().selectedFilePaths.has(KEY)).toBe(false);
+  });
+
+  it('whole-file: unchecking the file clears everything', () => {
+    const { result } = renderBridge();
+    const c1 = chunk('c1', 1, 10);
+    const c2 = chunk('c2', 11, 20);
+
+    // Build a subset, then toggleFile(true) supersedes it with whole-file.
+    act(() => result.current.bridge.toggleChunk(KEY, c1, true, [c1, c2]));
+    act(() => result.current.bridge.toggleFile(KEY, true));
+    expect(result.current.bridge.fileState(KEY)).toBe('checked');
+    expect(searchSpans()).toEqual([]);
+    expect(useChunkSelectionStore.getState().selectionsByKey[KEY]).toBeUndefined();
+
+    // Now uncheck the file -> nothing remains.
+    act(() => result.current.bridge.toggleFile(KEY, false));
+    expect(result.current.bridge.fileState(KEY)).toBe('unchecked');
+    expect(searchSpans()).toEqual([]);
+  });
+
+  it('preserves a userModified range verbatim through every chunk toggle', () => {
+    const { result } = renderBridge();
+    const userRange = makeRange({ endLine: 90, id: 'u', startLine: 80, userModified: true });
+    const a = chunk('a', 1, 25);
+    const b = chunk('b', 22, 49);
+    const siblings = [a, b];
+
+    act(() => result.current.store.getState().addSelectedFile(ROOT, PATH));
     act(() =>
-      curationState().setTapestryRangesForKey(KEY, [
-        userRange,
-        defaultRange,
-        makeSearchRange({ endLine: 10, id: 'x', startLine: 8 }),
-      ])
+      useWorkspaceContextCurationStore.getState().setTapestryRangesForKey(KEY, [userRange])
     );
+
+    // Whole-file with a userModified range present -> uncheck a chunk converts.
+    act(() => result.current.bridge.toggleChunk(KEY, b, false, siblings));
+    expect(ranges().find((r) => r.id === 'u')).toEqual(userRange);
+
+    act(() => result.current.bridge.toggleChunk(KEY, a, true, siblings));
+    expect(ranges().find((r) => r.id === 'u')).toEqual(userRange);
+
+    act(() => result.current.bridge.toggleChunk(KEY, a, false, siblings));
+    expect(ranges().find((r) => r.id === 'u')).toEqual(userRange);
 
     act(() => result.current.bridge.toggleFile(KEY, false));
-    expect(curationState().tapestryRangesByKey[KEY]).toEqual([userRange, defaultRange]);
+    expect(ranges()).toEqual([userRange]);
   });
 
-  it('toggleChunk(true) on an unselected file selects it and writes the coalesced range', () => {
+  it('toggleFile(true) after a subset existed clears the subset and leaves no search ranges', () => {
     const { result } = renderBridge();
-    const chunk = { endLine: 14, startLine: 10 };
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
+    const c1 = chunk('c1', 1, 10);
 
-    act(() => result.current.bridge.toggleChunk(KEY, chunk, true));
-
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
-    const ranges = curationState().tapestryRangesByKey[KEY];
-    expect(ranges).toHaveLength(1);
-    expect(ranges?.[0]).toMatchObject({
-      endLine: 15,
-      isActive: true,
-      origin: 'search',
-      startLine: 10,
-    });
-    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('checked');
-  });
-
-  it('toggleChunk(false) removes the covered search-owned range; a non-overlapping userModified survives', () => {
-    const { result } = renderBridge();
-    const chunk = { endLine: 14, startLine: 10 };
-    // userModified range elsewhere so it does not cover the unchecked chunk.
-    const userRange = makeRange({ endLine: 35, id: 'u', startLine: 30, userModified: true });
+    act(() => result.current.bridge.toggleChunk(KEY, c1, true, [c1]));
+    expect(searchSpans()).toEqual([{ endLine: 11, startLine: 1 }]);
 
     act(() => result.current.bridge.toggleFile(KEY, true));
-    act(() =>
-      curationState().setTapestryRangesForKey(KEY, [
-        userRange,
-        makeSearchRange({ endLine: 15, id: 'x', startLine: 10 }),
-      ])
-    );
-
-    act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
-
-    expect(curationState().tapestryRangesByKey[KEY]).toEqual([userRange]);
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
+    expect(result.current.bridge.fileState(KEY)).toBe('checked');
+    expect(useChunkSelectionStore.getState().selectionsByKey[KEY]).toBeUndefined();
+    expect(searchSpans()).toEqual([]);
   });
 
-  it('toggleChunk(false) under an auto-created default range deselects the file and never mutates the default', () => {
+  it('check -> uncheck round trip on an unselected file returns to the start', () => {
     const { result } = renderBridge();
-    const chunk = { endLine: 14, startLine: 10 };
-    const defaultRange = makeRange({ endLine: 50, id: 'd', startLine: 0 });
+    const c = chunk('c1', 10, 14);
 
-    // File selected via the explorer store; preview panel wrote the full-file default.
-    act(() => result.current.store.getState().addSelectedFile(ROOT, PATH));
-    act(() => curationState().setTapestryRangesForKey(KEY, [defaultRange]));
-    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('checked');
+    act(() => result.current.bridge.toggleChunk(KEY, c, true, [c]));
+    expect(result.current.bridge.fileState(KEY)).toBe('indeterminate');
 
-    // The default covers the chunk and the bridge may not trim it, so unchecking
-    // one chunk deselects the WHOLE file; the default range is left verbatim.
-    act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
-
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
-    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('unchecked');
-    expect(curationState().tapestryRangesByKey[KEY]).toEqual([defaultRange]);
-  });
-
-  it('check -> uncheck round trip on an unselected file ends unselected + chunk unchecked', () => {
-    const { result } = renderBridge();
-    const chunk = { endLine: 14, startLine: 10 };
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
-
-    // toggleChunk(true) auto-selects the file and writes a search-managed range.
-    act(() => result.current.bridge.toggleChunk(KEY, chunk, true));
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
-
-    // toggleChunk(false) removes the only range AND must deselect the file so the
-    // round trip is idempotent (no zero-range whole-file 'checked' collapse).
-    act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
+    act(() => result.current.bridge.toggleChunk(KEY, c, false, [c]));
+    expect(result.current.bridge.fileState(KEY)).toBe('unchecked');
     expect(result.current.store.getState().selectedFilePaths.has(KEY)).toBe(false);
-    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('unchecked');
-  });
-
-  it('check -> uncheck round trip keeps the file selected when a userModified range remains', () => {
-    const { result } = renderBridge();
-    const chunk = { endLine: 14, startLine: 10 };
-    const userRange = makeRange({ endLine: 30, id: 'u', startLine: 25, userModified: true });
-
-    // Pre-existing hand-curated range on a selected file.
-    act(() => result.current.bridge.toggleFile(KEY, true));
-    act(() => curationState().setTapestryRangesForKey(KEY, [userRange]));
-
-    act(() => result.current.bridge.toggleChunk(KEY, chunk, true));
-    act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
-
-    // The userModified range survives verbatim and keeps the file selected.
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
-    expect(curationState().tapestryRangesByKey[KEY]).toEqual([userRange]);
-  });
-
-  it('deselects the entire file when unchecking one chunk of an explorer whole-file (zero-range) selection', () => {
-    const { result } = renderBridge();
-    const chunk = { endLine: 14, startLine: 10 };
-    const otherChunk = { endLine: 40, startLine: 30 };
-
-    // Select the file the way the EXPLORER tree checkbox does — directly via the
-    // file-explorer store, NOT the bridge's toggleChunk — leaving zero tapestry
-    // ranges. chunkCoverage's zero-ranges rule then reads every chunk as 'checked'.
-    act(() => result.current.store.getState().addSelectedFile(ROOT, PATH));
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
-    expect(curationState().tapestryRangesByKey[KEY]).toBeUndefined();
-    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('checked');
-    expect(result.current.bridge.chunkState(KEY, otherChunk)).toBe('checked');
-
-    // Unchecking a single chunk can't be expressed as "whole file minus one
-    // chunk" in the range model, so the bridge deselects the WHOLE file.
-    act(() => result.current.bridge.toggleChunk(KEY, chunk, false));
-
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
-    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('unchecked');
-    // A different, never-toggled chunk in the same file reads unchecked too —
-    // proof this deselected the whole file, not just a partial range.
-    expect(result.current.bridge.chunkState(KEY, otherChunk)).toBe('unchecked');
-  });
-
-  it('chunkState reflects both stores live', () => {
-    const { result } = renderBridge();
-    const chunk = { endLine: 14, startLine: 10 };
-
-    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('unchecked');
-
-    // Select via the file-explorer store's own action (not the bridge).
-    act(() => result.current.store.getState().addSelectedFile(ROOT, PATH));
-    // Selected with no ranges -> whole-file semantics.
-    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('checked');
-
-    act(() =>
-      curationState().setTapestryRangesForKey(KEY, [
-        makeRange({ endLine: 13, id: 'x', startLine: 10 }),
-      ])
-    );
-    expect(result.current.bridge.chunkState(KEY, chunk)).toBe('indeterminate');
+    expect(result.current.bridge.chunkState(KEY, 'c1')).toBe('unchecked');
   });
 
   it('reads and writes a FOREIGN (non-focused) root via its folderState, like the explorer tree', () => {
     const { result } = renderBridge();
 
-    // Focus a different root so ROOT becomes foreign (forest mode).
     act(() => {
       result.current.store.setState({ currentFolderId: OTHER_ROOT });
     });
@@ -240,17 +251,15 @@ describe('useSearchSelectionBridge', () => {
     act(() => result.current.bridge.toggleFile(KEY, true));
 
     const state = result.current.store.getState();
-    // The write routed into the foreign root's folderState, NOT the top-level set.
     expect(state.selectedFilePaths.has(KEY)).toBe(false);
     expect(state.folderStates[ROOT]?.selectedFilePaths.has(KEY)).toBe(true);
-    // The bridge reads it back the same way the explorer's own checkboxes do.
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(true);
-    expect(result.current.bridge.chunkState(KEY, { endLine: 14, startLine: 10 })).toBe('checked');
+    expect(result.current.bridge.fileState(KEY)).toBe('checked');
+    expect(result.current.bridge.chunkState(KEY, 'any')).toBe('checked');
 
     act(() => result.current.bridge.toggleFile(KEY, false));
     expect(result.current.store.getState().folderStates[ROOT]?.selectedFilePaths.has(KEY)).toBe(
       false
     );
-    expect(result.current.bridge.isFileChecked(KEY)).toBe(false);
+    expect(result.current.bridge.fileState(KEY)).toBe('unchecked');
   });
 });

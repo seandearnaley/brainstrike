@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CoverageState } from '../../bridge/range-math';
-import type { SearchSelectionBridge } from '../../bridge/use-search-selection-bridge';
+import type {
+  ChunkSelectionState,
+  FileSelectionState,
+  SearchSelectionBridge,
+} from '../../bridge/use-search-selection-bridge';
 import type {
   WorkspaceSearchChunkHit,
   WorkspaceSearchFileResult,
@@ -28,8 +31,8 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 const bridgeMock: SearchSelectionBridge = {
-  chunkState: vi.fn((): CoverageState => 'unchecked'),
-  isFileChecked: vi.fn(() => false),
+  chunkState: vi.fn((): ChunkSelectionState => 'unchecked'),
+  fileState: vi.fn((): FileSelectionState => 'unchecked'),
   toggleChunk: vi.fn(),
   toggleFile: vi.fn(),
 };
@@ -155,7 +158,7 @@ describe('highlightQuery', () => {
 describe('SearchResultsTree', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (bridgeMock.isFileChecked as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (bridgeMock.fileState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
     (bridgeMock.chunkState as ReturnType<typeof vi.fn>).mockReturnValue('unchecked');
     useWorkspaceSearchStore.getState().reset();
   });
@@ -251,8 +254,10 @@ describe('SearchResultsTree', () => {
     expect(bridgeMock.toggleChunk).toHaveBeenCalledTimes(1);
     expect(bridgeMock.toggleChunk).toHaveBeenCalledWith(
       'adapter-root-mounted|@|src/a.ts',
-      { endLine: 12, startLine: 8 },
-      true
+      { chunkId: 'chunk-1', endLine: 12, startLine: 8 },
+      true,
+      // Sibling result-chunk list threaded from the tree (this file has one chunk).
+      [{ chunkId: 'chunk-1', endLine: 12, startLine: 8 }]
     );
   });
 
@@ -357,6 +362,30 @@ describe('SearchResultsTree', () => {
     expect(
       screen.getByText('Match list may be incomplete (candidate pool capped) — narrow the query.')
     ).toBeInTheDocument();
+  });
+
+  it('aligns file/chunk checkboxes per level: chunk rows indent further AND reserve toggle space (semantic)', () => {
+    // Semantic mode: file (depth 0, has a child chunk) → chunk (depth 1, LEAF).
+    seedResults(makeResults([fileResult({ children: [chunkHit()] })]), { mode: 'semantic' });
+    const { container } = render(
+      <SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />
+    );
+
+    const fileRow = container.querySelector('[data-depth="0"]');
+    const chunkRow = container.querySelector('[data-depth="1"]');
+    expect(fileRow).not.toBeNull();
+    expect(chunkRow).not.toBeNull();
+
+    // Per-level indent: the chunk row (depth 1) sits deeper than the file row.
+    expect(Number(chunkRow?.getAttribute('data-depth'))).toBeGreaterThan(
+      Number(fileRow?.getAttribute('data-depth'))
+    );
+
+    // The leaf chunk row RESERVES the expand-toggle column (the h-7 w-7 spacer)
+    // so its checkbox lines up under the file's checkbox instead of the reported
+    // regression where it landed left of it. Removing reserveToggleSpace:false
+    // is what restores this spacer.
+    expect(chunkRow?.querySelector('span.h-7.w-7')).not.toBeNull();
   });
 
   it('passes the search windowing context to the tree', () => {

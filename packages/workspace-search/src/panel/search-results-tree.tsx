@@ -1,11 +1,11 @@
 import { Badge, Checkbox, type TreeNode, TreeTable } from '@brainstrike/ui';
+import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import type * as React from 'react';
 import { useCallback, useMemo } from 'react';
-import { type ChunkBounds, fileCoverage } from '../bridge/range-math';
+import type { SelectedChunk } from '../bridge/chunk-selection-store';
 import { useSearchSelectionBridge } from '../bridge/use-search-selection-bridge';
-import type { WorkspaceSearchChild } from '../core/search-result-model';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
-import { buildSearchTreeNodes, type SearchNodeData } from './build-tree-nodes';
+import { buildSearchTreeNodes, fileResultChunks, type SearchNodeData } from './build-tree-nodes';
 
 /** A rendered headline/highlight fragment: plain text or an emphasized match. */
 export type HeadlineSegment = string | { mark: string };
@@ -81,19 +81,13 @@ function renderSegments(segments: HeadlineSegment[]): React.ReactNode {
   );
 }
 
-function childBounds(child: WorkspaceSearchChild): ChunkBounds {
-  return child.kind === 'match'
-    ? { endLine: child.chunkEndLine, startLine: child.chunkStartLine }
-    : { endLine: child.endLine, startLine: child.startLine };
-}
-
-/** Chunk bounds for a chunk-level row (semantic chunk or grouped text chunk). */
-function chunkRowBounds(
+/** The SelectedChunk for a chunk-level row (semantic chunk or grouped text chunk). */
+function chunkRowSelected(
   data: Extract<SearchNodeData, { kind: 'chunk' | 'text-chunk' }>
-): ChunkBounds {
+): SelectedChunk {
   return data.kind === 'text-chunk'
-    ? { endLine: data.chunkEndLine, startLine: data.chunkStartLine }
-    : { endLine: data.chunk.endLine, startLine: data.chunk.startLine };
+    ? { chunkId: data.chunkId, endLine: data.chunkEndLine, startLine: data.chunkStartLine }
+    : { chunkId: data.chunk.chunkId, endLine: data.chunk.endLine, startLine: data.chunk.startLine };
 }
 
 /** Line a row click navigates to; `undefined` for file rows (no line). */
@@ -116,6 +110,8 @@ interface RowRenderContext {
   highlightEnabled: boolean;
   query: string;
   showRootBadge: boolean;
+  /** compositeKey -> the file's full result-chunk list (for whole-file convert). */
+  siblingChunksByKey: Map<string, SelectedChunk[]>;
 }
 
 function FileRow({
@@ -126,12 +122,9 @@ function FileRow({
   ctx: RowRenderContext;
 }): React.ReactNode {
   const { file, compositeKey } = data;
-  const selected = compositeKey !== null && ctx.bridge.isFileChecked(compositeKey);
-  const childStates =
-    compositeKey === null
-      ? []
-      : file.children.map((child) => ctx.bridge.chunkState(compositeKey, childBounds(child)));
-  const state = fileCoverage(selected, childStates);
+  // File is the ONLY tri-state checkbox; read it straight from the bridge (no
+  // rollup from children — the selected-chunk set already knows the answer).
+  const state = compositeKey === null ? 'unchecked' : ctx.bridge.fileState(compositeKey);
 
   const onToggle = useCallback(() => {
     if (compositeKey !== null) {
@@ -175,19 +168,21 @@ function ChunkRow({
   ctx: RowRenderContext;
 }): React.ReactNode {
   const { compositeKey } = data;
-  const bounds = chunkRowBounds(data);
-  const state = compositeKey === null ? 'unchecked' : ctx.bridge.chunkState(compositeKey, bounds);
+  const chunk = chunkRowSelected(data);
+  const state =
+    compositeKey === null ? 'unchecked' : ctx.bridge.chunkState(compositeKey, chunk.chunkId);
 
   const onToggle = useCallback(() => {
     if (compositeKey !== null) {
-      ctx.bridge.toggleChunk(compositeKey, bounds, state !== 'checked');
+      const siblings = ctx.siblingChunksByKey.get(compositeKey) ?? [chunk];
+      ctx.bridge.toggleChunk(compositeKey, chunk, state !== 'checked', siblings);
     }
-  }, [ctx.bridge, compositeKey, bounds, state]);
+  }, [ctx.bridge, ctx.siblingChunksByKey, compositeKey, chunk, state]);
 
   const content =
     data.kind === 'text-chunk' ? (
       <span className="truncate text-muted-foreground text-xs">
-        Lines {bounds.startLine}–{bounds.endLine}
+        Lines {chunk.startLine}–{chunk.endLine}
         {data.matchCount > 1 ? ` · ${data.matchCount} matches` : ''}
       </span>
     ) : (
@@ -201,8 +196,8 @@ function ChunkRow({
   return (
     <span className="flex min-w-0 items-center gap-2">
       <Checkbox
-        aria-label={`Select lines ${bounds.startLine}-${bounds.endLine}`}
-        checked={state === 'indeterminate' ? 'indeterminate' : state === 'checked'}
+        aria-label={`Select lines ${chunk.startLine}-${chunk.endLine}`}
+        checked={state === 'checked'}
         data-state={state}
         onCheckedChange={onToggle}
         onClick={(event) => event.stopPropagation()}
@@ -298,6 +293,23 @@ export function SearchResultsTree({
     return roots.size > 1;
   }, [nodes]);
 
+  // Authoritative per-file result-chunk list (independent of tree expansion) so
+  // the bridge can convert a whole-file selection into "all chunks but this one".
+  const siblingChunksByKey = useMemo(() => {
+    const map = new Map<string, SelectedChunk[]>();
+    if (!results) {
+      return map;
+    }
+    for (const file of results.files) {
+      const adapterRootId = resolveAdapterRootId(file.dbRootId);
+      if (adapterRootId === null) {
+        continue;
+      }
+      map.set(encodeFileSelection(adapterRootId, file.path), fileResultChunks(file));
+    }
+    return map;
+  }, [results, resolveAdapterRootId]);
+
   const ctx = useMemo<RowRenderContext>(
     () => ({
       bridge,
@@ -305,8 +317,9 @@ export function SearchResultsTree({
       highlightEnabled: mode === 'text' && !isRegex,
       query: query.trim(),
       showRootBadge,
+      siblingChunksByKey,
     }),
-    [bridge, caseSensitive, mode, isRegex, query, showRootBadge]
+    [bridge, caseSensitive, mode, isRegex, query, showRootBadge, siblingChunksByKey]
   );
 
   const columns = useMemo(
@@ -324,9 +337,13 @@ export function SearchResultsTree({
         },
         header: 'Results',
         id: 'result',
-        // Match rows (leaves) are navigation-only; don't reserve empty toggle
-        // space for them so they read as tight children of their chunk.
-        reserveToggleSpace: false,
+        // Reserve toggle space on EVERY row (default). A depth-0 file row shows a
+        // real expand toggle (28px); leaf semantic chunk rows (depth 1) have no
+        // children, so without the reserved spacer their checkbox would sit at
+        // 20px indent — LEFT of the file checkbox's 28px, the reported "chunks
+        // indented less than files" regression. Reserving the spacer keeps every
+        // level's checkbox aligned at `depth*20 + 28`.
+        reserveToggleSpace: true,
       },
     ],
     [ctx]

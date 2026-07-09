@@ -1,3 +1,4 @@
+import type { TapestryRange } from '@brainstrike/file-explorer-ui';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
   useFileExplorerStoreContext,
@@ -6,19 +7,28 @@ import {
 import type { FileExplorerState } from '@brainstrike/types';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo } from 'react';
-import {
-  addChunkRange,
-  type ChunkBounds,
-  type CoverageState,
-  chunkCoverage,
-  removeChunkRange,
-  toTapestrySpan,
-} from './range-math';
+import { type SelectedChunk, useChunkSelectionStore } from './chunk-selection-store';
+import { deriveSearchRanges, searchRangeColor } from './range-math';
+
+/** File checkbox is the ONLY tri-state: whole-file, chunk-subset, or none. */
+export type FileSelectionState = 'checked' | 'indeterminate' | 'unchecked';
+/** Chunk checkboxes are strictly binary — a chunk is either in context or not. */
+export type ChunkSelectionState = 'checked' | 'unchecked';
 
 export interface SearchSelectionBridge {
-  chunkState: (compositeKey: string, chunk: ChunkBounds) => CoverageState;
-  isFileChecked: (compositeKey: string) => boolean;
-  toggleChunk: (compositeKey: string, chunk: ChunkBounds, nextChecked: boolean) => void;
+  chunkState: (compositeKey: string, chunkId: string) => ChunkSelectionState;
+  fileState: (compositeKey: string) => FileSelectionState;
+  /**
+   * Toggle a chunk. `siblingResultChunks` is the file's FULL result-chunk list
+   * from the tree — needed to CONVERT a whole-file selection into "everything
+   * except this chunk" when the user unchecks one chunk of a whole-file doc.
+   */
+  toggleChunk: (
+    compositeKey: string,
+    chunk: SelectedChunk,
+    nextChecked: boolean,
+    siblingResultChunks: readonly SelectedChunk[]
+  ) => void;
   toggleFile: (compositeKey: string, nextChecked: boolean) => void;
 }
 
@@ -45,121 +55,191 @@ function isKeySelected(slices: SelectionSlices, compositeKey: string): boolean {
   return selectionSet?.has(compositeKey) ?? false;
 }
 
+function subsetForKey(compositeKey: string): Record<string, SelectedChunk> {
+  return useChunkSelectionStore.getState().selectionsByKey[compositeKey] ?? {};
+}
+
 /**
  * Bridges workspace-search checkboxes onto the SAME two stores the file-explorer's
  * own checkboxes drive: file membership -> the file-explorer selection store,
- * chunk ranges -> the workspace-context curation (tapestry) store.
+ * chunk selection -> the session chunk-selection SET (source of truth).
  *
- * INVARIANT (no silent data loss): search-driven toggles mutate ONLY the bridge's
- * own `origin:'search'` ranges (see range-math.ts). Hand-curated userModified ranges
- * AND the preview panel's auto-created full-file default (origin undefined) are never
- * removed, trimmed, or absorbed; deselecting a file clears only search-owned ranges.
+ * The selected-chunk set is authoritative; the workspace-context curation
+ * (tapestry) ranges are a ONE-WAY derived OUTPUT re-emitted after every set
+ * mutation. Because ranges are output-only, deriving them by MERGING overlapping
+ * spans is now safe — checkbox state never reads them back.
+ *
+ * INVARIANT (no silent data loss): search re-emits ONLY its own `origin:'search'`
+ * ranges; hand-curated userModified ranges AND the preview panel's auto-created
+ * full-file default (origin undefined) are preserved verbatim on every write.
  */
 export function useSearchSelectionBridge(): SearchSelectionBridge {
   const explorerStore = useFileExplorerStoreContext();
-  // Subscriptions keep isFileChecked/chunkState reactive for consumers.
+  // Subscriptions keep fileState/chunkState reactive for consumers.
   const selectedFilePaths = useFileExplorerStoreSelector((s) => s.selectedFilePaths);
   const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
   const folderStates = useFileExplorerStoreSelector((s) => s.folderStates);
   const addSelectedFile = useFileExplorerStoreSelector((s) => s.addSelectedFile);
   const removeSelectedFile = useFileExplorerStoreSelector((s) => s.removeSelectedFile);
-  const tapestryRangesByKey = useWorkspaceContextCurationStore((s) => s.tapestryRangesByKey);
+  const selectionsByKey = useChunkSelectionStore((s) => s.selectionsByKey);
+  const addChunk = useChunkSelectionStore((s) => s.addChunk);
+  const removeChunk = useChunkSelectionStore((s) => s.removeChunk);
+  const replaceForKey = useChunkSelectionStore((s) => s.replaceForKey);
+  const clearForKey = useChunkSelectionStore((s) => s.clearForKey);
   const setTapestryRangesForKey = useWorkspaceContextCurationStore(
     (s) => s.setTapestryRangesForKey
   );
 
-  const isFileChecked = useCallback(
-    (compositeKey: string): boolean =>
-      isKeySelected({ currentFolderId, folderStates, selectedFilePaths }, compositeKey),
-    [currentFolderId, folderStates, selectedFilePaths]
-  );
-
-  const chunkState = useCallback(
-    (compositeKey: string, chunk: ChunkBounds): CoverageState =>
-      chunkCoverage(isFileChecked(compositeKey), tapestryRangesByKey[compositeKey], chunk),
-    [isFileChecked, tapestryRangesByKey]
-  );
-
-  const toggleFile = useCallback(
-    (compositeKey: string, nextChecked: boolean): void => {
-      const { folderId, path } = decodeFileSelection(compositeKey);
-      if (nextChecked) {
+  const selectFile = useCallback(
+    (compositeKey: string): void => {
+      if (!isKeySelected(explorerStore.getState(), compositeKey)) {
+        const { folderId, path } = decodeFileSelection(compositeKey);
         addSelectedFile(folderId, path);
-        return;
       }
-      removeSelectedFile(folderId, path);
-      // Clear only the bridge's own `origin:'search'` ranges; hand-curated
-      // userModified ranges AND the auto-created full-file default survive.
-      const existing =
-        useWorkspaceContextCurationStore.getState().tapestryRangesByKey[compositeKey] ?? [];
-      setTapestryRangesForKey(
-        compositeKey,
-        existing.filter((range) => range.origin !== 'search')
-      );
     },
-    [addSelectedFile, removeSelectedFile, setTapestryRangesForKey]
+    [explorerStore, addSelectedFile]
   );
 
-  const toggleChunk = useCallback(
-    (compositeKey: string, chunk: ChunkBounds, nextChecked: boolean): void => {
-      const existing =
-        useWorkspaceContextCurationStore.getState().tapestryRangesByKey[compositeKey] ?? [];
-      if (nextChecked) {
-        // Chunk selection implies file membership.
-        if (!isKeySelected(explorerStore.getState(), compositeKey)) {
-          const { folderId, path } = decodeFileSelection(compositeKey);
-          addSelectedFile(folderId, path);
-        }
-        setTapestryRangesForKey(compositeKey, addChunkRange(existing, chunk, makeId));
-        return;
-      }
-      // KNOWN ASYMMETRY (defensible, intentional): the range model can't express
-      // "whole file minus one chunk". If the chunk's coverage comes from a NON
-      // search-owned range — the explorer/preview auto-created full-file default,
-      // a hand-curated userModified range, or the zero-range whole-file selection
-      // (chunkCoverage's zero-ranges 'checked' rule) — there is nothing the bridge
-      // may trim (it only mutates its own `origin:'search'` ranges). So unchecking
-      // deselects the ENTIRE file and clears only the bridge's own ranges, leaving
-      // the default + userModified ranges verbatim.
-      const span = toTapestrySpan(chunk);
-      const nonSearchCoversChunk = existing.some(
-        (range) =>
-          range.isActive &&
-          range.origin !== 'search' &&
-          range.startLine < span.endLine &&
-          range.endLine > span.startLine
-      );
-      if (nonSearchCoversChunk || existing.length === 0) {
-        if (isKeySelected(explorerStore.getState(), compositeKey)) {
-          const { folderId, path } = decodeFileSelection(compositeKey);
-          removeSelectedFile(folderId, path);
-        }
-        setTapestryRangesForKey(
-          compositeKey,
-          existing.filter((range) => range.origin !== 'search')
-        );
-        return;
-      }
-
-      const updated = removeChunkRange(existing, chunk);
-      setTapestryRangesForKey(compositeKey, updated);
-      // Idempotence guard (check -> uncheck must return to the start): toggleChunk(true)
-      // auto-selects the file, so if unchecking removes the last range that kept the file
-      // in context we must ALSO deselect the file. Otherwise a selected file with zero
-      // active ranges reads as whole-file 'checked' (chunkCoverage's zero-ranges rule),
-      // silently pulling the ENTIRE file into the assistant context. An active range OR
-      // a userModified range keeps the file selected.
-      const hasActiveSelection = updated.some((range) => range.isActive || range.userModified);
-      if (!hasActiveSelection && isKeySelected(explorerStore.getState(), compositeKey)) {
+  const deselectFile = useCallback(
+    (compositeKey: string): void => {
+      if (isKeySelected(explorerStore.getState(), compositeKey)) {
         const { folderId, path } = decodeFileSelection(compositeKey);
         removeSelectedFile(folderId, path);
       }
     },
-    [explorerStore, addSelectedFile, removeSelectedFile, setTapestryRangesForKey]
+    [explorerStore, removeSelectedFile]
+  );
+
+  /**
+   * Re-derive the search-owned ranges for a key from the LATEST chunk set and
+   * write them alongside the preserved non-search ranges (set first, ranges
+   * second). Search never mutates a range whose origin is not 'search'.
+   */
+  const writeRangesForKey = useCallback(
+    (compositeKey: string): void => {
+      const chunks = Object.values(subsetForKey(compositeKey));
+      const existing =
+        useWorkspaceContextCurationStore.getState().tapestryRangesByKey[compositeKey] ?? [];
+      const preserved = existing.filter((range: TapestryRange) => range.origin !== 'search');
+      setTapestryRangesForKey(compositeKey, [
+        ...deriveSearchRanges(chunks, makeId, searchRangeColor),
+        ...preserved,
+      ]);
+    },
+    [setTapestryRangesForKey]
+  );
+
+  const fileState = useCallback(
+    (compositeKey: string): FileSelectionState => {
+      const hasSubset = Object.keys(selectionsByKey[compositeKey] ?? {}).length > 0;
+      if (hasSubset) {
+        return 'indeterminate';
+      }
+      return isKeySelected({ currentFolderId, folderStates, selectedFilePaths }, compositeKey)
+        ? 'checked'
+        : 'unchecked';
+    },
+    [currentFolderId, folderStates, selectedFilePaths, selectionsByKey]
+  );
+
+  const chunkState = useCallback(
+    (compositeKey: string, chunkId: string): ChunkSelectionState => {
+      const subset = selectionsByKey[compositeKey] ?? {};
+      if (subset[chunkId] !== undefined) {
+        return 'checked';
+      }
+      // Whole-file selection (empty subset + file selected) genuinely includes
+      // every chunk's content.
+      const hasSubset = Object.keys(subset).length > 0;
+      if (
+        !hasSubset &&
+        isKeySelected({ currentFolderId, folderStates, selectedFilePaths }, compositeKey)
+      ) {
+        return 'checked';
+      }
+      return 'unchecked';
+    },
+    [currentFolderId, folderStates, selectedFilePaths, selectionsByKey]
+  );
+
+  const toggleFile = useCallback(
+    (compositeKey: string, nextChecked: boolean): void => {
+      // Whole-file supersedes any chunk subset: clear the set either way so the
+      // derived search ranges collapse to empty (the preview default takes over
+      // when selected; nothing remains when deselected).
+      clearForKey(compositeKey);
+      if (nextChecked) {
+        selectFile(compositeKey);
+      } else {
+        deselectFile(compositeKey);
+      }
+      writeRangesForKey(compositeKey);
+    },
+    [clearForKey, selectFile, deselectFile, writeRangesForKey]
+  );
+
+  const toggleChunk = useCallback(
+    (
+      compositeKey: string,
+      chunk: SelectedChunk,
+      nextChecked: boolean,
+      siblingResultChunks: readonly SelectedChunk[]
+    ): void => {
+      const subset = subsetForKey(compositeKey);
+      const inSet = subset[chunk.chunkId] !== undefined;
+      const hasSubset = Object.keys(subset).length > 0;
+      const fileSelected = isKeySelected(explorerStore.getState(), compositeKey);
+
+      if (nextChecked) {
+        if (inSet) {
+          return;
+        }
+        addChunk(compositeKey, chunk);
+        selectFile(compositeKey);
+        writeRangesForKey(compositeKey);
+        return;
+      }
+
+      // Unchecking a chunk that is in the set: drop it. If the subset empties,
+      // deselect the file too (no zero-subset selected file lingering).
+      if (inSet) {
+        removeChunk(compositeKey, chunk.chunkId);
+        if (Object.keys(subsetForKey(compositeKey)).length === 0) {
+          deselectFile(compositeKey);
+        }
+        writeRangesForKey(compositeKey);
+        return;
+      }
+
+      // Unchecking a chunk NOT in the set but under a WHOLE-FILE selection:
+      // CONVERT to "every sibling result chunk except this one". The file stays
+      // selected (now indeterminate); if nothing remains, deselect it.
+      if (fileSelected && !hasSubset) {
+        const remainder = siblingResultChunks.filter((c) => c.chunkId !== chunk.chunkId);
+        if (remainder.length === 0) {
+          clearForKey(compositeKey);
+          deselectFile(compositeKey);
+        } else {
+          replaceForKey(compositeKey, remainder);
+        }
+        writeRangesForKey(compositeKey);
+      }
+      // Else: already unchecked and not whole-file — nothing to do.
+    },
+    [
+      explorerStore,
+      addChunk,
+      removeChunk,
+      replaceForKey,
+      clearForKey,
+      selectFile,
+      deselectFile,
+      writeRangesForKey,
+    ]
   );
 
   return useMemo(
-    () => ({ chunkState, isFileChecked, toggleChunk, toggleFile }),
-    [chunkState, isFileChecked, toggleChunk, toggleFile]
+    () => ({ chunkState, fileState, toggleChunk, toggleFile }),
+    [chunkState, fileState, toggleChunk, toggleFile]
   );
 }

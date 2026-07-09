@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { createContext } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CoverageState } from '../../bridge/range-math';
-import type { SearchSelectionBridge } from '../../bridge/use-search-selection-bridge';
+import type {
+  ChunkSelectionState,
+  FileSelectionState,
+  SearchSelectionBridge,
+} from '../../bridge/use-search-selection-bridge';
 import type { WorkspaceSearchResults } from '../../core/search-result-model';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
 
@@ -32,8 +35,8 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 const bridgeMock: SearchSelectionBridge = {
-  chunkState: vi.fn((): CoverageState => 'unchecked'),
-  isFileChecked: vi.fn(() => false),
+  chunkState: vi.fn((): ChunkSelectionState => 'unchecked'),
+  fileState: vi.fn((): FileSelectionState => 'unchecked'),
   toggleChunk: vi.fn(),
   toggleFile: vi.fn(),
 };

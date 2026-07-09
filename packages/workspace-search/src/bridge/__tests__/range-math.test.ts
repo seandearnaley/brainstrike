@@ -1,40 +1,18 @@
-import type { TapestryRange } from '@brainstrike/file-explorer-ui';
 import { describe, expect, it } from 'vitest';
-import {
-  addChunkRange,
-  chunkCoverage,
-  fileCoverage,
-  removeChunkRange,
-  toTapestrySpan,
-} from '../range-math';
+import type { SelectedChunk } from '../chunk-selection-store';
+import { deriveSearchRanges, searchRangeColor, toTapestrySpan } from '../range-math';
 
 // Palette (from @brainstrike/types TAPESTRY_COLOR_NAMES order):
 // index 0 = red #ef4444, index 1 = orange #f97316.
 const RED = '#ef4444';
 const ORANGE = '#f97316';
 
-function range(
-  overrides: Partial<TapestryRange> & Pick<TapestryRange, 'startLine' | 'endLine'>
-): TapestryRange {
-  return {
-    color: overrides.color ?? '#000000',
-    endLine: overrides.endLine,
-    id: overrides.id ?? 'r',
-    isActive: overrides.isActive ?? true,
-    startLine: overrides.startLine,
-    ...(overrides.origin === undefined ? {} : { origin: overrides.origin }),
-    ...(overrides.userModified === undefined ? {} : { userModified: overrides.userModified }),
-  };
+function chunk(id: string, startLine: number, endLine: number): SelectedChunk {
+  return { chunkId: id, endLine, startLine };
 }
 
-/** A range owned by the search bridge (origin: 'search') — mutable by toggles. */
-function searchRange(
-  overrides: Partial<TapestryRange> & Pick<TapestryRange, 'startLine' | 'endLine'>
-): TapestryRange {
-  return range({ ...overrides, origin: 'search' });
-}
-
-const fixedId = (): string => 'new-id';
+let idCounter = 0;
+const seqId = (): string => `id-${idCounter++}`;
 
 describe('toTapestrySpan', () => {
   it('converts inclusive {10,14} to exclusive {10,15}', () => {
@@ -42,179 +20,115 @@ describe('toTapestrySpan', () => {
   });
 });
 
-describe('addChunkRange', () => {
-  it('empty existing -> one active search-owned range colored by count 0', () => {
-    const result = addChunkRange([], { endLine: 14, startLine: 10 }, fixedId);
-    expect(result).toEqual([
-      { color: RED, endLine: 15, id: 'new-id', isActive: true, origin: 'search', startLine: 10 },
-    ]);
-  });
-
-  it('coalesces an overlapping search-owned range: [10,15) + chunk {13,20} -> [10,21)', () => {
-    const existing = [searchRange({ endLine: 15, id: 'a', startLine: 10 })];
-    const result = addChunkRange(existing, { endLine: 20, startLine: 13 }, fixedId);
-    expect(result).toEqual([
-      { color: ORANGE, endLine: 21, id: 'new-id', isActive: true, origin: 'search', startLine: 10 },
-    ]);
-  });
-
-  it('coalesces an adjacent search-owned range: [10,15) + chunk {15,18} -> [10,19)', () => {
-    const existing = [searchRange({ endLine: 15, id: 'a', startLine: 10 })];
-    const result = addChunkRange(existing, { endLine: 18, startLine: 15 }, fixedId);
-    expect(result).toEqual([
-      { color: ORANGE, endLine: 19, id: 'new-id', isActive: true, origin: 'search', startLine: 10 },
-    ]);
-  });
-
-  it('keeps disjoint search-owned ranges separate and sorted', () => {
-    const existing = [searchRange({ endLine: 15, id: 'a', startLine: 10 })];
-    const result = addChunkRange(existing, { endLine: 25, startLine: 20 }, fixedId);
-    expect(result).toEqual([
-      searchRange({ endLine: 15, id: 'a', startLine: 10 }),
-      { color: ORANGE, endLine: 26, id: 'new-id', isActive: true, origin: 'search', startLine: 20 },
-    ]);
-  });
-
-  it('preserves an overlapping userModified range verbatim and adds the new range alongside', () => {
-    const userRange = range({ endLine: 20, id: 'u', startLine: 10, userModified: true });
-    const result = addChunkRange([userRange], { endLine: 16, startLine: 12 }, fixedId);
-    expect(result).toEqual([
-      userRange,
-      { color: ORANGE, endLine: 17, id: 'new-id', isActive: true, origin: 'search', startLine: 12 },
-    ]);
-    // Never mutated or absorbed.
-    expect(result[0]).toBe(userRange);
-  });
-
-  it('never coalesces the auto-created default (origin undefined) — preserves it alongside', () => {
-    const defaultRange = range({ endLine: 30, id: 'd', startLine: 0 });
-    const result = addChunkRange([defaultRange], { endLine: 16, startLine: 12 }, fixedId);
-    expect(result).toEqual([
-      defaultRange,
-      { color: ORANGE, endLine: 17, id: 'new-id', isActive: true, origin: 'search', startLine: 12 },
-    ]);
-    expect(result[0]).toBe(defaultRange);
-  });
-
-  it('does not coalesce with inactive ranges', () => {
-    const inactive = searchRange({ endLine: 15, id: 'i', isActive: false, startLine: 10 });
-    const result = addChunkRange([inactive], { endLine: 18, startLine: 12 }, fixedId);
-    expect(result).toEqual([
-      inactive,
-      { color: ORANGE, endLine: 19, id: 'new-id', isActive: true, origin: 'search', startLine: 12 },
-    ]);
+describe('searchRangeColor', () => {
+  it('picks palette colors by index, wrapping modulo the palette length', () => {
+    expect(searchRangeColor(0)).toBe(RED);
+    expect(searchRangeColor(1)).toBe(ORANGE);
   });
 });
 
-describe('removeChunkRange', () => {
-  it('removes an exactly-covering search-owned active range', () => {
-    const existing = [searchRange({ color: RED, endLine: 15, id: 'a', startLine: 10 })];
-    expect(removeChunkRange(existing, { endLine: 14, startLine: 10 })).toEqual([]);
+describe('deriveSearchRanges', () => {
+  it('empty set -> no ranges (preview default takes over)', () => {
+    expect(deriveSearchRanges([], seqId, searchRangeColor)).toEqual([]);
   });
 
-  it('trims a wider search-owned range and both remainders keep origin:"search"', () => {
-    const existing = [searchRange({ color: RED, endLine: 30, id: 'a', startLine: 5 })];
-    const result = removeChunkRange(existing, { endLine: 14, startLine: 10 });
+  it('one chunk -> one active search-owned covering range colored by index 0', () => {
+    const result = deriveSearchRanges([chunk('c1', 10, 14)], () => 'new-id', searchRangeColor);
     expect(result).toEqual([
-      { color: RED, endLine: 10, id: 'a', isActive: true, origin: 'search', startLine: 5 },
-      { color: RED, endLine: 30, id: 'a:15', isActive: true, origin: 'search', startLine: 15 },
+      {
+        color: RED,
+        endLine: 15,
+        id: 'new-id',
+        isActive: true,
+        origin: 'search',
+        startLine: 10,
+        userModified: false,
+      },
     ]);
   });
 
-  it('never removes or trims a userModified range', () => {
-    const existing = [
-      range({ color: RED, endLine: 20, id: 'u', startLine: 10, userModified: true }),
-    ];
-    expect(removeChunkRange(existing, { endLine: 20, startLine: 10 })).toEqual(existing);
-  });
-
-  it('never removes or trims the auto-created default (origin undefined)', () => {
-    const existing = [range({ color: RED, endLine: 30, id: 'd', startLine: 0 })];
-    expect(removeChunkRange(existing, { endLine: 14, startLine: 10 })).toEqual(existing);
-  });
-
-  it('leaves inactive ranges untouched', () => {
-    const existing = [
-      searchRange({ color: RED, endLine: 15, id: 'i', isActive: false, startLine: 10 }),
-    ];
-    expect(removeChunkRange(existing, { endLine: 14, startLine: 10 })).toEqual(existing);
-  });
-
-  it('keeps a non-overlapping search-owned range verbatim', () => {
-    const existing = [searchRange({ color: RED, endLine: 25, id: 'a', startLine: 20 })];
-    expect(removeChunkRange(existing, { endLine: 14, startLine: 10 })).toEqual(existing);
-  });
-});
-
-describe('chunkCoverage', () => {
-  const chunk = { endLine: 14, startLine: 10 }; // span [10,15)
-
-  it('unselected file -> unchecked', () => {
-    expect(chunkCoverage(false, [range({ endLine: 15, startLine: 10 })], chunk)).toBe('unchecked');
-  });
-
-  it('selected file with undefined ranges -> checked (whole-file semantics)', () => {
-    expect(chunkCoverage(true, undefined, chunk)).toBe('checked');
-  });
-
-  it('selected file with empty ranges -> checked (whole-file semantics)', () => {
-    expect(chunkCoverage(true, [], chunk)).toBe('checked');
-  });
-
-  it('fully covered by one active range -> checked', () => {
-    expect(chunkCoverage(true, [range({ endLine: 15, id: 'a', startLine: 10 })], chunk)).toBe(
-      'checked'
+  it('coalesces OVERLAPPING chunks into one covering span: [10,15)+[13,21) -> [10,21)', () => {
+    const result = deriveSearchRanges(
+      [chunk('a', 10, 14), chunk('b', 13, 20)],
+      () => 'merged',
+      searchRangeColor
     );
+    expect(result).toEqual([
+      {
+        color: RED,
+        endLine: 21,
+        id: 'merged',
+        isActive: true,
+        origin: 'search',
+        startLine: 10,
+        userModified: false,
+      },
+    ]);
   });
 
-  it('fully covered by the union of two active ranges -> checked', () => {
-    expect(
-      chunkCoverage(
-        true,
-        [
-          range({ endLine: 12, id: 'a', startLine: 8 }),
-          range({ endLine: 16, id: 'b', startLine: 12 }),
-        ],
-        chunk
-      )
-    ).toBe('checked');
-  });
-
-  it('partially covered -> indeterminate', () => {
-    expect(chunkCoverage(true, [range({ endLine: 13, id: 'a', startLine: 10 })], chunk)).toBe(
-      'indeterminate'
+  it('coalesces ADJACENT chunks: [10,15)+[15,19) -> [10,19)', () => {
+    const result = deriveSearchRanges(
+      [chunk('a', 10, 14), chunk('b', 15, 18)],
+      () => 'merged',
+      searchRangeColor
     );
+    expect(result).toEqual([
+      {
+        color: RED,
+        endLine: 19,
+        id: 'merged',
+        isActive: true,
+        origin: 'search',
+        startLine: 10,
+        userModified: false,
+      },
+    ]);
   });
 
-  it('zero overlap while other ranges exist -> unchecked', () => {
-    expect(chunkCoverage(true, [range({ endLine: 25, id: 'a', startLine: 20 })], chunk)).toBe(
-      'unchecked'
+  it('keeps DISJOINT chunks as separate covering spans, sorted, colored by index', () => {
+    idCounter = 0;
+    const result = deriveSearchRanges(
+      [chunk('b', 20, 24), chunk('a', 10, 14)],
+      seqId,
+      searchRangeColor
     );
+    expect(result).toEqual([
+      {
+        color: RED,
+        endLine: 15,
+        id: 'id-0',
+        isActive: true,
+        origin: 'search',
+        startLine: 10,
+        userModified: false,
+      },
+      {
+        color: ORANGE,
+        endLine: 25,
+        id: 'id-1',
+        isActive: true,
+        origin: 'search',
+        startLine: 20,
+        userModified: false,
+      },
+    ]);
   });
 
-  it('coverage only from an inactive range -> unchecked', () => {
-    expect(
-      chunkCoverage(true, [range({ endLine: 15, id: 'a', isActive: false, startLine: 10 })], chunk)
-    ).toBe('unchecked');
-  });
-});
+  it('collapses identical/nested chunks to their covering span', () => {
+    const identical = deriveSearchRanges(
+      [chunk('a', 10, 20), chunk('b', 10, 20)],
+      () => 'm',
+      searchRangeColor
+    );
+    expect(identical).toHaveLength(1);
+    expect(identical[0]).toMatchObject({ endLine: 21, startLine: 10 });
 
-describe('fileCoverage', () => {
-  it('unselected -> unchecked regardless of children', () => {
-    expect(fileCoverage(false, ['checked'])).toBe('unchecked');
-  });
-
-  it('selected with zero children -> checked', () => {
-    expect(fileCoverage(true, [])).toBe('checked');
-  });
-
-  it('all children checked -> checked', () => {
-    expect(fileCoverage(true, ['checked', 'checked'])).toBe('checked');
-  });
-
-  it('mixed children -> indeterminate', () => {
-    expect(fileCoverage(true, ['checked', 'indeterminate'])).toBe('indeterminate');
-    expect(fileCoverage(true, ['checked', 'unchecked'])).toBe('indeterminate');
-    expect(fileCoverage(true, ['unchecked', 'unchecked'])).toBe('indeterminate');
+    const nested = deriveSearchRanges(
+      [chunk('a', 10, 30), chunk('b', 15, 20)],
+      () => 'm',
+      searchRangeColor
+    );
+    expect(nested).toHaveLength(1);
+    expect(nested[0]).toMatchObject({ endLine: 31, startLine: 10 });
   });
 });
