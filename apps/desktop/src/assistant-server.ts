@@ -241,11 +241,11 @@ async function handleAssistantPost(
       runId,
       runtimeData,
       signal,
-      toolApprovalAction,
       toolDependencies: {
         embeddingHostManager: options.embeddingHostManager,
         llmHostManager: options.llmHostManager,
       },
+      ...(toolApprovalAction === undefined ? {} : { toolApprovalAction }),
     });
   } catch (error) {
     await handleAssistantPostStreamError({ error, res, runId, signal });

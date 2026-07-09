@@ -4,9 +4,10 @@
     "composite": true,
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
-    "declaration": true,
-    "outDir": "./dist",
     "rootDir": "src",
+    "outDir": "./dist",
+    "declaration": true,
+    "emitDeclarationOnly": true,
     "types": [
       "node"
     ],

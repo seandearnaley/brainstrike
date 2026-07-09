@@ -2,6 +2,7 @@
     "recommendations": [
         "bierner.markdown-mermaid",
         "bradlc.vscode-tailwindcss",
-        "biomejs.biome"
+        "biomejs.biome",
+        "TypeScriptTeam.native-preview"
     ]
 }

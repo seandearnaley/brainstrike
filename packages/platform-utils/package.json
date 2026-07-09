@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "devDependencies": {
     "@types/node": "^26.1.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "happy-dom": "^20.10.6",
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^4.1.9"
   },
   "exports": {
@@ -19,7 +20,7 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "scripts": {
-    "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup src/index.ts --format esm,cjs --dts --out-dir dist",
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",

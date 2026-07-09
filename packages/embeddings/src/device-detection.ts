@@ -9,43 +9,6 @@ import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('device-detection');
 
-// WebGPU types for environments where @webgpu/types is not available
-// These are minimal type definitions for the APIs we use
-interface GPURequestAdapterOptions {
-  powerPreference?: 'low-power' | 'high-performance';
-}
-
-interface GPUAdapterInfo {
-  architecture: string;
-  description: string;
-  vendor: string;
-}
-
-interface GPUSupportedLimits {
-  maxBufferSize: number;
-  maxComputeWorkgroupsPerDimension: number;
-  maxStorageBufferBindingSize: number;
-}
-
-interface GPUAdapter {
-  features: Set<string>;
-  info?: Partial<GPUAdapterInfo>;
-  isFallbackAdapter: boolean;
-  limits: GPUSupportedLimits;
-  requestAdapterInfo?: () => Promise<GPUAdapterInfo>;
-}
-
-interface Gpu {
-  requestAdapter: (options?: GPURequestAdapterOptions) => Promise<GPUAdapter | null>;
-}
-
-// Augment Navigator type for WebGPU
-declare global {
-  interface Navigator {
-    gpu?: Gpu;
-  }
-}
-
 /**
  * Supported device types for local embeddings
  */
@@ -146,7 +109,7 @@ function createTimeoutPromise<T>(ms: number, message: string): Promise<T> {
  * Probe WebGPU adapter availability (extracted for complexity reduction).
  * Includes a timeout to prevent UI hangs from unresponsive GPU drivers.
  */
-async function probeWebGPUAdapter(gpu: Gpu): Promise<WebGPUProbeResult> {
+async function probeWebGPUAdapter(gpu: GPU): Promise<WebGPUProbeResult> {
   try {
     // Race adapter request against timeout to prevent UI hangs
     const adapter = await Promise.race([
@@ -166,29 +129,26 @@ async function probeWebGPUAdapter(gpu: Gpu): Promise<WebGPUProbeResult> {
       };
     }
 
-    const info =
-      adapter.info ??
-      (typeof adapter.requestAdapterInfo === 'function'
-        ? await adapter.requestAdapterInfo()
-        : undefined);
+    const info = adapter.info;
     const features: string[] = [...adapter.features];
     const limits = adapter.limits;
+    const isFallbackAdapter = info.isFallbackAdapter;
 
     const adapterInfo: WebGPUAdapterInfo = {
-      architecture: info?.architecture || 'unknown',
-      description: info?.description || 'Unknown GPU',
+      architecture: info.architecture || 'unknown',
+      description: info.description || 'Unknown GPU',
       features,
-      isFallbackAdapter: adapter.isFallbackAdapter ?? false,
+      isFallbackAdapter,
       limits: {
         maxBufferSize: limits.maxBufferSize,
         maxComputeWorkgroupsPerDimension: limits.maxComputeWorkgroupsPerDimension,
         maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
       },
-      vendor: info?.vendor || 'unknown',
+      vendor: info.vendor || 'unknown',
     };
 
     // Warn about fallback adapter (software rendering)
-    if (adapter.isFallbackAdapter) {
+    if (isFallbackAdapter) {
       logger.warn('WebGPU using fallback (software) adapter - performance may be degraded', {
         description: adapterInfo.description,
         vendor: adapterInfo.vendor,

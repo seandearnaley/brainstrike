@@ -43,7 +43,7 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 **Breaking changes hit and fixed:**
 
 1. **`baseUrl` deprecated (TS5101, error-level).** TS 6.0 deprecates `baseUrl` ahead of 7.0 removal. Every `tsconfig*.json` in the repo declared `"baseUrl": "."` purely to support `paths` mappings — removed `baseUrl` everywhere and, per the documented migration, prefixed the root `tsconfig.json`'s previously-bare `paths` values (e.g. `packages/types/src`) with `./` so they stay resolvable without `baseUrl` (TS5090: non-relative `paths` values require `baseUrl`; every other tsconfig's `paths` values already used a `../` prefix and needed no change).
-2. **tsup 8.5.1 re-injects `baseUrl: "."` in its DTS bundling step** (confirmed upstream bug, [egoist/tsup#1388](https://github.com/egoist/tsup/issues/1388) — tsup unconditionally passes `baseUrl: compilerOptions.baseUrl || "."` to its internal `rollup-plugin-dts` TypeScript program regardless of the project's own tsconfig). Not fixable from this repo's config. Added `"ignoreDeprecations": "6.0"` to the shared `packages/config/tsconfig/base.json` as the documented bridge flag — it only silences the deprecation diagnostic, it does not change type-checking behavior. Remove once tsup ships a fix.
+2. **tsup 8.5.1 re-injects `baseUrl: "."` in its DTS bundling step** (confirmed upstream bug, [egoist/tsup#1388](https://github.com/egoist/tsup/issues/1388) — tsup unconditionally passes `baseUrl: compilerOptions.baseUrl || "."` to its internal `rollup-plugin-dts` TypeScript program regardless of the project's own tsconfig). Not fixable from this repo's config. Added `"ignoreDeprecations": "6.0"` to the shared `packages/config/tsconfig/base.json` as the documented bridge flag — it only silences the deprecation diagnostic, it does not change type-checking behavior. Still required under the TypeScript 7 dual-package layout because tsup's DTS step imports the TS 6 API (`typescript` → `@typescript/typescript6`), where `baseUrl` remains a deprecation rather than a hard removal.
 3. **`FileSystemDirectoryHandle` mock shape (the originally-documented blocker).** TS 6.0's DOM lib always includes the async-iterable members (`keys()`, `values()`, `[Symbol.asyncIterator]()`) on `FileSystemDirectoryHandle`. `packages/utils/src/__tests__/report-generator.test.ts` asserted partial mocks directly `as FileSystemDirectoryHandle` (a same-shape structural cast); TS 6.0 now rejects that because the mocks don't implement the new members. Fixed by routing the cast through `as unknown as FileSystemDirectoryHandle`, matching the pattern every other test file in the package already used for the same scenario — the mock's shape and the tests' actual behavior are unchanged.
 4. **Stricter composite-project `rootDir`/file-list enforcement (TS6059/TS6307).** TS 6.0 tightened enforcement so that a `paths` mapping resolving into another package's `src/*` (instead of its built `dist/*.d.ts`) is now a hard error in any `composite: true` + explicit `rootDir` project, because the sibling package's source files fall outside the consuming project's `rootDir` and aren't in its `include` file list. This was a **pre-existing latent inconsistency** (most tsconfigs already pointed at `dist`, a handful pointed at `src`) that only surfaced under 6.0's stricter checking. Fixed the `src`-pointing `paths` entries to point at `dist/*.d.ts` (matching the already-correct majority pattern) in: `packages/hooks/tsconfig.json`, `packages/ui/tsconfig.json`, `packages/preferences/tsconfig.json`, `packages/db-explorer/tsconfig.json`, `packages/app-shell/tsconfig.json`, `packages/app-shell/tsconfig.typecheck.json`, `packages/workers/tsconfig.json` (dead/unused mapping, fixed for consistency), and `packages/agent/tsconfig.json` (also had a pre-existing wrong-depth `../../assistant-contract` path, corrected to `../assistant-contract/dist/*.d.ts` in the same edit).
 5. **`noUncheckedSideEffectImports` defaults to `true`.** A bare side-effect import (`import '@xterm/xterm/css/xterm.css'` in `packages/app-shell/src/terminal-panel/terminal-panel.tsx`) now requires a resolvable module or an ambient declaration (TS2882). `vite/client`'s wildcard `declare module '*.css' {}` did not satisfy the check for this package-scoped (non-relative) specifier. Added a targeted `declare module '@xterm/xterm/css/xterm.css';` to the existing `packages/app-shell/src/types/vite-assets.d.ts` (which already held similar targeted ambient declarations for other Vite asset imports).
@@ -55,6 +55,34 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 - Handbook release notes: [TypeScript 6.0 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-6-0.html).
 - Announcement: [Announcing TypeScript 6.0](https://devblogs.microsoft.com/typescript/announcing-typescript-6-0/).
 - tsup DTS `baseUrl` injection bug: [egoist/tsup#1388](https://github.com/egoist/tsup/issues/1388).
+
+---
+
+## TypeScript (`typescript` 6.x → 7.x) — completed
+
+**Status:** Dual-package upgrade to native TypeScript 7.0.2 for `tsc`, with TypeScript 6.0.2 kept under the `typescript` import name for programmatic API consumers (typescript-eslint, architecture scripts, desktop runtime-host boundary checks, db migration AST tests).
+
+**Layout (Microsoft-recommended side-by-side):**
+
+- `@typescript/native`: `npm:typescript@^7.0.2` — provides the native `tsc` binary (Go port).
+- `typescript`: `npm:@typescript/typescript6@^6.0.2` — provides `tsc6` + the TS 6.0 JS API (`import ts from 'typescript'`).
+
+**Why dual packages:** TypeScript 7.0 does not ship a stable programmatic API (expected in 7.1). Tools that `import 'typescript'` must keep resolving to 6.x until then.
+
+**Breaking changes hit and fixed:**
+
+1. **`baseUrl` is a hard error under native `tsc` 7 (TS5102).** Our own tsconfigs do not set `baseUrl`. Packages that already emit declarations via `tsc -b` (`@brainstrike/platform-utils`, `@brainstrike/test-utils`) set `dts: false` in tsup so the tsup DTS path (which still injects `baseUrl`) is never invoked under native 7.
+2. **`ignoreDeprecations: "6.0"` kept.** Native `tsc` 7 accepts the flag as a no-op when `baseUrl` is absent. Packages that still rely on tsup DTS (`@brainstrike/agent`, workers, etc.) import the TS 6 API, where the injected `baseUrl` is only a deprecation — the bridge flag keeps those builds green until tsup stops injecting `baseUrl`.
+3. **`moduleResolution: "node"` removed from desktop main.** Replaced with `"bundler"` while keeping `"module": "CommonJS"` so Electron main still emits CJS without the removed `node`/`node10` resolver.
+4. **DX:** `pnpm type-check:parallel` runs a focused `tsc -b` over leaf packages with `--builders 4 --checkers 4` to exercise TS 7 project-reference + type-checker parallelization. Default turbo `type-check` still uses per-package `tsc` (which already parallelizes checkers by default). `pnpm tsc:version` prints both `tsc` (7.x) and `tsc6` (6.x). Workspace recommends the VS Code `TypeScriptTeam.native-preview` extension and enables `js/ts.experimental.useTsgo`. Full `tsconfig.solution.json` builds are intentionally not the CI gate — they can surface cross-package declaration identity mismatches that per-package turbo type-check does not.
+5. **`emitDeclarationOnly` required for `tsc -b` + tsup packages.** Native TS 7 rebuilds project references fast enough that a later `tsc -b` (from a dependent package's type-check/build) can overwrite a sibling's tsup-bundled `dist/index.js` with extensionless ESM re-exports (`export ... from './clipboard'`), breaking Node ESM resolution. Packages that emit JS via tsup and declarations via `tsc -b` now set `emitDeclarationOnly: true` so `tsc -b` never rewrites the JS bundle.
+
+**Editor note:** Install the VS Code “TypeScript 7” extension (`TypeScriptTeam.native-preview`) for the native language server. The `typescript` package alias is the TS 6 API-only compatibility package (no `tsserver`), so do not point `typescript.tsdk` at it.
+
+**Pointers**
+
+- Announcement: [Announcing TypeScript 7.0](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).
+- Side-by-side packaging: `@typescript/typescript6` + `@typescript/native` aliases as documented in that post.
 
 ---
 

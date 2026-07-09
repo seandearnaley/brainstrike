@@ -703,12 +703,18 @@ When changing this flow, update this section and the related tests.
 ## CODING STYLE AND NAMING
 
 Stack lock:
-- Language: TypeScript.
+- Language: TypeScript 7 (native `tsc`) with a TypeScript 6 API compatibility package for tooling.
 - Apps: React 19+ with Vite for `apps/web`; Electron renderers use React.
 - Package manager: pnpm workspaces.
 - Styling: Tailwind CSS v4 and shared `@brainstrike/ui` components.
 - Testing: Vitest for unit/integration and Playwright for E2E.
 - Persistence: local-first state and PGlite-backed storage where applicable. Do not introduce round-trip API dependencies into latency-critical paths without an explicit requirement.
+
+TypeScript 7 dual-package layout (until 7.1 ships a stable programmatic API):
+- `@typescript/native` (`npm:typescript@^7`) provides the native `tsc` binary used by build/type-check.
+- `typescript` (`npm:@typescript/typescript6@^6`) provides `tsc6` + the TS 6 JS API for `import 'typescript'` consumers (eslint, architecture scripts, AST tests).
+- Prefer `pnpm type-check:parallel` when exercising project-reference parallelization (`--builders` / `--checkers`) on a focused leaf set.
+- Do not point `typescript.tsdk` at the aliased `typescript` package (no `tsserver`); use the VS Code TypeScript 7 extension (`TypeScriptTeam.native-preview`).
 
 - TypeScript strict; noImplicitAny: true.
 - Never use any. Prefer unknown + narrowing.

@@ -15,11 +15,12 @@
     "@testing-library/react": "^16.3.2",
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "jsdom": "29.1.1",
     "react": "^19.2.7",
     "rimraf": "^6.1.3",
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^4.1.9"
   },
   "exports": {
@@ -64,7 +65,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "pnpm run clean && tsup src/index.ts --format esm,cjs --dts --out-dir dist",
+    "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
     "clean": "rimraf dist .turbo",
     "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "lint": "pnpm run --dir=../.. lint",

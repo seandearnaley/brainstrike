@@ -18,11 +18,10 @@
   "[json]": {
     "editor.defaultFormatter": "biomejs.biome"
   },
-  "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.preferences.includePackageJsonAutoImports": "on",
-  "typescript.enablePromptUseWorkspaceTsdk": true,
   "typescript.preferences.useAliasesForRenames": false,
   "typescript.workspaceSymbols.scope": "allOpenProjects",
+  "js/ts.experimental.useTsgo": true,
   "[jsonc]": {
     "editor.defaultFormatter": "vscode.json-language-features"
   },
