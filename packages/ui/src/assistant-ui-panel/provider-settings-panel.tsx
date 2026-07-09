@@ -7,7 +7,6 @@ import type {
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import { getGoogleThinkingLevels } from '@brainstrike/types';
-import type { FC } from 'react';
 import { Input } from '../input';
 import { Label } from '../label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
@@ -79,11 +78,7 @@ interface ProviderSettingsSectionProps {
   settings: AssistantProviderSettings;
 }
 
-const AgentRuntimeSection: FC<ProviderSettingsSectionProps> = ({
-  settings,
-  onUpdate,
-  disabled,
-}) => {
+const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => {
   const maxStepsEnabled = typeof settings.agentMaxSteps === 'number';
   const maxStepsValue = clampNumber(
     settings.agentMaxSteps ?? AGENT_MAX_STEPS_DEFAULT,
@@ -227,7 +222,7 @@ const AgentRuntimeSection: FC<ProviderSettingsSectionProps> = ({
   );
 };
 
-const MaxOutputSection: FC<ProviderSettingsSectionProps> = ({ settings, onUpdate, disabled }) => {
+const MaxOutputSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => {
   const maxOutputEnabled = typeof settings.maxOutputTokens === 'number';
   const maxOutputValue = clampNumber(
     settings.maxOutputTokens ?? MAX_OUTPUT_DEFAULT,
@@ -300,11 +295,7 @@ const MaxOutputSection: FC<ProviderSettingsSectionProps> = ({ settings, onUpdate
   );
 };
 
-const OpenAiReasoningSection: FC<ProviderSettingsSectionProps> = ({
-  settings,
-  onUpdate,
-  disabled,
-}) => (
+const OpenAiReasoningSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
   <div className="space-y-2 rounded-md bg-muted/30 p-2">
     <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
       OpenAI reasoning
@@ -360,11 +351,11 @@ const OpenAiReasoningSection: FC<ProviderSettingsSectionProps> = ({
   </div>
 );
 
-const AnthropicReasoningSection: FC<ProviderSettingsSectionProps> = ({
+const AnthropicReasoningSection = ({
   settings,
   onUpdate,
   disabled,
-}) => {
+}: ProviderSettingsSectionProps) => {
   const thinkingEnabled = typeof settings.anthropicThinkingBudgetTokens === 'number';
   const thinkingValue = clampNumber(
     settings.anthropicThinkingBudgetTokens ?? ANTHROPIC_THINKING_DEFAULT,
@@ -475,12 +466,12 @@ interface GoogleThinkingSectionProps extends ProviderSettingsSectionProps {
   modelName?: string | undefined;
 }
 
-const GoogleThinkingSection: FC<GoogleThinkingSectionProps> = ({
+const GoogleThinkingSection = ({
   settings,
   onUpdate,
   disabled,
   modelName,
-}) => {
+}: GoogleThinkingSectionProps) => {
   const googleThinkingLevels = getGoogleThinkingLevels(modelName);
 
   return (
@@ -531,11 +522,7 @@ const GoogleThinkingSection: FC<GoogleThinkingSectionProps> = ({
   );
 };
 
-const LocalThinkingSection: FC<ProviderSettingsSectionProps> = ({
-  settings,
-  onUpdate,
-  disabled,
-}) => (
+const LocalThinkingSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => (
   <div className="space-y-2 rounded-md bg-muted/30 p-2">
     <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
       Gemma thinking
@@ -556,12 +543,12 @@ const LocalThinkingSection: FC<ProviderSettingsSectionProps> = ({
   </div>
 );
 
-export const ProviderSettingsPanel: FC<ProviderSettingsPanelProps> = ({
+export const ProviderSettingsPanel = ({
   providerId,
   modelName,
   settings,
   onSettingsChange,
-}) => {
+}: ProviderSettingsPanelProps) => {
   if (!providerId) {
     return null;
   }

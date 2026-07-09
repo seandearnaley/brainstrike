@@ -13,6 +13,20 @@ import {
 } from '../../stores/collection-browser-store';
 import { CollectionBrowserView } from '../collection-browser-view';
 
+const clipboardMocks = vi.hoisted(() => ({
+  writeText: vi.fn(),
+}));
+
+vi.mock('@brainstrike/context-actions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/context-actions')>();
+  return {
+    ...actual,
+    createClipboardService: () => ({
+      writeText: clipboardMocks.writeText,
+    }),
+  };
+});
+
 // Recreated per test (beforeEach) so writtenTexts never leaks across tests.
 let testRegistry = createTestActionRegistry({ actions: collectionActions });
 
@@ -551,12 +565,8 @@ describe('CollectionBrowserView', () => {
   beforeEach(() => {
     __resetCollectionBrowserStoreForTests();
     useCollectionBrowserColumnSizesStore.getState().setAll({});
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: {
-        writeText: vi.fn().mockResolvedValue(undefined),
-      },
-    });
+    clipboardMocks.writeText.mockReset();
+    clipboardMocks.writeText.mockResolvedValue({ ok: true });
     vi.clearAllMocks();
     semanticSearchMock.state = {
       error: null,
@@ -701,7 +711,6 @@ describe('CollectionBrowserView', () => {
 
   it('runs browser bulk actions against selected node ids', async () => {
     const user = userEvent.setup();
-    const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
 
     render(
       <CollectionBrowserView
@@ -719,7 +728,9 @@ describe('CollectionBrowserView', () => {
     expect(useCollectionBrowserStore.getState().expandedIds).toEqual([]);
 
     await user.click(screen.getByRole('button', { name: 'Bulk Copy IDs' }));
-    expect(writeTextSpy).toHaveBeenCalledWith('1\nchunk-1');
+    await waitFor(() => {
+      expect(clipboardMocks.writeText).toHaveBeenCalledWith('1\nchunk-1');
+    });
   });
 
   it('nests advanced options inside the expanded hybrid search panel', async () => {

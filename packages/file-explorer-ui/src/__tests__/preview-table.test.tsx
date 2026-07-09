@@ -1,6 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import type { FC } from 'react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewTable } from '../preview/preview-table';
 import type { ColumnVisibility } from '../preview/use-preview-panel-persistence';
@@ -755,7 +754,7 @@ describe('PreviewTable grouped columns memo stability', () => {
         ...actual,
         TreeTable: ((props: { columns: unknown }) => {
           columnsCaptures.push(props.columns);
-          return (actual.TreeTable as FC<{ columns: unknown }>)(props);
+          return (actual.TreeTable as (props: { columns: unknown }) => ReactNode)(props);
         }) as typeof actual.TreeTable,
       };
     });
@@ -864,7 +863,7 @@ describe('PreviewTable grouped nodes rebuild on selection', () => {
         ...actual,
         TreeTable: ((props: { nodes: unknown }) => {
           nodesCaptures.push(props.nodes);
-          return (actual.TreeTable as FC<{ nodes: unknown }>)(props);
+          return (actual.TreeTable as (props: { nodes: unknown }) => ReactNode)(props);
         }) as typeof actual.TreeTable,
       };
     });

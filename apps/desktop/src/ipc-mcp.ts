@@ -76,9 +76,9 @@ function handleConfigChange(cfg: LoadedMcpConfig): void {
 }
 
 function getSerializableTools(): ReturnType<typeof mcpToolRegistry.getAllTools> {
-  return JSON.parse(JSON.stringify(mcpToolRegistry.getAllTools())) as ReturnType<
-    typeof mcpToolRegistry.getAllTools
-  >;
+  // Metadata is plain JSON-shaped data (no functions). structuredClone matches Electron IPC
+  // serialization and isolates the renderer payload from live registry mutations.
+  return structuredClone(mcpToolRegistry.getAllTools());
 }
 
 function notifyMcpToolsUpdated(): void {

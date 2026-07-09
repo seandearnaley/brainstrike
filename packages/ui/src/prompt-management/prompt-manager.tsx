@@ -1,3 +1,5 @@
+import { createClipboardService } from '@brainstrike/context-actions';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
@@ -8,6 +10,9 @@ import { Sidebar } from './components/sidebar';
 import { hasModelSettingsChanged } from './model-settings';
 import { usePromptStore } from './store';
 import type { Prompt } from './types';
+
+const logger = createLogger('PromptManager');
+const clipboard = createClipboardService();
 
 interface PromptManagerProps {
   availableModels?: ModelPickerModel[];
@@ -49,10 +54,20 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
   };
 
   const handleCopy = (content: string) => {
-    navigator.clipboard.writeText(content);
-    toast({
-      description: 'Prompt content copied successfully.',
-      title: 'Copied to clipboard',
+    void clipboard.writeText(content).then((outcome) => {
+      if (outcome.ok) {
+        toast({
+          description: 'Prompt content copied successfully.',
+          title: 'Copied to clipboard',
+        });
+        return;
+      }
+      logger.warn('Failed to copy prompt content to clipboard', { error: outcome.error });
+      toast({
+        description: outcome.error,
+        title: 'Copy failed',
+        variant: 'destructive',
+      });
     });
   };
 

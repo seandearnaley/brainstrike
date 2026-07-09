@@ -8,8 +8,8 @@ interface FileExplorerToolbarProps {
   onDirectorySelect: () => Promise<void>;
 }
 
-const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
-  ({ onDirectorySelect, isLoading }) => {
+const FileExplorerToolbar = React.memo(
+  ({ onDirectorySelect, isLoading }: FileExplorerToolbarProps) => {
     // Multi-root: one consolidated, centered action. The label no longer flips on
     // focus, and the focused-root folder badge was removed (it implied a single
     // active root, which no longer reflects the workspace model).

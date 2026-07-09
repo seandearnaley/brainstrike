@@ -43,7 +43,7 @@ interface Props {
   visibleFilePaths?: readonly string[];
 }
 
-const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
+const ActionButtonsArrayFacade = (props: Props) => {
   const { displayedFiles, selectedFiles, setSelectedFiles } = props;
 
   // Reuse Set instances to reduce GC pressure for large arrays

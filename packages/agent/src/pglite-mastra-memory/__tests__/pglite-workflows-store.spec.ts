@@ -133,6 +133,42 @@ describe('PgliteWorkflowsStore', () => {
     ).resolves.toEqual(snapshot);
   });
 
+  it('deep-clones updateWorkflowResults so callers cannot mutate stored step output', async () => {
+    await store.persistWorkflowSnapshot({
+      runId: 'clone-run-1',
+      snapshot: createSnapshot({ runId: 'clone-run-1' }),
+      workflowName: 'approval-workflow',
+    });
+
+    const approvalResult: ApprovalStepResult = {
+      endedAt: Date.parse('2026-05-29T10:01:00Z'),
+      output: { approved: true, nested: { token: 'original' } },
+      payload: { requestId: 'request-1' },
+      startedAt: Date.parse('2026-05-29T10:00:00Z'),
+      status: 'success',
+    };
+
+    const context = await store.updateWorkflowResults({
+      result: approvalResult,
+      runId: 'clone-run-1',
+      stepId: 'approval-step',
+      workflowName: 'approval-workflow',
+    });
+
+    const step = context['approval-step'] as ApprovalStepResult;
+    expect(step).not.toBe(approvalResult);
+    expect(step.output).not.toBe(approvalResult.output);
+    (step.output as { nested: { token: string } }).nested.token = 'mutated';
+
+    const reloaded = await store.loadWorkflowSnapshot({
+      runId: 'clone-run-1',
+      workflowName: 'approval-workflow',
+    });
+    expect(reloaded?.context['approval-step']).toMatchObject({
+      output: { approved: true, nested: { token: 'original' } },
+    });
+  });
+
   it('updates workflow state and step results without dropping snapshot context', async () => {
     await store.persistWorkflowSnapshot({
       runId: 'approval-run-1',

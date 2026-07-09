@@ -37,7 +37,7 @@ export const FilterChip = React.memo(function FilterChip({
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium text-xs',
         'transition-colors duration-150',
-        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         'disabled:cursor-not-allowed disabled:opacity-50',
         active
           ? 'bg-primary text-primary-foreground'

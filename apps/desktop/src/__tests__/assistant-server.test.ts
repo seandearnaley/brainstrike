@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import type http from 'node:http';
 import { Readable } from 'node:stream';
 import { DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/agent';
+import { app } from 'electron';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   desktopAssistantServerLogger,
@@ -244,6 +245,7 @@ describe('assistant-server', () => {
     resetDesktopMastraMemoryCacheForTests();
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
+    Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
   }, 15_000);
 
   describe('startAssistantServer', () => {
@@ -454,6 +456,36 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(403);
       expect(response.headers['access-control-allow-origin']).toBe('null');
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('should reject arbitrary localhost origins on other ports', async () => {
+      const response = await runRequest({
+        headers: { origin: 'http://localhost:3000' },
+        method: 'GET',
+        url: '/assistant/status',
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('should reject the dev renderer origin in packaged builds', async () => {
+      Object.defineProperty(app, 'isPackaged', { configurable: true, value: true });
+
+      const response = await runRequest({
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/status',
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
       const data = JSON.parse(response.body) as { error: string };
       expect(data.error).toBe('forbidden_origin');
     });

@@ -12,7 +12,11 @@
  * - Semantic search mode and configuration
  */
 
-import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
+import {
+  type AnyContextAction,
+  createClipboardService,
+  defineContextAction,
+} from '@brainstrike/context-actions';
 import type { FileChunk } from '@brainstrike/db';
 import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
 import {
@@ -59,6 +63,7 @@ import type {
 import { CollectionEmbeddingCoverageBanner } from './embedding-coverage-notice';
 
 const logger = createLogger('CollectionBrowserView');
+const clipboard = createClipboardService();
 
 function SearchErrorBanner({ message }: { message: string | null }) {
   if (!message) {
@@ -1170,8 +1175,12 @@ export function CollectionBrowserView({
           const ids = Array.from(selectedIds)
             .map((id) => parseNodeId(id).originalId)
             .join('\n');
-          navigator.clipboard.writeText(ids).catch((error: unknown) => {
-            logger.warn('Failed to copy selected node IDs to clipboard', { error });
+          void clipboard.writeText(ids).then((outcome) => {
+            if (!outcome.ok) {
+              logger.warn('Failed to copy selected node IDs to clipboard', {
+                error: outcome.error,
+              });
+            }
           });
         },
       },

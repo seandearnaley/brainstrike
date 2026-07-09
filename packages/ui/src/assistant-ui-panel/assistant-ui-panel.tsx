@@ -38,16 +38,7 @@ import {
   RefreshCwIcon,
   SquareIcon,
 } from 'lucide-react';
-import {
-  type FC,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
@@ -329,7 +320,7 @@ declare global {
   }
 }
 
-const LocalReasoningPart: FC = () => {
+const LocalReasoningPart = () => {
   useMessagePartReasoning();
 
   return (
@@ -362,7 +353,7 @@ function isRunningReasoningPart(part: unknown): boolean {
 }
 
 /** Renders nothing — used to keep reasoning parts out of the flow while collapsed. */
-const HiddenReasoningPart: FC = () => null;
+const HiddenReasoningPart = () => null;
 
 function isReasoningPart(part: unknown): boolean {
   return Boolean(
@@ -382,14 +373,21 @@ function reasoningToggleLabel(collapsed: boolean, isContinuation: boolean): stri
  * Tool cards always render inside the panel (the reasoning collapse only hides
  * reasoning parts), so the panel stays mounted to keep `aria-controls` valid.
  */
-const ChainReasoningFold: FC<{
+const ChainReasoningFold = ({
+  children,
+  collapsed,
+  isContinuation,
+  isReasoningRunning,
+  onToggle,
+  panelId,
+}: {
   children: ReactNode;
   collapsed: boolean;
   isContinuation: boolean;
   isReasoningRunning: boolean;
   onToggle: () => void;
   panelId: string;
-}> = ({ children, collapsed, isContinuation, isReasoningRunning, onToggle, panelId }) => (
+}) => (
   <>
     <button
       aria-controls={panelId}
@@ -459,7 +457,7 @@ function activityPartKey(part: unknown, index: number): string {
   return `activity-${index}`;
 }
 
-const LocalChainOfThought: FC = () => {
+const LocalChainOfThought = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
   const messageParts = useAuiState((state) => state.message.parts);
@@ -585,7 +583,7 @@ const LocalChainOfThought: FC = () => {
   );
 };
 
-const AssistantDataRendererRegistration: FC = () => {
+const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
   useAssistantDataUI(assistantToolApprovalDataUI);
 
@@ -619,11 +617,15 @@ const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
  * enclosing `Unstable_TriggerPopoverRoot` instead (see
  * `ComposerInputWithTriggers` below).
  */
-const ComposerInputRow: FC<{
+const ComposerInputRow = ({
+  isComposerDisabled,
+  mentionPopover,
+  slashPopover,
+}: {
   isComposerDisabled: boolean;
   mentionPopover?: ReactNode;
   slashPopover?: ReactNode;
-}> = ({ isComposerDisabled, mentionPopover, slashPopover }) => (
+}) => (
   <div className="bs-composer-input-frame">
     <ComposerPrimitive.Input
       aria-label="Message input"
@@ -675,11 +677,15 @@ const ComposerInputRow: FC<{
  * bare input row renders, so the trigger chars do nothing special (never an
  * empty menu).
  */
-const ComposerInputWithTriggers: FC<{
+const ComposerInputWithTriggers = ({
+  isComposerDisabled,
+  slashPopover,
+  mentionPopover,
+}: {
   isComposerDisabled: boolean;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
-}> = ({ isComposerDisabled, slashPopover, mentionPopover }) => {
+}) => {
   const row = (
     <ComposerInputRow
       isComposerDisabled={isComposerDisabled}
@@ -697,12 +703,17 @@ const ComposerInputWithTriggers: FC<{
   );
 };
 
-const ThreadHistoryControl: FC<{
+const ThreadHistoryControl = ({
+  controlsId,
+  expanded,
+  hiddenMessageCount,
+  onExpandedChange,
+}: {
   controlsId: string;
   expanded: boolean;
   hiddenMessageCount: number;
   onExpandedChange: (expanded: boolean) => void;
-}> = ({ controlsId, expanded, hiddenMessageCount, onExpandedChange }) => {
+}) => {
   if (hiddenMessageCount <= 0) {
     return null;
   }
@@ -771,13 +782,7 @@ interface ChatThreadProps {
  * Inner component for local runtime (browser-based inference).
  * Uses useLocalRuntime with LocalLlmBackend via transformers.js.
  */
-const LocalRuntimeChat: FC<
-  ChatThreadProps & {
-    modelId: string;
-    onLoadingStateChange: (state: LocalModelLoadingState) => void;
-    threadKey?: string | undefined;
-  }
-> = ({
+const LocalRuntimeChat = ({
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -807,6 +812,10 @@ const LocalRuntimeChat: FC<
   prepareRequestData,
   completePreparedRequest,
   threadKey,
+}: ChatThreadProps & {
+  modelId: string;
+  onLoadingStateChange: (state: LocalModelLoadingState) => void;
+  threadKey?: string | undefined;
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
@@ -900,25 +909,7 @@ const LocalRuntimeChat: FC<
  * Inner component for data stream runtime (server-side hosted providers).
  * Uses useDataStreamRuntime for API-based inference.
  */
-const DataStreamRuntimeChat: FC<
-  ChatThreadProps & {
-    api: string;
-    completePreparedRequest?:
-      | ((
-          requestData: Record<string, unknown> | undefined,
-          status: 'cancelled' | 'completed' | 'failed',
-          error?: string
-        ) => Promise<void> | void)
-      | undefined;
-    historyAdapter: ThreadHistoryAdapter | undefined;
-    requestData: Record<string, unknown> | undefined;
-    prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
-    /** Pre-request hook: warms the built-in local model (with progress UI) before streaming. */
-    prepareLocalModel?: (() => Promise<void>) | undefined;
-    modelName: string | undefined;
-    threadKey?: string | undefined;
-  }
-> = ({
+const DataStreamRuntimeChat = ({
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -949,6 +940,22 @@ const DataStreamRuntimeChat: FC<
   onFileMentionQueryChange,
   toolMenu,
   threadKey,
+}: ChatThreadProps & {
+  api: string;
+  completePreparedRequest?:
+    | ((
+        requestData: Record<string, unknown> | undefined,
+        status: 'cancelled' | 'completed' | 'failed',
+        error?: string
+      ) => Promise<void> | void)
+    | undefined;
+  historyAdapter: ThreadHistoryAdapter | undefined;
+  requestData: Record<string, unknown> | undefined;
+  prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
+  /** Pre-request hook: warms the built-in local model (with progress UI) before streaming. */
+  prepareLocalModel?: (() => Promise<void>) | undefined;
+  modelName: string | undefined;
+  threadKey?: string | undefined;
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
@@ -1042,7 +1049,30 @@ const DataStreamRuntimeChat: FC<
  * Shared UI component for the chat thread.
  * Extracted to avoid duplication between local and data stream runtimes.
  */
-const ChatThreadUI: FC<{
+const ChatThreadUI = ({
+  contextWindow,
+  cumulativeUsage,
+  omSegment,
+  effectiveInputBudget,
+  providerGroups,
+  hasGroupedProviders,
+  pickerModels,
+  pickerProviders,
+  providerSettings,
+  onProviderSettingsChange,
+  selectedProvider,
+  selectedModel,
+  onModelChange,
+  onThreadRunStart,
+  isComposerDisabled,
+  disabledReason,
+  localLoadingState,
+  slashCommands,
+  fileMentions,
+  onFileMentionQueryChange,
+  threadKey,
+  toolMenu,
+}: {
   contextWindow?: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   omSegment?: OmMeterState | undefined;
@@ -1067,29 +1097,6 @@ const ChatThreadUI: FC<{
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
-}> = ({
-  contextWindow,
-  cumulativeUsage,
-  omSegment,
-  effectiveInputBudget,
-  providerGroups,
-  hasGroupedProviders,
-  pickerModels,
-  pickerProviders,
-  providerSettings,
-  onProviderSettingsChange,
-  selectedProvider,
-  selectedModel,
-  onModelChange,
-  onThreadRunStart,
-  isComposerDisabled,
-  disabledReason,
-  localLoadingState,
-  slashCommands,
-  fileMentions,
-  onFileMentionQueryChange,
-  threadKey,
-  toolMenu,
 }) => {
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const messageCount = useAuiState((state) => state.thread.messages.length);
@@ -1270,7 +1277,7 @@ const ChatThreadUI: FC<{
 };
 
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
-export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
+export const AssistantUiPanel = ({
   className,
   contextWindow,
   cumulativeUsage,
@@ -1300,7 +1307,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   loadLocalLlmBackend,
   localChatTransport = 'local-runtime',
   threadKey,
-}) => {
+}: AssistantUiPanelProps) => {
   // API URL for data stream runtime (hosted providers)
   const initialApi =
     typeof window === 'undefined'
@@ -1431,7 +1438,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
 
 // ===== Message Components =====
 
-const UserMessage: FC = () => {
+const UserMessage = () => {
   return (
     <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
       <UserActionBar />
@@ -1453,7 +1460,7 @@ const UserMessage: FC = () => {
   );
 };
 
-const UserActionBar: FC = () => (
+const UserActionBar = () => (
   <ActionBarPrimitive.Root
     autohide="not-last"
     className="col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end"
@@ -1467,7 +1474,7 @@ const UserActionBar: FC = () => (
   </ActionBarPrimitive.Root>
 );
 
-const EditComposer: FC = () => (
+const EditComposer = () => (
   <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
     <ComposerPrimitive.Input className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none" />
 
@@ -1484,7 +1491,7 @@ const EditComposer: FC = () => (
   </ComposerPrimitive.Root>
 );
 
-const AssistantMessage: FC = () => {
+const AssistantMessage = () => {
   return (
     <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-4">
       <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-7">
@@ -1513,7 +1520,7 @@ export const ASSISTANT_ACTION_BAR_CLASSNAME =
   'col-start-3 row-start-2 -ml-1 flex gap-0.5 text-muted-foreground data-[floating]:absolute';
 export const ASSISTANT_ACTION_BAR_BUTTON_CLASSNAME = 'size-5';
 
-const AssistantActionBar: FC = () => (
+const AssistantActionBar = () => (
   <ActionBarPrimitive.Root
     autohide="not-last"
     autohideFloat="single-branch"
@@ -1546,7 +1553,7 @@ const AssistantActionBar: FC = () => (
   </ActionBarPrimitive.Root>
 );
 
-const BranchPicker: FC<{ className?: string }> = ({ className }) => (
+const BranchPicker = ({ className }: { className?: string }) => (
   <BranchPickerPrimitive.Root
     className={`inline-flex items-center text-muted-foreground text-xs ${className ?? ''}`}
     hideWhenSingleBranch
@@ -1604,7 +1611,7 @@ interface ProviderModelHeaderProps {
   toolMenu?: AssistantToolMenuConfig | undefined;
 }
 
-const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
+const ProviderModelHeader = ({
   groups,
   pickerModels,
   pickerProviders,
@@ -1614,7 +1621,7 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   selectedModel,
   onModelChange,
   toolMenu,
-}) => {
+}: ProviderModelHeaderProps) => {
   // Extract model name from composite key (format: "provider::model")
   const modelName = useMemo(() => {
     if (!selectedModel) {

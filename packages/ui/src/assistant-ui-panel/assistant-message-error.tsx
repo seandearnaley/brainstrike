@@ -1,5 +1,4 @@
 import { ErrorPrimitive } from '@assistant-ui/react';
-import type { FC } from 'react';
 
 /**
  * Visible error block for a failed assistant run.
@@ -10,7 +9,7 @@ import type { FC } from 'react';
  * the failure is invisible. `ErrorPrimitive.Message` renders nothing when the
  * message has no error, so this is safe to mount on every assistant message.
  */
-export const AssistantMessageError: FC = () => (
+export const AssistantMessageError = () => (
   // Root is an UNSTYLED always-rendered live region; all visible chrome lives
   // on Message, which renders only when the message actually has an error —
   // styling Root paints an empty red bar under every assistant message.

@@ -1,4 +1,3 @@
-import type { FC } from 'react';
 import { DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '../dropdown-menu';
 import {
   ASSISTANT_DETAIL_LEVEL_META,
@@ -13,7 +12,7 @@ import { useAssistantDetailLevel } from './assistant-detail-level-context';
  * keeps the menu open (onSelect preventDefault) so the change is visible.
  * Rendered first in the menu, so it carries no leading separator.
  */
-export const DetailLevelControl: FC = () => {
+export const DetailLevelControl = () => {
   const { detailLevel, setDetailLevel } = useAssistantDetailLevel();
 
   return (

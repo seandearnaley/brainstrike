@@ -577,7 +577,7 @@ export function EmbeddingSettings() {
           <div className="grid gap-3 sm:grid-cols-3">
             {MODEL_PRESETS.map((preset) => (
               <button
-                className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background p-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 data-testid={`preset-${preset.id}`}
                 key={preset.id}
                 onClick={() => applyPreset(preset)}

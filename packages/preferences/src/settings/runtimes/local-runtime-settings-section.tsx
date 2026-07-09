@@ -6,7 +6,7 @@ import type { SupportedProvider } from '@brainstrike/assistant-contract/provider
 import { Badge, Button, Card, Input, Label } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { Loader2, RefreshCw } from 'lucide-react';
-import type { FC, ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LocalRuntimeActivation } from '../../stores/assistant-preferences-store';
 import { useAssistantPreferencesStore } from '../../stores/assistant-preferences-store';
@@ -158,7 +158,7 @@ interface LocalRuntimeCardProps {
   readonly card: RuntimeCardMeta;
 }
 
-const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
+const LocalRuntimeCard = ({ card }: LocalRuntimeCardProps) => {
   const settings = useAssistantPreferencesStore((state) => state.providerSettings[card.providerId]);
   const setProviderSettings = useAssistantPreferencesStore((state) => state.setProviderSettings);
   // `getLocalRuntimeStatus` is an action, not reactive state — invoking it

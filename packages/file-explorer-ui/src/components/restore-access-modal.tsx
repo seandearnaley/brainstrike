@@ -8,7 +8,6 @@ import {
   DialogTitle,
 } from '@brainstrike/ui';
 import { AlertTriangle, FolderClock } from 'lucide-react';
-import type * as React from 'react';
 
 export type RestoreAccessModalVariant = 'pending' | 'denied' | 'stale';
 
@@ -40,7 +39,7 @@ const variantCopy = {
   },
 } as const satisfies Record<RestoreAccessModalVariant, { title: string; description: string }>;
 
-export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
+export const RestoreAccessModal = ({
   isOpen,
   folderNames,
   variant,
@@ -48,7 +47,7 @@ export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
   onChooseDifferentFolder,
   onRestore,
   onDismiss,
-}) => {
+}: RestoreAccessModalProps) => {
   const copy = variantCopy[variant];
   const Icon = variant === 'pending' ? FolderClock : AlertTriangle;
   const showRestoreButton = variant !== 'stale';

@@ -73,6 +73,15 @@ describe('FilterChip', () => {
       expect(button).toBeDisabled();
       expect(button).toHaveClass('disabled:opacity-50');
     });
+
+    it('uses focus-visible ring styles instead of mouse-visible focus:ring', () => {
+      render(<FilterChip active={false} label="Files" onClick={() => {}} />);
+
+      const className = screen.getByRole('button').className;
+      expect(className).toContain('focus-visible:ring-');
+      expect(className).not.toMatch(/(?:^|\s)focus:ring-/);
+      expect(className).not.toMatch(/(?:^|\s)focus:outline-none(?:\s|$)/);
+    });
   });
 
   describe('interaction', () => {
