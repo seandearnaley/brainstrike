@@ -959,6 +959,11 @@ export function TreeTable<T>({
   // Setup keyboard navigation
   const handlePluggableCheckboxSpace = React.useCallback(
     (nodeId: string): boolean => {
+      // Getter-only pluggable mode: swallow Space so multi-select toggle does
+      // not run (parity with the click path's early return).
+      if (getCheckboxState !== undefined && onCheckboxChange === undefined) {
+        return true;
+      }
       if (!onCheckboxChange) {
         return false;
       }
@@ -973,7 +978,13 @@ export function TreeTable<T>({
       onCheckboxChange(node, resolveNextCheckboxState(current));
       return true;
     },
-    [onCheckboxChange, nodeById, resolveRowCheckboxState, resolveNextCheckboxState]
+    [
+      getCheckboxState,
+      onCheckboxChange,
+      nodeById,
+      resolveRowCheckboxState,
+      resolveNextCheckboxState,
+    ]
   );
 
   const keyboardOptions: UseTreeKeyboardOptions<T> = {
@@ -999,7 +1010,9 @@ export function TreeTable<T>({
   if (onMultiSelectChange !== undefined) {
     keyboardOptions.onMultiSelectChange = onMultiSelectChange;
   }
-  if (onCheckboxChange !== undefined) {
+  // Wire whenever the pluggable visual path is active — including getter-only
+  // mode, which must swallow Space to keep keyboard/click parity.
+  if (getCheckboxState !== undefined || onCheckboxChange !== undefined) {
     keyboardOptions.onCheckboxSpace = handlePluggableCheckboxSpace;
   }
   const keyboard = useTreeKeyboard(keyboardOptions);

@@ -1239,6 +1239,31 @@ describe('TreeTable', () => {
       expect(handleMultiSelect).not.toHaveBeenCalled();
     });
 
+    it('Space does not fall through to onMultiSelectChange in getter-only checkbox mode', () => {
+      const handleMultiSelect = vi.fn();
+      const nodes: TreeNode<TestData>[] = [createTestNode('a', 'A')];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'checked'}
+          multiSelectedIds={new Set()}
+          nodes={nodes}
+          onMultiSelectChange={handleMultiSelect}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          windowingStrategy="none"
+        />
+      );
+
+      const grid = screen.getByRole('treegrid');
+      fireEvent.focus(grid);
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      fireEvent.keyDown(grid, { key: ' ' });
+      expect(handleMultiSelect).not.toHaveBeenCalled();
+    });
+
     it('does not call onMultiSelectChange when pluggable onCheckboxChange is provided', () => {
       const handleMultiSelect = vi.fn();
       const handleCheckboxChange = vi.fn();
