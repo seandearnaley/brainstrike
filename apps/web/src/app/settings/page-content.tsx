@@ -24,6 +24,7 @@ import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createLocalRuntimeSettingsCategory,
+  createNotificationSettingsCategory,
   createPermissionSettingsCategory,
   createSearchIndexingSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
@@ -203,6 +204,7 @@ export default function SettingsPageContent() {
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
+      createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
         hasStoredFolders: storedFolders.length > 0,
