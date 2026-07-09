@@ -1,3 +1,4 @@
+import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import type {
   SemanticSearchRequest,
   TextSearchRequest,
@@ -392,9 +393,16 @@ describe('useWorkspaceSearchController', () => {
     useWorkspaceSearchStore.getState().reset();
   });
 
+  // The controller reads the shared embedder via `useSharedSearchEmbedder`, which
+  // THROWS without a provider (no silent fallback). Enclose the hook in the real
+  // provider; its embedder machinery is lazy, so no model loads in these tests.
   function withRootIdentity(map: ReadonlyMap<string, string>) {
     return function Wrapper({ children }: { children: ReactNode }) {
-      return <RootIdentityProvider dbRootIdByAdapterRootId={map}>{children}</RootIdentityProvider>;
+      return (
+        <SearchEmbedderProvider>
+          <RootIdentityProvider dbRootIdByAdapterRootId={map}>{children}</RootIdentityProvider>
+        </SearchEmbedderProvider>
+      );
     };
   }
 

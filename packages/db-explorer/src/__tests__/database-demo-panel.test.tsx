@@ -19,6 +19,7 @@ import {
 import { useVectorStatusUIStore as useVectorStatusUIStoreDirect } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
+import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
@@ -36,7 +37,9 @@ const renderWithProviders = (ui: React.ReactElement) =>
     <ActionRegistryProvider
       registry={createTestActionRegistry({ actions: collectionActions }).registry}
     >
-      <TooltipProvider>{ui}</TooltipProvider>
+      <SearchEmbedderProvider>
+        <TooltipProvider>{ui}</TooltipProvider>
+      </SearchEmbedderProvider>
     </ActionRegistryProvider>
   );
 
@@ -492,11 +495,13 @@ describe('DatabaseDemoPanel', () => {
         <ActionRegistryProvider
           registry={createTestActionRegistry({ actions: collectionActions }).registry}
         >
-          <TooltipProvider>
-            <React.Profiler id="database-demo-panel-perf" onRender={onRender}>
-              <DatabaseDemoPanel />
-            </React.Profiler>
-          </TooltipProvider>
+          <SearchEmbedderProvider>
+            <TooltipProvider>
+              <React.Profiler id="database-demo-panel-perf" onRender={onRender}>
+                <DatabaseDemoPanel />
+              </React.Profiler>
+            </TooltipProvider>
+          </SearchEmbedderProvider>
         </ActionRegistryProvider>
       );
 

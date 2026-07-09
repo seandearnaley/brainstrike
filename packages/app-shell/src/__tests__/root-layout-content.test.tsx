@@ -93,6 +93,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 vi.mock('@brainstrike/vector-management', () => ({
   EmbeddingRuntimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
+  SearchEmbedderProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({

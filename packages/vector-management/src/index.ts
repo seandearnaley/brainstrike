@@ -45,7 +45,11 @@ export type {
   SearchEmbedder,
   UseSearchEmbedderResult,
 } from './search-embedder/index.js';
-export { useSearchEmbedder } from './search-embedder/index.js';
+export {
+  SearchEmbedderProvider,
+  useSearchEmbedder,
+  useSharedSearchEmbedder,
+} from './search-embedder/index.js';
 // Hook for embedding controls state (use with EmbeddingActionsDropdown and EmbeddingStatusBar)
 export type {
   UseEmbeddingControlsOptions,

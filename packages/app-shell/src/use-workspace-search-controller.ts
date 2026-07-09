@@ -18,7 +18,7 @@ import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-reg
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useSearchEmbedder } from '@brainstrike/vector-management';
+import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
   type ResolvedFileInfo,
   useWorkspaceSearchStore,
@@ -202,7 +202,9 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   const rootIdentity = useOptionalRootIdentity();
   const { openFileInTab } = useIdeFileEditor();
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
-  const { embedQueryWithRecovery } = useSearchEmbedder();
+  // Shared embedder cache (mounted by SearchEmbedderProvider in root-layout-content):
+  // the workspace-search surface and the collection browser reuse ONE embedder.
+  const { embedQueryWithRecovery } = useSharedSearchEmbedder();
   const models = useModelRegistryStore((state) => state.models);
   useEnsureModelRegistry({ db });
 

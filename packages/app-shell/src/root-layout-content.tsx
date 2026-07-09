@@ -19,6 +19,7 @@ import {
 import {
   EmbeddingRuntimeProvider,
   IndexingActivityCoordinator,
+  SearchEmbedderProvider,
 } from '@brainstrike/vector-management';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search';
 import {
@@ -416,62 +417,72 @@ export function RootLayoutContent({
         <CommandPaletteHost />
         <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
           <EmbeddingRuntimeProvider>
-            <IndexingActivityCoordinator />
-            <div
-              aria-hidden={activeTab !== 'explorer'}
-              className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-              data-testid="explorer-route"
-            >
-              <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-                <ExplorerAppSurface
-                  contextExplorerPageContent={contextExplorerPageContent}
-                  contextExplorerPanelContent={contextExplorerPanelContent}
-                  databaseTabChunkingMode={databaseTabChunkingMode}
-                  loadEmbeddingQueue={loadEmbeddingQueue}
-                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                />
-              </PanelLayoutProvider>
-            </div>
-            {mountedTabs.has('prompts') ? (
+            {/* One shared embedder cache for every semantic-search surface. The
+                machinery is lazy (models load on first embed), so this
+                always-mounted provider is free until the first query. It
+                encloses BOTH the collection browser (sidebar DatabasePanel) and
+                the workspace-search panel (ExplorerSearchTabs) below. */}
+            <SearchEmbedderProvider>
+              <IndexingActivityCoordinator />
               <div
-                aria-hidden={activeTab !== 'prompts'}
-                className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
-                data-testid="prompts-route"
+                aria-hidden={activeTab !== 'explorer'}
+                className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+                data-testid="explorer-route"
               >
-                {promptsPageContent ?? null}
+                <PanelLayoutProvider
+                  controlledState={panelState}
+                  onChange={handlePanelLayoutChange}
+                >
+                  <ExplorerAppSurface
+                    contextExplorerPageContent={contextExplorerPageContent}
+                    contextExplorerPanelContent={contextExplorerPanelContent}
+                    databaseTabChunkingMode={databaseTabChunkingMode}
+                    loadEmbeddingQueue={loadEmbeddingQueue}
+                    {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                  />
+                </PanelLayoutProvider>
               </div>
-            ) : null}
-            {mountedTabs.has('settings') ? (
-              <div
-                aria-hidden={activeTab !== 'settings'}
-                className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
-                data-testid="settings-route"
-              >
-                {settingsPageContent}
-              </div>
-            ) : null}
-            {gitPageContent && mountedTabs.has('git') ? (
-              <div
-                aria-hidden={activeTab !== 'git'}
-                className={activeTab === 'git' ? 'h-full' : 'hidden h-full'}
-                data-testid="git-route"
-              >
-                {gitPageContent}
-              </div>
-            ) : null}
-            {/* The terminal route stays MOUNTED once first opened (it is only
+              {mountedTabs.has('prompts') ? (
+                <div
+                  aria-hidden={activeTab !== 'prompts'}
+                  className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
+                  data-testid="prompts-route"
+                >
+                  {promptsPageContent ?? null}
+                </div>
+              ) : null}
+              {mountedTabs.has('settings') ? (
+                <div
+                  aria-hidden={activeTab !== 'settings'}
+                  className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
+                  data-testid="settings-route"
+                >
+                  {settingsPageContent}
+                </div>
+              ) : null}
+              {gitPageContent && mountedTabs.has('git') ? (
+                <div
+                  aria-hidden={activeTab !== 'git'}
+                  className={activeTab === 'git' ? 'h-full' : 'hidden h-full'}
+                  data-testid="git-route"
+                >
+                  {gitPageContent}
+                </div>
+              ) : null}
+              {/* The terminal route stays MOUNTED once first opened (it is only
                 toggled hidden) so switching tabs never kills the running shell —
                 the pty is pinned to its cwd for the session's lifetime. */}
-            {terminalPageContent && mountedTabs.has('terminal') ? (
-              <div
-                aria-hidden={activeTab !== 'terminal'}
-                className={activeTab === 'terminal' ? 'h-full' : 'hidden h-full'}
-                data-testid="terminal-route"
-              >
-                {terminalPageContent}
-              </div>
-            ) : null}
+              {terminalPageContent && mountedTabs.has('terminal') ? (
+                <div
+                  aria-hidden={activeTab !== 'terminal'}
+                  className={activeTab === 'terminal' ? 'h-full' : 'hidden h-full'}
+                  data-testid="terminal-route"
+                >
+                  {terminalPageContent}
+                </div>
+              ) : null}
+            </SearchEmbedderProvider>
           </EmbeddingRuntimeProvider>
         </ChunkingWorkerProvider>
       </ActionRegistryProvider>
