@@ -4,6 +4,8 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type Key = string; // use compositeKey (folder:name:path) or tab id
 
+export type FileViewMode = 'source' | 'preview';
+
 /** Inclusive, 1-based line range to select in a freshly opened tab. */
 export interface EditorSelectionTarget {
   readonly endLine: number;
@@ -21,6 +23,7 @@ export interface EditorViewTarget {
 }
 
 interface EditorViewStateData {
+  modes: Record<Key, FileViewMode>;
   scrollTops: Record<Key, number>;
   selections: Record<Key, { start: number; end: number } | undefined>;
   /**
@@ -43,9 +46,11 @@ interface EditorViewStateActions {
    * and falls back to the restored scroll position instead of re-applying it.
    */
   clearTarget: (key: Key) => void;
+  getMode: (key: Key) => FileViewMode | undefined;
   getScrollTop: (key: Key) => number;
   getSelection: (key: Key) => { start: number; end: number } | undefined;
   getTarget: (key: Key) => EditorViewTarget | undefined;
+  setMode: (key: Key, mode: FileViewMode) => void;
   setScrollTop: (key: Key, top: number) => void;
   setSelection: (key: Key, start: number, end: number) => void;
   setTarget: (key: Key, target: EditorViewTarget) => void;
@@ -78,14 +83,21 @@ export const useEditorViewStateStore = create<EditorViewStateStore>()(
     (set, get) => ({
       clear: (key) => {
         if (!key) {
-          set({ scrollTops: {}, selections: {}, targets: {} });
+          set({ modes: {}, scrollTops: {}, selections: {}, targets: {} });
           return;
         }
-        const { scrollTops, selections, targets } = get();
-        const { [key]: _a, ...restScrolls } = scrollTops;
+        const { modes, scrollTops, selections, targets } = get();
+        const previewKey = `preview:${key}`;
+        const { [key]: _a, [previewKey]: _p, ...restScrolls } = scrollTops;
         const { [key]: _b, ...restSel } = selections;
         const { [key]: _c, ...restTargets } = targets;
-        set({ scrollTops: restScrolls, selections: restSel, targets: restTargets });
+        const { [key]: _d, ...restModes } = modes;
+        set({
+          modes: restModes,
+          scrollTops: restScrolls,
+          selections: restSel,
+          targets: restTargets,
+        });
       },
       clearTarget: (key) => {
         const { targets } = get();
@@ -95,12 +107,15 @@ export const useEditorViewStateStore = create<EditorViewStateStore>()(
         const { [key]: _removed, ...restTargets } = targets;
         set({ targets: restTargets });
       },
+      getMode: (key) => get().modes[key],
       getScrollTop: (key) => get().scrollTops[key] ?? 0,
       getSelection: (key) => get().selections[key],
       getTarget: (key) => get().targets[key],
+      modes: {},
       scrollTops: {},
       selections: {},
 
+      setMode: (key, mode) => set((s) => ({ modes: { ...s.modes, [key]: mode } })),
       setScrollTop: (key, top) =>
         set((s) => ({ scrollTops: { ...s.scrollTops, [key]: Math.max(0, top | 0) } })),
       setSelection: (key, start, end) =>
@@ -110,11 +125,18 @@ export const useEditorViewStateStore = create<EditorViewStateStore>()(
       targets: {},
     }),
     {
-      name: STORE_NAME,
+      migrate: (persistedState, version) => {
+        if (version < 2) {
+          // v1 payloads predate modes; keep scroll/selection state and start modes fresh.
+          return { ...(persistedState as Partial<EditorViewStateData>), modes: {} };
+        }
+        return persistedState as Partial<EditorViewStateData>;
+      },
+      name: STORE_NAME, // unchanged: 'editor-view-state.v1' — renaming would orphan users' data
       // targets is intentionally excluded: it is a one-shot view target.
-      partialize: (s) => ({ scrollTops: s.scrollTops, selections: s.selections }),
+      partialize: (s) => ({ modes: s.modes, scrollTops: s.scrollTops, selections: s.selections }),
       storage: createJSONStorage(() => storage),
-      version: 1,
+      version: 2,
     }
   )
 );
