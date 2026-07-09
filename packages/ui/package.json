@@ -77,6 +77,10 @@
       "types": "./dist/assistant-ui-panel/index.d.ts",
       "import": "./dist/assistant-ui-panel/index.js"
     },
+    "./assistant-ui-panel/context-usage-store": {
+      "types": "./dist/assistant-ui-panel/context-usage-store.d.ts",
+      "import": "./dist/assistant-ui-panel/context-usage-store.js"
+    },
     "./globals.css": "./dist/globals.css",
     "./styles.css": "./styles.css",
     "./icons": "./icons/index.ts",
