@@ -596,6 +596,8 @@ export function TreeTable<T>({
   ariaRole = 'treegrid',
   showHeader = true,
   showCheckbox = false,
+  getCheckboxState,
+  onCheckboxChange,
   insetTreeControls = false,
   onRowDoubleClick,
   onRowContextMenu,
@@ -706,10 +708,12 @@ export function TreeTable<T>({
     return map;
   }, [nodes]);
 
-  // Compute checkbox states in a single bottom-up pass across the whole tree.
-  // This avoids O(visibleRows * subtreeTraversal) work on each render.
+  const usesPluggableCheckbox = getCheckboxState !== undefined;
+
+  // Built-in cascade: compute checkbox states in a single bottom-up pass.
+  // Skipped when a pluggable getCheckboxState is provided (or checkboxes are off).
   const checkboxStates = React.useMemo((): Map<string, CheckboxState> => {
-    if (!showCheckbox) {
+    if (!showCheckbox || usesPluggableCheckbox) {
       return new Map();
     }
     return buildCheckboxStateMap(
@@ -718,17 +722,51 @@ export function TreeTable<T>({
       multiSelectedIds,
       warnedCycleNodeIdsRef.current
     );
-  }, [showCheckbox, nodes, multiSelectedIds, getChildren]);
+  }, [showCheckbox, usesPluggableCheckbox, nodes, multiSelectedIds, getChildren]);
 
-  // Handle checkbox toggle - select/deselect node and all descendants
+  const resolveRowCheckboxState = React.useCallback(
+    (node: TreeNode<T>): CheckboxState | null => {
+      if (getCheckboxState) {
+        const state = getCheckboxState(node);
+        if (state === undefined || state === 'hidden') {
+          return null;
+        }
+        return state;
+      }
+      if (!showCheckbox) {
+        return null;
+      }
+      return checkboxStates.get(node.id) ?? 'unchecked';
+    },
+    [getCheckboxState, showCheckbox, checkboxStates]
+  );
+
+  const resolveNextCheckboxState = React.useCallback(
+    (current: CheckboxState | null): 'checked' | 'unchecked' => {
+      // Indeterminate and unchecked both activate to checked (standard tri-state UX).
+      return current === 'checked' ? 'unchecked' : 'checked';
+    },
+    []
+  );
+
+  // Handle checkbox toggle. Pluggable path wins over the built-in cascade.
   const handleCheckboxChange = React.useCallback(
     (nodeId: string) => {
-      if (!onMultiSelectChange) {
+      const node = nodeById.get(nodeId);
+      if (!node) {
         return;
       }
 
-      const node = nodeById.get(nodeId);
-      if (!node) {
+      if (onCheckboxChange) {
+        const current = resolveRowCheckboxState(node);
+        if (current === null) {
+          return;
+        }
+        onCheckboxChange(node, resolveNextCheckboxState(current));
+        return;
+      }
+
+      if (!onMultiSelectChange) {
         return;
       }
 
@@ -737,13 +775,11 @@ export function TreeTable<T>({
       const newSelection = new Set(multiSelectedIds);
 
       if (currentState === 'checked') {
-        // Deselect this node and all descendants
         newSelection.delete(nodeId);
         for (const descId of descendants) {
           newSelection.delete(descId);
         }
       } else {
-        // Select this node and all descendants
         newSelection.add(nodeId);
         for (const descId of descendants) {
           newSelection.add(descId);
@@ -752,7 +788,21 @@ export function TreeTable<T>({
 
       onMultiSelectChange(newSelection);
     },
-    [nodeById, getChildren, multiSelectedIds, onMultiSelectChange, checkboxStates]
+    [
+      nodeById,
+      onCheckboxChange,
+      resolveRowCheckboxState,
+      resolveNextCheckboxState,
+      onMultiSelectChange,
+      getChildren,
+      multiSelectedIds,
+      checkboxStates,
+    ]
+  );
+
+  const shouldShowRowCheckbox = React.useCallback(
+    (node: TreeNode<T>): boolean => resolveRowCheckboxState(node) !== null,
+    [resolveRowCheckboxState]
   );
 
   const getRowHeight = React.useCallback(
@@ -898,6 +948,25 @@ export function TreeTable<T>({
   }, [isPagedWindowing, indexMap, pageSize, currentPage, displayedRows, scrollPagedRowIntoView]);
 
   // Setup keyboard navigation
+  const handlePluggableCheckboxSpace = React.useCallback(
+    (nodeId: string): boolean => {
+      if (!onCheckboxChange) {
+        return false;
+      }
+      const node = nodeById.get(nodeId);
+      if (!node) {
+        return false;
+      }
+      const current = resolveRowCheckboxState(node);
+      if (current === null) {
+        return false;
+      }
+      onCheckboxChange(node, resolveNextCheckboxState(current));
+      return true;
+    },
+    [onCheckboxChange, nodeById, resolveRowCheckboxState, resolveNextCheckboxState]
+  );
+
   const keyboardOptions: UseTreeKeyboardOptions<T> = {
     expandedIds,
     getChildren,
@@ -920,6 +989,9 @@ export function TreeTable<T>({
   }
   if (onMultiSelectChange !== undefined) {
     keyboardOptions.onMultiSelectChange = onMultiSelectChange;
+  }
+  if (onCheckboxChange !== undefined) {
+    keyboardOptions.onCheckboxSpace = handlePluggableCheckboxSpace;
   }
   const keyboard = useTreeKeyboard(keyboardOptions);
 
@@ -1083,19 +1155,21 @@ export function TreeTable<T>({
                   return (
                     <TreeTableRow
                       ariaRole={tableAriaRole}
-                      checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
+                      checkboxState={resolveRowCheckboxState(row.node) ?? 'unchecked'}
                       className={getRowClassName(row.node)}
                       columns={columns}
                       insetTreeControls={insetTreeControls}
                       isFocused={keyboard.state.focusedId === row.node.id}
                       key={row.node.id}
-                      onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
+                      onCheckboxChange={
+                        shouldShowRowCheckbox(row.node) ? handleCheckboxChange : undefined
+                      }
                       onClick={handleRowClick}
                       onContextMenu={handleRowContextMenu}
                       onDoubleClick={handleRowDoubleClick}
                       onToggleExpand={onToggleExpand}
                       row={row}
-                      showCheckbox={showCheckbox}
+                      showCheckbox={shouldShowRowCheckbox(row.node)}
                       totalRowCount={totalRowCount}
                       virtualIndex={virtualRow.index}
                       {...virtualRowMeasureProps}
@@ -1105,19 +1179,21 @@ export function TreeTable<T>({
               : displayedRows.map((row) => (
                   <TreeTableRow
                     ariaRole={tableAriaRole}
-                    checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
+                    checkboxState={resolveRowCheckboxState(row.node) ?? 'unchecked'}
                     className={getRowClassName(row.node)}
                     columns={columns}
                     insetTreeControls={insetTreeControls}
                     isFocused={keyboard.state.focusedId === row.node.id}
                     key={row.node.id}
-                    onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
+                    onCheckboxChange={
+                      shouldShowRowCheckbox(row.node) ? handleCheckboxChange : undefined
+                    }
                     onClick={handleRowClick}
                     onContextMenu={handleRowContextMenu}
                     onDoubleClick={handleRowDoubleClick}
                     onToggleExpand={onToggleExpand}
                     row={row}
-                    showCheckbox={showCheckbox}
+                    showCheckbox={shouldShowRowCheckbox(row.node)}
                     totalRowCount={totalRowCount}
                     virtualIndex={row.index}
                   />

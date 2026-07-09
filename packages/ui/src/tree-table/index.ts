@@ -77,6 +77,8 @@ export type {
   TreeRowAriaAttributes,
   TreeTableAutoWindowingContext,
   TreeTableCellProps,
+  TreeTableCheckboxNextState,
+  TreeTableCheckboxRenderState,
   TreeTableColumn,
   TreeTablePaginationOptions,
   TreeTableProps,
