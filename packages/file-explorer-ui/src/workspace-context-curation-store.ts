@@ -35,6 +35,8 @@ export interface WorkspaceContextCurationSnapshot {
 interface WorkspaceContextCurationState {
   clearTapestryRanges: () => void;
   contextSnapshot: WorkspaceContextCurationSnapshot | null;
+  /** Drop snapshot + ranges (session reset / factory reset). */
+  reset: () => void;
   setContextSnapshot: (snapshot: WorkspaceContextCurationSnapshot | null) => void;
   setTapestryRanges: (
     ranges: TapestryRangeMap | ((prev: TapestryRangeMap) => TapestryRangeMap)
@@ -54,6 +56,7 @@ interface WorkspaceContextCurationState {
 export const useWorkspaceContextCurationStore = create<WorkspaceContextCurationState>((set) => ({
   clearTapestryRanges: () => set({ tapestryRangesByKey: {} }),
   contextSnapshot: null,
+  reset: () => set({ contextSnapshot: null, tapestryRangesByKey: {} }),
   setContextSnapshot: (snapshot) =>
     set((state) => {
       const previousFolderId = state.contextSnapshot?.selectionFolderId ?? null;
