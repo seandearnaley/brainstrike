@@ -121,8 +121,11 @@ describe('Minimap', () => {
     );
 
     expect(screen.getByText(/whole file.*drag to select lines/i)).toBeInTheDocument();
-    // The create-range background affordance stays available alongside it.
-    expect(screen.getByRole('button', { name: /create range in app\.tsx/i })).toBeInTheDocument();
+    // The create-range background button carries the accessible name for the
+    // whole-file state (the visual "Whole file" hint is aria-hidden).
+    expect(
+      screen.getByRole('button', { name: /whole file selected — create range in app\.tsx/i })
+    ).toBeInTheDocument();
   });
 
   it('does not show the whole-file affordance when the file already has ranges', () => {
@@ -143,6 +146,10 @@ describe('Minimap', () => {
     );
 
     expect(screen.queryByText(/whole file.*drag to select lines/i)).not.toBeInTheDocument();
+    // With ranges present the background button's accessible name is the plain
+    // create-range label, never the whole-file variant.
+    expect(screen.getByRole('button', { name: /^create range in app\.tsx$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /whole file selected/i })).not.toBeInTheDocument();
   });
 
   it('uses smartStart to create a range when clicking the background', () => {

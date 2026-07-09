@@ -224,10 +224,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Gate expensive Tapestry computations behind active tab.
   const isTapestryActive = activeTab === 'tapestry';
-  // Tapestry ranges always feed context output now (the toggle was removed in
-  // Task 3); range sync is always relevant regardless of the active tab.
-  const shouldSyncTapestryRanges = true;
-
   const effectiveColumnVisibility = useMemo(() => {
     // Folder-based grouping already carries the root context in the group row,
     // so keeping the standalone folder column only duplicates that information.
@@ -404,11 +400,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   ]);
 
   const tapestryFileBaseByKey = useMemo(() => {
-    // Skip expensive computation unless ranges must be rendered or exported.
-    if (!shouldSyncTapestryRanges) {
-      return new Map<string, ReturnType<typeof buildTapestryFileBase>>();
-    }
-
     // Read-only access to previous-commit cache; written in the useEffect below.
     const cache = tapestryBaseCacheRef.current;
     const map = new Map<string, ReturnType<typeof buildTapestryFileBase>>();
@@ -431,7 +422,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }
 
     return map;
-  }, [shouldSyncTapestryRanges, tableData, fileContents, loadingFiles]);
+  }, [tableData, fileContents, loadingFiles]);
 
   // Persist per-file cache after render — useEffect is a safe place for ref mutation.
   // biome-ignore lint/plugin: Not fetching data — updating a local memoization cache ref.
@@ -460,15 +451,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }, [tapestryFileBaseByKey, tableData, fileContents, loadingFiles]);
 
   useEffect(() => {
-    // Keep ranges synchronized while Tapestry is visible or when range-based export is enabled.
-    if (!shouldSyncTapestryRanges) {
-      return;
-    }
-
     // Capture pending totals outside the setState updater to avoid mutating the
     // ref inside the callback. React 18 Strict Mode invokes updaters twice — if
     // the ref were mutated inside, the second (real) invocation would see
-    // corrupted previousTotal values and skip range stretching on content load.
+    // corrupted previousTotal values, so syncTapestryRanges could not detect a
+    // per-file line-total change on content load.
     let pendingTotals: Map<string, number> | null = null;
     setTapestryRangesByKey((prev) => {
       const { next, changed, totals } = syncTapestryRanges({
@@ -482,7 +469,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     if (pendingTotals) {
       tapestryTotalsRef.current = pendingTotals;
     }
-  }, [shouldSyncTapestryRanges, tapestryFileBaseByKey]);
+  }, [tapestryFileBaseByKey]);
 
   // Toggle group collapse
   const toggleGroupCollapse = useCallback(

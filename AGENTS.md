@@ -530,9 +530,11 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   unchecking a chunk under a whole-file selection CONVERTS to "every sibling result
   chunk except this one" (`toggleChunk`'s 4th arg is the file's full result-chunk
   list). Search still writes ONLY explorer file-selection + its own
-  `origin:'search'` ranges; any other `userModified` ranges on the same file are
-  preserved verbatim through every mutation. There is no default/auto-created
+  `origin:'search'` ranges; it preserves every range with `origin !== 'search'`
+  on the same file verbatim through every mutation. There is no default/auto-created
   range to preserve (see TAPESTRY below) — a rangeless file is simply whole-file.
+  An emptied search set writes no `[]` residue: the curation store deletes the
+  key so absence-of-ranges = whole-file everywhere (empty ≡ absent).
   Round trips are idempotent: emptying the chunk subset (or the last chunk) also
   deselects the file. The curation store's snapshot producer remains the
   preview panel.

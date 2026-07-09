@@ -69,9 +69,10 @@ function subsetForKey(compositeKey: string): Record<string, SelectedChunk> {
  * mutation. Because ranges are output-only, deriving them by MERGING overlapping
  * spans is now safe — checkbox state never reads them back.
  *
- * INVARIANT (no silent data loss): search re-emits ONLY its own `origin:'search'`
- * ranges; hand-curated userModified ranges AND the preview panel's auto-created
- * full-file default (origin undefined) are preserved verbatim on every write.
+ * INVARIANT (no silent data loss): search mutates ONLY its own `origin:'search'`
+ * ranges; every range with a different origin (userModified hand-drags or any
+ * other origin) is preserved verbatim on every write. Absence of ranges = whole
+ * file — an emptied search set writes no `[]` residue (the store deletes the key).
  */
 export function useSearchSelectionBridge(): SearchSelectionBridge {
   const explorerStore = useFileExplorerStoreContext();
@@ -165,8 +166,9 @@ export function useSearchSelectionBridge(): SearchSelectionBridge {
   const toggleFile = useCallback(
     (compositeKey: string, nextChecked: boolean): void => {
       // Whole-file supersedes any chunk subset: clear the set either way so the
-      // derived search ranges collapse to empty (the preview default takes over
-      // when selected; nothing remains when deselected).
+      // derived search ranges collapse to empty. With no search ranges left, the
+      // store deletes the key (absence = whole file when selected; nothing at all
+      // when deselected). Non-search origins are still preserved by writeRangesForKey.
       clearForKey(compositeKey);
       if (nextChecked) {
         selectFile(compositeKey);
