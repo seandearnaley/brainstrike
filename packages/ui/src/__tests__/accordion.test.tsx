@@ -35,4 +35,19 @@ describe('Accordion', () => {
     const item = document.querySelector('.custom');
     expect(item).not.toBeNull();
   });
+
+  it('uses explicit transition properties on AccordionTrigger instead of transition-all', () => {
+    render(
+      <Accordion collapsible type="single">
+        <AccordionItem value="item-1">
+          <AccordionTrigger>Item</AccordionTrigger>
+          <AccordionContent>Content</AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Item' });
+    expect(trigger.className).toContain('transition-[color,opacity,box-shadow,border-color]');
+    expect(trigger.className).not.toContain('transition-all');
+  });
 });

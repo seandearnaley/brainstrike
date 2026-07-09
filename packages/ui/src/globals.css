@@ -53,6 +53,8 @@
   /* Borders & Inputs - Subtle warm borders */
   --bs-border: 30 10% 90%; /* #E8E5E2 - Warm border */
   --bs-panel-divider: 30 10% 82%; /* Slightly darker than --bs-border so adjacent collapsible panels read as one crisp seam rather than a doubled line. */
+  /* Panel surface gradient — warm cream wash for empty states / panel shells */
+  --bs-panel-surface: linear-gradient(to bottom, #fdfcfb, #f2f0ef);
   --bs-input: 30 10% 90%; /* #E8E5E2 - Input border */
   --bs-ring: 215 55% 45%; /* #3D6A9E - Focus ring matches primary */
 
@@ -102,6 +104,7 @@
   --destructive-foreground: var(--bs-destructive-foreground);
   --border: var(--bs-border);
   --panel-divider: var(--bs-panel-divider);
+  --panel-surface: var(--bs-panel-surface);
   --input: var(--bs-input);
   --ring: var(--bs-ring);
   --chart-1: var(--bs-chart-1);
@@ -162,6 +165,8 @@
   /* Borders & Inputs - Warm subtle borders */
   --bs-border: 30 5% 20%; /* #353230 - Warm dark border */
   --bs-panel-divider: 30 5% 28%; /* Slightly lighter than --bs-border in dark mode — more lightness = more contrast against dark panel backgrounds. */
+  /* Panel surface gradient — deep warm obsidian wash */
+  --bs-panel-surface: linear-gradient(to bottom, #1a1816, #0a0a0a);
   --bs-input: 30 5% 20%; /* #353230 - Input border */
   --bs-ring: 215 50% 58%; /* #6A94BE - Focus ring */
 
@@ -210,6 +215,7 @@
   --destructive-foreground: var(--bs-destructive-foreground);
   --border: var(--bs-border);
   --panel-divider: var(--bs-panel-divider);
+  --panel-surface: var(--bs-panel-surface);
   --input: var(--bs-input);
   --ring: var(--bs-ring);
   --chart-1: var(--bs-chart-1);
@@ -331,6 +337,14 @@
 
 /* Container utility with responsive sizing */
 @layer components {
+  /**
+   * Shared panel / empty-state surface gradient.
+   * Token: --panel-surface (light cream → dark obsidian).
+   */
+  .bg-panel-surface {
+    background-image: var(--panel-surface);
+  }
+
   .container {
     margin-inline: auto;
     padding-inline: 2rem;
