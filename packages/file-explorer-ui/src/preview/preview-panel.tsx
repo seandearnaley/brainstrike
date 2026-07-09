@@ -55,8 +55,6 @@ import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
 const TAPESTRY_MAX_PAGE_SIZE = 24;
-// Keep a stable reference for the "empty snapshot" state to preserve memo identity optimizations.
-const EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT: Record<string, string> = {};
 const EMPTY_PAGINATION_INFO = {};
 
 interface PreviewPanelProps {
@@ -215,8 +213,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setFooterMode,
     sortDirection,
     sortField,
-    setUseTapestryRangesForContextOutput,
-    useTapestryRangesForContextOutput,
     footerMode,
   } = usePreviewPanelPreferences({
     activeTab: 'table',
@@ -224,13 +220,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     groupingConfig: 'none',
     sortDirection: 'asc',
     sortField: 'rootFolderId',
-    // Keep range-aware export on by default so context output follows the active tapestry selection model.
-    useTapestryRangesForContextOutput: true,
   });
 
   // Gate expensive Tapestry computations behind active tab.
   const isTapestryActive = activeTab === 'tapestry';
-  const shouldSyncTapestryRanges = isTapestryActive || useTapestryRangesForContextOutput;
+  // Tapestry ranges always feed context output now (the toggle was removed in
+  // Task 3); range sync is always relevant regardless of the active tab.
+  const shouldSyncTapestryRanges = true;
 
   const effectiveColumnVisibility = useMemo(() => {
     // Folder-based grouping already carries the root context in the group row,
@@ -257,16 +253,15 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const deferredFlatListItems = useDeferredValue(flatListItems);
   // Compute the content snapshot for context-selected token summary.
   // Uses a pure useMemo — no ref access during render.
-  const selectedFileContentSnapshot = useMemo(() => {
-    if (!useTapestryRangesForContextOutput) {
-      return EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT;
-    }
-    return createSelectedFileContentSnapshot({
-      fileContents,
-      selectedFiles,
-      tapestryRangesByKey: deferredTapestryRangesByKey,
-    });
-  }, [fileContents, selectedFiles, deferredTapestryRangesByKey, useTapestryRangesForContextOutput]);
+  const selectedFileContentSnapshot = useMemo(
+    () =>
+      createSelectedFileContentSnapshot({
+        fileContents,
+        selectedFiles,
+        tapestryRangesByKey: deferredTapestryRangesByKey,
+      }),
+    [fileContents, selectedFiles, deferredTapestryRangesByKey]
+  );
 
   const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
     const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
@@ -393,7 +388,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       selectedSourceApproxTokens: contextSelectedTokenSummary.sourceSelectedTokens,
       selectionFolderId,
       tokenBudget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-      useTapestryRanges: useTapestryRangesForContextOutput,
+      // Task 4 removes this: the preference was retired in Task 3 and ranges
+      // now always feed context output, but WorkspaceContextCurationSnapshot
+      // still declares the field.
+      useTapestryRanges: true,
     });
   }, [
     contextSelectedTokenSummary.outputSelectedTokens,
@@ -407,7 +405,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     tableData,
     deferredTapestryRangesByKey,
     tokenBudget,
-    useTapestryRangesForContextOutput,
   ]);
 
   const tapestryFileBaseByKey = useMemo(() => {
@@ -805,9 +802,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     () => ({
       projectTreeUsesViewFilters,
       selectedLineRangesByFile: tapestryRangesByKey,
-      useTapestryRanges: useTapestryRangesForContextOutput,
+      // Task 4 removes this: the preference was retired in Task 3 and ranges
+      // now always feed context output, but ContextExportOptions still
+      // declares the field.
+      useTapestryRanges: true,
     }),
-    [projectTreeUsesViewFilters, tapestryRangesByKey, useTapestryRangesForContextOutput]
+    [projectTreeUsesViewFilters, tapestryRangesByKey]
   );
 
   const handleDownloadContext = useCallback(() => {
@@ -930,7 +930,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
           onTokenBudgetChange={onTokenBudgetChange}
-          onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
           projectTreeUsesViewFilters={projectTreeUsesViewFilters}
           selectedFilesCount={selectedFiles.size}
           selectedTokensPendingCount={0}
@@ -938,7 +937,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           tokenUsage={tokenUsage}
           totalFiles={0}
           treeLoading={projectTreeTokenCountLoading}
-          useTapestryRanges={useTapestryRangesForContextOutput}
         />
         <div className="flex-1">
           <EmptyState
@@ -964,7 +962,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
         onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
         onTokenBudgetChange={onTokenBudgetChange}
-        onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
         projectTreeUsesViewFilters={projectTreeUsesViewFilters}
         selectedFilesCount={selectedFiles.size}
         selectedTokensPendingCount={contextSelectedTokenSummary.outputPendingCount}
@@ -972,7 +969,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         tokenUsage={tokenUsage}
         totalFiles={totalStats.totalFiles}
         treeLoading={projectTreeTokenCountLoading}
-        useTapestryRanges={useTapestryRangesForContextOutput}
       />
 
       <Tabs className="flex min-h-0 flex-1 flex-col" onValueChange={setActiveTab} value={activeTab}>

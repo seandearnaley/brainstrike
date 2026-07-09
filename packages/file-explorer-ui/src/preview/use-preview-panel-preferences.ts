@@ -48,7 +48,6 @@ interface StoredPreferences {
   pageSize?: number;
   sortDirection?: 'asc' | 'desc';
   sortField?: keyof TableRowData;
-  useTapestryRangesForContextOutput?: boolean;
 }
 
 interface PreviewPanelPreferences {
@@ -60,7 +59,6 @@ interface PreviewPanelPreferences {
   pageSize: number;
   sortDirection: 'asc' | 'desc';
   sortField: keyof TableRowData;
-  useTapestryRangesForContextOutput: boolean;
 }
 
 interface PreviewPanelPreferencesDefaults {
@@ -69,7 +67,6 @@ interface PreviewPanelPreferencesDefaults {
   groupingConfig: string;
   sortDirection: 'asc' | 'desc';
   sortField: keyof TableRowData;
-  useTapestryRangesForContextOutput: boolean;
 }
 
 function loadStoredPreferences(): StoredPreferences | null {
@@ -169,15 +166,6 @@ function sanitizePageSize(value: StoredPreferences['pageSize']): StoredPreferenc
   return;
 }
 
-function sanitizeUseTapestryRangesForContextOutput(
-  value: StoredPreferences['useTapestryRangesForContextOutput']
-): StoredPreferences['useTapestryRangesForContextOutput'] {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  return;
-}
-
 function sanitizeFooterMode(
   value: StoredPreferences['footerMode']
 ): StoredPreferences['footerMode'] {
@@ -230,12 +218,6 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
   if (pageSize !== undefined) {
     sanitized.pageSize = pageSize;
   }
-  const useTapestryRangesForContextOutput = sanitizeUseTapestryRangesForContextOutput(
-    stored.useTapestryRangesForContextOutput
-  );
-  if (useTapestryRangesForContextOutput !== undefined) {
-    sanitized.useTapestryRangesForContextOutput = useTapestryRangesForContextOutput;
-  }
   const footerMode = sanitizeFooterMode(stored.footerMode);
   const footerHeight = sanitizeFooterHeight(stored.footerHeight);
   if (footerHeight !== undefined) {
@@ -263,7 +245,6 @@ interface PreviewPanelPreferencesSetters {
   setPageSize: Dispatch<SetStateAction<number>>;
   setSortDirection: Dispatch<SetStateAction<'asc' | 'desc'>>;
   setSortField: Dispatch<SetStateAction<keyof TableRowData>>;
-  setUseTapestryRangesForContextOutput: Dispatch<SetStateAction<boolean>>;
 }
 
 export function usePreviewPanelPreferences(
@@ -301,14 +282,6 @@ export function usePreviewPanelPreferences(
   const [pageSize, setPageSize] = useState<number>(() =>
     getStoredValue(storedPreferences, 'pageSize', DEFAULT_PAGE_SIZE)
   );
-  const [useTapestryRangesForContextOutput, setUseTapestryRangesForContextOutput] =
-    useState<boolean>(() =>
-      getStoredValue(
-        storedPreferences,
-        'useTapestryRangesForContextOutput',
-        defaults.useTapestryRangesForContextOutput
-      )
-    );
   const [footerMode, setFooterMode] = useState<PreviewFooterMode>(() =>
     getStoredValue(storedPreferences, 'footerMode', defaults.footerMode)
   );
@@ -325,7 +298,6 @@ export function usePreviewPanelPreferences(
           pageSize,
           sortDirection,
           sortField,
-          useTapestryRangesForContextOutput,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
@@ -351,7 +323,6 @@ export function usePreviewPanelPreferences(
     collapsedGroups,
     activeTab,
     pageSize,
-    useTapestryRangesForContextOutput,
     footerMode,
   ]);
 
@@ -370,9 +341,7 @@ export function usePreviewPanelPreferences(
     setPageSize,
     setSortDirection,
     setSortField,
-    setUseTapestryRangesForContextOutput,
     sortDirection,
     sortField,
-    useTapestryRangesForContextOutput,
   };
 }

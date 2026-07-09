@@ -40,13 +40,11 @@ function createProps(overrides: Partial<Parameters<typeof PreviewPanelFooter>[0]
     onIncludeProjectTreeChange: vi.fn(),
     onProjectTreeUsesViewFiltersChange: vi.fn(),
     onTokenBudgetChange: vi.fn(),
-    onUseTapestryRangesChange: vi.fn(),
     projectTreeUsesViewFilters: true,
     selectedFilesCount: 4,
     tokenCounting,
     tokenUsage: createTokenUsage(),
     totalFiles: 12,
-    useTapestryRanges: false,
     ...overrides,
   } satisfies Parameters<typeof PreviewPanelFooter>[0];
 }
@@ -63,7 +61,6 @@ describe('PreviewPanelFooter', () => {
     await user.click(screen.getByTestId('download-context-button'));
     await user.click(screen.getByTestId('copy-context-button'));
     await user.click(screen.getByRole('switch', { name: 'Use filtered project tree' }));
-    await user.click(screen.getByRole('switch', { name: 'Use tapestry ranges in context output' }));
 
     const thresholdInput = screen.getByLabelText('Tree detail:');
     fireEvent.change(thresholdInput, { target: { value: '9' } });
@@ -73,8 +70,16 @@ describe('PreviewPanelFooter', () => {
     expect(props.onDownloadContext).toHaveBeenCalledTimes(1);
     expect(props.onCopyContext).toHaveBeenCalledTimes(1);
     expect(props.onProjectTreeUsesViewFiltersChange).toHaveBeenCalledWith(false);
-    expect(props.onUseTapestryRangesChange).toHaveBeenCalledWith(true);
     expect(props.onFolderSummaryThresholdChange).toHaveBeenLastCalledWith(9);
+  });
+
+  it('never renders a "Use Tapestry Ranges" switch (the preference and switch were removed)', () => {
+    render(<PreviewPanelFooter {...createProps()} />);
+
+    expect(
+      screen.queryByRole('switch', { name: 'Use tapestry ranges in context output' })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Use Tapestry Ranges')).not.toBeInTheDocument();
   });
 
   it('disables context actions and shows over-budget compact status with no selected files', () => {
@@ -103,7 +108,6 @@ describe('PreviewPanelFooter', () => {
     const props = createProps({
       footerMode: 'expanded',
       tokenUsage: createTokenUsage({ selectedTokens: 350, usedTokens: 600 }),
-      useTapestryRanges: true,
     });
     const { rerender } = render(<PreviewPanelFooter {...props} />);
 
