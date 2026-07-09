@@ -35,3 +35,12 @@ export {
   useWorkspaceSearchStore,
   type WorkspaceSearchStatus,
 } from './core/workspace-search-store';
+export {
+  SearchCollectionPicker,
+  type SearchCollectionPickerProps,
+  SearchCoverageBanner,
+  type SearchCoverageBannerProps,
+  SearchInputBar,
+  type SearchInputBarProps,
+  SearchModeToggle,
+} from './panel';
