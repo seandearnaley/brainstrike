@@ -1185,6 +1185,7 @@ const ChatThreadUI = ({
         {...(onRunFailed ? { onRunFailed } : {})}
         {...(onRunFinished ? { onRunFinished } : {})}
         {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
+        {...(threadKey ? { threadKey } : {})}
       />
       {/**
        * Messages Viewport

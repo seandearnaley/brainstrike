@@ -127,6 +127,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     id: 'local-runtime',
     title: 'Local Runtime',
   }),
+  createNotificationSettingsCategory: () => ({
+    content: <div data-testid="notifications-category" />,
+    id: 'notifications',
+    title: 'Notifications',
+  }),
   createPermissionSettingsCategory: () => ({
     content: <div data-testid="permissions-category" />,
     id: 'permissions',

@@ -2,8 +2,8 @@ import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
 import { describe, expect, it } from 'vitest';
 import {
-  selectOpenToolApprovalRequests,
   selectTerminalRunEvents,
+  selectToolApprovalRequests,
 } from '../run-lifecycle-notifications';
 
 function runEventMessage(event: Record<string, unknown>) {
@@ -77,13 +77,13 @@ describe('selectTerminalRunEvents', () => {
   });
 });
 
-describe('selectOpenToolApprovalRequests', () => {
+describe('selectToolApprovalRequests', () => {
   it('returns every well-formed tool-approval-required request', () => {
     const messages = [
       approvalMessage({ runId: 'run-1', toolCallId: 'call-1', toolName: 'brainstrike.editFile' }),
     ];
 
-    const result = selectOpenToolApprovalRequests(messages);
+    const result = selectToolApprovalRequests(messages);
     expect(result).toEqual([
       { runId: 'run-1', toolCallId: 'call-1', toolName: 'brainstrike.editFile' },
     ]);
@@ -105,7 +105,7 @@ describe('selectOpenToolApprovalRequests', () => {
       }),
     ];
 
-    const result = selectOpenToolApprovalRequests(messages);
+    const result = selectToolApprovalRequests(messages);
     expect(result).toHaveLength(1);
     expect((result[0] as { args?: { first?: boolean } }).args?.first).toBe(true);
   });
@@ -116,10 +116,10 @@ describe('selectOpenToolApprovalRequests', () => {
       { content: [{ data: null, name: TOOL_APPROVAL_DATA_NAME }] },
     ];
 
-    expect(selectOpenToolApprovalRequests(messages)).toEqual([]);
+    expect(selectToolApprovalRequests(messages)).toEqual([]);
   });
 
   it('returns an empty array for an empty thread', () => {
-    expect(selectOpenToolApprovalRequests([])).toEqual([]);
+    expect(selectToolApprovalRequests([])).toEqual([]);
   });
 });

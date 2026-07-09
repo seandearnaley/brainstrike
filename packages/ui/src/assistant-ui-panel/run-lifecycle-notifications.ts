@@ -88,7 +88,7 @@ export function selectTerminalRunEvents(
  * point-in-time event, so a later re-render of the same part must not be
  * treated as a new approval request).
  */
-export function selectOpenToolApprovalRequests(
+export function selectToolApprovalRequests(
   messages: readonly unknown[]
 ): readonly AssistantToolApprovalRequest[] {
   const seen = new Set<string>();
@@ -123,8 +123,8 @@ function serializeTerminalRunEvents(messages: readonly unknown[]): string {
   return JSON.stringify(selectTerminalRunEvents(messages));
 }
 
-function serializeOpenToolApprovalRequests(messages: readonly unknown[]): string {
-  return JSON.stringify(selectOpenToolApprovalRequests(messages));
+function serializeToolApprovalRequests(messages: readonly unknown[]): string {
+  return JSON.stringify(selectToolApprovalRequests(messages));
 }
 
 /**
@@ -132,8 +132,22 @@ function serializeOpenToolApprovalRequests(messages: readonly unknown[]): string
  * (tracked via refs, so remounts within the same panel instance don't
  * re-fire for events already seen). Never dedupes ACROSS panel instances —
  * that's the dispatcher's job (see `createRunNotificationDispatcher`).
+ *
+ * Hydration guard: reload hydration re-weaves EVERY historical run-event /
+ * approval data part into `state.thread.messages` (see AGENTS.md "ASSISTANT
+ * THREAD PERSISTENCE & RELOAD HYDRATION"), so the effect's first invocation
+ * for a given thread always sees the full replayed history, not just brand
+ * new activity. That first invocation seeds the "seen" sets from the
+ * snapshot WITHOUT firing callbacks; only events that land in a later
+ * invocation are genuinely new and notify. `threadKey` (the panel's
+ * `threadKey` prop) marks thread switches so a later switch re-seeds against
+ * the new thread's history instead of treating it as a replay of the
+ * previous thread.
  */
-export function useRunLifecycleNotifications(callbacks: RunLifecycleNotificationCallbacks): void {
+export function useRunLifecycleNotifications(
+  callbacks: RunLifecycleNotificationCallbacks,
+  threadKey?: string
+): void {
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
 
@@ -141,13 +155,26 @@ export function useRunLifecycleNotifications(callbacks: RunLifecycleNotification
     serializeTerminalRunEvents(state.thread.messages)
   );
   const approvalRequestsJson = useAuiState((state) =>
-    serializeOpenToolApprovalRequests(state.thread.messages)
+    serializeToolApprovalRequests(state.thread.messages)
   );
 
   const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const seededEventsThreadRef = useRef(false);
+  const seededEventsThreadKeyRef = useRef<string | undefined>(threadKey);
   // biome-ignore lint/plugin: reports render-derived events to a parent callback (mirrors onUsage); must run in an effect, not render, since it has an external side effect.
   useEffect(() => {
     const events = JSON.parse(terminalEventsJson) as AssistantRunEvent[];
+    const isThreadSwitch =
+      seededEventsThreadRef.current && seededEventsThreadKeyRef.current !== threadKey;
+    if (!seededEventsThreadRef.current || isThreadSwitch) {
+      // First invocation for this mount/thread, or a switch to a different
+      // thread: seed the baseline from already-present (replayed) events
+      // without notifying, then track ONLY genuinely new events from here.
+      seenEventIdsRef.current = new Set(events.map((event) => event.id));
+      seededEventsThreadRef.current = true;
+      seededEventsThreadKeyRef.current = threadKey;
+      return;
+    }
     for (const event of events) {
       if (seenEventIdsRef.current.has(event.id)) {
         continue;
@@ -159,12 +186,24 @@ export function useRunLifecycleNotifications(callbacks: RunLifecycleNotification
         callbacksRef.current.onRunFailed?.(event);
       }
     }
-  }, [terminalEventsJson]);
+  }, [terminalEventsJson, threadKey]);
 
   const seenApprovalKeysRef = useRef<Set<string>>(new Set());
+  const seededApprovalsThreadRef = useRef(false);
+  const seededApprovalsThreadKeyRef = useRef<string | undefined>(threadKey);
   // biome-ignore lint/plugin: same rationale as the run-event effect above.
   useEffect(() => {
     const requests = JSON.parse(approvalRequestsJson) as AssistantToolApprovalRequest[];
+    const isThreadSwitch =
+      seededApprovalsThreadRef.current && seededApprovalsThreadKeyRef.current !== threadKey;
+    if (!seededApprovalsThreadRef.current || isThreadSwitch) {
+      seenApprovalKeysRef.current = new Set(
+        requests.map((request) => `${request.runId}:${request.toolCallId}`)
+      );
+      seededApprovalsThreadRef.current = true;
+      seededApprovalsThreadKeyRef.current = threadKey;
+      return;
+    }
     for (const request of requests) {
       const key = `${request.runId}:${request.toolCallId}`;
       if (seenApprovalKeysRef.current.has(key)) {
@@ -173,11 +212,14 @@ export function useRunLifecycleNotifications(callbacks: RunLifecycleNotification
       seenApprovalKeysRef.current.add(key);
       callbacksRef.current.onToolApprovalRequired?.(request);
     }
-  }, [approvalRequestsJson]);
+  }, [approvalRequestsJson, threadKey]);
 }
 
 /** Always-mounted, render-nothing bridge — see module doc for placement. */
-export function RunLifecycleNotificationBridge(props: RunLifecycleNotificationCallbacks) {
-  useRunLifecycleNotifications(props);
+export function RunLifecycleNotificationBridge(
+  props: RunLifecycleNotificationCallbacks & { readonly threadKey?: string }
+) {
+  const { threadKey, ...callbacks } = props;
+  useRunLifecycleNotifications(callbacks, threadKey);
   return null;
 }

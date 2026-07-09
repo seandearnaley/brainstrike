@@ -58,7 +58,10 @@ describe('assistant UI panel architecture', () => {
     // notification DECISION logic (settings gate, permission, coalescing) lives
     // entirely in @brainstrike/preferences — this file only plumbs three
     // optional callback props, matching the existing onUsage seam.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1786);
+    // Bumped 1786 → 1787 for the hydration-replay fix: RunLifecycleNotificationBridge
+    // now also receives `threadKey` so a thread switch re-seeds its "seen"
+    // sets instead of treating the new thread's history as new activity.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1787);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
