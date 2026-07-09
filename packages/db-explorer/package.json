@@ -49,6 +49,10 @@
       "types": "./dist/context-actions/index.d.ts",
       "import": "./dist/context-actions/index.js"
     },
+    "./embedding-models": {
+      "types": "./dist/utils/embedding-models.d.ts",
+      "import": "./dist/utils/embedding-models.js"
+    },
     "./database-demo-panel": {
       "types": "./dist/database-demo-panel.d.ts",
       "import": "./dist/database-demo-panel.js"

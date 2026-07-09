@@ -96,6 +96,8 @@ export interface ChunkSearchOptions {
   limit?: number;
   /** Optional workspace-root scope (file_records.root_id). */
   rootId?: string;
+  /** Optional multi-root workspace scope (file_records.root_id ∈ rootIds). Empty array matches nothing. */
+  rootIds?: readonly string[];
   /** Optional snapshot id referencing a persisted selection allowlist. */
   selectionSnapshotId?: string;
   threshold?: number;
@@ -151,6 +153,8 @@ export interface FTSSearchOptions {
    * Can be combined with | (e.g., 1|2 for both normalizations)
    */
   rankNormalization?: number;
+  /** Optional multi-root workspace scope (file_records.root_id ∈ rootIds). Empty array matches nothing. */
+  rootIds?: readonly string[];
   /** Optional snapshot id referencing a persisted selection allowlist */
   selectionSnapshotId?: string;
   /** Minimum FTS rank score threshold (default: 0, no threshold) */

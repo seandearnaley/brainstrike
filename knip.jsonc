@@ -333,6 +333,13 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/workspace-search": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/commands": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],

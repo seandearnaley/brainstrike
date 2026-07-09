@@ -344,6 +344,7 @@ export class FileChunkRepository {
       efSearch,
       filePaths,
       rootId,
+      rootIds,
       selectionSnapshotId,
       includeEmbedding = false,
     } = options;
@@ -403,6 +404,13 @@ export class FileChunkRepository {
         `file_record_id IN (SELECT id FROM file_records WHERE root_id = $${paramIndex})`
       );
       params.push(rootId);
+      paramIndex += 1;
+    }
+    if (rootIds !== undefined) {
+      whereParts.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      params.push(Array.from(rootIds));
       paramIndex += 1;
     }
     whereParts.push(`embedding_set_id = $${paramIndex}`);
@@ -512,6 +520,7 @@ export class FileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
       language = 'english',
@@ -561,6 +570,13 @@ export class FileChunkRepository {
       normalizedFilePaths,
       normalizedSnapshotId
     );
+    if (rootIds !== undefined) {
+      whereParts.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      params.push(Array.from(rootIds));
+      paramIndex += 1;
+    }
 
     // Execute search query with ts_rank for relevance scoring
     const result = await this.db.query(
@@ -618,7 +634,8 @@ export class FileChunkRepository {
    * fullTextSearch/searchSimilar).
    */
   async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
-    const { likePattern, caseSensitive, embeddingSetId, filePaths, limit, rootId } = options;
+    const { likePattern, caseSensitive, embeddingSetId, filePaths, limit, rootId, rootIds } =
+      options;
 
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -634,6 +651,13 @@ export class FileChunkRepository {
     if (rootId !== undefined) {
       params.push(rootId);
       conditions.push(`fr.root_id = $${params.length}`);
+    }
+    if (rootIds !== undefined) {
+      if (rootIds.length === 0) {
+        return []; // empty allowlist = nothing allowed (mirror filePaths semantics)
+      }
+      params.push(Array.from(rootIds));
+      conditions.push(`fr.root_id = ANY($${params.length}::text[])`);
     }
     if (filePaths !== undefined) {
       if (filePaths.length === 0) {
@@ -654,7 +678,7 @@ export class FileChunkRepository {
     // root id + display name travel with every candidate so matches stay
     // unambiguous across workspace roots that share a relative path.
     const result = await this.db.query(
-      `SELECT fc.content, fc.start_line, fr.path, fr.root_id, r.display_name
+      `SELECT fc.id AS chunk_id, fc.content, fc.start_line, fc.end_line, fr.path, fr.root_id, r.display_name
          FROM file_chunks fc
          JOIN file_records fr ON fr.id = fc.file_record_id
          LEFT JOIN roots r ON r.id = fr.root_id
@@ -666,14 +690,18 @@ export class FileChunkRepository {
 
     return (
       result.rows as Array<{
+        chunk_id: string;
         content: string;
+        end_line: number | null;
         path: string;
         root_id: string | null;
         display_name: string | null;
         start_line: number | null;
       }>
     ).map((row) => ({
+      chunkId: row.chunk_id,
       content: row.content,
+      endLine: row.end_line,
       filePath: row.path,
       rootId: row.root_id,
       rootName: row.display_name,

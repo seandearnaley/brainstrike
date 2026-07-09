@@ -360,3 +360,139 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(calls).toContain('COMMIT');
   });
 });
+
+describe('ElectronFileChunkRepository.findGrepCandidates', () => {
+  it('builds the trigram prefilter with rootIds and maps candidates', async () => {
+    const { repo, query } = createRepo();
+    query.mockResolvedValue({
+      rows: [
+        {
+          chunk_id: 'c1',
+          content: 'hello needle',
+          display_name: 'Alpha',
+          end_line: 7,
+          path: 'src/a.ts',
+          root_id: 'r1',
+          start_line: 3,
+        },
+      ],
+    });
+
+    const candidates = await repo.findGrepCandidates({
+      caseSensitive: false,
+      likePattern: 'needle',
+      limit: 500,
+      rootIds: ['r1'],
+    });
+
+    const sql = query.mock.calls[0]?.[0] as string;
+    expect(sql).toContain("fc.content ILIKE $1 ESCAPE '\\'");
+    expect(sql).toContain('fr.root_id = ANY($2::text[])');
+    expect(query.mock.calls[0]?.[1]).toEqual(['%needle%', ['r1'], 500]);
+    expect(candidates).toEqual([
+      {
+        chunkId: 'c1',
+        content: 'hello needle',
+        endLine: 7,
+        filePath: 'src/a.ts',
+        rootId: 'r1',
+        rootName: 'Alpha',
+        startLine: 3,
+      },
+    ]);
+  });
+
+  it('uses LIKE (not ILIKE) when caseSensitive is true', async () => {
+    const { repo, query } = createRepo();
+    query.mockResolvedValue({ rows: [] });
+
+    await repo.findGrepCandidates({
+      caseSensitive: true,
+      likePattern: 'needle',
+      limit: 10,
+    });
+
+    const sql = query.mock.calls[0]?.[0] as string;
+    expect(sql).toContain("fc.content LIKE $1 ESCAPE '\\'");
+    expect(sql).not.toContain('ILIKE');
+  });
+
+  it('omits the content filter for a null likePattern (bounded scan)', async () => {
+    const { repo, query } = createRepo();
+    query.mockResolvedValue({ rows: [] });
+
+    await repo.findGrepCandidates({
+      caseSensitive: false,
+      likePattern: null,
+      limit: 10,
+    });
+
+    const sql = query.mock.calls[0]?.[0] as string;
+    expect(sql).not.toContain('ILIKE');
+    expect(sql).not.toContain('LIKE');
+    expect(query.mock.calls[0]?.[1]).toEqual([10]);
+  });
+
+  it('returns [] for an empty rootIds allowlist without querying', async () => {
+    const { repo, query } = createRepo();
+
+    await expect(
+      repo.findGrepCandidates({
+        caseSensitive: false,
+        likePattern: 'x',
+        limit: 10,
+        rootIds: [],
+      })
+    ).resolves.toEqual([]);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('returns [] for an empty filePaths allowlist without querying', async () => {
+    const { repo, query } = createRepo();
+
+    await expect(
+      repo.findGrepCandidates({
+        caseSensitive: false,
+        filePaths: [],
+        likePattern: 'x',
+        limit: 10,
+      })
+    ).resolves.toEqual([]);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('maps null start/end line and null root fields to null', async () => {
+    const { repo, query } = createRepo();
+    query.mockResolvedValue({
+      rows: [
+        {
+          chunk_id: 'c2',
+          content: 'legacy unrooted content',
+          display_name: null,
+          end_line: null,
+          path: 'legacy/file.ts',
+          root_id: null,
+          start_line: null,
+        },
+      ],
+    });
+
+    const candidates = await repo.findGrepCandidates({
+      caseSensitive: false,
+      likePattern: 'unrooted',
+      limit: 10,
+    });
+
+    expect(candidates).toEqual([
+      {
+        chunkId: 'c2',
+        content: 'legacy unrooted content',
+        endLine: null,
+        filePath: 'legacy/file.ts',
+        rootId: null,
+        rootName: null,
+        startLine: null,
+      },
+    ]);
+  });
+});

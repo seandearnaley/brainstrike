@@ -467,6 +467,88 @@ Adding/renaming an assistant native tool is multi-registry: zod schema + schemaM
 
 ---
 
+## WORKSPACE SEARCH
+
+The Explorer|Search panel (`packages/workspace-search`, composed by
+`packages/app-shell/src/use-workspace-search-controller.ts` +
+`explorer-search-tabs.tsx`).
+
+- **Renderer-only execution.** BOTH modes (text/grep and semantic) query the DB
+  from the renderer via the platform repositories — NO assistant-server
+  dependency. Text mode uses `GrepSearchService`; the controller prefers the
+  platform `chunkRepository` when it exposes `findGrepCandidates` (desktop's
+  ElectronFileChunkRepository) and falls back to a query-only PGlite
+  `FileChunkRepository` on web.
+- **Always workspace-scoped.** Every query passes `rootIds` = live mounted
+  workspace roots (`rootIdentity.workspaceDbRootIds`); legacy NULL-root rows are
+  excluded. Empty rootIds = no results (never an unscoped scan).
+- **In-flight invalidation.** The session store (`workspace-search-store.ts`)
+  carries a monotonic `generation`; `beginSearch` + every mode/collection/toggle
+  change (and `clearResults`) increment it, and `resolveResults`/`failSearch`
+  no-op unless the generation still matches — a superseded run can never clobber
+  fresher state. A text query shrinking below the 3-char minimum calls
+  `clearResults` (drops stale matches + bumps the generation so the in-flight
+  longer-query run cannot resurrect them).
+- **Tree shape (chunk-first).** Text mode is `file → chunk → match`
+  (`build-tree-nodes.ts` groups matches by `chunkId`, node id `c:${chunkId}`):
+  the CHUNK row carries the only child checkbox (bridge `toggleChunk`/`chunkState`
+  keyed by `chunkId`), match rows (`m:${chunkId}:${line}`) are navigation-only
+  leaves. Semantic mode stays `file → chunk`. The chunk is the single visible
+  selection unit — a per-match checkbox flipped its chunk siblings. `resolveResults`
+  default-expands file ids AND every text `c:${chunkId}`. Every row reserves the
+  expand-toggle column (`reserveToggleSpace` default) so file (depth 0) and chunk
+  (depth 1) checkboxes align per level at `depth*20 + 28`px — a leaf chunk without
+  the reserved spacer would indent LEFT of the file checkbox (pinned in
+  `search-results-tree.test.tsx`).
+- **Line-/range-targeted open.** Row click → `onOpenFile(compositeKey, target?)`
+  where `target = { line; selection? }` (match rows pass `{ line }`; chunk rows
+  ALSO pass `selection: { startLine, endLine }`) → controller
+  `openFileInTab(compositeKey, { line, selection? })` (ide-layout seam) →
+  `workspace-tab-host` records a one-shot view target (transient, non-persisted
+  `targets` slice of `editor-view-state-store`) → `CodeSurface` `initialLine`
+  scrolls to the match, and `initialSelection` scrolls to AND selects the chunk's
+  full line range (a real read-only CodeMirror selection, so the block is
+  highlighted and ready to ⌘C). `initialSelection` wins over `initialLine`/
+  restored scroll. `FileTabBody` clears the store target for that key once
+  `content` has rendered (consuming it exactly once) — so a later
+  tab-switch-away-and-back or close/reopen, which remounts `CodeSurface` (keyed
+  on `compositeKey`), reads no target and falls back to the restored scroll
+  position instead of re-applying the stale target.
+- **Bridge invariant (set-based, no silent data loss).** The selected-chunk SET
+  is the SOURCE OF TRUTH (`chunk-selection-store.ts`: session-lived
+  `selectionsByKey[compositeKey][chunkId] = {chunkId,startLine,endLine}`). Tapestry
+  ranges are a ONE-WAY derived OUTPUT — after every set mutation
+  `use-search-selection-bridge.ts` re-emits `deriveSearchRanges(setValues)` (spans
+  sorted + merged into the minimal covering set, stamped `origin:'search'`)
+  alongside the preserved non-search ranges. Because ranges are output-only,
+  merging is now SAFE (checkbox state reads the set, never the ranges) — this is
+  the fix for the old subtraction-bleed defect where unchecking one overlapping
+  chunk flipped its sibling. Chunk checkboxes are BINARY (`chunkState` by
+  `chunkId`); the file checkbox is the ONLY tri-state (`fileState`: whole-file
+  `checked` when selected with empty subset, `indeterminate` when a chunk subset
+  exists, else `unchecked`). Whole-file minus one chunk is now expressible:
+  unchecking a chunk under a whole-file selection CONVERTS to "every sibling result
+  chunk except this one" (`toggleChunk`'s 4th arg is the file's full result-chunk
+  list). Search still writes ONLY explorer file-selection + its own
+  `origin:'search'` ranges; `userModified` ranges AND the preview panel's
+  auto-created full-file default (`origin` undefined) are preserved verbatim
+  through every mutation. Round trips are idempotent: emptying the chunk subset
+  (or the last chunk) also deselects the file. The curation store's snapshot
+  producer remains the preview panel.
+- **Not-ready sync guard.** `syncTapestryRanges` (`tapestry-range-sync.ts`) never
+  clamps/stretches or records a `previousTotal` baseline for a file whose
+  `contentStatus !== 'ready'` — pre-content `totalLines` is an untrusted
+  placeholder that would otherwise squash a bridge-written `[1,8)` span to `[0,1)`
+  and then stretch it to whole-file. Ranges only reconcile once content lands.
+- **Session-only.** The store is not persisted; it is reset on factory reset via
+  the `registerFactoryResetSessionStore` seam (app-shell registers it — see
+  FACTORY RESET CONTRACT). The active Explorer|Search tab persists in
+  context-explorer-layout-store v3 (`explorerActiveTab`).
+
+When changing this flow, update this section and the paired tests.
+
+---
+
 ## CONTEXT USAGE METER (TOKEN AWARENESS)
 
 One derivation feeds three consumers per request — keep them consistent:

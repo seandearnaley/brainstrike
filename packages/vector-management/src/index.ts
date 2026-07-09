@@ -38,6 +38,14 @@ export { IndexingActivityCoordinator } from './indexing-activity-coordinator';
 export { QueueDiagnosticsPanel } from './queue-diagnostics-panel';
 export { QueueHud } from './queue-hud';
 export { QueueStatusPopover } from './queue-status-popover';
+// Shared search embedder resolution + device-loss recovery
+export type {
+  EmbedderRuntime,
+  EmbeddingSetModelInfo,
+  SearchEmbedder,
+  UseSearchEmbedderResult,
+} from './search-embedder/index.js';
+export { useSearchEmbedder } from './search-embedder/index.js';
 // Hook for embedding controls state (use with EmbeddingActionsDropdown and EmbeddingStatusBar)
 export type {
   UseEmbeddingControlsOptions,

@@ -62,6 +62,7 @@ export const dbUnitLaneDefinitions = [
       /^tsvector-generated-column\.integration\.test\.ts$/,
       /^uuidv7-primary-keys\.integration\.test\.ts$/,
       /^vector-extension\.integration\.test\.ts$/,
+      /^workspace-search-scoping\.test\.ts$/,
     ],
     name: 'search',
   },

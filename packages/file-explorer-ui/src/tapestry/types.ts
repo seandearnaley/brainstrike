@@ -10,6 +10,11 @@ export interface TapestryRange {
   endLine: number;
   id: string;
   isActive: boolean;
+  // Provenance marker set by the workspace-search selection bridge on ranges it
+  // creates (including split remainders). Such ranges are NEVER auto-stretched
+  // on content load and are NEVER treated as the auto-created full-file default:
+  // only the bridge mutates them, and the sync heuristics leave them verbatim.
+  origin?: 'search';
   startLine: number;
   // True after a user drag/resize/keyboard move. Prevents auto-stretching on content load.
   userModified?: boolean;

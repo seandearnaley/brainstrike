@@ -358,6 +358,7 @@ export class DrizzleFileChunkRepository {
       embeddingSetId,
       efSearch,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       includeEmbedding = false,
     } = options;
@@ -441,6 +442,19 @@ export class DrizzleFileChunkRepository {
     if (chunkType) {
       baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
     }
+    // Scope to a set of workspace roots by resolving their file ids first, then
+    // constraining `file_record_id` with an IN list — the same shape the
+    // filePaths branch below uses, so the main file_chunks predicate still
+    // matches the partial HNSW index. An empty allowlist / no-owned-files
+    // matches nothing; NULL-root legacy rows are excluded. Mirrors
+    // FileChunkRepository / ElectronFileChunkRepository scoping.
+    if (rootIds !== undefined) {
+      const rootScopedIds = await this.resolveRootScopedFileIds(rootIds);
+      if (rootScopedIds.length === 0) {
+        return [];
+      }
+      baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, rootScopedIds)}`;
+    }
     if (normalizedSnapshotId) {
       baseQuery = sql`${baseQuery} AND EXISTS (
         SELECT 1
@@ -513,6 +527,7 @@ export class DrizzleFileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
       language = 'english',
@@ -564,6 +579,15 @@ export class DrizzleFileChunkRepository {
     }
     if (chunkType) {
       baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
+    }
+    // Scope to a set of workspace roots (see searchSimilar above for the empty /
+    // NULL-root semantics). Mirrors the PGlite + Electron repos.
+    if (rootIds !== undefined) {
+      const rootScopedIds = await this.resolveRootScopedFileIds(rootIds);
+      if (rootScopedIds.length === 0) {
+        return [];
+      }
+      baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, rootScopedIds)}`;
     }
     if (normalizedSnapshotId) {
       baseQuery = sql`${baseQuery} AND EXISTS (
@@ -635,6 +659,24 @@ export class DrizzleFileChunkRepository {
         // 'websearch' is the default query mode
         return 'websearch_to_tsquery';
     }
+  }
+
+  /**
+   * Resolve the file-record ids owned by a set of workspace roots, for scoping
+   * a search to `rootIds`. Returns `[]` for an empty allowlist (matches
+   * nothing) or when no file belongs to the roots; NULL-root legacy rows are
+   * never included (their root_id is not in the list). Callers turn `[]` into an
+   * empty result set. Mirrors the PGlite/Electron repos' root scoping.
+   */
+  private async resolveRootScopedFileIds(rootIds: readonly string[]): Promise<string[]> {
+    if (rootIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .select({ id: fileRecords.id })
+      .from(fileRecords)
+      .where(inArray(fileRecords.rootId, Array.from(rootIds)));
+    return rows.map((row) => row.id).filter(Boolean);
   }
 
   private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {

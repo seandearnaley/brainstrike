@@ -239,6 +239,16 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/context-actions/src'),
       },
       {
+        // Subpath alias must precede the package-root alias: the `./embedding-models`
+        // export maps to `src/utils/embedding-models.ts`, but the prefix-replacing
+        // root alias would resolve it to the non-existent `src/embedding-models`.
+        find: '@brainstrike/db-explorer/embedding-models',
+        replacement: path.resolve(
+          __dirname,
+          '../../packages/db-explorer/src/utils/embedding-models.ts'
+        ),
+      },
+      {
         find: '@brainstrike/db-explorer',
         replacement: path.resolve(__dirname, '../../packages/db-explorer/src'),
       },

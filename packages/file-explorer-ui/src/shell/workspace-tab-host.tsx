@@ -11,6 +11,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  type OpenFileInTab,
   useIdeFileEditor,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -287,9 +288,10 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     loadingFilesRef.current = loadingFiles;
   }, [fileContents, loadingFiles]);
 
+  const setTarget = useEditorViewStateStore((s) => s.setTarget);
   const { registerOpenFileInTab } = useIdeFileEditor();
-  const handleOpenFileInTab = useCallback(
-    (compositeKey: string) => {
+  const handleOpenFileInTab = useCallback<OpenFileInTab>(
+    (compositeKey, options) => {
       // Decode defensively — keys come from trusted internal callers today, but a
       // malformed key would otherwise propagate as an unhandled error from the click
       // event. FileTabBody wraps the same call in try/catch; mirror that here.
@@ -303,6 +305,18 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         });
         return;
       }
+      // Record the one-shot view target BEFORE mounting the tab so FileTabBody's
+      // CodeSurface reads it on its first (keyed) render. A later open of the same
+      // key overwrites it; there is no reopen-with-new-line remount in v1. A chunk
+      // open carries a selection range (scroll to + select the block); a match
+      // open carries the line only.
+      if (typeof options?.line === 'number' && options.line > 0) {
+        const line = options.line;
+        setTarget(
+          compositeKey,
+          options.selection ? { line, selection: options.selection } : { line }
+        );
+      }
       // tabId is the compositeKey itself — stable across reloads (it already encodes the
       // folder identity), unlike the legacy `${rootFolderId}:${compositeKey}` form.
       const tabId = compositeKey;
@@ -315,7 +329,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         void loadFileContent(compositeKey);
       }
     },
-    [openTab, selectFile, loadFileContent]
+    [openTab, selectFile, loadFileContent, setTarget]
   );
   useEffect(() => {
     registerOpenFileInTab(handleOpenFileInTab);
@@ -777,6 +791,8 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
 
   const getScrollTop = useEditorViewStateStore((s) => s.getScrollTop);
   const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
+  const getTarget = useEditorViewStateStore((s) => s.getTarget);
+  const clearTarget = useEditorViewStateStore((s) => s.clearTarget);
 
   const handleScrollTopChange = useCallback(
     (scrollTop: number) => {
@@ -784,6 +800,22 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     },
     [setScrollTop, tab.compositeKey]
   );
+
+  // One-shot consumption: only clear once `content` is actually a string, i.e.
+  // once CodeSurface below has genuinely mounted with whatever target
+  // (initialLine/initialSelection) this render read (content loads async —
+  // clearing on every compositeKey change regardless of content would erase the
+  // target before CodeSurface ever mounts to consume it). Without this,
+  // switching tabs away and back (or closing and reopening) remounts CodeSurface
+  // — keyed on compositeKey — and its mount effect re-reads a stale target,
+  // yanking the view back to the match line and discarding the user's scroll
+  // position.
+  useEffect(() => {
+    if (typeof content !== 'string') {
+      return;
+    }
+    clearTarget(tab.compositeKey);
+  }, [clearTarget, content, tab.compositeKey]);
 
   if (status?.status === 'needs-permission') {
     return (
@@ -850,11 +882,14 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
   }
 
   const { text, truncated } = getDisplayContent(content);
+  const target = getTarget(tab.compositeKey);
 
   return (
     <CodeSurface
       ariaLabel={`Source preview for ${path}`}
+      initialLine={target?.line}
       initialScrollTop={getScrollTop(tab.compositeKey)}
+      initialSelection={target?.selection}
       key={tab.compositeKey}
       onScrollTopChange={handleScrollTopChange}
       path={path}

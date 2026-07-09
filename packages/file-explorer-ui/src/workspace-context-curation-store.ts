@@ -45,7 +45,12 @@ interface WorkspaceContextCurationState {
 
 // This store intentionally bridges the context preview and assistant wrapper,
 // which are mounted in different UI subtrees. Snapshots carry selectionFolderId
-// and range state is pruned on folder changes so stale roots are not reused.
+// and range state is pruned when the folder actually CHANGES, so stale roots
+// are not reused. A null previousFolderId means there is no previous snapshot
+// yet (session init, e.g. the very first snapshot of the session) rather than
+// a folder change, so it must not wipe ranges written before that first
+// snapshot arrives (e.g. a synchronous search-bridge write that lands just
+// ahead of the preview panel's first publish).
 export const useWorkspaceContextCurationStore = create<WorkspaceContextCurationState>((set) => ({
   clearTapestryRanges: () => set({ tapestryRangesByKey: {} }),
   contextSnapshot: null,
@@ -53,9 +58,10 @@ export const useWorkspaceContextCurationStore = create<WorkspaceContextCurationS
     set((state) => {
       const previousFolderId = state.contextSnapshot?.selectionFolderId ?? null;
       const nextFolderId = snapshot?.selectionFolderId ?? null;
+      const isFolderChange = previousFolderId !== null && previousFolderId !== nextFolderId;
       return {
         contextSnapshot: snapshot,
-        ...(previousFolderId === nextFolderId ? {} : { tapestryRangesByKey: {} }),
+        ...(isFolderChange ? { tapestryRangesByKey: {} } : {}),
       };
     }),
   setTapestryRanges: (ranges) =>

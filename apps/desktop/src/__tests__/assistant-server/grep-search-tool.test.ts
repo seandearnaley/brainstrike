@@ -69,6 +69,9 @@ describe('grep search tool', () => {
       {
         after: ['omega'],
         before: ['alpha'],
+        chunkEndLine: undefined,
+        chunkId: undefined,
+        chunkStartLine: 10,
         line: 11,
         lineText: 'needle line',
         path: 'src/x.ts',

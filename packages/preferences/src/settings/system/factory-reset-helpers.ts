@@ -287,6 +287,24 @@ function isMissingStorageEntryError(error: unknown): boolean {
   return error.name === 'NotFoundError';
 }
 
+/**
+ * Session-only store resetters registered by higher layers that this package
+ * MUST NOT import (avoids a dependency cycle). The permission-policy store is
+ * reset directly below because it lives here; stores in feature packages (e.g.
+ * `@brainstrike/workspace-search`'s session search store) register through this
+ * seam from the layer that composes them (app-shell). Drained on every factory
+ * reset per the FACTORY RESET CONTRACT so session state does not survive a reset
+ * that (on the web path) may not force a reload.
+ */
+const sessionStoreResetters = new Set<() => void>();
+
+export function registerFactoryResetSessionStore(reset: () => void): () => void {
+  sessionStoreResetters.add(reset);
+  return () => {
+    sessionStoreResetters.delete(reset);
+  };
+}
+
 function clearBrowserStorage(): void {
   // Reset live in-memory stores that hold session-only state. The blanket
   // localStorage.clear() below wipes persisted slices, but session-lived state
@@ -297,6 +315,16 @@ function clearBrowserStorage(): void {
     resetPermissionPolicyStoreToDefaults();
   } catch (error) {
     logger.warn('Failed to reset permission policy store', { error });
+  }
+
+  // Drain externally-registered session-store resetters (see the registry doc
+  // above). Each is guarded so one failure cannot abort the rest of the reset.
+  for (const reset of sessionStoreResetters) {
+    try {
+      reset();
+    } catch (error) {
+      logger.warn('Failed to reset a registered session store', { error });
+    }
   }
 
   // Clear localStorage - blanket clear, no fallback lists
