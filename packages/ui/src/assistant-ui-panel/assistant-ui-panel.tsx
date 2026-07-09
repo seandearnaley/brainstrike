@@ -23,6 +23,8 @@ import {
 } from '@assistant-ui/react';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+  type AssistantToolApprovalRequest,
   type LocalLlmBackendFactory,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract';
@@ -79,6 +81,7 @@ import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
+import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import {
   buildSlashCommandIconMap,
   type SlashCommand,
@@ -284,9 +287,23 @@ export interface AssistantUiPanelProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  /**
+   * Reports a `run.failed` run event exactly once (deduped by event id).
+   * Only ever fires for the Mastra-loop transport (hosted providers / desktop
+   * local-via-data-stream) — the in-renderer local runtime has no run events.
+   */
+  onRunFailed?: (event: AssistantRunEvent) => void;
+  /** Reports a `run.finished` run event exactly once (deduped by event id). */
+  onRunFinished?: (event: AssistantRunEvent) => void;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
+  /**
+   * Reports a tool-approval-required pause exactly once, deduped by
+   * `runId:toolCallId` (a later re-render of the same pause is not a new
+   * request).
+   */
+  onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
   /** Called with the provider's exact token counts from a finish-message chunk. */
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
   /** Models for the ModelPicker component */
@@ -763,8 +780,11 @@ interface ChatThreadProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
+  onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
   onStreamActivity?: (() => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
+  onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   onUsage?: ((usage: { inputTokens: number; outputTokens: number }) => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
@@ -795,8 +815,11 @@ const LocalRuntimeChat = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onRunFailed,
+  onRunFinished,
   onStreamActivity,
   onThreadRunStart,
+  onToolApprovalRequired,
   onUsage,
   disabled,
   disabledReason,
@@ -889,7 +912,10 @@ const LocalRuntimeChat = ({
           onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onRunFailed={onRunFailed}
+          onRunFinished={onRunFinished}
           onThreadRunStart={onThreadRunStart}
+          onToolApprovalRequired={onToolApprovalRequired}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
           providerGroups={providerGroups}
@@ -922,8 +948,11 @@ const DataStreamRuntimeChat = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onRunFailed,
+  onRunFinished,
   onStreamActivity,
   onThreadRunStart,
+  onToolApprovalRequired,
   onUsage,
   disabled,
   disabledReason,
@@ -1029,7 +1058,10 @@ const DataStreamRuntimeChat = ({
           onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onRunFailed={onRunFailed}
+          onRunFinished={onRunFinished}
           onThreadRunStart={onThreadRunStart}
+          onToolApprovalRequired={onToolApprovalRequired}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
           providerGroups={providerGroups}
@@ -1063,7 +1095,10 @@ const ChatThreadUI = ({
   selectedProvider,
   selectedModel,
   onModelChange,
+  onRunFailed,
+  onRunFinished,
   onThreadRunStart,
+  onToolApprovalRequired,
   isComposerDisabled,
   disabledReason,
   localLoadingState,
@@ -1088,7 +1123,10 @@ const ChatThreadUI = ({
   selectedProvider: string | undefined;
   selectedModel: string | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
+  onRunFailed?: ((event: AssistantRunEvent) => void) | undefined;
+  onRunFinished?: ((event: AssistantRunEvent) => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
+  onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   isComposerDisabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
@@ -1143,6 +1181,11 @@ const ChatThreadUI = ({
       data-history-collapsed={historyCollapsed ? 'true' : undefined}
     >
       <AssistantDataRendererRegistration />
+      <RunLifecycleNotificationBridge
+        {...(onRunFailed ? { onRunFailed } : {})}
+        {...(onRunFinished ? { onRunFinished } : {})}
+        {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
+      />
       {/**
        * Messages Viewport
        *
@@ -1294,8 +1337,11 @@ export const AssistantUiPanel = ({
   requestData,
   prepareRequestData,
   onModelChange,
+  onRunFailed,
+  onRunFinished,
   onStreamActivity,
   onThreadRunStart,
+  onToolApprovalRequired,
   onUsage,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
@@ -1379,8 +1425,11 @@ export const AssistantUiPanel = ({
             onLoadingStateChange={handleLocalLoadingStateChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
+            onRunFailed={onRunFailed}
+            onRunFinished={onRunFinished}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
+            onToolApprovalRequired={onToolApprovalRequired}
             {...(onUsage ? { onUsage } : {})}
             fileMentions={fileMentions}
             onFileMentionQueryChange={onFileMentionQueryChange}
@@ -1412,8 +1461,11 @@ export const AssistantUiPanel = ({
             omSegment={omSegment}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
+            onRunFailed={onRunFailed}
+            onRunFinished={onRunFinished}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
+            onToolApprovalRequired={onToolApprovalRequired}
             prepareLocalModel={prepareLocalModel}
             {...(onUsage ? { onUsage } : {})}
             fileMentions={fileMentions}
