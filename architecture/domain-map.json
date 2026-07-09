@@ -68,7 +68,8 @@
         "@brainstrike/file-explorer-ui",
         "@brainstrike/file-tree-worker",
         "@brainstrike/selection-rules",
-        "@brainstrike/vector-management"
+        "@brainstrike/vector-management",
+        "@brainstrike/workspace-search"
       ],
       "mayDependOn": [
         "indexing",

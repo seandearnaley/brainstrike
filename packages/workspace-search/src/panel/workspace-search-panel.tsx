@@ -59,11 +59,16 @@ export function WorkspaceSearchPanel({
 
   // Latest-value refs keep the debounce effect's dependency list scoped to the
   // query controls (not the run-callback/mode identity) while still calling the
-  // current callback and checking the live mode at fire time.
+  // current callback and checking the live mode at fire time. Assigned in an
+  // effect (never during render) so the React Compiler can optimize the
+  // component; the effect has no dep array so the refs track every render, and
+  // it is declared BEFORE the debounce effect so it settles first each pass.
   const runTextSearchRef = useRef(runTextSearch);
-  runTextSearchRef.current = runTextSearch;
   const modeRef = useRef(mode);
-  modeRef.current = mode;
+  useEffect(() => {
+    runTextSearchRef.current = runTextSearch;
+    modeRef.current = mode;
+  });
   // Trimmed length of the query the previous effect run observed. `null` on the
   // initial mount so a seeded results/searching state is not wiped on first
   // render — only an actual shrink across the threshold clears results.
