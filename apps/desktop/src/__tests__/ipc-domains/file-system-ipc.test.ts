@@ -164,6 +164,16 @@ describe('file system IPC domain', () => {
     expect(fileSystem.exists).not.toHaveBeenCalled();
   });
 
+  it('propagates storage remove failures while pruning a stale last folder', async () => {
+    vi.mocked(storage.getItem).mockResolvedValue('/users/test/gone');
+    vi.mocked(fileSystem.exists).mockResolvedValue(false);
+    vi.mocked(storage.removeItem).mockRejectedValueOnce(new Error('storage unavailable'));
+
+    await expect(handlers.get('fs:restoreLastFolder')?.({} as IpcMainInvokeEvent)).rejects.toThrow(
+      'storage unavailable'
+    );
+  });
+
   it('returns structured file-read payloads for expected read failures', async () => {
     const readFile = handlers.get('fs:readFile');
     const handle = { id: 'real-file', path: '/users/test/large.txt' } as FileHandle;
@@ -259,6 +269,25 @@ describe('fs:restoreRoots', () => {
 
     expect(result).toEqual([]);
     expect(fileSystem.exists).not.toHaveBeenCalled();
+  });
+
+  it('treats malformed rootsList JSON as empty domain data', async () => {
+    fileSystem = createFileSystem();
+    storage = createStorage({ rootsList: 'invalid json {]' });
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).resolves.toEqual([]);
+  });
+
+  it('propagates rootsList storage read failures', async () => {
+    fileSystem = createFileSystem();
+    storage = createStorage();
+    vi.mocked(storage.getItem).mockRejectedValueOnce(new Error('storage unavailable'));
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).rejects.toThrow(
+      'storage unavailable'
+    );
   });
 
   // Regression: a raw fileSystem.exists stats the real disk, so e2e-seeded
@@ -550,7 +579,7 @@ describe('fs:saveLastFolder (legacy shim)', () => {
     );
   });
 
-  it('still writes lastFolderPath and warns (without throwing) when the rootsList upsert fails', async () => {
+  it('propagates rootsList upsert failures after writing lastFolderPath', async () => {
     const folderPath = '/users/test/my-project';
     const resolvedPath = path.resolve(folderPath);
     fileSystem = createFileSystem();
@@ -562,30 +591,11 @@ describe('fs:saveLastFolder (legacy shim)', () => {
     });
     registerFileSystemIpcHandlers({ fileSystem, storage });
 
-    setLogLevel(LogLevel.WARN);
-    const captured: LogRecord[] = [];
-    const removeListener = addLogListener((record) => {
-      if (record.scope === 'FileSystemIpc') {
-        captured.push(record);
-      }
-    });
-
-    try {
-      await expect(
-        handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, folderPath)
-      ).resolves.toBeUndefined();
-    } finally {
-      removeListener();
-    }
+    await expect(
+      handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, folderPath)
+    ).rejects.toThrow('disk full');
 
     expect(storage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
-    expect(
-      captured.some(
-        (record) =>
-          record.level === LogLevel.WARN &&
-          record.message === 'saveLastFolder: failed to upsert rootsList'
-      )
-    ).toBe(true);
   });
 });
 

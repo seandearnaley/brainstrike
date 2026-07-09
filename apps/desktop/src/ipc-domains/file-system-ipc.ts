@@ -60,30 +60,33 @@ function isStoredRootEntry(value: unknown): value is StoredRootEntry {
 }
 
 async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRootEntry[]> {
+  const raw = await storage.getItem(ROOTS_LIST_STORAGE_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  let parsed: unknown;
   try {
-    const raw = await storage.getItem(ROOTS_LIST_STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      logger.warn('rootsList storage value is not an array — treating as empty', {
-        key: ROOTS_LIST_STORAGE_KEY,
-      });
-      return [];
-    }
-    const valid = parsed.filter(isStoredRootEntry);
-    if (valid.length !== parsed.length) {
-      logger.warn('rootsList contained malformed entries — discarding invalid items', {
-        total: parsed.length,
-        valid: valid.length,
-      });
-    }
-    return valid;
+    parsed = JSON.parse(raw);
   } catch (error) {
     logger.warn('Failed to parse rootsList — treating as empty', { error });
     return [];
   }
+
+  if (!Array.isArray(parsed)) {
+    logger.warn('rootsList storage value is not an array — treating as empty', {
+      key: ROOTS_LIST_STORAGE_KEY,
+    });
+    return [];
+  }
+  const valid = parsed.filter(isStoredRootEntry);
+  if (valid.length !== parsed.length) {
+    logger.warn('rootsList contained malformed entries — discarding invalid items', {
+      total: parsed.length,
+      valid: valid.length,
+    });
+  }
+  return valid;
 }
 
 async function writeRootsList(
@@ -402,64 +405,70 @@ export function registerFileSystemIpcHandlers({
   );
 
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreLastFolder, async () => {
+    const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
+    if (!lastFolderPath) {
+      return null;
+    }
+
+    let resolvedPath: string;
     try {
-      const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
-      if (!lastFolderPath) {
-        return null;
-      }
-
-      const resolvedPath = await resolveFileSystemIpcPath(lastFolderPath, 'stored folder');
-      // Mock-aware existence (same class as restoreRoots — see ipcPathExists).
-      const exists = await ipcPathExists(fileSystem, resolvedPath);
-      if (!exists) {
-        await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
-        return null;
-      }
-
-      const handle: DirectoryHandle = {
-        kind: 'directory',
-        name: path.basename(resolvedPath),
-        path: resolvedPath,
-        platform: 'electron',
-      };
-      return handle;
+      resolvedPath = await resolveFileSystemIpcPath(lastFolderPath, 'stored folder');
     } catch (error) {
       if (process.env['NODE_ENV'] === 'development') {
         logger.debug('Auto-restore failed', { error });
       }
       return null;
     }
+
+    let exists: boolean;
+    try {
+      // Mock-aware existence (same class as restoreRoots — see ipcPathExists).
+      exists = await ipcPathExists(fileSystem, resolvedPath);
+    } catch (error) {
+      if (process.env['NODE_ENV'] === 'development') {
+        logger.debug('Auto-restore failed', { error });
+      }
+      return null;
+    }
+
+    if (!exists) {
+      await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
+      return null;
+    }
+
+    const handle: DirectoryHandle = {
+      kind: 'directory',
+      name: path.basename(resolvedPath),
+      path: resolvedPath,
+      platform: 'electron',
+    };
+    return handle;
   });
 
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.saveLastFolder,
     async (_event, folderPath: string) => {
+      let resolvedPath: string;
       try {
-        const resolvedPath = await resolveFileSystemIpcPath(folderPath, 'last folder');
-        await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
-        // Upsert into rootsList so the two stores stay in sync. Logged
-        // unconditionally at warn (unlike the legacy outer catch): a silent
-        // failure here leaves the two stores divergent (lastFolderPath set,
-        // rootsList missing the entry).
-        try {
-          const entries = await readRootsList(storage);
-          const existing = entries.find((e) => e.path === resolvedPath);
-          if (!existing) {
-            const newEntry: StoredRootEntry = {
-              addedAt: Date.now(),
-              path: resolvedPath,
-              rootId: crypto.randomUUID(),
-            };
-            await writeRootsList(storage, [...entries, newEntry]);
-          }
-        } catch (upsertError) {
-          logger.warn('saveLastFolder: failed to upsert rootsList', { error: upsertError });
-        }
+        resolvedPath = await resolveFileSystemIpcPath(folderPath, 'last folder');
       } catch (error) {
         if (process.env['NODE_ENV'] === 'development') {
           logger.debug('Failed to save last folder', { error });
         }
+        return;
+      }
+
+      await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
+      const entries = await readRootsList(storage);
+      const existing = entries.find((entry) => entry.path === resolvedPath);
+      if (!existing) {
+        const newEntry: StoredRootEntry = {
+          addedAt: Date.now(),
+          path: resolvedPath,
+          rootId: crypto.randomUUID(),
+        };
+        await writeRootsList(storage, [...entries, newEntry]);
       }
     }
   );

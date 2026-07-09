@@ -120,13 +120,14 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       expect(result).toEqual(expectedHandle);
     });
 
-    it('should handle errors gracefully and return null', async () => {
+    it('should propagate storage read errors', async () => {
       vi.mocked(mockStorage.getItem).mockRejectedValue(new Error('Storage error'));
 
       const handler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await handler?.();
 
-      expect(result).toBeNull();
+      await expect(handler?.()).rejects.toThrow('Storage error');
+      expect(mockStorage.getItem).toHaveBeenCalledWith('lastFolderPath');
+      expect(mockFileSystem.exists).not.toHaveBeenCalled();
     });
 
     it('should handle file system exists check errors gracefully', async () => {
@@ -157,15 +158,14 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
     });
 
-    it('should handle storage errors gracefully', async () => {
+    it('should propagate storage write errors', async () => {
       const testPath = '/test/folder/path';
       const resolvedPath = resolveTestPath(testPath);
       vi.mocked(mockStorage.setItem).mockRejectedValue(new Error('Storage error'));
 
       const handler = registeredHandlers.get('fs:saveLastFolder');
 
-      // Should not throw
-      await expect(handler?.(testPath)).resolves.toBeUndefined();
+      await expect(handler?.(testPath)).rejects.toThrow('Storage error');
       expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
     });
   });
