@@ -194,6 +194,33 @@ describe('ElectronStorageAdapter', () => {
     await expect(fsPromises.readFile(storageFile, 'utf8')).resolves.toBe(corruptedContent);
   });
 
+  it.each([
+    ['null', 'null'],
+    ['an array', '[]'],
+    ['a scalar', '"value"'],
+    ['an object with a non-string value', '{"valid":"value","invalid":42}'],
+  ])('should reject durable storage containing %s', async (_description, content) => {
+    await adapter.getAllKeys();
+    await fsPromises.writeFile(storageFile, content, 'utf8');
+
+    const invalidAdapter = new ElectronStorageAdapter(path.basename(storageFile));
+
+    await expect(invalidAdapter.getAllKeys()).rejects.toThrow(StorageFileLoadError);
+    await expect(fsPromises.readFile(storageFile, 'utf8')).resolves.toBe(content);
+  });
+
+  it('should allow clear to explicitly recover a corrupted durable storage file', async () => {
+    await adapter.getAllKeys();
+    await fsPromises.writeFile(storageFile, 'invalid json {]', 'utf8');
+
+    const corruptedAdapter = new ElectronStorageAdapter(path.basename(storageFile));
+
+    await expect(corruptedAdapter.clear()).resolves.toBeUndefined();
+    await expect(corruptedAdapter.getAllKeys()).resolves.toEqual([]);
+    await expect(fsPromises.readFile(storageFile, 'utf8')).resolves.toBe('{}');
+    await expect(corruptedAdapter.setItem('recovered', 'value')).resolves.toBeUndefined();
+  });
+
   it('should create storage directory if it does not exist', async () => {
     // Use a relative path (relative to userDataDir, which is set in mockState)
     const relativePath = 'nested/deep/storage.json';
@@ -206,7 +233,7 @@ describe('ElectronStorageAdapter', () => {
 
     await nestedAdapter.setItem('key', 'value');
 
-    // Verify value is stored (whether persisted or in memory)
+    // Verify the persisted value remains readable through the adapter.
     expect(await nestedAdapter.getItem('key')).toBe('value');
 
     // The adapter uses userDataDir + relativePath
@@ -267,6 +294,7 @@ describe('ElectronStorageAdapter', () => {
     const failedAdapter = new ElectronStorageAdapter('cannot-initialize.json');
 
     await expect(failedAdapter.getItem('key')).rejects.toThrow('Permission denied');
+    await expect(failedAdapter.clear()).rejects.toThrow('Permission denied');
   });
 
   it('should reject an invalid Electron userData path', async () => {
@@ -276,6 +304,7 @@ describe('ElectronStorageAdapter', () => {
     const invalidPathAdapter = new ElectronStorageAdapter('invalid-user-data.json');
 
     await expect(invalidPathAdapter.getItem('key')).rejects.toThrow(InvalidUserDataPathError);
+    await expect(invalidPathAdapter.clear()).rejects.toThrow(InvalidUserDataPathError);
   });
 
   it('should handle rapid set/remove cycles', async () => {
@@ -410,11 +439,53 @@ describe('ElectronStorageAdapter', () => {
         .mockRejectedValueOnce(new Error('Disk full'));
 
       await expect(adapter.setItem('first', 'value1')).rejects.toThrow('Disk full');
+      await expect(adapter.getItem('first')).resolves.toBeNull();
       await expect(adapter.setItem('second', 'value2')).resolves.toBeUndefined();
       expect(writeFileSpy).toHaveBeenCalledTimes(2);
 
       const reloadedAdapter = new ElectronStorageAdapter(path.basename(storageFile));
+      await expect(reloadedAdapter.getItem('first')).resolves.toBeNull();
       await expect(reloadedAdapter.getItem('second')).resolves.toBe('value2');
+    });
+
+    it('should retain a removed value when its durable write fails', async () => {
+      await adapter.setItem('retained', 'value');
+      vi.spyOn(fsPromises, 'writeFile').mockRejectedValueOnce(new Error('Disk full'));
+
+      await expect(adapter.removeItem('retained')).rejects.toThrow('Disk full');
+      await expect(adapter.getItem('retained')).resolves.toBe('value');
+
+      await adapter.setItem('later', 'value2');
+      const reloadedAdapter = new ElectronStorageAdapter(path.basename(storageFile));
+      await expect(reloadedAdapter.getItem('retained')).resolves.toBe('value');
+    });
+
+    it('should retain cleared values when the durable write fails', async () => {
+      await adapter.setItem('retained', 'value');
+      vi.spyOn(fsPromises, 'writeFile').mockRejectedValueOnce(new Error('Disk full'));
+
+      await expect(adapter.clear()).rejects.toThrow('Disk full');
+      await expect(adapter.getItem('retained')).resolves.toBe('value');
+
+      await adapter.setItem('later', 'value2');
+      const reloadedAdapter = new ElectronStorageAdapter(path.basename(storageFile));
+      await expect(reloadedAdapter.getItem('retained')).resolves.toBe('value');
+    });
+
+    it('should serialize concurrent mutations in invocation order', async () => {
+      await adapter.getAllKeys();
+      const writeFileSpy = vi.spyOn(fsPromises, 'writeFile');
+
+      await Promise.all([
+        adapter.setItem('ordered', 'first'),
+        adapter.setItem('ordered', 'second'),
+      ]);
+
+      const writtenValues = writeFileSpy.mock.calls.map(([, data]) => {
+        const parsed = JSON.parse(String(data)) as Record<string, string>;
+        return parsed['ordered'];
+      });
+      expect(writtenValues).toEqual(['first', 'second']);
     });
 
     it('should not leave temp files on successful write', async () => {

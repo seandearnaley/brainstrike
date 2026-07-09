@@ -43,6 +43,15 @@ function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error;
 }
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === 'string')
+  );
+}
+
 /**
  * Validates that a resolved path stays within the specified base directory.
  * Prevents path traversal attacks (e.g., "../../../etc/passwd").
@@ -79,8 +88,8 @@ function validatePathContainment(resolvedPath: string, basePath: string): void {
 export class ElectronStorageAdapter implements StorageAdapter {
   private storePath = '';
   private cache: Record<string, string> = {};
-  private readonly ready: Promise<void>;
-  /** Write lock to serialize persist operations and prevent race conditions */
+  private ready: Promise<void>;
+  /** Mutation lock keeps each staged write and in-memory commit in invocation order. */
   private persistLock: Promise<void> = Promise.resolve();
 
   constructor(storeFile = 'electron-storage.json') {
@@ -155,7 +164,11 @@ export class ElectronStorageAdapter implements StorageAdapter {
   private async loadExistingCache(): Promise<void> {
     try {
       const data = await fsPromises.readFile(this.storePath, 'utf8');
-      this.cache = JSON.parse(data) as Record<string, string>;
+      const parsed: unknown = JSON.parse(data);
+      if (!isStringRecord(parsed)) {
+        throw new TypeError('Electron storage file must contain an object with string values');
+      }
+      this.cache = parsed;
     } catch (error) {
       if (isErrnoException(error) && error.code === 'ENOENT') {
         return;
@@ -166,17 +179,42 @@ export class ElectronStorageAdapter implements StorageAdapter {
   }
 
   /**
-   * Persists the cache to disk using atomic write (temp file + rename).
-   * This prevents data corruption if the process crashes mid-write.
-   * Uses a write lock to serialize operations and prevent race conditions.
+   * Serializes a staged mutation, persists it, then commits it to memory.
+   * Failed writes never change the committed cache seen by later operations.
    */
-  private async persist(): Promise<void> {
-    const operation = this.persistLock.then(() => this.doPersist());
+  private mutate(
+    mutation: (stagedCache: Record<string, string>) => void,
+    allowLoadErrorRecovery = false
+  ): Promise<void> {
+    const operation = this.persistLock.then(async () => {
+      let recoveringFromLoadError = false;
+      try {
+        await this.ready;
+      } catch (error) {
+        const canRecover =
+          allowLoadErrorRecovery &&
+          Boolean(this.storePath) &&
+          error instanceof StorageFileLoadError;
+        if (!canRecover) {
+          throw error;
+        }
+        recoveringFromLoadError = true;
+      }
+
+      const stagedCache = { ...this.cache };
+      mutation(stagedCache);
+      await this.doPersist(stagedCache);
+      this.cache = stagedCache;
+
+      if (recoveringFromLoadError) {
+        this.ready = Promise.resolve();
+      }
+    });
 
     // Keep the serialization tail usable after failure while returning the original
-    // operation so the caller still observes its persistence error.
+    // operation so the caller still observes its mutation error.
     this.persistLock = operation.catch((error) => {
-      logger.error('Electron storage persist failed', {
+      logger.error('Electron storage mutation failed', {
         error: error instanceof Error ? error.message : String(error),
         storePath: this.storePath,
       });
@@ -188,9 +226,7 @@ export class ElectronStorageAdapter implements StorageAdapter {
   /**
    * Internal persist implementation - writes cache to disk atomically.
    */
-  private async doPersist(): Promise<void> {
-    await this.ready;
-
+  private async doPersist(cache: Record<string, string>): Promise<void> {
     // Generate a unique temp file name in the same directory
     // Using the same directory ensures rename is atomic (same filesystem)
     const tempFileName = `.${path.basename(this.storePath)}.${crypto.randomUUID()}.tmp`;
@@ -198,7 +234,7 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
     try {
       // Write to temp file first
-      const jsonContent = JSON.stringify(this.cache, null, JSON_INDENT_SPACES);
+      const jsonContent = JSON.stringify(cache, null, JSON_INDENT_SPACES);
       await fsPromises.writeFile(tempPath, jsonContent, 'utf8');
 
       // Atomic rename - this is atomic on POSIX systems and most Windows configurations
@@ -220,21 +256,23 @@ export class ElectronStorageAdapter implements StorageAdapter {
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    await this.ready;
-    this.cache[key] = value;
-    await this.persist();
+    return this.mutate((stagedCache) => {
+      stagedCache[key] = value;
+    });
   }
 
   async removeItem(key: string): Promise<void> {
-    await this.ready;
-    delete this.cache[key];
-    await this.persist();
+    return this.mutate((stagedCache) => {
+      delete stagedCache[key];
+    });
   }
 
   async clear(): Promise<void> {
-    await this.ready;
-    this.cache = {};
-    await this.persist();
+    return this.mutate((stagedCache) => {
+      for (const key of Object.keys(stagedCache)) {
+        delete stagedCache[key];
+      }
+    }, true);
   }
 
   async getAllKeys(): Promise<string[]> {
