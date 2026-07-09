@@ -5,7 +5,6 @@ import type {
 } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { SlidersHorizontal } from 'lucide-react';
-import type { FC } from 'react';
 import { useCallback, useMemo } from 'react';
 import { Button } from '../button';
 import {
@@ -47,7 +46,13 @@ interface ToolMenuGroup {
 
 const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
 
-const ReasoningControlsSection: FC<{
+const ReasoningControlsSection = ({
+  hasReasoning,
+  modelName,
+  onProviderSettingsChange,
+  providerId,
+  settings,
+}: {
   hasReasoning: boolean;
   modelName: string | undefined;
   onProviderSettingsChange:
@@ -55,7 +60,7 @@ const ReasoningControlsSection: FC<{
     | undefined;
   providerId: string | undefined;
   settings: AssistantProviderSettings | undefined;
-}> = ({ hasReasoning, modelName, onProviderSettingsChange, providerId, settings }) => {
+}) => {
   if (!hasReasoning) {
     return null;
   }
@@ -78,13 +83,19 @@ const ReasoningControlsSection: FC<{
   );
 };
 
-const ToolsControlsSection: FC<{
+const ToolsControlsSection = ({
+  groupedTools,
+  hasTools,
+  onToggleTool,
+  toolMenu,
+  toolSummary,
+}: {
   groupedTools: ToolMenuGroup[];
   hasTools: boolean;
   onToggleTool: (toolId: string, enabled: boolean) => void;
   toolMenu: AssistantToolMenuConfig;
   toolSummary: string;
-}> = ({ groupedTools, hasTools, onToggleTool, toolMenu, toolSummary }) => {
+}) => {
   if (!hasTools) {
     return null;
   }
@@ -160,13 +171,13 @@ const ToolsControlsSection: FC<{
   );
 };
 
-export const ControlsMenu: FC<ControlsMenuProps> = ({
+export const ControlsMenu = ({
   toolMenu,
   providerSettings,
   onProviderSettingsChange,
   selectedProvider,
   modelName,
-}) => {
+}: ControlsMenuProps) => {
   const supportsReasoningSettings = useMemo(() => {
     if (!selectedProvider) {
       return false;

@@ -1,6 +1,6 @@
 import { ComposerPrimitive } from '@assistant-ui/react';
 import { FileIcon } from 'lucide-react';
-import type { FC, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { FileMention, TriggerAdapter } from './file-mentions';
 
 /**
@@ -35,7 +35,7 @@ export interface ComposerMentionPopoverProps {
   readonly fileById: ReadonlyMap<string, FileMention>;
 }
 
-export const ComposerMentionPopover: FC<ComposerMentionPopoverProps> = ({ adapter, fileById }) => (
+export const ComposerMentionPopover = ({ adapter, fileById }: ComposerMentionPopoverProps) => (
   <ComposerPrimitive.Unstable_TriggerPopover
     adapter={adapter}
     aria-label="File mentions"

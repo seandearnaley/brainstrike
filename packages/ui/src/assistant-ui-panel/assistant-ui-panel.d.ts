@@ -56,4 +56,4 @@ export interface AssistantUiPanelProps {
   threadKey?: string | undefined;
 }
 
-export declare const AssistantUiPanel: React.FC<AssistantUiPanelProps>;
+export declare function AssistantUiPanel(props: AssistantUiPanelProps): React.ReactElement;

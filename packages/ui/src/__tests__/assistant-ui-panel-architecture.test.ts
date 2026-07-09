@@ -69,8 +69,8 @@ describe('assistant UI panel architecture', () => {
     const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
     expect(source).toContain("from './assistant-message-error'");
 
-    const assistantMessageStart = source.indexOf('const AssistantMessage: FC');
-    const assistantActionBarStart = source.indexOf('const AssistantActionBar: FC');
+    const assistantMessageStart = source.indexOf('const AssistantMessage =');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
     const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
     expect(assistantMessageSource).toContain('<AssistantMessageError />');
 
@@ -81,10 +81,10 @@ describe('assistant UI panel architecture', () => {
 
   it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {
     const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
-    const assistantMessageStart = source.indexOf('const AssistantMessage: FC');
-    const assistantActionBarStart = source.indexOf('const AssistantActionBar: FC');
+    const assistantMessageStart = source.indexOf('const AssistantMessage =');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
     const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
-    const localChainOfThoughtStart = source.indexOf('const LocalChainOfThought: FC');
+    const localChainOfThoughtStart = source.indexOf('const LocalChainOfThought =');
     const collapsedHistoryStart = source.indexOf('const COLLAPSED_HISTORY_VISIBLE_MESSAGES');
     const localChainOfThoughtSource = source.slice(localChainOfThoughtStart, collapsedHistoryStart);
 
