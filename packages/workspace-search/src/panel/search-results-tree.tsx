@@ -4,6 +4,7 @@ import { File as FileIcon, TextQuote } from 'lucide-react';
 import type * as React from 'react';
 import { useCallback, useMemo } from 'react';
 import type { SelectedChunk } from '../bridge/chunk-selection-store';
+import type { FileSelectionState } from '../bridge/use-search-selection-bridge';
 import { useSearchSelectionBridge } from '../bridge/use-search-selection-bridge';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
 import { buildSearchTreeNodes, fileResultChunks, type SearchNodeData } from './build-tree-nodes';
@@ -258,6 +259,69 @@ function MatchRow({
   );
 }
 
+/**
+ * Rolls up the header tri-state from `fileState` over the currently rendered
+ * (loaded) files only: all checked -> checked; any checked or indeterminate
+ * (a chunk-refined file reads 'indeterminate' from fileState and counts as
+ * "some") -> indeterminate; none -> unchecked.
+ */
+function rollupSelectAllState(
+  bridge: ReturnType<typeof useSearchSelectionBridge>,
+  fileKeys: readonly string[]
+): FileSelectionState {
+  let checkedCount = 0;
+  let anySelected = false;
+  for (const key of fileKeys) {
+    const state = bridge.fileState(key);
+    if (state === 'checked') {
+      checkedCount += 1;
+      anySelected = true;
+    } else if (state === 'indeterminate') {
+      anySelected = true;
+    }
+  }
+  if (fileKeys.length > 0 && checkedCount === fileKeys.length) {
+    return 'checked';
+  }
+  return anySelected ? 'indeterminate' : 'unchecked';
+}
+
+/**
+ * Tri-state header above the tree: selects/deselects every currently loaded
+ * (rendered) file as a whole-file membership. Never touches files outside the
+ * loaded result set — `fileKeys` is exactly the composite keys of the rendered
+ * file rows. Renders nothing when there are no loaded files.
+ */
+function SelectAllHeader({
+  bridge,
+  fileKeys,
+}: {
+  bridge: ReturnType<typeof useSearchSelectionBridge>;
+  fileKeys: readonly string[];
+}): React.ReactNode {
+  const state = rollupSelectAllState(bridge, fileKeys);
+  const label = `Select ${fileKeys.length} shown`;
+
+  const onToggle = useCallback(() => {
+    const nextChecked = state !== 'checked';
+    for (const key of fileKeys) {
+      bridge.toggleFile(key, nextChecked);
+    }
+  }, [bridge, fileKeys, state]);
+
+  return (
+    <div className="flex items-center gap-2 border-b px-2 py-1.5">
+      <Checkbox
+        aria-label={label}
+        checked={state === 'indeterminate' ? 'indeterminate' : state === 'checked'}
+        data-state={state}
+        onCheckedChange={onToggle}
+      />
+      <span className="text-muted-foreground text-xs">{label}</span>
+    </div>
+  );
+}
+
 export interface SearchResultsTreeProps {
   /**
    * Row-click navigation. Match rows pass `{ line }` (their match line); chunk
@@ -308,6 +372,20 @@ export function SearchResultsTree({
     }
     return map;
   }, [nodes]);
+
+  // Composite keys of every currently loaded (rendered) file row, regardless of
+  // expansion — select-all operates on this set only, never on files omitted
+  // upstream for an unmounted root.
+  const fileKeys = useMemo(
+    () =>
+      nodes.reduce<string[]>((keys, node) => {
+        if (node.data.kind === 'file' && node.data.compositeKey !== null) {
+          keys.push(node.data.compositeKey);
+        }
+        return keys;
+      }, []),
+    [nodes]
+  );
 
   const showRootBadge = useMemo(() => {
     const roots = new Set<string>();
@@ -427,6 +505,7 @@ export function SearchResultsTree({
           Match list may be incomplete (candidate pool capped) — narrow the query.
         </p>
       ) : null}
+      {fileKeys.length > 0 ? <SelectAllHeader bridge={bridge} fileKeys={fileKeys} /> : null}
       <div className="min-h-0 flex-1">
         <TreeTable<SearchNodeData>
           ariaRole="treegrid"
