@@ -6,11 +6,11 @@ exports[`StatusBar > Snapshots > renders empty status bar 1`] = `
   data-testid="status-bar"
 >
   <div
-    class="col-start-1 flex min-w-0 items-center gap-2 justify-self-start"
+    class="col-start-1 flex w-full min-w-0 items-center gap-2 justify-self-start overflow-hidden"
     data-testid="status-bar-left"
   />
   <div
-    class="col-start-3 flex min-w-0 items-center gap-2 justify-self-end"
+    class="col-start-3 flex w-full min-w-0 items-center justify-end gap-2 justify-self-end overflow-hidden"
     data-testid="status-bar-right"
   />
 </footer>
@@ -22,7 +22,7 @@ exports[`StatusBar > Snapshots > renders with all slots filled 1`] = `
   data-testid="status-bar"
 >
   <div
-    class="col-start-1 flex min-w-0 items-center gap-2 justify-self-start"
+    class="col-start-1 flex w-full min-w-0 items-center gap-2 justify-self-start overflow-hidden"
     data-testid="status-bar-left"
   >
     <span>
@@ -38,7 +38,7 @@ exports[`StatusBar > Snapshots > renders with all slots filled 1`] = `
     </span>
   </div>
   <div
-    class="col-start-3 flex min-w-0 items-center gap-2 justify-self-end"
+    class="col-start-3 flex w-full min-w-0 items-center justify-end gap-2 justify-self-end overflow-hidden"
     data-testid="status-bar-right"
   >
     <span>

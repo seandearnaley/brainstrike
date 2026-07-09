@@ -62,5 +62,16 @@ test.describe('Embedding Worker Telemetry @stateful @web-db-startup', { tag: '@s
 
     await indexingPopover.getByRole('button', { name: 'Worker and database diagnostics' }).click();
     await expect(indexingPopover.getByText('Worker state', { exact: true })).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ height: 720, width: 320 });
+
+    const compactLeftSlotBox = await requireBoundingBox(page.getByTestId('status-bar-left'));
+    const compactRightSlotBox = await requireBoundingBox(page.getByTestId('status-bar-right'));
+    const compactTriggerBox = await requireBoundingBox(indexingTrigger);
+    expect(compactLeftSlotBox.x + compactLeftSlotBox.width).toBeLessThanOrEqual(
+      compactRightSlotBox.x + 1
+    );
+    expect(compactTriggerBox.width).toBeLessThanOrEqual(41);
   });
 });

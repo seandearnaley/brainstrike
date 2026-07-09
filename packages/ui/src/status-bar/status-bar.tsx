@@ -36,7 +36,7 @@ export function StatusBar({
       data-testid={testId}
     >
       <div
-        className="col-start-1 flex min-w-0 items-center gap-2 justify-self-start"
+        className="col-start-1 flex w-full min-w-0 items-center gap-2 justify-self-start overflow-hidden"
         data-testid={`${testId}-left`}
       >
         {leftContent}
@@ -50,7 +50,7 @@ export function StatusBar({
         </div>
       )}
       <div
-        className="col-start-3 flex min-w-0 items-center gap-2 justify-self-end"
+        className="col-start-3 flex w-full min-w-0 items-center justify-end gap-2 justify-self-end overflow-hidden"
         data-testid={`${testId}-right`}
       >
         {rightContent}

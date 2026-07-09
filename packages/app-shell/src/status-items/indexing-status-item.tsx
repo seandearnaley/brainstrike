@@ -25,7 +25,7 @@ import {
 import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { CirclePause, Database, Loader2, TriangleAlert } from 'lucide-react';
 
-const STATUS_VALUE_WIDTH_CLASS = 'w-20';
+const STATUS_VALUE_WIDTH_CLASS = 'md:w-20';
 const EMPTY_METRIC_VALUE = '—';
 
 const selectCollectionSyncStatus = (
@@ -439,7 +439,7 @@ export function IndexingStatusItem() {
       <PopoverTrigger asChild>
         <button
           aria-label={`Workspace Index status: ${displayStatus.value}. Open indexing activity`}
-          className="flex h-6 w-48 cursor-pointer items-center rounded px-1.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex h-6 w-10 shrink-0 cursor-pointer items-center rounded px-1.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset md:w-48"
           data-testid="indexing-status-trigger"
           type="button"
         >
@@ -450,9 +450,9 @@ export function IndexingStatusItem() {
             role="status"
           >
             <StatusIcon displayStatus={displayStatus} />
-            <span className="min-w-0 flex-1 truncate">Workspace Index</span>
+            <span className="hidden min-w-0 flex-1 truncate md:block">Workspace Index</span>
             <span
-              className={`${STATUS_VALUE_WIDTH_CLASS} shrink-0 truncate text-right font-medium tabular-nums`}
+              className={`sr-only shrink-0 truncate text-right font-medium tabular-nums md:not-sr-only ${STATUS_VALUE_WIDTH_CLASS}`}
               data-testid="indexing-status-value"
             >
               {displayStatus.value}
