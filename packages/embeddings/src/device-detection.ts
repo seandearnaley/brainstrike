@@ -132,7 +132,7 @@ async function probeWebGPUAdapter(gpu: GPU): Promise<WebGPUProbeResult> {
     const info = adapter.info;
     const features: string[] = [...adapter.features];
     const limits = adapter.limits;
-    const isFallbackAdapter = info.isFallbackAdapter;
+    const isFallbackAdapter = info.isFallbackAdapter ?? false;
 
     const adapterInfo: WebGPUAdapterInfo = {
       architecture: info.architecture || 'unknown',
