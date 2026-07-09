@@ -29,8 +29,5 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
-  useWorkspaceContextCurationStore.setState({
-    contextSnapshot: null,
-    tapestryRangesByKey: {},
-  });
+  useWorkspaceContextCurationStore.getState().reset();
 });
