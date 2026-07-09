@@ -116,6 +116,37 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
   });
 
+  it('refreshes loaded thread titles set out-of-band (observer auto-title) without disturbing selection', async () => {
+    const repository = createRepository();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    useAssistantThreadStore.getState().openThreadTab(workspaceId, 'thread-b');
+
+    // Simulate the observer renaming thread-a in the DB after the turn.
+    (repository.listThreads as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { ...makeThread('thread-a', '2026-04-22T11:00:00Z'), title: 'Paris Weather Chat' },
+      makeThread('thread-b', '2026-04-22T10:00:00Z'),
+    ]);
+
+    await useAssistantThreadStore.getState().refreshResourceThreads(repository, workspaceId);
+
+    const state = useAssistantThreadStore.getState();
+    expect(
+      state.threadsByResourceId[workspaceId]?.find((thread) => thread.id === 'thread-a')?.title
+    ).toBe('Paris Weather Chat');
+    // Selection/open state is keyed by id and must be untouched by the refresh.
+    expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
+  });
+
+  it('does not refresh a resource whose initial load has not completed', async () => {
+    const repository = createRepository();
+
+    await useAssistantThreadStore.getState().refreshResourceThreads(repository, workspaceId);
+
+    expect(repository.listThreads).not.toHaveBeenCalled();
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]).toBeUndefined();
+  });
+
   it('closes a tab without deleting the thread or its messages', async () => {
     const repository = createRepository();
 

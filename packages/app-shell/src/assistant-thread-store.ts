@@ -39,6 +39,10 @@ interface AssistantThreadState {
   loadStateByResourceId: Record<string, AssistantThreadLoadState>;
   openThreadIdsByResourceId: Record<string, string[]>;
   openThreadTab: (resourceId: string, threadId: string) => void;
+  refreshResourceThreads: (
+    repository: AssistantThreadRepository,
+    resourceId: string
+  ) => Promise<void>;
   renameThread: (
     repository: AssistantThreadRepository,
     resourceId: string,
@@ -411,6 +415,34 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           selectedThreadByResourceId: {
             ...state.selectedThreadByResourceId,
             [resourceId]: threadId,
+          },
+        }));
+      },
+      refreshResourceThreads: async (
+        repository: AssistantThreadRepository,
+        resourceId: string
+      ): Promise<void> => {
+        // Re-list already-loaded threads so titles set out-of-band (the
+        // observational-memory thread-title extractor names threads as a run's
+        // observations run) become visible. Only refreshes a resource that has
+        // finished its initial load — ensureResourceThreads owns first load and
+        // the empty-resource default-thread seed. Selection/open state is keyed
+        // by id, which the merge preserves, so it is untouched here.
+        if (get().loadStateByResourceId[resourceId]?.status !== 'ready') {
+          return;
+        }
+        const loaded = (await repository.listThreads(resourceId)).map(serializeThread);
+        if (loaded.length === 0) {
+          return;
+        }
+        set((state) => ({
+          threadIdsByResourceId: {
+            ...state.threadIdsByResourceId,
+            [resourceId]: loaded.map((thread) => thread.id),
+          },
+          threadsByResourceId: {
+            ...state.threadsByResourceId,
+            [resourceId]: loaded,
           },
         }));
       },
