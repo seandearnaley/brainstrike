@@ -20,6 +20,12 @@ import { usePanelLayout } from '../providers/panel-layout-provider';
 export interface OpenFileInTabOptions {
   /** 1-based line to scroll into view on first render of the opened tab. */
   line?: number;
+  /**
+   * Inclusive, 1-based line range to select (and scroll to) on first render of
+   * the opened tab — e.g. a search chunk the user opened so the block is
+   * highlighted and ready to copy. Wins over {@link OpenFileInTabOptions.line}.
+   */
+  selection?: { startLine: number; endLine: number };
 }
 
 /** Opens (or focuses) the file tab for a compositeKey, optionally line-targeted. */

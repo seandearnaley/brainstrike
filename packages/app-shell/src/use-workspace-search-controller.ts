@@ -33,7 +33,10 @@ const logger = createLogger('WorkspaceSearchController');
 const EMPTY_DB_ROOT_IDS: readonly string[] = [];
 
 export interface WorkspaceSearchController {
-  onOpenFile: (compositeKey: string, line?: number) => void;
+  onOpenFile: (
+    compositeKey: string,
+    target?: { line: number; selection?: { startLine: number; endLine: number } }
+  ) => void;
   resolveAdapterRootId: (dbRootId: string) => string | null;
   runSemanticSearch: () => void;
   runTextSearch: () => void;
@@ -291,7 +294,10 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   );
 
   const onOpenFile = useCallback(
-    (compositeKey: string, line?: number): void => {
+    (
+      compositeKey: string,
+      target?: { line: number; selection?: { startLine: number; endLine: number } }
+    ): void => {
       if (!openFileInTab) {
         logger.error('Workspace search selected a file but the file-open seam is unavailable', {
           compositeKey,
@@ -300,10 +306,21 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       }
       // Match quick-open: surface the explorer route so the opened tab is visible.
       setActiveTab('explorer');
-      // Forward the match line so the opened tab scrolls to it (the tab host's
-      // CodeSurface honors `initialLine`). Omit the options object entirely when
-      // no line is provided (exactOptionalPropertyTypes: no `{ line: undefined }`).
-      openFileInTab(compositeKey, line === undefined ? undefined : { line });
+      // Forward the target so the opened tab scrolls to it — and, for a chunk,
+      // selects the block (the tab host's CodeSurface honors `line`/`selection`).
+      // Omit the options object entirely when there is no target, and the
+      // selection field when absent (exactOptionalPropertyTypes: no explicit
+      // `undefined` members).
+      if (!target) {
+        openFileInTab(compositeKey, undefined);
+        return;
+      }
+      openFileInTab(
+        compositeKey,
+        target.selection
+          ? { line: target.line, selection: target.selection }
+          : { line: target.line }
+      );
     },
     [openFileInTab, setActiveTab]
   );

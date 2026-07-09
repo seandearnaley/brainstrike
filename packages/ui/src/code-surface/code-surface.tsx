@@ -37,6 +37,15 @@ export interface CodeSurfaceProps {
    */
   readonly initialLine?: number | undefined;
   readonly initialScrollTop?: number | undefined;
+  /**
+   * Inclusive, 1-based line range to select on first content render (e.g. a
+   * search chunk the user opened so the block is highlighted and ready to copy).
+   * When provided it WINS over {@link initialLine} and {@link initialScrollTop}
+   * and implies the scroll (the range is scrolled into view — no double-scroll).
+   * The editor is read-only, but CodeMirror still renders and lets the user copy
+   * the selection. First-render only, like initialLine.
+   */
+  readonly initialSelection?: { readonly startLine: number; readonly endLine: number } | undefined;
   readonly language?: string | undefined;
   readonly lineWrapping?: boolean | undefined;
   readonly onChange?: ((value: string) => void) | undefined;
@@ -119,6 +128,7 @@ export function CodeSurface({
   className,
   editable = false,
   initialLine,
+  initialSelection,
   initialScrollTop = 0,
   language,
   lineWrapping = false,
@@ -146,6 +156,7 @@ export function CodeSurface({
     editable,
     initialLine,
     initialScrollTop,
+    initialSelection,
     lineWrapping,
     value,
   });
@@ -214,10 +225,30 @@ export function CodeSurface({
       if (viewRef.current !== view) {
         return;
       }
-      // Precedence: an explicit `initialLine` (line-targeted open, e.g. a
-      // workspace-search match) wins over `initialScrollTop` (restored scroll
-      // position). Both apply on first render only; initialLine only when
-      // provided, so ordinary reopen-restore is unaffected.
+      // Precedence (all first-render only): an explicit `initialSelection`
+      // (chunk-targeted open) wins over `initialLine` (line-targeted open, e.g.
+      // a workspace-search match), which wins over `initialScrollTop` (restored
+      // scroll position). Each applies only when provided, so ordinary
+      // reopen-restore is unaffected.
+      const targetSelection = initialConfig.initialSelection;
+      if (targetSelection) {
+        const lineCount = view.state.doc.lines;
+        const startLine = Math.min(Math.max(1, Math.floor(targetSelection.startLine)), lineCount);
+        const endLine = Math.min(
+          Math.max(startLine, Math.floor(targetSelection.endLine)),
+          lineCount
+        );
+        const fromPos = view.state.doc.line(startLine).from;
+        const toPos = view.state.doc.line(endLine).to;
+        // Read-only editors still allow (and render) a selection, so the user can
+        // copy the block immediately. The selection scroll target replaces the
+        // line/scroll paths above (initialSelection implies the scroll).
+        view.dispatch({
+          effects: EditorView.scrollIntoView(fromPos, { y: 'center' }),
+          selection: EditorSelection.range(fromPos, toPos),
+        });
+        return;
+      }
       const targetLine = initialConfig.initialLine;
       if (typeof targetLine === 'number' && targetLine > 0) {
         const lineCount = view.state.doc.lines;

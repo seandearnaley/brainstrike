@@ -500,16 +500,20 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   (depth 1) checkboxes align per level at `depth*20 + 28`px — a leaf chunk without
   the reserved spacer would indent LEFT of the file checkbox (pinned in
   `search-results-tree.test.tsx`).
-- **Line-targeted open.** Row click → `onOpenFile(compositeKey, line)` →
-  controller `openFileInTab(compositeKey, { line })` (ide-layout seam) →
-  `workspace-tab-host` records a one-shot `targetLine` (transient, non-persisted
-  slice of `editor-view-state-store`) → `CodeSurface` `initialLine` scrolls it
-  into view on first render, winning over restored scroll position.
-  `FileTabBody` clears the store's `targetLine` for that key once `content` has
-  rendered (consuming it exactly once) — so a later tab-switch-away-and-back or
-  close/reopen, which remounts `CodeSurface` (keyed on `compositeKey`), reads no
-  target and falls back to the restored scroll position instead of re-scrolling
-  to the stale match line.
+- **Line-/range-targeted open.** Row click → `onOpenFile(compositeKey, target?)`
+  where `target = { line; selection? }` (match rows pass `{ line }`; chunk rows
+  ALSO pass `selection: { startLine, endLine }`) → controller
+  `openFileInTab(compositeKey, { line, selection? })` (ide-layout seam) →
+  `workspace-tab-host` records a one-shot view target (transient, non-persisted
+  `targets` slice of `editor-view-state-store`) → `CodeSurface` `initialLine`
+  scrolls to the match, and `initialSelection` scrolls to AND selects the chunk's
+  full line range (a real read-only CodeMirror selection, so the block is
+  highlighted and ready to ⌘C). `initialSelection` wins over `initialLine`/
+  restored scroll. `FileTabBody` clears the store target for that key once
+  `content` has rendered (consuming it exactly once) — so a later
+  tab-switch-away-and-back or close/reopen, which remounts `CodeSurface` (keyed
+  on `compositeKey`), reads no target and falls back to the restored scroll
+  position instead of re-applying the stale target.
 - **Bridge invariant (set-based, no silent data loss).** The selected-chunk SET
   is the SOURCE OF TRUTH (`chunk-selection-store.ts`: session-lived
   `selectionsByKey[compositeKey][chunkId] = {chunkId,startLine,endLine}`). Tapestry

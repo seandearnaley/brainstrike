@@ -216,19 +216,28 @@ describe('SearchResultsTree', () => {
       <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
     );
     fireEvent.click(screen.getByText('const foo = 1;'));
-    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', 10);
+    // Match rows navigate to the line only (no selection range).
+    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', { line: 10 });
   });
 
-  it('navigates on chunk row click passing startLine', () => {
+  it('navigates on chunk row click passing the chunk range to select', () => {
     const onOpenFile = vi.fn();
-    seedResults(makeResults([fileResult({ children: [chunkHit({ startLine: 14 })] })]), {
-      mode: 'semantic',
-    });
+    seedResults(
+      makeResults([fileResult({ children: [chunkHit({ endLine: 20, startLine: 14 })] })]),
+      {
+        mode: 'semantic',
+      }
+    );
     render(
       <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
     );
     fireEvent.click(screen.getByText('beta', { selector: 'mark' }));
-    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', 14);
+    // Chunk rows scroll to startLine AND select the full chunk range so the
+    // opened file highlights the block, ready to copy.
+    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', {
+      line: 14,
+      selection: { endLine: 20, startLine: 14 },
+    });
   });
 
   it('toggles the bridge (not navigation) when a checkbox is clicked', () => {
@@ -304,18 +313,24 @@ describe('SearchResultsTree', () => {
     expect(screen.queryByText(/matches/)).not.toBeInTheDocument();
   });
 
-  it('navigates to the chunk startLine when a text chunk row is clicked', () => {
+  it('navigates to the chunk startLine and selects the range when a text chunk row is clicked', () => {
     const onOpenFile = vi.fn();
     seedResults(
       makeResults([
-        fileResult({ children: [textMatch({ chunkStartLine: 8, line: 10 })], path: 'src/a.ts' }),
+        fileResult({
+          children: [textMatch({ chunkEndLine: 12, chunkStartLine: 8, line: 10 })],
+          path: 'src/a.ts',
+        }),
       ])
     );
     render(
       <SearchResultsTree onOpenFile={onOpenFile} resolveAdapterRootId={resolveAdapterRootId} />
     );
     fireEvent.click(screen.getByText(/Lines 8–/));
-    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', 8);
+    expect(onOpenFile).toHaveBeenCalledWith('adapter-root-mounted|@|src/a.ts', {
+      line: 8,
+      selection: { endLine: 12, startLine: 8 },
+    });
   });
 
   it('renders the scanLimited notice', () => {

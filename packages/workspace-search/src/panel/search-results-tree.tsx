@@ -91,17 +91,34 @@ function chunkRowSelected(
     : { chunkId: data.chunk.chunkId, endLine: data.chunk.endLine, startLine: data.chunk.startLine };
 }
 
-/** Line a row click navigates to; `undefined` for file rows (no line). */
-function openLineForData(data: SearchNodeData): number | undefined {
+/** Where a row click navigates. Chunk rows also carry a range to select. */
+export interface SearchOpenTarget {
+  line: number;
+  selection?: { startLine: number; endLine: number };
+}
+
+/**
+ * Open target for a row click; `undefined` for file rows (whole-file open, no
+ * line). Match rows navigate to the match line only. Chunk rows (semantic and
+ * grouped text) carry the full chunk range so the opened file selects the block
+ * (highlighted + ready to copy), scrolled to its start.
+ */
+function openTargetForData(data: SearchNodeData): SearchOpenTarget | undefined {
   switch (data.kind) {
     case 'file':
       return;
     case 'match':
-      return data.match.line;
+      return { line: data.match.line };
     case 'text-chunk':
-      return data.chunkStartLine;
+      return {
+        line: data.chunkStartLine,
+        selection: { endLine: data.chunkEndLine, startLine: data.chunkStartLine },
+      };
     default:
-      return data.chunk.startLine;
+      return {
+        line: data.chunk.startLine,
+        selection: { endLine: data.chunk.endLine, startLine: data.chunk.startLine },
+      };
   }
 }
 
@@ -243,10 +260,12 @@ function MatchRow({
 
 export interface SearchResultsTreeProps {
   /**
-   * Row-click navigation. Match rows pass their match line, chunk rows pass
-   * the chunk `startLine`, file rows pass no line.
+   * Row-click navigation. Match rows pass `{ line }` (their match line); chunk
+   * rows pass `{ line, selection }` (the chunk range to scroll to AND select in
+   * the opened file so the block is highlighted, ready to copy); file rows pass
+   * no target.
    */
-  onOpenFile: (compositeKey: string, line?: number) => void;
+  onOpenFile: (compositeKey: string, target?: SearchOpenTarget) => void;
   /** Optional paging affordance for `truncated` results (v1: may be absent). */
   onShowMore?: () => void;
   /**
@@ -365,12 +384,12 @@ export function SearchResultsTree({
       if (!node || node.data.compositeKey === null) {
         return;
       }
-      const line = openLineForData(node.data);
-      if (line === undefined) {
+      const target = openTargetForData(node.data);
+      if (target === undefined) {
         onOpenFile(node.data.compositeKey);
         return;
       }
-      onOpenFile(node.data.compositeKey, line);
+      onOpenFile(node.data.compositeKey, target);
     },
     [nodeById, onOpenFile]
   );
@@ -415,6 +434,9 @@ export function SearchResultsTree({
           columns={columns}
           emptyState={<p className="p-3 text-muted-foreground text-sm">No matches found</p>}
           expandedIds={expandedIds}
+          // Fill the scroll region (mirrors the Explorer tree) — the default
+          // 600px cap would fight the panel's grid-rows-[auto_1fr_auto] middle.
+          maxHeight="100%"
           nodes={nodes}
           nodesArePreFlattened
           onSelect={handleSelect}

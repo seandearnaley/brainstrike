@@ -171,4 +171,64 @@ describe('CodeSurface', () => {
     );
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
+
+  it('selects and scrolls to initialSelection, winning over initialLine/initialScrollTop', async () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      }
+    );
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    const scrollIntoView = vi.spyOn(EditorView, 'scrollIntoView');
+    const onSelectionChange = vi.fn();
+
+    // Uniform 10-char lines so line offsets are deterministic: line L (1-based)
+    // starts at (L-1)*11 (10 chars + newline). Selecting lines 10–12 spans
+    // [9*11, 11*11 + 10] = [99, 131].
+    const { rerender } = render(
+      <CodeSurface
+        initialLine={5}
+        initialScrollTop={72}
+        initialSelection={{ endLine: 12, startLine: 10 }}
+        onSelectionChange={onSelectionChange}
+        path="src/example.ts"
+        testId="selection-preview"
+        value={Array.from({ length: 100 }, () => 'xxxxxxxxxx').join('\n')}
+      />
+    );
+
+    const surface = await screen.findByTestId('selection-preview');
+    const scroller = surface.querySelector<HTMLElement>('.cm-scroller');
+    expect(scroller).not.toBeNull();
+
+    for (const animationFrame of animationFrames) {
+      animationFrame(performance.now());
+    }
+
+    // The chunk range was selected...
+    expect(onSelectionChange).toHaveBeenCalledWith({ from: 99, to: 131 });
+    // ...its start was scrolled into view...
+    expect(scrollIntoView).toHaveBeenCalled();
+    // ...and initialScrollTop was NOT applied (initialSelection wins).
+    expect(scroller?.scrollTop).toBe(0);
+
+    // First-render only: a rerender must not re-apply the selection.
+    onSelectionChange.mockClear();
+    scrollIntoView.mockClear();
+    rerender(
+      <CodeSurface
+        initialLine={5}
+        initialScrollTop={72}
+        initialSelection={{ endLine: 12, startLine: 10 }}
+        onSelectionChange={onSelectionChange}
+        path="src/example.ts"
+        testId="selection-preview"
+        value={Array.from({ length: 100 }, () => 'xxxxxxxxxx').join('\n')}
+      />
+    );
+    expect(onSelectionChange).not.toHaveBeenCalled();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
 });

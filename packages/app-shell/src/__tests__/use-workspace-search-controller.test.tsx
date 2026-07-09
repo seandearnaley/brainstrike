@@ -351,12 +351,28 @@ describe('useWorkspaceSearchController', () => {
       wrapper: withRootIdentity(new Map()),
     });
     act(() => {
-      result.current.onOpenFile('root-a|@|src/a.ts', 42);
+      result.current.onOpenFile('root-a|@|src/a.ts', { line: 42 });
     });
     expect(openFileInTabMock).toHaveBeenCalledWith('root-a|@|src/a.ts', { line: 42 });
   });
 
-  it('onOpenFile omits the options object when no line is given', () => {
+  it('onOpenFile forwards a chunk range as { line, selection } so the block is selected', () => {
+    const { result } = renderHook(() => useWorkspaceSearchController(), {
+      wrapper: withRootIdentity(new Map()),
+    });
+    act(() => {
+      result.current.onOpenFile('root-a|@|src/a.ts', {
+        line: 8,
+        selection: { endLine: 12, startLine: 8 },
+      });
+    });
+    expect(openFileInTabMock).toHaveBeenCalledWith('root-a|@|src/a.ts', {
+      line: 8,
+      selection: { endLine: 12, startLine: 8 },
+    });
+  });
+
+  it('onOpenFile omits the options object when no target is given', () => {
     const { result } = renderHook(() => useWorkspaceSearchController(), {
       wrapper: withRootIdentity(new Map()),
     });

@@ -422,7 +422,7 @@ describe('WorkspaceTabHost', () => {
     const indexKey = 'folderA|@|src/index.ts';
     const otherKey = 'folderA|@|src/other.ts';
 
-    useEditorViewStateStore.getState().setTargetLine(indexKey, 42);
+    useEditorViewStateStore.getState().setTarget(indexKey, { line: 42 });
     useWorkspaceTabSelectionStore.getState().selectFile(indexKey);
 
     const tabModule = await import('../hooks/use-tab-manager');
@@ -489,7 +489,7 @@ describe('WorkspaceTabHost', () => {
     // ...and the one-shot target is consumed right after (not left dangling for
     // a future remount to pick up).
     await waitFor(() =>
-      expect(useEditorViewStateStore.getState().getTargetLine(indexKey)).toBeUndefined()
+      expect(useEditorViewStateStore.getState().getTarget(indexKey)).toBeUndefined()
     );
 
     indexSurfaceInitialLines = [];
@@ -516,6 +516,69 @@ describe('WorkspaceTabHost', () => {
     // The remounted surface must NOT receive the stale target line again.
     expect(indexSurfaceInitialLines.length).toBeGreaterThan(0);
     expect(indexSurfaceInitialLines.every((line) => line === undefined)).toBe(true);
+  });
+
+  it('passes a one-shot chunk selection range to CodeSurface as initialSelection', async () => {
+    const indexKey = 'folderA|@|src/index.ts';
+    useEditorViewStateStore
+      .getState()
+      .setTarget(indexKey, { line: 8, selection: { endLine: 12, startLine: 8 } });
+    useWorkspaceTabSelectionStore.getState().selectFile(indexKey);
+
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: indexKey,
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
+      tabs: [
+        {
+          compositeKey: indexKey,
+          content: null,
+          id: indexKey,
+          isLoading: false,
+          path: 'src/index.ts',
+        },
+      ],
+      updateTabContent: vi.fn(),
+    });
+
+    const fileExplorerModule = await import('../shell/use-file-explorer-context');
+    vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
+      canLoadWithoutTree: false,
+      fileContents: { [indexKey]: 'export const file = "content";' },
+      fileTree: [],
+      loadFileContent: vi.fn(),
+      loadingFiles: new Set<string>(),
+      loadMultipleFileContents: vi.fn(),
+      rootDirectoryHandle: null,
+    } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
+
+    const uiModule = await import('@brainstrike/ui');
+    const OriginalCodeSurface = uiModule.CodeSurface;
+    const capturedSelections: ({ startLine: number; endLine: number } | undefined)[] = [];
+    vi.spyOn(uiModule, 'CodeSurface').mockImplementation((props) => {
+      if (props.path === 'src/index.ts') {
+        capturedSelections.push(props.initialSelection);
+      }
+      return <OriginalCodeSurface {...props} />;
+    });
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    await screen.findByTestId('file-code-surface');
+    expect(capturedSelections[0]).toEqual({ endLine: 12, startLine: 8 });
+    // Consumed after the opening render, like the line target.
+    await waitFor(() =>
+      expect(useEditorViewStateStore.getState().getTarget(indexKey)).toBeUndefined()
+    );
   });
 
   it('shows "Restoring..." for a persisted tab while restoration is pending — not "File not found"', async () => {

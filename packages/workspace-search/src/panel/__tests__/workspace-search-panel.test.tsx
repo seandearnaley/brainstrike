@@ -155,6 +155,38 @@ describe('WorkspaceSearchPanel', () => {
     expect(screen.getByText('src/a.ts')).toBeInTheDocument();
   });
 
+  it('pins the footer via a three-row grid with the results tree in the middle scroll region', () => {
+    act(() => {
+      const generation = useWorkspaceSearchStore.getState().generation;
+      useWorkspaceSearchStore.getState().resolveResults(makeResults(), generation);
+    });
+    const { container } = renderPanel();
+
+    // The panel is a full-height three-row grid: header / results / footer.
+    const grid = container.querySelector<HTMLElement>('.grid.h-full');
+    expect(grid).not.toBeNull();
+    expect(grid?.className).toContain('grid-rows-[auto_1fr_auto]');
+    const rows = Array.from(grid?.children ?? []);
+    expect(rows).toHaveLength(3);
+
+    // The footer is the LAST grid row (pinned to the bottom), not flowing after
+    // the tree content, and carries the top border like the Explorer footer.
+    const footer = rows.at(-1) as HTMLElement;
+    expect(footer.tagName).toBe('FOOTER');
+    expect(footer.className).toContain('border-t');
+    expect(footer).toHaveTextContent('~0 tokens selected');
+
+    // The results tree lives in the middle (1fr) row's scroll region, never
+    // inside the footer.
+    const middle = rows[1] as HTMLElement;
+    const treegrid = screen.getByRole('treegrid');
+    expect(middle.contains(treegrid)).toBe(true);
+    expect(footer.contains(treegrid)).toBe(false);
+    // The middle row constrains height (min-h-0) so the 1fr track can shrink and
+    // the tree scrolls rather than pushing the footer away.
+    expect(middle.className).toContain('min-h-0');
+  });
+
   it('debounces text-mode queries and calls runTextSearch after 250ms', () => {
     vi.useFakeTimers();
     try {

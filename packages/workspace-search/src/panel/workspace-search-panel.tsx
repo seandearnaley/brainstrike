@@ -9,7 +9,7 @@ import { SearchCollectionPicker } from './search-collection-picker';
 import { SearchCoverageBanner } from './search-coverage-banner';
 import { SearchInputBar } from './search-input-bar';
 import { SearchModeToggle } from './search-mode-toggle';
-import { SearchResultsTree } from './search-results-tree';
+import { type SearchOpenTarget, SearchResultsTree } from './search-results-tree';
 
 /** Text-mode live-search debounce window. */
 const TEXT_DEBOUNCE_MS = 250;
@@ -17,7 +17,7 @@ const TEXT_DEBOUNCE_MS = 250;
 const MIN_TEXT_QUERY_LENGTH = 3;
 
 export interface WorkspaceSearchPanelProps {
-  onOpenFile: (compositeKey: string, line?: number) => void;
+  onOpenFile: (compositeKey: string, target?: SearchOpenTarget) => void;
   resolveAdapterRootId: (dbRootId: string) => string | null;
   runSemanticSearch: () => void;
   runTextSearch: () => void;
@@ -173,7 +173,10 @@ export function WorkspaceSearchPanel({
           </div>
         ) : null}
         {status === 'results' ? (
-          <div className="min-h-0 flex-1 overflow-hidden p-2">
+          // Flex column so SearchResultsTree's flex-1 height chain reaches the
+          // TreeTable's 100%-height viewport (a plain block breaks it, collapsing
+          // the tree to content height and shoving the pinned footer off-screen).
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
             <SearchResultsTree
               onOpenFile={onOpenFile}
               resolveAdapterRootId={resolveAdapterRootId}
