@@ -891,6 +891,13 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
         });
         return;
       }
+      // Any other URL scheme (tel:, ftp:, javascript:, …) must not fall into the
+      // relative-path branch — it would resolve to a nonsense workspace key or a
+      // misleading "outside the workspace" toast. Name the real failure instead.
+      if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+        toast({ description: href, title: 'Unsupported link type', variant: 'destructive' });
+        return;
+      }
       // Workspace-relative link → open in a tab.
       let folderId: string;
       try {
