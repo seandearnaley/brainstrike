@@ -25,6 +25,18 @@ function createScanMetricRow(
   };
 }
 
+function createCoverageMetricRow(
+  unindexableFileCount: WorkspaceCollectionSyncStatusData['unindexableFileCount']
+): WorkspaceCollectionSyncMetricRow | null {
+  if (unindexableFileCount === null || unindexableFileCount <= 0) {
+    return null;
+  }
+  return {
+    label: 'Coverage',
+    value: `${unindexableFileCount} file${unindexableFileCount === 1 ? '' : 's'} skipped — content cannot be indexed (binary or unreadable)`,
+  };
+}
+
 function createImportMetricRow(
   importProgress: WorkspaceCollectionSyncStatusData['importProgress']
 ): WorkspaceCollectionSyncMetricRow | null {
@@ -99,11 +111,17 @@ function createQueueMetricRow(
 export function getWorkspaceCollectionSyncMetricRows(
   status: Pick<
     WorkspaceCollectionSyncStatusData,
-    'chunkingProgress' | 'embeddingProgress' | 'importProgress' | 'queueProgress' | 'scanSummary'
+    | 'chunkingProgress'
+    | 'embeddingProgress'
+    | 'importProgress'
+    | 'queueProgress'
+    | 'scanSummary'
+    | 'unindexableFileCount'
   >
 ): WorkspaceCollectionSyncMetricRow[] {
   return [
     createScanMetricRow(status.scanSummary),
+    createCoverageMetricRow(status.unindexableFileCount),
     createImportMetricRow(status.importProgress),
     createChunkingMetricRow(status.chunkingProgress),
     createEmbeddingMetricRow(status.embeddingProgress),

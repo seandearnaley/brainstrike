@@ -206,6 +206,7 @@ interface WorkspaceCoverageAuditTarget {
 type WorkspaceCoverageAuditOutcome =
   | {
       readonly kind: 'complete';
+      readonly unindexableFileCount: number;
     }
   | {
       readonly kind: 'incomplete';
@@ -213,6 +214,7 @@ type WorkspaceCoverageAuditOutcome =
       readonly indexedCounts: ReadonlyMap<string, number>;
       readonly message: string;
       readonly missingTargets: readonly WorkspaceCoverageAuditTarget[];
+      readonly unindexableFileCount: number;
     }
   | {
       readonly kind: 'unresolved-root';
@@ -386,6 +388,7 @@ function createCoverageStatusPatch(args: {
   collectionId: string;
   lastError: string | null;
   state: 'error' | 'idle' | 'waiting';
+  unindexableFileCount?: number;
 }): WorkspaceCollectionSyncStatusPatch {
   return {
     activeRootPath: args.activeRootPath,
@@ -395,6 +398,9 @@ function createCoverageStatusPatch(args: {
     pauseReasons: [],
     queuedFiles: 0,
     state: args.state,
+    ...(args.unindexableFileCount === undefined
+      ? {}
+      : { unindexableFileCount: args.unindexableFileCount }),
   };
 }
 
@@ -543,8 +549,11 @@ async function runWorkspaceCoverageAudit(args: {
       }
     );
   }
+  const unindexableFileCount =
+    coveredContentExclusions.reduce((sum, entry) => sum + entry.contentExcluded.length, 0) +
+    [...gapsByRoot.values()].reduce((sum, gap) => sum + gap.contentExcluded.length, 0);
   if (missingTargets.length === 0) {
-    return { kind: 'complete' };
+    return { kind: 'complete', unindexableFileCount };
   }
   return {
     gapsByRoot,
@@ -552,6 +561,7 @@ async function runWorkspaceCoverageAudit(args: {
     kind: 'incomplete',
     message: buildCoverageAuditMessage({ gapsByRoot, indexedCounts, missingTargets }),
     missingTargets,
+    unindexableFileCount,
   };
 }
 
@@ -571,6 +581,7 @@ function applyWorkspaceCoverageAuditOutcome(args: {
         collectionId: args.collectionId,
         lastError: null,
         state: 'idle',
+        unindexableFileCount: args.outcome.unindexableFileCount,
       })
     );
     return null;
@@ -620,6 +631,7 @@ function applyWorkspaceCoverageIncompleteOutcome(args: {
       collectionId: args.collectionId,
       lastError: args.outcome.message,
       state: 'waiting',
+      unindexableFileCount: args.outcome.unindexableFileCount,
     })
   );
 }

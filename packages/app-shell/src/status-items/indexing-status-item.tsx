@@ -44,6 +44,7 @@ const selectCollectionSyncStatus = (
   queueProgress: state.queueProgress,
   scanSummary: state.scanSummary,
   state: state.state,
+  unindexableFileCount: state.unindexableFileCount,
 });
 
 type CollectionSyncStatus = ReturnType<typeof selectCollectionSyncStatus>;

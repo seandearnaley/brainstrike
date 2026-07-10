@@ -1645,6 +1645,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
       });
       // The unindexable file must not trigger a recovery sync.
       expect(syncSpy).toHaveBeenCalledTimes(1);
+      // The audit publishes the count so the UI can show it without logs.
+      expect(useWorkspaceCollectionSyncStatusStore.getState().unindexableFileCount).toBe(1);
       // Diagnostics name the file and the exact content-gate reason.
       expect(capturedExclusionLogs.length).toBeGreaterThanOrEqual(1);
       expect(JSON.stringify(capturedExclusionLogs[0]?.args ?? [])).toContain(
