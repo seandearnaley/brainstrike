@@ -581,9 +581,20 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
 - `UserPromptSubmit`/`Stop` run in `apps/desktop/src/assistant-server.ts`
   (`initializeAgentStream`). A UserPromptSubmit block short-circuits the turn with
   a visible message + `run.failed` and NEVER invokes the model; additionalContext
-  prepends a `system` message. **Stop is NOTIFY-ONLY in v1** (surface the block
-  reason as a `hook.notice`; NO auto-continue). SessionStart/SessionEnd/
-  Notification are implemented but UNWIRED in v1.
+  prepends a `system` message. The blocked branch returns an `ok:true` stream but
+  carries `terminalStatus:'failed'` (+ `terminalError`) on `AgentStreamSuccess`, so
+  `streamAssistantPostResponse` persists the `thread_runs` row as `failed` — never
+  the default `completed`, which would contradict the visible `run.failed`.
+  **Stop is NOTIFY-ONLY in v1** (surface the block reason as a `hook.notice`; NO
+  auto-continue). The terminal Stop hook (`withStopHook`) MUST run BEFORE the
+  `message-finish` chunk is yielded, not only in its `finally`: the live
+  data-stream consumer stops pulling the source the instant the mapper emits
+  `finish`, so a `hook.notice`/`hook.blocked` queued AFTER the finish reaches
+  neither the live renderer nor persistence. Running Stop at the finish boundary
+  lets the observer drain those queued run events (the mapper defers them past an
+  open text part and flushes at the boundary); `finally` still fires Stop for
+  streams that end without a finish chunk (bare return / throw / abort).
+  SessionStart/SessionEnd/Notification are implemented but UNWIRED in v1.
 
 **Timeout invariant (honest ceiling — no summed guarantee).** There is NO
 enforced `pre + tool + post` sum ceiling. What IS enforced:

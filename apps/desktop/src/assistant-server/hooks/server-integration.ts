@@ -197,8 +197,18 @@ export async function* makeHookBlockedStream(reason: string): AsyncIterable<Stre
  * Wrap the model stream with the terminal Stop hook. In v1 Stop is NOTIFY-ONLY:
  * the run-event surfacing (a block reason becomes a visible `hook.notice`) rides
  * the manager's emitRunEvent → queued-run-events → observer path; there is NO
- * auto-continue. The Stop hook fires best-effort in `finally` so it runs on
- * clean finish, error, and abort alike.
+ * auto-continue.
+ *
+ * The Stop hook MUST run BEFORE the terminal `message-finish` chunk is yielded:
+ * the live data-stream consumer (`AssistantDataStreamSession`) stops pulling the
+ * source the instant the mapper emits `finish`, so a `hook.notice`/`hook.blocked`
+ * queued AFTER the finish is never drained by the observer — it reaches neither
+ * the live renderer nor persistence. Running Stop at the finish boundary lets the
+ * observer drain the queued events (at the top of the finish iteration) so they
+ * are emitted as run-event chunks BEFORE the finish; the DataStreamMapper defers
+ * them past any open text part and flushes them at the finish boundary. Stop
+ * still fires best-effort in `finally` for the streams that end WITHOUT a finish
+ * chunk (a bare generator return, a throw, or an abort).
  */
 export async function* withStopHook(
   stream: AsyncIterable<StreamChunk>,
@@ -206,16 +216,26 @@ export async function* withStopHook(
   signal: AbortSignal
 ): AsyncIterable<StreamChunk> {
   let sawError = false;
+  let stopRan = false;
+  const runStopOnce = async (): Promise<void> => {
+    if (stopRan) {
+      return;
+    }
+    stopRan = true;
+    await manager.runStop(signal.aborted ? 'aborted' : sawError ? 'error' : 'complete');
+  };
   try {
     for await (const chunk of stream) {
-      if (chunk.type === 'message-finish' && chunk.finishReason === 'error') {
-        sawError = true;
+      if (chunk.type === 'message-finish') {
+        if (chunk.finishReason === 'error') {
+          sawError = true;
+        }
+        await runStopOnce();
       }
       yield chunk;
     }
   } finally {
-    const reason = signal.aborted ? 'aborted' : sawError ? 'error' : 'complete';
-    await manager.runStop(reason);
+    await runStopOnce();
   }
 }
 

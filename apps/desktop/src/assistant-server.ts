@@ -60,6 +60,15 @@ interface AssistantRequestPayload {
 interface AgentStreamSuccess {
   ok: true;
   stream: AsyncIterable<StreamChunk>;
+  terminalError?: string | null;
+  /**
+   * Terminal run-row status to record after the stream is served. Defaults to
+   * `completed`; a turn that streams a visible failure BEFORE the model runs
+   * (e.g. a UserPromptSubmit hook block) sets `failed` so the persisted run row
+   * matches the visible `run.failed` event instead of a contradictory
+   * `completed`.
+   */
+  terminalStatus?: 'cancelled' | 'completed' | 'failed';
 }
 interface AgentStreamFailure {
   ok: false;
@@ -360,11 +369,15 @@ async function streamAssistantPostResponse({
   const response = session.createResponse();
   await streamResponse(res, response, signal);
   if (runId) {
-    await recordDesktopAssistantThreadRunStatus(runId, 'completed', null);
+    await recordDesktopAssistantThreadRunStatus(
+      runId,
+      streamResult.terminalStatus ?? 'completed',
+      streamResult.terminalError ?? null
+    );
   }
 }
 
-async function* observeDesktopAssistantRunEvents(
+export async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
   queuedEvents: AssistantRunEvent[]
@@ -1413,7 +1426,15 @@ async function initializeAgentStream(
       Boolean(toolApprovalAction || toolResumeAction)
     );
     if (upsGate.kind === 'block') {
-      return { ok: true, stream: observe(makeHookBlockedStream(upsGate.reason)) };
+      // The blocked turn still streams a visible message + run.failed, but it
+      // never invokes the model — record the run row as failed (not completed)
+      // so persistence matches the visible failure.
+      return {
+        ok: true,
+        stream: observe(makeHookBlockedStream(upsGate.reason)),
+        terminalError: upsGate.reason,
+        terminalStatus: 'failed',
+      };
     }
 
     const stream = await resolveInitialAgentStream({
