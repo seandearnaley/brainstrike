@@ -27,6 +27,7 @@ import {
   type AssistantToolApprovalRequest,
   type LocalLlmBackendFactory,
   TOOL_APPROVAL_DATA_NAME,
+  TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import {
   ArrowUpIcon,
@@ -69,6 +70,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
+import { AssistantToolSuspendNotice } from './assistant-tool-suspend-notice';
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
@@ -146,6 +148,15 @@ const assistantRunTimelineDataUI = {
 const assistantToolApprovalDataUI = {
   name: TOOL_APPROVAL_DATA_NAME,
   render: AssistantToolApprovalDataPart,
+} satisfies AssistantDataUIProps;
+
+const AssistantToolSuspendDataPart: DataMessagePartComponent = ({ data }) => (
+  <AssistantToolSuspendNotice data={data} />
+);
+
+const assistantToolSuspendDataUI = {
+  name: TOOL_SUSPEND_DATA_NAME,
+  render: AssistantToolSuspendDataPart,
 } satisfies AssistantDataUIProps;
 
 // Re-export types needed by consumers
@@ -603,6 +614,7 @@ const LocalChainOfThought = () => {
 const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
   useAssistantDataUI(assistantToolApprovalDataUI);
+  useAssistantDataUI(assistantToolSuspendDataUI);
 
   return null;
 };
