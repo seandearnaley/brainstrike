@@ -4,7 +4,7 @@
  * Canonical source of truth for the app-wide agent shell layout and root tab state.
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
- * - activeTab: 'explorer' | 'settings' | 'prompts' | 'git' | 'terminal'
+ * - activeTab: 'explorer' | 'settings' | 'git' | 'terminal'
  *
  * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
@@ -16,7 +16,7 @@ import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type PanelTab = 'explorer' | 'settings' | 'prompts' | 'git' | 'terminal';
+export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal';
 
 export interface PanelLayoutStoreState {
   // Root tabs
@@ -127,10 +127,19 @@ function parsePersistedPanelState(raw: string | null): PersistedPanelStorageValu
       state?: PersistedPanelState;
       version?: number;
     };
-    const state = parsed?.state;
-    if (!state) {
+    const rawState = parsed?.state;
+    if (!rawState) {
       return null;
     }
+    // Root-tab selection is intentionally session-only. Whitelist the persisted
+    // layout fields so legacy snapshots containing activeTab: "prompts" cannot
+    // restore a route that now lives inside the agent sidebar.
+    const state: PersistedPanelState = {
+      showConsole: rawState.showConsole,
+      showLeftPanel: rawState.showLeftPanel,
+      showRightPanel: rawState.showRightPanel,
+      sizes: rawState.sizes,
+    };
     const version = typeof parsed.version === 'number' ? parsed.version : 0;
     if (state.sizes && hasCorruptedSizes(state.sizes)) {
       return {

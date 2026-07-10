@@ -20,10 +20,17 @@ describe('AgentSidebarPanel', () => {
     render(
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
+        promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
     );
 
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Threads',
+      'Database',
+      'Prompts',
+    ]);
+    expect(screen.getByRole('tab', { name: 'Prompts' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Threads' })).toHaveAttribute('data-state', 'active');
     expect(screen.getByText('Threads content')).toBeVisible();
     expect(screen.queryByText('Database content')).not.toBeInTheDocument();
@@ -42,6 +49,7 @@ describe('AgentSidebarPanel', () => {
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
         preloadDatabaseTabOnMount
+        promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
     );
@@ -55,6 +63,7 @@ describe('AgentSidebarPanel', () => {
     render(
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
+        promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
     );
@@ -77,6 +86,7 @@ describe('AgentSidebarPanel', () => {
     render(
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
+        promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
     );
@@ -94,38 +104,44 @@ describe('AgentSidebarPanel', () => {
     });
   });
 
-  it('persists the selected sidebar tab across remounts', async () => {
+  it('reveals prompt content and persists the selected prompts tab across remounts', async () => {
     const { unmount } = render(
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
+        promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
     );
 
-    const databaseTab = screen.getByRole('tab', { name: 'Database' });
-    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
+    expect(screen.queryByText('Prompts content')).not.toBeInTheDocument();
+
+    const promptsTab = screen.getByRole('tab', { name: 'Prompts' });
+    fireEvent.mouseDown(promptsTab, { button: 0, ctrlKey: false });
 
     await waitFor(() => {
-      expect(databaseTab).toHaveAttribute('data-state', 'active');
+      expect(promptsTab).toHaveAttribute('data-state', 'active');
     });
+    expect(screen.getByText('Prompts content')).toBeVisible();
 
     unmount();
 
     render(
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
+        promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
     );
 
-    expect(screen.getByRole('tab', { name: 'Database' })).toHaveAttribute('data-state', 'active');
-    expect(screen.getByText('Database content')).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Prompts' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByText('Prompts content')).toBeVisible();
   });
 
   it('keeps database tab state mounted after the first visit', async () => {
     render(
       <AgentSidebarPanel
         databaseContent={<input aria-label="Database search" defaultValue="persisted query" />}
+        promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
     );
@@ -148,6 +164,39 @@ describe('AgentSidebarPanel', () => {
     expect(await screen.findByRole('textbox', { name: 'Database search' })).toHaveValue('keep me');
   });
 
+  it('keeps prompts tab state mounted after the first visit', async () => {
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        promptsContent={<input aria-label="Prompt library search" defaultValue="" />}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    expect(
+      screen.queryByRole('textbox', { name: 'Prompt library search' })
+    ).not.toBeInTheDocument();
+
+    const promptsTab = screen.getByRole('tab', { name: 'Prompts' });
+    fireEvent.mouseDown(promptsTab, { button: 0, ctrlKey: false });
+
+    const searchField = await screen.findByRole('textbox', { name: 'Prompt library search' });
+    fireEvent.change(searchField, { target: { value: 'contextual clip' } });
+    expect(searchField).toHaveValue('contextual clip');
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByText('Threads content')).toBeVisible();
+    expect(searchField).not.toBeVisible();
+
+    fireEvent.mouseDown(promptsTab, { button: 0, ctrlKey: false });
+    expect(await screen.findByRole('textbox', { name: 'Prompt library search' })).toHaveValue(
+      'contextual clip'
+    );
+  });
+
   it('migrates the legacy tools panel tab and removes the old storage key', () => {
     window.localStorage.setItem(
       'tools-panel.v1',
@@ -160,6 +209,7 @@ describe('AgentSidebarPanel', () => {
     render(
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
+        promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
     );
@@ -177,6 +227,7 @@ describe('AgentSidebarPanel', () => {
     render(
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
+        promptsContent={<div>Prompts content</div>}
         threadsContent={<div>Threads content</div>}
       />
     );

@@ -9,6 +9,7 @@ import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { __resetAssistantForegroundActivityForTests } from '../assistant-foreground-activity';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
@@ -649,6 +650,7 @@ vi.mock('../use-assistant-slash-commands', () => ({
 // Mock the AssistantUiPanel component
 vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   AssistantUiPanel: ({
+    composerDraftCommand,
     providerGroups = [],
     selectedProvider,
     selectedModel,
@@ -664,7 +666,10 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     disabled,
     disabledReason,
     toolMenu,
+    onComposerDraftCommandApplied,
+    onComposerTextChange,
   }: {
+    composerDraftCommand?: { id: string; mode: 'append' | 'replace'; text: string };
     providerGroups?: Array<{
       runtime: string;
       label: string;
@@ -698,6 +703,8 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       onRefresh?: () => void;
       onOpenSettings?: () => void;
     };
+    onComposerDraftCommandApplied?: (commandId: string) => void;
+    onComposerTextChange?: (text: string) => void;
   }) => {
     const providers = providerGroups?.flatMap((group) => group.providers) ?? [];
     const currentProvider = providers.find((p) => p.id === selectedProvider);
@@ -717,6 +724,26 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
 
     return (
       <div data-testid="assistant-ui-panel">
+        <div data-testid="composer-draft-command">{composerDraftCommand?.id ?? ''}</div>
+        <button
+          data-testid="apply-composer-draft-command"
+          disabled={!composerDraftCommand}
+          onClick={() => {
+            if (composerDraftCommand) {
+              onComposerDraftCommandApplied?.(composerDraftCommand.id);
+            }
+          }}
+          type="button"
+        >
+          Apply composer draft command
+        </button>
+        <button
+          data-testid="report-composer-text"
+          onClick={() => onComposerTextChange?.('Live composer draft')}
+          type="button"
+        >
+          Report composer text
+        </button>
         <div data-testid="panel-disabled">{String(disabled)}</div>
         <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>
         <div data-testid="request-data">{JSON.stringify(requestData ?? {})}</div>
@@ -922,6 +949,7 @@ beforeEach(() => {
   __resetAssistantPreferencesStoreForTests();
   __resetAssistantForegroundActivityForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();
+  useAssistantComposerCommandStore.getState().reset();
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},

@@ -241,6 +241,12 @@ export interface AssistantToolMenuConfig {
   summary?: string;
 }
 
+export interface ComposerDraftCommand {
+  readonly id: string;
+  readonly mode: 'append' | 'replace';
+  readonly text: string;
+}
+
 // Provider-settings types live in `@brainstrike/types` so `packages/ui` and
 // `packages/preferences` share a single canonical definition. They are
 // re-exported here to keep the existing public surface of the
@@ -269,6 +275,8 @@ export interface AssistantUiPanelProps {
     status: 'cancelled' | 'completed' | 'failed',
     error?: string
   ) => Promise<void> | void;
+  /** Applies one explicit prompt-library command to the draft without sending it. */
+  composerDraftCommand?: ComposerDraftCommand | undefined;
   /** Full model context window size. Passed to the context meter. */
   contextWindow?: number | undefined;
   /** Durable cumulative usage (tokens + cost) for the active thread. Desktop-only. */
@@ -299,6 +307,10 @@ export interface AssistantUiPanelProps {
    */
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
+  /** Acknowledges a composer command only after its text is visible in the draft. */
+  onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
+  /** Reports the live draft so prompt suggestions can use the user's actual context. */
+  onComposerTextChange?: ((text: string) => void) | undefined;
   /**
    * Clear the persisted plan-mode preference. Called when the user APPROVES a
    * submitted plan so the resume request exits plan mode and the rebuilt server
@@ -702,6 +714,7 @@ interface ChatThreadProps {
         error?: string
       ) => Promise<void> | void)
     | undefined;
+  composerDraftCommand?: ComposerDraftCommand | undefined;
   contextWindow?: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   disabled: boolean;
@@ -711,6 +724,8 @@ interface ChatThreadProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
+  onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
+  onComposerTextChange?: ((text: string) => void) | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
@@ -741,6 +756,7 @@ interface ChatThreadProps {
  * Uses useLocalRuntime with LocalLlmBackend via transformers.js.
  */
 const LocalRuntimeChat = ({
+  composerDraftCommand,
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -768,6 +784,8 @@ const LocalRuntimeChat = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  onComposerDraftCommandApplied,
+  onComposerTextChange,
   planMode,
   toolMenu,
   requestData,
@@ -839,6 +857,7 @@ const LocalRuntimeChat = ({
     <AssistantRuntimeProvider runtime={runtime}>
       <AssistantPanelErrorBoundary>
         <ChatThreadUI
+          composerDraftCommand={composerDraftCommand}
           contextWindow={contextWindow}
           cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
@@ -848,6 +867,8 @@ const LocalRuntimeChat = ({
           isComposerDisabled={isComposerDisabled}
           localLoadingState={localLoadingState}
           omSegment={omSegment}
+          onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+          onComposerTextChange={onComposerTextChange}
           onFileMentionQueryChange={onFileMentionQueryChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
@@ -876,6 +897,7 @@ const LocalRuntimeChat = ({
  * Uses useDataStreamRuntime for API-based inference.
  */
 const DataStreamRuntimeChat = ({
+  composerDraftCommand,
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -907,6 +929,8 @@ const DataStreamRuntimeChat = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  onComposerDraftCommandApplied,
+  onComposerTextChange,
   planMode,
   toolMenu,
   threadKey,
@@ -988,6 +1012,7 @@ const DataStreamRuntimeChat = ({
       <PlanModeExitProvider onExit={planMode?.onExit}>
         <AssistantPanelErrorBoundary>
           <ChatThreadUI
+            composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
             cumulativeUsage={cumulativeUsage}
             disabledReason={disabledReason}
@@ -997,6 +1022,8 @@ const DataStreamRuntimeChat = ({
             isComposerDisabled={isComposerDisabled}
             localLoadingState={localLoadingState}
             omSegment={omSegment}
+            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+            onComposerTextChange={onComposerTextChange}
             onFileMentionQueryChange={onFileMentionQueryChange}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
@@ -1021,11 +1048,47 @@ const DataStreamRuntimeChat = ({
   );
 };
 
+function useComposerDraftCommand({
+  command,
+  onApplied,
+  onTextChange,
+}: {
+  command: ComposerDraftCommand | undefined;
+  onApplied: ((commandId: string) => void) | undefined;
+  onTextChange: ((text: string) => void) | undefined;
+}): void {
+  const aui = useAui();
+  const composerText = useAuiState((state) => state.composer.text);
+  const appliedCommandIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    onTextChange?.(composerText);
+  }, [composerText, onTextChange]);
+
+  useEffect(() => {
+    if (!command || appliedCommandIdsRef.current.has(command.id)) {
+      return;
+    }
+    if (!command.text.trim()) {
+      throw new Error('Composer draft commands require non-whitespace text.');
+    }
+
+    const nextText =
+      command.mode === 'append' && composerText.length > 0
+        ? `${composerText}\n\n${command.text}`
+        : command.text;
+    aui.composer().setText(nextText);
+    appliedCommandIdsRef.current.add(command.id);
+    onApplied?.(command.id);
+  }, [aui, command, composerText, onApplied]);
+}
+
 /**
  * Shared UI component for the chat thread.
  * Extracted to avoid duplication between local and data stream runtimes.
  */
 const ChatThreadUI = ({
+  composerDraftCommand,
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -1049,10 +1112,13 @@ const ChatThreadUI = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  onComposerDraftCommandApplied,
+  onComposerTextChange,
   planMode,
   threadKey,
   toolMenu,
 }: {
+  composerDraftCommand?: ComposerDraftCommand | undefined;
   contextWindow?: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   omSegment?: OmMeterState | undefined;
@@ -1079,6 +1145,8 @@ const ChatThreadUI = ({
   slashCommands: readonly SlashCommand[];
   fileMentions: readonly FileMention[];
   onFileMentionQueryChange: ((query: string) => void) | undefined;
+  onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
+  onComposerTextChange?: ((text: string) => void) | undefined;
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
 }) => {
@@ -1087,6 +1155,12 @@ const ChatThreadUI = ({
   const hiddenMessageCount = Math.max(0, messageCount - COLLAPSED_HISTORY_VISIBLE_MESSAGES);
   const historyCollapsed = hiddenMessageCount > 0 && !historyExpanded;
   const messagesRegionId = useId();
+
+  useComposerDraftCommand({
+    command: composerDraftCommand,
+    onApplied: onComposerDraftCommandApplied,
+    onTextChange: onComposerTextChange,
+  });
 
   // Slash-command "/" menu: derive the library adapter + icon lookup from the
   // app-passed commands during render (no setState-in-effect). The adapter hook
@@ -1270,6 +1344,7 @@ const ChatThreadUI = ({
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 export const AssistantUiPanel = ({
   className,
+  composerDraftCommand,
   contextWindow,
   cumulativeUsage,
   omSegment,
@@ -1297,6 +1372,8 @@ export const AssistantUiPanel = ({
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
   onFileMentionQueryChange,
+  onComposerDraftCommandApplied,
+  onComposerTextChange,
   toolMenu,
   disabled = false,
   disabledReason,
@@ -1363,6 +1440,7 @@ export const AssistantUiPanel = ({
         {isLocalProvider && modelName && !localViaDataStream ? (
           <LocalRuntimeChat
             completePreparedRequest={completePreparedRequest}
+            composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
             cumulativeUsage={cumulativeUsage}
             disabled={disabled}
@@ -1383,6 +1461,8 @@ export const AssistantUiPanel = ({
             onToolApprovalRequired={onToolApprovalRequired}
             {...(onUsage ? { onUsage } : {})}
             fileMentions={fileMentions}
+            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+            onComposerTextChange={onComposerTextChange}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}
@@ -1400,6 +1480,7 @@ export const AssistantUiPanel = ({
           <DataStreamRuntimeChat
             api={api}
             completePreparedRequest={completePreparedRequest}
+            composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
             cumulativeUsage={cumulativeUsage}
             disabled={disabled}
@@ -1429,6 +1510,8 @@ export const AssistantUiPanel = ({
                 }
               : {})}
             fileMentions={fileMentions}
+            onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+            onComposerTextChange={onComposerTextChange}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}

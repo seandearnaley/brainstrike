@@ -30,6 +30,7 @@ export type EmbedderRuntime = 'webgpu' | 'wasm' | 'hosted';
 
 export interface SearchEmbedder {
   dispose?: () => Promise<void> | void;
+  embedDocument: (text: string) => Promise<{ embedding: number[] }>;
   embedQuery: (text: string) => Promise<{ embedding: number[] }>;
   runtime: EmbedderRuntime;
 }
@@ -51,6 +52,8 @@ export interface EmbeddingSetModelInfo {
 }
 
 export interface UseSearchEmbedderResult {
+  /** Embed indexed content with document semantics and device-loss recovery. */
+  embedDocumentWithRecovery: (info: EmbeddingSetModelInfo, text: string) => Promise<number[]>;
   /** Embed with the device-loss single-retry semantics from db-explorer. */
   embedQueryWithRecovery: (info: EmbeddingSetModelInfo, text: string) => Promise<number[]>;
   /** Resolves (cached) embedder for the model; throws with named causes (no key, no local model, …). */
@@ -61,37 +64,65 @@ export interface UseSearchEmbedderResult {
  * Create a hosted provider embedder
  */
 async function createHostedEmbedder(
-  providerConfig: EmbeddingProviderConfig,
+  queryProviderConfig: EmbeddingProviderConfig,
+  documentProviderConfig: EmbeddingProviderConfig,
   modelId: string
 ): Promise<SearchEmbedder> {
   const { EmbeddingProviderFactory } = await import('@brainstrike/embeddings/factory');
-  const providerResult = await EmbeddingProviderFactory.createProvider(providerConfig);
-  logger.info('Hosted provider creation result', { ok: providerResult.ok });
+  const queryProviderResult = await EmbeddingProviderFactory.createProvider(queryProviderConfig);
+  logger.info('Hosted query provider creation result', { ok: queryProviderResult.ok });
 
-  if (!providerResult.ok) {
+  if (!queryProviderResult.ok) {
     throw new Error(
-      `Failed to initialize hosted provider: ${
-        'message' in providerResult.error ? providerResult.error.message : providerResult.error.type
+      `Failed to initialize hosted query provider: ${
+        'message' in queryProviderResult.error
+          ? queryProviderResult.error.message
+          : queryProviderResult.error.type
       }`
     );
   }
 
-  const provider = providerResult.value;
+  const needsDistinctDocumentProvider =
+    queryProviderConfig.provider === 'cohere' || queryProviderConfig.provider === 'voyage';
+  const documentProviderResult = needsDistinctDocumentProvider
+    ? await EmbeddingProviderFactory.createProvider(documentProviderConfig)
+    : queryProviderResult;
+  logger.info('Hosted document provider creation result', { ok: documentProviderResult.ok });
+
+  if (!documentProviderResult.ok) {
+    throw new Error(
+      `Failed to initialize hosted document provider: ${
+        'message' in documentProviderResult.error
+          ? documentProviderResult.error.message
+          : documentProviderResult.error.type
+      }`
+    );
+  }
+
+  const queryProvider = queryProviderResult.value;
+  const documentProvider = documentProviderResult.value;
+
+  const embed = async (
+    provider: typeof queryProvider,
+    text: string
+  ): Promise<{ embedding: number[] }> => {
+    const result = await provider.embed({ modelId, text });
+    if (!result.ok) {
+      const error: EmbedderError = result.error;
+      const msg =
+        'message' in error
+          ? error.message
+          : 'originalError' in error
+            ? error.originalError.message
+            : error.type;
+      throw new Error(`Embedding failed: ${msg}`);
+    }
+    return { embedding: result.value.embedding };
+  };
+
   return {
-    embedQuery: async (text: string) => {
-      const result = await provider.embed({ modelId, text });
-      if (!result.ok) {
-        const error: EmbedderError = result.error;
-        const msg =
-          'message' in error
-            ? error.message
-            : 'originalError' in error
-              ? error.originalError.message
-              : error.type;
-        throw new Error(`Embedding failed: ${msg}`);
-      }
-      return { embedding: result.value.embedding };
-    },
+    embedDocument: (text: string) => embed(documentProvider, text),
+    embedQuery: (text: string) => embed(queryProvider, text),
     runtime: 'hosted',
   };
 }
@@ -112,6 +143,11 @@ async function createLocalEmbedder(
 
   return {
     dispose: () => svc.dispose(),
+    embedDocument: async (text: string) => {
+      logger.info('Generating document embedding with local model...');
+      const result = await svc.generateDocEmbedding(text);
+      return { embedding: Array.from(result.embedding) };
+    },
     embedQuery: async (text: string) => {
       logger.info('Generating query embedding with local model...');
       const result = await svc.generateQueryEmbedding(text);
@@ -149,7 +185,8 @@ function isDeviceLossError(error: unknown): boolean {
 function createHostedConfig(
   provider: string,
   modelId: string,
-  dimensions: number
+  dimensions: number,
+  purpose: 'document' | 'query'
 ): EmbeddingProviderConfig {
   if (provider === 'openai') {
     return { dimensions, modelId, provider: 'openai', runtime: 'hosted' };
@@ -164,14 +201,14 @@ function createHostedConfig(
   }
   if (provider === 'cohere') {
     return {
-      inputType: 'search_query',
+      inputType: purpose === 'query' ? 'search_query' : 'search_document',
       modelId,
       provider: 'cohere',
       runtime: 'hosted',
     };
   }
   if (provider === 'voyage') {
-    return { inputType: 'query', modelId, provider: 'voyage', runtime: 'hosted' };
+    return { inputType: purpose, modelId, provider: 'voyage', runtime: 'hosted' };
   }
   throw new Error(`Unsupported hosted provider: ${provider}`);
 }
@@ -288,8 +325,23 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
           let embedder: SearchEmbedder;
           if (parsed && isHostedProvider(parsed.provider)) {
             logger.info('Creating hosted provider', { provider: parsed.provider });
-            const providerConfig = createHostedConfig(parsed.provider, parsed.modelId, dimensions);
-            embedder = await createHostedEmbedder(providerConfig, parsed.modelId);
+            const queryProviderConfig = createHostedConfig(
+              parsed.provider,
+              parsed.modelId,
+              dimensions,
+              'query'
+            );
+            const documentProviderConfig = createHostedConfig(
+              parsed.provider,
+              parsed.modelId,
+              dimensions,
+              'document'
+            );
+            embedder = await createHostedEmbedder(
+              queryProviderConfig,
+              documentProviderConfig,
+              parsed.modelId
+            );
           } else {
             if (!modelConfig) {
               throw new Error(
@@ -325,17 +377,22 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
   );
 
   /**
-   * Generate a query embedding. If the cached embedder's GPUDevice was
+   * Generate an embedding. If the cached embedder's GPUDevice was
    * invalidated (e.g. visible renderer was backgrounded then resumed
    * before the visibilitychange dispose ran), rebuild once and retry.
    * Capped at one retry — non-device-loss errors propagate untouched
    * so transient app errors don't thrash the model load.
    */
-  const embedQueryWithRecovery = useCallback(
-    async (info: EmbeddingSetModelInfo, text: string): Promise<number[]> => {
+  const embedWithRecovery = useCallback(
+    async (
+      info: EmbeddingSetModelInfo,
+      text: string,
+      purpose: 'document' | 'query'
+    ): Promise<number[]> => {
       const embedder = await ensureEmbedderReady(info);
       try {
-        const { embedding } = await embedder.embedQuery(text);
+        const { embedding } =
+          await embedder[purpose === 'query' ? 'embedQuery' : 'embedDocument'](text);
         return embedding;
       } catch (error) {
         if (!isDeviceLossError(error)) {
@@ -346,12 +403,23 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
         });
         await disposeCachedEmbedder('device-loss');
         const refreshed = await ensureEmbedderReady(info);
-        const { embedding } = await refreshed.embedQuery(text);
+        const { embedding } =
+          await refreshed[purpose === 'query' ? 'embedQuery' : 'embedDocument'](text);
         return embedding;
       }
     },
     [ensureEmbedderReady, disposeCachedEmbedder]
   );
 
-  return { embedQueryWithRecovery, ensureEmbedderReady };
+  const embedDocumentWithRecovery = useCallback(
+    (info: EmbeddingSetModelInfo, text: string) => embedWithRecovery(info, text, 'document'),
+    [embedWithRecovery]
+  );
+
+  const embedQueryWithRecovery = useCallback(
+    (info: EmbeddingSetModelInfo, text: string) => embedWithRecovery(info, text, 'query'),
+    [embedWithRecovery]
+  );
+
+  return { embedDocumentWithRecovery, embedQueryWithRecovery, ensureEmbedderReady };
 }

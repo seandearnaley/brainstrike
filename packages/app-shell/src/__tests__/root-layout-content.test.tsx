@@ -124,15 +124,22 @@ vi.mock('../agent-sidebar-panel', () => ({
   AgentSidebarPanel: ({
     threadsContent,
     databaseContent,
+    promptsContent,
   }: {
     threadsContent: React.ReactNode;
     databaseContent: React.ReactNode;
+    promptsContent: React.ReactNode;
   }) => (
     <div data-testid="agent-sidebar-shell">
       <div data-testid="threads-tab-content">{threadsContent}</div>
       <div data-testid="database-tab-content">{databaseContent}</div>
+      <div data-testid="prompts-tab-content">{promptsContent}</div>
     </div>
   ),
+}));
+
+vi.mock('../connected-prompt-manager', () => ({
+  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
 }));
 
 vi.mock('../threads-panel', () => ({
@@ -179,7 +186,6 @@ describe('RootLayoutContent', () => {
       <RootLayoutContent
         contextExplorerPageContent={<div data-testid="context-explorer-page">Context Explorer</div>}
         navigationItems={navigationItems}
-        promptsPageContent={<div data-testid="prompts-page">Prompts</div>}
         settingsPageContent={<div data-testid="settings-page">Settings</div>}
         {...overrides}
       />
@@ -199,6 +205,10 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
     expect(screen.getByTestId('threads-shell')).toBeInTheDocument();
     expect(screen.getByTestId('database-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('connected-prompt-manager')).toBeInTheDocument();
+    expect(screen.getByTestId('connected-prompt-manager')).toBe(
+      screen.getByTestId('prompts-tab-content').firstElementChild
+    );
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
@@ -221,20 +231,6 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
     expect(screen.getByTestId('settings-route')).toBeInTheDocument();
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
-  });
-
-  it('renders prompts as a full-frame route without the agent shell', () => {
-    renderComponent();
-
-    act(() => {
-      mockHandlers.onNavigationClick('/prompts');
-    });
-
-    expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
-    expect(screen.getByTestId('prompts-route')).toBeInTheDocument();
-    expect(screen.getByTestId('prompts-page')).toBeInTheDocument();
   });
 
   it('keeps settings mounted after first visit so local form state survives route switches', async () => {
@@ -397,23 +393,5 @@ describe('RootLayoutContent', () => {
     view.unmount();
 
     expect(clearTimeoutSpy).toHaveBeenCalled();
-  });
-
-  it('mounts an empty prompts route shell when prompts content is omitted', () => {
-    renderComponent({ promptsPageContent: undefined });
-
-    act(() => {
-      mockHandlers.onNavigationClick('/prompts');
-    });
-
-    const promptsRoute = screen.getByTestId('prompts-route');
-    expect(promptsRoute).toBeInTheDocument();
-    expect(promptsRoute).toBeEmptyDOMElement();
-
-    act(() => {
-      mockHandlers.onNavigationClick('/settings');
-    });
-
-    expect(promptsRoute).toHaveClass('hidden');
   });
 });

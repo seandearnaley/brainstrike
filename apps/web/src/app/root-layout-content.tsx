@@ -1,4 +1,3 @@
-import { ConnectedPromptManager } from '@brainstrike/app-shell';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
 import {
   type RootLayoutContentProps,
@@ -76,7 +75,6 @@ export default function RootLayoutContent() {
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
     loadLocalLlmBackend,
     navigationItems: navigationConfig,
-    promptsPageContent: <ConnectedPromptManager />,
     settingsPageContent: <SettingsPageContent />,
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;

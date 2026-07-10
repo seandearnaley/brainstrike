@@ -9,13 +9,19 @@ import { useSearchEmbedder } from '../use-search-embedder';
 // swapping mockImplementation per test) keeps each `new SimpleEmbeddingService()`
 // pointed at the SAME generateQueryEmbedding fn, so a `mockRejectedValueOnce`
 // device-loss error correctly carries across the retry's fresh instance.
-const { MockSimpleEmbeddingService, mockGenerateQueryEmbedding, mockCreateProvider, mockEmbed } =
-  vi.hoisted(() => ({
-    MockSimpleEmbeddingService: vi.fn(),
-    mockCreateProvider: vi.fn(),
-    mockEmbed: vi.fn(),
-    mockGenerateQueryEmbedding: vi.fn(),
-  }));
+const {
+  MockSimpleEmbeddingService,
+  mockGenerateDocEmbedding,
+  mockGenerateQueryEmbedding,
+  mockCreateProvider,
+  mockEmbed,
+} = vi.hoisted(() => ({
+  MockSimpleEmbeddingService: vi.fn(),
+  mockCreateProvider: vi.fn(),
+  mockEmbed: vi.fn(),
+  mockGenerateDocEmbedding: vi.fn(),
+  mockGenerateQueryEmbedding: vi.fn(),
+}));
 
 vi.mock('@brainstrike/embeddings/factory', () => ({
   EmbeddingProviderFactory: { createProvider: mockCreateProvider },
@@ -25,6 +31,7 @@ vi.mock('@brainstrike/embeddings/service', () => {
   MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {
       dispose: vi.fn(),
+      generateDocEmbedding: mockGenerateDocEmbedding,
       generateQueryEmbedding: mockGenerateQueryEmbedding,
       initializeWithModel: vi.fn().mockResolvedValue(undefined),
     });
@@ -48,6 +55,18 @@ const hostedInfo: EmbeddingSetModelInfo = {
   modelKey: 'openai::text-embedding-3-small',
 };
 
+const cohereInfo: EmbeddingSetModelInfo = {
+  dimensions: 1024,
+  modelConfig: null,
+  modelKey: 'cohere::embed-english-v3.0',
+};
+
+const voyageInfo: EmbeddingSetModelInfo = {
+  dimensions: 1024,
+  modelConfig: null,
+  modelKey: 'voyage::voyage-3',
+};
+
 const localInfo: EmbeddingSetModelInfo = {
   dimensions: 1024,
   modelConfig: localModelConfig,
@@ -60,6 +79,8 @@ describe('useSearchEmbedder', () => {
     useVectorPreferencesStore.setState({ devicePref: 'wasm' });
     mockGenerateQueryEmbedding.mockReset();
     mockGenerateQueryEmbedding.mockResolvedValue({ embedding: new Array(1024).fill(0.25) });
+    mockGenerateDocEmbedding.mockReset();
+    mockGenerateDocEmbedding.mockResolvedValue({ embedding: new Array(1024).fill(0.5) });
     mockEmbed.mockReset();
     mockEmbed.mockResolvedValue({ ok: true, value: { embedding: new Array(1536).fill(0.1) } });
     mockCreateProvider.mockReset();
@@ -82,6 +103,61 @@ describe('useSearchEmbedder', () => {
         provider: 'openai',
         runtime: 'hosted',
       })
+    );
+  });
+
+  it('uses local document semantics for saved content and query semantics for lookup context', async () => {
+    const { result } = renderHook(() => useSearchEmbedder());
+
+    const embedder = await result.current.ensureEmbedderReady(localInfo);
+    const document = await embedder.embedDocument('saved prompt text');
+    const query = await embedder.embedQuery('current composer context');
+
+    expect(document.embedding).toEqual(new Array(1024).fill(0.5));
+    expect(query.embedding).toEqual(new Array(1024).fill(0.25));
+    expect(mockGenerateDocEmbedding).toHaveBeenCalledWith('saved prompt text');
+    expect(mockGenerateQueryEmbedding).toHaveBeenCalledWith('current composer context');
+  });
+
+  it('creates distinct Cohere document and query providers with retrieval-correct input types', async () => {
+    const { result } = renderHook(() => useSearchEmbedder());
+
+    const embedder = await result.current.ensureEmbedderReady(cohereInfo);
+    await embedder.embedDocument('saved prompt text');
+    await embedder.embedQuery('current composer context');
+
+    expect(mockCreateProvider).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        inputType: 'search_query',
+        modelId: 'embed-english-v3.0',
+        provider: 'cohere',
+      })
+    );
+    expect(mockCreateProvider).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        inputType: 'search_document',
+        modelId: 'embed-english-v3.0',
+        provider: 'cohere',
+      })
+    );
+  });
+
+  it('creates distinct Voyage document and query providers with retrieval-correct input types', async () => {
+    const { result } = renderHook(() => useSearchEmbedder());
+
+    const embedder = await result.current.ensureEmbedderReady(voyageInfo);
+    await embedder.embedDocument('saved prompt text');
+    await embedder.embedQuery('current composer context');
+
+    expect(mockCreateProvider).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ inputType: 'query', modelId: 'voyage-3', provider: 'voyage' })
+    );
+    expect(mockCreateProvider).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ inputType: 'document', modelId: 'voyage-3', provider: 'voyage' })
     );
   });
 
@@ -109,6 +185,19 @@ describe('useSearchEmbedder', () => {
     // A fresh embedder is built for the retry.
     expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(2);
     expect(mockGenerateQueryEmbedding).toHaveBeenCalledTimes(2);
+  });
+
+  it('embedDocumentWithRecovery uses document semantics', async () => {
+    const { result } = renderHook(() => useSearchEmbedder());
+
+    const embedding = await result.current.embedDocumentWithRecovery(
+      localInfo,
+      'saved prompt text'
+    );
+
+    expect(embedding).toEqual(new Array(1024).fill(0.5));
+    expect(mockGenerateDocEmbedding).toHaveBeenCalledWith('saved prompt text');
+    expect(mockGenerateQueryEmbedding).not.toHaveBeenCalled();
   });
 
   it('embedQueryWithRecovery rethrows non-device-loss errors without rebuilding', async () => {

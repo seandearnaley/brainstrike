@@ -207,6 +207,35 @@ Do not move or reintroduce workers in Electron main. Desktop local embeddings mu
 
 ---
 
+## PROMPT WORKBENCH
+
+The prompt library is a working surface inside the agent sidebar, not a standalone route:
+Threads → Database → Prompts. Its source of truth is PGlite; never reintroduce a
+localStorage-backed parallel store.
+
+Ownership and flow:
+- Persistence: migration 050 (`prompt_embedding_profiles`, `prompt_items`,
+  `prompt_item_revisions`) + `PromptItemRepository`. Prompt edits use revision CAS and
+  retain the previous revision. The one-time `brainstrike-prompt-store` import is strict,
+  transactional, and removes localStorage only after a successful commit.
+- Recall: prompt records own vectors under the dedicated singleton prompt profile — they
+  are NOT fake files and MUST NOT be added to `embedding_sets`. Saved items use document
+  embeddings; live composer context uses query embeddings. Vector failures surface in the
+  workbench; there is no lexical fallback.
+- Agent actions: `assistant-composer-command-store.ts` is a thread-keyed, in-memory FIFO.
+  `AssistantUiPanelWrapper` bridges only that thread's head command into the real
+  assistant-ui composer and acknowledges it after application. Snippets/fragments append,
+  prompts replace, and nothing auto-sends. New-thread actions create/activate the durable
+  thread, apply its configured model, then stage the prompt.
+- Composition: `connected-prompt-manager.tsx` owns DB/model/thread/vector wiring;
+  `prompt-workbench-panel.tsx` remains the interaction layer; `prompt-template.ts` owns
+  explicit `{{variable}}` resolution.
+
+When changing this flow, update this section and the paired tests in `packages/db`,
+`packages/app-shell`, `packages/ui`, and `packages/vector-management`.
+
+---
+
 ## AI ASSISTANT INTEGRATION
 
 - Supports: OpenAI, Anthropic, Google, OpenRouter.

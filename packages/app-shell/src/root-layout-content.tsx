@@ -39,6 +39,7 @@ import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { CommandPaletteHost } from './command-palette-host';
+import { ConnectedPromptManager } from './connected-prompt-manager';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
@@ -148,7 +149,6 @@ export interface RootLayoutContentProps {
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly navigationItems: NavigationItem[];
   readonly preloadDatabaseTabOnMount?: boolean;
-  readonly promptsPageContent?: ReactNode;
   readonly settingsPageContent: ReactNode;
   /**
    * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
@@ -161,7 +161,6 @@ export interface RootLayoutContentProps {
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/git': 'git',
-  '/prompts': 'prompts',
   '/settings': 'settings',
   '/terminal': 'terminal',
 };
@@ -331,6 +330,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
               />
             }
             preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+            promptsContent={<ConnectedPromptManager />}
             threadsContent={<ThreadsPanel />}
           />
         }
@@ -349,7 +349,6 @@ export function RootLayoutContent({
   contextExplorerPageContent,
   contextExplorerPanelContent,
   settingsPageContent,
-  promptsPageContent,
   gitPageContent,
   terminalPageContent,
   navigationItems,
@@ -441,15 +440,6 @@ export function RootLayoutContent({
                   />
                 </PanelLayoutProvider>
               </div>
-              {mountedTabs.has('prompts') ? (
-                <div
-                  aria-hidden={activeTab !== 'prompts'}
-                  className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
-                  data-testid="prompts-route"
-                >
-                  {promptsPageContent ?? null}
-                </div>
-              ) : null}
               {mountedTabs.has('settings') ? (
                 <div
                   aria-hidden={activeTab !== 'settings'}
