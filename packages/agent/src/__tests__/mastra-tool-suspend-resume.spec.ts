@@ -25,7 +25,8 @@ import { z } from 'zod';
 import type { PgliteDatabase, PgliteMastraMemoryOptions } from '../pglite-mastra-memory';
 import type { StreamChunk } from '../types';
 
-const { modelHolder } = vi.hoisted(() => ({
+const { modelHolder, delegationConfigSpy } = vi.hoisted(() => ({
+  delegationConfigSpy: vi.fn(),
   modelHolder: { current: undefined as LanguageModelV2 | undefined },
 }));
 
@@ -43,14 +44,51 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   };
 });
 
+// Spy on the delegation-config factory WITHOUT changing its behavior, so we can
+// prove the safety rails (caps + unknown-persona rejection) are wired into the
+// suspend/resume leg — a delegation on a resumed run must never run uncapped.
+vi.mock('../mastra/subagent-delegation', async (importActual) => {
+  const actual = await importActual<typeof import('../mastra/subagent-delegation')>();
+  return {
+    ...actual,
+    createDelegationConfig: (params: Parameters<typeof actual.createDelegationConfig>[0]) => {
+      delegationConfigSpy();
+      return actual.createDelegationConfig(params);
+    },
+  };
+});
+
 const { streamMastraAgent, streamMastraToolApprovalAction, streamMastraToolResumeAction } =
   await import('../mastra/agent-runtime');
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const { createSubmitPlanTool } = await import('../tools/submit-plan-tool');
 const { createAskUserTool } = await import('../tools/ask-user-tool');
 const { buildNativeToolRiskMap } = await import('@brainstrike/assistant-contract/tool-metadata');
+type AssistantPersonaDefinition =
+  import('@brainstrike/assistant-contract/personas').AssistantPersonaDefinition;
+
+function makeGrepTool() {
+  return createTool({
+    description: 'Search the workspace for a pattern.',
+    execute: () => Promise.resolve({ files: [] }),
+    id: 'brainstrike.grepSearch',
+    inputSchema: z.object({ pattern: z.string() }),
+    outputSchema: z.object({ files: z.array(z.string()) }),
+  });
+}
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
+
+// A minimal read-only persona whose single tool (grepSearch) is registered in
+// the run below, so the persona actually registers a delegation tool.
+const testPersona: AssistantPersonaDefinition = {
+  allowedToolIds: ['brainstrike.grepSearch'],
+  description: 'Explore the workspace and report findings.',
+  id: 'explore',
+  instructions: 'You are the Explorer subagent.',
+  label: 'Explorer',
+  maxSteps: 8,
+};
 
 function createTurnCountedToolCallModel(args: {
   toolName: string;
@@ -747,6 +785,68 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
       // find a suspended run for runId "...". ... invalid ...`).
       expect(message).toMatch(/snapshot|not.?found|resume|suspend/i);
     }
+
+    await database.close();
+  });
+
+  it('RESUME keeps the delegation safety rails: the resumed leg builds the per-run delegation config when personas are registered', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = {
+      resourceId: 'resource-resume-deleg',
+      threadId: 'thread-resume-deleg',
+    } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Thanks.',
+      input: JSON.stringify({ question: 'Which city?' }),
+      toolCallId: 'call-ask-deleg',
+      toolName: 'brainstrike_askUser',
+    });
+
+    const runOptions = {
+      memory,
+      personas: [testPersona],
+      runtime: {
+        apiKey: 'test-key',
+        memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+        provider: 'openai',
+      },
+      storage,
+      tools: {
+        'brainstrike.askUser': createAskUserTool(),
+        'brainstrike.grepSearch': makeGrepTool(),
+      },
+    } as const;
+
+    const askSuspend = findSuspendChunk(
+      await drainYielding(
+        await streamMastraAgent(
+          [{ id: 'u-resume-deleg', parts: [{ text: 'ask me', type: 'text' }], role: 'user' }],
+          runOptions
+        )
+      )
+    );
+    expect(askSuspend?.toolName).toBe('brainstrike.askUser');
+    // The initial leg built the delegation config (personas were registered).
+    expect(delegationConfigSpy).toHaveBeenCalled();
+
+    // Isolate the resume leg: only a resumed run that re-applies the rails
+    // re-invokes the factory. Without the fix the resume options omit the
+    // `delegation` spread and this spy is never called on resume.
+    delegationConfigSpy.mockClear();
+
+    await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: 'San Francisco',
+          runId: askSuspend?.runId ?? '',
+          toolCallId: askSuspend?.toolCallId ?? '',
+        },
+        runOptions
+      )
+    );
+    expect(delegationConfigSpy).toHaveBeenCalled();
 
     await database.close();
   });

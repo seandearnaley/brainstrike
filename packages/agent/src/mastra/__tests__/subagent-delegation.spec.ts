@@ -4,6 +4,7 @@ import type { DelegationStartContext } from '@mastra/core/agent';
 import { describe, expect, it } from 'vitest';
 import {
   createDelegationConfig,
+  createDelegationLifecycleTracker,
   MAX_CONCURRENT_DELEGATIONS,
   MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
@@ -118,6 +119,34 @@ describe('createDelegationConfig', () => {
     }
     // The (MAX+1)th start is rejected even though nothing is in flight.
     expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
+  });
+});
+
+describe('createDelegationLifecycleTracker', () => {
+  it('drains the metadata of a started-but-never-settled delegation (abort orphan)', () => {
+    const tracker = createDelegationLifecycleTracker();
+    tracker.started('delegation-1', { personaId: 'explore', toolName: 'agent-explore' });
+    tracker.started('delegation-2', { personaId: 'analyze', toolName: 'agent-analyze' });
+    // delegation-2 reached a terminal event; only delegation-1 is orphaned.
+    tracker.settled('delegation-2');
+
+    const orphans = tracker.drainInFlight();
+    expect(orphans).toEqual([{ personaId: 'explore', toolName: 'agent-explore' }]);
+  });
+
+  it('drains nothing when every started delegation settled', () => {
+    const tracker = createDelegationLifecycleTracker();
+    tracker.started('delegation-1', { personaId: 'explore', toolName: 'agent-explore' });
+    tracker.settled('delegation-1');
+    expect(tracker.drainInFlight()).toEqual([]);
+  });
+
+  it('drains each in-flight delegation exactly once', () => {
+    const tracker = createDelegationLifecycleTracker();
+    tracker.started('delegation-1', { personaId: 'explore', toolName: 'agent-explore' });
+    expect(tracker.drainInFlight()).toHaveLength(1);
+    // A second drain (e.g. the finally block after the abort branch) yields nothing.
+    expect(tracker.drainInFlight()).toEqual([]);
   });
 });
 

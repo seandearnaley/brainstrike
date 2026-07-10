@@ -14,7 +14,10 @@
  * post-gate map is empty is NOT registered (no useless delegation tool).
  */
 
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  type AssistantPersonaDefinition,
+  assertReadOnlyPersona,
+} from '@brainstrike/assistant-contract/personas';
 import { Agent, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import {
@@ -125,6 +128,12 @@ export function buildPersonaSubAgents(
   const personasById = new Map<string, AssistantPersonaDefinition>();
 
   for (const persona of params.personas) {
+    // Defense-in-depth: re-assert the read-only invariant at build time. The
+    // permission gate below is passthrough when `permissionSnapshot` is
+    // undefined (the user's `enforce:false` opt-out), so a hostile persona
+    // naming a mutation tool would otherwise keep it — this throws first.
+    assertReadOnlyPersona(persona);
+
     if (persona.model) {
       throw new PersonaModelPinningNotImplementedError(persona.id);
     }

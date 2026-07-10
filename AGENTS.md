@@ -493,8 +493,14 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `maxSteps` clamp (a model-supplied `maxSteps` can never exceed the cap),
   unknown-persona rejection, and `onDelegationComplete` logs child usage (the
   parent meter does NOT aggregate child tokens in v1). Passed per-call on
-  `streamOptions.delegation` in BOTH the initial-turn and approval-resume
-  iterators.
+  `streamOptions.delegation` in ALL THREE stream iterators — initial-turn,
+  approval-resume, AND suspend-resume (`createToolResumeIteratorFromRuntime`),
+  so an askUser pause→answer that then delegates keeps the caps. The closure is
+  rebuilt per leg, so the per-run cap is effectively per-leg (v1 tradeoff).
+  An in-flight delegation whose parent run is ABORTED mid-stream gets a terminal
+  `subagent.failed` (status `cancelled`) event via
+  `createDelegationLifecycleTracker` (drained on the generator's abort paths),
+  so a cancelled parent never leaves an orphaned `subagent.started`.
 - **Stream → run events (D9):** `processMastraStreamPart` (agent-runtime.ts)
   threads `runtime.delegationToolPersonas` (`agent-<key>` → personaId). A parent
   `tool-call`/`tool-result`/`tool-error` for a delegation tool ALSO emits
@@ -527,10 +533,16 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `parentToolCallId`, no-personas + plan-mode + local-provider skips pinned.
   Unit: `build-persona-subagents.spec.ts`, `subagent-delegation.spec.ts`.
 
+The SubagentCard renders per-child-tool rows from BOTH the tool part's persisted
+`subAgentToolResults` (authoritative on reload + at completion) AND, while the
+delegation is still running, LIVE `subagent.tool.*` run events from the current
+message (keyed by `parentToolCallId`); persisted rows supersede live rows by
+child `toolCallId`, so a running delegation shows its in-progress tool count
+instead of "Running · 0 tool calls".
+
 Follow-ups (out of scope for v1): nested approval UX + a `subagent` policy row
 (D13), persona model pinning (throws today), a preferences availability toggle,
-child input-budgeting (`messageFilter`), and the SubagentCard reload-time
-rehydration from persisted `subAgentToolResults`.
+and child input-budgeting (`messageFilter`).
 
 When changing this flow, update this section and the paired tests.
 

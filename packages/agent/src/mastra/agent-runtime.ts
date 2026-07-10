@@ -59,7 +59,12 @@ import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
-import { createDelegationConfig, shouldEnablePersonas } from './subagent-delegation';
+import {
+  createDelegationConfig,
+  createDelegationLifecycleTracker,
+  type DelegationLifecycleTracker,
+  shouldEnablePersonas,
+} from './subagent-delegation';
 import {
   mapMastraToolEvent,
   readMastraStreamPartString,
@@ -763,8 +768,22 @@ interface OutputOnlyToolEvent {
 }
 
 interface ToolLifecycleState {
+  delegationLifecycle: DelegationLifecycleTracker;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
+}
+
+/**
+ * Terminal `subagent.failed` (cancelled) chunks for every delegation still in
+ * flight when the parent run aborts — so a cancelled parent never leaves an
+ * orphaned `subagent.started` with no counterpart.
+ */
+function makeCancelledDelegationRunEventChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
+  return lifecycleState.delegationLifecycle
+    .drainInFlight()
+    .map((metadata) =>
+      makeRunEventChunk('subagent.failed', 'cancelled', 'Subagent cancelled', metadata)
+    );
 }
 
 function getToolEventPayload(toolEvent: StreamChunkTool): AssistantRunEventMetadata | undefined {
@@ -1169,6 +1188,56 @@ function mapGenericToolEvent(
   };
 }
 
+/** The subagent.* run event that mirrors a delegation tool-call/result/error. */
+function makeSubagentLifecycleChunk(
+  partType: 'tool-call' | 'tool-error' | 'tool-result',
+  metadata: AssistantRunEventMetadata
+): StreamChunk {
+  if (partType === 'tool-call') {
+    return makeRunEventChunk('subagent.started', 'running', 'Subagent started', metadata);
+  }
+  if (partType === 'tool-error') {
+    return makeRunEventChunk('subagent.failed', 'failed', 'Subagent failed', metadata);
+  }
+  return makeRunEventChunk('subagent.finished', 'completed', 'Subagent completed', metadata);
+}
+
+/**
+ * A delegation tool-call/result/error part: the generic tool event PLUS a
+ * mirrored subagent.* run event, while tracking the delegation's in-flight
+ * lifecycle so an aborted run can emit a terminal event for orphans.
+ */
+function mapToolLifecyclePart(
+  part: unknown,
+  toolNames: Map<string, string>,
+  lifecycleState: ToolLifecycleState,
+  partType: 'tool-call' | 'tool-error' | 'tool-result',
+  sanitizedNameMap: Map<string, string> | undefined,
+  delegationToolPersonas: ReadonlyMap<string, string>
+): ProcessStreamPartResult {
+  const delegation = resolveDelegationPersona(part, toolNames, delegationToolPersonas);
+  const generic = mapGenericToolEvent(part, toolNames, lifecycleState, partType, sanitizedNameMap);
+  if (!delegation) {
+    return generic;
+  }
+  const metadata: AssistantRunEventMetadata = {
+    personaId: delegation.personaId,
+    toolName: delegation.toolName,
+    ...(delegation.parentToolCallId ? { parentToolCallId: delegation.parentToolCallId } : {}),
+  };
+  if (delegation.parentToolCallId) {
+    if (partType === 'tool-call') {
+      lifecycleState.delegationLifecycle.started(delegation.parentToolCallId, metadata);
+    } else {
+      lifecycleState.delegationLifecycle.settled(delegation.parentToolCallId);
+    }
+  }
+  return {
+    chunks: [...generic.chunks, makeSubagentLifecycleChunk(partType, metadata)],
+    finished: false,
+  };
+}
+
 function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
@@ -1264,33 +1333,15 @@ function processMastraStreamPart(
     }
     case 'tool-call':
     case 'tool-result':
-    case 'tool-error': {
-      // A delegation lifecycle part ALSO emits a subagent.* run event alongside
-      // the generic tool event, so the existing timeline stays intact.
-      const delegation = resolveDelegationPersona(part, toolNames, delegationToolPersonas);
-      const generic = mapGenericToolEvent(
+    case 'tool-error':
+      return mapToolLifecyclePart(
         part,
         toolNames,
         lifecycleState,
         p.type,
-        sanitizedNameMap
+        sanitizedNameMap,
+        delegationToolPersonas
       );
-      if (!delegation) {
-        return generic;
-      }
-      const metadata: AssistantRunEventMetadata = {
-        personaId: delegation.personaId,
-        toolName: delegation.toolName,
-        ...(delegation.parentToolCallId ? { parentToolCallId: delegation.parentToolCallId } : {}),
-      };
-      const subagentChunk =
-        p.type === 'tool-call'
-          ? makeRunEventChunk('subagent.started', 'running', 'Subagent started', metadata)
-          : p.type === 'tool-error'
-            ? makeRunEventChunk('subagent.failed', 'failed', 'Subagent failed', metadata)
-            : makeRunEventChunk('subagent.finished', 'completed', 'Subagent completed', metadata);
-      return { chunks: [...generic.chunks, subagentChunk], finished: false };
-    }
     case 'tool-call-input-streaming-start':
     case 'tool-call-delta':
     case 'tool-call-input-streaming-end':
@@ -1642,6 +1693,7 @@ async function* streamChunksFromMastra({
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   const toolNames = new Map<string, string>();
   const lifecycleState: ToolLifecycleState = {
+    delegationLifecycle: createDelegationLifecycleTracker(),
     outputOnlyToolEvents: new Map(),
     terminalToolCallStates: new Map(),
   };
@@ -1668,34 +1720,46 @@ async function* streamChunksFromMastra({
         return;
       }
     }
-    if (!runtimeData?.signal?.aborted) {
-      logger.warn('mastra stream ended without finish event', {
-        code: 'mastra_agent_stream_missing_finish',
-      });
-      for (const chunk of makePendingToolOutputRunEventChunks(lifecycleState)) {
-        yield chunk;
-      }
-      yield makeSyntheticFinishChunk();
+    // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
+    // never leave a forever-"running" subagent.started). Otherwise finalize a
+    // missing-finish stream with pending tool output + a synthetic finish.
+    const endChunks = runtimeData?.signal?.aborted
+      ? makeCancelledDelegationRunEventChunks(lifecycleState)
+      : makeMissingFinishStreamChunks(lifecycleState);
+    for (const chunk of endChunks) {
+      yield chunk;
     }
   } catch (error) {
-    if (error instanceof StreamStalledError) {
-      if (runtimeData?.signal?.aborted) {
-        return;
-      }
-      for (const chunk of makeStreamStalledTermination(error, lifecycleState)) {
-        yield chunk;
-      }
-      return;
+    if (!(error instanceof StreamStalledError)) {
+      throw error;
     }
-    throw error;
+    const stalledChunks = runtimeData?.signal?.aborted
+      ? makeCancelledDelegationRunEventChunks(lifecycleState)
+      : makeStreamStalledTermination(error, lifecycleState);
+    for (const chunk of stalledChunks) {
+      yield chunk;
+    }
+    return;
   } finally {
-    if (runtimeData?.signal?.aborted) {
-      logger.info('mastra stream aborted', { code: 'mastra_agent_stream_aborted' });
-    } else {
-      logger.info('mastra stream finished', { code: 'mastra_agent_stream_finished' });
-    }
+    logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
     await runtime?.dispose();
   }
+}
+
+/** Post-loop chunks when a stream ends WITHOUT a finish event (not aborted). */
+function makeMissingFinishStreamChunks(lifecycleState: ToolLifecycleState): StreamChunk[] {
+  logger.warn('mastra stream ended without finish event', {
+    code: 'mastra_agent_stream_missing_finish',
+  });
+  return [...makePendingToolOutputRunEventChunks(lifecycleState), makeSyntheticFinishChunk()];
+}
+
+function logStreamOutcome(aborted: boolean): void {
+  if (aborted) {
+    logger.info('mastra stream aborted', { code: 'mastra_agent_stream_aborted' });
+    return;
+  }
+  logger.info('mastra stream finished', { code: 'mastra_agent_stream_finished' });
 }
 
 async function createStreamIteratorFromRuntime({
@@ -1989,6 +2053,12 @@ async function createToolResumeIteratorFromRuntime({
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      // Resume keeps the delegation rails so a resumed run (e.g. an askUser
+      // pause→answer that then delegates) still caps/rejects subagent
+      // delegations consistently with the initial + approval-resume iterators.
+      ...(runtime.personasById.size > 0
+        ? { delegation: createDelegationConfig({ logger, personasById: runtime.personasById }) }
+        : {}),
     };
 
     // resumeData is validated by Mastra against the suspended tool's resumeSchema.

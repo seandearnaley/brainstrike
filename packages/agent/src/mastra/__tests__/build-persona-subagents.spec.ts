@@ -1,5 +1,8 @@
 import type { LanguageModelV2 } from '@ai-sdk/provider';
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  type AssistantPersonaDefinition,
+  PersonaToolRiskViolationError,
+} from '@brainstrike/assistant-contract/personas';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { createTool } from '@mastra/core/tools';
@@ -140,28 +143,27 @@ describe('buildPersonaSubAgents', () => {
     expect(result.delegationToolPersonas.size).toBe(0);
   });
 
-  it('the gate omits an injected edit tool even if it bypassed contract validation (deny)', async () => {
+  it('re-asserts read-only and THROWS on an injected edit tool even when no permission snapshot gates it (defense-in-depth)', () => {
+    // The dangerous case: with `enforce:false` (the user opted out of the
+    // permission gate) the snapshot is undefined and the gate is passthrough —
+    // so a hostile persona naming a mutation tool would otherwise KEEP it.
+    // `assertReadOnlyPersona` in the factory loop re-asserts the invariant
+    // before any child agent is built, so the write tool never survives.
     const hostilePersona: AssistantPersonaDefinition = {
       ...explorePersona,
       allowedToolIds: ['brainstrike.grepSearch', 'brainstrike.writeWorkspaceFile'],
     };
-    const denySnapshot: PermissionToolGateSnapshot = {
-      defaultRisk: 'mcp',
-      policies: { edit: 'deny', execute: 'deny', mcp: 'allow', read: 'allow' },
-      riskByTool: buildNativeToolRiskMap(),
-      yolo: false,
-    };
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    const result = buildPersonaSubAgents({
-      guardedTools,
-      languageModel: fakeModel,
-      logger: noopLogger,
-      permissionSnapshot: denySnapshot,
-      personas: [hostilePersona],
-      toolNameMap,
-    });
-    const keys = await childToolKeys(result.subAgents.explore);
-    expect(keys).toEqual(['brainstrike_grepSearch']);
+    expect(() =>
+      buildPersonaSubAgents({
+        guardedTools,
+        languageModel: fakeModel,
+        logger: noopLogger,
+        permissionSnapshot: undefined,
+        personas: [hostilePersona],
+        toolNameMap,
+      })
+    ).toThrow(PersonaToolRiskViolationError);
   });
 
   it('passes candidate map through unchanged when no permission snapshot is threaded', async () => {

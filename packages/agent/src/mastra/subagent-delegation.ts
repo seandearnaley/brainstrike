@@ -16,6 +16,7 @@
  * child-usage surface).
  */
 
+import type { AssistantRunEventMetadata } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { ScopedLogger } from '@brainstrike/utils';
 import type { DelegationConfig } from '@mastra/core/agent';
@@ -41,6 +42,10 @@ function clampMaxSteps(cap: number, requested: number | undefined): number {
  * run's in-flight + total counters).
  */
 export function createDelegationConfig(params: CreateDelegationConfigParams): DelegationConfig {
+  // The closure is rebuilt per stream leg (initial / approval-resume / suspend-
+  // resume), so `total` counts delegations WITHIN a leg, not across resumes — the
+  // per-run cap is effectively a per-leg cap. Acceptable for v1: a leg is a single
+  // model continuation, and cross-leg accumulation would need durable counters.
   let inFlight = 0;
   let total = 0;
 
@@ -98,6 +103,40 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         modifiedMaxSteps: clampMaxSteps(persona.maxSteps, context.params.maxSteps),
         proceed: true,
       };
+    },
+  };
+}
+
+/**
+ * Tracks which delegations have emitted `subagent.started` but not yet a
+ * terminal `subagent.finished`/`.failed` run event, so the stream generator can
+ * emit a terminal `subagent.failed` (cancelled) event for any delegation still
+ * in flight when the parent run is aborted/cancelled — otherwise a cancelled
+ * parent leaves an orphaned `subagent.started` with no counterpart, and the
+ * reloaded thread renders a forever-"running" subagent.
+ */
+export interface DelegationLifecycleTracker {
+  /** Return AND clear the metadata of every still-in-flight delegation. */
+  drainInFlight(): AssistantRunEventMetadata[];
+  /** Clear a delegation that reached a terminal run event. */
+  settled(parentToolCallId: string): void;
+  /** Record a delegation keyed by its parent (delegation) toolCallId. */
+  started(parentToolCallId: string, metadata: AssistantRunEventMetadata): void;
+}
+
+export function createDelegationLifecycleTracker(): DelegationLifecycleTracker {
+  const inFlight = new Map<string, AssistantRunEventMetadata>();
+  return {
+    drainInFlight() {
+      const orphans = Array.from(inFlight.values());
+      inFlight.clear();
+      return orphans;
+    },
+    settled(parentToolCallId) {
+      inFlight.delete(parentToolCallId);
+    },
+    started(parentToolCallId, metadata) {
+      inFlight.set(parentToolCallId, metadata);
     },
   };
 }
