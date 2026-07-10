@@ -134,7 +134,7 @@ const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceCon
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
-const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
+export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;
 const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
@@ -351,7 +351,7 @@ async function resolveCanonicalWritablePath(absolutePath: string): Promise<strin
  * is containment-checked against the canonical root so a symlinked directory
  * cannot redirect the write outside the workspace.
  */
-async function resolveWorkspaceWritePath(
+export async function resolveWorkspaceWritePath(
   rootPath: string,
   workspacePath: string
 ): Promise<{
@@ -398,7 +398,7 @@ async function resolveWorkspaceWritePath(
  * escapes the root is already refused upstream by `resolveWorkspaceWritePath`
  * (realpath-then-containment), so it never reaches this helper.
  */
-async function resolveWorkspaceLeafMutationPath(
+export async function resolveWorkspaceLeafMutationPath(
   canonicalRootPath: string,
   requestedAbsolutePath: string,
   workspacePath: string
@@ -427,7 +427,7 @@ async function resolveWorkspaceLeafMutationPath(
  * with an `lstat` guard keeps every created/traversed segment a real directory
  * inside the root.
  */
-async function ensureContainedDirectory(
+export async function ensureContainedDirectory(
   canonicalRootPath: string,
   targetDir: string
 ): Promise<void> {
@@ -607,7 +607,7 @@ async function runReadWorkspaceFile(
  * pass `requestedPath` only for error messages. Returns whether the file was
  * newly created.
  */
-async function writeContainedFileBytes(args: {
+export async function writeContainedFileBytes(args: {
   resolved: { absolutePath: string; canonicalRootPath: string };
   buffer: Buffer;
   requestedPath: string;
@@ -685,7 +685,7 @@ function toFileRecordRelativePath(workspacePath: string): string {
  *  - RE-INDEX FAILED on a real DB (the transaction throws): ERROR log, since a
  *    resolvable DB that then fails to re-index is a genuine, debuggable problem.
  */
-async function triggerEditedFileReindex(args: {
+export async function triggerEditedFileReindex(args: {
   runtimeData: RuntimeData | undefined;
   rootId: string;
   workspacePath: string;
@@ -866,7 +866,11 @@ async function runStringReplaceWorkspaceFile(
  * in the SAME order and can never deadlock (classic lock-ordering). Same-key
  * pairs (a no-op self-rename) collapse to a single lock.
  */
-function withTwoFileLocks<T>(keyA: string, keyB: string, task: () => Promise<T>): Promise<T> {
+export function withTwoFileLocks<T>(
+  keyA: string,
+  keyB: string,
+  task: () => Promise<T>
+): Promise<T> {
   if (keyA === keyB) {
     return withFileLock(keyA, task);
   }
@@ -887,7 +891,7 @@ function withTwoFileLocks<T>(keyA: string, keyB: string, task: () => Promise<T>)
  * unavailable (as in the DB-less unit tests) — there is then nothing to keep
  * coherent.
  */
-async function triggerFileDeletionInvalidation(args: {
+export async function triggerFileDeletionInvalidation(args: {
   runtimeData: RuntimeData | undefined;
   rootId: string;
   workspacePath: string;
@@ -950,7 +954,7 @@ async function triggerFileDeletionInvalidation(args: {
  * there is nothing to re-index, so this returns before paying for the up-to-2MB
  * destination read.
  */
-async function triggerRenamedDestinationReindex(args: {
+export async function triggerRenamedDestinationReindex(args: {
   runtimeData: RuntimeData | undefined;
   rootId: string;
   rootPath: string;
