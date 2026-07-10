@@ -91,6 +91,11 @@
       "types": "./dist/tool-metadata.d.ts",
       "import": "./dist/tool-metadata.js",
       "require": "./dist/tool-metadata.js"
+    },
+    "./tool-suspend": {
+      "types": "./dist/tool-suspend.d.ts",
+      "import": "./dist/tool-suspend.js",
+      "require": "./dist/tool-suspend.js"
     }
   },
   "files": [

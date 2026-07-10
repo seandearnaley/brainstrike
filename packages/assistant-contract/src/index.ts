@@ -15,3 +15,4 @@ export * from './run-events.js';
 export * from './runtime-data.js';
 export * from './tool-approval.js';
 export * from './tool-metadata.js';
+export * from './tool-suspend.js';

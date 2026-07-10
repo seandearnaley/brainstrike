@@ -674,7 +674,80 @@ export const ManageTaskListInputSchema = z
 
 export type ManageTaskListInput = z.infer<typeof ManageTaskListInputSchema>;
 
+// ============================================================================
+// Submit Plan Tool Schema (suspending tool)
+// ============================================================================
+
+const SubmitPlanStepSchema = z
+  .object({
+    detail: z
+      .string()
+      .max(2000)
+      .optional()
+      .describe('Optional elaboration of the step (what/why/how).'),
+    title: z.string().min(1).max(500).describe('Short imperative step title.'),
+  })
+  .strict();
+
+export const SubmitPlanInputSchema = z
+  .object({
+    overview: z
+      .string()
+      .min(1)
+      .max(4000)
+      .describe('One or two paragraphs summarizing the plan and its goal.'),
+    risks: z
+      .string()
+      .max(4000)
+      .optional()
+      .describe('Optional risks, tradeoffs, or things that could go wrong.'),
+    steps: z.array(SubmitPlanStepSchema).min(1).max(30).describe('Ordered implementation steps.'),
+    title: z.string().min(1).max(300).describe('Short title for the plan.'),
+    verification: z
+      .string()
+      .max(4000)
+      .optional()
+      .describe('Optional how-to-verify: tests, checks, or acceptance criteria.'),
+  })
+  .strict();
+
+export type SubmitPlanInput = z.infer<typeof SubmitPlanInputSchema>;
+
+// ============================================================================
+// Ask User Tool Schema (suspending tool)
+// ============================================================================
+
+const AskUserOptionSchema = z
+  .object({
+    description: z
+      .string()
+      .max(1000)
+      .optional()
+      .describe('Optional context for the option (does not change the answer value).'),
+    label: z.string().min(1).max(500).describe('Option label; the value returned when chosen.'),
+  })
+  .strict();
+
+export const AskUserInputSchema = z
+  .object({
+    options: z
+      .array(AskUserOptionSchema)
+      .min(1)
+      .max(10)
+      .optional()
+      .describe('Optional choices. Omit for a free-text question.'),
+    question: z.string().min(1).max(2000).describe('The clear, specific question to ask the user.'),
+    selectionMode: z
+      .enum(['single_select', 'multi_select'])
+      .optional()
+      .describe('How many options the user may pick. Requires options; defaults to single_select.'),
+  })
+  .strict();
+
+export type AskUserInput = z.infer<typeof AskUserInputSchema>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
+  'brainstrike.askUser': AskUserInputSchema,
   'brainstrike.executeCommand': ExecuteCommandInputSchema,
   // Minimal BrainStrike native tools
   'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
@@ -688,6 +761,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
   'brainstrike.stringReplaceWorkspaceFile': StringReplaceWorkspaceFileInputSchema,
+  'brainstrike.submitPlan': SubmitPlanInputSchema,
   'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
   'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
   'brainstrike.webSearch': WebSearchInputSchema,

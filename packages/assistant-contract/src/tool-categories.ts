@@ -134,6 +134,19 @@ export interface NativeToolDefaultMetadata {
  * Tool IDs follow the namespace.toolName pattern.
  */
 export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
+  // Suspending tool: asks the user a question and PAUSES the run for their
+  // answer. `category:'action'` is the UI/load taxonomy, but the risk bucket is
+  // EXPLICITLY 'read' — its OWN suspension is the user gate, so the permission
+  // engine must NOT stack an approval prompt on top (that would double-gate it).
+  // It mutates no workspace/fs/persistent-user state. An `action` tool MUST
+  // declare riskCategory explicitly (tool-risk.ts throws otherwise).
+  'brainstrike.askUser': {
+    category: 'action',
+    estimatedTokens: 120,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   // Arbitrary shell execution — THE highest-risk native tool. There is NO
   // sandbox, so it is pinned to the 'execute' risk bucket and requires approval.
   // When the permission engine enforces a policy and `execute` is `'ask'` (the
@@ -229,6 +242,17 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: true,
     riskCategory: 'edit',
+  },
+  // Suspending tool: submits a structured plan and PAUSES for the user's
+  // approve/reject decision. Risk bucket EXPLICITLY 'read' for the same reason as
+  // askUser — its own suspension is the gate; do NOT let the permission engine
+  // double-gate it with an approval prompt.
+  'brainstrike.submitPlan': {
+    category: 'action',
+    estimatedTokens: 140,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
   },
   'brainstrike.updateWorkspaceContextSelection': {
     category: 'action',

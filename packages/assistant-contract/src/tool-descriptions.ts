@@ -1,4 +1,6 @@
 export const TOOL_DESCRIPTIONS: Record<string, string> = {
+  'brainstrike.askUser':
+    'Ask the user a clarifying question and WAIT for their answer (the run pauses). Provide options for a structured choice (selectionMode multi_select allows several), or omit options for a free-text question',
   'brainstrike.executeCommand':
     "Run an arbitrary shell command (tests, builds, linters, git, package managers). ARBITRARY EXECUTION with NO sandbox: the command can read or change anything the user can. By default the call suspends for the user's per-call approval before running; the user can let it run unprompted or deny it. Starts in the workspace root; the whole process tree is killed on timeout. Returns exitCode, a budget-bounded stdout/stderr tail, and durationMs",
   'brainstrike.findWorkspaceSymbol':
@@ -23,6 +25,8 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'Read a file from the selected workspace root with optional range and truncation',
   'brainstrike.stringReplaceWorkspaceFile':
     'Surgically edit a workspace file by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; workspace-scoped, requires approval)',
+  'brainstrike.submitPlan':
+    'Submit a structured implementation plan (title, overview, ordered steps, optional risks/verification) for the user to Approve or Reject. The run PAUSES until they respond; rejection feedback is returned so you can revise and resubmit',
   'brainstrike.updateWorkspaceContextSelection':
     'Bulk add, remove, or replace files selected in the workspace context explorer for reusable curated context',
   'brainstrike.updateWorkspaceTapestrySelections':
