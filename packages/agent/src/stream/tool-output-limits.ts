@@ -131,6 +131,10 @@ const TRIMMABLE_COLLECTION_KEYS = [
   'files',
   'chunks',
   'rows',
+  // A delegation (`agent-<key>`) tool result carries the child's raw
+  // `subAgentToolResults` list; trim it structurally when oversized rather than
+  // failing the whole delegation with a hard size error.
+  'subAgentToolResults',
 ] as const;
 
 function isPlainRecordOutput(value: unknown): value is Record<string, unknown> {

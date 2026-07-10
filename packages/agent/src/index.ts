@@ -18,6 +18,16 @@ export {
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
 export {
+  type AssistantPersonaDefinition,
+  type AssistantPersonaId,
+  type AssistantPersonaModelPin,
+  assertReadOnlyPersona,
+  BUILT_IN_PERSONAS,
+  delegationToolNameForPersona,
+  PersonaToolRiskViolationError,
+  SUBAGENT_DELEGATION_TOOL_PREFIX,
+} from '@brainstrike/assistant-contract/personas';
+export {
   type AssistantToolApprovalAction,
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
@@ -100,6 +110,11 @@ export {
   streamMastraToolResumeAction,
 } from './mastra/agent-runtime';
 export {
+  buildPersonaSubAgents,
+  PersonaModelPinningNotImplementedError,
+  type PersonaSubAgentBuildResult,
+} from './mastra/build-persona-subagents';
+export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
@@ -110,6 +125,12 @@ export {
   isAssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from './mastra/permission-policy-request';
+export {
+  createDelegationConfig,
+  MAX_CONCURRENT_DELEGATIONS,
+  MAX_DELEGATIONS_PER_RUN,
+  shouldEnablePersonas,
+} from './mastra/subagent-delegation';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';

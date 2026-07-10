@@ -62,6 +62,11 @@
       "import": "./dist/memory-settings.js",
       "require": "./dist/memory-settings.js"
     },
+    "./personas": {
+      "types": "./dist/personas.d.ts",
+      "import": "./dist/personas.js",
+      "require": "./dist/personas.js"
+    },
     "./provider-metadata": {
       "types": "./dist/provider-metadata.d.ts",
       "import": "./dist/provider-metadata.js",

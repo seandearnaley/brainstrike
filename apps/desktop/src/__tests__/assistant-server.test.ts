@@ -737,6 +737,46 @@ describe('assistant-server', () => {
       });
     });
 
+    it('threads the built-in subagent personas onto the runtime for a hosted provider', async () => {
+      const { BUILT_IN_PERSONAS, toAiSdkStyleStream, convertAssistantUiMessages } = await import(
+        '@brainstrike/agent'
+      );
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { content: 'Response', type: 'text' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(toAiSdkStyleStream).toHaveBeenCalledTimes(1);
+      const [, runtime] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      // Personas are set unconditionally on the runtime; the agent-side runtime
+      // is where the local-provider skip lives (documented, tested in the agent
+      // package), so the server always passes the built-ins.
+      expect(runtime.personas).toBe(BUILT_IN_PERSONAS);
+    });
+
     it('routes provider "local" through the injected llm-host manager (warmup + proxy client)', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');

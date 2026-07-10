@@ -4,6 +4,7 @@ import type {
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
+import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
@@ -137,6 +138,13 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * supplied. Cleared from the runtime before the agent is built. Agent-only.
    */
   permissionPolicyRequest?: AssistantPermissionPolicyRequest;
+  /**
+   * Built-in subagent personas the supervisor may delegate to (server-set,
+   * agent-only, mirrors `mastraTools`). Threaded through on both the initial turn
+   * and the approval-resume path so the rebuilt supervisor keeps its `agent-<id>`
+   * delegation tools. Skipped for the built-in local provider (agent-side, D10).
+   */
+  personas?: readonly AssistantPersonaDefinition[];
   /**
    * Provider-specific runtime options. Agent keeps the AI-SDK-bound shape
    * (`@ai-sdk/provider` SharedV2/V3ProviderOptions) — diverges from the

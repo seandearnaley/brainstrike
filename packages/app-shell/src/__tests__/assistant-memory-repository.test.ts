@@ -1008,6 +1008,111 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     ).toEqual(['event:event-1', 'tool-call', 'event:event-2', 'text', 'event:event-3']);
   });
 
+  it('hydrates a persisted agent-explore delegation with subAgentToolResults intact and weaves its subagent.* events into the group', async () => {
+    // Copied from the REAL persisted parent row shape pinned agent-side in
+    // mastra-subagent-execution.spec.ts: the delegation persists as a format-2
+    // `tool-invocation` part (toolName agent-explore, state 'result') whose
+    // inline result carries the child's subAgentToolResults. This is the
+    // "reloaded thread renders identically" leg.
+    const delegationResult = {
+      subAgentToolResults: [
+        {
+          args: { pattern: 'flag' },
+          isError: false,
+          result: { files: ['src/main.ts'] },
+          toolCallId: 'child-1',
+          toolName: 'brainstrike_grepSearch',
+        },
+      ],
+      text: 'Found the flag in src/main.ts.',
+    };
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            content: 'find the flag',
+            format: 2,
+            parts: [{ text: 'find the flag', type: 'text' }],
+          },
+          createdAt: new Date('2026-07-10T00:00:10Z'),
+          id: 'message-user',
+          role: 'user',
+        },
+        {
+          content: {
+            format: 2,
+            parts: [
+              {
+                ...makeToolInvocationPart({
+                  input: { prompt: 'find the flag' },
+                  result: delegationResult,
+                  toolCallId: 'delegation-1',
+                  toolName: 'agent-explore',
+                }),
+                createdAt: Date.parse('2026-07-10T00:00:15.000Z'),
+              },
+              { createdAt: Date.parse('2026-07-10T00:00:40.000Z'), text: 'Done.', type: 'text' },
+            ],
+          },
+          createdAt: new Date('2026-07-10T00:00:41Z'),
+          id: 'delegation-tail',
+          role: 'assistant',
+        },
+      ],
+      runEvents: [
+        {
+          id: 'sub-started',
+          kind: 'subagent.started',
+          label: 'Subagent started',
+          metadata: { parentToolCallId: 'delegation-1', personaId: 'explore' },
+          runId: 'run-1',
+          sequence: 1,
+          status: 'running',
+          timestamp: '2026-07-10T00:00:16.000Z',
+        },
+        {
+          id: 'sub-tool-done',
+          kind: 'subagent.tool.completed',
+          label: 'Subagent tool completed',
+          metadata: {
+            childToolName: 'brainstrike_grepSearch',
+            parentToolCallId: 'delegation-1',
+            personaId: 'explore',
+            toolCallId: 'child-1',
+          },
+          runId: 'run-1',
+          sequence: 2,
+          status: 'completed',
+          timestamp: '2026-07-10T00:00:20.000Z',
+        },
+      ],
+    });
+
+    const merged = history.messages.at(-1);
+    // The delegation tool-invocation survives merge/dedupe/re-timing with its
+    // inline subAgentToolResults intact (the SubagentCard reads them on reload).
+    const delegationCall = merged?.message.content.find(
+      (part) => part.type === 'tool-call' && part.toolName === 'agent-explore'
+    ) as { result?: { subAgentToolResults?: Array<{ toolCallId?: string }> } } | undefined;
+    expect(delegationCall?.result?.subAgentToolResults).toEqual(
+      delegationResult.subAgentToolResults
+    );
+
+    // The subagent.* events land in this group, ordered by timestamp between the
+    // delegation call and the final text.
+    const sequence = merged?.message.content.map((part) =>
+      part.type === 'data'
+        ? `event:${(part.data as AssistantRunEvent).id}`
+        : `${part.type}:${(part as { toolName?: string }).toolName ?? ''}`
+    );
+    expect(sequence).toEqual([
+      'tool-call:agent-explore',
+      'event:sub-started',
+      'event:sub-tool-done',
+      'text:',
+    ]);
+  });
+
   it('re-times untimed tool calls to their tool.started events instead of clumping at snapshot boundaries', async () => {
     // Mastra does not persist per-part createdAt for tool invocations, but
     // every execution emits a tool.started run event carrying the toolCallId.
@@ -1440,6 +1545,62 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         timestamp: '2026-04-24T12:00:00.000Z',
       },
     ]);
+  });
+
+  it('hydrates persisted subagent.* run events (requireRunEventKind accepts the new kinds)', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM brainstrike_assistant_run_events')) {
+        return {
+          rows: [
+            {
+              detail: null,
+              duration_ms: null,
+              id: 'sub-1',
+              kind: 'subagent.started',
+              label: 'Subagent started',
+              metadata: JSON.stringify({ parentToolCallId: 'delegation-1', personaId: 'explore' }),
+              occurred_at: '2026-04-24T12:00:01.000Z',
+              run_id: 'run-1',
+              sequence: 2,
+              status: 'running',
+            },
+            {
+              detail: null,
+              duration_ms: null,
+              id: 'sub-2',
+              kind: 'subagent.tool.completed',
+              label: 'Subagent tool completed',
+              metadata: JSON.stringify({
+                childToolName: 'brainstrike_grepSearch',
+                parentToolCallId: 'delegation-1',
+                personaId: 'explore',
+                toolCallId: 'child-1',
+              }),
+              occurred_at: '2026-04-24T12:00:02.000Z',
+              run_id: 'run-1',
+              sequence: 3,
+              status: 'completed',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    const events = await repository.listThreadRunEvents('thread-1', '/tmp/workspace-a');
+
+    expect(events.map((event) => event.kind)).toEqual([
+      'subagent.started',
+      'subagent.tool.completed',
+    ]);
+    expect(events[1]?.metadata).toEqual({
+      childToolName: 'brainstrike_grepSearch',
+      parentToolCallId: 'delegation-1',
+      personaId: 'explore',
+      toolCallId: 'child-1',
+    });
   });
 
   it('completes assistant run records without mutating thread metadata', async () => {

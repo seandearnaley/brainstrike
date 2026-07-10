@@ -17,6 +17,7 @@ import {
   AssistantInvalidJsonError,
   AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
+  BUILT_IN_PERSONAS,
   convertAssistantUiMessages,
   createEmbeddingProvider,
   createLocalHostEmbeddingModel,
@@ -1202,6 +1203,11 @@ async function initializeAgentStream(
       // registration time.
       mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
       mcpEnabled: true,
+      // Built-in subagent personas (delegation). Set unconditionally on the
+      // shared runtime so BOTH the initial turn and the approval/suspend-resume
+      // paths (which reuse this object) keep the `agent-<id>` delegation tools;
+      // the agent runtime skips them for the built-in local provider (D10).
+      personas: BUILT_IN_PERSONAS,
       signal, // ← AbortSignal passed here, used by stream iterator
       // Always set: an empty list yields no <current-task-list> block (the note
       // builder returns null), so no branch is needed here.

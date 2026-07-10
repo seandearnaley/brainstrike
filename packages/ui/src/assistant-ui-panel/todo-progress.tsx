@@ -9,6 +9,7 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import type { AssistantTaskStatus, ManageTaskListResult } from '@brainstrike/assistant-contract';
 import { cn } from '../lib/utils';
+import { SUBAGENT_TOOL_CARDS } from './subagent-tool-cards';
 import { ToolFallback } from './tool-fallback';
 
 const STATUS_GLYPH: Record<AssistantTaskStatus, string> = {
@@ -117,8 +118,9 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({ args, argsText,
  * `MessagePrimitive.PartByIndex` tool-components map for the chain-of-thought
  * fallback. The plan renders once as {@link TodoProgress}; this collapses the
  * raw `manageTaskList` cards (dotted + Mastra-sanitized tool names) to
- * {@link TaskListToolCard} so the plan is not shown twice, and falls back to
- * the shared {@link ToolFallback} for every other tool.
+ * {@link TaskListToolCard} so the plan is not shown twice, renders subagent
+ * delegation tools (`agent-<personaId>`) as a collapsed SubagentExecutionCard,
+ * and falls back to the shared {@link ToolFallback} for every other tool.
  */
 export const CHAIN_OF_THOUGHT_TOOL_COMPONENTS = {
   /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
@@ -126,6 +128,9 @@ export const CHAIN_OF_THOUGHT_TOOL_COMPONENTS = {
     // biome-ignore lint/style/useNamingConvention: Mastra-sanitized tool name key
     brainstrike_manageTaskList: TaskListToolCard,
     'brainstrike.manageTaskList': TaskListToolCard,
+    // Subagent delegation tools (`agent-<personaId>`) render as a collapsed
+    // SubagentExecutionCard, not a raw tool card.
+    ...SUBAGENT_TOOL_CARDS,
   },
   /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
   Fallback: ToolFallback,
