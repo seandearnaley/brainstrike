@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
-import { personaLabelForToolName, SubagentExecutionCard } from '../subagent-execution-card';
+import { SubagentExecutionCard } from '../subagent-execution-card';
+import { personaLabelForToolName } from '../subagent-persona-label';
 
 function renderCard(props: Record<string, unknown>) {
   const Comp = SubagentExecutionCard as unknown as (p: Record<string, unknown>) => ReactElement;

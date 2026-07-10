@@ -1,9 +1,5 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import {
-  BUILT_IN_PERSONAS,
-  SUBAGENT_DELEGATION_TOOL_PREFIX,
-} from '@brainstrike/assistant-contract/personas';
-import {
   AlertCircle,
   CheckCircle,
   ChevronDown,
@@ -13,6 +9,7 @@ import {
 } from 'lucide-react';
 import { type ComponentProps, type ReactElement, useMemo, useState } from 'react';
 import { Button } from '../button';
+import { personaLabelForToolName } from './subagent-persona-label';
 import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
 import { extractPrimaryArg } from './tool-fallback';
@@ -35,19 +32,6 @@ const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
   ),
   success: <CheckCircle aria-hidden="true" className="size-4 text-green-600 dark:text-green-500" />,
 };
-
-const PERSONA_LABELS = new Map<string, string>(
-  BUILT_IN_PERSONAS.map((persona) => [persona.id, persona.label])
-);
-
-/** Resolve the human label for an `agent-<id>` delegation tool name. */
-export function personaLabelForToolName(toolName: string): string {
-  if (!toolName.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX)) {
-    return toolName;
-  }
-  const personaId = toolName.slice(SUBAGENT_DELEGATION_TOOL_PREFIX.length);
-  return PERSONA_LABELS.get(personaId) ?? toolName;
-}
 
 interface SubAgentToolRow {
   argSummary: string | undefined;
