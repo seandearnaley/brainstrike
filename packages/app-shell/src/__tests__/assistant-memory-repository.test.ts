@@ -923,6 +923,40 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     expect(types).toEqual(['tool-call', 'text']);
   });
 
+  it('D3: normalizes a persisted sanitized native tool name back to its dotted display form', async () => {
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              // Mastra persists the REGISTERED (sanitized) native id; live turns
+              // display the dotted form. Hydration must match the live label.
+              makeToolInvocationPart({
+                input: { pattern: 'flag' },
+                result: { matches: [] },
+                toolCallId: 'call-grep',
+                toolName: 'brainstrike_grepSearch',
+              }),
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:16Z'),
+          id: 'message-assistant',
+          role: 'assistant',
+        },
+      ],
+    });
+
+    expect(history.messages[0]?.message.content).toContainEqual({
+      args: { pattern: 'flag' },
+      argsText: '{"pattern":"flag"}',
+      result: { matches: [] },
+      toolCallId: 'call-grep',
+      toolName: 'brainstrike.grepSearch',
+      type: 'tool-call',
+    });
+  });
+
   it('marks output-error invocations as failed tool calls with the error text as result', async () => {
     const history = await loadHistory({
       messages: [

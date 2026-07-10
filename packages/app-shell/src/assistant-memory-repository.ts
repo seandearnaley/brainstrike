@@ -18,6 +18,7 @@ import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
+import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { DbHandle } from '@brainstrike/db';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
 import type { SuspendedApprovalDiscovery } from './assistant-suspended-approvals';
@@ -782,7 +783,9 @@ function toHistoryToolCallPart(
     args,
     argsText,
     toolCallId,
-    toolName,
+    // Persisted native tool ids are sanitized (`brainstrike_grepSearch`); render
+    // the dotted form so a reloaded card matches the live label (D3).
+    toolName: denormalizeNativeToolName(toolName),
     type: 'tool-call',
     ...(hasInlineResult ? { result: record['result'] } : {}),
     ...(hasInlineResult || !persistedResult || !Object.hasOwn(persistedResult, 'result')
@@ -849,7 +852,9 @@ function toHistoryToolCallPartFromInvocation(
     args,
     argsText: stringifyArgsText(args),
     toolCallId,
-    toolName,
+    // Persisted native tool ids are sanitized (`brainstrike_grepSearch`); render
+    // the dotted form so a reloaded card matches the live label (D3).
+    toolName: denormalizeNativeToolName(toolName),
     type: 'tool-call',
     ...(hasResult
       ? { result: inv['result'] }

@@ -13,6 +13,7 @@ export {
 export {
   buildNativeToolRiskMap,
   compareByLoadPriority,
+  denormalizeNativeToolName,
   getCategoryInfo,
   getNativeToolDefaults,
   getTierInfo,
