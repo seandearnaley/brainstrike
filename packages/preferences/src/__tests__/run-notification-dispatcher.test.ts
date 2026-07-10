@@ -107,6 +107,38 @@ describe('createRunNotificationDispatcher', () => {
     expect(harness.notificationFactory).toHaveBeenCalledTimes(2);
   });
 
+  it('coalesces repeated approvals for the same run + tool call to one notification', () => {
+    const harness = createHarness();
+    harness.dispatcher.dispatch({
+      kind: 'toolApprovalRequired',
+      runId: 'run-1',
+      toolCallId: 'call-1',
+    });
+    harness.dispatcher.dispatch({
+      kind: 'toolApprovalRequired',
+      runId: 'run-1',
+      toolCallId: 'call-1',
+    });
+
+    expect(harness.notificationFactory).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies again for a distinct approval in the same run (different toolCallId)', () => {
+    const harness = createHarness();
+    harness.dispatcher.dispatch({
+      kind: 'toolApprovalRequired',
+      runId: 'run-1',
+      toolCallId: 'call-1',
+    });
+    harness.dispatcher.dispatch({
+      kind: 'toolApprovalRequired',
+      runId: 'run-1',
+      toolCallId: 'call-2',
+    });
+
+    expect(harness.notificationFactory).toHaveBeenCalledTimes(2);
+  });
+
   it('clicking the notification focuses the window', () => {
     const harness = createHarness();
     harness.dispatcher.dispatch({ kind: 'runFinished', runId: 'run-1' });
@@ -128,6 +160,7 @@ describe('createRunNotificationDispatcher', () => {
       messageText: 'the secret model output',
       runId: 'run-1',
       toolArgs: { apiKey: 'sk-should-never-appear' },
+      toolCallId: 'call-1',
     });
 
     const [call] = harness.constructed;
@@ -145,7 +178,11 @@ describe('createRunNotificationDispatcher', () => {
       threadTitle: 'Refactor plan',
     });
     harness.dispatcher.dispatch({ kind: 'runFailed', runId: 'run-2' });
-    harness.dispatcher.dispatch({ kind: 'toolApprovalRequired', runId: 'run-3' });
+    harness.dispatcher.dispatch({
+      kind: 'toolApprovalRequired',
+      runId: 'run-3',
+      toolCallId: 'call-1',
+    });
 
     expect(harness.constructed[0]?.title).toBe('Refactor plan');
     expect(harness.constructed[0]?.options?.body).toMatch(/finished/i);

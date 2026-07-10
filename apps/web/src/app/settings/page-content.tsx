@@ -15,6 +15,7 @@ import {
   LoggingSettingsSection,
   type LogSourceAdapter,
 } from '@brainstrike/preferences/settings/system/logging-settings-section';
+import { createNotificationSettingsCategory } from '@brainstrike/preferences/settings/system/notification-settings-category';
 import {
   createToolsSettingsCategory,
   type ToolDisplayMetadata,
@@ -24,7 +25,6 @@ import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createLocalRuntimeSettingsCategory,
-  createNotificationSettingsCategory,
   createPermissionSettingsCategory,
   createSearchIndexingSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,

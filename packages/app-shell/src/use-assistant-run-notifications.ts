@@ -57,22 +57,21 @@ export function useAssistantRunNotifications(): AssistantRunNotificationCallback
   return useMemo<AssistantRunNotificationCallbacks>(
     () => ({
       onRunFailed: (event) => {
-        // `runId` is optional on the wire type, but `emitAssistantRunEventSafely`
-        // never emits without one — a missing runId here means the event cannot
-        // be attributed to a run, so it is skipped rather than guessed at.
-        if (!event.runId) {
-          return;
-        }
-        dispatcherRef.current.dispatch({ kind: 'runFailed', runId: event.runId });
+        // Hosted turns carry a `runId`; web local-runtime events
+        // (`createLocalRunEvent`) carry only a per-event `id`. The event `id`
+        // is a stable, unique coalescing key — an honest fallback, never a
+        // fabricated runId that could collide across runs.
+        dispatcherRef.current.dispatch({ kind: 'runFailed', runId: event.runId ?? event.id });
       },
       onRunFinished: (event) => {
-        if (!event.runId) {
-          return;
-        }
-        dispatcherRef.current.dispatch({ kind: 'runFinished', runId: event.runId });
+        dispatcherRef.current.dispatch({ kind: 'runFinished', runId: event.runId ?? event.id });
       },
       onToolApprovalRequired: (request) => {
-        dispatcherRef.current.dispatch({ kind: 'toolApprovalRequired', runId: request.runId });
+        dispatcherRef.current.dispatch({
+          kind: 'toolApprovalRequired',
+          runId: request.runId,
+          toolCallId: request.toolCallId,
+        });
       },
     }),
     []

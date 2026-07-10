@@ -17,12 +17,26 @@ import type {
 } from './should-notify';
 import { shouldNotify } from './should-notify';
 
-export interface RunNotificationEvent {
-  readonly kind: NotificationEventKind;
+interface RunNotificationEventBase {
   readonly runId: string;
   /** Thread title only — never message content. Falls back to "Assistant". */
   readonly threadTitle?: string;
 }
+
+/**
+ * A tool-approval pause carries the `toolCallId` so a run that suspends for
+ * more than one distinct approval coalesces per approval, not per run — the
+ * `toolCallId` is required on this variant (no fallback), mirroring the UI
+ * bridge which always reports approvals by `runId:toolCallId`.
+ */
+export type RunNotificationEvent =
+  | (RunNotificationEventBase & {
+      readonly kind: Exclude<NotificationEventKind, 'toolApprovalRequired'>;
+    })
+  | (RunNotificationEventBase & {
+      readonly kind: 'toolApprovalRequired';
+      readonly toolCallId: string;
+    });
 
 /** Minimal surface of the DOM `Notification` instance the dispatcher needs. */
 export interface DispatchedNotificationHandle {
@@ -88,6 +102,11 @@ function defaultFocusWindow(): void {
 }
 
 function coalesceKey(event: RunNotificationEvent): string {
+  if (event.kind === 'toolApprovalRequired') {
+    // Per-approval, not per-run: a second distinct approval pause in the same
+    // run must still notify a backgrounded user.
+    return `${event.runId}:${event.kind}:${event.toolCallId}`;
+  }
   return `${event.runId}:${event.kind}`;
 }
 

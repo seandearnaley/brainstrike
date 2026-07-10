@@ -12,9 +12,11 @@ import { RunLifecycleNotificationBridge } from '../run-lifecycle-notifications';
 // import, so the mock is in place before `run-lifecycle-notifications`
 // (and its `@assistant-ui/react` import) is evaluated.
 let mockMessages: unknown[] = [];
+let mockIsLoading = false;
 vi.mock('@assistant-ui/react', () => ({
-  useAuiState: <T,>(selector: (state: { thread: { messages: unknown[] } }) => T) =>
-    selector({ thread: { messages: mockMessages } }),
+  useAuiState: <T,>(
+    selector: (state: { thread: { isLoading: boolean; messages: unknown[] } }) => T
+  ) => selector({ thread: { isLoading: mockIsLoading, messages: mockMessages } }),
 }));
 
 function runEventMessage(event: Record<string, unknown>) {
@@ -30,6 +32,7 @@ const ts = '2026-07-09T10:00:00.000Z';
 describe('useRunLifecycleNotifications hydration guard', () => {
   beforeEach(() => {
     mockMessages = [];
+    mockIsLoading = false;
   });
 
   it('does not replay callbacks for run.finished/run.failed/approval history already present on mount', () => {
@@ -66,6 +69,70 @@ describe('useRunLifecycleNotifications hydration guard', () => {
     expect(onRunFinished).not.toHaveBeenCalled();
     expect(onRunFailed).not.toHaveBeenCalled();
     expect(onToolApprovalRequired).not.toHaveBeenCalled();
+  });
+
+  it('does not replay when async history hydrates after an initially-empty mount', () => {
+    // Real race: opening an existing thread first renders with an EMPTY
+    // snapshot while the history adapter is still loading (isLoading=true).
+    // Seeding against that empty snapshot would mark the thread seeded, then
+    // treat the persisted run-event parts arriving on the next update as new.
+    mockMessages = [];
+    mockIsLoading = true;
+
+    const onRunFinished = vi.fn();
+    const onToolApprovalRequired = vi.fn();
+    const { rerender } = render(
+      <RunLifecycleNotificationBridge
+        onRunFinished={onRunFinished}
+        onToolApprovalRequired={onToolApprovalRequired}
+        threadKey="thread-1"
+      />
+    );
+    expect(onRunFinished).not.toHaveBeenCalled();
+
+    // History hydrates: persisted parts arrive and loading completes. These are
+    // historical, not live activity, so nothing must notify.
+    mockMessages = [
+      runEventMessage({
+        id: 'hist-1',
+        kind: 'run.finished',
+        label: 'Old run',
+        status: 'completed',
+        timestamp: ts,
+      }),
+      approvalMessage({ runId: 'run-1', toolCallId: 'call-1', toolName: 'brainstrike.editFile' }),
+    ];
+    mockIsLoading = false;
+    rerender(
+      <RunLifecycleNotificationBridge
+        onRunFinished={onRunFinished}
+        onToolApprovalRequired={onToolApprovalRequired}
+        threadKey="thread-1"
+      />
+    );
+    expect(onRunFinished).not.toHaveBeenCalled();
+    expect(onToolApprovalRequired).not.toHaveBeenCalled();
+
+    // A genuinely new run event after hydration still fires exactly once.
+    mockMessages = [
+      ...mockMessages,
+      runEventMessage({
+        id: 'live-1',
+        kind: 'run.finished',
+        label: 'Fresh run',
+        status: 'completed',
+        timestamp: ts,
+      }),
+    ];
+    rerender(
+      <RunLifecycleNotificationBridge
+        onRunFinished={onRunFinished}
+        onToolApprovalRequired={onToolApprovalRequired}
+        threadKey="thread-1"
+      />
+    );
+    expect(onRunFinished).toHaveBeenCalledTimes(1);
+    expect(onRunFinished.mock.calls[0]?.[0]).toMatchObject({ id: 'live-1' });
   });
 
   it('fires exactly once for a genuinely new run event arriving after mount', () => {

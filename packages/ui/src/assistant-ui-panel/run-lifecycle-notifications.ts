@@ -135,14 +135,18 @@ function serializeToolApprovalRequests(messages: readonly unknown[]): string {
  *
  * Hydration guard: reload hydration re-weaves EVERY historical run-event /
  * approval data part into `state.thread.messages` (see AGENTS.md "ASSISTANT
- * THREAD PERSISTENCE & RELOAD HYDRATION"), so the effect's first invocation
- * for a given thread always sees the full replayed history, not just brand
- * new activity. That first invocation seeds the "seen" sets from the
- * snapshot WITHOUT firing callbacks; only events that land in a later
- * invocation are genuinely new and notify. `threadKey` (the panel's
- * `threadKey` prop) marks thread switches so a later switch re-seeds against
- * the new thread's history instead of treating it as a replay of the
- * previous thread.
+ * THREAD PERSISTENCE & RELOAD HYDRATION"), so the seeded baseline must capture
+ * the full replayed history before any callback fires. The history adapter
+ * loads that history ASYNCHRONOUSLY — opening an existing thread first renders
+ * with an empty snapshot while `state.thread.isLoading` is true, then the
+ * persisted parts land on a later update. Seeding is therefore DEFERRED until
+ * `isLoading` is false: while loading we neither seed nor notify, so the
+ * hydrated history seeds the baseline (no replay) and only genuinely new
+ * activity after that notifies. A brand-new thread never loads history
+ * (`isLoading` stays false) and seeds an empty baseline immediately.
+ * `threadKey` (the panel's `threadKey` prop) marks thread switches so a later
+ * switch re-seeds against the new thread's history instead of treating it as a
+ * replay of the previous thread.
  */
 export function useRunLifecycleNotifications(
   callbacks: RunLifecycleNotificationCallbacks,
@@ -157,12 +161,18 @@ export function useRunLifecycleNotifications(
   const approvalRequestsJson = useAuiState((state) =>
     serializeToolApprovalRequests(state.thread.messages)
   );
+  const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
 
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const seededEventsThreadRef = useRef(false);
   const seededEventsThreadKeyRef = useRef<string | undefined>(threadKey);
   // biome-ignore lint/plugin: reports render-derived events to a parent callback (mirrors onUsage); must run in an effect, not render, since it has an external side effect.
   useEffect(() => {
+    if (isHistoryLoading) {
+      // History is still hydrating; defer seeding so the baseline captures the
+      // full replayed snapshot instead of an empty one.
+      return;
+    }
     const events = JSON.parse(terminalEventsJson) as AssistantRunEvent[];
     const isThreadSwitch =
       seededEventsThreadRef.current && seededEventsThreadKeyRef.current !== threadKey;
@@ -186,13 +196,16 @@ export function useRunLifecycleNotifications(
         callbacksRef.current.onRunFailed?.(event);
       }
     }
-  }, [terminalEventsJson, threadKey]);
+  }, [terminalEventsJson, threadKey, isHistoryLoading]);
 
   const seenApprovalKeysRef = useRef<Set<string>>(new Set());
   const seededApprovalsThreadRef = useRef(false);
   const seededApprovalsThreadKeyRef = useRef<string | undefined>(threadKey);
   // biome-ignore lint/plugin: same rationale as the run-event effect above.
   useEffect(() => {
+    if (isHistoryLoading) {
+      return;
+    }
     const requests = JSON.parse(approvalRequestsJson) as AssistantToolApprovalRequest[];
     const isThreadSwitch =
       seededApprovalsThreadRef.current && seededApprovalsThreadKeyRef.current !== threadKey;
@@ -212,7 +225,7 @@ export function useRunLifecycleNotifications(
       seenApprovalKeysRef.current.add(key);
       callbacksRef.current.onToolApprovalRequired?.(request);
     }
-  }, [approvalRequestsJson, threadKey]);
+  }, [approvalRequestsJson, threadKey, isHistoryLoading]);
 }
 
 /** Always-mounted, render-nothing bridge — see module doc for placement. */

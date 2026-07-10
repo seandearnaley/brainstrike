@@ -438,13 +438,19 @@ Layers:
    ONLY from the Settings toggle-on click (never on load), and the store
    never persists `masterEnabled: true` when the browser denies or has not
    granted permission. `run-notification-dispatcher.ts`
-   (`createRunNotificationDispatcher`) evaluates the gate and constructs (at
-   most once per `runId:kind`) a `Notification` with privacy-safe copy — the
-   input type carries only `runId`/`kind`/an optional `threadTitle`, never
-   message content or tool args — and wires `onclick` to `window.focus()`.
+   (`createRunNotificationDispatcher`) evaluates the gate and constructs a
+   `Notification` with privacy-safe copy. Coalescing key is `runId:kind` for
+   run finished/failed and `runId:kind:toolCallId` for `toolApprovalRequired`,
+   so a run that suspends for more than one distinct approval still alerts on
+   each. The input is a discriminated union carrying only `runId`/`kind`/an
+   optional `threadTitle` (plus a REQUIRED `toolCallId` on the approval
+   variant), never message content or tool args — and wires `onclick` to
+   `window.focus()`.
 3. **Settings UI** (`packages/preferences/src/settings/system/notification-settings-section.tsx`,
-   registered via `createNotificationSettingsCategory()` in both
-   `apps/web/src/app/settings/page-content.tsx` and
+   registered via `createNotificationSettingsCategory()` from its own
+   `notification-settings-category.tsx` — a non-component module, kept out of
+   `settings-page-content.tsx` so Fast Refresh preserves `SettingsPageContent`
+   state; imported in both `apps/web/src/app/settings/page-content.tsx` and
    `apps/desktop/src/renderer/components/settings/page-content.tsx`) —
    master + per-event toggles, surfaces a "blocked by your browser/OS"
    message when permission is denied/unsupported.
@@ -454,7 +460,10 @@ Layers:
    (`ASSISTANT_RUN_EVENT_DATA_NAME`) and tool-approval-required
    (`TOOL_APPROVAL_DATA_NAME`) data parts. `useRunLifecycleNotifications`
    reports each NEW one exactly once (deduped via refs) through THREE new
-   optional `AssistantUiPanelProps` callbacks
+   optional `AssistantUiPanelProps` callbacks — and DEFERS seeding its "seen"
+   baseline until `state.thread.isLoading` is false, so async history
+   hydration (opening/reloading an existing thread first renders an empty
+   snapshot) seeds the replayed history without firing stale notifications
    (`onRunFinished`/`onRunFailed`/`onToolApprovalRequired`) that thread the
    SAME 5 layers as `onUsage` (`AssistantUiPanel` → `LocalRuntimeChat`/
    `DataStreamRuntimeChat` → `ChatThreadUI`, which mounts
@@ -465,7 +474,11 @@ Layers:
    wired into `assistant-ui-panel-wrapper.tsx`) — the ONLY layer that reads
    live `document.hasFocus()`/`visibilityState` and owns a
    `createRunNotificationDispatcher` instance (stable for the panel's
-   lifetime, so per-run coalescing is meaningful). Desktop's hidden
+   lifetime, so per-run coalescing is meaningful). Hosted turns coalesce on
+   the wire `runId`; web local-runtime events carry no `runId`
+   (`createLocalRunEvent` assigns only a per-event `id`), so the hook falls
+   back to `event.id` — a stable, unique key, never a fabricated runId that
+   could collide across runs. Desktop's hidden
    embedding/llm hosts (`embedding-host-app.tsx`, `llm-host-app.tsx`) never
    import `AssistantUiPanel` at all, so they structurally can never notify —
    this hook only ever runs inside the visible assistant surface.
@@ -473,6 +486,7 @@ Layers:
 When changing this flow, update this section and the paired tests
 (`packages/preferences/src/__tests__/notification-*.test.ts(x)`,
 `packages/ui/src/assistant-ui-panel/__tests__/run-lifecycle-notifications.test.ts`,
+`packages/ui/src/assistant-ui-panel/__tests__/run-lifecycle-notifications-hydration.test.tsx`,
 `packages/app-shell/src/__tests__/use-assistant-run-notifications.test.ts`).
 
 ---

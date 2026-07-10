@@ -111,19 +111,48 @@ describe('useAssistantRunNotifications', () => {
     expect(serialized).not.toContain('should-not-leak');
   });
 
-  it('ignores a run event with no runId (cannot be attributed to a run)', () => {
+  it('notifies a local run event that has no runId, coalescing on the event id', () => {
+    // Web local-runtime events carry no runId (createLocalRunEvent assigns only
+    // an event id). They must still notify; the stable event id is the honest
+    // coalescing fallback (never a fabricated runId that could collide).
+    const { NotificationMock } = stubNotification();
+    useNotificationPreferencesStore.getState().setMasterEnabled(true);
+
+    const { result } = renderHook(() => useAssistantRunNotifications());
+    const localEvent = {
+      id: 'local-run-event-abc',
+      kind: 'run.finished' as const,
+      label: 'Done',
+      status: 'completed' as const,
+      timestamp: '2026-07-09T00:00:00.000Z',
+    };
+    result.current.onRunFinished(localEvent);
+    // A re-render/replay of the SAME local event must coalesce (event id key).
+    result.current.onRunFinished(localEvent);
+
+    expect(NotificationMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies distinct local run events (different event ids) without collapsing', () => {
     const { NotificationMock } = stubNotification();
     useNotificationPreferencesStore.getState().setMasterEnabled(true);
 
     const { result } = renderHook(() => useAssistantRunNotifications());
     result.current.onRunFinished({
-      id: 'e1',
+      id: 'local-run-event-1',
       kind: 'run.finished',
       label: 'Done',
       status: 'completed',
       timestamp: '2026-07-09T00:00:00.000Z',
     });
+    result.current.onRunFailed({
+      id: 'local-run-event-2',
+      kind: 'run.failed',
+      label: 'Failed',
+      status: 'failed',
+      timestamp: '2026-07-09T00:00:00.000Z',
+    });
 
-    expect(NotificationMock).not.toHaveBeenCalled();
+    expect(NotificationMock).toHaveBeenCalledTimes(2);
   });
 });
