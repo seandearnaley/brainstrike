@@ -176,4 +176,59 @@ describe('PromptItemRepository', () => {
       /prompt item "missing" was not found/i
     );
   });
+
+  it('imports legacy snapshots transactionally and rejects divergent reruns', async () => {
+    const snapshot = {
+      items: [
+        {
+          content: 'Current prompt content',
+          createdAt: new Date('2025-01-01T10:00:00.000Z'),
+          id: 'legacy-prompt',
+          isFavorite: true,
+          kind: 'prompt' as const,
+          modelSettings: { model: 'gpt-4.1', temperature: 0.4 },
+          rating: 4,
+          revisions: [
+            {
+              content: 'Original prompt content',
+              createdAt: new Date('2024-12-30T10:00:00.000Z'),
+              id: 'legacy-revision',
+              modelSettings: { model: 'gpt-4.1', temperature: 0.2 },
+              note: 'Original',
+              title: 'Legacy research prompt',
+            },
+          ],
+          sourceUrl: 'https://example.com/source',
+          tags: ['legacy', 'Research'],
+          title: 'Legacy research prompt',
+          updatedAt: new Date('2025-01-02T10:00:00.000Z'),
+        },
+      ],
+    };
+
+    await repository.importSnapshot(snapshot);
+    await repository.importSnapshot(snapshot);
+
+    expect(await repository.findById('legacy-prompt')).toMatchObject({
+      content: 'Current prompt content',
+      embeddingStatus: 'pending',
+      isFavorite: true,
+      rating: 4,
+      revision: 2,
+      tags: ['legacy', 'research'],
+    });
+    expect(await repository.listRevisions('legacy-prompt')).toEqual([
+      expect.objectContaining({
+        content: 'Original prompt content',
+        id: 'legacy-revision',
+        revision: 1,
+      }),
+    ]);
+
+    await expect(
+      repository.importSnapshot({
+        items: [{ ...snapshot.items[0], content: 'Divergent local content' }],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+  });
 });

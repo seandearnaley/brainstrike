@@ -1,11 +1,14 @@
 import {
   type CreatePromptItemInput,
   derivePromptItemTitle,
+  type ImportPromptItem,
+  type ImportPromptItemRevision,
   normalizePromptItemTags,
   type PromptEmbeddingProfile,
   type PromptItem,
   type PromptItemEmbeddingStatus,
   type PromptItemFilter,
+  type PromptItemImportSnapshot,
   type PromptItemKind,
   type PromptItemRevision,
   type PromptItemSimilarityOptions,
@@ -17,6 +20,7 @@ import {
 
 export interface PromptItemDatabase {
   query: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  transaction?: <T>(fn: (tx: PromptItemDatabase) => Promise<T>) => Promise<T>;
 }
 
 interface PromptItemRow {
@@ -220,6 +224,155 @@ function toJson(value: Record<string, unknown> | null | undefined): string | nul
   return value ? JSON.stringify(value) : null;
 }
 
+function assertValidImportDate(date: Date, field: string): void {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    throw new Error(`Legacy prompt import contains an invalid ${field} timestamp.`);
+  }
+}
+
+function comparable(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+  if (Array.isArray(value)) {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'object') {
+    return JSON.stringify(
+      Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
+          left.localeCompare(right)
+        )
+      )
+    );
+  }
+  return JSON.stringify(value);
+}
+
+function sortAndValidateImportedRevisions(item: ImportPromptItem): ImportPromptItemRevision[] {
+  const sorted = [...item.revisions].sort(
+    (left, right) => left.createdAt.getTime() - right.createdAt.getTime()
+  );
+  sorted.forEach((revision) => {
+    requireContent(revision.content);
+    assertValidImportDate(revision.createdAt, 'revision.createdAt');
+  });
+  return sorted;
+}
+
+function importedItemMatches(
+  existing: PromptItem,
+  existingRevisions: readonly PromptItemRevision[],
+  item: ImportPromptItem,
+  normalizedTags: readonly string[],
+  normalizedTitle: string,
+  sortedRevisions: readonly ImportPromptItemRevision[]
+): boolean {
+  return (
+    existing.content === item.content &&
+    existing.title === normalizedTitle &&
+    existing.kind === item.kind &&
+    existing.isFavorite === item.isFavorite &&
+    comparable(existing.tags) === comparable(normalizedTags) &&
+    comparable(existing.modelSettings) === comparable(item.modelSettings) &&
+    existing.modelKey === (item.modelKey?.trim() || null) &&
+    existing.sourceUrl === (item.sourceUrl?.trim() || null) &&
+    existing.rating === (item.rating ?? null) &&
+    comparable(existingRevisions.map((revision) => revision.id).reverse()) ===
+      comparable(sortedRevisions.map((revision) => revision.id))
+  );
+}
+
+async function insertImportedItem(
+  tx: PromptItemDatabase,
+  item: ImportPromptItem,
+  normalizedTags: readonly string[],
+  normalizedTitle: string,
+  sortedRevisions: readonly ImportPromptItemRevision[]
+): Promise<void> {
+  await tx.query(
+    `INSERT INTO prompt_items (
+       id, kind, title, content, description, tags, is_favorite,
+       source_url, rating, model_key, model_settings, revision,
+       created_at, updated_at
+     ) VALUES (
+       $1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10,
+       $11::jsonb, $12, $13, $14
+     )`,
+    [
+      item.id,
+      item.kind,
+      normalizedTitle,
+      item.content,
+      item.description?.trim() || null,
+      JSON.stringify(normalizedTags),
+      item.isFavorite,
+      item.sourceUrl?.trim() || null,
+      item.rating ?? null,
+      item.modelKey?.trim() || null,
+      toJson(item.modelSettings),
+      sortedRevisions.length + 1,
+      item.createdAt,
+      item.updatedAt,
+    ]
+  );
+
+  for (const [index, revision] of sortedRevisions.entries()) {
+    await tx.query(
+      `INSERT INTO prompt_item_revisions (
+         id, prompt_item_id, revision, title, content, description,
+         tags, model_key, model_settings, note, created_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10, $11
+       )`,
+      [
+        revision.id,
+        item.id,
+        index + 1,
+        normalizeTitle(revision.title, revision.content),
+        revision.content,
+        item.description?.trim() || null,
+        JSON.stringify(normalizedTags),
+        revision.modelKey?.trim() || null,
+        toJson(revision.modelSettings),
+        revision.note?.trim() || null,
+        revision.createdAt,
+      ]
+    );
+  }
+}
+
+async function importSnapshotItem(
+  tx: PromptItemDatabase,
+  repository: PromptItemRepository,
+  item: ImportPromptItem
+): Promise<void> {
+  requireContent(item.content);
+  assertValidImportDate(item.createdAt, 'createdAt');
+  assertValidImportDate(item.updatedAt, 'updatedAt');
+  const normalizedTags = normalizePromptItemTags(item.tags);
+  const normalizedTitle = normalizeTitle(item.title, item.content);
+  const sortedRevisions = sortAndValidateImportedRevisions(item);
+  const existing = await repository.findById(item.id);
+  if (!existing) {
+    await insertImportedItem(tx, item, normalizedTags, normalizedTitle, sortedRevisions);
+    return;
+  }
+  const existingRevisions = await repository.listRevisions(item.id);
+  if (
+    !importedItemMatches(
+      existing,
+      existingRevisions,
+      item,
+      normalizedTags,
+      normalizedTitle,
+      sortedRevisions
+    )
+  ) {
+    throw new Error(`Legacy prompt "${item.id}" conflicts with an existing database record.`);
+  }
+}
+
 function toVectorLiteral(embedding: readonly number[], expectedDimensions: number): string {
   if (embedding.length !== expectedDimensions) {
     throw new Error(
@@ -290,6 +443,18 @@ export class PromptItemRepository {
       throw new Error(`Failed to create prompt item "${id}".`);
     }
     return mapPromptItem(row);
+  }
+
+  async importSnapshot(snapshot: PromptItemImportSnapshot): Promise<void> {
+    if (!this.db.transaction) {
+      throw new Error('Legacy prompt import requires an atomic database transaction.');
+    }
+    await this.db.transaction(async (tx) => {
+      const transactionalRepository = new PromptItemRepository(tx);
+      for (const item of snapshot.items) {
+        await importSnapshotItem(tx, transactionalRepository, item);
+      }
+    });
   }
 
   async findById(id: string): Promise<PromptItem | null> {
