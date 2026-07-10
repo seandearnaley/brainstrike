@@ -85,11 +85,10 @@ import {
   type SlashCommand,
   toSlashCommandAdapterOptions,
 } from './slash-commands';
-import { TaskListToolCard, TodoProgress } from './todo-progress';
+import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { runEventsSpanMs, summarizeToolActivity } from './tool-activity';
 import { ToolDurationProvider } from './tool-duration-context';
 import { collectToolDurations } from './tool-durations';
-import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
@@ -532,19 +531,7 @@ const LocalChainOfThought = () => {
         components={{
           /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
           Reasoning: collapsed ? HiddenReasoningPart : LocalReasoningPart,
-          tools: {
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
-            by_name: {
-              // The plan renders once as <TodoProgress>; collapse the raw
-              // manageTaskList cards to a compact expander so the plan is not
-              // shown twice (dotted + Mastra-sanitized tool names).
-              // biome-ignore lint/style/useNamingConvention: Mastra-sanitized tool name key
-              brainstrike_manageTaskList: TaskListToolCard,
-              'brainstrike.manageTaskList': TaskListToolCard,
-            },
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
-            Fallback: ToolFallback,
-          },
+          tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS,
         }}
         index={index}
       />
