@@ -14,10 +14,13 @@ import type {
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
+import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import type { PgliteDatabase } from '../pglite-mastra-memory';
 import type { StreamChunk } from '../types';
 
 const { modelHolder } = vi.hoisted(() => ({
@@ -39,6 +42,28 @@ vi.mock('../providers/provider-factory', async (importActual) => {
 });
 
 const { streamMastraAgent, createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
+
+const OM_DISABLED_MEMORY_SETTINGS = {
+  ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  observationalMemory: {
+    ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+    enabled: false,
+  },
+};
+
+interface PersistedMessageRow {
+  content: string | { parts?: Record<string, unknown>[] };
+  id: string;
+  resourceId: string;
+  role: string;
+  thread_id: string;
+}
+
+function parsePersistedParts(row: PersistedMessageRow): Record<string, unknown>[] {
+  const content = typeof row.content === 'string' ? JSON.parse(row.content) : row.content;
+  return Array.isArray(content?.parts) ? (content.parts as Record<string, unknown>[]) : [];
+}
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
@@ -304,4 +329,83 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     expect(runtime.delegationToolPersonas.size).toBe(0);
     await runtime.dispose();
   });
+});
+
+describe('mastra subagent delegation persistence (real PGlite memory)', () => {
+  let database: PGlite;
+
+  beforeEach(() => {
+    database = new PGlite();
+    modelHolder.current = undefined;
+  });
+
+  afterEach(async () => {
+    await database.close();
+  });
+
+  it('persists the delegation as a tool-invocation part with inline subAgentToolResults; child rows live under a suffixed thread', async () => {
+    const childCallId = 'child-call-persist';
+    const parentThreadId = 'thread-supervisor-1';
+    const resourceId = 'resource-supervisor-test';
+    modelHolder.current = createSupervisorModel(childCallId);
+    const { memory } = await createPgliteMastraMemory({
+      database: database as unknown as PgliteDatabase,
+      memorySettings: OM_DISABLED_MEMORY_SETTINGS,
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+      {
+        memory,
+        personas: [testPersona],
+        runtime: {
+          apiKey: 'test-key',
+          memory: {
+            memorySettings: OM_DISABLED_MEMORY_SETTINGS,
+            resourceId,
+            threadId: parentThreadId,
+          },
+          provider: 'openai',
+        },
+        tools: { 'brainstrike.grepSearch': makeChildTool(vi.fn()) },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // Drain the stream so Mastra finalizes persistence.
+    }
+
+    const allRows = (
+      await database.query(
+        'SELECT id, role, content, thread_id, "resourceId" FROM mastra_messages ORDER BY "createdAt" ASC'
+      )
+    ).rows as PersistedMessageRow[];
+
+    // Parent thread: the delegation persists as a Mastra v2 tool-invocation
+    // part (toolName agent-explore) whose inline result carries the child's
+    // subAgentToolResults — the empirical pin of §2.4/D11a.
+    const parentRows = allRows.filter((row) => row.thread_id === parentThreadId);
+    const parentParts = parentRows.flatMap(parsePersistedParts);
+    const delegationPart = parentParts.find(
+      (part) =>
+        part['type'] === 'tool-invocation' &&
+        (part['toolInvocation'] as { toolName?: string } | undefined)?.toolName === 'agent-explore'
+    );
+    expect(delegationPart).toBeDefined();
+    const invocation = delegationPart?.['toolInvocation'] as {
+      result?: { subAgentToolResults?: Array<{ toolCallId?: string }> };
+      state?: string;
+    };
+    expect(invocation?.state).toBe('result');
+    const persistedSubResults = invocation?.result?.subAgentToolResults ?? [];
+    expect(persistedSubResults.some((entry) => entry.toolCallId === childCallId)).toBe(true);
+
+    // Child rows never pollute the parent thread; they live under a delegation
+    // thread prefixed `${parentThreadId}-` with resourceId `${resourceId}-explore`.
+    const childRows = allRows.filter((row) => row.thread_id !== parentThreadId);
+    expect(childRows.length).toBeGreaterThan(0);
+    for (const row of childRows) {
+      expect(row.thread_id.startsWith(`${parentThreadId}-`)).toBe(true);
+      expect(row.resourceId).toBe(`${resourceId}-explore`);
+    }
+  }, 30_000);
 });

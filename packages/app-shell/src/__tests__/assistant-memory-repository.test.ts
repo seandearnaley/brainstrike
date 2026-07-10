@@ -1442,6 +1442,62 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     ]);
   });
 
+  it('hydrates persisted subagent.* run events (requireRunEventKind accepts the new kinds)', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM brainstrike_assistant_run_events')) {
+        return {
+          rows: [
+            {
+              detail: null,
+              duration_ms: null,
+              id: 'sub-1',
+              kind: 'subagent.started',
+              label: 'Subagent started',
+              metadata: JSON.stringify({ parentToolCallId: 'delegation-1', personaId: 'explore' }),
+              occurred_at: '2026-04-24T12:00:01.000Z',
+              run_id: 'run-1',
+              sequence: 2,
+              status: 'running',
+            },
+            {
+              detail: null,
+              duration_ms: null,
+              id: 'sub-2',
+              kind: 'subagent.tool.completed',
+              label: 'Subagent tool completed',
+              metadata: JSON.stringify({
+                childToolName: 'brainstrike_grepSearch',
+                parentToolCallId: 'delegation-1',
+                personaId: 'explore',
+                toolCallId: 'child-1',
+              }),
+              occurred_at: '2026-04-24T12:00:02.000Z',
+              run_id: 'run-1',
+              sequence: 3,
+              status: 'completed',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    const events = await repository.listThreadRunEvents('thread-1', '/tmp/workspace-a');
+
+    expect(events.map((event) => event.kind)).toEqual([
+      'subagent.started',
+      'subagent.tool.completed',
+    ]);
+    expect(events[1]?.metadata).toEqual({
+      childToolName: 'brainstrike_grepSearch',
+      parentToolCallId: 'delegation-1',
+      personaId: 'explore',
+      toolCallId: 'child-1',
+    });
+  });
+
   it('completes assistant run records without mutating thread metadata', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
