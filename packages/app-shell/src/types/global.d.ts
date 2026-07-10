@@ -1,4 +1,8 @@
 import type {
+  AssistantCheckpointRevertResult,
+  AssistantCheckpointRevertRunResult,
+} from '@brainstrike/assistant-contract';
+import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
@@ -8,6 +12,20 @@ declare global {
   interface Window {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
+    };
+    /**
+     * Edit checkpoint (undo of agent file edits) revert bridge. Desktop only —
+     * web never defines it (no assistant server / main process). Invoke-only.
+     */
+    assistantCheckpoints?: {
+      revertEntry?: (
+        id: string,
+        options?: { force?: boolean }
+      ) => Promise<AssistantCheckpointRevertResult>;
+      revertRun?: (
+        runId: string,
+        options?: { force?: boolean }
+      ) => Promise<AssistantCheckpointRevertRunResult>;
     };
     mcp?: {
       getConfig?: () => Promise<

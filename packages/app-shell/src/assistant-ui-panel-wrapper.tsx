@@ -17,6 +17,11 @@ import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import {
+  buildHookTrustRequest,
+  hookTrustSelectors,
+  useHookTrustStore,
+} from '@brainstrike/preferences/stores/hook-trust-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
@@ -36,12 +41,14 @@ import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
   AssistantUiPanel,
+  EditCheckpointProvider,
   hasDesktopLlmHost,
   useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {
   type CumulativeUsageDisplay,
   type ModelPricingResolver,
@@ -91,6 +98,7 @@ import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
+import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useFileMentions } from './use-file-mentions';
@@ -809,6 +817,29 @@ export function AssistantUiPanelWrapper({
   // override), never the focused root path. See assistant-memory-resource.ts.
   const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
+  const composerDraftCommand = useAssistantComposerCommandStore((state) =>
+    selectedMemoryThreadId ? state.commandsByThreadId[selectedMemoryThreadId]?.[0] : undefined
+  );
+  const acknowledgeComposerCommand = useAssistantComposerCommandStore((state) => state.acknowledge);
+  const recordComposerDraft = useAssistantComposerCommandStore((state) => state.recordDraft);
+  const handleComposerCommandApplied = useCallback(
+    (commandId: string) => {
+      if (!composerDraftCommand || composerDraftCommand.id !== commandId) {
+        throw new Error(`Cannot acknowledge unknown composer command: ${commandId}`);
+      }
+      acknowledgeComposerCommand(composerDraftCommand.threadId, commandId);
+    },
+    [acknowledgeComposerCommand, composerDraftCommand]
+  );
+  const handleComposerTextChange = useCallback(
+    (text: string) => {
+      if (!selectedMemoryThreadId) {
+        throw new Error('Cannot record composer text without an active assistant thread.');
+      }
+      recordComposerDraft(selectedMemoryThreadId, text);
+    },
+    [recordComposerDraft, selectedMemoryThreadId]
+  );
   const memoryLoadState = loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const };
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
   const hostedMemoryBackendAvailable =
@@ -851,6 +882,18 @@ export function AssistantUiPanelWrapper({
     permissionSessionGrants,
     permissionPerToolOverrides,
   ]);
+
+  // Hook-trust attestation (desktop hooks). Subscribe to the persisted approvals
+  // so the wire snapshot stays in sync; the server independently re-hashes disk.
+  // Scoped to the desktop data-stream transport (web has no hook runner). The
+  // renderer never runs hooks — it only ATTESTS approved hashes.
+  const hookApprovalsByRootId = useHookTrustStore(hookTrustSelectors.approvalsByRootId);
+  const hookTrustRequest = useMemo(() => {
+    if (localChatTransport !== 'data-stream') {
+      return;
+    }
+    return buildHookTrustRequest({ approvalsByRootId: hookApprovalsByRootId });
+  }, [localChatTransport, hookApprovalsByRootId]);
 
   // Plan mode (OPT-IN, persisted). Desktop-hosted-first: only the data-stream
   // transport reaches the assistant server that enforces the plan-mode tool gate
@@ -898,6 +941,7 @@ export function AssistantUiPanelWrapper({
   const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
     agentLoopSettings,
     enabledNativeToolIds,
+    hookTrustRequest,
     hostedMemoryBackendAvailable,
     memoryOptions: assistantMemoryOptions,
     memoryResourceId,
@@ -1401,48 +1445,61 @@ export function AssistantUiPanelWrapper({
   // entirely inside the hook.
   const { onRunFailed, onRunFinished, onToolApprovalRequired } = useAssistantRunNotifications();
 
+  // Edit checkpoint (undo of agent file edits) context for the mutation tool
+  // cards. Null on web / when no thread is selected (capability gating).
+  const editCheckpoints = useEditCheckpoints(assistantThreadRepository, selectedMemoryThreadId);
+
   return (
-    <AssistantUiPanel
-      completePreparedRequest={completePreparedRequest}
-      contextWindow={selectedModelBudgetDef?.contextWindow}
-      {...(cumulativeUsage ? { cumulativeUsage } : {})}
-      effectiveInputBudget={effectiveInputBudget}
-      omSegment={omSegment}
-      onProviderSettingsChange={handleProviderSettingsChange}
-      onRunFailed={onRunFailed}
-      onRunFinished={onRunFinished}
-      onStreamActivity={renewActiveAssistantForegroundActivity}
-      onToolApprovalRequired={onToolApprovalRequired}
-      onUsage={handleUsage}
-      pickerModels={pickerModels}
-      pickerProviders={pickerProviders}
-      prepareRequestData={prepareRequestData}
-      providerGroups={providerGroups}
-      providerSettings={effectiveProviderSettings}
-      requestData={requestData}
-      slashCommands={slashCommands}
-      {...(desktopAssistantBackendAvailable
-        ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
-        : {})}
-      toolMenu={toolMenu}
-      {...(historyAdapter ? { historyAdapter } : {})}
-      {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-      localChatTransport={localChatTransport}
-      {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
-      {...(selectedProvider ? { selectedProvider } : {})}
-      {...(currentModel ? { selectedModel: currentModel } : {})}
-      disabled={!isProviderReady || Boolean(memoryDisabledReason)}
-      onModelChange={handleModelChange}
-      onModelToggle={handleModelToggle}
-      {...(disabledReason ? { disabledReason } : {})}
-      {...(planModeAvailable
-        ? {
-            onExitPlanMode: exitPlanMode,
-            onTogglePlanMode: togglePlanMode,
-            planModeEnabled: planModeEnabledPref,
-          }
-        : {})}
-    />
+    <EditCheckpointProvider value={editCheckpoints}>
+      <AssistantUiPanel
+        {...(composerDraftCommand ? { composerDraftCommand } : {})}
+        completePreparedRequest={completePreparedRequest}
+        contextWindow={selectedModelBudgetDef?.contextWindow}
+        {...(cumulativeUsage ? { cumulativeUsage } : {})}
+        effectiveInputBudget={effectiveInputBudget}
+        omSegment={omSegment}
+        {...(selectedMemoryThreadId
+          ? {
+              onComposerDraftCommandApplied: handleComposerCommandApplied,
+              onComposerTextChange: handleComposerTextChange,
+            }
+          : {})}
+        onProviderSettingsChange={handleProviderSettingsChange}
+        onRunFailed={onRunFailed}
+        onRunFinished={onRunFinished}
+        onStreamActivity={renewActiveAssistantForegroundActivity}
+        onToolApprovalRequired={onToolApprovalRequired}
+        onUsage={handleUsage}
+        pickerModels={pickerModels}
+        pickerProviders={pickerProviders}
+        prepareRequestData={prepareRequestData}
+        providerGroups={providerGroups}
+        providerSettings={effectiveProviderSettings}
+        requestData={requestData}
+        slashCommands={slashCommands}
+        {...(desktopAssistantBackendAvailable
+          ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+          : {})}
+        toolMenu={toolMenu}
+        {...(historyAdapter ? { historyAdapter } : {})}
+        {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+        localChatTransport={localChatTransport}
+        {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
+        {...(selectedProvider ? { selectedProvider } : {})}
+        {...(currentModel ? { selectedModel: currentModel } : {})}
+        disabled={!isProviderReady || Boolean(memoryDisabledReason)}
+        onModelChange={handleModelChange}
+        onModelToggle={handleModelToggle}
+        {...(disabledReason ? { disabledReason } : {})}
+        {...(planModeAvailable
+          ? {
+              onExitPlanMode: exitPlanMode,
+              onTogglePlanMode: togglePlanMode,
+              planModeEnabled: planModeEnabledPref,
+            }
+          : {})}
+      />
+    </EditCheckpointProvider>
   );
 }
 

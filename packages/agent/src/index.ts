@@ -1,7 +1,15 @@
 // Types — all inline type definitions live in types.ts
 
 export {
+  ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
+  ASSISTANT_EDIT_CHECKPOINT_OPS,
+  ASSISTANT_EDIT_CHECKPOINT_REVERTIBLE_STATUSES,
   ASSISTANT_TASK_STATUSES,
+  type AssistantCheckpointRevertResult,
+  type AssistantCheckpointRevertRunResult,
+  type AssistantEditCheckpointCaptureStatus,
+  type AssistantEditCheckpointOp,
+  type AssistantEditCheckpointRecord,
   type AssistantTaskItem,
   type AssistantTaskItemInput,
   type AssistantTaskListSummary,
@@ -11,12 +19,17 @@ export {
   encodeFileMentionId,
   FILE_MENTION_DIRECTIVE_TYPE,
   type FileMentionDirective,
+  isRevertibleCaptureStatus,
   type ManageTaskListResult,
   type ParsedFileMention,
   parseFileMentionDirectives,
   serializeFileMentionDirective,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
+export type {
+  HookTrustApproval,
+  HookTrustRequest,
+} from '@brainstrike/assistant-contract/hook-trust-request';
 export {
   type AssistantPersonaDefinition,
   type AssistantPersonaId,
@@ -142,6 +155,11 @@ export {
   isAssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from './mastra/permission-policy-request';
+export {
+  SHELL_OUTPUT_STREAM_PART_TYPE,
+  type ShellOutputWriter,
+  writeShellOutputChunk,
+} from './mastra/shell-output-stream';
 export {
   createDelegationConfig,
   MAX_CONCURRENT_DELEGATIONS,
@@ -283,6 +301,7 @@ export {
   type AssistantRunEventKind,
   type AssistantRunEventMetadata,
   type AssistantRunEventStatus,
+  createAssistantRunEvent,
   sanitizeAssistantRunEventMetadata,
 } from './run-events';
 export {
@@ -368,6 +387,13 @@ export {
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
 export { withFileLock } from './tools/file-write-lock';
+export {
+  type AgentHookRunner,
+  HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
+  type HookBlockedToolError,
+  type HookToolGateResult,
+} from './tools/hook-runner';
+export { applyToolHooks } from './tools/hook-tool-wrap';
 // Hybrid search tool factory
 export {
   buildToolsWithHybridSearch,

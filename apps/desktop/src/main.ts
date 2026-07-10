@@ -33,7 +33,7 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
-import { markDesktopShuttingDown } from './desktop-shutdown-state';
+import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   type DimensionIndexStrategySelection,
   probeDimensionIndexRuntimeCapabilities,
@@ -50,6 +50,7 @@ import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
+import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
@@ -61,6 +62,7 @@ import {
   setBackgrounded,
   waitForDesktopDatabaseWorkSchedulerIdle,
 } from './ipc-handlers';
+import { registerHooksIpcHandlers } from './ipc-hooks';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from './ipc-mcp';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
@@ -641,7 +643,15 @@ async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
     });
   } catch (error) {
     desktopDimensionIndexStrategySelection = null;
-    logger.error('Dimension index maintenance capability probe failed', { error });
+    // The probe runs concurrently with the app lifecycle (it no longer gates
+    // window creation), so a short-lived session can tear the DB down while
+    // the probe is mid-flight. That rejection is an EXPECTED teardown (see
+    // desktop-shutdown-state), not a capability failure — log it quietly.
+    if (isDesktopShuttingDown()) {
+      logger.info('Dimension index maintenance capability probe aborted by shutdown', { error });
+    } else {
+      logger.error('Dimension index maintenance capability probe failed', { error });
+    }
   }
 }
 
@@ -657,7 +667,9 @@ let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
+let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
+let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
@@ -968,7 +980,9 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 });
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
+unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
+unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
 
 // Add global error handlers to catch silent crashes
@@ -1576,9 +1590,17 @@ app.on('will-quit', () => {
     unregisterClipboardIpcHandlers();
     unregisterClipboardIpcHandlers = null;
   }
+  if (unregisterAssistantCheckpointIpcHandlers) {
+    unregisterAssistantCheckpointIpcHandlers();
+    unregisterAssistantCheckpointIpcHandlers = null;
+  }
   if (unregisterGitIpcHandlers) {
     unregisterGitIpcHandlers();
     unregisterGitIpcHandlers = null;
+  }
+  if (unregisterHooksIpcHandlers) {
+    unregisterHooksIpcHandlers();
+    unregisterHooksIpcHandlers = null;
   }
   if (unregisterTerminalIpcHandlers) {
     // Disposer also reaps every live pty (no orphaned shell survives quit).

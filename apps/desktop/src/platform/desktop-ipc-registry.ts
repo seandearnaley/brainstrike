@@ -2,6 +2,7 @@ import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } fro
 
 export type DesktopIpcDomain =
   | 'agent'
+  | 'assistantCheckpoint'
   | 'chunking-host'
   | 'clipboard'
   | 'db'
@@ -9,6 +10,7 @@ export type DesktopIpcDomain =
   | 'embeddings'
   | 'files'
   | 'git'
+  | 'hooks'
   | 'llm-host'
   | 'logging'
   | 'mcp'

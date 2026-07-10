@@ -1,7 +1,9 @@
 export * from './assistant-task-list.js';
 export * from './context-budget.js';
 export * from './context-packer.js';
+export * from './edit-checkpoints.js';
 export * from './file-mention-directive.js';
+export * from './hook-trust-request.js';
 export * from './local-llm.js';
 export * from './local-llm-artifacts.js';
 export * from './local-llm-device.js';
@@ -14,6 +16,7 @@ export * from './provider-metadata.js';
 export * from './provider-registry.js';
 export * from './run-events.js';
 export * from './runtime-data.js';
+export * from './shell-output.js';
 export * from './tool-approval.js';
 export * from './tool-metadata.js';
 export * from './tool-suspend.js';

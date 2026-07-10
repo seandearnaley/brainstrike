@@ -173,7 +173,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     try {
-      const response = await this.makeEmbeddingRequest(input.text);
+      const response = await this.makeEmbeddingRequest(input.text, input.signal);
       if (!response.ok) {
         return this.handleErrorResponse(response);
       }
@@ -190,7 +190,10 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
     }
   }
 
-  private async makeEmbeddingRequest(text: string | string[]): Promise<Response> {
+  private async makeEmbeddingRequest(
+    text: string | string[],
+    signal?: AbortSignal
+  ): Promise<Response> {
     const fetchImpl = this.fetchImpl.bind(globalThis);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -220,6 +223,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
       body: JSON.stringify(body),
       headers,
       method: 'POST',
+      ...(signal ? { signal } : {}),
     });
   }
 

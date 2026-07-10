@@ -40,6 +40,7 @@ function createRepositoryStub(
     getThreadCumulativeUsage: async () => null,
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],
+    listThreadCheckpoints: vi.fn(async () => []),
     listThreadRunEvents: async () => [],
     listThreads: async () => [],
     recordRunUsage: async () => {},
@@ -202,7 +203,13 @@ describe('assistant runtime helpers', () => {
       threadId: input.threadId,
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     }));
-    const modelSettings = { maxOutputTokens: 512 };
+    const modelSettings = {
+      frequencyPenalty: -0.25,
+      maxOutputTokens: 512,
+      presencePenalty: 0.5,
+      temperature: 0.3,
+      topP: 0.9,
+    };
     const providerOptions = { openai: { reasoningEffort: 'high' } };
 
     const runId = await createAssistantThreadRunPromise({
@@ -354,6 +361,33 @@ describe('assistant runtime helpers', () => {
       'planMode'
     );
     expect(buildAssistantRequestData({ ...baseArgs, planMode: true })['planMode']).toBe(true);
+  });
+
+  it('attaches hookTrustRequest only when provided (desktop transport gate)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    // Absent (web / non-data-stream) → nothing attached.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('hookTrustRequest');
+
+    const request = { approvals: [{ approvedAt: 1, rootId: 'r1', sha256: 'hash-1' }] };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, hookTrustRequest: request })['hookTrustRequest']
+    ).toEqual(request);
   });
 
   it('surfaces the count of selected files from OTHER roots (multi-root, never silently dropped)', () => {

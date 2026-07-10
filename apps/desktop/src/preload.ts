@@ -72,6 +72,8 @@ const SHELL_OPEN_EXTERNAL_CHANNEL = 'shell:open-external' as const;
 const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
 const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
 const CLIPBOARD_WRITE_TEXT_CHANNEL = 'clipboard:write-text' as const;
+const ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL = 'assistant-checkpoint:revert-entry' as const;
+const ASSISTANT_CHECKPOINT_REVERT_RUN_CHANNEL = 'assistant-checkpoint:revert-run' as const;
 const GIT_STATUS_CHANNEL = 'git:status' as const;
 const GIT_DIFF_CHANNEL = 'git:diff' as const;
 const GIT_STAGE_CHANNEL = 'git:stage' as const;
@@ -80,6 +82,7 @@ const GIT_COMMIT_CHANNEL = 'git:commit' as const;
 const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
 const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
+const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
 const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
 const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
@@ -542,7 +545,12 @@ if (shouldExposeBridge('electronAPI')) {
       // Atomic transaction over IPC (#1141): ships an ordered statement list to main
       // to run inside one pglite.transaction() and return statements[resultIndex] rows.
       runTransaction: (
-        statements: { sql: string; params?: unknown[] }[],
+        statements: {
+          expectedRowCount?: number;
+          params?: unknown[];
+          rowCountMismatchError?: string;
+          sql: string;
+        }[],
         resultIndex: number,
         options?: DatabaseWorkOptions
       ) => ipcRenderer.invoke(DB_TRANSACTION_CHANNEL, statements, resultIndex, options),
@@ -1041,6 +1049,21 @@ contextBridge.exposeInMainWorld('clipboard', {
   writeText: (text: string) => ipcRenderer.invoke(CLIPBOARD_WRITE_TEXT_CHANNEL, text),
 });
 
+// Edit checkpoint (undo of agent file edits) — invoke-only revert bridge. Desktop
+// only: web never defines this (no assistant server / main process).
+contextBridge.exposeInMainWorld('assistantCheckpoints', {
+  revertEntry: (id: string, options?: { force?: boolean }) =>
+    ipcRenderer.invoke(ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL, {
+      force: options?.force ?? false,
+      id,
+    }),
+  revertRun: (runId: string, options?: { force?: boolean }) =>
+    ipcRenderer.invoke(ASSISTANT_CHECKPOINT_REVERT_RUN_CHANNEL, {
+      force: options?.force ?? false,
+      runId,
+    }),
+});
+
 // Platform shell bridge: reveal/open absolute paths in the OS file manager.
 if (shouldExposeBridge('platform')) {
   contextBridge.exposeInMainWorld('platform', {
@@ -1071,6 +1094,16 @@ if (shouldExposeBridge('git')) {
     status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
     unstage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_UNSTAGE_CHANNEL, rootId, params ?? {}),
+  });
+}
+
+// Hooks trust-review bridge (desktop). Capability-gated: the Hooks settings
+// panel reads a project root's `.brainstrike/hooks.json` (content + sha256) to
+// display before the user approves it. The server remains the trust authority.
+if (shouldExposeBridge('hooks')) {
+  contextBridge.exposeInMainWorld('hooks', {
+    getProjectHooksForReview: (rootId: string, absPath: string) =>
+      ipcRenderer.invoke(HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL, rootId, absPath),
   });
 }
 

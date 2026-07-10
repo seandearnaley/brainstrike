@@ -8,6 +8,9 @@ const startupMocks = vi.hoisted(() => ({
   ensureVectorPreferencesHydrated: vi.fn(async () => ({})),
   registerWebEmbeddingRuntimeConfig: vi.fn(),
 }));
+const sharedRootLayoutCapture = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}));
 const mockEmbeddingQueue = {
   add: vi.fn(),
   addBulk: vi.fn(),
@@ -135,24 +138,18 @@ vi.mock('@brainstrike/app-shell/navigation', () => ({
   navigationItems: [
     { label: 'Explorer', path: '/' },
     { label: 'Settings', path: '/settings' },
-    { label: 'Prompts', path: '/prompts' },
   ],
 }));
 
-vi.mock('@brainstrike/app-shell', () => ({
-  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
-}));
-
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
-  RootLayoutContent({
-    contextExplorerPageContent,
-    settingsPageContent,
-    navigationItems,
-  }: {
+  RootLayoutContent(props: {
     contextExplorerPageContent: React.ReactNode;
-    settingsPageContent: React.ReactNode;
     navigationItems: unknown[];
+    promptsPageContent?: React.ReactNode;
+    settingsPageContent: React.ReactNode;
   }) {
+    sharedRootLayoutCapture.props = props as Record<string, unknown>;
+    const { contextExplorerPageContent, navigationItems, settingsPageContent } = props;
     const [activeTab, setActiveTab] = React.useState<'explorer' | 'settings'>('explorer');
 
     const handleNavigationClick = (path: string) => {
@@ -218,6 +215,7 @@ describe('RootLayoutContent', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    sharedRootLayoutCapture.props = null;
     homeMountCount = 0;
     currentDb = null;
   });
@@ -254,9 +252,10 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('app-config-title')).toHaveTextContent('BrainStrike.ai');
   });
 
-  it('includes three navigation items in the configuration', () => {
+  it('keeps root navigation to Explorer and Settings without a prompts route prop', () => {
     render(<RootLayoutContent />);
-    expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('3');
+    expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('2');
+    expect(sharedRootLayoutCapture.props).not.toHaveProperty('promptsPageContent');
   });
 
   it('shows settings page when navigation callback is triggered', async () => {

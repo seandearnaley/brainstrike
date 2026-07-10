@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/utils/logger';
+import { resetHookTrustStoreToDefaults } from '../../stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from '../../stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
 
@@ -325,6 +326,15 @@ function clearBrowserStorage(): void {
     resetNotificationPreferencesStoreToDefaults();
   } catch (error) {
     logger.warn('Failed to reset notification preferences store', { error });
+  }
+
+  // Hook-trust approvals are persisted AND security-sensitive: a factory reset
+  // must forget every per-root project-hook approval so a re-mounted repo's
+  // hooks require fresh review (FACTORY RESET CONTRACT + hooks security spine).
+  try {
+    resetHookTrustStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset hook trust store', { error });
   }
 
   // Drain externally-registered session-store resetters (see the registry doc

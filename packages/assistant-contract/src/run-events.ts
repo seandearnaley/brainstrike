@@ -4,6 +4,8 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'context.budget',
   'context.prepared',
   'context.selection',
+  'hook.blocked',
+  'hook.notice',
   'memory.configured',
   'memory.history.loaded',
   'memory.observation.completed',

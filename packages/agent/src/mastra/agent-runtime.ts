@@ -32,6 +32,8 @@ import type {
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
 import { applyToolGuards } from '../tools/guard-tool-execution';
+import type { AgentHookRunner } from '../tools/hook-runner';
+import { applyToolHooks } from '../tools/hook-tool-wrap';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
@@ -49,6 +51,11 @@ import {
   buildLocalDefaultInstructions,
   type DelegationPersonaSummary,
 } from './default-instructions';
+import {
+  ASSISTANT_MAX_PROCESSOR_RETRIES,
+  buildAssistantErrorProcessors,
+  buildProviderHistoryCompatInputProcessor,
+} from './error-processors';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
@@ -62,6 +69,7 @@ import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
+import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
 import {
   createDelegationConfig,
   createDelegationLifecycleTracker,
@@ -77,6 +85,12 @@ import {
 import { sanitizeTools } from './tool-sanitizer';
 
 export interface MastraAgentRuntimeOptions {
+  /**
+   * Server-injected tool-lifecycle hook runner (desktop). Composed OUTSIDE the
+   * guard and BEFORE the permission gate. Overrides `runtime.hookRunner` when
+   * both are present. OPTIONAL — absent means no hooks (production default).
+   */
+  hookRunner?: AgentHookRunner;
   instructions?: string;
   mcpConfig?: McpConfig;
   // Optional timeout (ms) for initial MCP tool discovery
@@ -304,6 +318,56 @@ function resolveAskToolsForRun(
   return { askTools: gateResult.askTools, tools: gateResult.tools };
 }
 
+interface GatedToolMapParams {
+  readonly hasStorage: boolean;
+  readonly hookedTools: ToolsInput;
+  readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
+  readonly planModeActive: boolean;
+  readonly toolNameMap: Map<string, string>;
+}
+
+/**
+ * Assemble the FINAL tool map the Agent receives: plan-mode filter → permission
+ * gate → suspend-storage gate. Extracted from `createMastraAgentRuntime` so the
+ * plan/permission/suspend conditionals live in one cohesive place (and keep the
+ * runtime builder under the cognitive-complexity ceiling). Each stage only omits
+ * tools; see the inline invariants at the call site.
+ */
+function resolveGatedToolMap(params: GatedToolMapParams): {
+  readonly gatedTools: ToolsInput;
+  readonly askTools: ResolvedAskTools['askTools'];
+} {
+  const planFilteredTools = params.planModeActive
+    ? filterToolsForPlanMode(
+        params.hookedTools,
+        params.toolNameMap,
+        params.permissionSnapshot?.riskByTool ?? buildNativeToolRiskMap(),
+        logger
+      )
+    : params.hookedTools;
+
+  const gateResult = filterToolsByPermissionWithMetadata(
+    planFilteredTools,
+    params.permissionSnapshot,
+    params.toolNameMap,
+    logger
+  );
+  const { tools: askResolvedTools, askTools } = resolveAskToolsForRun(
+    gateResult,
+    params.hasStorage
+  );
+  // Fail-safe: a tool that pauses via suspend() cannot resume without workflow
+  // storage, so omit the suspending tools when storage is absent (never run one
+  // that would wedge the run — no-silent-fallbacks).
+  const gatedTools = resolveSuspendToolsForRun(
+    askResolvedTools,
+    params.hasStorage,
+    params.toolNameMap,
+    logger
+  );
+  return { askTools, gatedTools };
+}
+
 interface PersonaRuntimeParts {
   delegationToolPersonas: ReadonlyMap<string, string>;
   hasSubAgents: boolean;
@@ -401,6 +465,7 @@ export async function createMastraAgentRuntime(
     mcpTimeoutMs,
     permissionPolicy,
     personas,
+    hookRunner: hookRunnerOption,
     resolved,
     memory,
     storage,
@@ -443,6 +508,16 @@ export async function createMastraAgentRuntime(
     timeoutMs: resilienceConfig.toolTimeoutMs,
   });
 
+  // Tool-lifecycle hooks (desktop): compose OUTSIDE the guard, BEFORE the
+  // permission gate. A PreToolUse hook can BLOCK an already-permitted tool but
+  // can never widen access — permission runs downstream of `execute`, so a hook
+  // only ever sees a tool the policy already allowed (hooks REFINE, never widen).
+  // An explicit `options.hookRunner` wins over one carried on the runtime data.
+  const hookRunner = hookRunnerOption ?? sanitizedRuntime.hookRunner;
+  const hookedTools = hookRunner
+    ? applyToolHooks(guardedTools, { hookRunner, logger, toolNameMap })
+    : guardedTools;
+
   // Permission gate: filter the tool map by the user's policy BEFORE the Agent
   // is constructed (the Agent is immutable after `new Agent`). 'deny' omits the
   // tool from the map the model sees; 'ask' KEEPS a CLONE of the tool carrying
@@ -462,31 +537,13 @@ export async function createMastraAgentRuntime(
   // dropped regardless of allow/ask/deny). The risk map is the authoritative
   // static registry classification (never client-supplied).
   const planModeActive = normalizedProvider !== 'local' && sanitizedRuntime.planMode === true;
-  const planFilteredTools = planModeActive
-    ? filterToolsForPlanMode(
-        guardedTools,
-        toolNameMap,
-        permissionSnapshot?.riskByTool ?? buildNativeToolRiskMap(),
-        logger
-      )
-    : guardedTools;
-
-  const gateResult = filterToolsByPermissionWithMetadata(
-    planFilteredTools,
+  const { gatedTools, askTools } = resolveGatedToolMap({
+    hasStorage: Boolean(storage),
+    hookedTools,
     permissionSnapshot,
+    planModeActive,
     toolNameMap,
-    logger
-  );
-  const { tools: askResolvedTools, askTools } = resolveAskToolsForRun(gateResult, Boolean(storage));
-  // Fail-safe: a tool that pauses via suspend() cannot resume without workflow
-  // storage, so omit the suspending tools when storage is absent (never run one
-  // that would wedge the run — no-silent-fallbacks).
-  const gatedTools = resolveSuspendToolsForRun(
-    askResolvedTools,
-    Boolean(storage),
-    toolNameMap,
-    logger
-  );
+  });
 
   // Provider-native web search (v1: anthropic/openai only). Runs AFTER the gate
   // so it uses the gate's authoritative decision — swap the web-search entry to
@@ -564,6 +621,15 @@ export async function createMastraAgentRuntime(
     toolNameMap: effectiveToolNameMap,
   });
 
+  // Error-processor resilience layer (PrefillErrorHandler +
+  // StreamErrorRetryProcessor + ProviderHistoryCompat's reactive rules) on the
+  // Agent-config `errorProcessors` seam — the ONE processor array a per-call
+  // override never clobbers (the per-call TokenLimiter only replaces
+  // `inputProcessors`). Excluded for the built-in local provider. When present
+  // we MUST pin `maxProcessorRetries`: any errorProcessors flips Mastra's
+  // implicit default to 10 (see ASSISTANT_MAX_PROCESSOR_RETRIES). See AGENTS.md
+  // ASSISTANT RESILIENCE.
+  const errorProcessors = buildAssistantErrorProcessors(normalizedProvider);
   const agent = new Agent({
     id: 'brainstrike-assistant',
     instructions: composedInstructions,
@@ -572,6 +638,9 @@ export async function createMastraAgentRuntime(
     tools: finalTools,
     ...(hasSubAgents ? { agents: subAgents } : {}),
     ...(memory ? { memory } : {}),
+    ...(errorProcessors
+      ? { errorProcessors, maxProcessorRetries: ASSISTANT_MAX_PROCESSOR_RETRIES }
+      : {}),
   });
 
   const mastra = storage
@@ -1420,6 +1489,14 @@ function processMastraStreamPart(
         part
       );
     }
+    case SHELL_OUTPUT_STREAM_PART_TYPE: {
+      // A live shell-output slice streamed by executeCommand via `writer.custom`.
+      // Transient (never persisted): it rides its own StreamChunk type so the
+      // server's run-event persistence tap ignores it. A malformed slice is
+      // dropped rather than mis-attributed.
+      const shellOutput = mapShellOutputStreamPart(part);
+      return { chunks: shellOutput ? [shellOutput] : [], finished: false };
+    }
     default:
       return { chunks: [], finished: false };
   }
@@ -1674,13 +1751,24 @@ function buildToolLoopOptions(
     agentLoop?.inputTokenLimit,
     'agentLoop.inputTokenLimit'
   );
-  const inputProcessors: unknown[] | undefined = inputTokenLimit
-    ? [new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })]
+  // ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules (strip
+  // foreign/unsupported reasoning before a provider that would reject it — the
+  // only place cross-provider reasoning incompatibility is handled) fire ONLY
+  // from `inputProcessors`, never `errorProcessors` (verified against the
+  // compiled loop). It rides the SAME per-call array as the TokenLimiter so the
+  // per-call replacement doesn't drop either; their hooks are disjoint stages,
+  // so token trimming is unaffected. Excluded for the local provider.
+  const historyCompat = buildProviderHistoryCompatInputProcessor(runtimeData?.provider ?? '');
+  const tokenLimiter = inputTokenLimit
+    ? new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })
     : undefined;
+  const inputProcessors: unknown[] = [tokenLimiter, historyCompat].filter(
+    (processor): processor is NonNullable<typeof processor> => processor !== undefined
+  );
 
   return {
     maxSteps: maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-    ...(inputProcessors ? { inputProcessors } : {}),
+    ...(inputProcessors.length > 0 ? { inputProcessors } : {}),
   };
 }
 

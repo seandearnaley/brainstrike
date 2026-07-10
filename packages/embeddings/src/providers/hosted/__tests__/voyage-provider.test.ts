@@ -194,8 +194,10 @@ describe('VoyageEmbeddingProvider', () => {
         modelId: mockModelId,
       });
 
+      const signal = new AbortController().signal;
       const input: EmbeddingInput = {
         modelId: mockModelId,
+        signal,
         text: 'test text',
       };
 
@@ -218,6 +220,7 @@ describe('VoyageEmbeddingProvider', () => {
             'Content-Type': 'application/json',
           }),
           method: 'POST',
+          signal,
         })
       );
     });

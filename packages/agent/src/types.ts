@@ -4,6 +4,7 @@ import type {
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
+import type { HookTrustRequest } from '@brainstrike/assistant-contract/hook-trust-request';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
@@ -14,6 +15,7 @@ import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
 import type { LocalLlmHostClient } from './providers/local/llm-host-client';
 import type { AssistantRunEvent } from './run-events';
+import type { AgentHookRunner } from './tools/hook-runner';
 
 // The 7 supporting types below are byte-identical and dependency-free in both
 // @brainstrike/agent and @brainstrike/assistant-contract; the dependency-light
@@ -93,6 +95,20 @@ export interface AssistantUiMessage {
  * drift hazard.
  */
 export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'providerOptions'> {
+  /**
+   * Server-injected tool-lifecycle hook runner (desktop). Composed into the
+   * tool-execute seam so PreToolUse hooks can block a permitted tool and
+   * PostToolUse hooks can append bounded context. Never serialized over
+   * IPC/HTTP (an in-process closure over the main-process HookManager).
+   * Agent-only — mirrors `localLlmHostClient`.
+   */
+  hookRunner?: AgentHookRunner;
+  /**
+   * Renderer-supplied hook-trust snapshot (wire). The server resolves it into
+   * per-root trust (re-hashing disk) and STRIPS it before the agent is built —
+   * the client must never set the trusted `hookRunner` directly. Agent-only.
+   */
+  hookTrustRequest?: HookTrustRequest;
   /**
    * Host-injected client that proxies built-in local LLM inference to its
    * renderer host (desktop main → hidden llm-host window). Server-side only,
@@ -231,6 +247,18 @@ export interface StreamChunkTool {
   status: 'start' | 'progress' | 'success' | 'error';
   type: 'tool-event';
 }
+/**
+ * A live, incremental slice of a running shell command's output. Transient
+ * (never persisted — see SHELL_OUTPUT_DATA_NAME); the final captured output
+ * still returns as the tool result.
+ */
+export interface StreamChunkShellOutput {
+  chunk: string;
+  stream: 'stdout' | 'stderr';
+  toolCallId: string;
+  truncated?: boolean;
+  type: 'shell-output';
+}
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
@@ -260,6 +288,7 @@ export interface StreamChunkMessageFinish {
 export type StreamChunk =
   | StreamChunkReasoning
   | StreamChunkRunEvent
+  | StreamChunkShellOutput
   | StreamChunkText
   | StreamChunkTool
   | StreamChunkToolApprovalRequired

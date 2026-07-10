@@ -130,6 +130,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     id: 'factory-reset',
     title: 'Factory Reset',
   })),
+  createHooksSettingsCategory: () => ({
+    content: <div data-testid="hooks-category" />,
+    id: 'hooks',
+    title: 'Hooks',
+  }),
   createLocalRuntimeSettingsCategory: () => ({
     content: <div data-testid="local-runtime-category" />,
     id: 'local-runtime',

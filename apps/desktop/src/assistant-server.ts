@@ -72,6 +72,13 @@ import {
   buildDesktopAssistantTools,
   readWorkspaceTextFile,
 } from './assistant-server/assistant-tools';
+import {
+  finalizeHookedStream,
+  hookRunEventToAssistant,
+  makeHookBlockedStream,
+  prepareRequestHooks,
+  runUserPromptSubmitGate,
+} from './assistant-server/hooks/server-integration';
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import {
   type AssistantLlmHostManager,
@@ -1292,12 +1299,32 @@ async function initializeAgentStream(
     // client must not be able to inject `riskByTool` or bypass the opt-in.
     permissionPolicy: _ignoredClientPermissionPolicy,
     permissionPolicyRequest,
+    // Strip any client-supplied `hookRunner` for the same reason: it is the
+    // TRUSTED, server-built closure (below). The renderer only ATTESTS approved
+    // hashes via `hookTrustRequest`, which the server re-hashes against disk.
+    hookRunner: _ignoredClientHookRunner,
+    hookTrustRequest,
     ...runtimeWithoutMcpConfig
   } = runtimeData ?? {};
   const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
 
   try {
     const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
+    // Tool-lifecycle hooks (desktop): build the per-request manager over the
+    // mounted roots + server-resolved trust. Hook run events flow through the
+    // same queued sink the memory + stream observer drain, so hook.blocked and
+    // hook.notice reach the timeline. The queue is hoisted here (was built with
+    // memory below) so the manager can push into it.
+    const queuedRunEvents: AssistantRunEvent[] = [];
+    // TRUSTED server-built runner (never the client-supplied one, stripped above);
+    // present iff valid hooks exist.
+    const { manager: hookManager, runner: hookRunner } = prepareRequestHooks({
+      emitRunEvent: (event) => queuedRunEvents.push(hookRunEventToAssistant(event)),
+      hookTrustRequest,
+      logger,
+      runId,
+      runtimeData,
+    });
     const runtime: RuntimeData = {
       ...runtimeWithoutMcpConfig,
       // The execute-risk shell tool is registered like every other native tool;
@@ -1319,6 +1346,7 @@ async function initializeAgentStream(
       ...(apiKey ? { apiKey } : {}),
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
       ...(permissionPolicy ? { permissionPolicy } : {}),
+      ...(hookRunner ? { hookRunner } : {}),
     };
     // Cold model loads (multi-GB download) exceed the generate request's hard
     // 5-minute ceiling, so warm the host (20-minute ceiling, progress-aware)
@@ -1328,7 +1356,6 @@ async function initializeAgentStream(
         await localLlmHostClient.warmup(modelId, { signal });
       }
     }
-    const queuedRunEvents: AssistantRunEvent[] = [];
     const memoryResult = runtime.memory
       ? await getDesktopMastraMemory(
           runtime.memory.memorySettings,
@@ -1371,17 +1398,43 @@ async function initializeAgentStream(
     const memoryOptions = memoryResult
       ? { memory: memoryResult.memory, storage: memoryResult.storage }
       : {};
+
+    // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/
+    // resume path — no new user message to gate). A block short-circuits the
+    // turn with a visible message + run.failed and NEVER invokes the model;
+    // additionalContext is prepended as a system message (mirrors @file inject).
+    // Run-event observer wrapper (a no-op when there is no runId to stamp).
+    const observe = (source: AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> =>
+      runId ? observeDesktopAssistantRunEvents(source, runId, queuedRunEvents) : source;
+
+    const upsGate = await runUserPromptSubmitGate(
+      hookManager,
+      messages,
+      Boolean(toolApprovalAction || toolResumeAction)
+    );
+    if (upsGate.kind === 'block') {
+      return { ok: true, stream: observe(makeHookBlockedStream(upsGate.reason)) };
+    }
+
     const stream = await resolveInitialAgentStream({
       memoryOptions,
-      messages,
+      messages: upsGate.messages,
       runtime,
       toolApprovalAction,
       toolResumeAction,
     });
     logger.info('Assistant stream initialized');
+    // Stop (notify-only in v1): fire the terminal Stop hook best-effort when the
+    // stream ends (clean/error/abort). Its run events ride the queued sink the
+    // observer drains.
     return {
       ok: true,
-      stream: runId ? observeDesktopAssistantRunEvents(stream, runId, queuedRunEvents) : stream,
+      stream: finalizeHookedStream(stream, {
+        manager: hookManager,
+        observe,
+        runner: hookRunner,
+        signal,
+      }),
     };
   } catch (error) {
     logger.error('Failed to initialize assistant stream', { error });

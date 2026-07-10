@@ -17,6 +17,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
+    "./hook-trust-request": {
+      "types": "./dist/hook-trust-request.d.ts",
+      "import": "./dist/hook-trust-request.js",
+      "require": "./dist/hook-trust-request.js"
+    },
     "./local-llm": {
       "types": "./dist/local-llm.d.ts",
       "import": "./dist/local-llm.js",
@@ -81,6 +86,11 @@
       "types": "./dist/run-events.d.ts",
       "import": "./dist/run-events.js",
       "require": "./dist/run-events.js"
+    },
+    "./shell-output": {
+      "types": "./dist/shell-output.d.ts",
+      "import": "./dist/shell-output.js",
+      "require": "./dist/shell-output.js"
     },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",

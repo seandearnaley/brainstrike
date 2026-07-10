@@ -207,6 +207,81 @@ Do not move or reintroduce workers in Electron main. Desktop local embeddings mu
 
 ---
 
+## PROMPT WORKBENCH
+
+The prompt library is a working surface inside the agent sidebar, not a standalone route:
+Threads → Database → Prompts. Its source of truth is PGlite; never reintroduce a
+localStorage-backed parallel store.
+
+Ownership and flow:
+- Persistence: migration 051 (`prompt_embedding_profiles`, `prompt_items`,
+  `prompt_item_revisions`) + `PromptItemRepository`. Prompt edits use revision CAS and
+  retain the previous revision. The one-time `brainstrike-prompt-store` import is strict,
+  transactional, and removes localStorage only after a successful commit. Desktop import
+  uses the callback-free `runTransaction` bridge with in-transaction row-count guards that
+  compare every import-owned current/revision field before accepting an idempotent replay;
+  never replace it with renderer-side `BEGIN`/`COMMIT` calls or a preflight comparison.
+  Bare legacy model ids are promoted only when the assistant-contract registry maps them
+  to exactly one provider; unknown, retired, or ambiguous ids fail closed.
+- Recall: prompt records own vectors under the dedicated singleton prompt profile — they
+  are NOT fake files and MUST NOT be added to `embedding_sets`. Saved items use document
+  embeddings; live composer context uses query embeddings. Vector failures surface in the
+  workbench; there is no lexical fallback. The app-specific embedding queue loader MUST
+  resolve before either operation so desktop/web worker URLs are registered explicitly.
+  Indexing passes are serialized; overlapping bootstrap/save passes must never write the
+  same revision concurrently. Connected refreshes remain authoritative and the interaction
+  layer reconciles them into its local working set. Async save/list completions must merge
+  against the latest committed authoritative snapshot, never the render that started them.
+  Contextual query recall is enabled only while both the outer Explorer route and inner
+  Prompts tab are visible; the force-mounted panel preserves UI state but must never run
+  embedding inference while hidden. Search-embedder transitions serialize disposal and
+  distinct-identity initialization (same-identity calls still deduplicate); WebGPU
+  initialization/recovery fails closed while the document is hidden, and a hide event
+  invalidates recovery even when it is awaiting disposal.
+- Agent actions: `assistant-composer-command-store.ts` is a thread-keyed, in-memory FIFO.
+  `AssistantUiPanelWrapper` bridges only that thread's head command into the real
+  assistant-ui composer and acknowledges it after application. The store is registered with
+  factory reset so queued commands and mirrored draft text never survive a live reset.
+  Snippets/fragments append, prompts replace, and nothing auto-sends. Direct actions use a
+  synchronous item/action in-flight guard so repeated activation cannot stage twice or create
+  duplicate threads; prepared template submissions use the same guard and share the in-flight
+  operation. Runnable prompts apply their configured model only after the model is
+  enabled and its provider is available; unavailable targets fail
+  visibly before mutating a thread. Their standard Mastra call settings are strictly validated
+  and applied with `maxTokens` normalized to `maxOutputTokens`; unknown settings or conflicting
+  aliases fail before mutation. On a provider switch, configured target-provider settings fill
+  any missing per-thread target settings and build the target options; entries/options for the old
+  provider remain available, but old-provider model settings must not leak into the new provider.
+  On a same-provider change, explicit per-thread model settings win over provider defaults, and
+  explicit settings stored on the prompt win over both.
+  Workbench edits preserve stored rating and model settings until dedicated controls expose an
+  explicit way to change them; changing the structured model key must not erase legacy settings.
+  Rendered prompt text must be validated as non-whitespace before runtime selection, thread
+  creation, composer staging, or usage writes. Composer context mirrors assistant-ui's authoritative
+  state, including programmatic send/reset clears; never derive it only from textarea DOM events.
+  New-thread actions create the durable thread with its final title atomically before
+  activation/staging and wait for any in-flight initial resource load before creating. A ready
+  thread resource must not be redundantly reloaded during this sequence or a stale `New Thread`
+  snapshot can overwrite the title.
+  Once persistence or composer staging succeeds, later indexing, list-refresh, or usage-count
+  failures are secondary warnings: surface them explicitly, but never reject the completed
+  primary action and invite a duplicate save/stage retry.
+  Factory reset may tolerate only an explicitly missing legacy `prompt_items` relation. Any other
+  prompt deletion failure aborts before close/VACUUM, restores reset retryability, and remains
+  visible to the caller; never report a successful reset while prompt rows may remain.
+- Composition: `connected-prompt-manager.tsx` owns DB/model/thread/vector wiring;
+  `prompt-workbench-panel.tsx` remains the interaction layer; `prompt-template.ts` owns
+  explicit `{{variable}}` resolution. The interaction layer must render a stored unavailable
+  model as an explicit disabled selection (never visually pretend the current-thread model is
+  selected), keep keyboard focus visible, and announce modal async failures locally. Root layout
+  must load the connected manager through `connected-prompt-manager-lazy.tsx`; never pull the
+  prompt/database/vector graph back into the initial app-shell bundle.
+
+When changing this flow, update this section and the paired tests in `packages/db`,
+`packages/app-shell`, `packages/ui`, and `packages/vector-management`.
+
+---
+
 ## AI ASSISTANT INTEGRATION
 
 - Supports: OpenAI, Anthropic, Google, OpenRouter.
@@ -244,7 +319,8 @@ When changing this flow, update this doc.
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety
-net and the two server-side resilience layers below are LIVE.
+net, the two server-side resilience layers, and the Mastra error-processor layer
+below are LIVE.
 
 1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
@@ -269,12 +345,40 @@ net and the two server-side resilience layers below are LIVE.
    A stream stall emits a visible assistant message, a terminal `run.failed`
    event, and an error finish so the renderer does not remain in-flight forever.
 
+4. **Mastra error-processor layer (LIVE)** —
+   `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
+   `buildToolLoopOptions` in `agent-runtime.ts`. Adopts three `@mastra/core`
+   built-ins that recover on EMITTED provider/API errors — disjoint from the
+   guard (tool-execute failures) and watchdog (silent stalls), so no
+   double-wrapping:
+   - **StreamErrorRetryProcessor** — retries transient mid-stream errors
+     (OpenAI Responses `error`/`response.failed`, provider `isRetryable`, and an
+     `isEconnResetStreamError` matcher with capped exponential backoff).
+   - **PrefillErrorHandler** — recovers reloaded-thread assistant-prefill
+     rejections (Anthropic / Qwen `enable_thinking`).
+   - **ProviderHistoryCompat** — cross-provider `mastra_messages` reuse.
+   Placement (verified against the compiled loop, do NOT relitigate): the two
+   `processAPIError`-only processors + ProviderHistoryCompat's REACTIVE rules go
+   on the Agent-config `errorProcessors` seam (never clobbered by the per-call
+   TokenLimiter). ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules
+   (strip foreign reasoning — the ONLY place that incompatibility is handled)
+   fire ONLY from `inputProcessors`, so a SECOND ProviderHistoryCompat instance
+   is composed into the per-call `inputProcessors` array ALONGSIDE the
+   TokenLimiter in `buildToolLoopOptions` (composing, not clobbering — their
+   hooks are disjoint stages). **`maxProcessorRetries` MUST stay pinned**
+   (`ASSISTANT_MAX_PROCESSOR_RETRIES = 3`): any `errorProcessors` flips Mastra's
+   implicit default to 10. The whole layer is EXCLUDED for the built-in local
+   provider (the hidden llm-host owns its own engine-fault recovery; no
+   hosted-provider wire quirks apply).
+
 > **LIVE validation requirement:** A prior attempt wired the guard + watchdog into
 > the live path and BROKE real Mastra tool calling (hosted-provider tools silently
 > stopped executing) while mocked tests stayed green. Future changes to these
 > layers MUST preserve coverage that runs the actual Mastra agent loop end to end
-> with real tool `execute`, not only mocked stream parts. The current proof lives
-> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts`.
+> with real tool `execute`, not only mocked stream parts. The current proofs live
+> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts` and
+> `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
+> clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
 
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
 defined in `packages/agent/src/config/resilience-config.ts`:
@@ -294,6 +398,34 @@ into fragments. `DataStreamMapper` therefore defers run events that arrive
 while a text/reasoning part is streaming and flushes them at the next boundary
 (tool start, approval, finish, error, stream end) — never drop them, never
 emit them mid-part (proof: data-stream-text-continuity.spec.ts).
+
+Live shell output (executeCommand streaming): `executeCommand` streams its
+subprocess stdout/stderr incrementally through Mastra's tool `writer` as it is
+produced (a long build/test run is visible live, not only on exit). The tool
+writes via `writer.custom({ type: SHELL_OUTPUT_STREAM_PART_TYPE, … })`
+(`packages/agent/src/mastra/shell-output-stream.ts`), which places the slice on
+the fullStream VERBATIM — deliberately NOT `writer.write` (that wraps it as a
+`tool-output` part, colliding with subagent delegation and masquerading as a
+successful tool result). `processMastraStreamPart` maps that part to a dedicated
+transient `shell-output` StreamChunk; `DataStreamMapper.handleShellOutput` emits
+it as a `SHELL_OUTPUT_DATA_NAME` aui-data part (subject to the SAME text-part
+deferral). It is NOT a run-event kind ON PURPOSE: run-events are persisted
+server-side into `assistant_run_events` (and their metadata is redaction-
+sanitized, which strips `output`/`text` keys) — a `shell-output` StreamChunk is
+ignored by that persistence tap (`chunk.type !== 'run-event'`), so live slices
+are TRANSIENT (never persisted; absent on reload — the FINAL captured output
+persists as the tool result). A COMBINED streaming cap
+(`MAX_STREAMED_OUTPUT_BYTES`, separate from the 1 MB capture cap) stops a runaway
+process flooding the stream: at the cap one truncation notice is emitted,
+streaming stops, and teardown/capture continue unchanged. Mastra hands a plain
+tool OBJECT the raw `outputWriter` fn + top-level `toolCallId` (a `createTool`
+instance gets `writer.custom` + `agent.toolCallId`); the desktop wiring accepts
+both. The renderer accumulates slices per toolCallId
+(`collectShellOutputs` + `ShellOutputProvider`) into the live tool card
+(`LiveShellOutputPane`, shown only while running). background:true (run the tool
+as a Mastra background task) is a documented FOLLOW-UP, not in v1. Proofs:
+mastra-tool-execution.spec ('streams incremental shell-output …'),
+execute-command-tool.test / execute-command-live-loop.test, shell-output-parts.test.
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently
 (default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
@@ -410,6 +542,118 @@ runs (`tool-call-approval` → `approveToolCall`/`declineToolCall`); suspension
 pauses DURING a tool's `execute` via `suspend()` (`tool-call-suspended` →
 `resumeStream`). submitPlan/askUser are classified `riskCategory:'read'` so the
 permission engine never stacks an approval prompt on top of their own suspend.
+
+---
+
+## TOOL-LIFECYCLE HOOKS (Claude-Code-style)
+
+User-authored shell commands that run at lifecycle events and (for blocking
+events) can refuse to proceed. **Desktop-only by construction** — shell hooks
+need Node `child_process` + absolute root paths + the assistant server; web
+constructs NO hook runner (capability-gated, no `isElectron()` checks).
+
+Seven events, three blocking (`PreToolUse`, `Stop`, `UserPromptSubmit`). A hook
+is `{ type:'command', command, matcher?:{tool_name}, timeout?, description? }`.
+It receives a JSON payload on **stdin** (secret-redacted), returns optional JSON
+on **stdout** (`{decision, reason, additionalContext}`); its **exit code** is
+authoritative: `2` = hard block on a blocking event, other non-zero =
+warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
+
+**Insertion points (do not move):**
+- `PreToolUse`/`PostToolUse` live in the tool-execute seam. `applyToolHooks`
+  (`packages/agent/src/tools/hook-tool-wrap.ts`) is a SIBLING of `applyToolGuards`,
+  composed OUTSIDE the guard, BEFORE the permission gate:
+  `combinedTools → applyToolGuards → applyToolHooks → plan-mode → permission gate`
+  (`agent-runtime.ts`). Permission runs downstream of `execute`, so **hooks
+  REFINE, never widen**: a PreToolUse hook can BLOCK a permitted tool but can
+  never allow a denied/ask tool. A block returns a `HookBlockedToolError`
+  (`error.code:'tool_blocked_by_hook'`, recognized by `isGuardedToolError`) so it
+  renders as a FAILED tool event. PostToolUse `additionalContext` is capped
+  (`HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET` 2000) and merged into the tool result.
+  A hook-runner FAULT is allow-on-fault (a runner bug must not brick tool calling).
+- `UserPromptSubmit`/`Stop` run in `apps/desktop/src/assistant-server.ts`
+  (`initializeAgentStream`). A UserPromptSubmit block short-circuits the turn with
+  a visible message + `run.failed` and NEVER invokes the model; additionalContext
+  prepends a `system` message. **Stop is NOTIFY-ONLY in v1** (surface the block
+  reason as a `hook.notice`; NO auto-continue). SessionStart/SessionEnd/
+  Notification are implemented but UNWIRED in v1.
+
+**Timeout invariant (honest ceiling — no summed guarantee).** There is NO
+enforced `pre + tool + post` sum ceiling. What IS enforced:
+- **Per-hook:** `config.ts` rejects any hook whose `timeout >=
+  resolveToolTimeoutMs()`; every hook is SIGKILLed at its own timeout (default
+  10_000ms). Chain: `per-hook (<60s) < BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000) <
+  BRAINSTRIKE_STREAM_INACTIVITY_MS (120_000)`.
+- **In-stream phases** (`PreToolUse`/`PostToolUse`/`Stop`): bounded by the
+  per-hook SIGKILL + the stream inactivity watchdog (120s) as the backstop — NOT
+  by an aggregate cap.
+- **Pre-stream `UserPromptSubmit`** runs BEFORE the model is invoked, so the
+  watchdog cannot bound it. It therefore has its OWN aggregate bound
+  (`resolveToolTimeoutMs()`, 60s) enforced on BOTH ends: `loadHooksConfig`
+  disables the phase fail-LOUD (a `HookConfigError`) when the combined declared
+  timeout reaches the ceiling, and at runtime `runHooksForEvent`
+  (`aggregateTimeoutMs`) caps the whole phase's wall-clock — the in-flight hook
+  is SIGKILLed at the remaining budget and the rest are skipped with a loud
+  warning (timeout == warn-and-continue; hooks proceed, never silently stall
+  turn start). Over-budget config never silently truncates.
+
+**Malformed config = disable-with-visible-error (NOT throw-at-load).**
+`loadHooksConfig` returns `{hooks, errors, sources}`; a malformed/untrusted file
+contributes ZERO hooks (fail-CLOSED) AND records a `HookConfigError` surfaced on
+THREE channels (`logger.error`, a `hook.notice(failed)` run event via
+`reportConfigErrors`, the Hooks settings banner). Never throw at load — that
+would brick every run over a config typo and hand a malicious repo a DoS. This is
+loud + fail-closed, the opposite of a silent fallback.
+
+**Security spine (trust gate).** Global hooks (`~/.brainstrike/hooks.json`, the
+user's own machine) run without approval. **Project** hooks
+(`<root>/.brainstrike/hooks.json`, per mounted desktop root) run ONLY after a
+per-root approval **pinned to the file's SHA-256**. The trust store
+(`packages/preferences/src/stores/hook-trust-store.ts`, persisted,
+factory-reset-registered) records `{rootId → {approvedSha256, approvedAt}}`. The
+renderer only ATTESTS approved hashes over the wire (`HookTrustRequest`); the
+server independently RE-READS + RE-HASHES disk (`trust.ts` `resolveTrustedRoots`)
+and runs a root's hooks only when `sha256(disk) === approvedSha256`. The trust
+hash is over the RAW file BYTES (`sha256OfBuffer`), and the approve-time review
+(`ipc-hooks-handlers.ts`) hashes those same bytes — never a utf8-decoded string,
+which would diverge for BOM/non-utf8 bytes and silently void an approval. Trust
++ parse come from ONE read (`loadHooksConfig` reads the bytes once, hashes them,
+and parses those same bytes only when trusted — no read-vs-hash TOCTOU window). A
+changed file → untrusted (re-approve). Keyed by durable `rootId`, never raw path.
+Stdin payloads are secret-redacted before spawn (`executor.ts` `redactSecrets`,
+mirrors the logger redact key set). NOTE: redaction covers ONLY the stdin JSON —
+it does NOT extend to the hook's inherited `process.env` (hooks inherit the full
+assistant-server env). Low-risk here: provider API keys live in the encrypted
+keychain, never in the process env.
+
+**Config paths (D6):** global `~/.brainstrike/hooks.json` (new home-dotfile, for
+discoverability); per-root `<root>/.brainstrike/hooks.json`. Merge order:
+global-first, then roots in mounted order; each loaded hook is tagged with its
+source `cwd`/`rootId` (global hooks' cwd = primary root).
+
+**Threading:** `RuntimeData.hookRunner` (trusted, agent-only, never serialized —
+mirrors `localLlmHostClient`; preserved by `resolveRuntimeConfiguration`'s spread)
++ `RuntimeData.hookTrustRequest` (wire). The server STRIPS any client-supplied
+`hookRunner` and injects the server-built one (closure over `HookManager`).
+
+**Run-event kinds:** `hook.blocked`, `hook.notice` (in `ASSISTANT_RUN_EVENT_KINDS`).
+
+**Settings + review IPC:** `hooks-settings-section.tsx` (per-root
+trusted/untrusted/changed/parse-error + approve/revoke) via
+`hooks:getProjectHooksForReview` IPC (`ipc-hooks.ts`, path-validated, hashes disk)
++ `window.hooks` preload bridge (capability-gated).
+
+Live-loop proofs (real Agent + real `applyToolHooks`, no stream mocks):
+`packages/agent/src/__tests__/mastra-tool-execution.spec.ts` (block / allow +
+PostToolUse context / runtime-threaded / no-runner regression / runner-fault).
+Server composition: `apps/desktop/src/__tests__/assistant-server/hooks/`.
+
+**Deferred (documented follow-ups):** SessionStart/SessionEnd/Notification
+wiring; Stop auto-continue; Stop `assistant_message` accumulation; full hooks.json
+editor UI; live per-root list wiring into the settings subtree;
+`<userData>` vs home-dotfile decision.
+
+When changing this flow, update this section and the paired tests.
 
 ---
 
@@ -771,6 +1015,57 @@ The assistant's search verbs, in the order the default instructions present them
 Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIVE_TOOL_RESULT_TOKEN_BUDGET` 2750, guard `MAX_TOOL_RESULT_TOKENS` 3000 in packages/agent/src/stream/tool-output-limits.ts) and enforced deterministically on serialized chars at 4 chars/token (mirrors `countTokensHeuristic`). Native tools self-bound their result lists via `fitItemsToCharBudget` and return SUCCESSFUL partial results with `truncated: true`, totals, and an actionable `hint` (offset/filters) built INSIDE the budget-fitted candidate — never a size error. The transport guard (`boundToolOutputForModel`) is a backstop: oversized collection-shaped outputs (matches/entries/results/items/files/chunks/rows) are structurally trimmed to fit with the same truncated+hint contract; only opaque non-collection outputs (e.g. MCP strings) still produce the `tool_result_too_large` error+preview, reported in ~tokens. Do not reintroduce hard size failures for native tools. `listWorkspaceContext` is concise by default (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 
 Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts.
+
+---
+
+## EDIT CHECKPOINT JOURNAL (UNDO OF AGENT FILE EDITS)
+
+Every agent file mutation records an undoable journal entry so a per-tool-card
+**Revert** control can restore the prior state. Desktop-only (web local chat has
+no assistant server / thread_runs rows). Capability-gated, not `isElectron()`.
+
+- **Capture point:** INSIDE the existing per-file `withFileLock` in all four
+  `run*WorkspaceFile` functions (`assistant-tools.ts`), so the before-read →
+  mutate → journal write is atomic against concurrent same-file edits.
+  `toolCallId` comes from Mastra's 2nd `execute` arg
+  (`context.agent.toolCallId`, verified against @mastra/core@1.50.0 dist types);
+  identity (runId/threadId/resourceId) from `runtimeData.memory`. Capture is
+  GATED on an active memory context and is NON-FATAL (debug on DB-absent, error
+  on DB-throw) — the tool result contract is never changed.
+- **Storage:** full BEFORE-content (capped at the 2 MB write limit), not a diff,
+  so revert is an exact independent write and conflict detection is a hash
+  compare. `after_hash`/`after_existed` are for conflict detection only (no
+  after-content — redo is deferred). Binary/oversized before-state is recorded
+  honestly via `capture_status` (`skipped_binary`/`skipped_too_large`) with null
+  content — NEVER a truncated snapshot. `capture_status` enum:
+  `ok`/`created`/`skipped_binary`/`skipped_too_large`/`expired`/`rename`; only
+  `ok`/`created`/`rename` are revertible.
+- **Table** `brainstrike_assistant_edit_checkpoints` (migration 051, registered in
+  BOTH runners + bootstrapped byte-identically in app-shell's
+  `assistant-memory-repository.ts`). NO FK (mirrors run_usage 046 — the numbered +
+  drizzle migration paths run on a bare PGlite without the thread_runs/mastra_threads
+  parents; an FK would break the full migration suite). Purged on factory reset
+  (`db-ipc.ts` `OptionalRelationTable`).
+- **Retention** (`edit-checkpoint-journal.ts`, strict-parsed env, no silent
+  fallback): `BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES` (32 MB) NULLs the oldest
+  non-reverted before-content to `expired`; `BRAINSTRIKE_CHECKPOINT_MAX_ROWS`
+  (500) hard-deletes the oldest rows. Pruned after every insert.
+- **LIST = renderer-direct DB (Path A):** `listThreadCheckpoints(threadId)` on the
+  PGlite repository, across ALL runs (revertible after reload). `before_content`
+  is NEVER selected — it stays in main.
+- **REVERT = IPC to main (Path B):** `window.assistantCheckpoints.revertEntry/revertRun`
+  → `assistant-checkpoint:revert-*` → `edit-checkpoint-revert.ts`. Resolves the
+  stored `root_id` via the roots table and REFUSES a disconnected root (never
+  guesses); detects on-disk conflicts (hash compare, `force` overrides); applies
+  the per-op inverse (restore-write / delete-created / recreate-deleted /
+  rename-back) under the file lock; reuses the write tools' non-fatal reindex
+  seams; stamps `reverted_at` (idempotent). Reverts are NOT re-journaled.
+- **Key files:** `edit-checkpoint-{journal,capture,revert,errors}.ts` +
+  `ipc-domains/assistant-checkpoint-*.ts` (desktop),
+  `edit-checkpoint-context.tsx` + `tool-fallback.tsx` (ui),
+  `use-edit-checkpoints.ts` (app-shell), `packages/assistant-contract/src/edit-checkpoints.ts`.
+
+When changing this flow, update this section and the paired tests.
 
 ---
 
@@ -1266,7 +1561,9 @@ Implementation:
 - Update:
   - packages/preferences/src/settings/system/factory-reset-helpers.ts
   - Ensure clearPersistentUiState() includes:
-    - All new persistent UI store keys.
+    - All new persistent UI store keys (e.g. `hook-trust-store` — the
+      security-sensitive per-root hook approvals; reset drops every approval so a
+      re-mounted repo's hooks require fresh review — see TOOL-LIFECYCLE HOOKS).
     - Electron renderer storage bridge.
     - IndexedDB (enumerated + fallback list).
     - CacheStorage.

@@ -941,7 +941,14 @@ describe('mastra streaming integration', () => {
       maxSteps?: number;
     };
     expect(options.maxSteps).toBe(12);
-    expect(options.inputProcessors?.map((processor) => processor.id)).toEqual(['token-limiter']);
+    // The per-call input array carries the TokenLimiter (token compaction) AND
+    // ProviderHistoryCompat (its preemptive processLLMRequest rules ride this
+    // array, not errorProcessors — composed here so the per-call replacement
+    // doesn't drop the limiter). Local provider would carry only the limiter.
+    expect(options.inputProcessors?.map((processor) => processor.id)).toEqual([
+      'token-limiter',
+      'provider-history-compat',
+    ]);
   });
 
   it('rejects unsupported Mastra stream options instead of silently dropping them', async () => {
