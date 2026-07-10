@@ -71,7 +71,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
-import { AssistantToolSuspendNotice } from './assistant-tool-suspend-notice';
+import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
@@ -290,6 +290,13 @@ export interface AssistantUiPanelProps {
    */
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
+  /**
+   * Clear the persisted plan-mode preference. Called when the user APPROVES a
+   * submitted plan so the resume request exits plan mode and the rebuilt server
+   * runtime unlocks the mutation tools. Absent → approving a plan leaves plan
+   * mode unchanged.
+   */
+  onExitPlanMode?: () => void;
   /**
    * Reports the active "@" mention query so the app can load matching files into
    * `fileMentions`. Presence of this callback gates the "@" feature on.
@@ -659,7 +666,7 @@ const ComposerInputRow = ({
 }: {
   isComposerDisabled: boolean;
   mentionPopover?: ReactNode;
-  planMode?: { enabled: boolean; onToggle: () => void };
+  planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void };
   slashPopover?: ReactNode;
 }) => (
   <div className="bs-composer-input-frame">
@@ -737,7 +744,7 @@ const ComposerInputWithTriggers = ({
   isComposerDisabled: boolean;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
-  planMode?: { enabled: boolean; onToggle: () => void };
+  planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void };
 }) => {
   const row = (
     <ComposerInputRow
@@ -826,7 +833,7 @@ interface ChatThreadProps {
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
   /** Composer plan-mode toggle; absent → no toggle rendered. */
-  planMode?: { enabled: boolean; onToggle: () => void } | undefined;
+  planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
@@ -1086,36 +1093,38 @@ const DataStreamRuntimeChat = ({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <AssistantPanelErrorBoundary>
-        <ChatThreadUI
-          contextWindow={contextWindow}
-          cumulativeUsage={cumulativeUsage}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          fileMentions={fileMentions}
-          hasGroupedProviders={hasGroupedProviders}
-          isComposerDisabled={isComposerDisabled}
-          localLoadingState={localLoadingState}
-          omSegment={omSegment}
-          onFileMentionQueryChange={onFileMentionQueryChange}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onRunFailed={onRunFailed}
-          onRunFinished={onRunFinished}
-          onThreadRunStart={onThreadRunStart}
-          onToolApprovalRequired={onToolApprovalRequired}
-          pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
-          {...(planMode ? { planMode } : {})}
-          providerGroups={providerGroups}
-          providerSettings={providerSettings}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          slashCommands={slashCommands}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      </AssistantPanelErrorBoundary>
+      <PlanModeExitProvider onExit={planMode?.onExit}>
+        <AssistantPanelErrorBoundary>
+          <ChatThreadUI
+            contextWindow={contextWindow}
+            cumulativeUsage={cumulativeUsage}
+            disabledReason={disabledReason}
+            effectiveInputBudget={effectiveInputBudget}
+            fileMentions={fileMentions}
+            hasGroupedProviders={hasGroupedProviders}
+            isComposerDisabled={isComposerDisabled}
+            localLoadingState={localLoadingState}
+            omSegment={omSegment}
+            onFileMentionQueryChange={onFileMentionQueryChange}
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            onRunFailed={onRunFailed}
+            onRunFinished={onRunFinished}
+            onThreadRunStart={onThreadRunStart}
+            onToolApprovalRequired={onToolApprovalRequired}
+            pickerModels={pickerModels}
+            pickerProviders={pickerProviders}
+            {...(planMode ? { planMode } : {})}
+            providerGroups={providerGroups}
+            providerSettings={providerSettings}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
+            slashCommands={slashCommands}
+            threadKey={threadKey}
+            toolMenu={toolMenu}
+          />
+        </AssistantPanelErrorBoundary>
+      </PlanModeExitProvider>
     </AssistantRuntimeProvider>
   );
 };
@@ -1156,7 +1165,7 @@ const ChatThreadUI = ({
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
-  planMode?: { enabled: boolean; onToggle: () => void } | undefined;
+  planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
   pickerModels: ModelPickerModel[];
@@ -1384,6 +1393,7 @@ export const AssistantUiPanel = ({
   requestData,
   prepareRequestData,
   onModelChange,
+  onExitPlanMode,
   onRunFailed,
   onRunFinished,
   onStreamActivity,
@@ -1518,7 +1528,13 @@ export const AssistantUiPanel = ({
             prepareLocalModel={prepareLocalModel}
             {...(onUsage ? { onUsage } : {})}
             {...(onTogglePlanMode
-              ? { planMode: { enabled: Boolean(planModeEnabled), onToggle: onTogglePlanMode } }
+              ? {
+                  planMode: {
+                    enabled: Boolean(planModeEnabled),
+                    onToggle: onTogglePlanMode,
+                    ...(onExitPlanMode ? { onExit: onExitPlanMode } : {}),
+                  },
+                }
               : {})}
             fileMentions={fileMentions}
             onFileMentionQueryChange={onFileMentionQueryChange}

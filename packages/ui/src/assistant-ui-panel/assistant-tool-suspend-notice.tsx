@@ -9,13 +9,47 @@ import type {
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/utils/logger';
 import { Check, ListChecks, MessageCircleQuestion, X } from 'lucide-react';
-import { type ReactNode, useCallback, useMemo, useState } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { Button } from '../button';
 
 const logger = createLogger('AssistantToolSuspendNotice');
 
 const SUBMIT_PLAN_TOOL_ID = 'brainstrike.submitPlan';
 const ASK_USER_TOOL_ID = 'brainstrike.askUser';
+
+/**
+ * Callback that clears the persisted plan-mode toggle. Provided by the
+ * data-stream runtime and consumed by {@link SubmitPlanNotice} so APPROVING a
+ * plan exits plan mode BEFORE the resume request is composed — the rebuilt
+ * server runtime then omits `planMode` and unlocks the mutation tools. REJECT
+ * leaves plan mode on so the model can revise. `null` when plan mode is not
+ * wired (e.g. non-desktop transports).
+ */
+const PlanModeExitContext = createContext<(() => void) | null>(null);
+
+export function PlanModeExitProvider({
+  children,
+  onExit,
+}: {
+  children: ReactNode;
+  onExit: (() => void) | null | undefined;
+}) {
+  return (
+    <PlanModeExitContext.Provider value={onExit ?? null}>{children}</PlanModeExitContext.Provider>
+  );
+}
+
+function usePlanModeExit(): (() => void) | null {
+  return useContext(PlanModeExitContext);
+}
 
 interface AssistantToolSuspendNoticeProps {
   data: unknown;
@@ -54,38 +88,102 @@ function getResumeActionFromMessage(message: unknown): unknown {
   return isRecord(custom) ? custom[TOOL_SUSPEND_RUN_CONFIG_KEY] : undefined;
 }
 
+function getMessageRole(message: unknown): unknown {
+  return isRecord(message) ? message['role'] : undefined;
+}
+
+function getMessageStatusType(message: unknown): string | undefined {
+  if (!isRecord(message)) {
+    return;
+  }
+  const status = message['status'];
+  return isRecord(status) && typeof status['type'] === 'string' ? status['type'] : undefined;
+}
+
 /**
- * True once a resume for THIS suspended call has already been appended to the
- * thread (so the notice locks its controls). Scans messages for a user message
- * carrying a matching `brainstrikeToolSuspend` action.
+ * Lifecycle of the run kicked off by a resume for THIS suspended call:
+ *   - `none`       — no matching resume appended yet.
+ *   - `pending`    — a resume is in flight (still streaming, or awaiting a new run).
+ *   - `retryable`  — the resumed run FAILED (assistant status `incomplete`); the
+ *                    controls RE-ENABLE so the user can resubmit (mirrors the
+ *                    approval notice — a stale/failed resume must not lock forever).
+ *   - `completed`  — the resumed run finished successfully; controls stay locked.
  */
-function hasResumedInThread(
+type SuspendRunOutcomeState = 'none' | 'pending' | 'retryable' | 'completed';
+
+/**
+ * Scan the thread for a `user` message carrying a matching `brainstrikeToolSuspend`
+ * action, then classify the run that followed it. Mirrors the approval notice's
+ * `resolveApprovalRunOutcome`: a failed resume is `retryable` (controls unlock),
+ * never permanently locked.
+ */
+function resolveSuspendRunOutcome(
   messages: readonly unknown[],
   request: AssistantToolSuspendRequest | null
-): boolean {
+): SuspendRunOutcomeState {
   if (!request) {
-    return false;
+    return 'none';
   }
-  for (const message of messages) {
-    if (isMatchingResumeAction(getResumeActionFromMessage(message), request)) {
-      return true;
+  let submittedIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      getMessageRole(message) === 'user' &&
+      isMatchingResumeAction(getResumeActionFromMessage(message), request)
+    ) {
+      submittedIndex = index;
+      break;
     }
   }
-  return false;
+  if (submittedIndex < 0) {
+    return 'none';
+  }
+
+  for (let index = submittedIndex + 1; index < messages.length; index += 1) {
+    const message = messages[index];
+    const role = getMessageRole(message);
+    if (role === 'user') {
+      return 'pending';
+    }
+    if (role !== 'assistant') {
+      continue;
+    }
+    const statusType = getMessageStatusType(message);
+    if (statusType === 'complete') {
+      return 'completed';
+    }
+    if (statusType === 'incomplete') {
+      return 'retryable';
+    }
+    return 'pending';
+  }
+  return 'pending';
 }
 
 /**
  * Shared resume-append hook for both suspend notices. Appends a `user` message
  * carrying the branch-specific `resumeData` under the suspend run-config key and
- * starts the run. Locks after submit (local state OR an already-resumed thread).
+ * starts the run. Locks after submit (local state OR a still-running/completed
+ * resume in the thread); a FAILED resume re-enables the controls so the user can
+ * retry (see {@link resolveSuspendRunOutcome}).
  */
 function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const aui = useAui();
   const [submitted, setSubmitted] = useState(false);
-  const resumedInThread = useAuiState((state) =>
-    hasResumedInThread(state.thread.messages, request)
+  const runOutcome = useAuiState((state) =>
+    resolveSuspendRunOutcome(state.thread.messages, request)
   );
-  const locked = submitted || resumedInThread;
+  const lockedByRun = runOutcome === 'pending' || runOutcome === 'completed';
+  const locked = submitted || lockedByRun;
+
+  // A failed resume (`retryable`) must clear the optimistic local lock so the
+  // buttons re-enable for a retry — mirrors the approval notice's reset effect.
+  useEffect(() => {
+    if (!submitted || runOutcome !== 'retryable') {
+      return;
+    }
+    setSubmitted(false);
+  }, [runOutcome, submitted]);
 
   const submit = useCallback(
     (resumeData: unknown, summary: string): void => {
@@ -162,10 +260,22 @@ function NoticeShell({
 
 function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const { submit, locked } = useSuspendResume(request);
+  const exitPlanMode = usePlanModeExit();
   const [feedback, setFeedback] = useState('');
   const plan = isRecord(request.suspendPayload)
     ? (request.suspendPayload as unknown as SubmitPlanPayload)
     : null;
+
+  const approve = useCallback(() => {
+    // Exit plan mode BEFORE composing the resume request so the rebuilt server
+    // runtime unlocks the mutation tools for the approved plan. Reject keeps
+    // plan mode on (handled by NOT calling this on the reject path).
+    exitPlanMode?.();
+    submit(
+      feedback.trim() ? { action: 'approved', feedback: feedback.trim() } : { action: 'approved' },
+      'Approved the plan.'
+    );
+  }, [exitPlanMode, feedback, submit]);
 
   return (
     <NoticeShell
@@ -178,8 +288,9 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
           <p className="text-foreground/90">{plan.overview}</p>
           {plan.steps?.length ? (
             <ol className="list-decimal space-y-0.5 pl-4 text-muted-foreground">
-              {plan.steps.map((step) => (
-                <li key={`${step.title}:${step.detail ?? ''}`}>
+              {plan.steps.map((step, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: steps are an immutable, never-reordered slice of one suspend payload; the index disambiguates duplicate title/detail pairs that collide on a content-only key.
+                <li key={`${index}:${step.title}:${step.detail ?? ''}`}>
                   <span className="text-foreground/90">{step.title}</span>
                   {step.detail ? (
                     <span className="text-muted-foreground"> — {step.detail}</span>
@@ -214,19 +325,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
         value={feedback}
       />
       <div className="mt-2 flex flex-wrap gap-2">
-        <Button
-          disabled={locked}
-          onClick={() =>
-            submit(
-              feedback.trim()
-                ? { action: 'approved', feedback: feedback.trim() }
-                : { action: 'approved' },
-              'Approved the plan.'
-            )
-          }
-          size="sm"
-          variant="default"
-        >
+        <Button disabled={locked} onClick={approve} size="sm" variant="default">
           <Check className="size-3.5" />
           Approve
         </Button>

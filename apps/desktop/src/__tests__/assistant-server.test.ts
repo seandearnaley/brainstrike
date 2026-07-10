@@ -1438,6 +1438,61 @@ describe('assistant-server', () => {
           storage: mockPgliteMastraStorage,
         })
       );
+      // Approve must EXIT plan mode: the client clears the plan-mode toggle
+      // before composing the resume, so the request carries no planMode and the
+      // rebuilt runtime unlocks the mutation tools.
+      const [, approveResumeOptions] = (streamMastraToolResumeAction as Mock).mock.calls[0] as [
+        unknown,
+        { runtime: Record<string, unknown> },
+      ];
+      expect(approveResumeOptions.runtime.planMode).toBeUndefined();
+    });
+
+    it('preserves planMode on a REJECT resume so the model can revise in plan mode', async () => {
+      const { streamMastraToolResumeAction, convertAssistantUiMessages } = await import(
+        '@brainstrike/agent'
+      );
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([]);
+      (streamMastraToolResumeAction as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text-delta', value: 'Revising the plan.' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        (res as { end?: () => void }).end?.();
+      });
+
+      await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            planMode: true,
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolSuspend: {
+                resumeData: { action: 'rejected', feedback: 'tighten step 2' },
+                runId: 'run-suspend-2',
+                toolCallId: 'tool-call-2',
+                toolName: 'brainstrike.submitPlan',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      const [, rejectResumeOptions] = (streamMastraToolResumeAction as Mock).mock.calls[0] as [
+        unknown,
+        { runtime: Record<string, unknown> },
+      ];
+      expect(rejectResumeOptions.runtime.planMode).toBe(true);
     });
 
     it('rejects a tool resume when workflow storage is missing from memory', async () => {
