@@ -430,5 +430,34 @@ describe('GitPanel', () => {
     expect(toastSpy).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Git status failed', variant: 'destructive' })
     );
+    // A real git failure surfaces immediately — no silent retry loop.
+    expect(
+      (window as unknown as { git: GitBridge }).git.status as ReturnType<typeof vi.fn>
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it('silently retries when the workspace root has not reconciled into the DB yet', async () => {
+    // Right after app boot the renderer can be interactive BEFORE roots
+    // reconciliation lands the workspace row in the DB. The main process then
+    // answers status with the transient "No open folder matches root id"
+    // error. The panel must keep polling until reconciliation lands instead of
+    // freezing on a dead error state.
+    const status = vi.fn(
+      async (): Promise<GitResult<GitStatus>> => ({
+        error: 'No open folder matches root id "root-1".',
+        ok: false,
+      })
+    );
+    status.mockResolvedValueOnce({ error: 'No open folder matches root id "root-1".', ok: false });
+    status.mockResolvedValueOnce({ error: 'Workspace roots are unavailable.', ok: false });
+    status.mockResolvedValue(ok(makeStatus({ branch: 'main', clean: true, files: [] })));
+    installBridge({ status });
+    render(<GitPanel />);
+
+    const panel = await screen.findByTestId('git-panel');
+    await waitFor(() => expect(panel).toHaveTextContent('main'), { timeout: 5000 });
+    expect(status.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(screen.queryByTestId('git-panel-error')).not.toBeInTheDocument();
+    expect(toastSpy).not.toHaveBeenCalled();
   });
 });

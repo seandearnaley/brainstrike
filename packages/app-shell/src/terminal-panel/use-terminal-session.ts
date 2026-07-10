@@ -4,6 +4,11 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  isTransientRootError,
+  TRANSIENT_ROOT_RETRY_DELAY_MS,
+  TRANSIENT_ROOT_RETRY_LIMIT,
+} from '../roots/transient-root-error';
 import { SurrogateBuffer } from './surrogate-buffer';
 import { resolveTerminalBridge, type TerminalBridge } from './terminal-bridge';
 import { XTERM_THEME } from './xterm-theme';
@@ -110,9 +115,19 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
   // (restart) re-keys the effect and invalidates any stale outcome. This is the
   // only "input" state — it is not derived from props.
   const [sessionId, setSessionId] = useState(0);
+  // Counts consecutive transient "root not reconciled yet" create failures so
+  // the silent boot-race retry loop is bounded. Reset on success, on a manual
+  // restart, and when the focused root changes.
+  const transientRetryCountRef = useRef(0);
   const restart = useCallback(() => {
+    transientRetryCountRef.current = 0;
     setSessionId((id) => id + 1);
   }, []);
+
+  // A different focused root starts with a fresh transient-retry budget.
+  useEffect(() => {
+    transientRetryCountRef.current = 0;
+  }, [activeRootId]);
 
   // The async OUTCOME of a session, tagged with the id it belongs to. The effect
   // writes only this (a subscribe-to-external-system result), never a derived
@@ -126,6 +141,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
 
     let cancelled = false;
     let terminalId: string | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const disposers: Array<() => void> = [];
 
     const term = new Terminal({
@@ -161,6 +177,25 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           return;
         }
         if (!result.ok) {
+          if (
+            isTransientRootError(result.error) &&
+            transientRetryCountRef.current < TRANSIENT_ROOT_RETRY_LIMIT
+          ) {
+            // Boot race: the workspace root row hasn't reconciled into the DB
+            // yet. Stay in the 'starting' state and re-key the session shortly
+            // — no error UI, no toast — until it lands or the budget runs out.
+            transientRetryCountRef.current += 1;
+            logger.debug('terminal create waiting for workspace root reconciliation', {
+              attempt: transientRetryCountRef.current,
+              error: result.error,
+            });
+            retryTimer = setTimeout(() => {
+              if (!cancelled) {
+                setSessionId((id) => id + 1);
+              }
+            }, TRANSIENT_ROOT_RETRY_DELAY_MS);
+            return;
+          }
           setTagged({
             outcome: { kind: 'error', message: result.error },
             rootId: activeRootId,
@@ -175,6 +210,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           return;
         }
 
+        transientRetryCountRef.current = 0;
         terminalId = result.value.terminalId;
         const liveId = terminalId;
         setTagged({
@@ -267,6 +303,9 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
 
     return () => {
       cancelled = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
       for (const dispose of disposers) {
         dispose();
       }
