@@ -274,6 +274,11 @@ export function resolveAssistantRunEventRenderPlan(
   if (!event) {
     return VISIBLE_ONCE;
   }
+  // Subagent nested activity renders inside the SubagentExecutionCard, not the
+  // main timeline — a per-nested-tool row here would duplicate the card.
+  if (event.kind.startsWith('subagent')) {
+    return HIDDEN;
+  }
   if (hasToolCallPartForEvent(messages, event)) {
     return HIDDEN;
   }

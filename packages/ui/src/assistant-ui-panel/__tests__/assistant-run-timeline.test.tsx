@@ -119,6 +119,26 @@ describe('resolveAssistantRunEventRenderPlan', () => {
     expect(resolveAssistantRunEventRenderPlan(messages, started).hidden).toBe(true);
   });
 
+  it('hides subagent.* events from the timeline (they render inside the SubagentCard)', () => {
+    for (const kind of [
+      'subagent.started',
+      'subagent.tool.started',
+      'subagent.tool.completed',
+      'subagent.finished',
+    ]) {
+      const event = {
+        id: `s-${kind}`,
+        kind,
+        label: 'Subagent',
+        metadata: { parentToolCallId: 'delegation-1', personaId: 'explore' },
+        status: 'running',
+        timestamp: ts,
+      };
+      const messages = [{ parts: [runEventPart(event)], role: 'assistant' }];
+      expect(resolveAssistantRunEventRenderPlan(messages, event).hidden).toBe(true);
+    }
+  });
+
   it('keeps tool.* events visible when no matching tool-call part exists', () => {
     const started = {
       id: 't1',
