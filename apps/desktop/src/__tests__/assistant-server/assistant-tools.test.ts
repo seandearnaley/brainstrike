@@ -2798,4 +2798,50 @@ describe('assistant-tools multi-root read tools', () => {
       expect(tools['brainstrike.manageTaskList']).toBeUndefined();
     });
   });
+
+  describe('suspending tool registration (submitPlan / askUser)', () => {
+    it('registers submitPlan and askUser for a hosted provider', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
+      expect(tools['brainstrike.submitPlan']).toBeDefined();
+      expect(tools['brainstrike.askUser']).toBeDefined();
+    });
+
+    it('registers the suspending tools when no provider is set (production default)', () => {
+      const tools = buildDesktopAssistantTools(undefined);
+      expect(tools['brainstrike.submitPlan']).toBeDefined();
+      expect(tools['brainstrike.askUser']).toBeDefined();
+    });
+
+    it('omits the suspending tools for the built-in local provider', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
+      expect(tools['brainstrike.submitPlan']).toBeUndefined();
+      expect(tools['brainstrike.askUser']).toBeUndefined();
+    });
+
+    it('registers the factory Tool objects directly so they keep suspendSchema', () => {
+      // Re-wrapping in the registry's { description, execute, id, inputSchema }
+      // literal shape would DROP suspendSchema and break suspension + the
+      // hasSuspendSchema fail-safe. The built entries must carry it.
+      const tools = buildDesktopAssistantTools({ provider: 'anthropic' } as RuntimeData);
+      expect(
+        (tools['brainstrike.submitPlan'] as { suspendSchema?: unknown }).suspendSchema
+      ).toBeDefined();
+      expect(
+        (tools['brainstrike.submitPlan'] as { resumeSchema?: unknown }).resumeSchema
+      ).toBeDefined();
+      expect(
+        (tools['brainstrike.askUser'] as { suspendSchema?: unknown }).suspendSchema
+      ).toBeDefined();
+    });
+
+    it('passes the suspending tool ids through the enabled-tool allowlist filter', () => {
+      const tools = buildDesktopAssistantTools({
+        enabledNativeToolIds: ['brainstrike.submitPlan', 'brainstrike.askUser'],
+        provider: 'openai',
+      } as RuntimeData);
+      expect(tools['brainstrike.submitPlan']).toBeDefined();
+      expect(tools['brainstrike.askUser']).toBeDefined();
+      expect(tools['brainstrike.readWorkspaceFile']).toBeUndefined();
+    });
+  });
 });
