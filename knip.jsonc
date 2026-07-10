@@ -364,7 +364,10 @@
         // Not imported (the python grammar is vendored to grammars/python.wasm), but pinned as the
         // documented re-vendoring source of truth — see docs/dependency-updates-breaking-changes.md
         "tree-sitter-wasms"
-      ]
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
     },
     "packages/file-tree-worker": {
       "project": ["src/**/*.{ts,tsx}"],
@@ -374,7 +377,10 @@
         // Real Vite renderer entry: both app vite configs alias @brainstrike/file-tree-worker to this
         // file (apps/web + apps/desktop vite.config.mts) — knip cannot follow the alias
         "src/vite.ts"
-      ]
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
     },
     "packages/commands": {
       "project": ["src/**/*.{ts,tsx}"],
