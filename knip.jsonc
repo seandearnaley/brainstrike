@@ -23,6 +23,7 @@
       "ignoreDependencies": [
         "@fontsource-variable/geist", // Imported via CSS @import in globals.css
         "@fontsource-variable/geist-mono", // Imported via CSS @import in globals.css
+        "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/app/globals.css (knip does not parse CSS)
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
         "@assistant-ui/react",
         "@assistant-ui/react-data-stream",
@@ -64,6 +65,8 @@
       "ignoreDependencies": [
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
+        "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/renderer/styles.css (knip does not parse CSS)
+        "xvfb-maybe", // Script binary in test:e2e* (invoked through scripts/run-env.mjs, which knip cannot resolve) + desktop-e2e.yml
         "@fontsource-variable/geist", // Imported via CSS @import in renderer/styles.css
         "@fontsource-variable/geist-mono", // Imported via CSS @import in renderer/styles.css
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
@@ -154,7 +157,10 @@
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         // Used only in tests; app-shell excludes tests from knip project paths
-        "@brainstrike/db"
+        "@brainstrike/db",
+        // No direct source import, but vitest.config.mts:118 aliases it to __mocks__/embeddings.ts so
+        // transitive imports of the heavy embeddings runtime stay mocked in app-shell tests
+        "@brainstrike/embeddings"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -336,9 +342,39 @@
     "packages/workspace-search": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // vitest.config.mts:10 loads ../test-utils/src/vitest.setup.ts; the dep pins that workspace version
+        "@brainstrike/test-utils"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
+    },
+    "packages/chunking-worker": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        // Manually-run benchmark harnesses, documented reproducers in docs/bench-chunking-*.md
+        "bench/**"
+      ],
+      "ignoreDependencies": [
+        // Bundled via tsup.config.ts noExternal; wasm subpath declared in src/types/wasm.d.ts
+        "tiktoken",
+        // Not imported (the python grammar is vendored to grammars/python.wasm), but pinned as the
+        // documented re-vendoring source of truth — see docs/dependency-updates-breaking-changes.md
+        "tree-sitter-wasms"
+      ]
+    },
+    "packages/file-tree-worker": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        // Real Vite renderer entry: both app vite configs alias @brainstrike/file-tree-worker to this
+        // file (apps/web + apps/desktop vite.config.mts) — knip cannot follow the alias
+        "src/vite.ts"
+      ]
     },
     "packages/commands": {
       "project": ["src/**/*.{ts,tsx}"],
@@ -365,7 +401,11 @@
         // jsdom is provided by Vitest for environment: 'jsdom' in vitest.config.mts
         "jsdom",
         // react is an optional peerDependency that IS used by the hooks - Knip flags it incorrectly
-        "react"
+        "react",
+        // Bundled inline via tsup.config.ts noExternal (reached through the @brainstrike/utils graph)
+        "@brainstrike/text-splitter",
+        // Bundled via tsup noExternal; wasm subpath declared in src/types/wasm.d.ts, loaded dynamically
+        "tiktoken"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -387,6 +427,8 @@
     "**/build/**",
     "**/.turbo/**",
     "**/*.d.ts",
+    // react-doctor auto-discovers doctor.config.ts by convention (`pnpm doctor` + react-doctor.yml)
+    "doctor.config.ts",
     // Ignore husky hook file
     ".husky/commit-msg.js",
     // Ignore Playwright merge config - used by CI workflows via shell commands

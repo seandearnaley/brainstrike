@@ -14,9 +14,7 @@
     "@mastra/core": "^1.50.0",
     "@mastra/mcp": "^1.13.1",
     "@mastra/memory": "1.22.1",
-    "@types/json-schema": "^7.0.15",
     "fastest-levenshtein": "^1.0.16",
-    "json-schema": "^0.4.0",
     "minimatch": "^10.2.5",
     "zod": "^4.4.3"
   },
