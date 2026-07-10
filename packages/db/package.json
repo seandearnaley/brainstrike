@@ -2,7 +2,6 @@
   "name": "@brainstrike/db",
   "version": "0.1.0",
   "dependencies": {
-    "@babel/parser": "^8.0.0",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
