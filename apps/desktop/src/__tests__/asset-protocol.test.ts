@@ -44,19 +44,19 @@ describe('asset protocol handler', () => {
     expect(res.status).toBe(200);
   });
 
-  it('rejects files outside every root with 403', async () => {
+  it('rejects files outside every root with 404 (not 403 — no existence oracle)', async () => {
     const res = await makeHandler()(new Request(assetUrl(path.join(outside, 'secret.png'))));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
-  it('rejects symlink escapes (realpath containment)', async () => {
+  it('rejects symlink escapes (realpath containment) with 404', async () => {
     const res = await makeHandler()(new Request(assetUrl(path.join(root, 'sneaky.png'))));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
-  it('rejects traversal in the requested path', async () => {
+  it('rejects traversal in the requested path with 404', async () => {
     const res = await makeHandler()(new Request(assetUrl(path.join(root, '..', 'x.png'))));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it('400s a missing path parameter', async () => {
@@ -72,5 +72,13 @@ describe('asset protocol handler', () => {
   it('404s a nonexistent file inside the root', async () => {
     const res = await makeHandler()(new Request(assetUrl(path.join(root, 'nope.png'))));
     expect(res.status).toBe(404);
+  });
+
+  it('makes outside-root and nonexistent-file responses indistinguishable (closes the existence oracle)', async () => {
+    const outsideRes = await makeHandler()(new Request(assetUrl(path.join(outside, 'secret.png'))));
+    const missingRes = await makeHandler()(new Request(assetUrl(path.join(root, 'nope.png'))));
+
+    expect(outsideRes.status).toBe(missingRes.status);
+    expect(await outsideRes.text()).toBe(await missingRes.text());
   });
 });

@@ -11,11 +11,18 @@
  * - An absolute path is required (`400` otherwise).
  * - Both the requested file AND each candidate root are `realpath`-canonicalized
  *   before the containment comparison, so a symlink inside a root that points
- *   OUTSIDE it (or `..` traversal) can never escape (`403`).
- * - An unresolvable root is SKIPPED, never treated as a match — it can only ever
- *   narrow access, never widen it.
- * - Outside every mounted root → `403` + logged warn.
+ *   OUTSIDE it (or `..` traversal) can never escape.
+ * - Outside every mounted root → `404` + logged warn (server-side audit trail
+ *   only — see below).
  * - Missing/unreadable file → `404`.
+ * - Outside-root and missing-file are DELIBERATELY indistinguishable to the
+ *   renderer (byte-identical status + body): `realpath` runs before the
+ *   containment check, so returning `403` for one and `404` for the other
+ *   would let a hostile markdown file use the response code as a filesystem
+ *   EXISTENCE ORACLE for arbitrary absolute paths (it can never read the
+ *   bytes — this is information disclosure only, but a real one). The
+ *   outside-root case is still logged via `logger.warn` so main retains the
+ *   distinction for auditing; only the wire response is unified.
  * - The response is streamed from disk via `net.fetch(pathToFileURL(real))`.
  */
 import { realpath } from 'node:fs/promises';
@@ -115,7 +122,9 @@ export function createAssetProtocolHandler(
 
     if (!(await isContainedInAnyRoot(real, resolver))) {
       logger.warn('Blocked asset request outside mounted roots', { requested });
-      return new Response('Forbidden', { status: 403 });
+      // Uniform 404 (not 403): identical to the missing-file response below so
+      // this can't be used as a filesystem existence oracle. See module doc.
+      return new Response('Not found', { status: 404 });
     }
 
     return net.fetch(pathToFileURL(real).toString());

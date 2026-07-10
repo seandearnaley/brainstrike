@@ -83,6 +83,8 @@ New dependencies (packages/ui unless noted): `react-markdown`, `remark-frontmatt
 
 A hostile `.md` in a mounted workspace cannot: execute script (no raw HTML, url sanitization), exfiltrate via `file:` loads (protocol allowlist + root-validated asset protocol), or navigate the renderer (all links intercepted; external opens go through main-process `shell.openExternal`).
 
+**Amendment (2026-07-09, user-approved):** the asset protocol returns a uniform 404 for both missing and outside-root paths so it cannot be used as a filesystem existence oracle; the outside-root case is still logged in main.
+
 ## Error handling summary
 
 | Failure | Behavior |
