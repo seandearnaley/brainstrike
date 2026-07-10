@@ -17,6 +17,7 @@ import {
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
+import { registerAssetProtocol, registerAssetProtocolPrivileges } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
@@ -43,6 +44,7 @@ import {
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { createDatabaseRootResolver } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
@@ -92,6 +94,10 @@ const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
 const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
 configureAgentDevtoolsCommandLine(app.commandLine, process.env, process.argv);
+
+// MUST run before app.whenReady(): privileged scheme registration is only
+// honored if it happens before the app is ready.
+registerAssetProtocolPrivileges();
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
@@ -1051,6 +1057,12 @@ if (singleInstanceLockAcquired) {
         isTestMode: e2eTestMode,
       });
       logger.debug('Resolved desktop launch mode', { launchMode });
+
+      // Register the root-validated `brainstrike-asset://` protocol now that the
+      // app is ready (protocol.handle requires ready). The resolver validates
+      // renderer-supplied paths against the DB `roots` table — the SAME source
+      // the git/read/search tools use — resolving the DB lazily per request.
+      registerAssetProtocol(createDatabaseRootResolver(getDatabase));
 
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {

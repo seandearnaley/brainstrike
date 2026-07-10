@@ -11,11 +11,14 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  isMarkdownPath,
   type OpenFileInTab,
   useIdeFileEditor,
+  useToast,
 } from '@brainstrike/ui';
+import { resolveRelativePath } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
   AlertCircle,
   File,
@@ -25,17 +28,34 @@ import {
   MoreHorizontal,
   X,
 } from 'lucide-react';
-import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  lazy,
+  memo,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
 import { type FileTab, useTabManager } from '../hooks/use-tab-manager';
-import { useEditorViewStateStore } from '../stores/editor-view-state-store';
+import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
 import {
   useWorkspaceTabSelectionStore,
   type WorkspaceTabSelection,
 } from '../stores/workspace-tab-selection-store';
 import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
+import { FileTabHeader } from './file-tab-header';
+import { MarkdownPreviewErrorBoundary } from './markdown-preview-error-boundary';
 import { useFileExplorer } from './use-file-explorer-context';
 import { CONTEXT_EXPLORER_APP_ID, type WorkspaceApp } from './workspace-app';
+
+const MarkdownSurfaceLazy = lazy(() =>
+  import('@brainstrike/ui/markdown-surface').then((m) => ({ default: m.MarkdownSurface }))
+);
 
 const logger = createLogger('WorkspaceTabHost');
 
@@ -765,6 +785,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
         content={content}
         isLoading={isLoading}
         isRestoring={isRestoring}
+        key={tab.compositeKey}
         status={status}
         tab={tab}
       />
@@ -789,10 +810,37 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     }
   }, [tab.compositeKey, tab.path]);
 
+  const isMarkdown = isMarkdownPath(path);
+
   const getScrollTop = useEditorViewStateStore((s) => s.getScrollTop);
   const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
   const getTarget = useEditorViewStateStore((s) => s.getTarget);
   const clearTarget = useEditorViewStateStore((s) => s.clearTarget);
+  const storedMode = useEditorViewStateStore((s) => s.modes[tab.compositeKey]);
+  const setMode = useEditorViewStateStore((s) => s.setMode);
+
+  const capabilities = useMarkdownPreviewCapabilities();
+  const { toast } = useToast();
+  const ideEditor = useIdeFileEditor();
+
+  // A line-targeted open (search match) forces source for THIS open only; the
+  // user's persisted preference is untouched. Captured once on mount (FileTabBody
+  // is keyed by compositeKey, so a fresh open re-evaluates). It stays state — not
+  // a derived value — so it does not flip preview→source once the target is
+  // consumed/cleared later in the same view.
+  const [forceSource, setForceSource] = useState<boolean>(
+    () => isMarkdown && useEditorViewStateStore.getState().getTarget(tab.compositeKey) !== undefined
+  );
+  const effectiveMode: FileViewMode =
+    !isMarkdown || forceSource ? 'source' : (storedMode ?? 'preview');
+
+  const handleModeChange = useCallback(
+    (mode: FileViewMode) => {
+      setForceSource(false);
+      setMode(tab.compositeKey, mode);
+    },
+    [setMode, tab.compositeKey]
+  );
 
   const handleScrollTopChange = useCallback(
     (scrollTop: number) => {
@@ -801,11 +849,102 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     [setScrollTop, tab.compositeKey]
   );
 
+  const handlePreviewScrollTopChange = useCallback(
+    (scrollTop: number) => {
+      setScrollTop(`preview:${tab.compositeKey}`, scrollTop);
+    },
+    [setScrollTop, tab.compositeKey]
+  );
+
+  const resolveImage = useCallback(
+    async (src: string): Promise<string> => {
+      // Remote images are blocked in previews regardless of CSP (which allows
+      // localhost in dev and is deployment-dependent on web): untrusted file
+      // content must not trigger network requests (file-explorer-ui AGENTS.md
+      // resource-loading restriction). Failure surfaces as the visible
+      // image-unavailable placeholder.
+      if (/^https?:/i.test(src)) {
+        throw new Error('Remote images are blocked in previews');
+      }
+      if (/^data:/i.test(src)) {
+        return src;
+      }
+      if (!capabilities) {
+        throw new Error('Image preview unavailable');
+      }
+      const resolved = src.startsWith('/') ? src : resolveRelativePath(path, src);
+      if (!resolved) {
+        throw new Error('Path escapes the workspace');
+      }
+      return capabilities.resolveImageSrc(resolved);
+    },
+    [capabilities, path]
+  );
+
+  const handleOpenLink = useCallback(
+    (href: string) => {
+      // Protocol-relative URLs (`//host/path`) carry no scheme but are NOT
+      // workspace-relative — the relative branch below would resolve them to a nonsense
+      // workspace key. Reject them explicitly with the same notice as unsupported schemes.
+      if (href.startsWith('//')) {
+        toast({ description: href, title: 'Unsupported link type', variant: 'destructive' });
+        return;
+      }
+      if (/^(https?|mailto):/i.test(href)) {
+        if (!capabilities) {
+          toast({ description: href, title: 'External links unavailable', variant: 'destructive' });
+          return;
+        }
+        void capabilities.openExternalLink(href).then((result) => {
+          if (!result.ok) {
+            toast({
+              description: result.error ?? href,
+              title: 'Could not open link',
+              variant: 'destructive',
+            });
+          }
+        });
+        return;
+      }
+      // Any other URL scheme (tel:, ftp:, javascript:, …) must not fall into the
+      // relative-path branch — it would resolve to a nonsense workspace key or a
+      // misleading "outside the workspace" toast. Name the real failure instead.
+      if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+        toast({ description: href, title: 'Unsupported link type', variant: 'destructive' });
+        return;
+      }
+      // Workspace-relative link → open in a tab.
+      let folderId: string;
+      try {
+        folderId = decodeFileSelection(tab.compositeKey).folderId;
+      } catch {
+        toast({ description: href, title: 'Could not resolve link', variant: 'destructive' });
+        return;
+      }
+      const resolved = resolveRelativePath(path, href.split('#')[0] ?? href);
+      if (!resolved) {
+        toast({
+          description: href,
+          title: 'Link is outside the workspace',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const openFileInTab = ideEditor.openFileInTab;
+      if (!openFileInTab) {
+        toast({ description: href, title: 'File opening unavailable', variant: 'destructive' });
+        return;
+      }
+      openFileInTab(encodeFileSelection(folderId, resolved));
+    },
+    [capabilities, ideEditor.openFileInTab, path, tab.compositeKey, toast]
+  );
+
   // One-shot consumption: only clear once `content` is actually a string, i.e.
-  // once CodeSurface below has genuinely mounted with whatever target
+  // once the surface below has genuinely mounted with whatever target
   // (initialLine/initialSelection) this render read (content loads async —
   // clearing on every compositeKey change regardless of content would erase the
-  // target before CodeSurface ever mounts to consume it). Without this,
+  // target before the surface ever mounts to consume it). Without this,
   // switching tabs away and back (or closing and reopening) remounts CodeSurface
   // — keyed on compositeKey — and its mount effect re-reads a stale target,
   // yanking the view back to the match line and discarding the user's scroll
@@ -817,8 +956,9 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     clearTarget(tab.compositeKey);
   }, [clearTarget, content, tab.compositeKey]);
 
+  let body: ReactNode;
   if (status?.status === 'needs-permission') {
-    return (
+    body = (
       <div className="flex h-full flex-col items-center justify-center text-center">
         <div aria-live="polite" className="sr-only">
           File access required for {path}. Click the tab to restore access.
@@ -832,10 +972,8 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
         {status.error ? <p className="mt-2 text-destructive text-xs">{status.error}</p> : null}
       </div>
     );
-  }
-
-  if (status?.status === 'not-found') {
-    return (
+  } else if (status?.status === 'not-found') {
+    body = (
       <div className="flex h-full flex-col items-center justify-center text-center">
         <div aria-live="polite" className="sr-only">
           File not found: {path}. This file may have been moved, renamed, or deleted.
@@ -849,28 +987,24 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
         {status.error ? <p className="mt-2 text-destructive text-xs">{status.error}</p> : null}
       </div>
     );
-  }
-
-  if (typeof content !== 'string') {
+  } else if (typeof content !== 'string') {
     // Three reasons content may be missing here, none of which is "the file is gone":
     //  1. Restoration is still in flight (status not yet emitted).
     //  2. We just opened the tab and loadFileContent hasn't completed.
     //  3. The active tab effect hasn't fired yet (e.g. fileTree not ready on web).
     // In all cases, "Restoring…" is the honest message — "File not found" was a lie.
     const isPending = isLoading || isRestoring || status?.status === 'pending';
-    return (
+    body = (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
         <span>{isPending ? 'Restoring…' : 'Loading…'}</span>
       </div>
     );
-  }
-
-  // Short-circuit before truncation: the inaccessible branch renders the full `content`
-  // verbatim, so running getDisplayContent first would do throwaway work and (for a very
-  // verbose error message above MAX_DOM_CHARS) produce an unused truncated string.
-  if (content.startsWith(INACCESSIBLE_CONTENT_PREFIX)) {
-    return (
+  } else if (content.startsWith(INACCESSIBLE_CONTENT_PREFIX)) {
+    // Short-circuit before truncation: the inaccessible branch renders the full `content`
+    // verbatim, so running getDisplayContent first would do throwaway work and (for a very
+    // verbose error message above MAX_DOM_CHARS) produce an unused truncated string.
+    body = (
       <div className="h-full overflow-auto p-4">
         <p className="text-amber-600 dark:text-amber-400">{content}</p>
         <p className="mt-2 text-muted-foreground text-sm">
@@ -879,26 +1013,67 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
         </p>
       </div>
     );
+  } else {
+    const { text, truncated } = getDisplayContent(content);
+    const target = getTarget(tab.compositeKey);
+
+    body =
+      effectiveMode === 'preview' ? (
+        <MarkdownPreviewErrorBoundary onOpenSource={() => handleModeChange('source')}>
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                <span>Loading preview…</span>
+              </div>
+            }
+          >
+            <MarkdownSurfaceLazy
+              ariaLabel={`Markdown preview for ${path}`}
+              initialScrollTop={getScrollTop(`preview:${tab.compositeKey}`)}
+              onOpenLink={handleOpenLink}
+              onScrollTopChange={handlePreviewScrollTopChange}
+              resolveImageSrc={resolveImage}
+              testId="file-markdown-surface"
+              truncated={truncated}
+              value={text}
+            />
+          </Suspense>
+        </MarkdownPreviewErrorBoundary>
+      ) : (
+        <CodeSurface
+          ariaLabel={`Source preview for ${path}`}
+          initialLine={target?.line}
+          initialScrollTop={getScrollTop(tab.compositeKey)}
+          initialSelection={target?.selection}
+          key={tab.compositeKey}
+          onScrollTopChange={handleScrollTopChange}
+          path={path}
+          testId="file-code-surface"
+          truncated={truncated}
+          value={text}
+        />
+      );
   }
 
-  const { text, truncated } = getDisplayContent(content);
-  const target = getTarget(tab.compositeKey);
+  const fileName = path.split('/').pop() ?? path;
+  const directory = path.slice(0, Math.max(0, path.length - fileName.length - 1));
 
   return (
-    <CodeSurface
-      ariaLabel={`Source preview for ${path}`}
-      initialLine={target?.line}
-      initialScrollTop={getScrollTop(tab.compositeKey)}
-      initialSelection={target?.selection}
-      key={tab.compositeKey}
-      onScrollTopChange={handleScrollTopChange}
-      path={path}
-      testId="file-code-surface"
-      truncated={truncated}
-      value={text}
-    />
+    <div className="flex h-full flex-col">
+      <FileTabHeader
+        directory={directory}
+        fileName={fileName}
+        mode={effectiveMode}
+        onModeChange={handleModeChange}
+        showModeToggle={isMarkdown}
+      />
+      <div className="min-h-0 flex-1">{body}</div>
+    </div>
   );
 }
+
+export { FileTabBody as FileTabBodyForTesting };
 
 function NoFileTabSelected() {
   return (

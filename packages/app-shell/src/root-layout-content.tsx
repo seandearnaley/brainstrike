@@ -1,5 +1,6 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db';
+import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
@@ -44,6 +45,7 @@ import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
+import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
 // Side-effect: register session-only stores with the factory-reset pipeline.
 import './register-factory-reset-session-stores';
 
@@ -268,6 +270,10 @@ function ContextExplorerSurface({
     () => contextExplorerPanelContent ?? <ExplorerSearchTabs />,
     [contextExplorerPanelContent]
   );
+  // Platform-injected markdown preview capabilities (external links, image src
+  // resolution). Detected by the `window.platform` bridge (capability presence,
+  // not isElectron); WorkspaceTabHost consumes this via the nullable hook.
+  const markdownPreviewCapabilities = useMarkdownPreviewCapabilitiesValue();
 
   return (
     <FileTreeWrapper>
@@ -276,18 +282,20 @@ function ContextExplorerSurface({
           editor area itself hosts the Context Explorer app and any open file tabs;
           there is no longer a south "console" panel. */}
       <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-        <IdeLayout
-          panelIdPrefix="context-explorer"
-          rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
-          rightPanelContent={resolvedPanelContent}
-        >
-          {/* The ⌘P quick-open host mounts INSIDE IdeLayout so it can reach the
-              file-open seam (IdeFileEditorContext, registered by the tab host).
-              This subtree is always mounted (the explorer route is only toggled
-              hidden), so ⌘P works from any tab. */}
-          <QuickOpenHost />
-          {contextExplorerPageContent}
-        </IdeLayout>
+        <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
+          <IdeLayout
+            panelIdPrefix="context-explorer"
+            rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
+            rightPanelContent={resolvedPanelContent}
+          >
+            {/* The ⌘P quick-open host mounts INSIDE IdeLayout so it can reach the
+                file-open seam (IdeFileEditorContext, registered by the tab host).
+                This subtree is always mounted (the explorer route is only toggled
+                hidden), so ⌘P works from any tab. */}
+            <QuickOpenHost />
+            {contextExplorerPageContent}
+          </IdeLayout>
+        </MarkdownPreviewCapabilitiesProvider>
       </PanelLayoutProvider>
     </FileTreeWrapper>
   );

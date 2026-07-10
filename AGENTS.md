@@ -554,6 +554,41 @@ When changing this flow, update this section and the paired tests.
 
 ---
 
+## MARKDOWN VIEWER (FILE TABS)
+
+Every file tab renders a slim `FileTabHeader` (filename + directory + actions
+slot). Markdown files (.md/.markdown/.mdown/.mkd — NOT .mdx, source-only)
+additionally get a Source/Preview toggle; preview is the default.
+
+- **Surfaces:** `CodeSurface` (source) vs `MarkdownSurface`
+  (packages/ui/src/markdown-surface/ — react-markdown v10 + remark-gfm +
+  remark-math/rehype-katex + rehype-slug; shiki fences share the chat's cached
+  highlighter via packages/ui/src/shiki/highlighter-core.ts; ```mermaid fences
+  lazy-load mermaid). Raw HTML stays inert (no rehype-raw). Frontmatter is
+  pre-extracted (packages/ui/src/markdown-surface/frontmatter.ts) into a
+  properties block; invalid YAML renders visibly.
+- **Mode state:** persisted per compositeKey in editor-view-state-store
+  (`modes`, store version 2); preview scroll under `preview:${compositeKey}`.
+  A one-shot view target (search-match open) forces source TRANSIENTLY without
+  writing the store.
+- **Capabilities (injected, never isElectron()):**
+  `MarkdownPreviewCapabilitiesProvider` (file-explorer-ui) composed by
+  app-shell's `useMarkdownPreviewCapabilitiesValue`. External links: desktop →
+  `window.platform.openExternal` (allowlisted http/https/mailto in MAIN,
+  apps/desktop/src/ipc-shell-handlers.ts); web → window.open noopener. Images:
+  desktop → `brainstrike-asset://local/asset?path=…` (protocol handler in
+  apps/desktop/src/asset-protocol.ts realpath-validates containment in mounted
+  DB roots; CSP img-src includes the scheme); web → FS Access handle →
+  object URL (revoked on unmount). Remote http(s) images are BLOCKED in the
+  renderer (visible placeholder) — untrusted file content must not trigger
+  network requests, independent of CSP. Every failure is visible (placeholder,
+  toast, or error block) — no silent fallbacks.
+- **Crash safety:** MarkdownPreviewErrorBoundary offers "Open in source".
+
+When changing this flow, update this section and the paired tests.
+
+---
+
 ## TAPESTRY
 
 The per-file range model spans Explorer, Search, Tapestry, and every context

@@ -46,6 +46,7 @@ export * from './lib/panel-surface';
 export * from './lib/utils';
 export * from './lightweight-checkbox';
 export * from './loading-fallback';
+export { isMarkdownPath } from './markdown-surface/is-markdown-path';
 export * from './model-picker';
 export * from './navigation-sidebar';
 export * from './popover';

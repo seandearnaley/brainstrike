@@ -10,12 +10,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
 
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useAdapters: () => ({
-    fileSystemAdapter: null,
-    storageAdapter: new MemoryStorageAdapter(),
-  }),
-}));
+vi.mock('@brainstrike/file-explorer-hooks', async () => {
+  const { createContext } = await import('react');
+  return {
+    AdaptersContext: createContext(null),
+    useAdapters: () => ({
+      fileSystemAdapter: null,
+      storageAdapter: new MemoryStorageAdapter(),
+    }),
+  };
+});
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,

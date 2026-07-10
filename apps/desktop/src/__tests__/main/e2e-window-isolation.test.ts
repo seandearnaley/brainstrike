@@ -59,6 +59,7 @@ vi.mock('electron', async () => {
     powerMonitor: {
       on: vi.fn(),
     },
+    protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
     shell: {
       openExternal: vi.fn(),
     },
