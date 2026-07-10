@@ -6,10 +6,12 @@ import {
 } from '@brainstrike/db';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import type { QueueAdapter } from '@brainstrike/queue';
 import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
@@ -51,17 +53,86 @@ function parseCompositeModelKey(modelKey: string): { model: string; provider: st
   return { model, provider };
 }
 
-export function ConnectedPromptManager() {
+async function resolveRequestedPromptRuntime({
+  action,
+  getAvailableProviders,
+  item,
+  modelOptions,
+}: {
+  readonly action: PromptItemUsageAction;
+  readonly getAvailableProviders: () => Promise<readonly string[]>;
+  readonly item: PromptItem;
+  readonly modelOptions: readonly PromptWorkbenchModelOption[];
+}): Promise<{ model: string; provider: string } | null> {
+  if (!((action === 'compose' || action === 'new-thread') && item.modelKey)) {
+    return null;
+  }
+  if (!modelOptions.some((option) => option.key === item.modelKey)) {
+    throw new Error(
+      `Prompt "${item.title}" requests model "${item.modelKey}", but that model is not enabled.`
+    );
+  }
+  const requestedRuntime = parseCompositeModelKey(item.modelKey);
+  const availableProviders = await getAvailableProviders();
+  if (!availableProviders.some((provider) => provider === requestedRuntime.provider)) {
+    throw new Error(
+      `Prompt "${item.title}" requests ${requestedRuntime.provider}, but that provider is not available.`
+    );
+  }
+  return requestedRuntime;
+}
+
+interface ConnectedPromptManagerProps {
+  readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
+}
+
+interface PromptIndexingPassResult {
+  readonly error: string | null;
+  readonly requestId: number;
+}
+
+async function loadInitialPromptItems(repository: PromptItemRepository): Promise<PromptItem[]> {
+  await importLegacyPromptStore(repository);
+  return repository.list();
+}
+
+async function reloadPromptItemsAfterIndexing(
+  repository: PromptItemRepository,
+  runIndexingPass: () => Promise<PromptIndexingPassResult>
+): Promise<
+  | {
+      readonly error: string;
+      readonly indexing: PromptIndexingPassResult;
+      readonly status: 'error';
+    }
+  | {
+      readonly indexing: PromptIndexingPassResult;
+      readonly items: PromptItem[];
+      readonly status: 'ready';
+    }
+> {
+  const indexing = await runIndexingPass();
+  try {
+    const items = await repository.list();
+    return { indexing, items, status: 'ready' };
+  } catch (error) {
+    return { error: toErrorMessage(error), indexing, status: 'error' };
+  }
+}
+
+export function ConnectedPromptManager({ loadEmbeddingQueue }: ConnectedPromptManagerProps) {
   const db = usePGliteDatabase();
   useEnsureModelRegistry({ db });
   const models = useModelRegistryStore((state) => state.models);
   const providers = useModelRegistryStore((state) => state.providers);
+  const getAvailableProviders = useAssistantPreferencesStore(
+    (state) => state.getAvailableProviders
+  );
   const embedder = useSharedSearchEmbedder();
   const activeThreadId = useAssistantThreadStore(
     (state) => state.activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
   );
   const createThread = useAssistantThreadStore((state) => state.createThread);
-  const renameThread = useAssistantThreadStore((state) => state.renameThread);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
   const composerContext = useAssistantComposerCommandStore((state) =>
     activeThreadId ? (state.draftTextByThreadId[activeThreadId] ?? '') : ''
@@ -69,6 +140,9 @@ export function ConnectedPromptManager() {
   const enqueueComposerCommand = useAssistantComposerCommandStore((state) => state.enqueue);
   const [readiness, setReadiness] = useState<PromptManagerReadiness>({ status: 'loading' });
   const [indexingError, setIndexingError] = useState<string | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
+  const indexingTailRef = useRef<Promise<void> | null>(null);
+  const latestIndexingRequestIdRef = useRef(0);
 
   const repository = useMemo(() => (db ? new PromptItemRepository(db) : null), [db]);
   const threadRepository = useMemo(
@@ -114,74 +188,110 @@ export function ConnectedPromptManager() {
     return resolvePromptEmbeddingModelInfo(profile, localModelConfigMap);
   }, [localModelConfigMap, repository]);
 
-  const indexPendingItems = useCallback(async () => {
+  const ensureEmbeddingQueueReady = useCallback(async (): Promise<void> => {
+    if (!loadEmbeddingQueue) {
+      throw new Error('Prompt embeddings require an application embedding queue.');
+    }
+    await loadEmbeddingQueue();
+  }, [loadEmbeddingQueue]);
+
+  const performPendingItemIndexing = useCallback(async () => {
     if (!repository) {
       throw new Error('Cannot index prompts before the database is ready.');
     }
+    await ensureEmbeddingQueueReady();
     const modelInfo = await resolveModelInfo();
     const outcomes = await embedPendingPromptItems({ embedder, modelInfo, repository });
     const failures = outcomes.filter((outcome) => outcome.status === 'error');
     if (failures.length > 0) {
       throw new Error(failures.map((outcome) => outcome.error).join('\n'));
     }
-  }, [embedder, repository, resolveModelInfo]);
+  }, [embedder, ensureEmbeddingQueueReady, repository, resolveModelInfo]);
+
+  const runIndexingPass = useCallback((): Promise<PromptIndexingPassResult> => {
+    const requestId = latestIndexingRequestIdRef.current + 1;
+    latestIndexingRequestIdRef.current = requestId;
+    const execute = async (): Promise<PromptIndexingPassResult> => {
+      try {
+        await performPendingItemIndexing();
+        return { error: null, requestId };
+      } catch (error) {
+        return { error: toErrorMessage(error), requestId };
+      }
+    };
+    const pass = (indexingTailRef.current ?? Promise.resolve()).then(execute, execute);
+    indexingTailRef.current = pass.then(
+      () => undefined,
+      () => undefined
+    );
+    return pass;
+  }, [performPendingItemIndexing]);
 
   useEffect(() => {
     if (!repository) {
       return;
     }
     let current = true;
-    const initialize = async (): Promise<void> => {
-      let items: PromptItem[];
-      try {
-        await importLegacyPromptStore(repository);
-        items = await repository.list();
-      } catch (error) {
-        if (current) {
+    const initialize = (): void => {
+      void loadInitialPromptItems(repository)
+        .then((items) => {
+          if (!current) {
+            return null;
+          }
+          setReadiness({ items, repository, status: 'ready' });
+          return reloadPromptItemsAfterIndexing(repository, runIndexingPass);
+        })
+        .then((refreshed) => {
+          if (
+            !(refreshed && current) ||
+            refreshed.indexing.requestId !== latestIndexingRequestIdRef.current
+          ) {
+            return;
+          }
+          if (refreshed.status === 'error') {
+            setReadiness({
+              error: refreshed.error,
+              repository,
+              status: 'error',
+            });
+            return;
+          }
+          setIndexingError(refreshed.indexing.error);
+          setReadiness({ items: refreshed.items, repository, status: 'ready' });
+        })
+        .catch((error: unknown) => {
+          if (!current) {
+            return;
+          }
           setReadiness({
             error: toErrorMessage(error),
             repository,
             status: 'error',
           });
-        }
-        return;
-      }
-      if (!current) {
-        return;
-      }
-      setReadiness({ items, repository, status: 'ready' });
-      try {
-        await indexPendingItems();
-        if (current) {
-          setIndexingError(null);
-        }
-      } catch (error) {
-        if (current) {
-          setIndexingError(toErrorMessage(error));
-        }
-      }
+        });
     };
-    void initialize();
+    initialize();
     return () => {
       current = false;
     };
-  }, [indexPendingItems, repository]);
+  }, [repository, runIndexingPass]);
 
   const handleLibraryChanged = useCallback(async () => {
-    try {
-      await indexPendingItems();
-    } catch (error) {
-      const message = toErrorMessage(error);
-      setIndexingError(message);
-      throw new Error(message);
+    const indexing = await runIndexingPass();
+    if (indexing.requestId === latestIndexingRequestIdRef.current) {
+      setIndexingError(null);
     }
-  }, [indexPendingItems]);
+    if (indexing.error) {
+      throw new Error(indexing.error);
+    }
+  }, [runIndexingPass]);
 
   const handleRequestSuggestions = useCallback(
     async (context: string) => {
       if (!repository) {
         throw new Error('Cannot recall prompts before the database is ready.');
       }
+      await ensureEmbeddingQueueReady();
       const modelInfo = await resolveModelInfo();
       return queryPromptSuggestions({
         context,
@@ -191,7 +301,22 @@ export function ConnectedPromptManager() {
         repository,
       });
     },
-    [embedder, repository, resolveModelInfo]
+    [embedder, ensureEmbeddingQueueReady, repository, resolveModelInfo]
+  );
+
+  const recordAppliedUsage = useCallback(
+    async (itemId: string, action: PromptItemUsageAction): Promise<void> => {
+      if (!repository) {
+        throw new Error('Cannot record prompt usage before the database is ready.');
+      }
+      try {
+        await repository.recordUsage(itemId, action);
+        setUsageError(null);
+      } catch (error) {
+        setUsageError(`Prompt was staged, but usage tracking failed: ${toErrorMessage(error)}`);
+      }
+    },
+    [repository]
   );
 
   const handleUseItem = useCallback(
@@ -200,36 +325,51 @@ export function ConnectedPromptManager() {
         throw new Error('Cannot use a prompt before the database is ready.');
       }
 
+      const requestedRuntime = await resolveRequestedPromptRuntime({
+        action,
+        getAvailableProviders,
+        item,
+        modelOptions,
+      });
+
       if (action === 'new-thread') {
-        const thread = await createThread(threadRepository, WORKSPACE_MEMORY_RESOURCE_ID);
-        await renameThread(threadRepository, WORKSPACE_MEMORY_RESOURCE_ID, thread.id, item.title);
-        if (item.modelKey) {
-          setThreadDraftRuntime(thread.id, parseCompositeModelKey(item.modelKey));
+        const thread = await createThread(
+          threadRepository,
+          WORKSPACE_MEMORY_RESOURCE_ID,
+          item.title
+        );
+        if (requestedRuntime) {
+          setThreadDraftRuntime(thread.id, requestedRuntime);
         }
         enqueueComposerCommand({
           mode: 'replace',
           text: renderedContent,
           threadId: thread.id,
         });
-        await repository.recordUsage(item.id, action);
+        await recordAppliedUsage(item.id, action);
         return;
       }
 
       if (!activeThreadId) {
         throw new Error('Open an assistant thread before adding a prompt to the composer.');
       }
+      if (action === 'compose' && requestedRuntime) {
+        setThreadDraftRuntime(activeThreadId, requestedRuntime);
+      }
       enqueueComposerCommand({
         mode: action === 'insert' ? 'append' : 'replace',
         text: renderedContent,
         threadId: activeThreadId,
       });
-      await repository.recordUsage(item.id, action);
+      await recordAppliedUsage(item.id, action);
     },
     [
       activeThreadId,
       createThread,
       enqueueComposerCommand,
-      renameThread,
+      getAvailableProviders,
+      modelOptions,
+      recordAppliedUsage,
       repository,
       setThreadDraftRuntime,
       threadRepository,
@@ -264,6 +404,8 @@ export function ConnectedPromptManager() {
     );
   }
 
+  const systemError = [indexingError, usageError].filter(Boolean).join('\n');
+
   return (
     <PromptWorkbenchPanel
       {...(activeThreadId ? { activeThreadId } : {})}
@@ -274,7 +416,7 @@ export function ConnectedPromptManager() {
       onRequestSuggestions={handleRequestSuggestions}
       onUseItem={handleUseItem}
       repository={repository}
-      {...(indexingError ? { systemError: indexingError } : {})}
+      {...(systemError ? { systemError } : {})}
     />
   );
 }

@@ -1,5 +1,6 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import type { QueueAdapter } from '@brainstrike/queue';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { PanelLayoutState } from '@brainstrike/ui';
 import { act, render, screen } from '@testing-library/react';
@@ -139,7 +140,16 @@ vi.mock('../agent-sidebar-panel', () => ({
 }));
 
 vi.mock('../connected-prompt-manager', () => ({
-  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
+  ConnectedPromptManager: ({
+    loadEmbeddingQueue,
+  }: {
+    loadEmbeddingQueue: (() => Promise<unknown>) | null;
+  }) => (
+    <div
+      data-has-embedding-queue={loadEmbeddingQueue ? 'true' : 'false'}
+      data-testid="connected-prompt-manager"
+    />
+  ),
 }));
 
 vi.mock('../threads-panel', () => ({
@@ -217,6 +227,16 @@ describe('RootLayoutContent', () => {
     // The south/console panel is gone — file tabs now live inside the editor area
     // (the workspace tab host is rendered via contextExplorerPageContent in real apps).
     expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();
+  });
+
+  it('forwards the app embedding queue loader to the prompt workbench', () => {
+    const loadEmbeddingQueue = vi.fn(async () => ({ id: 'queue' }) as unknown as QueueAdapter);
+    renderComponent({ loadEmbeddingQueue });
+
+    expect(screen.getByTestId('connected-prompt-manager')).toHaveAttribute(
+      'data-has-embedding-queue',
+      'true'
+    );
   });
 
   it('renders settings as a full-frame route without the agent shell', () => {

@@ -47,6 +47,31 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
       timeout: 15_000,
     });
     await expect(assistantChatCard).toBeVisible();
+
+    const clip = 'Cite exact file and line evidence before drawing a conclusion.';
+    const quickCapture = window.getByRole('textbox', { name: 'Quick capture' });
+    await quickCapture.fill(clip);
+    await quickCapture.press('Meta+Enter');
+
+    const primaryAction = window.getByRole('button', { name: `Insert ${clip}` }).first();
+    await expect(primaryAction).toBeVisible({ timeout: 5000 });
+    const workbench = window.getByRole('region', { name: 'Prompt workbench' });
+    const [actionBox, workbenchBox] = await Promise.all([
+      primaryAction.boundingBox(),
+      workbench.boundingBox(),
+    ]);
+    expect(actionBox).not.toBeNull();
+    expect(workbenchBox).not.toBeNull();
+    expect((actionBox?.x ?? 0) + (actionBox?.width ?? 0)).toBeLessThanOrEqual(
+      (workbenchBox?.x ?? 0) + (workbenchBox?.width ?? 0) + 1
+    );
+
+    const libraryViewport = window.getByTestId('prompt-library-scroll');
+    await expect
+      .poll(async () =>
+        libraryViewport.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
+      )
+      .toBe(true);
   });
 
   test('send message and see streamed response in assistant shell', async ({ window }) => {

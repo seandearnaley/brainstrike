@@ -217,16 +217,31 @@ Ownership and flow:
 - Persistence: migration 050 (`prompt_embedding_profiles`, `prompt_items`,
   `prompt_item_revisions`) + `PromptItemRepository`. Prompt edits use revision CAS and
   retain the previous revision. The one-time `brainstrike-prompt-store` import is strict,
-  transactional, and removes localStorage only after a successful commit.
+  transactional, and removes localStorage only after a successful commit. Desktop import
+  uses the callback-free `runTransaction` bridge with in-transaction row-count guards that
+  compare every import-owned current/revision field before accepting an idempotent replay;
+  never replace it with renderer-side `BEGIN`/`COMMIT` calls or a preflight comparison.
 - Recall: prompt records own vectors under the dedicated singleton prompt profile — they
   are NOT fake files and MUST NOT be added to `embedding_sets`. Saved items use document
   embeddings; live composer context uses query embeddings. Vector failures surface in the
-  workbench; there is no lexical fallback.
+  workbench; there is no lexical fallback. The app-specific embedding queue loader MUST
+  resolve before either operation so desktop/web worker URLs are registered explicitly.
+  Indexing passes are serialized; overlapping bootstrap/save passes must never write the
+  same revision concurrently. Connected refreshes remain authoritative and the interaction
+  layer reconciles them into its local working set. Async save/list completions must merge
+  against the latest committed authoritative snapshot, never the render that started them.
 - Agent actions: `assistant-composer-command-store.ts` is a thread-keyed, in-memory FIFO.
   `AssistantUiPanelWrapper` bridges only that thread's head command into the real
   assistant-ui composer and acknowledges it after application. Snippets/fragments append,
-  prompts replace, and nothing auto-sends. New-thread actions create/activate the durable
-  thread, apply its configured model, then stage the prompt.
+  prompts replace, and nothing auto-sends. Runnable prompts apply their configured model
+  only after the model is enabled and its provider is available; unavailable targets fail
+  visibly before mutating a thread. New-thread actions create the durable thread with its
+  final title atomically before activation/staging and wait for any in-flight initial resource
+  load before creating. A ready thread resource must not be redundantly reloaded during this
+  sequence or a stale `New Thread` snapshot can overwrite the title.
+  Once persistence or composer staging succeeds, later indexing, list-refresh, or usage-count
+  failures are secondary warnings: surface them explicitly, but never reject the completed
+  primary action and invite a duplicate save/stage retry.
 - Composition: `connected-prompt-manager.tsx` owns DB/model/thread/vector wiring;
   `prompt-workbench-panel.tsx` remains the interaction layer; `prompt-template.ts` owns
   explicit `{{variable}}` resolution.

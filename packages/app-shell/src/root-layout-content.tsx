@@ -330,7 +330,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
               />
             }
             preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-            promptsContent={<ConnectedPromptManager />}
+            promptsContent={<ConnectedPromptManager loadEmbeddingQueue={loadEmbeddingQueue} />}
             threadsContent={<ThreadsPanel />}
           />
         }

@@ -20,7 +20,6 @@ import {
   DialogTitle,
   Input,
   Label,
-  ScrollArea,
 } from '@brainstrike/ui';
 import {
   ArrowUpRight,
@@ -46,7 +45,9 @@ import {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { extractPromptTemplateVariables, renderPromptTemplate } from './prompt-template';
@@ -177,14 +178,28 @@ function usePromptLibraryItems(
   repository: PromptWorkbenchRepository,
   initialItems: readonly PromptItem[]
 ) {
-  const [items, setItems] = useState<PromptItem[]>(() => [...initialItems]);
+  const [snapshot, setSnapshot] = useState<{
+    readonly items: PromptItem[];
+    readonly source: readonly PromptItem[];
+  }>(() => ({ items: [...initialItems], source: initialItems }));
+  const latestInitialItemsRef = useRef(initialItems);
+  useLayoutEffect(() => {
+    latestInitialItemsRef.current = initialItems;
+  }, [initialItems]);
+  const items = snapshot.source === initialItems ? snapshot.items : [...initialItems];
 
   const refresh = useCallback(async () => {
-    setItems(await repository.list({} satisfies PromptItemFilter));
+    const refreshedItems = await repository.list({} satisfies PromptItemFilter);
+    setSnapshot(() => ({ items: refreshedItems, source: latestInitialItemsRef.current }));
   }, [repository]);
 
   const updateItems = useCallback((update: (items: PromptItem[]) => PromptItem[]) => {
-    setItems(update);
+    setSnapshot((current) => {
+      const latestInitialItems = latestInitialItemsRef.current;
+      const currentItems =
+        current.source === latestInitialItems ? current.items : [...latestInitialItems];
+      return { items: update(currentItems), source: latestInitialItems };
+    });
   }, []);
 
   return { items, refresh, updateItems };
@@ -821,8 +836,11 @@ function PromptLibraryList({
 }) {
   return (
     <>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="p-2">
+      <div
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
+        data-testid="prompt-library-scroll"
+      >
+        <div className="w-full min-w-0 overflow-hidden p-2">
           {items.length === 0 ? (
             <div className="grid place-items-center px-6 py-12 text-center">
               <Lightbulb aria-hidden="true" className="size-7 text-muted-foreground/50" />
@@ -833,10 +851,10 @@ function PromptLibraryList({
               </p>
             </div>
           ) : null}
-          <ul className="m-0 grid list-none gap-1 p-0">
+          <ul className="m-0 grid w-full min-w-0 list-none gap-1 p-0">
             {items.map((item) => (
               <li
-                className="group rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-border/70 hover:bg-muted/35"
+                className="group min-w-0 overflow-hidden rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-border/70 hover:bg-muted/35"
                 key={item.id}
               >
                 <div className="flex items-start gap-2">
@@ -905,7 +923,7 @@ function PromptLibraryList({
             ))}
           </ul>
         </div>
-      </ScrollArea>
+      </div>
       <footer className="flex items-center justify-between gap-2 border-border/70 border-t bg-muted/15 px-3 py-1.5 text-[9px] text-muted-foreground">
         <span>{items.length} visible</span>
         <span className="truncate">
@@ -933,6 +951,7 @@ export function PromptWorkbenchPanel({
     updateItems,
   } = usePromptLibraryItems(repository, initialItems);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [libraryWarning, setLibraryWarning] = useState<string | null>(null);
   const [capture, setCapture] = useState('');
   const [captureKind, setCaptureKind] = useState<PromptItemKind>('fragment');
   const [capturing, setCapturing] = useState(false);
@@ -957,9 +976,20 @@ export function PromptWorkbenchPanel({
   );
 
   const notifyLibraryChanged = useCallback(async () => {
-    await onLibraryChanged();
+    const warnings: string[] = [];
+    try {
+      await onLibraryChanged();
+    } catch (cause) {
+      warnings.push(`Prompt saved, but indexing failed: ${errorMessage(cause)}`);
+    }
+    try {
+      await refreshItems();
+    } catch (cause) {
+      warnings.push(`Prompt saved, but the library could not refresh: ${errorMessage(cause)}`);
+    }
+    setLibraryWarning(warnings.length > 0 ? warnings.join(' ') : null);
     setSuggestionRefreshKey((current) => current + 1);
-  }, [onLibraryChanged]);
+  }, [onLibraryChanged, refreshItems]);
 
   const captureClip = useCallback(async () => {
     if (!capture.trim() || capturing) {
@@ -990,10 +1020,20 @@ export function PromptWorkbenchPanel({
       setActionError(null);
       try {
         await onUseItem(item, content, action);
+      } catch (cause) {
+        const message = errorMessage(cause);
+        setActionError(message);
+        throw cause instanceof Error ? cause : new Error(message);
+      }
+      try {
         await refreshItems();
       } catch (cause) {
-        setActionError(errorMessage(cause));
+        setLibraryWarning(
+          `Prompt action completed, but the library could not refresh: ${errorMessage(cause)}`
+        );
+        return;
       }
+      setLibraryWarning(null);
     },
     [onUseItem, refreshItems]
   );
@@ -1004,13 +1044,16 @@ export function PromptWorkbenchPanel({
         setPendingUse({ action, item });
         return;
       }
-      void completeUse(item, item.content, action);
+      void completeUse(item, item.content, action).catch(() => {
+        // completeUse owns the visible primary-action error for fire-and-forget actions.
+      });
     },
     [completeUse]
   );
 
   const saveBuilder = useCallback(
     async (draft: PromptDraft) => {
+      setActionError(null);
       const common = {
         content: draft.content,
         description: draft.description || null,
@@ -1037,7 +1080,9 @@ export function PromptWorkbenchPanel({
     },
     [builderItem, notifyLibraryChanged, repository, updateItems]
   );
-  const visibleError = actionError ?? systemError;
+  const visibleError = [actionError, libraryWarning, systemError]
+    .filter((error): error is string => Boolean(error))
+    .join('\n');
 
   return (
     <section
