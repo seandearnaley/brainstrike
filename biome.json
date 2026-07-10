@@ -209,6 +209,16 @@
       }
     },
     {
+      "includes": ["apps/desktop/src/assistant-server/hooks/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": [
         "apps/web/**",
         "packages/ui/**",

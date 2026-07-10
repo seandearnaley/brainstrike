@@ -2,7 +2,7 @@ import type { ToolLogger } from './types';
 
 export interface GuardedToolError {
   error: {
-    code: 'tool_timeout' | 'tool_failed';
+    code: 'tool_timeout' | 'tool_failed' | 'tool_blocked_by_hook';
     message: string;
     toolName: string;
   };
@@ -22,7 +22,9 @@ export function isGuardedToolError(value: unknown): value is GuardedToolError {
     candidate.ok === false &&
     typeof candidate.error === 'object' &&
     candidate.error !== null &&
-    (candidate.error.code === 'tool_timeout' || candidate.error.code === 'tool_failed')
+    (candidate.error.code === 'tool_timeout' ||
+      candidate.error.code === 'tool_failed' ||
+      candidate.error.code === 'tool_blocked_by_hook')
   );
 }
 

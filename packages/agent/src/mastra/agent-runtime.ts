@@ -31,6 +31,8 @@ import type {
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 import { StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
 import { applyToolGuards } from '../tools/guard-tool-execution';
+import type { AgentHookRunner } from '../tools/hook-runner';
+import { applyToolHooks } from '../tools/hook-tool-wrap';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type {
   AgentMessage,
@@ -76,6 +78,12 @@ import {
 import { sanitizeTools } from './tool-sanitizer';
 
 export interface MastraAgentRuntimeOptions {
+  /**
+   * Server-injected tool-lifecycle hook runner (desktop). Composed OUTSIDE the
+   * guard and BEFORE the permission gate. Overrides `runtime.hookRunner` when
+   * both are present. OPTIONAL — absent means no hooks (production default).
+   */
+  hookRunner?: AgentHookRunner;
   instructions?: string;
   mcpConfig?: McpConfig;
   // Optional timeout (ms) for initial MCP tool discovery
@@ -400,6 +408,7 @@ export async function createMastraAgentRuntime(
     mcpTimeoutMs,
     permissionPolicy,
     personas,
+    hookRunner: hookRunnerOption,
     resolved,
     memory,
     storage,
@@ -442,6 +451,16 @@ export async function createMastraAgentRuntime(
     timeoutMs: resilienceConfig.toolTimeoutMs,
   });
 
+  // Tool-lifecycle hooks (desktop): compose OUTSIDE the guard, BEFORE the
+  // permission gate. A PreToolUse hook can BLOCK an already-permitted tool but
+  // can never widen access — permission runs downstream of `execute`, so a hook
+  // only ever sees a tool the policy already allowed (hooks REFINE, never widen).
+  // An explicit `options.hookRunner` wins over one carried on the runtime data.
+  const hookRunner = hookRunnerOption ?? sanitizedRuntime.hookRunner;
+  const hookedTools = hookRunner
+    ? applyToolHooks(guardedTools, { hookRunner, logger, toolNameMap })
+    : guardedTools;
+
   // Permission gate: filter the tool map by the user's policy BEFORE the Agent
   // is constructed (the Agent is immutable after `new Agent`). 'deny' omits the
   // tool from the map the model sees; 'ask' KEEPS a CLONE of the tool carrying
@@ -463,12 +482,12 @@ export async function createMastraAgentRuntime(
   const planModeActive = normalizedProvider !== 'local' && sanitizedRuntime.planMode === true;
   const planFilteredTools = planModeActive
     ? filterToolsForPlanMode(
-        guardedTools,
+        hookedTools,
         toolNameMap,
         permissionSnapshot?.riskByTool ?? buildNativeToolRiskMap(),
         logger
       )
-    : guardedTools;
+    : hookedTools;
 
   const gateResult = filterToolsByPermissionWithMetadata(
     planFilteredTools,

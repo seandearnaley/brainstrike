@@ -17,6 +17,10 @@ export {
   serializeFileMentionDirective,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
+export type {
+  HookTrustApproval,
+  HookTrustRequest,
+} from '@brainstrike/assistant-contract/hook-trust-request';
 export {
   type AssistantPersonaDefinition,
   type AssistantPersonaId,
@@ -361,6 +365,13 @@ export {
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
 export { withFileLock } from './tools/file-write-lock';
+export {
+  type AgentHookRunner,
+  HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
+  type HookBlockedToolError,
+  type HookToolGateResult,
+} from './tools/hook-runner';
+export { applyToolHooks } from './tools/hook-tool-wrap';
 // Hybrid search tool factory
 export {
   buildToolsWithHybridSearch,
