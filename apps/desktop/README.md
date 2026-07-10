@@ -49,7 +49,7 @@ pnpm dev
 #### Individual Commands
 ```bash
 pnpm dev:renderer  # Vite dev server on port 38181
-pnpm dev:main      # Compile main process only
+pnpm dev:main      # Bundle main process only (esbuild)
 pnpm dev:electron  # Compile main + start Electron (requires dev server)
 ```
 
@@ -217,7 +217,7 @@ Configured for cross-platform distribution:
 # Check if dev server starts
 pnpm dev:renderer
 
-# In another terminal, check if main compiles
+# In another terminal, check if main bundles (type errors: pnpm type-check:main)
 pnpm dev:main
 
 # Then try full dev mode

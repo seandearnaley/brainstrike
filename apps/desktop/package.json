@@ -101,6 +101,7 @@
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3",
     "electron-builder-squirrel-windows": "^26.15.3",
+    "esbuild": "^0.28.1",
     "file-saver": "2.0.5",
     "idb": "^8.0.3",
     "jsdom": "29.1.1",
@@ -134,7 +135,7 @@
   "private": true,
   "scripts": {
     "build": "pnpm build:renderer && pnpm build:main",
-    "build:main": "tsc --project tsconfig.main.json",
+    "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
     "prebuild": "node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/ui",
@@ -143,7 +144,7 @@
     "dev": "concurrently --kill-others \"pnpm dev:renderer\" \"pnpm dev:electron\"",
     "dev:agent-debug": "node scripts/start-agent-devtools-session.mjs",
     "dev:electron": "pnpm build:main && wait-on http://localhost:38181 && electron . --no-sandbox --brainstrike-desktop-launch-mode=dev-server",
-    "dev:main": "tsc --project tsconfig.main.json",
+    "dev:main": "node scripts/build-main.mjs",
     "dev:renderer": "vite",
     "dist": "pnpm build && electron-builder",
     "lint": "biome check .",
@@ -169,6 +170,6 @@
     "test:e2e:ui": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --ui",
     "type-check": "pnpm type-check:main && pnpm type-check:e2e",
     "type-check:e2e": "tsc --noEmit --project tsconfig.e2e.json",
-    "type-check:main": "tsc --noEmit"
+    "type-check:main": "tsc --noEmit && tsc --noEmit --project tsconfig.main.json"
   }
 }
