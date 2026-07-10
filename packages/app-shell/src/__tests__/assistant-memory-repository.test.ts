@@ -124,6 +124,44 @@ describe('createAssistantThreadHistoryAdapter', () => {
     expect(history.headId).toBe('suspended-approval:run-1:call-1');
   });
 
+  it('runs discovery concurrently with the history query (off the serial load path)', async () => {
+    let resolveMessages: (
+      value: Awaited<ReturnType<AssistantThreadRepository['listMessages']>>
+    ) => void = () => {
+      // reassigned synchronously inside the Promise executor below
+    };
+    const messagesPromise = new Promise<
+      Awaited<ReturnType<AssistantThreadRepository['listMessages']>>
+    >((resolve) => {
+      resolveMessages = resolve;
+    });
+    const repository = makeMessagesOnlyRepository();
+    repository.listMessages = vi.fn(() => messagesPromise);
+    const discoverSuspendedApprovals = vi.fn(async () => []);
+
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedApprovals,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const loadPromise = adapter.load();
+    // Discovery must be dispatched without waiting for the (still-pending) history query.
+    await Promise.resolve();
+    expect(discoverSuspendedApprovals).toHaveBeenCalledTimes(1);
+
+    resolveMessages([
+      {
+        content: { content: 'Please run the deploy.' },
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'message-1',
+        role: 'user',
+      },
+    ]);
+    await loadPromise;
+  });
+
   it('orders multiple rediscovered approvals oldest-first as trailing messages', async () => {
     const repository = makeMessagesOnlyRepository();
     const newer = makeApproval({

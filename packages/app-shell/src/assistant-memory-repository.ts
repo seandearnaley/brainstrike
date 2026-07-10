@@ -1833,15 +1833,23 @@ export function createAssistantThreadHistoryAdapter({
       // only to avoid duplicate message rows with client-generated IDs.
     },
     async load() {
-      const messages = await repository.listMessages(threadId, resourceId, {
-        limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
-      });
-      const runEvents = await repository.listThreadRunEvents(threadId, resourceId);
+      // Discovery is a bounded, best-effort HTTP round-trip (see
+      // assistant-suspended-approvals.ts) and the rare case, so it runs
+      // CONCURRENTLY with the history queries instead of gating them: thread
+      // render waits at most max(history, discovery-timeout), never their sum.
+      const [messages, runEvents, approvals] = await Promise.all([
+        repository.listMessages(threadId, resourceId, {
+          limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+        }),
+        repository.listThreadRunEvents(threadId, resourceId),
+        discoverSuspendedApprovals
+          ? discoverSuspendedApprovals(threadId, resourceId)
+          : Promise.resolve<readonly RediscoveredToolApproval[]>([]),
+      ]);
       const base = toHistoryRepository(messages, runEvents);
-      if (!discoverSuspendedApprovals) {
+      if (approvals.length === 0) {
         return base;
       }
-      const approvals = await discoverSuspendedApprovals(threadId, resourceId);
       return appendSuspendedApprovalMessages(base, approvals);
     },
   };

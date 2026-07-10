@@ -7,6 +7,14 @@ import { createLogger } from '@brainstrike/utils/logger';
 const logger = createLogger('SuspendedApprovals');
 
 /**
+ * Hard ceiling on the discovery round-trip. The endpoint is a local loopback GET,
+ * so a few seconds is generous; the cap exists so a wedged/mid-stream assistant
+ * server can never hang thread hydration indefinitely (the run stays resumable
+ * once the user re-sends, so a timeout degrades to zero cards, never a failure).
+ */
+const DISCOVERY_TIMEOUT_MS = 3000;
+
+/**
  * Rediscover pending tool approvals for a thread from the desktop assistant
  * server (`GET /assistant/suspended-runs`). Best-effort UI enhancement: the run
  * is still resumable once the user re-sends, so a transport failure returns `[]`
@@ -43,7 +51,8 @@ function parseSuspendedApprovals(payload: unknown): readonly RediscoveredToolApp
 
 export function createSuspendedApprovalDiscovery(
   resolveBaseUrl: () => Promise<string>,
-  fetchImpl: typeof fetch = globalThis.fetch
+  fetchImpl: typeof fetch = globalThis.fetch,
+  timeoutMs: number = DISCOVERY_TIMEOUT_MS
 ): SuspendedApprovalDiscovery {
   return async (threadId, resourceId) => {
     if (!(threadId && resourceId)) {
@@ -54,14 +63,19 @@ export function createSuspendedApprovalDiscovery(
       const url = `${base}/assistant/suspended-runs?threadId=${encodeURIComponent(
         threadId
       )}&resourceId=${encodeURIComponent(resourceId)}`;
-      const response = await fetchImpl(url, { headers: { accept: 'application/json' } });
+      const response = await fetchImpl(url, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
       if (!response.ok) {
-        logger.error('Suspended approval discovery request failed', { status: response.status });
+        logger.warn('Suspended approval discovery request failed', { status: response.status });
         return [];
       }
       return parseSuspendedApprovals(await response.json());
     } catch (error) {
-      logger.error('Suspended approval discovery failed', { error });
+      // Best-effort enhancement: a transport failure/timeout yields zero cards and
+      // a single warning — never an error state for the thread (still resumable).
+      logger.warn('Suspended approval discovery failed', { error });
       return [];
     }
   };

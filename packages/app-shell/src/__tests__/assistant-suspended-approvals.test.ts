@@ -74,24 +74,46 @@ describe('createSuspendedApprovalDiscovery', () => {
     expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
   });
 
-  it('returns [] and logs an error on a non-ok HTTP response (never a silent success)', async () => {
+  it('returns [] and logs a warning on a non-ok HTTP response (never a silent success)', async () => {
     const fetchImpl = vi.fn(() => Promise.resolve(makeResponse(500, { error: 'boom' })));
 
     const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl);
     const result = await discover('thread-1', 'workspace-1');
 
     expect(result).toEqual([]);
-    expect(logs.some((entry) => entry.level === 'error')).toBe(true);
+    expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
   });
 
-  it('returns [] and logs an error when fetch rejects', async () => {
+  it('returns [] and logs a warning when fetch rejects', async () => {
     const fetchImpl = vi.fn(() => Promise.reject(new Error('network down')));
 
     const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl);
     const result = await discover('thread-1', 'workspace-1');
 
     expect(result).toEqual([]);
-    expect(logs.some((entry) => entry.level === 'error')).toBe(true);
+    expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
+  });
+
+  it('bounds the request with an abort signal and returns [] + warns when the server hangs', async () => {
+    // Wedged/mid-stream assistant server: fetch never resolves on its own and
+    // only settles when the caller's timeout aborts the request. Proves thread
+    // open can never hang indefinitely on discovery.
+    const fetchImpl = vi.fn(
+      (_url: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation timed out.', 'TimeoutError'));
+          });
+        })
+    );
+
+    const discover = createSuspendedApprovalDiscovery(resolveBaseUrl, fetchImpl, 20);
+    const result = await discover('thread-1', 'workspace-1');
+
+    expect(result).toEqual([]);
+    const init = (fetchImpl.mock.calls[0] as unknown[])[1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(logs.some((entry) => entry.level === 'warn')).toBe(true);
   });
 
   it('short-circuits to [] without a request when thread context is empty', async () => {
