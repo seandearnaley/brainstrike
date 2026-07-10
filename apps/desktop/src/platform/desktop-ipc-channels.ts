@@ -142,6 +142,9 @@ export const DESKTOP_IPC_CHANNELS = {
   tools: {
     execute: 'tools:execute',
   },
+  userCommands: {
+    list: 'user-commands:list',
+  },
 } as const;
 
 export const DESKTOP_PRELOAD_IPC_CHANNELS = DESKTOP_IPC_CHANNELS;

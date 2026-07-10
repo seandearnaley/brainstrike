@@ -1174,6 +1174,63 @@ When changing this flow, update this section and the paired tests
 
 ---
 
+## USER-DEFINED SLASH COMMANDS
+
+Prompt-template `/commands` authored as `*.md` files, projected into the SAME
+composer "/" menu as the built-in app commands (they are a second *kind* of entry
+in the existing `SlashCommand[]` flowing through `unstable_useSlashCommandAdapter`
+— no new autocomplete). **Desktop-only by construction**: discovery reads disk in
+the main process; web has no `window.userCommands` bridge and the hook returns
+`[]` (capability-gated, never `isElectron()`).
+
+- **Discovery (main):** `apps/desktop/src/ipc-user-commands*.ts` +
+  `assistant-server/user-slash-commands-loader.ts` scan `*.md` in PRIORITY order,
+  first-name-wins: (1) `<root>/.brainstrike/commands/` per mounted root, (2)
+  `~/.brainstrike/commands/`, (3) `<root>/.claude/commands/` (Claude Code compat),
+  (4) `~/.claude/commands/`. Scan HIGHEST priority first (the mastra-code-ui
+  reference inverted this — do not copy that bug). Recursive with directory
+  namespacing (`git/commit.md` → `git:commit`); cross-root collision keeps the
+  first-mounted + warns once (mirrors use-file-mentions.ts's warn-once set). Roots
+  resolve via `loadWorkspaceRootsFromDatabase` (DB `roots.id`, never a raw path);
+  a DB failure still loads GLOBAL commands (logged, not silent). Fs is
+  dependency-injected for unit tests.
+- **Frontmatter:** hand-rolled `---\nkey: value\n---` parser
+  (`parseUserCommandFile` in packages/assistant-contract — NO YAML dep) for
+  `name`/`description` only; unknown keys ignored (Claude compat); malformed/
+  unterminated frontmatter fails CLOSED (skipped + visible error, never a silent
+  half-parse). No frontmatter = whole file is the template. The id is
+  path-derived (namespaced); `name` becomes the label only.
+- **Composer wiring (renderer):** `packages/app-shell/src/use-user-defined-slash-commands.ts`
+  is concatenated into `useAssistantSlashCommands(threadId)` (app commands first,
+  then user commands). `execute()` reads the LIVE composer draft (the app-shell
+  mirror `assistant-composer-command-store.draftTextByThreadId`, fed by
+  `onComposerTextChange`), extracts args after `/id` (the documented
+  "Commands with Arguments" pattern), expands, and WRITES the expansion back via
+  `enqueue({ mode:'replace' })` — never auto-sends (the user sees + edits before
+  sending). `removeOnExecute: true`, uniform with app commands.
+- **Expansion (pure, renderer-safe, `expandUserCommandTemplate`):** `$ARGUMENTS`
+  = full args; `$1..$N` positional (missing → empty). Template `@path` tokens
+  become `:file[basename]{name=encoded}` directives via `encodeFileMentionId`, so
+  the existing referenced-files pipeline resolves/reads/budgets them for free (NO
+  new file-reading). Root binding: a root-scoped command binds to its
+  `sourceRootId`; a GLOBAL command binds to the single mounted root, else leaves
+  the token literal for the `@` popover (NO silent guessing). User-supplied `@`
+  argument text stays literal — only template `@paths` convert.
+- **SECURITY HARD LINE:** there is NO shell (!\`command\`) expansion, gated or
+  not, ever — it passes through as inert text (proofs in the contract, loader,
+  and hook specs). Do not add it.
+
+Paired tests: packages/assistant-contract/src/__tests__/user-slash-commands.test.ts,
+apps/desktop/src/__tests__/assistant-server/user-slash-commands-loader.test.ts +
+ipc-domains/ipc-user-commands-handlers.test.ts,
+packages/app-shell/src/__tests__/use-user-defined-slash-commands.test.tsx.
+Explicitly DEFERRED: shell expansion (never), web (no workspace-tool bridge),
+namespaced/categorized popover grouping, Mastra skills.
+
+When changing this flow, update this section and the paired tests.
+
+---
+
 ## EDIT CHECKPOINT JOURNAL (UNDO OF AGENT FILE EDITS)
 
 Every agent file mutation records an undoable journal entry so a per-tool-card

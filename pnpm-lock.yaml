@@ -120,6 +120,9 @@ importers:
       '@brainstrike/app-shell':
         specifier: workspace:*
         version: link:../../packages/app-shell
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../../packages/assistant-contract
       '@brainstrike/chunking-worker':
         specifier: workspace:*
         version: link:../../packages/chunking-worker

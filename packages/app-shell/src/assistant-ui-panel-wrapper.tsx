@@ -1417,7 +1417,7 @@ export function AssistantUiPanelWrapper({
   // registry the ⌘K palette uses (danger group excluded; execute pre-bound to
   // the command's run + outcome handling). Desktop-only commands are absent on
   // web automatically via registry.available(ctx).
-  const slashCommands = useAssistantSlashCommands();
+  const slashCommands = useAssistantSlashCommands(selectedMemoryThreadId);
 
   // "@" file mentions: only meaningful when the desktop assistant server is
   // present to PARSE the inserted directive and inject the referenced file's
