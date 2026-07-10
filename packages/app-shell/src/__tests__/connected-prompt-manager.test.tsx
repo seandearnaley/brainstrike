@@ -184,10 +184,21 @@ vi.mock('../prompt-library-legacy-import', () => ({
   importLegacyPromptStore: mocks.importLegacyPromptStore,
 }));
 
-vi.mock('../prompt-library-embedding', () => ({
-  embedPendingPromptItems: mocks.embedPendingPromptItems,
-  queryPromptSuggestions: mocks.queryPromptSuggestions,
-}));
+vi.mock('../prompt-library-embedding', async () => {
+  const actual = await vi.importActual<typeof import('../prompt-library-embedding')>(
+    '../prompt-library-embedding'
+  );
+  return {
+    ...actual,
+    embedPendingPromptItems: mocks.embedPendingPromptItems,
+    queryPromptSuggestions: (
+      input: Parameters<typeof actual.queryPromptSuggestions>[0]
+    ): ReturnType<typeof actual.queryPromptSuggestions> => {
+      mocks.queryPromptSuggestions(input);
+      return actual.queryPromptSuggestions(input);
+    },
+  };
+});
 
 vi.mock('../prompt-workbench-panel', () => ({
   PromptWorkbenchPanel: (props: {
@@ -899,13 +910,6 @@ describe('ConnectedPromptManager', () => {
     });
     mocks.loadEmbeddingQueue.mockReturnValue(queueReady);
     mocks.embedQueryWithRecovery.mockResolvedValue([0.1, 0.2]);
-    mocks.queryPromptSuggestions.mockImplementation(
-      async ({ context, embedder, modelInfo, signal }) => {
-        signal.throwIfAborted();
-        await embedder.embedQueryWithRecovery(modelInfo, context);
-        return [];
-      }
-    );
     const renderManager = (suggestionsEnabled: boolean) => (
       <ConnectedPromptManager
         loadEmbeddingQueue={mocks.loadEmbeddingQueue}
@@ -922,6 +926,43 @@ describe('ConnectedPromptManager', () => {
     await mocks.recallRequest?.catch(() => undefined);
 
     expect(mocks.embedQueryWithRecovery).not.toHaveBeenCalled();
+  });
+
+  it('aborts query inference already in flight when recall becomes disabled', async () => {
+    const user = userEvent.setup();
+    const backendAbort = vi.fn();
+    let backendSignal: AbortSignal | undefined;
+    mocks.embedQueryWithRecovery.mockImplementation((_modelInfo, _context, options) => {
+      backendSignal = options?.signal;
+      if (!backendSignal) {
+        return Promise.resolve([0.1, 0.2]);
+      }
+      return new Promise<number[]>((_resolve, reject) => {
+        backendSignal?.addEventListener(
+          'abort',
+          () => {
+            backendAbort();
+            reject(backendSignal?.reason);
+          },
+          { once: true }
+        );
+      });
+    });
+    const renderManager = (suggestionsEnabled: boolean) => (
+      <ConnectedPromptManager
+        loadEmbeddingQueue={mocks.loadEmbeddingQueue}
+        suggestionsEnabled={suggestionsEnabled}
+      />
+    );
+    const view = render(renderManager(true));
+
+    await user.click(await screen.findByRole('button', { name: 'Recall suggestions' }));
+    await waitFor(() => expect(mocks.embedQueryWithRecovery).toHaveBeenCalledTimes(1));
+    view.rerender(renderManager(false));
+    await mocks.recallRequest?.catch(() => undefined);
+
+    expect(backendSignal?.aborted).toBe(true);
+    expect(backendAbort).toHaveBeenCalledTimes(1);
   });
 
   it('refreshes initially pending items after background indexing finishes', async () => {

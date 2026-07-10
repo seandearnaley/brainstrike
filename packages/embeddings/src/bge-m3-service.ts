@@ -3,6 +3,7 @@ import { calculateCosineSimilarity } from './embedding-math';
 import { TransformersBackend } from './transformers-backend';
 import type {
   EmbeddingConfig,
+  EmbeddingExecutionOptions,
   EmbeddingProgress,
   EmbeddingResult,
   EmbeddingService,
@@ -137,7 +138,10 @@ export class SimpleEmbeddingService implements EmbeddingService {
     }
   }
 
-  async generateEmbedding(text: string): Promise<EmbeddingResult> {
+  async generateEmbedding(
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
@@ -148,10 +152,13 @@ export class SimpleEmbeddingService implements EmbeddingService {
       this._currentModelConfig?.id || this._config.modelId,
       this._currentModelKey
     );
-    return this._backend.generateEmbedding(withPrompt, this._config.modelId);
+    return this._backend.generateEmbedding(withPrompt, this._config.modelId, options);
   }
 
-  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+  async generateEmbeddings(
+    texts: string[],
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult[]> {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
@@ -163,7 +170,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
         this._currentModelKey
       )
     );
-    return this._backend.generateEmbeddings(withPrompts, this._config.modelId);
+    return this._backend.generateEmbeddings(withPrompts, this._config.modelId, options);
   }
 
   async generateEmbeddingsStream(
@@ -197,14 +204,20 @@ export class SimpleEmbeddingService implements EmbeddingService {
   /**
    * Generate an embedding optimized for document/passages (indexing)
    */
-  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
-    return this.generateEmbedding(text);
+  async generateDocEmbedding(
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text, options);
   }
 
   /**
    * Generate an embedding optimized for search queries
    */
-  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+  async generateQueryEmbedding(
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
@@ -214,7 +227,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       this._currentModelConfig?.id || this._config.modelId,
       this._currentModelKey
     );
-    return this._backend.generateEmbedding(withPrompt, this._config.modelId);
+    return this._backend.generateEmbedding(withPrompt, this._config.modelId, options);
   }
 
   getStatus(): EmbeddingStatus {

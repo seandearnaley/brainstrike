@@ -208,7 +208,8 @@ describe('prompt library embedding', () => {
 
     expect(embedQueryWithRecovery).toHaveBeenCalledWith(
       modelInfo,
-      'Help me compare two storage engines'
+      'Help me compare two storage engines',
+      { signal: activeSignal }
     );
     expect(repository.searchSimilar).toHaveBeenCalledWith([0.7, 0.8], {
       excludeIds: ['current'],

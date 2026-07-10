@@ -125,6 +125,7 @@ export type Result<T, E = EmbeddingProviderError> =
  */
 export interface EmbeddingInput {
   modelId: string;
+  readonly signal?: AbortSignal;
   text: string | string[];
 }
 

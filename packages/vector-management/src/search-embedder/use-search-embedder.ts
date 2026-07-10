@@ -10,7 +10,7 @@
  * with callers; this hook takes an already-resolved `EmbeddingSetModelInfo`.
  */
 
-import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
+import type { EmbeddingExecutionOptions, EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
   isHostedProvider,
   type EmbeddingModelConfig as ModelConfig,
@@ -32,7 +32,10 @@ type LocalEmbedderRuntime = Exclude<EmbedderRuntime, 'hosted'>;
 export interface SearchEmbedder {
   dispose?: () => Promise<void> | void;
   embedDocument: (text: string) => Promise<{ embedding: number[] }>;
-  embedQuery: (text: string) => Promise<{ embedding: number[] }>;
+  embedQuery: (
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ) => Promise<{ embedding: number[] }>;
   runtime: EmbedderRuntime;
 }
 
@@ -56,7 +59,11 @@ export interface UseSearchEmbedderResult {
   /** Embed indexed content with document semantics and device-loss recovery. */
   embedDocumentWithRecovery: (info: EmbeddingSetModelInfo, text: string) => Promise<number[]>;
   /** Embed with the device-loss single-retry semantics from db-explorer. */
-  embedQueryWithRecovery: (info: EmbeddingSetModelInfo, text: string) => Promise<number[]>;
+  embedQueryWithRecovery: (
+    info: EmbeddingSetModelInfo,
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ) => Promise<number[]>;
   /** Resolves (cached) embedder for the model; throws with named causes (no key, no local model, …). */
   ensureEmbedderReady: (info: EmbeddingSetModelInfo) => Promise<SearchEmbedder>;
 }
@@ -129,11 +136,21 @@ async function createHostedEmbedder(
 
   const embed = async (
     provider: typeof queryProvider,
-    text: string
+    text: string,
+    options?: EmbeddingExecutionOptions
   ): Promise<{ embedding: number[] }> => {
-    const result = await provider.embed({ modelId, text });
+    options?.signal?.throwIfAborted();
+    const result = await provider.embed({
+      modelId,
+      ...(options?.signal ? { signal: options.signal } : {}),
+      text,
+    });
+    options?.signal?.throwIfAborted();
     if (!result.ok) {
       const error: EmbedderError = result.error;
+      if ('originalError' in error && isAbortError(error.originalError)) {
+        throw error.originalError;
+      }
       const msg =
         'message' in error
           ? error.message
@@ -147,7 +164,8 @@ async function createHostedEmbedder(
 
   return {
     embedDocument: (text: string) => embed(documentProvider, text),
-    embedQuery: (text: string) => embed(queryProvider, text),
+    embedQuery: (text: string, options?: EmbeddingExecutionOptions) =>
+      embed(queryProvider, text, options),
     runtime: 'hosted',
   };
 }
@@ -185,9 +203,13 @@ async function createLocalEmbedder(
       const result = await svc.generateDocEmbedding(text);
       return { embedding: Array.from(result.embedding) };
     },
-    embedQuery: async (text: string) => {
+    embedQuery: async (text: string, options?: EmbeddingExecutionOptions) => {
       logger.info('Generating query embedding with local model...');
-      const result = await svc.generateQueryEmbedding(text);
+      options?.signal?.throwIfAborted();
+      const result = options
+        ? await svc.generateQueryEmbedding(text, options)
+        : await svc.generateQueryEmbedding(text);
+      options?.signal?.throwIfAborted();
       return { embedding: Array.from(result.embedding) };
     },
     runtime: devicePreference,
@@ -214,6 +236,10 @@ function isDeviceLossError(error: unknown): boolean {
   }
   const lower = error.message.toLowerCase();
   return DEVICE_LOSS_ERROR_FRAGMENTS.some((fragment) => lower.includes(fragment));
+}
+
+function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 /**
@@ -340,9 +366,13 @@ async function rejectInvalidatedInitialization(
 async function embedText(
   embedder: SearchEmbedder,
   text: string,
-  purpose: 'document' | 'query'
+  purpose: 'document' | 'query',
+  options?: EmbeddingExecutionOptions
 ): Promise<number[]> {
-  const { embedding } = await embedder[purpose === 'query' ? 'embedQuery' : 'embedDocument'](text);
+  const { embedding } =
+    purpose === 'query'
+      ? await embedder.embedQuery(text, options)
+      : await embedder.embedDocument(text);
   return embedding;
 }
 
@@ -689,12 +719,21 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
     async (
       info: EmbeddingSetModelInfo,
       text: string,
-      purpose: 'document' | 'query'
+      purpose: 'document' | 'query',
+      options?: EmbeddingExecutionOptions
     ): Promise<number[]> => {
+      options?.signal?.throwIfAborted();
       const embedder = await ensureEmbedderReady(info);
+      options?.signal?.throwIfAborted();
       try {
-        return await embedText(embedder, text, purpose);
+        return await embedText(embedder, text, purpose, options);
       } catch (error) {
+        if (options?.signal?.aborted) {
+          options.signal.throwIfAborted();
+        }
+        if (isAbortError(error)) {
+          throw error;
+        }
         if (!isDeviceLossError(error)) {
           throw error;
         }
@@ -702,7 +741,8 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
           error: error instanceof Error ? error.message : String(error),
         });
         const refreshed = await recoverEmbedderAfterDeviceLoss(embedder, info);
-        return embedText(refreshed, text, purpose);
+        options?.signal?.throwIfAborted();
+        return embedText(refreshed, text, purpose, options);
       }
     },
     [ensureEmbedderReady, recoverEmbedderAfterDeviceLoss]
@@ -714,7 +754,8 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
   );
 
   const embedQueryWithRecovery = useCallback(
-    (info: EmbeddingSetModelInfo, text: string) => embedWithRecovery(info, text, 'query'),
+    (info: EmbeddingSetModelInfo, text: string, options?: EmbeddingExecutionOptions) =>
+      embedWithRecovery(info, text, 'query', options),
     [embedWithRecovery]
   );
 

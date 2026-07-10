@@ -97,13 +97,18 @@ describe('useSearchEmbedder', () => {
 
   it('resolves a hosted embedder whose embedQuery maps provider results', async () => {
     const { result } = renderHook(() => useSearchEmbedder());
+    const signal = new AbortController().signal;
 
     const embedder = await result.current.ensureEmbedderReady(hostedInfo);
 
     expect(embedder.runtime).toBe('hosted');
-    const { embedding } = await embedder.embedQuery('hello');
+    const { embedding } = await embedder.embedQuery('hello', { signal });
     expect(embedding).toHaveLength(1536);
-    expect(mockEmbed).toHaveBeenCalledWith({ modelId: 'text-embedding-3-small', text: 'hello' });
+    expect(mockEmbed).toHaveBeenCalledWith({
+      modelId: 'text-embedding-3-small',
+      signal,
+      text: 'hello',
+    });
     expect(mockCreateProvider).toHaveBeenCalledWith(
       expect.objectContaining({
         dimensions: 1536,
@@ -114,17 +119,34 @@ describe('useSearchEmbedder', () => {
     );
   });
 
+  it('preserves a hosted provider AbortError without wrapping it', async () => {
+    const abortError = new Error('Hosted embedding request was cancelled.');
+    abortError.name = 'AbortError';
+    mockEmbed.mockResolvedValue({
+      error: { originalError: abortError, type: 'network_error' },
+      ok: false,
+    });
+    const { result } = renderHook(() => useSearchEmbedder());
+    const signal = new AbortController().signal;
+    const embedder = await result.current.ensureEmbedderReady(hostedInfo);
+
+    await expect(embedder.embedQuery('hello', { signal })).rejects.toBe(abortError);
+  });
+
   it('uses local document semantics for saved content and query semantics for lookup context', async () => {
     const { result } = renderHook(() => useSearchEmbedder());
+    const signal = new AbortController().signal;
 
     const embedder = await result.current.ensureEmbedderReady(localInfo);
     const document = await embedder.embedDocument('saved prompt text');
-    const query = await embedder.embedQuery('current composer context');
+    const query = await embedder.embedQuery('current composer context', { signal });
 
     expect(document.embedding).toEqual(new Array(1024).fill(0.5));
     expect(query.embedding).toEqual(new Array(1024).fill(0.25));
     expect(mockGenerateDocEmbedding).toHaveBeenCalledWith('saved prompt text');
-    expect(mockGenerateQueryEmbedding).toHaveBeenCalledWith('current composer context');
+    expect(mockGenerateQueryEmbedding).toHaveBeenCalledWith('current composer context', {
+      signal,
+    });
   });
 
   it('creates distinct Cohere document and query providers with retrieval-correct input types', async () => {
@@ -474,13 +496,32 @@ describe('useSearchEmbedder', () => {
       .mockResolvedValue({ embedding: new Array(1024).fill(0.5) });
 
     const { result } = renderHook(() => useSearchEmbedder());
+    const signal = new AbortController().signal;
 
-    const embedding = await result.current.embedQueryWithRecovery(localInfo, 'query');
+    const embedding = await result.current.embedQueryWithRecovery(localInfo, 'query', { signal });
 
     expect(embedding).toHaveLength(1024);
     // A fresh embedder is built for the retry.
     expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(2);
     expect(mockGenerateQueryEmbedding).toHaveBeenCalledTimes(2);
+    expect(mockGenerateQueryEmbedding).toHaveBeenNthCalledWith(1, 'query', { signal });
+    expect(mockGenerateQueryEmbedding).toHaveBeenNthCalledWith(2, 'query', { signal });
+  });
+
+  it('preserves AbortError without entering device-loss recovery', async () => {
+    const abortError = new Error('WebGPU device was lost after query cancellation.');
+    abortError.name = 'AbortError';
+    mockGenerateQueryEmbedding.mockRejectedValue(abortError);
+    const { result } = renderHook(() => useSearchEmbedder());
+    const signal = new AbortController().signal;
+
+    await expect(
+      result.current.embedQueryWithRecovery(localInfo, 'query', { signal })
+    ).rejects.toBe(abortError);
+
+    expect(mockGenerateQueryEmbedding).toHaveBeenCalledTimes(1);
+    expect(mockGenerateQueryEmbedding).toHaveBeenCalledWith('query', { signal });
+    expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(1);
   });
 
   it('shares one recovery while concurrent device-loss callers await stale disposal', async () => {

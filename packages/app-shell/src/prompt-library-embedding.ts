@@ -149,7 +149,7 @@ export async function queryPromptSuggestions({
   signal.throwIfAborted();
   await requireMatchingProfile(repository, modelInfo);
   signal.throwIfAborted();
-  const queryEmbedding = await embedder.embedQueryWithRecovery(modelInfo, context);
+  const queryEmbedding = await embedder.embedQueryWithRecovery(modelInfo, context, { signal });
   signal.throwIfAborted();
   return repository.searchSimilar(queryEmbedding, options);
 }
