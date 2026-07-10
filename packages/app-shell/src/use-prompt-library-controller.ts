@@ -1,4 +1,4 @@
-import type { PromptItem, PromptItemRepository } from '@brainstrike/db';
+import type { PromptItem, PromptItemRepository, PromptItemSimilarityResult } from '@brainstrike/db';
 import type { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type {
@@ -10,7 +10,7 @@ import { resolvePromptEmbeddingModelInfo } from './prompt-embedding-model-info';
 import { embedPendingPromptItems, queryPromptSuggestions } from './prompt-library-embedding';
 import { importLegacyPromptStore } from './prompt-library-legacy-import';
 
-type PromptManagerReadiness =
+export type PromptManagerReadiness =
   | { readonly status: 'loading' }
   | {
       readonly error: string;
@@ -34,6 +34,13 @@ interface UsePromptLibraryControllerOptions {
   readonly localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>;
   readonly repository: PromptItemRepository | null;
   readonly suggestionsEnabled: boolean;
+}
+
+export interface PromptLibraryController {
+  readonly handleLibraryChanged: () => Promise<void>;
+  readonly handleRequestSuggestions: (context: string) => Promise<PromptItemSimilarityResult[]>;
+  readonly indexingError: string | null;
+  readonly readiness: PromptManagerReadiness;
 }
 
 export function toPromptWorkbenchErrorMessage(error: unknown): string {
@@ -107,7 +114,7 @@ export function usePromptLibraryController({
   localModelConfigMap,
   repository,
   suggestionsEnabled,
-}: UsePromptLibraryControllerOptions) {
+}: UsePromptLibraryControllerOptions): PromptLibraryController {
   const [readiness, setReadiness] = useState<PromptManagerReadiness>({ status: 'loading' });
   const [indexingError, setIndexingError] = useState<string | null>(null);
   const indexingTailRef = useRef<Promise<void> | null>(null);

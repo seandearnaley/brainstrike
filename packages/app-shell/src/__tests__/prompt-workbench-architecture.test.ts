@@ -12,6 +12,7 @@ function readSource(relativePath: string): string {
 describe('Prompt Workbench architecture', () => {
   it('keeps ConnectedPromptManager as composition over an owned library controller', () => {
     const source = readSource('connected-prompt-manager.tsx');
+    // The component stays the final declaration so the EOF anchor measures its complete source.
     const componentMatch = source.match(/export function ConnectedPromptManager\([\s\S]*\n}\s*$/);
 
     expect(componentMatch).not.toBeNull();
