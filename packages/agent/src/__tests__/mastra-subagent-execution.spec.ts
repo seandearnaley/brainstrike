@@ -171,15 +171,54 @@ function createSupervisorModel(childToolCallId: string): LanguageModelV2 {
   };
 }
 
+/**
+ * A supervisor model whose PARENT turn delegates to `agent-explore`, but whose
+ * CHILD `doStream` resolves to a stream that never enqueues or closes —
+ * simulating a real Mastra stream that stalls mid-delegation (no more items
+ * ever arrive on the parent's `fullStream`, so the inactivity watchdog in
+ * `streamChunksFromMastra` eventually throws `StreamStalledError`).
+ */
+function createStalledChildSupervisorModel(): LanguageModelV2 {
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: (options: LanguageModelV2CallOptions) => {
+      const isParent = toolNamesOf(options).includes(DELEGATION_TOOL);
+      if (isParent) {
+        return Promise.resolve({
+          stream: enqueue(
+            toolCallStream(
+              DELEGATION_TOOL,
+              'delegation-call-1',
+              JSON.stringify({ prompt: 'find the flag' })
+            )
+          ),
+        });
+      }
+      return Promise.resolve({
+        stream: new ReadableStream<LanguageModelV2StreamPart>({
+          start() {
+            // Intentionally never enqueue or close: simulates a hung child model.
+          },
+        }),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
 interface CollectedStream {
   delegationToolEvents: StreamChunk[];
   finalText: string;
-  runEvents: Array<{ kind: string; metadata?: Record<string, unknown> }>;
+  runEvents: Array<{ kind: string; metadata?: Record<string, unknown>; status?: string }>;
   toolEventNames: string[];
 }
 
 async function collect(iterator: AsyncIterable<StreamChunk>): Promise<CollectedStream> {
-  const runEvents: Array<{ kind: string; metadata?: Record<string, unknown> }> = [];
+  const runEvents: Array<{ kind: string; metadata?: Record<string, unknown>; status?: string }> =
+    [];
   const delegationToolEvents: StreamChunk[] = [];
   const toolEventNames: string[] = [];
   let finalText = '';
@@ -187,6 +226,7 @@ async function collect(iterator: AsyncIterable<StreamChunk>): Promise<CollectedS
     if (chunk.type === 'run-event') {
       runEvents.push({
         kind: chunk.event.kind,
+        status: chunk.event.status,
         ...(chunk.event.metadata ? { metadata: chunk.event.metadata } : {}),
       });
     } else if (chunk.type === 'text-delta') {
@@ -329,6 +369,56 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     expect(runtime.delegationToolPersonas.size).toBe(0);
     await runtime.dispose();
   });
+
+  it('drains the orphaned delegation on a stream stall mid-delegation (no orphaned subagent.started)', async () => {
+    // Short-circuit the resilience timeouts so the real inactivity watchdog
+    // fires quickly instead of waiting out the 120s production default.
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '100';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '300';
+    try {
+      modelHolder.current = createStalledChildSupervisorModel();
+
+      const iterator = await streamMastraAgent(
+        [{ id: 'u1', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+        {
+          personas: [testPersona],
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          tools: { 'brainstrike.grepSearch': makeChildTool(vi.fn()) },
+        }
+      );
+
+      const { runEvents } = await collect(iterator);
+      const kinds = runEvents.map((event) => event.kind);
+
+      // The run terminates via the stalled-stream path.
+      expect(kinds).toContain('run.failed');
+
+      // The in-flight delegation (subagent.started, never settled because the
+      // child model hung) must resolve to a terminal cancelled event — never
+      // left orphaned, mirroring the abort-path drain.
+      const started = runEvents.filter((event) => event.kind === 'subagent.started');
+      expect(started).toHaveLength(1);
+      const cancelled = runEvents.find(
+        (event) => event.kind === 'subagent.failed' && event.status === 'cancelled'
+      );
+      expect(cancelled).toBeDefined();
+      expect(cancelled?.metadata?.['parentToolCallId']).toBe('delegation-call-1');
+      expect(cancelled?.metadata?.['personaId']).toBe('explore');
+    } finally {
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+    }
+  }, 10_000);
 });
 
 describe('mastra subagent delegation persistence (real PGlite memory)', () => {

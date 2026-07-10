@@ -1455,6 +1455,9 @@ function makeStreamStalledTermination(
     inactivityMs: error.inactivityMs,
   });
   return [
+    // A stall mid-delegation must never leave an orphaned `subagent.started`
+    // with no terminal counterpart — mirror the abort branches' drain.
+    ...makeCancelledDelegationRunEventChunks(lifecycleState),
     ...makePendingToolOutputRunEventChunks(lifecycleState),
     {
       type: 'text-delta',
