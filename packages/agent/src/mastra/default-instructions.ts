@@ -1,5 +1,6 @@
 import type { AssistantTaskItem, AssistantTaskStatus } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
@@ -80,7 +81,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   submitPlan: 'brainstrike.submitPlan',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
-  webSearch: 'brainstrike.webSearch',
+  webSearch: WEB_SEARCH_TOOL_ID,
   writeWorkspaceFile: 'brainstrike.writeWorkspaceFile',
 } as const;
 

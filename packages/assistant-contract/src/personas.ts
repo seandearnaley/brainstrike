@@ -12,7 +12,7 @@
  * registry the permission gate uses. An unknown id is NOT read — it throws.
  */
 
-import { NATIVE_TOOL_DEFAULTS } from './tool-categories.js';
+import { NATIVE_TOOL_DEFAULTS, WEB_SEARCH_TOOL_ID } from './tool-categories.js';
 import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
 
 export type AssistantPersonaId = 'analyze' | 'explore';
@@ -142,7 +142,7 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
       'brainstrike.readWorkspaceFile',
       'brainstrike.readWorkspaceDirectory',
       'brainstrike.grepSearch',
-      'brainstrike.webSearch',
+      WEB_SEARCH_TOOL_ID,
     ],
     description:
       'Delegate focused analysis that combines reading workspace files with external web ' +

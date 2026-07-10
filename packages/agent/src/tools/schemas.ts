@@ -1,3 +1,4 @@
+import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 
@@ -800,7 +801,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.submitPlan': SubmitPlanInputSchema,
   'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
   'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
-  'brainstrike.webSearch': WebSearchInputSchema,
+  [WEB_SEARCH_TOOL_ID]: WebSearchInputSchema,
   'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
   // Web tools
   'web.echo': EchoInput,

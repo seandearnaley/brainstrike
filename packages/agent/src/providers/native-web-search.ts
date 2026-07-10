@@ -70,6 +70,14 @@ export function createProviderNativeWebSearchTool(
     return anthropicProvider.tools.webSearch_20250305() as unknown as ToolsInput[string];
   }
   if (provider === 'openai') {
+    // INVARIANT: `openai.tools.webSearch()` only executes on the Responses API
+    // surface. This client is a FRESH `createOpenAI()`, decoupled from how
+    // `provider-factory.ts`'s `case 'openai'` builds the actual chat model
+    // (`openaiProvider(modelName)`) — it works today only because that default
+    // callable also routes to `/v1/responses`. If the chat surface ever moves
+    // off `/v1/responses` (e.g. `.chat(modelName)` or an OpenAI-compatible base
+    // URL), this native tool must move with it — see the matching invariant
+    // comment on the `case 'openai':` branch in provider-factory.ts.
     const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
     return openaiProvider.tools.webSearch() as unknown as ToolsInput[string];
   }
