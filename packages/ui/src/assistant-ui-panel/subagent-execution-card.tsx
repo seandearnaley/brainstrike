@@ -10,14 +10,25 @@ import {
 import { type ComponentProps, type ReactElement, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { personaLabelForToolName } from './subagent-persona-label';
+import {
+  mergeSubagentToolRows,
+  readSubAgentToolRows,
+  type SubAgentToolRow,
+} from './subagent-tool-rows';
 import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
-import { extractPrimaryArg } from './tool-fallback';
 
-type SubagentCardProps = ComponentProps<ToolCallMessagePartComponent>;
+/** Presentational-card props: the tool-part fields plus optional live rows. */
+export type SubagentCardProps = Pick<
+  ComponentProps<ToolCallMessagePartComponent>,
+  'toolName' | 'toolCallId' | 'result' | 'status'
+> & {
+  /** In-flight child rows from live `subagent.tool.*` events (see SUBAGENTS). */
+  liveRows?: readonly SubAgentToolRow[];
+};
 type ToolStatus = SubagentCardProps['status'];
 
-type DisplayStatus = 'running' | 'error' | 'success';
+type DisplayStatus = 'error' | 'running' | 'success';
 
 const STATUS_LABELS: Record<DisplayStatus, string> = {
   error: 'Failed',
@@ -33,12 +44,21 @@ const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
   success: <CheckCircle aria-hidden="true" className="size-4 text-green-600 dark:text-green-500" />,
 };
 
-interface SubAgentToolRow {
-  argSummary: string | undefined;
-  isError: boolean;
-  key: string;
-  toolName: string;
-}
+const ROW_ICONS: Record<DisplayStatus, ReactElement> = {
+  error: <AlertCircle aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />,
+  running: (
+    <CircleDashed
+      aria-hidden="true"
+      className="size-3.5 shrink-0 animate-pulse text-muted-foreground"
+    />
+  ),
+  success: (
+    <CheckCircle
+      aria-hidden="true"
+      className="size-3.5 shrink-0 text-green-600 dark:text-green-500"
+    />
+  ),
+};
 
 function resolveDisplayStatus(status: ToolStatus): DisplayStatus {
   if (status.type === 'running') {
@@ -50,45 +70,30 @@ function resolveDisplayStatus(status: ToolStatus): DisplayStatus {
   return 'success';
 }
 
-/** Read the child tool rows from a delegation result's `subAgentToolResults`. */
-function readSubAgentToolRows(result: unknown): SubAgentToolRow[] {
-  if (!(result && typeof result === 'object')) {
-    return [];
-  }
-  const list = (result as { subAgentToolResults?: unknown }).subAgentToolResults;
-  if (!Array.isArray(list)) {
-    return [];
-  }
-  return list.map((entry, index) => {
-    const record = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
-    const toolName = typeof record['toolName'] === 'string' ? record['toolName'] : 'tool';
-    const toolCallId = typeof record['toolCallId'] === 'string' ? record['toolCallId'] : undefined;
-    return {
-      argSummary: extractPrimaryArg(record['args'], undefined),
-      isError: record['isError'] === true,
-      key: toolCallId ?? `${toolName}-${index}`,
-      toolName,
-    };
-  });
-}
+const EMPTY_LIVE_ROWS: readonly SubAgentToolRow[] = [];
 
 /**
- * Collapsed card for a subagent delegation (`agent-<key>`) tool part. Sourced
- * from the tool part itself — status from `status.type`, per-child-tool rows from
- * the result's `subAgentToolResults` — so it renders identically live (at
- * completion) and on reload. Nested `subagent.*` run events are filtered out of
- * the main timeline (they belong to this card).
+ * Collapsed card for a subagent delegation (`agent-<key>`) tool part. Status
+ * comes from `status.type`; per-child rows merge the persisted result's
+ * `subAgentToolResults` (authoritative at completion + on reload) with LIVE
+ * in-flight `subagent.tool.*` rows (`liveRows`, threaded by the connected
+ * wrapper). Nested `subagent.*` run events are filtered out of the main timeline
+ * (they belong to this card).
  */
-export const SubagentExecutionCard: ToolCallMessagePartComponent = ({
+export const SubagentExecutionCard = ({
   toolName,
   toolCallId,
   result,
   status,
-}) => {
+  liveRows = EMPTY_LIVE_ROWS,
+}: SubagentCardProps) => {
   const [expanded, setExpanded] = useState(false);
   const displayStatus = resolveDisplayStatus(status);
   const label = personaLabelForToolName(toolName);
-  const rows = useMemo(() => readSubAgentToolRows(result), [result]);
+  const rows = useMemo(
+    () => mergeSubagentToolRows(readSubAgentToolRows(result), liveRows),
+    [result, liveRows]
+  );
   const durationMs = useToolDurationMs(toolCallId);
   const elapsed = durationMs === undefined ? undefined : formatActivityDuration(durationMs);
   const hasRows = rows.length > 0;
@@ -125,14 +130,7 @@ export const SubagentExecutionCard: ToolCallMessagePartComponent = ({
         <ul className="border-border border-t px-3 py-2">
           {rows.map((row) => (
             <li className="flex items-center gap-2 py-1" key={row.key}>
-              {row.isError ? (
-                <AlertCircle aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />
-              ) : (
-                <CheckCircle
-                  aria-hidden="true"
-                  className="size-3.5 shrink-0 text-green-600 dark:text-green-500"
-                />
-              )}
+              {ROW_ICONS[row.status]}
               <span className="font-mono text-xs">{row.toolName}</span>
               {row.argSummary ? (
                 <span className="truncate text-muted-foreground text-xs">{row.argSummary}</span>

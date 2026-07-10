@@ -79,6 +79,42 @@ describe('SubagentExecutionCard', () => {
     expect(screen.getByText('· 0 tool calls')).toBeTruthy();
   });
 
+  it('renders running child rows from live events only (never "Running · 0 tool calls")', () => {
+    renderCard({
+      liveRows: [
+        {
+          argSummary: undefined,
+          key: 'child-1',
+          status: 'running',
+          toolName: 'brainstrike_grepSearch',
+        },
+      ],
+      result: undefined,
+      status: { type: 'running' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('· Running')).toBeTruthy();
+    // The header count reflects the in-flight child tool, NOT zero.
+    expect(screen.getByText('· 1 tool call')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByText('brainstrike_grepSearch')).toBeTruthy();
+  });
+
+  it('persisted result rows supersede live rows by child toolCallId', () => {
+    renderCard({
+      liveRows: [
+        { argSummary: undefined, key: 'c1', status: 'running', toolName: 'brainstrike_grepSearch' },
+      ],
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    // c1 is superseded by the persisted (completed) row; total stays 2 (c1 + c2).
+    expect(screen.getByText('· 2 tool calls')).toBeTruthy();
+  });
+
   it('marks a failed child tool row as an error', () => {
     renderCard({
       result: {
