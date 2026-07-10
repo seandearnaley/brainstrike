@@ -6,15 +6,22 @@ import { buildAssistantTapestryRange } from './assistant-ui-panel-wrapper-runtim
 
 const logger = createLogger('AssistantSelectionWriteBack');
 
-/** Normalize an absolute root path before matching it to an open client root. */
+/**
+ * Normalize an absolute root path for matching the server's broadcast rootPath
+ * (path.resolve output) against the client's rootDescriptors[].path. Strips a
+ * trailing separator so a `/foo/bar/` vs `/foo/bar` mismatch still resolves. The
+ * deeper realpath/case match is desktop-only and verified live.
+ */
 export function normalizeRootPathForLookup(rootPath: string): string {
   return rootPath.trim().replace(/[/\\]+$/, '');
 }
 
 /**
- * Resolve the client folder targeted by an assistant selection write-back.
- * Returns null when a server root path is not open in this window so callers
- * cannot accidentally write into the focused folder instead.
+ * Resolve which client folder a multi-root selection write-back targets. When the
+ * payload carries a `rootPath` (the assistant targeted a specific open folder),
+ * map it to the client RootId via rootDescriptors. Returns null (and logs) when
+ * the path matches no open client root — the caller MUST skip rather than write
+ * to the wrong/focused folder. Without a rootPath, route by the legacy folderId.
  */
 export function resolveWriteBackFolderId(
   payload: { folderId?: string; rootPath?: string; rootId?: string },
