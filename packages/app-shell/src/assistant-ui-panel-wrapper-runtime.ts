@@ -204,6 +204,12 @@ export function buildAssistantRequestData(args: {
    * (passthrough). The caller is responsible for gating this to `enforce:true`.
    */
   permissionPolicyRequest: PermissionToolGateSnapshotInput | undefined;
+  /**
+   * Plan mode (opt-in). Attached ONLY when `true` (presence-means-on, like
+   * `permissionPolicyRequest`); the server constrains the tool map and prepends
+   * the plan-mode instructions. Absent → normal run.
+   */
+  planMode?: boolean;
   providerOptions: Record<string, unknown> | undefined;
   selectedMemoryThreadId: string | undefined;
   selectionData: {
@@ -292,6 +298,10 @@ export function buildAssistantRequestData(args: {
   // runtime keeps its passthrough default.
   if (args.permissionPolicyRequest) {
     data['permissionPolicyRequest'] = args.permissionPolicyRequest;
+  }
+  // Plan mode is presence-means-on: only send `true`, never a `false` residue.
+  if (args.planMode) {
+    data['planMode'] = true;
   }
   return data;
 }

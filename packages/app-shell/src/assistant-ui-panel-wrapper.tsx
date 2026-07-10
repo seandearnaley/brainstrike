@@ -848,6 +848,13 @@ export function AssistantUiPanelWrapper({
     permissionPerToolOverrides,
   ]);
 
+  // Plan mode (OPT-IN, persisted). Desktop-hosted-first: only the data-stream
+  // transport reaches the assistant server that enforces the plan-mode tool gate
+  // (web's in-renderer local runtime has no server). Presence-means-on downstream.
+  const planModeEnabledPref = useAssistantPreferencesStore((state) => state.planModeEnabled);
+  const togglePlanMode = useAssistantPreferencesStore((state) => state.togglePlanMode);
+  const planMode = planModeEnabledPref && localChatTransport === 'data-stream';
+
   useEffect(() => {
     if (!assistantThreadRepository) {
       return;
@@ -877,6 +884,7 @@ export function AssistantUiPanelWrapper({
     modelSettings,
     observationalMemorySettings,
     permissionPolicyRequest,
+    planMode,
     providerOptions,
     runtimeWorkspaceContext,
     selectedMemoryThreadId,
@@ -1382,6 +1390,9 @@ export function AssistantUiPanelWrapper({
       onModelChange={handleModelChange}
       onModelToggle={handleModelToggle}
       {...(disabledReason ? { disabledReason } : {})}
+      {...(localChatTransport === 'data-stream'
+        ? { onTogglePlanMode: togglePlanMode, planModeEnabled: planModeEnabledPref }
+        : {})}
     />
   );
 }
