@@ -2,6 +2,10 @@ import {
   type AssistantToolApprovalRequest,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  type AssistantToolSuspendRequest,
+  TOOL_SUSPEND_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-suspend';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
@@ -12,6 +16,7 @@ import type {
   StreamChunkText,
   StreamChunkTool,
   StreamChunkToolApprovalRequired,
+  StreamChunkToolSuspendRequired,
   StreamFinishReason,
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
@@ -230,6 +235,9 @@ export class DataStreamMapper {
       case 'tool-approval-required':
         yield* this.handleToolApprovalRequired(chunk);
         return;
+      case 'tool-suspend-required':
+        yield* this.handleToolSuspendRequired(chunk);
+        return;
       case 'finish':
       case 'message-finish':
         yield* this.handleFinish(chunk);
@@ -430,6 +438,56 @@ export class DataStreamMapper {
       value: {
         data,
         name: TOOL_APPROVAL_DATA_NAME,
+      },
+    } satisfies EncodedChunk;
+  }
+
+  private *handleToolSuspendRequired(
+    chunk: StreamChunkToolSuspendRequired
+  ): Generator<EncodedChunk> {
+    const callId = sanitizeToolCallId(chunk.toolCallId);
+    if (!callId) {
+      return;
+    }
+    // Text-part deferral contract: finalize any open text/reasoning append and
+    // flush deferred run events BEFORE emitting the data part (a data part
+    // mid-text slices visible text).
+    yield* this.flushPendingRunEvents();
+
+    if (!this.toolState.has(callId)) {
+      yield* this.handleToolStart(chunk.toolName, callId, {});
+    }
+
+    // Emit the tool-call args part (if not yet emitted) so assistant-ui shows the
+    // tool invocation the plan/question belongs to. The suspend payload is the
+    // pause data, not the tool input, so args default to the recorded input.
+    const state = this.toolState.get(callId);
+    if (state && !state.argsEmitted) {
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: {
+          args: toArgsObject(state.lastInput, state.pendingArgsText),
+          toolCallId: callId,
+          toolName: state.toolName,
+        },
+      } satisfies EncodedChunk;
+    }
+
+    const data: AssistantToolSuspendRequest = {
+      runId: chunk.runId,
+      toolCallId: callId,
+      toolName: chunk.toolName,
+      ...(chunk.suspendPayload === undefined
+        ? {}
+        : { suspendPayload: toJsonSafe(chunk.suspendPayload) }),
+      ...(chunk.resumeSchema === undefined ? {} : { resumeSchema: toJsonSafe(chunk.resumeSchema) }),
+    };
+    yield {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        data,
+        name: TOOL_SUSPEND_DATA_NAME,
       },
     } satisfies EncodedChunk;
   }

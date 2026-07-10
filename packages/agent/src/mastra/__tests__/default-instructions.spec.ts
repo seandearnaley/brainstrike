@@ -360,6 +360,36 @@ describe('multi-root guidance', () => {
   });
 });
 
+describe('plan mode instructions', () => {
+  const PLAN_MAP = new Map<string, string>([
+    ['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
+    ['brainstrike_submitPlan', 'brainstrike.submitPlan'],
+    ['brainstrike_askUser', 'brainstrike.askUser'],
+  ]);
+
+  it('prepends a PLAN-MODE block only when planMode is true', () => {
+    const off = buildDefaultInstructions(PLAN_MAP);
+    expect(off).not.toContain('PLAN MODE IS ACTIVE');
+
+    const on = buildDefaultInstructions(PLAN_MAP, { planMode: true });
+    expect(on).toContain('PLAN MODE IS ACTIVE');
+    expect(on).toMatch(/MUST NOT modify files/i);
+    expect(on).toContain('brainstrike_submitPlan');
+    // The block leads the instructions.
+    expect(on.indexOf('PLAN MODE IS ACTIVE')).toBeLessThan(on.indexOf('Brainstrike IDE'));
+  });
+
+  it('advertises askUser guidance only when the tool is registered', () => {
+    const withAsk = buildDefaultInstructions(PLAN_MAP);
+    expect(withAsk).toContain('brainstrike_askUser');
+
+    const withoutAsk = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
+    );
+    expect(withoutAsk).not.toContain('askUser');
+  });
+});
+
 describe('buildContextBudgetNote', () => {
   it('renders a one-line budget note', () => {
     expect(buildContextBudgetNote(126_000)).toBe(

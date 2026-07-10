@@ -27,6 +27,22 @@ export {
   TOOL_APPROVAL_RUN_CONFIG_KEY,
   type ToolApprovalRunConfigActionReadResult,
 } from '@brainstrike/assistant-contract/tool-approval';
+export {
+  type AskUserAnswer,
+  type AskUserOption,
+  type AskUserPayload,
+  type AskUserSelectionMode,
+  type AssistantToolResumeAction,
+  type AssistantToolSuspendRequest,
+  isAssistantToolResumeAction,
+  readToolResumeRunConfigAction,
+  type SubmitPlanDecision,
+  type SubmitPlanPayload,
+  type SubmitPlanStep,
+  TOOL_SUSPEND_DATA_NAME,
+  TOOL_SUSPEND_RUN_CONFIG_KEY,
+  type ToolResumeRunConfigActionReadResult,
+} from '@brainstrike/assistant-contract/tool-suspend';
 export type { AssistantRequestPayload } from './assistant-request';
 export {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
@@ -81,6 +97,7 @@ export {
   type MastraAgentRuntimeOptions,
   streamMastraAgent,
   streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
 } from './mastra/agent-runtime';
 export {
   createMastraAgentError,

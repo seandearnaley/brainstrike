@@ -151,6 +151,40 @@ describe('run-event deferral keeps streamed text contiguous', () => {
   });
 });
 
+describe('tool-suspend-required data part respects text continuity', () => {
+  it('finalizes open text before emitting exactly one brainstrike.tool-suspend data part', async () => {
+    const parsed = await mapChunks([
+      { type: 'text-delta', value: 'Let me ask you.' } as StreamChunk,
+      runEventChunk('ev-1', 'Observation'),
+      {
+        runId: 'run-1',
+        suspendPayload: { question: 'Which city?' },
+        toolCallId: 'call-suspend-1',
+        toolName: 'brainstrike.askUser',
+        type: 'tool-suspend-required',
+      } as unknown as StreamChunk,
+      finishChunk,
+    ]);
+
+    const codes = parsed.map((p) => p.code);
+    const dataParts = parsed.filter(
+      (p) =>
+        p.code === 'aui-data' && (p.value as { name?: string }).name === 'brainstrike.tool-suspend'
+    );
+    // Exactly one suspend data part, carrying the pause payload.
+    expect(dataParts).toHaveLength(1);
+    expect((dataParts[0]?.value as { data: Record<string, unknown> }).data).toMatchObject({
+      runId: 'run-1',
+      suspendPayload: { question: 'Which city?' },
+      toolCallId: 'call-suspend-1',
+      toolName: 'brainstrike.askUser',
+    });
+    // The suspend data part lands AFTER the last text delta (text was finalized).
+    const suspendDataIndex = codes.lastIndexOf('aui-data');
+    expect(suspendDataIndex).toBeGreaterThan(codes.lastIndexOf('0'));
+  });
+});
+
 describe('parallel tool calls map interleaved chunks without cross-talk', () => {
   it('keeps two concurrent tool calls separate through start/args/result interleaving', async () => {
     const parsed = await mapChunks([
