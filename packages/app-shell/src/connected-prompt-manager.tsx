@@ -11,9 +11,8 @@ import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import type { QueueAdapter } from '@brainstrike/queue';
-import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
@@ -25,59 +24,11 @@ import {
   buildDraftRuntimeForProvider,
   copyProviderSettingsMap,
 } from './assistant-ui-panel-wrapper-runtime';
-import { resolvePromptEmbeddingModelInfo } from './prompt-embedding-model-info';
-import { embedPendingPromptItems, queryPromptSuggestions } from './prompt-library-embedding';
-import { importLegacyPromptStore } from './prompt-library-legacy-import';
 import { type PromptWorkbenchModelOption, PromptWorkbenchPanel } from './prompt-workbench-panel';
-
-type PromptManagerReadiness =
-  | { readonly status: 'loading' }
-  | {
-      readonly error: string;
-      readonly repository: PromptItemRepository;
-      readonly status: 'error';
-    }
-  | {
-      readonly items: readonly PromptItem[];
-      readonly repository: PromptItemRepository;
-      readonly status: 'ready';
-    };
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error && error.message.trim()
-    ? error.message
-    : `Unexpected Prompt Workbench failure: ${String(error)}`;
-}
-
-function promptRecallAbortError(): Error {
-  const error = new Error('Prompt recall was cancelled because suggestions are no longer active.');
-  error.name = 'AbortError';
-  return error;
-}
-
-function throwIfPromptRecallAborted(signal: AbortSignal): void {
-  if (signal.aborted) {
-    throw signal.reason instanceof Error ? signal.reason : promptRecallAbortError();
-  }
-}
-
-function usePromptRecallAbortController(enabled: boolean) {
-  const controllerRef = useRef<AbortController | null>(null);
-  useLayoutEffect(() => {
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    if (!enabled) {
-      controller.abort(promptRecallAbortError());
-    }
-    return () => {
-      controller.abort(promptRecallAbortError());
-      if (controllerRef.current === controller) {
-        controllerRef.current = null;
-      }
-    };
-  }, [enabled]);
-  return controllerRef;
-}
+import {
+  toPromptWorkbenchErrorMessage,
+  usePromptLibraryController,
+} from './use-prompt-library-controller';
 
 function parseCompositeModelKey(modelKey: string): { model: string; provider: string } {
   const separator = modelKey.indexOf('::');
@@ -325,40 +276,6 @@ interface ConnectedPromptManagerProps {
   readonly suggestionsEnabled?: boolean;
 }
 
-interface PromptIndexingPassResult {
-  readonly error: string | null;
-  readonly requestId: number;
-}
-
-async function loadInitialPromptItems(repository: PromptItemRepository): Promise<PromptItem[]> {
-  await importLegacyPromptStore(repository);
-  return repository.list();
-}
-
-async function reloadPromptItemsAfterIndexing(
-  repository: PromptItemRepository,
-  runIndexingPass: () => Promise<PromptIndexingPassResult>
-): Promise<
-  | {
-      readonly error: string;
-      readonly indexing: PromptIndexingPassResult;
-      readonly status: 'error';
-    }
-  | {
-      readonly indexing: PromptIndexingPassResult;
-      readonly items: PromptItem[];
-      readonly status: 'ready';
-    }
-> {
-  const indexing = await runIndexingPass();
-  try {
-    const items = await repository.list();
-    return { indexing, items, status: 'ready' };
-  } catch (error) {
-    return { error: toErrorMessage(error), indexing, status: 'error' };
-  }
-}
-
 export function ConnectedPromptManager({
   loadEmbeddingQueue,
   suggestionsEnabled = true,
@@ -381,12 +298,7 @@ export function ConnectedPromptManager({
     activeThreadId ? (state.draftTextByThreadId[activeThreadId] ?? '') : ''
   );
   const enqueueComposerCommand = useAssistantComposerCommandStore((state) => state.enqueue);
-  const [readiness, setReadiness] = useState<PromptManagerReadiness>({ status: 'loading' });
-  const [indexingError, setIndexingError] = useState<string | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
-  const indexingTailRef = useRef<Promise<void> | null>(null);
-  const latestIndexingRequestIdRef = useRef(0);
-  const promptRecallAbortControllerRef = usePromptRecallAbortController(suggestionsEnabled);
 
   const repository = useMemo(() => (db ? new PromptItemRepository(db) : null), [db]);
   const threadRepository = useMemo(
@@ -423,145 +335,14 @@ export function ConnectedPromptManager({
     }
     return options;
   }, [enabledProviderIds, models, providerNames]);
-
-  const resolveModelInfo = useCallback(async (): Promise<EmbeddingSetModelInfo> => {
-    if (!repository) {
-      throw new Error('Cannot resolve prompt embeddings before the database is ready.');
-    }
-    const profile = await repository.getEmbeddingProfile();
-    return resolvePromptEmbeddingModelInfo(profile, localModelConfigMap);
-  }, [localModelConfigMap, repository]);
-
-  const ensureEmbeddingQueueReady = useCallback(async (): Promise<void> => {
-    if (!loadEmbeddingQueue) {
-      throw new Error('Prompt embeddings require an application embedding queue.');
-    }
-    await loadEmbeddingQueue();
-  }, [loadEmbeddingQueue]);
-
-  const performPendingItemIndexing = useCallback(async () => {
-    if (!repository) {
-      throw new Error('Cannot index prompts before the database is ready.');
-    }
-    await ensureEmbeddingQueueReady();
-    const modelInfo = await resolveModelInfo();
-    const outcomes = await embedPendingPromptItems({ embedder, modelInfo, repository });
-    const failures = outcomes.filter((outcome) => outcome.status === 'error');
-    if (failures.length > 0) {
-      throw new Error(failures.map((outcome) => outcome.error).join('\n'));
-    }
-  }, [embedder, ensureEmbeddingQueueReady, repository, resolveModelInfo]);
-
-  const runIndexingPass = useCallback((): Promise<PromptIndexingPassResult> => {
-    const requestId = latestIndexingRequestIdRef.current + 1;
-    latestIndexingRequestIdRef.current = requestId;
-    const execute = async (): Promise<PromptIndexingPassResult> => {
-      try {
-        await performPendingItemIndexing();
-        return { error: null, requestId };
-      } catch (error) {
-        return { error: toErrorMessage(error), requestId };
-      }
-    };
-    const pass = (indexingTailRef.current ?? Promise.resolve()).then(execute, execute);
-    indexingTailRef.current = pass.then(
-      () => undefined,
-      () => undefined
-    );
-    return pass;
-  }, [performPendingItemIndexing]);
-
-  useEffect(() => {
-    if (!repository) {
-      return;
-    }
-    let current = true;
-    const initialize = (): void => {
-      void loadInitialPromptItems(repository)
-        .then((items) => {
-          if (!current) {
-            return null;
-          }
-          setReadiness({ items, repository, status: 'ready' });
-          return reloadPromptItemsAfterIndexing(repository, runIndexingPass);
-        })
-        .then((refreshed) => {
-          if (
-            !(refreshed && current) ||
-            refreshed.indexing.requestId !== latestIndexingRequestIdRef.current
-          ) {
-            return;
-          }
-          if (refreshed.status === 'error') {
-            setReadiness({
-              error: refreshed.error,
-              repository,
-              status: 'error',
-            });
-            return;
-          }
-          setIndexingError(refreshed.indexing.error);
-          setReadiness({ items: refreshed.items, repository, status: 'ready' });
-        })
-        .catch((error: unknown) => {
-          if (!current) {
-            return;
-          }
-          setReadiness({
-            error: toErrorMessage(error),
-            repository,
-            status: 'error',
-          });
-        });
-    };
-    initialize();
-    return () => {
-      current = false;
-    };
-  }, [repository, runIndexingPass]);
-
-  const handleLibraryChanged = useCallback(async () => {
-    const indexing = await runIndexingPass();
-    if (indexing.requestId === latestIndexingRequestIdRef.current) {
-      setIndexingError(null);
-    }
-    if (indexing.error) {
-      throw new Error(indexing.error);
-    }
-  }, [runIndexingPass]);
-
-  const handleRequestSuggestions = useCallback(
-    async (context: string) => {
-      if (!repository) {
-        throw new Error('Cannot recall prompts before the database is ready.');
-      }
-      const signal = promptRecallAbortControllerRef.current?.signal;
-      if (!(suggestionsEnabled && signal)) {
-        throw promptRecallAbortError();
-      }
-      throwIfPromptRecallAborted(signal);
-      await ensureEmbeddingQueueReady();
-      throwIfPromptRecallAborted(signal);
-      const modelInfo = await resolveModelInfo();
-      throwIfPromptRecallAborted(signal);
-      return queryPromptSuggestions({
-        context,
-        embedder,
-        modelInfo,
-        options: { limit: 6, threshold: 0.35 },
-        repository,
-        signal,
-      });
-    },
-    [
+  const { handleLibraryChanged, handleRequestSuggestions, indexingError, readiness } =
+    usePromptLibraryController({
       embedder,
-      ensureEmbeddingQueueReady,
-      promptRecallAbortControllerRef,
+      loadEmbeddingQueue,
+      localModelConfigMap,
       repository,
-      resolveModelInfo,
       suggestionsEnabled,
-    ]
-  );
+    });
 
   const recordAppliedUsage = useCallback(
     async (itemId: string, action: PromptItemUsageAction): Promise<void> => {
@@ -572,7 +353,9 @@ export function ConnectedPromptManager({
         await repository.recordUsage(itemId, action);
         setUsageError(null);
       } catch (error) {
-        setUsageError(`Prompt was staged, but usage tracking failed: ${toErrorMessage(error)}`);
+        setUsageError(
+          `Prompt was staged, but usage tracking failed: ${toPromptWorkbenchErrorMessage(error)}`
+        );
       }
     },
     [repository]
