@@ -17,7 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@brainstrike/ui';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { hookTrustSelectors, useHookTrustStore } from '../../stores/hook-trust-store';
 
 export interface HookReviewRoot {
@@ -100,8 +100,10 @@ const STATUS_VARIANT: Record<RootStatus, 'default' | 'secondary' | 'destructive'
   untrusted: 'secondary',
 };
 
+const EMPTY_ROOTS: readonly HookReviewRoot[] = [];
+
 export function HooksSettingsSection({
-  roots = [],
+  roots = EMPTY_ROOTS,
   globalConfigPath = '~/.brainstrike/hooks.json',
 }: HooksSettingsSectionProps) {
   const approvalsByRootId = useHookTrustStore(hookTrustSelectors.approvalsByRootId);
@@ -109,23 +111,34 @@ export function HooksSettingsSection({
   const revokeRoot = useHookTrustStore((state) => state.revokeRoot);
   const [reviews, setReviews] = useState<Record<string, ProjectHooksReview>>({});
 
-  const refresh = useCallback(async () => {
+  // Fetch each root's on-disk review (content + hash) from the desktop bridge.
+  // Canonical data-fetch-in-effect: an `ignore` flag drops a stale response if
+  // the roots change (or the panel unmounts) before the fetch resolves.
+  useEffect(() => {
     const bridge = getHooksBridge();
     if (!bridge) {
       return;
     }
-    const entries = await Promise.all(
+    let ignore = false;
+    Promise.all(
       roots.map(async (root) => {
         const review = await bridge.getProjectHooksForReview(root.rootId, root.absPath);
         return [root.rootId, review] as const;
       })
-    );
-    setReviews(Object.fromEntries(entries));
+    )
+      .then((entries) => {
+        if (!ignore) {
+          setReviews(Object.fromEntries(entries));
+        }
+      })
+      .catch(() => {
+        // Bridge failures leave the prior reviews in place; the row shows
+        // "Unavailable" via the resolveStatus 'error' branch on next fetch.
+      });
+    return () => {
+      ignore = true;
+    };
   }, [roots]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
 
   return (
     <Card>
