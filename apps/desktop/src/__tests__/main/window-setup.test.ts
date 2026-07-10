@@ -81,6 +81,7 @@ vi.mock('electron', () => ({
     start: vi.fn(() => 1),
     stop: vi.fn(),
   },
+  protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
   screen: {
     getAllDisplays: vi.fn(() => [{ workArea: { height: 800, width: 1536, x: 0, y: 0 } }]),
   },
