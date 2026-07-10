@@ -280,6 +280,7 @@ export {
   type AssistantRunEventKind,
   type AssistantRunEventMetadata,
   type AssistantRunEventStatus,
+  createAssistantRunEvent,
   sanitizeAssistantRunEventMetadata,
 } from './run-events';
 export {
