@@ -1,14 +1,14 @@
 import type { Migration } from './migration-runner';
 
 /**
- * Migration 050: durable Prompt Workbench records and semantic recall space.
+ * Migration 051: durable Prompt Workbench records and semantic recall space.
  *
  * Prompt items are application records, not pretend files, so they own their
  * metadata, revision history, and vector directly. The dedicated singleton
  * profile keeps prompt recall out of the file-collection `embedding_sets`
  * lifecycle while reusing the same renderer-only local model and pgvector.
  */
-export const migration050PromptLibrary: Migration = {
+export const migration051PromptLibrary: Migration = {
   down: `
     DROP TABLE IF EXISTS prompt_item_revisions;
     --> statement-breakpoint
@@ -120,5 +120,5 @@ export const migration050PromptLibrary: Migration = {
     CREATE INDEX IF NOT EXISTS idx_prompt_item_revisions_item_revision
       ON prompt_item_revisions(prompt_item_id, revision DESC);
   `,
-  version: 50,
+  version: 51,
 };

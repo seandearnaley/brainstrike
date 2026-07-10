@@ -214,7 +214,7 @@ Threads → Database → Prompts. Its source of truth is PGlite; never reintrodu
 localStorage-backed parallel store.
 
 Ownership and flow:
-- Persistence: migration 050 (`prompt_embedding_profiles`, `prompt_items`,
+- Persistence: migration 051 (`prompt_embedding_profiles`, `prompt_items`,
   `prompt_item_revisions`) + `PromptItemRepository`. Prompt edits use revision CAS and
   retain the previous revision. The one-time `brainstrike-prompt-store` import is strict,
   transactional, and removes localStorage only after a successful commit. Desktop import

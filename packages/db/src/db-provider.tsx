@@ -775,7 +775,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       try {
         // Revisions cascade from prompt_items. The system embedding profile is
-        // configuration seeded by migration 050 and intentionally survives.
+        // configuration seeded by migration 051 and intentionally survives.
         await tx.query('DELETE FROM prompt_items');
       } catch (error) {
         logger.warn('[DbProvider] Failed to clear prompt_items (table may not exist):', error);

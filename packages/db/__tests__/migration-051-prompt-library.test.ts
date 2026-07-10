@@ -14,7 +14,7 @@ interface CountRow {
   count: number | string;
 }
 
-describe('migration 050: prompt library', () => {
+describe('migration 051: prompt library', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -22,17 +22,17 @@ describe('migration 050: prompt library', () => {
     db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-prompt-library'));
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 50));
+    await runner.up(migrations.filter((migration) => migration.version < 51));
   });
 
   afterEach(async () => {
     await db.close();
   });
 
-  function getMigration050() {
-    const migration = migrations.find((candidate) => candidate.version === 50);
+  function getMigration051() {
+    const migration = migrations.find((candidate) => candidate.version === 51);
     if (!migration) {
-      throw new Error('Migration 050 is missing');
+      throw new Error('Migration 051 is missing');
     }
     return migration;
   }
@@ -40,7 +40,7 @@ describe('migration 050: prompt library', () => {
   it('creates durable prompt items, revision history, and a dedicated embedding space', {
     timeout: 60_000,
   }, async () => {
-    await runner.runMigration(getMigration050());
+    await runner.runMigration(getMigration051());
 
     const embeddingProfile = await db.query<PromptLibraryEmbeddingProfileRow>(
       `SELECT id, model_key, dimensions
@@ -128,7 +128,7 @@ describe('migration 050: prompt library', () => {
   });
 
   it('rolls back every prompt-library artifact', { timeout: 60_000 }, async () => {
-    const migration = getMigration050();
+    const migration = getMigration051();
     await runner.runMigration(migration);
     await runner.rollback(migration);
 
