@@ -72,6 +72,8 @@ const SHELL_OPEN_EXTERNAL_CHANNEL = 'shell:open-external' as const;
 const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
 const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
 const CLIPBOARD_WRITE_TEXT_CHANNEL = 'clipboard:write-text' as const;
+const ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL = 'assistant-checkpoint:revert-entry' as const;
+const ASSISTANT_CHECKPOINT_REVERT_RUN_CHANNEL = 'assistant-checkpoint:revert-run' as const;
 const GIT_STATUS_CHANNEL = 'git:status' as const;
 const GIT_DIFF_CHANNEL = 'git:diff' as const;
 const GIT_STAGE_CHANNEL = 'git:stage' as const;
@@ -1039,6 +1041,21 @@ contextBridge.exposeInMainWorld('llmHost', {
 // direct module call here silently fails on real (non-test-mode) builds.
 contextBridge.exposeInMainWorld('clipboard', {
   writeText: (text: string) => ipcRenderer.invoke(CLIPBOARD_WRITE_TEXT_CHANNEL, text),
+});
+
+// Edit checkpoint (undo of agent file edits) — invoke-only revert bridge. Desktop
+// only: web never defines this (no assistant server / main process).
+contextBridge.exposeInMainWorld('assistantCheckpoints', {
+  revertEntry: (id: string, options?: { force?: boolean }) =>
+    ipcRenderer.invoke(ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL, {
+      force: options?.force ?? false,
+      id,
+    }),
+  revertRun: (runId: string, options?: { force?: boolean }) =>
+    ipcRenderer.invoke(ASSISTANT_CHECKPOINT_REVERT_RUN_CHANNEL, {
+      force: options?.force ?? false,
+      runId,
+    }),
 });
 
 // Platform shell bridge: reveal/open absolute paths in the OS file manager.

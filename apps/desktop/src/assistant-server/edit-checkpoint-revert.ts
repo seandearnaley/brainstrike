@@ -397,7 +397,7 @@ export async function revertCheckpointRun(
   );
   const outcomes: AssistantCheckpointRevertResult[] = [];
   for (const { id } of idsResult.rows) {
-    outcomes.push(await revertCheckpointEntry(db, { force: args.force, id }, deps));
+    outcomes.push(await revertCheckpointEntry(db, { force: args.force ?? false, id }, deps));
   }
   return { outcomes, runId: args.runId };
 }

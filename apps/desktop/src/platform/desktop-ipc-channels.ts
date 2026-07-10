@@ -7,6 +7,10 @@ export const DESKTOP_IPC_CHANNELS = {
     workspaceContextSelectionUpdate: 'assistant:workspace-context-selection-update',
     workspaceContextTapestryUpdate: 'assistant:workspace-context-tapestry-update',
   },
+  assistantCheckpoint: {
+    revertEntry: 'assistant-checkpoint:revert-entry',
+    revertRun: 'assistant-checkpoint:revert-run',
+  },
   clipboard: {
     writeText: 'clipboard:write-text',
   },
