@@ -857,61 +857,69 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     onBatch: DirectoryStreamCallback,
     options?: StreamingDirectoryReadOptions
   ): Promise<void> {
+    const signal = options?.signal;
+    signal?.throwIfAborted();
+
     const dirHandle = handle._internal;
     if (!isFileSystemDirectoryHandle(dirHandle)) {
       throw new AccessError('Invalid directory handle', handle.path, 'read');
     }
 
     const batchSize = options?.batchSize ?? 50;
-    const signal = options?.signal;
     const { includeMetadata } = normalizeDirectoryReadOptions(options);
 
     let batch: IFileNode[] = [];
     let total = 0;
 
-    for await (const [name, entryHandle] of dirHandle.entries()) {
-      // Check for cancellation
-      if (signal?.aborted) {
-        break;
+    try {
+      for await (const [name, entryHandle] of dirHandle.entries()) {
+        signal?.throwIfAborted();
+
+        // Create node using extracted helper functions
+        const node =
+          entryHandle.kind === 'directory'
+            ? createDirectoryNode(
+                name,
+                handle.path,
+                entryHandle as FileSystemDirectoryHandle,
+                handle.name
+              )
+            : await createFileNode(
+                name,
+                handle.path,
+                entryHandle as FileSystemFileHandle,
+                handle.name,
+                includeMetadata
+              );
+        signal?.throwIfAborted();
+
+        if (entryHandle.kind === 'file') {
+          this.cacheFileHandleForPath(node.path, entryHandle as FileSystemFileHandle);
+        }
+
+        batch.push(node);
+        total++;
+
+        // Emit batch when full
+        if (batch.length >= batchSize) {
+          onBatch(batch, { done: false, total });
+          batch = [];
+          signal?.throwIfAborted();
+        }
       }
 
-      // Create node using extracted helper functions
-      const node =
-        entryHandle.kind === 'directory'
-          ? createDirectoryNode(
-              name,
-              handle.path,
-              entryHandle as FileSystemDirectoryHandle,
-              handle.name
-            )
-          : await createFileNode(
-              name,
-              handle.path,
-              entryHandle as FileSystemFileHandle,
-              handle.name,
-              includeMetadata
-            );
+      signal?.throwIfAborted();
 
-      if (entryHandle.kind === 'file') {
-        this.cacheFileHandleForPath(node.path, entryHandle as FileSystemFileHandle);
+      // Emit any remaining entries
+      if (batch.length > 0 || total === 0) {
+        onBatch(batch, { done: true, total });
+      } else {
+        // Signal completion with empty batch if last batch was exactly full
+        onBatch([], { done: true, total });
       }
-
-      batch.push(node);
-      total++;
-
-      // Emit batch when full
-      if (batch.length >= batchSize) {
-        onBatch(batch, { done: false, total });
-        batch = [];
-      }
-    }
-
-    // Emit any remaining entries
-    if (batch.length > 0 || total === 0) {
-      onBatch(batch, { done: true, total });
-    } else {
-      // Signal completion with empty batch if last batch was exactly full
-      onBatch([], { done: true, total });
+    } catch (error) {
+      signal?.throwIfAborted();
+      throw error;
     }
   }
 

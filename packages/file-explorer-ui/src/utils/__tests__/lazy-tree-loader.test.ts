@@ -178,15 +178,34 @@ describe('lazy-tree-loader', () => {
       expect(result[0]!.rootFolderId).toBe('/my-project');
     });
 
-    it('throws on abort signal', async () => {
+    it('preserves the signal reason when aborted before the root read', async () => {
       const adapter = createMockAdapter([]);
       const handle = createDirectoryHandle();
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled root load');
+      abortController.abort(abortReason);
 
       await expect(
         loadRootDirectory(adapter, handle, { abortSignal: abortController.signal })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+
+      expect(adapter.readDirectory).not.toHaveBeenCalled();
+    });
+
+    it('preserves the signal reason when the root read rejects after cancellation', async () => {
+      const adapter = createMockAdapter([]);
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled rejected root read');
+      const readError = new Error('root directory I/O failed');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        throw readError;
+      });
+
+      await expect(
+        loadRootDirectory(adapter, handle, { abortSignal: abortController.signal })
+      ).rejects.toBe(abortReason);
     });
   });
 
@@ -261,6 +280,36 @@ describe('lazy-tree-loader', () => {
       await expect(loadDirectoryChildren(adapter, fileNode)).rejects.toThrow(
         'Cannot load children of non-directory node'
       );
+    });
+
+    it('preserves the signal reason when aborted before the child read', async () => {
+      const adapter = createMockAdapter([]);
+      const parentNode = createDirectoryNode({ path: '/root/parent' });
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled child load');
+      abortController.abort(abortReason);
+
+      await expect(
+        loadDirectoryChildren(adapter, parentNode, { abortSignal: abortController.signal })
+      ).rejects.toBe(abortReason);
+
+      expect(adapter.readDirectory).not.toHaveBeenCalled();
+    });
+
+    it('preserves the signal reason when the child read rejects after cancellation', async () => {
+      const adapter = createMockAdapter([]);
+      const parentNode = createDirectoryNode({ path: '/root/parent' });
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled rejected child read');
+      const readError = new Error('child directory I/O failed');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        throw readError;
+      });
+
+      await expect(
+        loadDirectoryChildren(adapter, parentNode, { abortSignal: abortController.signal })
+      ).rejects.toBe(abortReason);
     });
   });
 
@@ -409,6 +458,31 @@ describe('lazy-tree-loader', () => {
       expect(batches[0]!.nodes).toHaveLength(1);
     });
 
+    it('preserves the signal reason when the non-streaming fallback is aborted during read', async () => {
+      const adapter = createMockAdapter();
+      const parentNode = createDirectoryNode({
+        depth: 0,
+        name: 'parent',
+        path: '/root/parent',
+        rootFolderId: 'root',
+      });
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled child fallback');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        return [];
+      });
+      const onBatch = vi.fn();
+
+      await expect(
+        loadDirectoryChildrenStreaming(adapter, parentNode, onBatch, {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
+    });
+
     it('uses streaming when adapter supports it', async () => {
       const adapter = createMockAdapter();
       adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
@@ -453,13 +527,14 @@ describe('lazy-tree-loader', () => {
       const adapter = createMockAdapter([]);
       const parentNode = createDirectoryNode({ path: '/root/parent' });
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled child enumeration');
+      abortController.abort(abortReason);
 
       await expect(
         loadDirectoryChildrenStreaming(adapter, parentNode, vi.fn(), {
           abortSignal: abortController.signal,
         })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
     });
   });
 
@@ -477,6 +552,26 @@ describe('lazy-tree-loader', () => {
       expect(batches).toHaveLength(1);
       expect(batches[0]!.done).toBe(true);
       expect(batches[0]!.nodes).toHaveLength(1);
+    });
+
+    it('preserves the signal reason when the root fallback is aborted during read', async () => {
+      const adapter = createMockAdapter();
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled root fallback');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        return [];
+      });
+      const onBatch = vi.fn();
+
+      await expect(
+        loadRootDirectoryStreaming(adapter, handle, onBatch, {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
     });
 
     it('uses streaming when adapter supports it', async () => {
@@ -531,13 +626,43 @@ describe('lazy-tree-loader', () => {
       const adapter = createMockAdapter([]);
       const handle = createDirectoryHandle();
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled root enumeration');
+      abortController.abort(abortReason);
 
       await expect(
         loadRootDirectoryStreaming(adapter, handle, vi.fn(), {
           abortSignal: abortController.signal,
         })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+    });
+
+    it('propagates cancellation after a partial batch without emitting successful completion', async () => {
+      const adapter = createMockAdapter();
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      const abortReason = new DOMException('Directory enumeration cancelled', 'AbortError');
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch, options) => {
+        onBatch([createFileNode({ name: 'partial.ts', path: '/root/partial.ts' })], {
+          done: false,
+          total: 1,
+        });
+        abortController.abort(abortReason);
+        options?.signal?.throwIfAborted();
+      });
+      const batches: Array<{ done: boolean; names: string[] }> = [];
+
+      await expect(
+        loadRootDirectoryStreaming(
+          adapter,
+          handle,
+          (nodes, meta) => {
+            batches.push({ done: meta.done, names: nodes.map((node) => node.name) });
+          },
+          { abortSignal: abortController.signal }
+        )
+      ).rejects.toBe(abortReason);
+
+      expect(batches).toEqual([{ done: false, names: ['partial.ts'] }]);
     });
   });
 

@@ -382,13 +382,17 @@ describe('MockFileSystemAdapter', () => {
     it('should reject when the signal is already aborted', async () => {
       const rootHandle = await adapter.requestDirectoryAccess();
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled before enumeration');
+      abortController.abort(abortReason);
+      const onBatch = vi.fn();
 
       await expect(
-        adapter.readDirectoryStreaming(rootHandle, () => undefined, {
+        adapter.readDirectoryStreaming(rootHandle, onBatch, {
           signal: abortController.signal,
         })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
     });
 
     it('should emit an empty done batch for missing directories', async () => {
@@ -480,19 +484,24 @@ describe('MockFileSystemAdapter', () => {
     it('should reject when aborted between streaming batches', async () => {
       const rootHandle = await adapter.requestDirectoryAccess();
       const abortController = new AbortController();
+      const abortReason = new DOMException('Directory enumeration cancelled', 'AbortError');
+      const completionStates: boolean[] = [];
 
       await expect(
         adapter.readDirectoryStreaming(
           rootHandle,
-          () => {
-            abortController.abort();
+          (_nodes, meta) => {
+            completionStates.push(meta.done);
+            abortController.abort(abortReason);
           },
           {
             batchSize: 1,
             signal: abortController.signal,
           }
         )
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+
+      expect(completionStates).toEqual([false]);
     });
   });
 

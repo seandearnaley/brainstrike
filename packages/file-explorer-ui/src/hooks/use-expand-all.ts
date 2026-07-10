@@ -235,6 +235,25 @@ function resetExpandAllOperation(args: {
   isExpandingAllRef.current = false;
 }
 
+function finalizeExpandAllOperation(args: {
+  isExpandAllStartingRef: React.RefObject<boolean>;
+  isExpandingAllRef: React.RefObject<boolean>;
+  sessionId: number;
+  sessionIdRef: React.RefObject<number>;
+  setState: React.Dispatch<React.SetStateAction<ExpandAllState>>;
+}): void {
+  const { isExpandAllStartingRef, isExpandingAllRef, sessionId, sessionIdRef, setState } = args;
+  if (sessionIdRef.current !== sessionId) {
+    return;
+  }
+
+  resetExpandAllOperation({
+    isExpandAllStartingRef,
+    isExpandingAllRef,
+  });
+  setState({ isExpandingAll: false });
+}
+
 function createEmptyExpandAllMetrics(): ExpandAllMetrics {
   return {
     batchCount: 0,
@@ -629,7 +648,6 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
         if (result.firstError) {
           handleExpandError(result.firstError, onError);
         }
-        setState({ isExpandingAll: false });
       } catch (err) {
         if (isAbortError(err)) {
           logExpandAllOutcome({
@@ -642,11 +660,13 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
           });
         }
         handleExpandError(err, onError);
-        setState({ isExpandingAll: false });
       } finally {
-        resetExpandAllOperation({
+        finalizeExpandAllOperation({
           isExpandAllStartingRef,
           isExpandingAllRef,
+          sessionId,
+          sessionIdRef,
+          setState,
         });
       }
     },

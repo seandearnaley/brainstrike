@@ -689,7 +689,7 @@ describe('ElectronFileSystemAdapter', () => {
       expect(fileNode?.lastModified).toBeDefined();
     });
 
-    it('should support AbortSignal cancellation', async () => {
+    it('should reject with the signal reason without emitting completion after a batch abort', async () => {
       // Create many files
       for (let i = 0; i < 20; i++) {
         fs.writeFileSync(path.join(tempDir, `file${i}.txt`), `content${i}`);
@@ -703,24 +703,28 @@ describe('ElectronFileSystemAdapter', () => {
       };
 
       const controller = new AbortController();
+      const abortReason = new DOMException('Directory enumeration cancelled', 'AbortError');
       let batchCount = 0;
       let totalSeen = 0;
+      const completionStates: boolean[] = [];
 
-      await adapter.readDirectoryStreaming(
-        handle,
-        (_nodes, meta) => {
-          batchCount++;
-          totalSeen = meta.total;
-          // Abort after first batch
-          if (batchCount === 1) {
-            controller.abort();
-          }
-        },
-        { batchSize: 5, signal: controller.signal }
-      );
+      await expect(
+        adapter.readDirectoryStreaming(
+          handle,
+          (_nodes, meta) => {
+            batchCount++;
+            totalSeen = meta.total;
+            completionStates.push(meta.done);
+            if (batchCount === 1) {
+              controller.abort(abortReason);
+            }
+          },
+          { batchSize: 5, signal: controller.signal }
+        )
+      ).rejects.toBe(abortReason);
 
-      // Should have stopped early due to abort
       expect(totalSeen).toBeLessThan(20);
+      expect(completionStates).toEqual([false]);
     });
 
     it('should not emit pending nodes after abort before batch flush', async () => {
@@ -736,6 +740,7 @@ describe('ElectronFileSystemAdapter', () => {
       };
 
       const controller = new AbortController();
+      const abortReason = new Error('cancel before pending batch flush');
       const dirents = fs.readdirSync(tempDir, { withFileTypes: true });
       const close = vi.fn().mockResolvedValue(undefined);
 
@@ -745,26 +750,44 @@ describe('ElectronFileSystemAdapter', () => {
           for (const [index, dirent] of dirents.entries()) {
             yield dirent;
             if (index === 0) {
-              controller.abort();
+              controller.abort(abortReason);
             }
           }
         },
       } as unknown as Awaited<ReturnType<typeof fsPromises.opendir>>);
 
       const batches: { nodes: unknown[]; done: boolean; total: number }[] = [];
-      await adapter.readDirectoryStreaming(
-        handle,
-        (nodes, meta) => {
-          batches.push({ done: meta.done, nodes: [...nodes], total: meta.total });
-        },
-        { batchSize: 50, signal: controller.signal }
-      );
+      await expect(
+        adapter.readDirectoryStreaming(
+          handle,
+          (nodes, meta) => {
+            batches.push({ done: meta.done, nodes: [...nodes], total: meta.total });
+          },
+          { batchSize: 50, signal: controller.signal }
+        )
+      ).rejects.toBe(abortReason);
 
-      expect(batches.length).toBe(1);
-      expect(batches[0]?.done).toBe(true);
-      expect(batches[0]?.total).toBe(0);
-      expect(batches[0]?.nodes.length).toBe(0);
+      expect(batches).toEqual([]);
       expect(close).toHaveBeenCalledOnce();
+    });
+
+    it('should reject a pre-aborted read with the exact signal reason', async () => {
+      const handle: DirectoryHandle = {
+        kind: 'directory',
+        name: path.basename(tempDir),
+        path: tempDir,
+        platform: 'electron',
+      };
+      const controller = new AbortController();
+      const abortReason = new Error('caller cancelled before enumeration');
+      controller.abort(abortReason);
+      const opendirSpy = vi.spyOn(fsPromises, 'opendir');
+
+      await expect(
+        adapter.readDirectoryStreaming(handle, vi.fn(), { signal: controller.signal })
+      ).rejects.toBe(abortReason);
+
+      expect(opendirSpy).not.toHaveBeenCalled();
     });
 
     it('should handle empty directories', async () => {

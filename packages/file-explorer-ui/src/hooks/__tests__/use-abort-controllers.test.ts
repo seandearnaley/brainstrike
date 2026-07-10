@@ -131,6 +131,29 @@ describe('useAbortControllers', () => {
     expect(result.current.childAbortControllersRef.current.size).toBe(0);
   });
 
+  it('cancelAllChildLoading aborts children without cancelling the root', () => {
+    const { result } = renderHook(() => useAbortControllers());
+
+    let rootController: AbortController;
+    let childController1: AbortController;
+    let childController2: AbortController;
+    act(() => {
+      rootController = result.current.createAbortController(null);
+      childController1 = result.current.createAbortController('/child/one');
+      childController2 = result.current.createAbortController('/child/two');
+    });
+
+    act(() => {
+      result.current.cancelAllChildLoading();
+    });
+
+    expect(rootController!.signal.aborted).toBe(false);
+    expect(result.current.rootAbortControllerRef.current).toBe(rootController!);
+    expect(childController1!.signal.aborted).toBe(true);
+    expect(childController2!.signal.aborted).toBe(true);
+    expect(result.current.childAbortControllersRef.current.size).toBe(0);
+  });
+
   it('removeChildController removes controller without aborting', () => {
     const { result } = renderHook(() => useAbortControllers());
 

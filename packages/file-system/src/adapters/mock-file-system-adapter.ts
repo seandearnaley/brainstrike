@@ -240,13 +240,11 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
     onBatch: DirectoryStreamCallback,
     options?: StreamingDirectoryReadOptions
   ): Promise<void> {
+    const signal = options?.signal;
+    signal?.throwIfAborted();
+
     if (!this.selectedDirectory) {
       throw new Error('No directory selected');
-    }
-
-    // Check for abort before starting
-    if (options?.signal?.aborted) {
-      throw new Error('Operation was cancelled');
     }
 
     const batchSize = options?.batchSize ?? 50;
@@ -270,10 +268,7 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
 
     // Deliver in batches
     for (let i = 0; i < total; i += batchSize) {
-      // Check for abort between batches
-      if (options?.signal?.aborted) {
-        throw new Error('Operation was cancelled');
-      }
+      signal?.throwIfAborted();
 
       const batch = sortedEntries.slice(i, i + batchSize);
       const isDone = i + batchSize >= total;
@@ -283,10 +278,14 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
       if (!isDone && this.streamingDelay > 0) {
         await new Promise((resolve) => setTimeout(resolve, this.streamingDelay));
       }
+      if (!isDone) {
+        signal?.throwIfAborted();
+      }
     }
 
     // Handle empty directory
     if (total === 0) {
+      signal?.throwIfAborted();
       onBatch([], { done: true, total: 0 });
     }
   }

@@ -19,7 +19,9 @@ import type React from 'react';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import type { SelectAllOptions } from '../hooks/use-recursive-select-all';
 import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
-import { useLazyFileTree } from './use-lazy-file-tree';
+import { type FileTreeRefreshResult, useLazyFileTree } from './use-lazy-file-tree';
+
+export type { FileTreeRefreshResult };
 
 /**
  * Simplified loading progress state for lazy loading.
@@ -87,7 +89,7 @@ export interface CancellableFileTreeHook {
   ) => Promise<void>;
   /** Refresh a specific directory */
   refreshDirectory: (path: string) => Promise<void>;
-  refreshTree: () => Promise<void>;
+  refreshTree: () => Promise<FileTreeRefreshResult>;
   /**
    * Select all files in the provided tree, loading if needed.
    * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.

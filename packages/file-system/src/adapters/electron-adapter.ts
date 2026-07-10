@@ -138,23 +138,19 @@ function emitFinalBatch(batch: IFileNode[], total: number, onBatch: DirectoryStr
   }
 }
 
-function isStreamingAborted(signal?: AbortSignal): boolean {
-  return signal?.aborted ?? false;
-}
-
 async function buildStreamingNodes(
   dirents: FsDirent[],
-  shouldAbort: () => boolean,
+  signal: AbortSignal | undefined,
   buildNode: (dirent: FsDirent) => Promise<IFileNode>
 ): Promise<IFileNode[]> {
   const work: Promise<IFileNode>[] = [];
   for (const dirent of dirents) {
-    if (shouldAbort()) {
-      break;
-    }
+    signal?.throwIfAborted();
     work.push(buildNode(dirent));
   }
-  return Promise.all(work);
+  const nodes = await Promise.all(work);
+  signal?.throwIfAborted();
+  return nodes;
 }
 
 function emitIntermediateBatch(
@@ -600,17 +596,17 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   ): Promise<void> {
     const batchSize = options?.batchSize ?? DEFAULT_STREAMING_BATCH_SIZE;
     const signal = options?.signal;
+    signal?.throwIfAborted();
     const { includeMetadata } = normalizeDirectoryReadOptions(options);
-    const shouldAbort = (): boolean => isStreamingAborted(signal);
 
     let dir: Awaited<ReturnType<typeof fsPromises.opendir>> | null = null;
 
     try {
       dir = await fsPromises.opendir(handle.path);
+      signal?.throwIfAborted();
 
       let total = 0;
       let pendingDirents: FsDirent[] = [];
-      let aborted = false;
 
       // Bind getFileMetadata for the helper function
       const getMetadata = this.getFileMetadata.bind(this);
@@ -622,11 +618,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       };
 
       for await (const dirent of dir) {
-        // Check for cancellation
-        if (shouldAbort()) {
-          aborted = true;
-          break;
-        }
+        signal?.throwIfAborted();
 
         pendingDirents.push(dirent);
         if (pendingDirents.length < batchSize) {
@@ -635,29 +627,24 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
         const batchDirents = pendingDirents;
         pendingDirents = [];
-        const nodes = await buildStreamingNodes(batchDirents, shouldAbort, buildNode);
-        if (shouldAbort()) {
-          aborted = true;
-          break;
-        }
+        const nodes = await buildStreamingNodes(batchDirents, signal, buildNode);
         total = emitIntermediateBatch(nodes, total, onBatch);
+        signal?.throwIfAborted();
       }
 
       // Process any remaining entries
       let finalNodes: IFileNode[] = [];
-      if (!aborted && pendingDirents.length > 0 && !shouldAbort()) {
-        finalNodes = await buildStreamingNodes(pendingDirents, shouldAbort, buildNode);
-        if (shouldAbort()) {
-          aborted = true;
-        }
+      signal?.throwIfAborted();
+      if (pendingDirents.length > 0) {
+        finalNodes = await buildStreamingNodes(pendingDirents, signal, buildNode);
       }
-      if (!aborted) {
-        total += finalNodes.length;
-      }
+      total += finalNodes.length;
 
       // Emit any remaining entries and signal completion
-      emitFinalBatch(aborted ? [] : finalNodes, total, onBatch);
+      signal?.throwIfAborted();
+      emitFinalBatch(finalNodes, total, onBatch);
     } catch (error) {
+      signal?.throwIfAborted();
       throw new AccessError(
         `Failed to stream directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
         handle.path,

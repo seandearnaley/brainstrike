@@ -16,7 +16,11 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import { useOptionalFileTreeContext } from '../tree/file-tree-provider';
-import { type LoadingProgressState, useFileTree } from '../tree/use-file-tree-context';
+import {
+  type FileTreeRefreshResult,
+  type LoadingProgressState,
+  useFileTree,
+} from '../tree/use-file-tree-context';
 import {
   type RestorationProgress,
   useExpandedPathRestoration,
@@ -115,7 +119,7 @@ interface UseFileExplorerReturn {
   loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
   /** Refresh a specific directory */
   refreshDirectory: (path: string) => Promise<void>;
-  refreshFileExplorer: () => Promise<void>;
+  refreshFileExplorer: () => Promise<FileTreeRefreshResult>;
   /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
   registerRestoredHandles: (handles: readonly DirectoryHandle[]) => Promise<void>;
   /**
@@ -337,11 +341,11 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     [selectRootDirectory]
   );
 
-  const refreshFileExplorer = useCallback(async () => {
+  const refreshFileExplorer = useCallback(() => {
     if (!rootDirectoryHandle) {
-      throw new Error('No root directory selected');
+      return Promise.reject(new Error('No root directory selected'));
     }
-    await refreshTree();
+    return refreshTree();
   }, [rootDirectoryHandle, refreshTree]);
 
   // Wrapper for external filter application (maintains API compatibility)

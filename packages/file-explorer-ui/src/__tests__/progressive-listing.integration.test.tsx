@@ -147,7 +147,8 @@ describe('Progressive Listing Integration', () => {
       };
 
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled before enumeration');
+      abortController.abort(abortReason);
 
       const onBatch = vi.fn();
 
@@ -155,7 +156,7 @@ describe('Progressive Listing Integration', () => {
         adapter.readDirectoryStreaming(handle, onBatch, {
           signal: abortController.signal,
         })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
 
       expect(onBatch).not.toHaveBeenCalled();
     });
@@ -175,15 +176,16 @@ describe('Progressive Listing Integration', () => {
       };
 
       const abortController = new AbortController();
-      const batches: number[] = [];
+      const abortReason = new DOMException('Directory enumeration cancelled', 'AbortError');
+      const batches: Array<{ done: boolean; size: number }> = [];
 
       const promise = adapter.readDirectoryStreaming(
         handle,
-        (nodes) => {
-          batches.push(nodes.length);
+        (nodes, meta) => {
+          batches.push({ done: meta.done, size: nodes.length });
           // Abort after first batch
           if (batches.length === 1) {
-            abortController.abort();
+            abortController.abort(abortReason);
           }
         },
         {
@@ -192,10 +194,9 @@ describe('Progressive Listing Integration', () => {
         }
       );
 
-      await expect(promise).rejects.toThrow('Operation was cancelled');
+      await expect(promise).rejects.toBe(abortReason);
 
-      // Should have received at most 2 batches before abort took effect
-      expect(batches.length).toBeLessThanOrEqual(2);
+      expect(batches).toEqual([{ done: false, size: 25 }]);
     });
   });
 

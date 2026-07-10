@@ -98,10 +98,7 @@ export async function loadRootDirectory(
     sortFileNodes = defaultSortFileNodes,
   } = options;
 
-  // Check for cancellation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
-  }
+  abortSignal?.throwIfAborted();
 
   if (!rootHandle.path) {
     throw new Error('Root directory handle is missing its canonical path');
@@ -112,14 +109,17 @@ export async function loadRootDirectory(
   const resolvedRootFolderId = rootFolderIdOverride ?? rootHandle.path;
 
   // Read immediate children only
-  const children = await adapter.readDirectory(rootHandle, {
-    includeMetadata,
-  });
-
-  // Check for cancellation after async operation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
+  let children: IFileNode[];
+  try {
+    children = await adapter.readDirectory(rootHandle, {
+      includeMetadata,
+    });
+  } catch (error) {
+    abortSignal?.throwIfAborted();
+    throw error;
   }
+
+  abortSignal?.throwIfAborted();
 
   // Filter ignored paths and transform nodes for lazy loading
   const lazyNodes: IFileNode[] = children
@@ -169,23 +169,23 @@ export async function loadDirectoryChildren(
 
   const { abortSignal, includeMetadata = false, sortFileNodes = defaultSortFileNodes } = options;
 
-  // Check for cancellation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
-  }
+  abortSignal?.throwIfAborted();
 
   // Build DirectoryHandle from the node
   const handle = buildDirectoryHandle(parentNode);
 
   // Read immediate children only
-  const children = await adapter.readDirectory(handle, {
-    includeMetadata,
-  });
-
-  // Check for cancellation after async operation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
+  let children: IFileNode[];
+  try {
+    children = await adapter.readDirectory(handle, {
+      includeMetadata,
+    });
+  } catch (error) {
+    abortSignal?.throwIfAborted();
+    throw error;
   }
+
+  abortSignal?.throwIfAborted();
 
   // Filter ignored paths and transform nodes for lazy loading
   const lazyNodes: IFileNode[] = children
@@ -330,10 +330,7 @@ export async function loadDirectoryChildrenStreaming(
     batchSize = 50,
   } = options;
 
-  // Check for cancellation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
-  }
+  abortSignal?.throwIfAborted();
 
   const handle = buildDirectoryHandle(parentNode);
   const depth = parentNode.depth + 1;
@@ -415,10 +412,7 @@ export async function loadRootDirectoryStreaming(
   // Storage v5: prefer the durable RootId UUID when provided.
   const resolvedRootFolderId = rootFolderIdOverride ?? rootHandle.path;
 
-  // Check for cancellation
-  if (abortSignal?.aborted) {
-    throw new DOMException('Operation was cancelled', 'AbortError');
-  }
+  abortSignal?.throwIfAborted();
 
   // Check if adapter supports streaming
   if (adapter.readDirectoryStreaming) {
