@@ -1059,16 +1059,13 @@ function useComposerDraftCommand({
 }): void {
   const aui = useAui();
   const composerText = useAuiState((state) => state.composer.text);
-  const appliedCommandIdsRef = useRef(new Set<string>());
+  const [appliedCommandIds] = useState(() => new Set<string>());
 
   useEffect(() => {
-    onTextChange?.(composerText);
-  }, [composerText, onTextChange]);
-
-  useEffect(() => {
-    if (!command || appliedCommandIdsRef.current.has(command.id)) {
+    if (!command || appliedCommandIds.has(command.id)) {
       return;
     }
+    // react-doctor-disable-next-line react-doctor/no-event-handler -- This effect synchronizes a thread-scoped external command; there is no local DOM event to handle.
     if (!command.text.trim()) {
       throw new Error('Composer draft commands require non-whitespace text.');
     }
@@ -1078,9 +1075,11 @@ function useComposerDraftCommand({
         ? `${composerText}\n\n${command.text}`
         : command.text;
     aui.composer().setText(nextText);
-    appliedCommandIdsRef.current.add(command.id);
+    appliedCommandIds.add(command.id);
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- The external command owner needs an acknowledgement only after assistant-ui accepts the text.
+    onTextChange?.(nextText);
     onApplied?.(command.id);
-  }, [aui, command, composerText, onApplied]);
+  }, [appliedCommandIds, aui, command, composerText, onApplied, onTextChange]);
 }
 
 /**
@@ -1300,6 +1299,7 @@ const ChatThreadUI = ({
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
             {...(planMode ? { planMode } : {})}
+            onTextChange={onComposerTextChange}
             {...(hasSlashCommands
               ? {
                   slashPopover: (

@@ -1,14 +1,10 @@
 import {
-  type PromptEmbeddingProfile,
   type PromptItem,
   PromptItemRepository,
   type PromptItemUsageAction,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import {
-  buildLocalEmbeddingModelConfigMap,
-  resolveEmbeddingSetModelInfo,
-} from '@brainstrike/db-explorer/embedding-models';
+import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
@@ -18,14 +14,23 @@ import { useAssistantComposerCommandStore } from './assistant-composer-command-s
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { useAssistantThreadStore } from './assistant-thread-store';
+import { resolvePromptEmbeddingModelInfo } from './prompt-embedding-model-info';
 import { embedPendingPromptItems, queryPromptSuggestions } from './prompt-library-embedding';
 import { importLegacyPromptStore } from './prompt-library-legacy-import';
 import { type PromptWorkbenchModelOption, PromptWorkbenchPanel } from './prompt-workbench-panel';
 
 type PromptManagerReadiness =
   | { readonly status: 'loading' }
-  | { readonly error: string; readonly status: 'error' }
-  | { readonly items: readonly PromptItem[]; readonly status: 'ready' };
+  | {
+      readonly error: string;
+      readonly repository: PromptItemRepository;
+      readonly status: 'error';
+    }
+  | {
+      readonly items: readonly PromptItem[];
+      readonly repository: PromptItemRepository;
+      readonly status: 'ready';
+    };
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim()
@@ -44,24 +49,6 @@ function parseCompositeModelKey(modelKey: string): { model: string; provider: st
     throw new Error(`Prompt item has an invalid model key: ${modelKey}`);
   }
   return { model, provider };
-}
-
-export function resolvePromptEmbeddingModelInfo(
-  profile: PromptEmbeddingProfile,
-  localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>
-): EmbeddingSetModelInfo {
-  const resolved = resolveEmbeddingSetModelInfo(
-    { dimensions: profile.dimensions, modelKey: profile.modelKey },
-    localModelConfigMap
-  );
-  return {
-    dimensions: resolved.dimensions,
-    modelConfig: resolved.modelConfig ?? null,
-    // The prompt profile's composite key is the durable identity checked by
-    // prompt-library-embedding; resolveEmbeddingSetModelInfo intentionally
-    // canonicalizes local keys to the registry id for collection callers.
-    modelKey: profile.modelKey,
-  };
 }
 
 export function ConnectedPromptManager() {
@@ -93,53 +80,31 @@ export function ConnectedPromptManager() {
     () => new Map(providers.map((provider) => [provider.id, provider.name])),
     [providers]
   );
-  const enabledProviderIds = useMemo(
-    () =>
-      new Set(providers.filter((provider) => provider.isEnabled).map((provider) => provider.id)),
-    [providers]
-  );
-  const modelOptions = useMemo<PromptWorkbenchModelOption[]>(
-    () =>
-      models
-        .filter(
-          (model) =>
-            model.isEnabled &&
-            model.capabilities.type === 'llm' &&
-            enabledProviderIds.has(model.providerId)
-        )
-        .map((model) => ({
+  const enabledProviderIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const provider of providers) {
+      if (provider.isEnabled) {
+        ids.add(provider.id);
+      }
+    }
+    return ids;
+  }, [providers]);
+  const modelOptions = useMemo<PromptWorkbenchModelOption[]>(() => {
+    const options: PromptWorkbenchModelOption[] = [];
+    for (const model of models) {
+      if (
+        model.isEnabled &&
+        model.capabilities.type === 'llm' &&
+        enabledProviderIds.has(model.providerId)
+      ) {
+        options.push({
           key: `${model.providerId}::${model.id}`,
           label: `${providerNames.get(model.providerId) ?? model.providerId} · ${model.name}`,
-        })),
-    [enabledProviderIds, models, providerNames]
-  );
-
-  useEffect(() => {
-    if (!repository) {
-      setReadiness({
-        error: 'Prompt Workbench requires an initialized database.',
-        status: 'error',
-      });
-      return;
+        });
+      }
     }
-    let current = true;
-    setReadiness({ status: 'loading' });
-    void importLegacyPromptStore(repository)
-      .then(() => repository.list())
-      .then((items) => {
-        if (current) {
-          setReadiness({ items, status: 'ready' });
-        }
-      })
-      .catch((error) => {
-        if (current) {
-          setReadiness({ error: toErrorMessage(error), status: 'error' });
-        }
-      });
-    return () => {
-      current = false;
-    };
-  }, [repository]);
+    return options;
+  }, [enabledProviderIds, models, providerNames]);
 
   const resolveModelInfo = useCallback(async (): Promise<EmbeddingSetModelInfo> => {
     if (!repository) {
@@ -159,17 +124,48 @@ export function ConnectedPromptManager() {
     if (failures.length > 0) {
       throw new Error(failures.map((outcome) => outcome.error).join('\n'));
     }
-    setIndexingError(null);
   }, [embedder, repository, resolveModelInfo]);
 
   useEffect(() => {
-    if (readiness.status !== 'ready') {
+    if (!repository) {
       return;
     }
-    void indexPendingItems().catch((error) => {
-      setIndexingError(toErrorMessage(error));
-    });
-  }, [indexPendingItems, readiness.status]);
+    let current = true;
+    const initialize = async (): Promise<void> => {
+      let items: PromptItem[];
+      try {
+        await importLegacyPromptStore(repository);
+        items = await repository.list();
+      } catch (error) {
+        if (current) {
+          setReadiness({
+            error: toErrorMessage(error),
+            repository,
+            status: 'error',
+          });
+        }
+        return;
+      }
+      if (!current) {
+        return;
+      }
+      setReadiness({ items, repository, status: 'ready' });
+      try {
+        await indexPendingItems();
+        if (current) {
+          setIndexingError(null);
+        }
+      } catch (error) {
+        if (current) {
+          setIndexingError(toErrorMessage(error));
+        }
+      }
+    };
+    void initialize();
+    return () => {
+      current = false;
+    };
+  }, [indexPendingItems, repository]);
 
   const handleLibraryChanged = useCallback(async () => {
     try {
@@ -240,20 +236,30 @@ export function ConnectedPromptManager() {
     ]
   );
 
-  if (readiness.status === 'loading') {
+  if (!repository) {
+    return (
+      <div
+        className="m-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs"
+        role="alert"
+      >
+        Prompt Workbench requires an initialized database.
+      </div>
+    );
+  }
+  if (readiness.status === 'loading' || readiness.repository !== repository) {
     return (
       <div className="grid h-full place-items-center text-muted-foreground text-xs">
         Opening Prompt Workbench…
       </div>
     );
   }
-  if (readiness.status === 'error' || !repository) {
+  if (readiness.status === 'error') {
     return (
       <div
         className="m-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs"
         role="alert"
       >
-        {readiness.status === 'error' ? readiness.error : 'Prompt database is unavailable.'}
+        {readiness.error}
       </div>
     );
   }

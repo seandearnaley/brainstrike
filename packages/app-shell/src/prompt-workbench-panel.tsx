@@ -136,10 +136,14 @@ function toDraft(item: PromptItem | null): PromptDraft {
 }
 
 function tagsFromDraft(tags: string): string[] {
-  return tags
-    .split(',')
-    .map((tag) => tag.trim())
-    .filter(Boolean);
+  const result: string[] = [];
+  for (const tag of tags.split(',')) {
+    const normalized = tag.trim();
+    if (normalized) {
+      result.push(normalized);
+    }
+  }
+  return result;
 }
 
 function resolveItemUseAction(item: PromptItem): PromptItemUsageAction {
@@ -322,10 +326,10 @@ function PromptBuilderDialog({
     setSaving(true);
     try {
       await onSave(draft);
+      setSaving(false);
       onClose();
     } catch (cause) {
       setError(errorMessage(cause));
-    } finally {
       setSaving(false);
     }
   };
@@ -528,10 +532,10 @@ function PreparePromptDialog({
     setWorking(true);
     try {
       await onPrepared(renderPromptTemplate(pendingUse.item.content, values));
+      setWorking(false);
       onClose();
     } catch (cause) {
       setError(errorMessage(cause));
-    } finally {
       setWorking(false);
     }
   };
@@ -645,6 +649,273 @@ function ContextualRecall({
   );
 }
 
+function QuickCapture({
+  capture,
+  capturing,
+  kind,
+  onBuildPrompt,
+  onCapture,
+  onCaptureChange,
+  onCaptureKeyDown,
+  onKindChange,
+}: {
+  readonly capture: string;
+  readonly capturing: boolean;
+  readonly kind: PromptItemKind;
+  readonly onBuildPrompt: () => void;
+  readonly onCapture: () => void;
+  readonly onCaptureChange: (value: string) => void;
+  readonly onCaptureKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  readonly onKindChange: (kind: PromptItemKind) => void;
+}) {
+  return (
+    <div className="border-border/80 border-b px-3 pt-3 pb-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-sky-600 dark:text-sky-300">
+            <Sparkles aria-hidden="true" className="size-3.5" />
+            <span className="font-semibold text-[10px] uppercase tracking-[0.17em]">
+              Prompt workbench
+            </span>
+          </div>
+          <h2 className="mt-1 font-semibold text-sm tracking-tight">Capture now. Shape later.</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Your working library, recalled against the live draft.
+          </p>
+        </div>
+        <Button
+          aria-label="Build a prompt"
+          className="rounded-full"
+          onClick={onBuildPrompt}
+          size="icon-sm"
+          variant="outline"
+        >
+          <Plus aria-hidden="true" />
+        </Button>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-border/80 bg-background/80 p-2 shadow-sm backdrop-blur-sm">
+        <textarea
+          aria-label="Quick capture"
+          className="min-h-20 w-full resize-none bg-transparent px-1 py-0.5 text-[13px] leading-5 outline-none placeholder:text-muted-foreground"
+          onChange={(event) => onCaptureChange(event.target.value)}
+          onKeyDown={onCaptureKeyDown}
+          placeholder="Drop a phrase, constraint, example, or half-formed idea…"
+          value={capture}
+        />
+        <div className="mt-1.5 flex items-center justify-between gap-2 border-border/60 border-t pt-2">
+          <fieldset className="m-0 flex min-w-0 gap-0.5 border-0 p-0">
+            <legend className="sr-only">Capture type</legend>
+            {PROMPT_KINDS.map((option) => (
+              <button
+                aria-pressed={kind === option}
+                className={cn(
+                  'rounded-md px-1.5 py-1 font-medium text-[10px] transition-colors',
+                  kind === option
+                    ? 'bg-foreground text-background'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                )}
+                key={option}
+                onClick={() => onKindChange(option)}
+                type="button"
+              >
+                {KIND_COPY[option].short}
+              </button>
+            ))}
+          </fieldset>
+          <Button
+            className="h-7 rounded-full px-2.5 text-[10px]"
+            disabled={!capture.trim() || capturing}
+            onClick={onCapture}
+            size="xs"
+          >
+            <Zap aria-hidden="true" />
+            {capturing ? 'Filing…' : 'File clip'}
+            <kbd className="hidden rounded border border-primary-foreground/20 px-1 font-sans text-[9px] opacity-70 xl:inline">
+              ⌘↵
+            </kbd>
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PromptLibraryControls({
+  favoriteOnly,
+  itemCount,
+  kindFilter,
+  onFavoriteOnlyChange,
+  onKindFilterChange,
+  onSearchChange,
+  search,
+}: {
+  readonly favoriteOnly: boolean;
+  readonly itemCount: number;
+  readonly kindFilter: KindFilter;
+  readonly onFavoriteOnlyChange: (favoriteOnly: boolean) => void;
+  readonly onKindFilterChange: (kind: KindFilter) => void;
+  readonly onSearchChange: (search: string) => void;
+  readonly search: string;
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-1.5 border-border/70 border-b px-3 py-2">
+        <div className="relative min-w-0 flex-1">
+          <Search
+            aria-hidden="true"
+            className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            aria-label="Search prompt library"
+            className="h-8 rounded-full pl-8 text-xs shadow-none"
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Search intent, text, tags…"
+            value={search}
+          />
+        </div>
+        <Button
+          aria-label="Favorites only"
+          aria-pressed={favoriteOnly}
+          className={cn('rounded-full', favoriteOnly && 'text-amber-500')}
+          onClick={() => onFavoriteOnlyChange(!favoriteOnly)}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <Star aria-hidden="true" className={cn(favoriteOnly && 'fill-current')} />
+        </Button>
+      </div>
+      <div className="flex items-center gap-1 overflow-x-auto border-border/60 border-b px-3 py-1.5">
+        <Filter aria-hidden="true" className="mr-0.5 size-3 text-muted-foreground" />
+        {(['all', ...PROMPT_KINDS] as const).map((option) => (
+          <button
+            aria-pressed={kindFilter === option}
+            className={cn(
+              'rounded-full border px-2 py-0.5 text-[10px] transition-colors',
+              kindFilter === option
+                ? 'border-foreground/20 bg-foreground text-background'
+                : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground'
+            )}
+            key={option}
+            onClick={() => onKindFilterChange(option)}
+            type="button"
+          >
+            {option === 'all' ? `All · ${itemCount}` : KIND_COPY[option].short}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function PromptLibraryList({
+  activeThreadId,
+  items,
+  onEdit,
+  onUse,
+}: {
+  readonly activeThreadId: string | undefined;
+  readonly items: readonly PromptItem[];
+  readonly onEdit: (item: PromptItem) => void;
+  readonly onUse: (item: PromptItem, action: PromptItemUsageAction) => void;
+}) {
+  return (
+    <>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-2">
+          {items.length === 0 ? (
+            <div className="grid place-items-center px-6 py-12 text-center">
+              <Lightbulb aria-hidden="true" className="size-7 text-muted-foreground/50" />
+              <p className="mt-2 font-medium text-xs">No clips in this view</p>
+              <p className="mt-1 max-w-52 text-[10px] text-muted-foreground leading-4">
+                Capture a thought above. You can turn it into a structured prompt whenever it earns
+                the effort.
+              </p>
+            </div>
+          ) : null}
+          <ul className="m-0 grid list-none gap-1 p-0">
+            {items.map((item) => (
+              <li
+                className="group rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-border/70 hover:bg-muted/35"
+                key={item.id}
+              >
+                <div className="flex items-start gap-2">
+                  <PromptKindMark kind={item.kind} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="truncate font-medium text-[12px]">{item.title}</h3>
+                      {item.isFavorite ? (
+                        <Star
+                          aria-label="Favorite"
+                          className="size-3 fill-amber-400 text-amber-500"
+                        />
+                      ) : null}
+                    </div>
+                    <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground leading-4">
+                      {item.description || item.content}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <EmbeddingState item={item} />
+                      {item.tags.slice(0, 2).map((tag) => (
+                        <span className="text-[9px] text-muted-foreground" key={tag}>
+                          #{tag}
+                        </span>
+                      ))}
+                      {item.useCount > 0 ? (
+                        <span className="text-[9px] text-muted-foreground">
+                          used {item.useCount}×
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-1.5 flex items-center justify-end gap-0.5 opacity-80 transition-opacity group-hover:opacity-100">
+                  <Button
+                    aria-label={`Edit ${item.title}`}
+                    onClick={() => onEdit(item)}
+                    size="icon-xs"
+                    title="Edit"
+                    variant="ghost"
+                  >
+                    <PencilLine aria-hidden="true" />
+                  </Button>
+                  <Button
+                    aria-label={`New thread from ${item.title}`}
+                    onClick={() => onUse(item, 'new-thread')}
+                    size="icon-xs"
+                    title="Start new thread"
+                    variant="ghost"
+                  >
+                    <ArrowUpRight aria-hidden="true" />
+                  </Button>
+                  <Button
+                    aria-label={actionLabel(item)}
+                    className="h-7 px-2 text-[10px]"
+                    disabled={!activeThreadId}
+                    onClick={() => onUse(item, resolveItemUseAction(item))}
+                    size="xs"
+                    title={activeThreadId ? undefined : 'Open a thread to use this clip'}
+                    variant="secondary"
+                  >
+                    <MessageSquarePlus aria-hidden="true" />
+                    {item.kind === 'prompt' ? 'Compose' : 'Insert'}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </ScrollArea>
+      <footer className="flex items-center justify-between gap-2 border-border/70 border-t bg-muted/15 px-3 py-1.5 text-[9px] text-muted-foreground">
+        <span>{items.length} visible</span>
+        <span className="truncate">
+          {activeThreadId ? 'Actions stage in the composer' : 'Open a thread to compose'}
+        </span>
+      </footer>
+    </>
+  );
+}
+
 export function PromptWorkbenchPanel({
   activeThreadId,
   composerContext,
@@ -703,9 +974,8 @@ export function PromptWorkbenchPanel({
       await notifyLibraryChanged();
     } catch (cause) {
       setActionError(errorMessage(cause));
-    } finally {
-      setCapturing(false);
     }
+    setCapturing(false);
   }, [capture, captureKind, capturing, notifyLibraryChanged, repository, updateItems]);
 
   const handleCaptureKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -775,75 +1045,16 @@ export function PromptWorkbenchPanel({
       className="flex h-full min-h-0 flex-col overflow-hidden bg-background"
       data-testid="prompt-workbench"
     >
-      <div className="border-border/80 border-b px-3 pt-3 pb-2.5">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-sky-600 dark:text-sky-300">
-              <Sparkles aria-hidden="true" className="size-3.5" />
-              <span className="font-semibold text-[10px] uppercase tracking-[0.17em]">
-                Prompt workbench
-              </span>
-            </div>
-            <h2 className="mt-1 font-semibold text-sm tracking-tight">Capture now. Shape later.</h2>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Your working library, recalled against the live draft.
-            </p>
-          </div>
-          <Button
-            aria-label="Build a prompt"
-            className="rounded-full"
-            onClick={() => setBuilderItem(null)}
-            size="icon-sm"
-            variant="outline"
-          >
-            <Plus aria-hidden="true" />
-          </Button>
-        </div>
-
-        <div className="mt-3 rounded-xl border border-border/80 bg-background/80 p-2 shadow-sm backdrop-blur-sm">
-          <textarea
-            aria-label="Quick capture"
-            className="min-h-20 w-full resize-none bg-transparent px-1 py-0.5 text-[13px] leading-5 outline-none placeholder:text-muted-foreground"
-            onChange={(event) => setCapture(event.target.value)}
-            onKeyDown={handleCaptureKeyDown}
-            placeholder="Drop a phrase, constraint, example, or half-formed idea…"
-            value={capture}
-          />
-          <div className="mt-1.5 flex items-center justify-between gap-2 border-border/60 border-t pt-2">
-            <fieldset className="m-0 flex min-w-0 gap-0.5 border-0 p-0">
-              <legend className="sr-only">Capture type</legend>
-              {PROMPT_KINDS.map((kind) => (
-                <button
-                  aria-pressed={captureKind === kind}
-                  className={cn(
-                    'rounded-md px-1.5 py-1 font-medium text-[10px] transition-colors',
-                    captureKind === kind
-                      ? 'bg-foreground text-background'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  )}
-                  key={kind}
-                  onClick={() => setCaptureKind(kind)}
-                  type="button"
-                >
-                  {KIND_COPY[kind].short}
-                </button>
-              ))}
-            </fieldset>
-            <Button
-              className="h-7 rounded-full px-2.5 text-[10px]"
-              disabled={!capture.trim() || capturing}
-              onClick={() => void captureClip()}
-              size="xs"
-            >
-              <Zap aria-hidden="true" />
-              {capturing ? 'Filing…' : 'File clip'}
-              <kbd className="hidden rounded border border-primary-foreground/20 px-1 font-sans text-[9px] opacity-70 xl:inline">
-                ⌘↵
-              </kbd>
-            </Button>
-          </div>
-        </div>
-      </div>
+      <QuickCapture
+        capture={capture}
+        capturing={capturing}
+        kind={captureKind}
+        onBuildPrompt={() => setBuilderItem(null)}
+        onCapture={() => void captureClip()}
+        onCaptureChange={setCapture}
+        onCaptureKeyDown={handleCaptureKeyDown}
+        onKindChange={setCaptureKind}
+      />
 
       {composerContext.trim() ? (
         <ContextualRecall
@@ -853,51 +1064,15 @@ export function PromptWorkbenchPanel({
         />
       ) : null}
 
-      <div className="flex items-center gap-1.5 border-border/70 border-b px-3 py-2">
-        <div className="relative min-w-0 flex-1">
-          <Search
-            aria-hidden="true"
-            className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            aria-label="Search prompt library"
-            className="h-8 rounded-full pl-8 text-xs shadow-none"
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search intent, text, tags…"
-            value={search}
-          />
-        </div>
-        <Button
-          aria-label="Favorites only"
-          aria-pressed={favoriteOnly}
-          className={cn('rounded-full', favoriteOnly && 'text-amber-500')}
-          onClick={() => setFavoriteOnly((current) => !current)}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <Star aria-hidden="true" className={cn(favoriteOnly && 'fill-current')} />
-        </Button>
-      </div>
-
-      <div className="flex items-center gap-1 overflow-x-auto border-border/60 border-b px-3 py-1.5">
-        <Filter aria-hidden="true" className="mr-0.5 size-3 text-muted-foreground" />
-        {(['all', ...PROMPT_KINDS] as const).map((kind) => (
-          <button
-            aria-pressed={kindFilter === kind}
-            className={cn(
-              'rounded-full border px-2 py-0.5 text-[10px] transition-colors',
-              kindFilter === kind
-                ? 'border-foreground/20 bg-foreground text-background'
-                : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground'
-            )}
-            key={kind}
-            onClick={() => setKindFilter(kind)}
-            type="button"
-          >
-            {kind === 'all' ? `All · ${items.length}` : KIND_COPY[kind].short}
-          </button>
-        ))}
-      </div>
+      <PromptLibraryControls
+        favoriteOnly={favoriteOnly}
+        itemCount={items.length}
+        kindFilter={kindFilter}
+        onFavoriteOnlyChange={setFavoriteOnly}
+        onKindFilterChange={setKindFilter}
+        onSearchChange={setSearch}
+        search={search}
+      />
 
       {visibleError ? (
         <div
@@ -909,98 +1084,12 @@ export function PromptWorkbenchPanel({
         </div>
       ) : null}
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="p-2">
-          {filteredItems.length === 0 ? (
-            <div className="grid place-items-center px-6 py-12 text-center">
-              <Lightbulb aria-hidden="true" className="size-7 text-muted-foreground/50" />
-              <p className="mt-2 font-medium text-xs">No clips in this view</p>
-              <p className="mt-1 max-w-52 text-[10px] text-muted-foreground leading-4">
-                Capture a thought above. You can turn it into a structured prompt whenever it earns
-                the effort.
-              </p>
-            </div>
-          ) : null}
-          <ul className="m-0 grid list-none gap-1 p-0">
-            {filteredItems.map((item) => (
-              <li
-                className="group rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-border/70 hover:bg-muted/35"
-                key={item.id}
-              >
-                <div className="flex items-start gap-2">
-                  <PromptKindMark kind={item.kind} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <h3 className="truncate font-medium text-[12px]">{item.title}</h3>
-                      {item.isFavorite ? (
-                        <Star
-                          aria-label="Favorite"
-                          className="size-3 fill-amber-400 text-amber-500"
-                        />
-                      ) : null}
-                    </div>
-                    <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground leading-4">
-                      {item.description || item.content}
-                    </p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <EmbeddingState item={item} />
-                      {item.tags.slice(0, 2).map((tag) => (
-                        <span className="text-[9px] text-muted-foreground" key={tag}>
-                          #{tag}
-                        </span>
-                      ))}
-                      {item.useCount > 0 ? (
-                        <span className="text-[9px] text-muted-foreground">
-                          used {item.useCount}×
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-1.5 flex items-center justify-end gap-0.5 opacity-80 transition-opacity group-hover:opacity-100">
-                  <Button
-                    aria-label={`Edit ${item.title}`}
-                    onClick={() => setBuilderItem(item)}
-                    size="icon-xs"
-                    title="Edit"
-                    variant="ghost"
-                  >
-                    <PencilLine aria-hidden="true" />
-                  </Button>
-                  <Button
-                    aria-label={`New thread from ${item.title}`}
-                    onClick={() => requestUse(item, 'new-thread')}
-                    size="icon-xs"
-                    title="Start new thread"
-                    variant="ghost"
-                  >
-                    <ArrowUpRight aria-hidden="true" />
-                  </Button>
-                  <Button
-                    aria-label={actionLabel(item)}
-                    className="h-7 px-2 text-[10px]"
-                    disabled={!activeThreadId}
-                    onClick={() => requestUse(item, resolveItemUseAction(item))}
-                    size="xs"
-                    title={activeThreadId ? undefined : 'Open a thread to use this clip'}
-                    variant="secondary"
-                  >
-                    <MessageSquarePlus aria-hidden="true" />
-                    {item.kind === 'prompt' ? 'Compose' : 'Insert'}
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </ScrollArea>
-
-      <footer className="flex items-center justify-between gap-2 border-border/70 border-t bg-muted/15 px-3 py-1.5 text-[9px] text-muted-foreground">
-        <span>{filteredItems.length} visible</span>
-        <span className="truncate">
-          {activeThreadId ? 'Actions stage in the composer' : 'Open a thread to compose'}
-        </span>
-      </footer>
+      <PromptLibraryList
+        activeThreadId={activeThreadId}
+        items={filteredItems}
+        onEdit={setBuilderItem}
+        onUse={requestUse}
+      />
 
       {builderItem === undefined ? null : (
         <PromptBuilderDialog
