@@ -27,11 +27,41 @@ const MAX_TIMEOUT_MS = 600_000;
  */
 const MAX_CAPTURED_OUTPUT_BYTES = 1_000_000;
 /**
+ * Hard ceiling on RAW bytes STREAMED incrementally to the caller (and onward to
+ * the model/UI) across BOTH streams combined. Independent of and smaller than
+ * {@link MAX_CAPTURED_OUTPUT_BYTES}: a runaway process must not flood the live
+ * data stream even though the final captured result is separately budget-fitted.
+ * Once hit we emit ONE truncation notice, stop streaming, and keep draining the
+ * pipes for the (still-bounded) final result.
+ */
+const MAX_STREAMED_OUTPUT_BYTES = 256_000;
+/** Visible notice appended to the live stream once the streaming cap is hit. */
+const STREAM_TRUNCATION_NOTICE =
+  '\n[output truncated — live streaming stopped; the final result keeps the most recent lines]\n';
+/**
  * Grace period between the polite SIGTERM and the forceful SIGKILL when tearing
  * down a process tree. A well-behaved child exits on SIGTERM; a wedged one is
  * reaped by the follow-up SIGKILL.
  */
 const KILL_GRACE_MS = 2000;
+
+/** One incremental slice of live subprocess output. */
+export interface ShellOutputStreamPart {
+  /** The incremental text (ANSI stripped, same as the final captured result). */
+  readonly chunk: string;
+  /** Which pipe the slice came from. */
+  readonly stream: 'stdout' | 'stderr';
+  /** True only on the single terminal notice emitted when the cap is hit. */
+  readonly truncated?: boolean;
+}
+
+/**
+ * Sink for live, incremental subprocess output. Invoked in emission order as the
+ * child writes; the LAST call (when the streaming cap is hit) carries
+ * `truncated: true`. Streaming is best-effort observability — a throwing sink
+ * must never break command execution, so the caller wraps it defensively.
+ */
+export type ShellOutputStreamer = (part: ShellOutputStreamPart) => void;
 
 /**
  * Resolve the shell + argument convention for the current platform.
@@ -212,6 +242,53 @@ interface SpawnOutcome {
 }
 
 /**
+ * Build a stateful emitter that forwards ANSI-stripped output slices to the live
+ * {@link ShellOutputStreamer}, honoring the COMBINED streaming cap
+ * ({@link MAX_STREAMED_OUTPUT_BYTES}). Once the cap is hit it emits exactly one
+ * truncation notice and stops (capture continues independently, so the final
+ * result is unaffected). A throwing sink disables streaming but never breaks
+ * command execution. Returns a no-op when there is no streamer.
+ */
+function createBoundedShellStreamer(
+  streamer: ShellOutputStreamer | undefined
+): (kind: 'stdout' | 'stderr', text: string) => void {
+  if (!streamer) {
+    return () => {
+      // No live consumer: streaming is skipped, the command still runs.
+    };
+  }
+  let streamedBytes = 0;
+  let truncated = false;
+  return (kind, text) => {
+    if (truncated || text.length === 0) {
+      return;
+    }
+    const cleaned = stripAnsi(text);
+    if (cleaned.length === 0) {
+      return;
+    }
+    const remaining = MAX_STREAMED_OUTPUT_BYTES - streamedBytes;
+    const emitted =
+      cleaned.length <= remaining ? cleaned : cleaned.slice(0, Math.max(0, remaining));
+    try {
+      if (emitted.length > 0) {
+        streamer({ chunk: emitted, stream: kind });
+      }
+      if (cleaned.length > remaining) {
+        truncated = true;
+        streamer({ chunk: STREAM_TRUNCATION_NOTICE, stream: kind, truncated: true });
+      }
+    } catch (error) {
+      truncated = true;
+      logger.warn('Shell output streamer threw; disabling live streaming', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    streamedBytes += emitted.length;
+  };
+}
+
+/**
  * Spawn the user's platform shell (see {@link resolveShellInvocation}), detached
  * so the child leads its own process group. Captures stdout/stderr up to
  * {@link MAX_CAPTURED_OUTPUT_BYTES}. On timeout OR abort, the WHOLE process tree
@@ -224,8 +301,9 @@ function runShellCommand(args: {
   cwd: string;
   timeoutMs: number;
   signal: AbortSignal | undefined;
+  streamer: ShellOutputStreamer | undefined;
 }): Promise<SpawnOutcome> {
-  const { command, cwd, timeoutMs, signal } = args;
+  const { command, cwd, timeoutMs, signal, streamer } = args;
   const { shell, args: shellArgs } = resolveShellInvocation(command);
 
   return new Promise<SpawnOutcome>((resolve, reject) => {
@@ -272,8 +350,11 @@ function runShellCommand(args: {
     let tornDown = false;
     let killTimer: NodeJS.Timeout | undefined;
 
+    const emitStream = createBoundedShellStreamer(streamer);
+
     const appendBounded = (kind: 'stdout' | 'stderr', chunk: Buffer): void => {
       const text = chunk.toString('utf8');
+      emitStream(kind, text);
       if (kind === 'stdout') {
         if (stdoutBytes < MAX_CAPTURED_OUTPUT_BYTES) {
           stdout += text;
@@ -495,7 +576,7 @@ function buildResult(args: {
 export async function runExecuteCommand(
   input: ExecuteCommandInput,
   runtimeData: RuntimeData | undefined,
-  options?: { signal?: AbortSignal | undefined }
+  options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
 ): Promise<ExecuteCommandToolResult> {
   const cwd = await resolveCommandCwd(runtimeData, input.root, input.cwd);
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
@@ -505,6 +586,7 @@ export async function runExecuteCommand(
     command: input.command,
     cwd,
     signal: options?.signal,
+    streamer: options?.stream,
     timeoutMs,
   });
   const durationMs = Date.now() - startedAt;

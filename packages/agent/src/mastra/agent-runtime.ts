@@ -66,6 +66,7 @@ import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
+import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
 import {
   createDelegationConfig,
   createDelegationLifecycleTracker,
@@ -1420,6 +1421,14 @@ function processMastraStreamPart(
         lifecycleState,
         part
       );
+    }
+    case SHELL_OUTPUT_STREAM_PART_TYPE: {
+      // A live shell-output slice streamed by executeCommand via `writer.custom`.
+      // Transient (never persisted): it rides its own StreamChunk type so the
+      // server's run-event persistence tap ignores it. A malformed slice is
+      // dropped rather than mis-attributed.
+      const shellOutput = mapShellOutputStreamPart(part);
+      return { chunks: shellOutput ? [shellOutput] : [], finished: false };
     }
     default:
       return { chunks: [], finished: false };

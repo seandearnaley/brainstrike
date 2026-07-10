@@ -13,6 +13,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
+import { LiveShellOutputPane } from './live-shell-output-pane';
+import { useShellOutput } from './shell-output-context';
 import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
 import { categoryTintClasses, classifyToolName } from './tool-visual-classification';
@@ -226,6 +228,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const policy = resolveToolDisplayPolicy(detailLevel);
   const durationMs = useToolDurationMs(toolCallId);
   const durationLabel = durationMs === undefined ? undefined : formatActivityDuration(durationMs);
+  const shellOutput = useShellOutput(toolCallId);
 
   // Follow the Detail level (policy.defaultExpanded) until the user explicitly
   // toggles this card — so switching to Developer auto-expands already-rendered
@@ -322,6 +325,13 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 
       {isError && errorMessage ? (
         <p className="px-2.5 pb-1.5 text-destructive text-xs">{errorMessage}</p>
+      ) : null}
+
+      {/* Live incremental output while the command runs. Once it finishes, the
+          captured output lives in the collapsible Result pane, so the live pane
+          only shows during execution (transient — absent on a reloaded thread). */}
+      {isRunning && shellOutput && shellOutput.text.length > 0 ? (
+        <LiveShellOutputPane text={shellOutput.text} truncated={shellOutput.truncated} />
       ) : null}
 
       {showDetails && !isCollapsed ? (

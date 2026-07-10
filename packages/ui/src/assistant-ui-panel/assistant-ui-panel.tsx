@@ -26,6 +26,7 @@ import {
   type AssistantRunEvent,
   type AssistantToolApprovalRequest,
   type LocalLlmBackendFactory,
+  SHELL_OUTPUT_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
@@ -84,6 +85,8 @@ import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
+import { ShellOutputProvider } from './shell-output-context';
+import { collectShellOutputs } from './shell-output-parts';
 import {
   buildSlashCommandIconMap,
   type SlashCommand,
@@ -156,6 +159,14 @@ const AssistantToolSuspendDataPart: DataMessagePartComponent = ({ data }) => (
 const assistantToolSuspendDataUI = {
   name: TOOL_SUSPEND_DATA_NAME,
   render: AssistantToolSuspendDataPart,
+} satisfies AssistantDataUIProps;
+
+// Live shell-output slices are consumed by the tool card (via collectShellOutputs
+// + ShellOutputProvider), NOT rendered inline in the message flow — register a
+// null renderer so the transient data parts never surface as stray elements.
+const assistantShellOutputDataUI = {
+  name: SHELL_OUTPUT_DATA_NAME,
+  render: () => null,
 } satisfies AssistantDataUIProps;
 
 // Re-export types needed by consumers
@@ -535,6 +546,7 @@ const LocalChainOfThought = () => {
   const toolActivity = useMemo(() => summarizeToolActivity(messageParts), [messageParts]);
   const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
   const toolDurations = useMemo(() => collectToolDurations(messageParts), [messageParts]);
+  const shellOutputs = useMemo(() => collectShellOutputs(messageParts), [messageParts]);
   const taskList = useMemo(() => deriveTaskListFromParts(messageParts), [messageParts]);
 
   const initializedRef = useRef(false);
@@ -616,7 +628,9 @@ const LocalChainOfThought = () => {
   return (
     <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
       {taskList ? <TodoProgress result={taskList} /> : null}
-      <ToolDurationProvider durations={toolDurations}>{content}</ToolDurationProvider>
+      <ToolDurationProvider durations={toolDurations}>
+        <ShellOutputProvider outputs={shellOutputs}>{content}</ShellOutputProvider>
+      </ToolDurationProvider>
     </ChainOfThoughtPrimitive.Root>
   );
 };
@@ -625,6 +639,7 @@ const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
   useAssistantDataUI(assistantToolApprovalDataUI);
   useAssistantDataUI(assistantToolSuspendDataUI);
+  useAssistantDataUI(assistantShellOutputDataUI);
 
   return null;
 };

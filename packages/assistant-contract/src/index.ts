@@ -14,6 +14,7 @@ export * from './provider-metadata.js';
 export * from './provider-registry.js';
 export * from './run-events.js';
 export * from './runtime-data.js';
+export * from './shell-output.js';
 export * from './tool-approval.js';
 export * from './tool-metadata.js';
 export * from './tool-suspend.js';
