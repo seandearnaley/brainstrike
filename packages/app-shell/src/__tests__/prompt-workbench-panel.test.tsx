@@ -205,6 +205,41 @@ describe('PromptWorkbenchPanel', () => {
     );
   });
 
+  it('uses container-responsive wrapping for narrow prompt rails', () => {
+    render(
+      <PromptWorkbenchPanel
+        activeThreadId="thread-active"
+        composerContext=""
+        initialItems={[]}
+        modelOptions={[]}
+        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+        onRequestSuggestions={vi.fn().mockResolvedValue([])}
+        onUseItem={vi.fn().mockResolvedValue(undefined)}
+        repository={createRepository([])}
+      />
+    );
+
+    expect(screen.getByTestId('prompt-workbench')).toHaveClass('@container/prompt-workbench');
+    expect(screen.getByTestId('quick-capture-actions')).toHaveClass(
+      'flex-col',
+      '@[260px]/prompt-workbench:flex-row'
+    );
+    const captureTypes = screen.getByRole('group', { name: 'Capture type' });
+    expect(captureTypes).toHaveClass('grid', 'grid-cols-3', '@[260px]/prompt-workbench:flex');
+    expect(within(captureTypes).getByRole('button', { name: 'Fragment' })).toHaveClass(
+      'px-0.5',
+      'text-[9px]',
+      '@[260px]/prompt-workbench:px-1.5',
+      '@[260px]/prompt-workbench:text-[10px]'
+    );
+    expect(screen.getByRole('button', { name: 'File clip' })).toHaveClass(
+      'w-full',
+      '@[260px]/prompt-workbench:w-auto'
+    );
+    expect(screen.getByTestId('prompt-kind-filters')).toHaveClass('flex-wrap');
+    expect(screen.getByTestId('prompt-kind-filters')).not.toHaveClass('overflow-x-auto');
+  });
+
   it('refreshes the saved row after indexing so status does not stay stale', async () => {
     const user = userEvent.setup();
     const pending = item({
@@ -480,6 +515,7 @@ describe('PromptWorkbenchPanel', () => {
     );
     const recalled = await screen.findByTestId('prompt-context-suggestion-suggested');
     expect(recalled).toHaveTextContent('87% match');
+    expect(recalled).toHaveClass('w-full', 'min-w-0', '@[260px]/prompt-workbench:min-w-48');
     expect(onUseItem).not.toHaveBeenCalled();
 
     await user.click(within(recalled).getByRole('button', { name: 'Insert Evidence rule' }));

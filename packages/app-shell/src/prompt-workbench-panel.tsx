@@ -674,7 +674,7 @@ function ContextualRecall({
             const verb = action === 'compose' ? 'Compose' : 'Insert';
             return (
               <div
-                className="min-w-48 flex-1 rounded-lg border border-sky-500/20 bg-background/90 p-2 shadow-xs"
+                className="w-full @[260px]/prompt-workbench:min-w-48 min-w-0 @[260px]/prompt-workbench:flex-1 flex-none rounded-lg border border-sky-500/20 bg-background/90 p-2 shadow-xs"
                 data-testid={`prompt-context-suggestion-${suggestion.id}`}
                 key={suggestion.id}
               >
@@ -760,14 +760,17 @@ function QuickCapture({
           placeholder="Drop a phrase, constraint, example, or half-formed idea…"
           value={capture}
         />
-        <div className="mt-1.5 flex items-center justify-between gap-2 border-border/60 border-t pt-2">
-          <fieldset className="m-0 flex min-w-0 gap-0.5 border-0 p-0">
+        <div
+          className="mt-1.5 flex @[260px]/prompt-workbench:flex-row flex-col @[260px]/prompt-workbench:items-center items-stretch @[260px]/prompt-workbench:justify-between gap-2 border-border/60 border-t pt-2"
+          data-testid="quick-capture-actions"
+        >
+          <fieldset className="m-0 @[260px]/prompt-workbench:flex grid min-w-0 grid-cols-3 gap-0.5 border-0 p-0">
             <legend className="sr-only">Capture type</legend>
             {PROMPT_KINDS.map((option) => (
               <button
                 aria-pressed={kind === option}
                 className={cn(
-                  'rounded-md px-1.5 py-1 font-medium text-[10px] transition-colors',
+                  'min-w-0 rounded-md @[260px]/prompt-workbench:px-1.5 px-0.5 py-1 font-medium @[260px]/prompt-workbench:text-[10px] text-[9px] transition-colors',
                   kind === option
                     ? 'bg-foreground text-background'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -781,14 +784,15 @@ function QuickCapture({
             ))}
           </fieldset>
           <Button
-            className="h-7 rounded-full px-2.5 text-[10px]"
+            aria-label={capturing ? 'Filing clip' : 'File clip'}
+            className="h-7 @[260px]/prompt-workbench:w-auto w-full justify-center rounded-full px-2.5 text-[10px]"
             disabled={!capture.trim() || capturing}
             onClick={onCapture}
             size="xs"
           >
             <Zap aria-hidden="true" />
             {capturing ? 'Filing…' : 'File clip'}
-            <kbd className="hidden rounded border border-primary-foreground/20 px-1 font-sans text-[9px] opacity-70 xl:inline">
+            <kbd className="@[340px]/prompt-workbench:inline hidden rounded border border-primary-foreground/20 px-1 font-sans text-[9px] opacity-70">
               ⌘↵
             </kbd>
           </Button>
@@ -842,7 +846,10 @@ function PromptLibraryControls({
           <Star aria-hidden="true" className={cn(favoriteOnly && 'fill-current')} />
         </Button>
       </div>
-      <div className="flex items-center gap-1 overflow-x-auto border-border/60 border-b px-3 py-1.5">
+      <div
+        className="flex flex-wrap items-center gap-x-1 gap-y-1 border-border/60 border-b px-3 py-1.5"
+        data-testid="prompt-kind-filters"
+      >
         <Filter aria-hidden="true" className="mr-0.5 size-3 text-muted-foreground" />
         {(['all', ...PROMPT_KINDS] as const).map((option) => (
           <button
@@ -1158,7 +1165,7 @@ export function PromptWorkbenchPanel({
   return (
     <section
       aria-label="Prompt workbench"
-      className="flex h-full min-h-0 flex-col overflow-hidden bg-background"
+      className="@container/prompt-workbench flex h-full min-h-0 flex-col overflow-hidden bg-background"
       data-testid="prompt-workbench"
     >
       <QuickCapture
