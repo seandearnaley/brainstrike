@@ -1451,6 +1451,7 @@ async function initializeAgentStream(
     return {
       ok: true,
       stream: finalizeHookedStream(stream, {
+        logger,
         manager: hookManager,
         observe,
         runner: hookRunner,

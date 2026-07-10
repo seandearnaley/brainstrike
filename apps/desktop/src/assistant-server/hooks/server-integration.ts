@@ -53,9 +53,11 @@ export function buildHookManager(input: BuildHookManagerInput): HookManager {
     approvedByRoot.set(approval.rootId, approval.sha256);
   }
   const primaryCwd = roots[0]?.absPath ?? process.cwd();
-  // One number governs both the pre-stream aggregate config check and the
-  // runtime UserPromptSubmit wall-clock bound: the tool timeout (60s default),
-  // which sits under the stream inactivity watchdog (120s).
+  // One number governs the pre-stream aggregate config check AND the runtime
+  // wall-clock bound of both bounded phases (UserPromptSubmit + Stop): the tool
+  // timeout (60s default), which sits under the stream inactivity watchdog
+  // (120s). The Stop phase needs its own cap because it runs in FRONT of the
+  // finish chunk where the watchdog does not reach.
   const aggregateTimeoutMs = resolveToolTimeoutMs();
   const load = loadHooksConfig({
     aggregateTimeoutMs,
@@ -72,10 +74,10 @@ export function buildHookManager(input: BuildHookManagerInput): HookManager {
     }),
   });
   return new HookManager(load, {
+    aggregateTimeoutMs,
     logger: input.logger,
     primaryCwd,
     sessionId: input.sessionId,
-    userPromptSubmitAggregateMs: aggregateTimeoutMs,
     ...(input.emitRunEvent ? { emitRunEvent: input.emitRunEvent } : {}),
   });
 }
@@ -213,7 +215,8 @@ export async function* makeHookBlockedStream(reason: string): AsyncIterable<Stre
 export async function* withStopHook(
   stream: AsyncIterable<StreamChunk>,
   manager: HookManager,
-  signal: AbortSignal
+  signal: AbortSignal,
+  logger: ScopedLogger
 ): AsyncIterable<StreamChunk> {
   let sawError = false;
   let stopRan = false;
@@ -222,7 +225,16 @@ export async function* withStopHook(
       return;
     }
     stopRan = true;
-    await manager.runStop(signal.aborted ? 'aborted' : sawError ? 'error' : 'complete');
+    // Allow-on-fault (mirrors applyToolHooks): the Stop phase runs in FRONT of
+    // the terminal `message-finish` yield, so a runner-layer throw here would
+    // otherwise unwind BEFORE the finish chunk is yielded — `consumeSource`
+    // would replace the clean finish with an error part, eating the finish. A
+    // Stop-hook failure must degrade to a lost notice, never a lost finish.
+    try {
+      await manager.runStop(signal.aborted ? 'aborted' : sawError ? 'error' : 'complete');
+    } catch (error) {
+      logger.error('Stop hook phase failed', { error });
+    }
   };
   try {
     for await (const chunk of stream) {
@@ -246,12 +258,13 @@ export async function* withStopHook(
 export function finalizeHookedStream(
   stream: AsyncIterable<StreamChunk>,
   opts: {
+    readonly logger: ScopedLogger;
     readonly manager: HookManager;
     readonly runner: AgentHookRunner | undefined;
     readonly signal: AbortSignal;
     readonly observe: (source: AsyncIterable<StreamChunk>) => AsyncIterable<StreamChunk>;
   }
 ): AsyncIterable<StreamChunk> {
-  const gated = opts.runner ? withStopHook(stream, opts.manager, opts.signal) : stream;
+  const gated = opts.runner ? withStopHook(stream, opts.manager, opts.signal, opts.logger) : stream;
   return opts.observe(gated);
 }
