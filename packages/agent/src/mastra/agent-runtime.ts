@@ -383,13 +383,23 @@ export async function createMastraAgentRuntime(
   // threads a populated taskList through can never leak it into a local run.
   const taskListNote =
     normalizedProvider === 'local' ? null : buildCurrentTaskListNote(sanitizedRuntime.taskList);
+  // Instructions must reflect the FINAL tool map the Agent actually receives:
+  // the plan-mode filter, permission gate, and suspend-storage gate all omit
+  // tools BEFORE this point, so building guidance from the raw `toolNameMap`
+  // would advertise (name + usage block) tools the model can no longer call —
+  // e.g. plan mode still listing writeWorkspaceFile/executeCommand. Restrict the
+  // name map to the sanitized ids present in `gatedTools` (both are keyed by the
+  // same sanitized id — see sanitizeTools) so an omitted tool is never advertised.
+  const effectiveToolNameMap = new Map(
+    Array.from(toolNameMap).filter(([sanitizedId]) => sanitizedId in gatedTools)
+  );
   // The built-in local model gets a compact instruction set: the hosted
   // playbook overwhelms a 2B on-device model and bloats the WebGPU prefill.
   const resolvedInstructions =
     instructions ??
     (normalizedProvider === 'local'
-      ? buildLocalDefaultInstructions(toolNameMap)
-      : buildDefaultInstructions(toolNameMap, { planMode: planModeActive }));
+      ? buildLocalDefaultInstructions(effectiveToolNameMap)
+      : buildDefaultInstructions(effectiveToolNameMap, { planMode: planModeActive }));
   // Order: instructions, budget note, then the task list LAST so it is the most
   // recent context the model sees.
   const composedInstructions = [resolvedInstructions, budgetNote, taskListNote]
