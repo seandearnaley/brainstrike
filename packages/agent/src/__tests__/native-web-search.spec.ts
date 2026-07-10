@@ -215,6 +215,83 @@ describe('provider-defined tool is inert through guard + permission gate', () =>
 });
 
 /**
+ * `applyProviderNativeWebSearch` fed by the REAL `filterToolsByPermissionWithMetadata`
+ * gate (not a hand-built `askTools`/`tools` map), so the ask/deny cells below prove
+ * the two modules compose correctly end to end, not just that the selection helper
+ * behaves given synthetic inputs (that's the "selection table" describe above).
+ */
+describe('applyProviderNativeWebSearch — driven by the real permission gate', () => {
+  function makeSnapshot(decision: 'ask' | 'deny'): PermissionToolGateSnapshot {
+    return {
+      defaultRisk: 'mcp',
+      perToolOverrides: { [WEB_SEARCH_TOOL_ID]: decision },
+      policies: DEFAULT_PERMISSION_POLICIES,
+      riskByTool: buildNativeToolRiskMap(),
+      yolo: false,
+    };
+  }
+
+  it('non-native provider (openrouter) + real ask gate → Tavily selected, native never injected', () => {
+    const tools: ToolsInput = {
+      [SANITIZED_ID]: makeTavilyToolStub() as unknown as ToolsInput[string],
+    };
+    const toolNameMap = new Map<string, string>([[SANITIZED_ID, WEB_SEARCH_TOOL_ID]]);
+    const gateResult = filterToolsByPermissionWithMetadata(
+      tools,
+      makeSnapshot('ask'),
+      toolNameMap,
+      { info: vi.fn(), warn: vi.fn() }
+    );
+    // Sanity: the REAL gate actually resolved this to `ask` (per-tool override),
+    // not `allow` — otherwise the assertions below would pass vacuously.
+    expect(gateResult.askToolIds.has(SANITIZED_ID)).toBe(true);
+
+    const result = applyProviderNativeWebSearch({
+      apiKey: undefined,
+      askTools: gateResult.askTools,
+      provider: 'openrouter',
+      toolNameMap,
+      tools: gateResult.tools,
+    });
+
+    const picked = result[SANITIZED_ID];
+    expect(picked).toBeDefined();
+    expect(toolId(picked)).toBe(WEB_SEARCH_TOOL_ID);
+    expect(toolType(picked)).toBeUndefined();
+    expect(hasExecute(picked)).toBe(true);
+    expect((picked as { requireApproval?: unknown }).requireApproval).toBe(true);
+  });
+
+  it('native-capable provider (anthropic) + real deny gate → web search omitted, native never injected', () => {
+    const tools: ToolsInput = {
+      [SANITIZED_ID]: makeTavilyToolStub() as unknown as ToolsInput[string],
+    };
+    const toolNameMap = new Map<string, string>([[SANITIZED_ID, WEB_SEARCH_TOOL_ID]]);
+    const gateResult = filterToolsByPermissionWithMetadata(
+      tools,
+      makeSnapshot('deny'),
+      toolNameMap,
+      { info: vi.fn(), warn: vi.fn() }
+    );
+    // Sanity: the REAL gate actually omitted it (deny), not merely absent by
+    // some unrelated accident — and it never entered askToolIds either.
+    expect(SANITIZED_ID in gateResult.tools).toBe(false);
+    expect(gateResult.askToolIds.has(SANITIZED_ID)).toBe(false);
+
+    const result = applyProviderNativeWebSearch({
+      apiKey: 'sk-test',
+      askTools: gateResult.askTools,
+      provider: 'anthropic',
+      toolNameMap,
+      tools: gateResult.tools,
+    });
+
+    expect(result[SANITIZED_ID]).toBeUndefined();
+    expect(Object.keys(result)).toHaveLength(0);
+  });
+});
+
+/**
  * Runtime wiring proof: construct the REAL agent runtime (real sanitize + guard +
  * permission gate) with a Tavily-style web-search tool in the map and assert the
  * final Agent tool map carries the provider-native tool for anthropic and the
