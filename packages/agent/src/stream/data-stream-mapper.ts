@@ -1,3 +1,4 @@
+import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
 import {
   type AssistantToolApprovalRequest,
   TOOL_APPROVAL_DATA_NAME,
@@ -13,6 +14,7 @@ import type {
   StreamChunkMessageFinish,
   StreamChunkReasoning,
   StreamChunkRunEvent,
+  StreamChunkShellOutput,
   StreamChunkText,
   StreamChunkTool,
   StreamChunkToolApprovalRequired,
@@ -229,6 +231,9 @@ export class DataStreamMapper {
       case 'run-event':
         yield* this.handleRunEvent(chunk);
         return;
+      case 'shell-output':
+        yield* this.handleShellOutput(chunk);
+        return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
         return;
@@ -337,6 +342,34 @@ export class DataStreamMapper {
       value: {
         data: toJsonSafe(chunk.event),
         name: ASSISTANT_RUN_EVENT_DATA_NAME,
+      },
+    } satisfies EncodedChunk;
+    if (this.streamingPartOpen) {
+      this.pendingRunEventChunks.push(encoded);
+      return;
+    }
+    yield encoded;
+  }
+
+  /**
+   * Emit a live shell-output slice as a transient `aui-data` part. Subject to
+   * the SAME text-part deferral contract as run events: a data part emitted mid
+   * text/reasoning append would slice visible text, so while a part is open the
+   * encoded slice is queued and flushed at the next natural boundary. Shell
+   * output is produced during tool execution (after the text turn's finish), so
+   * in practice it streams live; the deferral only guards the rare interleave.
+   */
+  private *handleShellOutput(chunk: StreamChunkShellOutput): Generator<EncodedChunk> {
+    const encoded = {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        data: {
+          chunk: chunk.chunk,
+          stream: chunk.stream,
+          toolCallId: chunk.toolCallId,
+          ...(chunk.truncated ? { truncated: true } : {}),
+        },
+        name: SHELL_OUTPUT_DATA_NAME,
       },
     } satisfies EncodedChunk;
     if (this.streamingPartOpen) {

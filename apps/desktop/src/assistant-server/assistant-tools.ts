@@ -51,6 +51,7 @@ import {
   type WriteWorkspaceFileInput,
   WriteWorkspaceFileInputSchema,
   withFileLock,
+  writeShellOutputChunk,
 } from '@brainstrike/agent';
 import {
   EmbeddingSetsRepository,
@@ -71,7 +72,11 @@ import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
-import { EXECUTE_COMMAND_TOOL_ID, runExecuteCommand } from './execute-command-tool';
+import {
+  EXECUTE_COMMAND_TOOL_ID,
+  runExecuteCommand,
+  type ShellOutputStreamer,
+} from './execute-command-tool';
 import { findSymbolMatches } from './find-workspace-symbol';
 import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
@@ -180,6 +185,48 @@ function resolveToolExecuteInputCandidate<T>(
 
 function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecuteInput<T>): T {
   return schema.parse(resolveToolExecuteInputCandidate(schema, input));
+}
+
+/** A verbatim-chunk stream writer, in either shape Mastra exposes. */
+type StreamWriterLike = (chunk: { type: string } & Record<string, unknown>) => unknown;
+
+/**
+ * The subset of the Mastra tool-execution context executeCommand reads. Mastra
+ * passes a `createTool` instance the `writer` (ToolStream) + `agent.toolCallId`,
+ * but a plain tool OBJECT (what the desktop registry uses) gets the raw
+ * `outputWriter` fn + a top-level `toolCallId`. Both are accepted.
+ */
+interface ToolExecuteContext {
+  abortSignal?: AbortSignal;
+  agent?: { toolCallId?: string };
+  outputWriter?: StreamWriterLike;
+  toolCallId?: string;
+  writer?: { custom: StreamWriterLike };
+}
+
+/**
+ * Build a {@link ShellOutputStreamer} from whichever writer shape the context
+ * carries, or `undefined` when neither a writer nor a tool-call id is present
+ * (streaming is best-effort observability — its absence never blocks the run).
+ * Writes are fire-and-forget: `custom`/`outputWriter` enqueue synchronously so
+ * call order is emission order; a rejected enqueue is reported, never swallowed.
+ */
+function resolveShellOutputStreamer(
+  options: ToolExecuteContext | undefined,
+  onError: (error: unknown) => void
+): ShellOutputStreamer | undefined {
+  const custom: StreamWriterLike | undefined = options?.writer?.custom ?? options?.outputWriter;
+  const toolCallId = options?.agent?.toolCallId ?? options?.toolCallId;
+  if (!(custom && toolCallId)) {
+    return;
+  }
+  const writer = {
+    custom: (data: { type: string } & Record<string, unknown>) =>
+      Promise.resolve(custom(data)).then(() => undefined),
+  };
+  return (part) => {
+    void writeShellOutputChunk(writer, { ...part, toolCallId }).catch(onError);
+  };
 }
 
 function redactToolInputForLog(input: object): { fields: string[]; redacted: true } {
@@ -2604,15 +2651,23 @@ export function buildDesktopAssistantTools(
     description:
       "Run an arbitrary shell command on the user's machine (tests, builds, linters, git, package managers). This is ARBITRARY COMMAND EXECUTION with NO sandbox — the command can do anything the user can. The command runs in the user's shell starting in the workspace root (override with cwd, which must still be inside an open folder). On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Output is bounded to a fixed budget (most recent lines kept) — pipe through '| tail -n N' for long output. Prefer non-destructive commands; never run destructive ones (rm -rf, force pushes, resets) without an explicit user request.",
     // The second arg carries the Mastra ToolExecutionContext, whose abortSignal
-    // we thread into the run so a cancelled run kills the process tree.
-    execute: async (
-      input: ToolExecuteInput<ExecuteCommandInput>,
-      options?: { abortSignal?: AbortSignal }
-    ) => {
+    // we thread into the run so a cancelled run kills the process tree, and whose
+    // stream writer + tool-call id we use to stream incremental stdout/stderr to
+    // the live tool card. Mastra hands a DIFFERENT context shape to a plain tool
+    // object (raw `outputWriter` fn + top-level `toolCallId`) vs a `createTool`
+    // instance (`writer.custom` + `agent.toolCallId`); we accept both.
+    // `resolveShellOutputStreamer` returns undefined when neither is present, so
+    // the command still runs and returns its full captured result — only the
+    // live slices are skipped (capability presence, not a policy fallback).
+    execute: async (input: ToolExecuteInput<ExecuteCommandInput>, options?: ToolExecuteContext) => {
       const resolvedInput = parseToolExecuteInput(ExecuteCommandInputSchema, input);
+      const stream = resolveShellOutputStreamer(options, (error) => {
+        logToolFailure('executeCommand output streaming failed', error, resolvedInput);
+      });
       try {
         return await runExecuteCommand(resolvedInput, runtimeData, {
           signal: options?.abortSignal,
+          ...(stream ? { stream } : {}),
         });
       } catch (error) {
         logToolFailure('executeCommand failed', error, resolvedInput);

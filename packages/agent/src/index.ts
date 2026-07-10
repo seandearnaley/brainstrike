@@ -147,6 +147,11 @@ export {
   resolveRequestPermissionPolicy,
 } from './mastra/permission-policy-request';
 export {
+  SHELL_OUTPUT_STREAM_PART_TYPE,
+  type ShellOutputWriter,
+  writeShellOutputChunk,
+} from './mastra/shell-output-stream';
+export {
   createDelegationConfig,
   MAX_CONCURRENT_DELEGATIONS,
   MAX_DELEGATIONS_PER_RUN,

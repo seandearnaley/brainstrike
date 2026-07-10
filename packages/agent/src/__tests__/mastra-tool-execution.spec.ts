@@ -233,6 +233,84 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(finalText).toContain('hello-from-real-shell');
   });
 
+  // Live-loop proof for streamed executeCommand output: a tool whose execute
+  // uses the Mastra `writer` (2nd-arg execution context) to stream incremental
+  // shell output via `writeShellOutputChunk`. Through the REAL loop those custom
+  // chunks must surface as ordered `shell-output` StreamChunks (keyed to the
+  // tool call id) BEFORE the terminal `tool.completed` run-event, and must NOT
+  // leak a premature success tool-event (they are not `tool-output`).
+  it('streams incremental shell-output chunks from a tool writer through the real loop', async () => {
+    const { writeShellOutputChunk } = await import('../mastra/shell-output-stream');
+    const streamingTool = createTool({
+      description: 'Run a command and stream its output incrementally.',
+      execute: async (
+        { command }: { command: string },
+        context?: {
+          writer?: { custom: (data: { type: string } & Record<string, unknown>) => Promise<void> };
+          agent?: { toolCallId?: string };
+        }
+      ) => {
+        const writer = context?.writer;
+        const toolCallId = context?.agent?.toolCallId ?? 'call-stream-1';
+        if (writer) {
+          for (const line of ['first\n', 'second\n', 'third\n']) {
+            await writeShellOutputChunk(writer, { chunk: line, stream: 'stdout', toolCallId });
+          }
+        }
+        return { command, exitCode: 0 };
+      },
+      id: 'run_streaming_shell',
+      inputSchema: z.object({ command: z.string() }),
+      outputSchema: z.object({ command: z.string(), exitCode: z.number() }),
+    });
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The command streamed first/second/third.',
+      input: JSON.stringify({ command: 'print three lines' }),
+      toolCallId: 'call-stream-1',
+      toolName: 'run_streaming_shell',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-stream', parts: [{ text: 'stream it', type: 'text' }], role: 'user' }],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { run_streaming_shell: streamingTool },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const shellOutputs = chunks.filter(
+      (chunk): chunk is Extract<StreamChunk, { type: 'shell-output' }> =>
+        chunk.type === 'shell-output'
+    );
+    // All three incremental slices surfaced, in order, keyed to the tool call.
+    expect(shellOutputs.map((chunk) => chunk.chunk)).toEqual(['first\n', 'second\n', 'third\n']);
+    expect(shellOutputs.every((chunk) => chunk.toolCallId === 'call-stream-1')).toBe(true);
+    expect(shellOutputs.every((chunk) => chunk.stream === 'stdout')).toBe(true);
+
+    // The streamed chunks did NOT masquerade as a successful tool result.
+    const streamingToolSuccessEvents = chunks.filter(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> =>
+        chunk.type === 'tool-event' &&
+        chunk.name === 'run_streaming_shell' &&
+        chunk.status === 'success'
+    );
+    // Exactly one genuine success (the tool's real return value), not four.
+    expect(streamingToolSuccessEvents).toHaveLength(1);
+
+    const runEventKinds = chunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .map((chunk) => chunk.event.kind);
+    expect(runEventKinds).toContain('tool.completed');
+  });
+
   // Live-loop proof for the SHAPE of brainstrike.deleteWorkspaceFile (an
   // edit-risk file-mutation tool): the real Mastra loop drives a tool whose
   // execute performs a REAL filesystem delete of a temp file, and its structured

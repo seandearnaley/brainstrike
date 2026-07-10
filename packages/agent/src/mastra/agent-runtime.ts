@@ -50,6 +50,11 @@ import {
   buildLocalDefaultInstructions,
   type DelegationPersonaSummary,
 } from './default-instructions';
+import {
+  ASSISTANT_MAX_PROCESSOR_RETRIES,
+  buildAssistantErrorProcessors,
+  buildProviderHistoryCompatInputProcessor,
+} from './error-processors';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
@@ -63,6 +68,7 @@ import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
+import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
 import {
   createDelegationConfig,
   createDelegationLifecycleTracker,
@@ -567,6 +573,15 @@ export async function createMastraAgentRuntime(
     toolNameMap: effectiveToolNameMap,
   });
 
+  // Error-processor resilience layer (PrefillErrorHandler +
+  // StreamErrorRetryProcessor + ProviderHistoryCompat's reactive rules) on the
+  // Agent-config `errorProcessors` seam — the ONE processor array a per-call
+  // override never clobbers (the per-call TokenLimiter only replaces
+  // `inputProcessors`). Excluded for the built-in local provider. When present
+  // we MUST pin `maxProcessorRetries`: any errorProcessors flips Mastra's
+  // implicit default to 10 (see ASSISTANT_MAX_PROCESSOR_RETRIES). See AGENTS.md
+  // ASSISTANT RESILIENCE.
+  const errorProcessors = buildAssistantErrorProcessors(normalizedProvider);
   const agent = new Agent({
     id: 'brainstrike-assistant',
     instructions: composedInstructions,
@@ -575,6 +590,9 @@ export async function createMastraAgentRuntime(
     tools: gatedTools,
     ...(hasSubAgents ? { agents: subAgents } : {}),
     ...(memory ? { memory } : {}),
+    ...(errorProcessors
+      ? { errorProcessors, maxProcessorRetries: ASSISTANT_MAX_PROCESSOR_RETRIES }
+      : {}),
   });
 
   const mastra = storage
@@ -1423,6 +1441,14 @@ function processMastraStreamPart(
         part
       );
     }
+    case SHELL_OUTPUT_STREAM_PART_TYPE: {
+      // A live shell-output slice streamed by executeCommand via `writer.custom`.
+      // Transient (never persisted): it rides its own StreamChunk type so the
+      // server's run-event persistence tap ignores it. A malformed slice is
+      // dropped rather than mis-attributed.
+      const shellOutput = mapShellOutputStreamPart(part);
+      return { chunks: shellOutput ? [shellOutput] : [], finished: false };
+    }
     default:
       return { chunks: [], finished: false };
   }
@@ -1677,13 +1703,24 @@ function buildToolLoopOptions(
     agentLoop?.inputTokenLimit,
     'agentLoop.inputTokenLimit'
   );
-  const inputProcessors: unknown[] | undefined = inputTokenLimit
-    ? [new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })]
+  // ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules (strip
+  // foreign/unsupported reasoning before a provider that would reject it — the
+  // only place cross-provider reasoning incompatibility is handled) fire ONLY
+  // from `inputProcessors`, never `errorProcessors` (verified against the
+  // compiled loop). It rides the SAME per-call array as the TokenLimiter so the
+  // per-call replacement doesn't drop either; their hooks are disjoint stages,
+  // so token trimming is unaffected. Excluded for the local provider.
+  const historyCompat = buildProviderHistoryCompatInputProcessor(runtimeData?.provider ?? '');
+  const tokenLimiter = inputTokenLimit
+    ? new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })
     : undefined;
+  const inputProcessors: unknown[] = [tokenLimiter, historyCompat].filter(
+    (processor): processor is NonNullable<typeof processor> => processor !== undefined
+  );
 
   return {
     maxSteps: maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-    ...(inputProcessors ? { inputProcessors } : {}),
+    ...(inputProcessors.length > 0 ? { inputProcessors } : {}),
   };
 }
 

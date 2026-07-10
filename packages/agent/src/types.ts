@@ -247,6 +247,18 @@ export interface StreamChunkTool {
   status: 'start' | 'progress' | 'success' | 'error';
   type: 'tool-event';
 }
+/**
+ * A live, incremental slice of a running shell command's output. Transient
+ * (never persisted — see SHELL_OUTPUT_DATA_NAME); the final captured output
+ * still returns as the tool result.
+ */
+export interface StreamChunkShellOutput {
+  chunk: string;
+  stream: 'stdout' | 'stderr';
+  toolCallId: string;
+  truncated?: boolean;
+  type: 'shell-output';
+}
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
@@ -276,6 +288,7 @@ export interface StreamChunkMessageFinish {
 export type StreamChunk =
   | StreamChunkReasoning
   | StreamChunkRunEvent
+  | StreamChunkShellOutput
   | StreamChunkText
   | StreamChunkTool
   | StreamChunkToolApprovalRequired

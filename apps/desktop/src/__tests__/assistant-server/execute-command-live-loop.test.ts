@@ -166,4 +166,46 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
     const markerContent = await fsPromises.readFile(marker, 'utf8');
     expect(markerContent).toContain('hello-from-shell');
   });
+
+  it('streams incremental shell output through the real desktop wiring (keyed to the tool call)', async () => {
+    const root = await makeWorkspace();
+    const tools = buildDesktopAssistantTools({ workspaceRootPath: root } as RuntimeData);
+    const executeTool = tools['brainstrike.executeCommand'];
+    expect(executeTool).toBeDefined();
+
+    // A command that emits a distinctive marker to stdout the tool must stream
+    // live (via the Mastra writer) BEFORE the final result is captured.
+    const hostClient = createScriptedHostClient(`printf 'LIVE_STREAM_MARKER\n'`);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-exec-stream', parts: [{ text: 'run it', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          localLlmHostClient: hostClient,
+          model: 'onnx-community/gemma-4-E2B-it-ONNX',
+          provider: 'local',
+          providerOptions: { local: { thinking: { enabled: false } } },
+        } as RuntimeData,
+        tools: { 'brainstrike.executeCommand': executeTool },
+      }
+    );
+
+    const shellOutputs: Array<{ chunk: string; stream: string; toolCallId: string }> = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'shell-output') {
+        shellOutputs.push({
+          chunk: chunk.chunk,
+          stream: chunk.stream,
+          toolCallId: chunk.toolCallId,
+        });
+      }
+    }
+
+    // The live slice(s) surfaced through the FULL desktop wiring: the tool's
+    // writer emitted them, keyed to the scripted tool call id 'call-exec-1'.
+    expect(shellOutputs.length).toBeGreaterThanOrEqual(1);
+    expect(shellOutputs.map((part) => part.chunk).join('')).toContain('LIVE_STREAM_MARKER');
+    expect(shellOutputs.every((part) => part.toolCallId === 'call-exec-1')).toBe(true);
+    expect(shellOutputs.every((part) => part.stream === 'stdout')).toBe(true);
+  });
 });

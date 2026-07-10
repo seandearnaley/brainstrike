@@ -244,7 +244,8 @@ When changing this flow, update this doc.
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety
-net and the two server-side resilience layers below are LIVE.
+net, the two server-side resilience layers, and the Mastra error-processor layer
+below are LIVE.
 
 1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
@@ -269,12 +270,40 @@ net and the two server-side resilience layers below are LIVE.
    A stream stall emits a visible assistant message, a terminal `run.failed`
    event, and an error finish so the renderer does not remain in-flight forever.
 
+4. **Mastra error-processor layer (LIVE)** —
+   `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
+   `buildToolLoopOptions` in `agent-runtime.ts`. Adopts three `@mastra/core`
+   built-ins that recover on EMITTED provider/API errors — disjoint from the
+   guard (tool-execute failures) and watchdog (silent stalls), so no
+   double-wrapping:
+   - **StreamErrorRetryProcessor** — retries transient mid-stream errors
+     (OpenAI Responses `error`/`response.failed`, provider `isRetryable`, and an
+     `isEconnResetStreamError` matcher with capped exponential backoff).
+   - **PrefillErrorHandler** — recovers reloaded-thread assistant-prefill
+     rejections (Anthropic / Qwen `enable_thinking`).
+   - **ProviderHistoryCompat** — cross-provider `mastra_messages` reuse.
+   Placement (verified against the compiled loop, do NOT relitigate): the two
+   `processAPIError`-only processors + ProviderHistoryCompat's REACTIVE rules go
+   on the Agent-config `errorProcessors` seam (never clobbered by the per-call
+   TokenLimiter). ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules
+   (strip foreign reasoning — the ONLY place that incompatibility is handled)
+   fire ONLY from `inputProcessors`, so a SECOND ProviderHistoryCompat instance
+   is composed into the per-call `inputProcessors` array ALONGSIDE the
+   TokenLimiter in `buildToolLoopOptions` (composing, not clobbering — their
+   hooks are disjoint stages). **`maxProcessorRetries` MUST stay pinned**
+   (`ASSISTANT_MAX_PROCESSOR_RETRIES = 3`): any `errorProcessors` flips Mastra's
+   implicit default to 10. The whole layer is EXCLUDED for the built-in local
+   provider (the hidden llm-host owns its own engine-fault recovery; no
+   hosted-provider wire quirks apply).
+
 > **LIVE validation requirement:** A prior attempt wired the guard + watchdog into
 > the live path and BROKE real Mastra tool calling (hosted-provider tools silently
 > stopped executing) while mocked tests stayed green. Future changes to these
 > layers MUST preserve coverage that runs the actual Mastra agent loop end to end
-> with real tool `execute`, not only mocked stream parts. The current proof lives
-> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts`.
+> with real tool `execute`, not only mocked stream parts. The current proofs live
+> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts` and
+> `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
+> clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
 
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
 defined in `packages/agent/src/config/resilience-config.ts`:
@@ -294,6 +323,34 @@ into fragments. `DataStreamMapper` therefore defers run events that arrive
 while a text/reasoning part is streaming and flushes them at the next boundary
 (tool start, approval, finish, error, stream end) — never drop them, never
 emit them mid-part (proof: data-stream-text-continuity.spec.ts).
+
+Live shell output (executeCommand streaming): `executeCommand` streams its
+subprocess stdout/stderr incrementally through Mastra's tool `writer` as it is
+produced (a long build/test run is visible live, not only on exit). The tool
+writes via `writer.custom({ type: SHELL_OUTPUT_STREAM_PART_TYPE, … })`
+(`packages/agent/src/mastra/shell-output-stream.ts`), which places the slice on
+the fullStream VERBATIM — deliberately NOT `writer.write` (that wraps it as a
+`tool-output` part, colliding with subagent delegation and masquerading as a
+successful tool result). `processMastraStreamPart` maps that part to a dedicated
+transient `shell-output` StreamChunk; `DataStreamMapper.handleShellOutput` emits
+it as a `SHELL_OUTPUT_DATA_NAME` aui-data part (subject to the SAME text-part
+deferral). It is NOT a run-event kind ON PURPOSE: run-events are persisted
+server-side into `assistant_run_events` (and their metadata is redaction-
+sanitized, which strips `output`/`text` keys) — a `shell-output` StreamChunk is
+ignored by that persistence tap (`chunk.type !== 'run-event'`), so live slices
+are TRANSIENT (never persisted; absent on reload — the FINAL captured output
+persists as the tool result). A COMBINED streaming cap
+(`MAX_STREAMED_OUTPUT_BYTES`, separate from the 1 MB capture cap) stops a runaway
+process flooding the stream: at the cap one truncation notice is emitted,
+streaming stops, and teardown/capture continue unchanged. Mastra hands a plain
+tool OBJECT the raw `outputWriter` fn + top-level `toolCallId` (a `createTool`
+instance gets `writer.custom` + `agent.toolCallId`); the desktop wiring accepts
+both. The renderer accumulates slices per toolCallId
+(`collectShellOutputs` + `ShellOutputProvider`) into the live tool card
+(`LiveShellOutputPane`, shown only while running). background:true (run the tool
+as a Mastra background task) is a documented FOLLOW-UP, not in v1. Proofs:
+mastra-tool-execution.spec ('streams incremental shell-output …'),
+execute-command-tool.test / execute-command-live-loop.test, shell-output-parts.test.
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently
 (default concurrency 10; `toolCallConcurrency` loop option). Mastra forces

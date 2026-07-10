@@ -17,6 +17,7 @@ import {
   disposeLiveChildProcesses,
   resolveShellInvocation,
   runExecuteCommand,
+  type ShellOutputStreamPart,
 } from '../../assistant-server/execute-command-tool';
 
 const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
@@ -403,6 +404,102 @@ describe('runExecuteCommand — runs node', () => {
     );
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('2');
+  });
+});
+
+describe('runExecuteCommand — incremental streaming via the stream callback', () => {
+  it('streams stdout parts incrementally in order while the process runs', async () => {
+    const root = await makeWorkspace();
+    const parts: ShellOutputStreamPart[] = [];
+    const result = await runExecuteCommand(
+      {
+        // Emit three markers spaced in time so they arrive as distinct pipe reads
+        // (not one coalesced buffer) — proving the output streams as it is produced.
+        command: `printf 'ALPHA\n'; sleep 0.15; printf 'BRAVO\n'; sleep 0.15; printf 'CHARLIE\n'`,
+        timeoutMs: 30_000,
+      },
+      singleRoot(root),
+      { stream: (part) => parts.push(part) }
+    );
+
+    // The final captured result is still complete and correct.
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('ALPHA');
+    expect(result.stdout).toContain('CHARLIE');
+
+    // At least one incremental part was streamed, all tagged stdout, and the
+    // concatenation preserves the emission order (ALPHA before BRAVO before CHARLIE).
+    const stdoutParts = parts.filter((part) => part.stream === 'stdout');
+    expect(stdoutParts.length).toBeGreaterThanOrEqual(1);
+    const streamed = stdoutParts.map((part) => part.chunk).join('');
+    expect(streamed.indexOf('ALPHA')).toBeLessThan(streamed.indexOf('BRAVO'));
+    expect(streamed.indexOf('BRAVO')).toBeLessThan(streamed.indexOf('CHARLIE'));
+    // No incremental part is ever flagged truncated on a small run.
+    expect(parts.some((part) => part.truncated)).toBe(false);
+  });
+
+  it('streams stderr parts tagged as stderr', async () => {
+    const root = await makeWorkspace();
+    const parts: ShellOutputStreamPart[] = [];
+    await runExecuteCommand(
+      { command: `printf 'to-stderr\n' 1>&2`, timeoutMs: 30_000 },
+      singleRoot(root),
+      { stream: (part) => parts.push(part) }
+    );
+    const stderrStreamed = parts
+      .filter((part) => part.stream === 'stderr')
+      .map((part) => part.chunk)
+      .join('');
+    expect(stderrStreamed).toContain('to-stderr');
+  });
+
+  it('caps the total streamed volume, emits a truncation notice, and leaves no orphan', async () => {
+    const root = await makeWorkspace();
+    const parts: ShellOutputStreamPart[] = [];
+    // Emit ~2 MB to stdout — far above the streaming cap AND the capture cap.
+    const result = await runExecuteCommand(
+      {
+        command: `node -e "process.stdout.write('z'.repeat(2*1024*1024))"`,
+        timeoutMs: 30_000,
+      },
+      singleRoot(root),
+      { stream: (part) => parts.push(part) }
+    );
+
+    expect(result.exitCode).toBe(0);
+
+    // Streaming stopped at the cap: exactly one truncation notice was emitted,
+    // and the total streamed volume is bounded (does not equal the 2 MB emitted).
+    const truncationNotices = parts.filter((part) => part.truncated);
+    expect(truncationNotices).toHaveLength(1);
+    const totalStreamed = parts.reduce((sum, part) => sum + part.chunk.length, 0);
+    expect(totalStreamed).toBeLessThan(2 * 1024 * 1024);
+
+    // No leaked child: after the run settles nothing remains in the live registry.
+    expect(disposeLiveChildProcesses()).toBe(0);
+  });
+
+  it('still tears the tree down on timeout while streaming is active (no leak)', async () => {
+    const root = await makeWorkspace();
+    const parts: ShellOutputStreamPart[] = [];
+    const pidFile = path.join(root, 'stream-timeout.pid');
+    const result = await runExecuteCommand(
+      {
+        // Stream some output, record the shell pid, then hang so the timeout fires.
+        command: `echo $$ > "${pidFile}"; printf 'early\n'; sleep 30`,
+        timeoutMs: 600,
+      },
+      singleRoot(root),
+      { stream: (part) => parts.push(part) }
+    );
+
+    expect(result.timedOut).toBe(true);
+    expect(result.exitCode).toBeNull();
+    // Output produced before the timeout still streamed.
+    expect(parts.map((part) => part.chunk).join('')).toContain('early');
+    // The SIGTERM→SIGKILL teardown still reaps the tree with streaming active.
+    const shellPid = Number.parseInt((await fsPromises.readFile(pidFile, 'utf8')).trim(), 10);
+    expect(await waitForPidDead(shellPid)).toBe(true);
   });
 });
 
