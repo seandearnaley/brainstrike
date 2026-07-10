@@ -125,7 +125,7 @@ export function MarkdownSurface({
       ),
       img: ({ alt, src }) =>
         typeof src === 'string' ? (
-          <MarkdownImage alt={alt ?? ''} resolveImageSrc={resolveImageSrc} src={src} />
+          <MarkdownImage alt={alt ?? ''} key={src} resolveImageSrc={resolveImageSrc} src={src} />
         ) : null,
       pre: ({ children }) => {
         const fenced = extractFencedCode(children);
@@ -133,7 +133,7 @@ export function MarkdownSurface({
           return <pre>{children}</pre>;
         }
         if (fenced.language === 'mermaid') {
-          return <MermaidBlock code={fenced.code} />;
+          return <MermaidBlock code={fenced.code} key={fenced.code} />;
         }
         return <MarkdownCodeBlock code={fenced.code} language={fenced.language} />;
       },

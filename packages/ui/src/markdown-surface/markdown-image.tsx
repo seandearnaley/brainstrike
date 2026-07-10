@@ -17,12 +17,14 @@ export function MarkdownImage({ alt, resolveImageSrc, src }: MarkdownImageProps)
   const [state, setState] = useState<ImageState>({ kind: 'loading' });
 
   // Async resolution of the raw markdown src through the injected capability;
-  // the URL is not derivable during render.
+  // the URL is not derivable during render. This component is remounted per
+  // `src` (keyed in markdown-surface), so the initial `loading` state covers
+  // every new src — no in-effect reset needed. The active-flag + blob-revocation
+  // cleanup still guards an unmount mid-flight.
   // biome-ignore lint/plugin: async src resolution (data fetch), not derived state
   useEffect(() => {
     let active = true;
     let objectUrl: string | null = null;
-    setState({ kind: 'loading' });
     resolveImageSrc(src)
       .then((url) => {
         if (!active) {

@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
-let renderSequence = 0;
+/** Lazy mermaid loader hoisted to module scope: keeps the dynamic-import bundle
+ * boundary (~1MB, first diagram only) while removing the in-component
+ * `import(...)` expression the React Compiler cannot lower. */
+const loadMermaid = () => import('mermaid');
 
 type MermaidState =
   | { readonly kind: 'loading' }
@@ -13,13 +16,17 @@ type MermaidState =
 export function MermaidBlock({ code }: { readonly code: string }) {
   const [state, setState] = useState<MermaidState>({ kind: 'loading' });
   const hostRef = useRef<HTMLDivElement | null>(null);
+  // Stable per-instance id for mermaid.render's target element. Colons from
+  // useId aren't valid in the DOM id mermaid injects, so strip them. The
+  // component is remounted per `code` (keyed in markdown-surface), so each
+  // diagram gets a distinct id without a module-level counter.
+  const renderId = `brainstrike-mermaid-${useId().replace(/:/g, '')}`;
 
-  // biome-ignore lint/plugin/react-effects: async mermaid.render result (loading -> ready/error) cannot be computed during render; the reset call keeps a stale diagram from showing while a new `code` renders.
+  // biome-ignore lint/plugin/react-effects: async mermaid.render result (loading -> ready/error) cannot be computed during render. This component is remounted per `code` (keyed in markdown-surface), so the initial `loading` state covers every new diagram — no in-effect reset needed.
   useEffect(() => {
     let active = true;
-    setState({ kind: 'loading' });
-    const id = `brainstrike-mermaid-${++renderSequence}`;
-    import('mermaid')
+    const id = renderId;
+    loadMermaid()
       .then(async ({ default: mermaid }) => {
         const dark = document.documentElement.classList.contains('dark');
         mermaid.initialize({
@@ -45,7 +52,7 @@ export function MermaidBlock({ code }: { readonly code: string }) {
     return () => {
       active = false;
     };
-  }, [code]);
+  }, [code, renderId]);
 
   if (state.kind === 'error') {
     return (
