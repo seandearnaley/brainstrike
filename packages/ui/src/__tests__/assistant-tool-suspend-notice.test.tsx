@@ -2,11 +2,19 @@ import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contrac
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AssistantToolSuspendNotice } from '../assistant-ui-panel/assistant-tool-suspend-notice';
+import {
+  AssistantToolSuspendNotice,
+  PlanModeExitProvider,
+} from '../assistant-ui-panel/assistant-tool-suspend-notice';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
 const threadMessagesMock = vi.hoisted(
-  () => [] as Array<{ metadata?: { custom?: Record<string, unknown> }; role: 'assistant' | 'user' }>
+  () =>
+    [] as Array<{
+      metadata?: { custom?: Record<string, unknown> };
+      role: 'assistant' | 'user';
+      status?: { type: string };
+    }>
 );
 
 vi.mock('@assistant-ui/react', () => ({
@@ -77,6 +85,32 @@ describe('AssistantToolSuspendNotice', () => {
     });
   });
 
+  it('Approve exits plan mode (clears the toggle) BEFORE composing the resume', async () => {
+    const user = userEvent.setup();
+    const onExit = vi.fn();
+    render(
+      <PlanModeExitProvider onExit={onExit}>
+        <AssistantToolSuspendNotice data={planRequest} />
+      </PlanModeExitProvider>
+    );
+    await user.click(screen.getByRole('button', { name: /approve/i }));
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('Reject does NOT exit plan mode (stays on so the model can revise)', async () => {
+    const user = userEvent.setup();
+    const onExit = vi.fn();
+    render(
+      <PlanModeExitProvider onExit={onExit}>
+        <AssistantToolSuspendNotice data={planRequest} />
+      </PlanModeExitProvider>
+    );
+    await user.click(screen.getByRole('button', { name: /reject/i }));
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
   it('Reject with feedback appends { action: "rejected", feedback }', async () => {
     const user = userEvent.setup();
     render(<AssistantToolSuspendNotice data={planRequest} />);
@@ -137,6 +171,41 @@ describe('AssistantToolSuspendNotice', () => {
     await user.click(screen.getByRole('button', { name: /submit/i }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()?.['resumeData']).toEqual(['a', 'b']);
+  });
+
+  it('locks the controls once a matching resume is in-flight (pending run)', () => {
+    threadMessagesMock.push({
+      metadata: { custom: { brainstrikeToolSuspend: { runId: 'run-1', toolCallId: 'call-1' } } },
+      role: 'user',
+    });
+    // A following assistant message still streaming (no terminal status) → pending.
+    threadMessagesMock.push({ role: 'assistant', status: { type: 'running' } });
+    render(<AssistantToolSuspendNotice data={planRequest} />);
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /reject/i })).toBeDisabled();
+  });
+
+  it('re-enables the controls when the resumed run FAILED (retryable), not permanently locking', () => {
+    // Regression: a stale/failed resume must not permanently disable the notice.
+    threadMessagesMock.push({
+      metadata: { custom: { brainstrikeToolSuspend: { runId: 'run-1', toolCallId: 'call-1' } } },
+      role: 'user',
+    });
+    // The assistant run that followed the resume finished as `incomplete` (failed).
+    threadMessagesMock.push({ role: 'assistant', status: { type: 'incomplete' } });
+    render(<AssistantToolSuspendNotice data={planRequest} />);
+    expect(screen.getByRole('button', { name: /approve/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /reject/i })).not.toBeDisabled();
+  });
+
+  it('keeps the controls locked when the resumed run COMPLETED', () => {
+    threadMessagesMock.push({
+      metadata: { custom: { brainstrikeToolSuspend: { runId: 'run-1', toolCallId: 'call-1' } } },
+      role: 'user',
+    });
+    threadMessagesMock.push({ role: 'assistant', status: { type: 'complete' } });
+    render(<AssistantToolSuspendNotice data={planRequest} />);
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
   });
 
   it('renders a generic fallback for an unknown suspending tool (no throw)', () => {

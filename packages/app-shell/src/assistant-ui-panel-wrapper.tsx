@@ -853,7 +853,13 @@ export function AssistantUiPanelWrapper({
   // (web's in-renderer local runtime has no server). Presence-means-on downstream.
   const planModeEnabledPref = useAssistantPreferencesStore((state) => state.planModeEnabled);
   const togglePlanMode = useAssistantPreferencesStore((state) => state.togglePlanMode);
-  const planMode = planModeEnabledPref && localChatTransport === 'data-stream';
+  const setPlanModeEnabled = useAssistantPreferencesStore((state) => state.setPlanModeEnabled);
+  // Plan mode is never offered for the built-in local provider (its server gate
+  // ignores planMode — see O3), so the composer toggle is hidden there rather
+  // than silently no-opping.
+  const planModeAvailable = localChatTransport === 'data-stream' && selectedProvider !== 'local';
+  const planMode = planModeEnabledPref && planModeAvailable;
+  const exitPlanMode = useCallback(() => setPlanModeEnabled(false), [setPlanModeEnabled]);
 
   useEffect(() => {
     if (!assistantThreadRepository) {
@@ -1390,8 +1396,12 @@ export function AssistantUiPanelWrapper({
       onModelChange={handleModelChange}
       onModelToggle={handleModelToggle}
       {...(disabledReason ? { disabledReason } : {})}
-      {...(localChatTransport === 'data-stream'
-        ? { onTogglePlanMode: togglePlanMode, planModeEnabled: planModeEnabledPref }
+      {...(planModeAvailable
+        ? {
+            onExitPlanMode: exitPlanMode,
+            onTogglePlanMode: togglePlanMode,
+            planModeEnabled: planModeEnabledPref,
+          }
         : {})}
     />
   );
