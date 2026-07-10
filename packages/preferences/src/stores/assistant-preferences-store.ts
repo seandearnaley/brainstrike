@@ -60,6 +60,12 @@ type ProviderSettingsMap = Record<SupportedProvider, AssistantProviderSettings>;
 interface AssistantPreferencesData {
   enabledModelsByProvider: EnabledModelsMap;
   modelsByProvider: Partial<Record<SupportedProvider, string>>;
+  /**
+   * Plan mode: when enabled, the assistant investigates read-only and proposes a
+   * plan for approval before any changes. Persisted so it survives reload; sent
+   * to the server only when `true` (presence-means-on).
+   */
+  planModeEnabled: boolean;
   providerSettings: ProviderSettingsMap;
   selectedModel: string | null; // Composite key: "provider::model"
 }
@@ -94,6 +100,7 @@ interface AssistantPreferencesActions {
   getSelectedProvider: () => SupportedProvider | null;
   setModel: (compositeKey: string) => void;
   setModelEnabled: (provider: SupportedProvider, model: string, enabled: boolean) => void;
+  setPlanModeEnabled: (enabled: boolean) => void;
   setProviderModelsEnabled: (
     provider: SupportedProvider,
     models: readonly string[],
@@ -103,6 +110,7 @@ interface AssistantPreferencesActions {
     provider: SupportedProvider,
     updates: AssistantProviderSettingsUpdate
   ) => void;
+  togglePlanMode: () => void;
 }
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
@@ -1094,6 +1102,7 @@ export const useAssistantPreferencesStore = create<Store>()(
         return parsed?.provider ?? null;
       },
       modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
+      planModeEnabled: false,
       providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
       selectedModel: null,
 
@@ -1120,6 +1129,8 @@ export const useAssistantPreferencesStore = create<Store>()(
 
           return updates ?? state;
         }),
+
+      setPlanModeEnabled: (enabled) => set({ planModeEnabled: enabled }),
 
       setProviderModelsEnabled: (provider, models, enabled) =>
         set((state) => {
@@ -1165,6 +1176,8 @@ export const useAssistantPreferencesStore = create<Store>()(
             },
           };
         }),
+
+      togglePlanMode: () => set((state) => ({ planModeEnabled: !state.planModeEnabled })),
     }),
     {
       migrate: (persistedState, version) => {
@@ -1200,6 +1213,7 @@ export const useAssistantPreferencesStore = create<Store>()(
       partialize: (s) => ({
         enabledModelsByProvider: s.enabledModelsByProvider,
         modelsByProvider: s.modelsByProvider,
+        planModeEnabled: s.planModeEnabled,
         providerSettings: s.providerSettings,
         selectedModel: s.selectedModel,
       }),
@@ -1213,6 +1227,7 @@ function resetStoreState() {
   useAssistantPreferencesStore.setState({
     enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
     modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
+    planModeEnabled: false,
     providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
     selectedModel: null,
   });

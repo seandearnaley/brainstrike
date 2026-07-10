@@ -36,6 +36,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronUpIcon,
+  ClipboardListIcon,
   CopyIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -310,6 +311,8 @@ export interface AssistantUiPanelProps {
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
+  /** Toggle the persisted plan-mode preference. Absent → no toggle is shown. */
+  onTogglePlanMode?: () => void;
   /**
    * Reports a tool-approval-required pause exactly once, deduped by
    * `runId:toolCallId` (a later re-render of the same pause is not a new
@@ -322,6 +325,8 @@ export interface AssistantUiPanelProps {
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
+  /** Current persisted plan-mode state; drives the composer toggle's pressed look. */
+  planModeEnabled?: boolean;
   prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
   providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
@@ -649,10 +654,12 @@ const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
 const ComposerInputRow = ({
   isComposerDisabled,
   mentionPopover,
+  planMode,
   slashPopover,
 }: {
   isComposerDisabled: boolean;
   mentionPopover?: ReactNode;
+  planMode?: { enabled: boolean; onToggle: () => void };
   slashPopover?: ReactNode;
 }) => (
   <div className="bs-composer-input-frame">
@@ -667,6 +674,21 @@ const ComposerInputRow = ({
     {slashPopover}
     {mentionPopover}
     <div className="bs-composer-primary-actions">
+      {planMode ? (
+        <button
+          aria-label="Toggle plan mode"
+          aria-pressed={planMode.enabled}
+          className="aui-button aui-button-ghost"
+          data-testid="assistant-plan-mode-toggle"
+          onClick={planMode.onToggle}
+          title="Plan mode: investigate read-only and propose a plan for approval before any changes."
+          type="button"
+        >
+          <ClipboardListIcon
+            className={planMode.enabled ? 'size-4 text-sky-600 dark:text-sky-400' : 'size-4'}
+          />
+        </button>
+      ) : null}
       <ThreadPrimitive.If running={false}>
         <ComposerPrimitive.Send
           aria-label="Send"
@@ -710,16 +732,19 @@ const ComposerInputWithTriggers = ({
   isComposerDisabled,
   slashPopover,
   mentionPopover,
+  planMode,
 }: {
   isComposerDisabled: boolean;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
+  planMode?: { enabled: boolean; onToggle: () => void };
 }) => {
   const row = (
     <ComposerInputRow
       isComposerDisabled={isComposerDisabled}
       {...(slashPopover ? { slashPopover } : {})}
       {...(mentionPopover ? { mentionPopover } : {})}
+      {...(planMode ? { planMode } : {})}
     />
   );
   if (!(slashPopover || mentionPopover)) {
@@ -800,6 +825,8 @@ interface ChatThreadProps {
   onUsage?: ((usage: { inputTokens: number; outputTokens: number }) => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
+  /** Composer plan-mode toggle; absent → no toggle rendered. */
+  planMode?: { enabled: boolean; onToggle: () => void } | undefined;
   prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
@@ -842,6 +869,7 @@ const LocalRuntimeChat = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  planMode,
   toolMenu,
   requestData,
   prepareRequestData,
@@ -930,6 +958,7 @@ const LocalRuntimeChat = ({
           onToolApprovalRequired={onToolApprovalRequired}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
+          {...(planMode ? { planMode } : {})}
           providerGroups={providerGroups}
           providerSettings={providerSettings}
           selectedModel={selectedModel}
@@ -979,6 +1008,7 @@ const DataStreamRuntimeChat = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  planMode,
   toolMenu,
   threadKey,
 }: ChatThreadProps & {
@@ -1076,6 +1106,7 @@ const DataStreamRuntimeChat = ({
           onToolApprovalRequired={onToolApprovalRequired}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
+          {...(planMode ? { planMode } : {})}
           providerGroups={providerGroups}
           providerSettings={providerSettings}
           selectedModel={selectedModel}
@@ -1117,6 +1148,7 @@ const ChatThreadUI = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  planMode,
   threadKey,
   toolMenu,
 }: {
@@ -1124,6 +1156,7 @@ const ChatThreadUI = ({
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
+  planMode?: { enabled: boolean; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
   pickerModels: ModelPickerModel[];
@@ -1291,6 +1324,7 @@ const ChatThreadUI = ({
               (never an empty menu). Send / Cancel are unchanged. */}
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
+            {...(planMode ? { planMode } : {})}
             {...(hasSlashCommands
               ? {
                   slashPopover: (
@@ -1354,8 +1388,10 @@ export const AssistantUiPanel = ({
   onRunFinished,
   onStreamActivity,
   onThreadRunStart,
+  onTogglePlanMode,
   onToolApprovalRequired,
   onUsage,
+  planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
   onFileMentionQueryChange,
@@ -1481,6 +1517,9 @@ export const AssistantUiPanel = ({
             onToolApprovalRequired={onToolApprovalRequired}
             prepareLocalModel={prepareLocalModel}
             {...(onUsage ? { onUsage } : {})}
+            {...(onTogglePlanMode
+              ? { planMode: { enabled: Boolean(planModeEnabled), onToggle: onTogglePlanMode } }
+              : {})}
             fileMentions={fileMentions}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
