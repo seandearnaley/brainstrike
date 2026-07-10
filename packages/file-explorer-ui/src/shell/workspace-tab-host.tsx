@@ -1,3 +1,4 @@
+import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
 import {
   INACCESSIBLE_CONTENT_PREFIX,
   type TabFileStatus,
@@ -45,10 +46,11 @@ import {
   useState,
 } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { fileViewerToTarget } from '../context-actions/file-surface-target';
+import { fileTabToTarget, fileViewerToTarget } from '../context-actions/file-surface-target';
 import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
 import { type FileTab, useTabManager } from '../hooks/use-tab-manager';
 import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
+import { useTabManagerStore } from '../stores/tab-manager-store';
 import {
   useWorkspaceTabSelectionStore,
   type WorkspaceTabSelection,
@@ -108,6 +110,8 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   }, [extraApps]);
 
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
+  const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
+  const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
   const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
     useFileExplorer();
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
@@ -440,6 +444,30 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     handleSelectApp(CONTEXT_EXPLORER_APP_ID);
   }, [clearTabs, handleSelectApp]);
 
+  const handleCloseOtherFileTabs = useCallback(
+    (tabId: string): void => {
+      const nextActiveTabId = closeOtherTabs(tabId);
+      if (nextActiveTabId === null) {
+        handleSelectApp(CONTEXT_EXPLORER_APP_ID);
+        return;
+      }
+      selectFile(nextActiveTabId);
+    },
+    [closeOtherTabs, handleSelectApp, selectFile]
+  );
+
+  const handleCloseFileTabsToRight = useCallback(
+    (tabId: string): void => {
+      const nextActiveTabId = closeTabsToRight(tabId);
+      if (nextActiveTabId === null) {
+        handleSelectApp(CONTEXT_EXPLORER_APP_ID);
+        return;
+      }
+      selectFile(nextActiveTabId);
+    },
+    [closeTabsToRight, handleSelectApp, selectFile]
+  );
+
   return (
     <div className={cn('flex h-full flex-col bg-background', className)}>
       <WorkspaceTabStrip
@@ -448,8 +476,11 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         loadingFiles={loadingFiles}
         onCloseAllFileTabs={handleCloseAllFileTabs}
         onCloseFileTab={handleCloseFileTab}
+        onCloseFileTabsToRight={handleCloseFileTabsToRight}
+        onCloseOtherFileTabs={handleCloseOtherFileTabs}
         onSelectApp={handleSelectApp}
         onSelectFileTab={handleSelectFileTab}
+        rootDescriptors={rootDescriptors}
         selection={selection}
         tabStatuses={tabStatuses}
         tabs={tabs}
@@ -479,8 +510,11 @@ interface WorkspaceTabStripProps {
   /** Clear all file tabs at once. Surfaced via the overflow menu next to the tab strip. */
   readonly onCloseAllFileTabs: () => void;
   readonly onCloseFileTab: (tabId: string) => void;
+  readonly onCloseFileTabsToRight: (tabId: string) => void;
+  readonly onCloseOtherFileTabs: (tabId: string) => void;
   readonly onSelectApp: (appId: string) => void;
   readonly onSelectFileTab: (tabId: string) => void | Promise<void>;
+  readonly rootDescriptors: FileExplorerState['rootDescriptors'];
   readonly selection: WorkspaceTabSelection;
   readonly tabStatuses: Map<string, TabFileStatus>;
   readonly tabs: FileTab[];
@@ -495,52 +529,125 @@ function WorkspaceTabStrip({
   tabStatuses,
   onSelectFileTab,
   onCloseFileTab,
+  onCloseFileTabsToRight,
+  onCloseOtherFileTabs,
   onCloseAllFileTabs,
   getTabStatusMessage,
+  rootDescriptors,
 }: WorkspaceTabStripProps) {
+  const contextMenuController = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget } = contextMenuController;
+  const handleFileTabContextMenu = useCallback(
+    (tab: FileTab): void => {
+      const target = fileTabToTarget(tab, getTabRootPath(tab, rootDescriptors));
+      if (!target) {
+        logger.error('Could not resolve workspace file tab context target', {
+          compositeKey: tab.compositeKey,
+        });
+      }
+      setContextMenuTarget(target);
+    },
+    [rootDescriptors, setContextMenuTarget]
+  );
+  const localActions = useMemo<readonly AnyContextAction[]>(
+    () => [
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        icon: X,
+        id: 'workspace-file-tab.close',
+        label: 'Close',
+        run: (target) => {
+          onCloseFileTab(target.tabId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        id: 'workspace-file-tab.close-others',
+        isEnabled: (target) => tabs.length > 1 && tabs.some((tab) => tab.id === target.tabId),
+        label: 'Close Others',
+        run: (target) => {
+          onCloseOtherFileTabs(target.tabId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        id: 'workspace-file-tab.close-right',
+        isEnabled: (target) => {
+          const targetIndex = tabs.findIndex((tab) => tab.id === target.tabId);
+          return targetIndex >= 0 && targetIndex < tabs.length - 1;
+        },
+        label: 'Close Tabs to the Right',
+        run: (target) => {
+          onCloseFileTabsToRight(target.tabId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        id: 'workspace-file-tab.close-all',
+        label: 'Close All Tabs',
+        run: () => {
+          onCloseAllFileTabs();
+          return Promise.resolve({ ok: true });
+        },
+      }),
+    ],
+    [onCloseAllFileTabs, onCloseFileTab, onCloseFileTabsToRight, onCloseOtherFileTabs, tabs]
+  );
+
   return (
-    <div
-      className="flex flex-shrink-0 items-stretch border-border border-b bg-muted/30"
-      role="tablist"
-    >
-      <div className="flex flex-shrink-0 items-stretch border-border border-r">
-        {apps.map((app) => {
-          const isActive = selection.kind === 'app' && selection.appId === app.id;
-          return (
-            <AppTabButton
-              app={app}
-              isActive={isActive}
-              key={app.id}
-              onSelect={() => onSelectApp(app.id)}
-            />
-          );
-        })}
+    <ActionContextMenu controller={contextMenuController} localActions={localActions}>
+      <div
+        className="flex flex-shrink-0 items-stretch border-border border-b bg-muted/30"
+        onContextMenuCapture={() => setContextMenuTarget(null)}
+        role="tablist"
+      >
+        <div className="flex flex-shrink-0 items-stretch border-border border-r">
+          {apps.map((app) => {
+            const isActive = selection.kind === 'app' && selection.appId === app.id;
+            return (
+              <AppTabButton
+                app={app}
+                isActive={isActive}
+                key={app.id}
+                onSelect={() => onSelectApp(app.id)}
+              />
+            );
+          })}
+        </div>
+        <div className="scrollbar-thin flex min-w-0 flex-1 items-stretch overflow-x-auto">
+          {tabs.map((tab) => {
+            const isActive = selection.kind === 'file' && selection.tabId === tab.id;
+            const status = tabStatuses.get(tab.compositeKey);
+            const isLoading = loadingFiles.has(tab.compositeKey);
+            const statusMessage = getTabStatusMessage(tab.compositeKey);
+            // FileTabButton receives the parent handlers verbatim and dispatches them with
+            // its own tab.id internally — no per-render arrow-closure recreation, so the
+            // memo wrap on FileTabButton bails on shallow-equal props.
+            return (
+              <FileTabButton
+                isActive={isActive}
+                isLoading={isLoading}
+                key={tab.id}
+                onClose={onCloseFileTab}
+                onContextMenu={handleFileTabContextMenu}
+                onSelect={onSelectFileTab}
+                status={status}
+                statusMessage={statusMessage}
+                tab={tab}
+              />
+            );
+          })}
+        </div>
+        <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
       </div>
-      <div className="scrollbar-thin flex min-w-0 flex-1 items-stretch overflow-x-auto">
-        {tabs.map((tab) => {
-          const isActive = selection.kind === 'file' && selection.tabId === tab.id;
-          const status = tabStatuses.get(tab.compositeKey);
-          const isLoading = loadingFiles.has(tab.compositeKey);
-          const statusMessage = getTabStatusMessage(tab.compositeKey);
-          // FileTabButton receives the parent handlers verbatim and dispatches them with
-          // its own tab.id internally — no per-render arrow-closure recreation, so the
-          // memo wrap on FileTabButton bails on shallow-equal props.
-          return (
-            <FileTabButton
-              isActive={isActive}
-              isLoading={isLoading}
-              key={tab.id}
-              onClose={onCloseFileTab}
-              onSelect={onSelectFileTab}
-              status={status}
-              statusMessage={statusMessage}
-              tab={tab}
-            />
-          );
-        })}
-      </div>
-      <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
-    </div>
+    </ActionContextMenu>
   );
 }
 
@@ -620,6 +727,7 @@ interface FileTabButtonProps {
    * effective.
    */
   readonly onClose: (tabId: string) => void;
+  readonly onContextMenu: (tab: FileTab) => void;
   readonly onSelect: (tabId: string) => void | Promise<void>;
   readonly status: TabFileStatus | undefined;
   readonly statusMessage: string | null;
@@ -640,6 +748,7 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
   statusMessage,
   onSelect,
   onClose,
+  onContextMenu,
 }) {
   const fileName = getFileName(tab.path);
   const tabButtonId = `workspace-file-tab-${tab.id}`;
@@ -654,12 +763,18 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
     },
     [onClose, tab.id]
   );
+  const handleContextMenu = useCallback(() => {
+    onContextMenu(tab);
+  }, [onContextMenu, tab]);
   return (
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: composite tab wrapper claims context-menu identity for its focusable tab button
+    // biome-ignore lint/a11y/noStaticElementInteractions: composite tab wrapper claims context-menu identity for its focusable tab button
     <div
       className={cn(
         'flex flex-shrink-0 items-center border-transparent border-r border-b-2',
         isActive ? 'border-b-primary bg-background' : 'bg-muted/30 hover:bg-muted'
       )}
+      onContextMenu={handleContextMenu}
     >
       <button
         aria-controls={panelId}

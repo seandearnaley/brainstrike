@@ -21,12 +21,16 @@ interface TabManagerData {
 
 interface TabManagerActions {
   clearTabs: () => void;
+  /** Atomically keep only `tabId`; returns the resulting active tab. */
+  closeOtherTabs: (tabId: string) => string | null;
   /**
    * Close a tab and return the resulting active tab id (or null if no tabs remain).
    * Returning the successor makes the contract explicit so callers don't need to read
    * `useTabManagerStore.getState().activeTabId` immediately after closing.
    */
   closeTab: (tabId: string) => string | null;
+  /** Atomically close every tab after `tabId`; returns the resulting active tab. */
+  closeTabsToRight: (tabId: string) => string | null;
   openTab: (path: string, tabId: string, compositeKey: string) => void;
   setActiveTab: (tabId: string) => void;
   setTabError: (tabId: string, error: string) => void;
@@ -155,6 +159,19 @@ export const useTabManagerStore = create<TabManagerStore>()(
 
       clearTabs: () => set({ activeTabId: null, tabs: [] }),
 
+      closeOtherTabs: (tabId) => {
+        const state = get();
+        const retainedTab = state.tabs.find((tab) => tab.id === tabId);
+        if (!retainedTab) {
+          return state.activeTabId;
+        }
+        if (state.tabs.length === 1 && state.activeTabId === tabId) {
+          return tabId;
+        }
+        set({ activeTabId: tabId, tabs: [retainedTab] });
+        return tabId;
+      },
+
       closeTab: (tabId) => {
         // Compute the successor against the snapshot from get() so the value we return
         // never depends on observing post-set state — this used to reach into the
@@ -171,6 +188,23 @@ export const useTabManagerStore = create<TabManagerStore>()(
         }
         set({ activeTabId: nextActive, tabs: newTabs });
         return nextActive;
+      },
+
+      closeTabsToRight: (tabId) => {
+        const state = get();
+        const targetIndex = state.tabs.findIndex((tab) => tab.id === tabId);
+        if (targetIndex === -1) {
+          return state.activeTabId;
+        }
+        const remainingTabs = state.tabs.slice(0, targetIndex + 1);
+        if (remainingTabs.length === state.tabs.length) {
+          return state.activeTabId;
+        }
+        const activeTabId = remainingTabs.some((tab) => tab.id === state.activeTabId)
+          ? state.activeTabId
+          : tabId;
+        set({ activeTabId, tabs: remainingTabs });
+        return activeTabId;
       },
 
       openTab: (path, tabId, compositeKey) => {

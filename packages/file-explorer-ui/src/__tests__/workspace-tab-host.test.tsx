@@ -1,5 +1,5 @@
 import { INACCESSIBLE_CONTENT_PREFIX, type TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutGrid } from 'lucide-react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -741,6 +741,78 @@ describe('WorkspaceTabHost', () => {
     await user.click(await screen.findByRole('button', { name: /more tab actions/i }));
     const closeAll = await screen.findByRole('menuitem', { name: /close all tabs/i });
     expect(closeAll).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('right-clicking an inactive file tab can close it without activating it', async () => {
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.mocked(tabModule.useTabManager).mockRestore();
+    __resetTabManagerStoreForTests();
+    const store = useTabManagerStore.getState();
+    store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
+    store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
+    store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/c.ts');
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close' }));
+
+    await waitFor(() => {
+      expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual([
+        'folderA|@|src/a.ts',
+        'folderA|@|src/c.ts',
+      ]);
+    });
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      kind: 'file',
+      tabId: 'folderA|@|src/c.ts',
+    });
+  });
+
+  it('right-click Close Others uses the clicked tab as the atomic retained target', async () => {
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.mocked(tabModule.useTabManager).mockRestore();
+    __resetTabManagerStoreForTests();
+    const store = useTabManagerStore.getState();
+    store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
+    store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
+    store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/c.ts');
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
+
+    await waitFor(() => {
+      expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual([
+        'folderA|@|src/b.ts',
+      ]);
+    });
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      kind: 'file',
+      tabId: 'folderA|@|src/b.ts',
+    });
+  });
+
+  it('does not invent a context menu for pinned workspace app tabs', async () => {
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /context explorer/i }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
   it('registers openFileInTab and loads newly opened file content once', async () => {

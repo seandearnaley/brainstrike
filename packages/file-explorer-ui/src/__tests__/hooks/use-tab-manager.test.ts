@@ -9,7 +9,7 @@ afterAll(() => {
 });
 
 import { useTabManager } from '../../hooks/use-tab-manager';
-import { __resetTabManagerStoreForTests } from '../../stores/tab-manager-store';
+import { __resetTabManagerStoreForTests, useTabManagerStore } from '../../stores/tab-manager-store';
 
 describe('useTabManager', () => {
   // Mock localStorage
@@ -244,6 +244,62 @@ describe('useTabManager', () => {
       expect(result.current.tabs).toHaveLength(2);
       expect(result.current.tabs.map((t) => t.id)).toEqual(['file2', 'file3']);
       expect(result.current.activeTabId).toBe('file2'); // Should activate the next tab
+    });
+  });
+
+  describe('atomic bulk close operations', () => {
+    function openFourTabs(): void {
+      const store = useTabManagerStore.getState();
+      store.openTab('/src/a.ts', 'file-a', 'file-a');
+      store.openTab('/src/b.ts', 'file-b', 'file-b');
+      store.openTab('/src/c.ts', 'file-c', 'file-c');
+      store.openTab('/src/d.ts', 'file-d', 'file-d');
+    }
+
+    it('closes other tabs in one store transition and makes the retained tab active', () => {
+      openFourTabs();
+      localStorageMock.setItem.mockClear();
+
+      let successor: string | null = null;
+      act(() => {
+        successor = useTabManagerStore.getState().closeOtherTabs('file-b');
+      });
+
+      expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual(['file-b']);
+      expect(useTabManagerStore.getState().activeTabId).toBe('file-b');
+      expect(successor).toBe('file-b');
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes tabs to the right atomically and chooses the target when active was removed', () => {
+      openFourTabs();
+      localStorageMock.setItem.mockClear();
+
+      let successor: string | null = null;
+      act(() => {
+        successor = useTabManagerStore.getState().closeTabsToRight('file-b');
+      });
+
+      expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual(['file-a', 'file-b']);
+      expect(useTabManagerStore.getState().activeTabId).toBe('file-b');
+      expect(successor).toBe('file-b');
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps current state unchanged when the target tab does not exist', () => {
+      openFourTabs();
+      const before = useTabManagerStore.getState();
+      localStorageMock.setItem.mockClear();
+
+      let successor: string | null = null;
+      act(() => {
+        successor = useTabManagerStore.getState().closeOtherTabs('missing');
+      });
+
+      expect(useTabManagerStore.getState().tabs).toEqual(before.tabs);
+      expect(useTabManagerStore.getState().activeTabId).toBe(before.activeTabId);
+      expect(successor).toBe(before.activeTabId);
+      expect(localStorageMock.setItem).not.toHaveBeenCalled();
     });
   });
 
