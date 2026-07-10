@@ -1075,6 +1075,73 @@ Adding/renaming an assistant native tool is multi-registry: zod schema + schemaM
 
 ---
 
+## WORKSPACE INSTRUCTIONS CONTEXT (AGENTS.md / AGENT.md / CLAUDE.md)
+
+Each mounted workspace root's top-level instructions file is auto-injected into
+the assistant's system context as a PREPENDED `system` message every turn.
+**Desktop-only** (needs fs + the assistant server; web has no injection path —
+capability-gated, no `isElectron()` checks). Sibling to `referenced-files-context.ts`.
+
+- **Injection** (`apps/desktop/src/assistant-server/workspace-instructions-context.ts`)
+  wired at the SAME request boundary as `injectReferencedFilesContext`
+  (`assistant-server.ts` `resolveInitialAgentStream`): referenced-files first,
+  then workspace instructions LAST so the general conventions land FRONTMOST.
+  Per root, first-match-wins over `AGENTS.md` → `AGENT.md` → `CLAUDE.md` at the
+  root's top level, read through `readWorkspaceTextFile`'s existing
+  containment/size/binary guards (NO new raw-fs read path). Headings are
+  qualified by `root.displayName` (two roots that both ship `AGENTS.md` stay
+  distinct). Budgets mirror referenced-files: `MAX_CONTEXT_FILE_CHARS` = 12_000
+  per file, `MAX_CONTEXT_FILES_TOTAL_CHARS` = 48_000 aggregate, with honest
+  truncation/omission notes when the aggregate binds. Skipped ENTIRELY for
+  provider `'local'` (the built-in Gemma's whole context budget is 8,192 tokens —
+  mirrors the personas/plan-mode local exclusions).
+
+- **THRESHOLD-HYBRID policy** (product ruling — never a silent drop):
+  - A file that FITS the per-file budget → auto-injected WHOLE by default (no note).
+  - An OVERSIZED file (> per-file budget) → NOT injected by default; requires an
+    explicit per-root opt-in. When opted in, injected TRUNCATED at the budget with
+    an honest note. When NOT opted in, it is NOT injected and NO skip-note goes in
+    the prompt — it is surfaced in the Settings UI as "detected but not injected
+    (too large — N KB / ~M tokens)" instead.
+  - A master enable toggle (default ON) covers the whole feature.
+  - Dogfooding reality: this repo's own `AGENTS.md` (~30KB) is OVERSIZED, so the
+    opt-in path is the modal case here.
+
+- **Preference** (`packages/preferences/src/stores/workspace-instructions-preferences-store.ts`) —
+  persisted `{ masterEnabled: true, oversizedOptInByRootId: Record<rootId, boolean> }`
+  keyed by durable DB `roots.id` (NEVER a raw path); only `true` opt-ins are
+  stored. Reset via the direct-call seam in `factory-reset-helpers.ts` (mirrors
+  `notification-preferences-store`, per the FACTORY RESET CONTRACT). The renderer
+  attaches a plain-JSON snapshot to the request `runtimeData.workspaceInstructionsPreference`
+  (contract type `WorkspaceInstructionsContextRequest`), gated to the desktop
+  data-stream transport like `permissionPolicyRequest` — but this is a
+  PREFERENCE, not a security boundary: the server reads it directly (no
+  server-side re-derivation, unlike the permission gate).
+
+- **Settings UI** (`packages/preferences/src/settings/system/workspace-instructions-settings-{section,category}.tsx`,
+  registered in the DESKTOP page-content only) lists each mounted root's detected
+  file with name, size, ~token estimate (chars/4, consistent with
+  `countTokensHeuristic`), injection status, and the oversized opt-in toggle. It
+  reads a per-root scan from `window.contextFiles.scan()` — IPC
+  (`ipc-context-files{,-handlers}.ts`, channel `context-files:scan`, preload
+  `contextFiles` bridge, capability-gated) whose main-process handler loads roots
+  from the DB (`loadWorkspaceRootsFromDatabase`) and reuses the injection path's
+  `findRootContextFile` (`workspace-instructions-scan.ts`) so status/oversized
+  decisions are byte-identical to injection.
+
+- **Deferred**: Mastra skills adoption (on-demand `createSkill()` per-root
+  instructions — the architecturally better long-term fit, blocked on verifying
+  its auto-added `skill`/`skill_search`/`skill_read` tools flow through the
+  permission gate); web (no workspace-tool bridge); prompt caching.
+
+When changing this flow, update this section and the paired tests
+(`packages/preferences` store + settings-section + factory-reset tests;
+`apps/desktop/src/assistant-server/__tests__/workspace-instructions-{context,scan}.test.ts`;
+`apps/desktop/src/__tests__/ipc-context-files-handlers.test.ts`;
+`packages/app-shell` request-builder test).
+
+---
+
 ## EDIT CHECKPOINT JOURNAL (UNDO OF AGENT FILE EDITS)
 
 Every agent file mutation records an undoable journal entry so a per-tool-card

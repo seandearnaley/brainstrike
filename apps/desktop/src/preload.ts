@@ -84,6 +84,7 @@ const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
+const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
 const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
 const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
 const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
@@ -1108,6 +1109,16 @@ if (shouldExposeBridge('hooks')) {
     // (a disconnected root's grant is never presented to the server).
     resolveTrustedRootIds: (absPaths: readonly string[]) =>
       ipcRenderer.invoke(HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL, absPaths),
+  });
+}
+
+// Workspace context-files bridge (desktop). Capability-gated: the Workspace
+// Instructions settings panel scans each mounted root's detected
+// AGENTS.md/AGENT.md/CLAUDE.md (size + token estimate + injection status) so the
+// user can opt an oversized file in. Web never constructs this bridge.
+if (shouldExposeBridge('contextFiles')) {
+  contextBridge.exposeInMainWorld('contextFiles', {
+    scan: () => ipcRenderer.invoke(CONTEXT_FILES_SCAN_CHANNEL),
   });
 }
 

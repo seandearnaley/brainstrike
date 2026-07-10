@@ -230,6 +230,12 @@ export function buildAssistantRequestData(args: {
     queueProgress: RuntimeData['workspaceIndexQueueProgress'] | null;
     statusState: RuntimeData['workspaceIndexStatusState'];
   };
+  /**
+   * Opt-in workspace instructions preference; only set on the desktop
+   * data-stream transport (web has no injection path). A preference, not a
+   * security boundary — the server reads it directly.
+   */
+  workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
   workspaceRootPath: string | null;
 }): Record<string, unknown> {
   const data: Record<string, unknown> = {};
@@ -293,24 +299,40 @@ export function buildAssistantRequestData(args: {
   if (args.providerOptions) {
     data['providerOptions'] = args.providerOptions;
   }
-  // Permission enforcement is OPT-IN: the caller passes a snapshot ONLY when the
-  // user enabled `enforce`, so its mere presence here means "enforce". The
-  // server (`resolveRequestPermissionPolicy`) still re-checks `enforce` and adds
-  // server-owned tool risk classification. When absent, nothing is sent and the
-  // runtime keeps its passthrough default.
-  if (args.permissionPolicyRequest) {
-    data['permissionPolicyRequest'] = args.permissionPolicyRequest;
+  attachOptInRequestFields(data, args);
+  return data;
+}
+
+interface OptInRequestFields {
+  hookTrustRequest?: HookTrustRequest | undefined;
+  permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
+  planMode?: boolean;
+  workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
+}
+
+/**
+ * Attach the OPT-IN / presence-means-on request fields (all desktop
+ * data-stream-gated by the caller). Extracted so `buildAssistantRequestData`
+ * stays under the cognitive-complexity budget.
+ */
+function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRequestFields): void {
+  // Permission enforcement is OPT-IN: presence means "enforce"; the server
+  // re-checks `enforce` and adds server-owned tool risk classification.
+  if (fields.permissionPolicyRequest) {
+    data['permissionPolicyRequest'] = fields.permissionPolicyRequest;
   }
-  // Hook-trust attestation is presence-means-desktop: only sent on the
-  // data-stream transport (the caller gates it); the server re-hashes disk.
-  if (args.hookTrustRequest) {
-    data['hookTrustRequest'] = args.hookTrustRequest;
+  // Hook-trust attestation: only on the data-stream transport; server re-hashes disk.
+  if (fields.hookTrustRequest) {
+    data['hookTrustRequest'] = fields.hookTrustRequest;
   }
   // Plan mode is presence-means-on: only send `true`, never a `false` residue.
-  if (args.planMode) {
+  if (fields.planMode) {
     data['planMode'] = true;
   }
-  return data;
+  // Workspace instructions preference: absent => server default (master on).
+  if (fields.workspaceInstructionsPreference) {
+    data['workspaceInstructionsPreference'] = fields.workspaceInstructionsPreference;
+  }
 }
 
 function getAssistantTapestryColor(key: string): string {

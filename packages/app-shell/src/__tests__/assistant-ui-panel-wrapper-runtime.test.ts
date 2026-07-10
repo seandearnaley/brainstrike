@@ -363,6 +363,37 @@ describe('assistant runtime helpers', () => {
     expect(buildAssistantRequestData({ ...baseArgs, planMode: true })['planMode']).toBe(true);
   });
 
+  it('attaches workspaceInstructionsPreference only when provided (desktop transport gate)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    // Absent (web / non-data-stream) → nothing attached.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty(
+      'workspaceInstructionsPreference'
+    );
+
+    const preference = { masterEnabled: true, oversizedOptInByRootId: { 'root-a': true } };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, workspaceInstructionsPreference: preference })[
+        'workspaceInstructionsPreference'
+      ]
+    ).toEqual(preference);
+  });
+
   it('attaches hookTrustRequest only when provided (desktop transport gate)', () => {
     const baseArgs = {
       agentLoopSettings: { maxSteps: 6 },

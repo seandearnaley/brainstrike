@@ -19,6 +19,9 @@ export const DESKTOP_IPC_CHANNELS = {
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
     open: 'command-palette:open',
   },
+  contextFiles: {
+    scan: 'context-files:scan',
+  },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
     clearAll: 'db:clearAll',

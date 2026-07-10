@@ -31,6 +31,7 @@ import {
 } from '@brainstrike/preferences/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/preferences/stores/workspace-instructions-preferences-store';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
@@ -870,6 +871,31 @@ export function AssistantUiPanelWrapper({
   const planMode = planModeEnabledPref && planModeAvailable;
   const exitPlanMode = useCallback(() => setPlanModeEnabled(false), [setPlanModeEnabled]);
 
+  // Workspace instructions context-file injection (AGENTS.md/AGENT.md/CLAUDE.md).
+  // Desktop-hosted-first: only the data-stream transport reaches the assistant
+  // server that performs the fs scan + injection (web's in-renderer local
+  // runtime has no server). Attach the persisted preference snapshot as plain
+  // JSON; the server reads it directly (a preference, not a security boundary).
+  const workspaceInstructionsMasterEnabled = useWorkspaceInstructionsPreferencesStore(
+    (state) => state.masterEnabled
+  );
+  const workspaceInstructionsOversizedOptIns = useWorkspaceInstructionsPreferencesStore(
+    (state) => state.oversizedOptInByRootId
+  );
+  const workspaceInstructionsPreference = useMemo(() => {
+    if (localChatTransport !== 'data-stream') {
+      return;
+    }
+    return {
+      masterEnabled: workspaceInstructionsMasterEnabled,
+      oversizedOptInByRootId: workspaceInstructionsOversizedOptIns,
+    };
+  }, [
+    localChatTransport,
+    workspaceInstructionsMasterEnabled,
+    workspaceInstructionsOversizedOptIns,
+  ]);
+
   useEffect(() => {
     if (!assistantThreadRepository) {
       return;
@@ -917,6 +943,7 @@ export function AssistantUiPanelWrapper({
     selectionData,
     semanticRecallSettings,
     workspaceIndex,
+    workspaceInstructionsPreference,
     workspaceRootPath,
   });
 

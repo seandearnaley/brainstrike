@@ -95,6 +95,7 @@ import {
 } from './assistant-server/local-llm-host-client';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { readThreadTaskList } from './assistant-server/task-list-repository';
+import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
@@ -1260,8 +1261,18 @@ async function resolveInitialAgentStream(args: {
   if (toolResumeAction) {
     return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
   }
+  // Prepend the turn's `@file` references (referenced-files), then the mounted
+  // roots' workspace instructions (AGENTS.md/AGENT.md/CLAUDE.md). Instructions
+  // are applied LAST so they land at the FRONT of the message array — the
+  // general workspace conventions precede the turn-specific referenced files and
+  // the conversation. Both are no-ops (same array identity) when nothing applies.
+  const withReferencedFiles = await injectReferencedFilesContext(
+    messages,
+    runtime,
+    readWorkspaceTextFile
+  );
   return toAiSdkStyleStream(
-    await injectReferencedFilesContext(messages, runtime, readWorkspaceTextFile),
+    await injectWorkspaceInstructionsContext(withReferencedFiles, runtime, readWorkspaceTextFile),
     runtime,
     memoryOptions
   );

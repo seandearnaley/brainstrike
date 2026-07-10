@@ -2,6 +2,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { resetHookTrustStoreToDefaults } from '../../stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from '../../stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
+import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from '../../stores/workspace-instructions-preferences-store';
 
 const logger = createLogger('FactoryReset');
 
@@ -335,6 +336,15 @@ function clearBrowserStorage(): void {
     resetHookTrustStoreToDefaults();
   } catch (error) {
     logger.warn('Failed to reset hook trust store', { error });
+  }
+
+  // Same rationale as the notification store above: `masterEnabled` and the
+  // per-root oversized opt-in map are live in-memory state a reset without a
+  // reload (web path) would otherwise leave in place.
+  try {
+    resetWorkspaceInstructionsPreferencesStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset workspace instructions preferences store', { error });
   }
 
   // Drain externally-registered session-store resetters (see the registry doc

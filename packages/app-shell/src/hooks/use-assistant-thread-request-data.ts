@@ -50,6 +50,11 @@ interface UseAssistantThreadRequestDataArgs {
     readonly queueProgress: RuntimeData['workspaceIndexQueueProgress'] | null;
     readonly statusState: RuntimeData['workspaceIndexStatusState'];
   };
+  /**
+   * Opt-in workspace instructions preference; only set on the desktop
+   * data-stream transport (web has no injection path). Passthrough otherwise.
+   */
+  readonly workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
   readonly workspaceRootPath: string | null;
 }
 
@@ -74,6 +79,7 @@ export function useAssistantThreadRequestData({
   selectedMemoryThreadId,
   selectionData,
   semanticRecallSettings,
+  workspaceInstructionsPreference,
   workspaceIndex,
   workspaceRootPath,
 }: UseAssistantThreadRequestDataArgs): UseAssistantThreadRequestDataResult {
@@ -102,6 +108,7 @@ export function useAssistantThreadRequestData({
         selectedMemoryThreadId,
         selectionData,
         workspaceContext: runtimeWorkspaceContext,
+        ...(workspaceInstructionsPreference ? { workspaceInstructionsPreference } : {}),
         workspaceIndex,
         workspaceRootPath,
       }),
@@ -120,6 +127,7 @@ export function useAssistantThreadRequestData({
       selectedMemoryThreadId,
       selectionData,
       runtimeWorkspaceContext,
+      workspaceInstructionsPreference,
       workspaceIndex,
       workspaceRootPath,
     ]
