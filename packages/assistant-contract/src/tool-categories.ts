@@ -10,6 +10,14 @@
 import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
 
 /**
+ * Canonical id for the web-search native tool. Single source of truth shared by
+ * the desktop tool registry (which builds the Tavily-backed entry) and the agent
+ * runtime (which may swap in a provider-native search tool under the same id). A
+ * `read`-risk retrieval tool — see NATIVE_TOOL_DEFAULTS below.
+ */
+export const WEB_SEARCH_TOOL_ID = 'brainstrike.webSearch' as const;
+
+/**
  * Source of a tool - either built into the application or from an MCP server.
  */
 export type ToolSource = 'native' | 'mcp';

@@ -22,6 +22,7 @@ import {
 } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import { createListingOnlyModel } from '../providers/listing-only-model';
+import { applyProviderNativeWebSearch } from '../providers/native-web-search';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import type {
   AssistantRunEventKind,
@@ -487,6 +488,21 @@ export async function createMastraAgentRuntime(
     logger
   );
 
+  // Provider-native web search (v1: anthropic/openai only). Runs AFTER the gate
+  // so it uses the gate's authoritative decision — swap the web-search entry to
+  // the provider-executed tool ONLY when it resolved to `allow`; on `ask`/`deny`
+  // the execute-backed Tavily tool stays (a provider-native tool has no execute
+  // and cannot be approval-gated). Guarded to supported providers, so every other
+  // caller/path is unchanged (see native-web-search.ts).
+  const finalTools = applyProviderNativeWebSearch({
+    apiKey,
+    askTools,
+    logger,
+    provider: normalizedProvider,
+    toolNameMap,
+    tools: gatedTools,
+  });
+
   // Create provider-specific model instance. The DISCOVERY path passes
   // `modelOverride` (an inert listing-only model) so provider/model are never
   // resolved — listing suspended runs performs no inference and must not require
@@ -517,7 +533,7 @@ export async function createMastraAgentRuntime(
   // name map to the sanitized ids present in `gatedTools` (both are keyed by the
   // same sanitized id — see sanitizeTools) so an omitted tool is never advertised.
   const effectiveToolNameMap = new Map(
-    Array.from(toolNameMap).filter(([sanitizedId]) => sanitizedId in gatedTools)
+    Array.from(toolNameMap).filter(([sanitizedId]) => sanitizedId in finalTools)
   );
 
   // Subagent personas (D10): built BEFORE the instructions so guidance only
@@ -553,7 +569,7 @@ export async function createMastraAgentRuntime(
     instructions: composedInstructions,
     model: languageModel,
     name: 'Brainstrike Assistant',
-    tools: gatedTools,
+    tools: finalTools,
     ...(hasSubAgents ? { agents: subAgents } : {}),
     ...(memory ? { memory } : {}),
   });
