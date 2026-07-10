@@ -54,6 +54,7 @@ import {
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
+import { createSuspendedApprovalDiscovery } from './assistant-suspended-approvals';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   addValuesToSet,
@@ -84,6 +85,7 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
@@ -876,12 +878,22 @@ export function AssistantUiPanelWrapper({
     if (!(assistantThreadRepository && selectedMemoryThreadId)) {
       return;
     }
+    // Restart-safe approval rediscovery is desktop-only (web never suspends —
+    // no assistant server/storage). Capability gating, no isElectron() check.
     return createAssistantThreadHistoryAdapter({
       repository: assistantThreadRepository,
       resourceId: memoryResourceId,
       threadId: selectedMemoryThreadId,
+      ...(desktopAssistantBackendAvailable
+        ? { discoverSuspendedApprovals: createSuspendedApprovalDiscovery(resolveAssistantBaseUrl) }
+        : {}),
     });
-  }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId]);
+  }, [
+    assistantThreadRepository,
+    desktopAssistantBackendAvailable,
+    memoryResourceId,
+    selectedMemoryThreadId,
+  ]);
 
   const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
     agentLoopSettings,

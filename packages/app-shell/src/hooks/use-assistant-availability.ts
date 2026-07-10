@@ -162,9 +162,14 @@ function subscribeToAssistantAvailabilityOverride(onStoreChange: () => void): ()
   };
 }
 
-export async function resolveAssistantStatusUrl(): Promise<string> {
+/**
+ * Resolve the assistant server ROOT base URL via the same strategy the status
+ * probe uses (bridge `getUrl()` → static `url` → `/api` fallback). Callers append
+ * their own endpoint path (`/assistant/status`, `/assistant/suspended-runs`, …).
+ */
+export async function resolveAssistantBaseUrl(): Promise<string> {
   if (typeof window === 'undefined') {
-    return '/api/assistant/status';
+    return '/api';
   }
 
   interface AssistantBridge {
@@ -179,7 +184,7 @@ export async function resolveAssistantStatusUrl(): Promise<string> {
       try {
         const base = await assistantBridge.getUrl();
         if (base) {
-          return `${trimTrailingSlash(base)}/assistant/status`;
+          return trimTrailingSlash(base);
         }
       } catch {
         // ignored - fall through to other strategies
@@ -187,11 +192,15 @@ export async function resolveAssistantStatusUrl(): Promise<string> {
     }
 
     if (typeof assistantBridge.url === 'string' && assistantBridge.url.length > 0) {
-      return `${trimTrailingSlash(assistantBridge.url)}/assistant/status`;
+      return trimTrailingSlash(assistantBridge.url);
     }
   }
 
-  return '/api/assistant/status';
+  return '/api';
+}
+
+export async function resolveAssistantStatusUrl(): Promise<string> {
+  return `${await resolveAssistantBaseUrl()}/assistant/status`;
 }
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');

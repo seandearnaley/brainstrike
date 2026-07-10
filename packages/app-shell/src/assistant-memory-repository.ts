@@ -14,8 +14,13 @@ import {
   type AssistantRunEventStatus,
   sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/assistant-contract/run-events';
+import {
+  type RediscoveredToolApproval,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
 import type { DbHandle } from '@brainstrike/db';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
+import type { SuspendedApprovalDiscovery } from './assistant-suspended-approvals';
 
 export interface AssistantMemoryThread {
   readonly createdAt: Date;
@@ -1304,6 +1309,56 @@ function toHistoryRepository(
   };
 }
 
+/**
+ * Append one synthetic trailing assistant message per rediscovered suspended
+ * approval, each carrying a single `TOOL_APPROVAL_DATA_NAME` data part identical
+ * to the live-stream mapper's output — so the existing approval notice renders
+ * and its Approve/Decline reuses the (restart-safe) resume seam unchanged.
+ * Ordered oldest-first (by `suspendedAt`) and chained onto the current head so
+ * the notices sit at the bottom of the thread. `toHistoryRepository` stays
+ * untouched (its many existing tests keep passing).
+ */
+function appendSuspendedApprovalMessages(
+  result: AssistantHistoryLoadResult,
+  approvals: readonly RediscoveredToolApproval[]
+): AssistantHistoryLoadResult {
+  if (approvals.length === 0) {
+    return result;
+  }
+  const messages: AssistantHistoryRepositoryMessages = [...result.messages];
+  const sorted = [...approvals].sort(
+    (a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt)
+  );
+  let parentId: string | null = result.headId ?? null;
+  let headId: string | null = result.headId ?? null;
+  for (const approval of sorted) {
+    const id = `suspended-approval:${approval.runId}:${approval.toolCallId}`;
+    messages.push({
+      message: {
+        content: [{ data: approval, name: TOOL_APPROVAL_DATA_NAME, type: 'data' }],
+        createdAt: new Date(approval.suspendedAt),
+        id,
+        metadata: {
+          custom: {},
+          steps: [],
+          // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
+          unstable_annotations: [],
+          // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
+          unstable_data: [],
+          // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
+          unstable_state: null,
+        },
+        role: 'assistant',
+        status: { reason: 'stop', type: 'complete' },
+      },
+      parentId,
+    });
+    parentId = id;
+    headId = id;
+  }
+  return { headId, messages };
+}
+
 export function createPgliteAssistantThreadRepository(
   database: DbHandle
 ): AssistantThreadRepository {
@@ -1751,10 +1806,18 @@ export function createPgliteAssistantThreadRepository(
 }
 
 export function createAssistantThreadHistoryAdapter({
+  discoverSuspendedApprovals,
   repository,
   resourceId,
   threadId,
 }: {
+  /**
+   * Desktop-only capability: rediscover approvals stranded by a restart/reload
+   * (see assistant-suspended-approvals.ts). Omitted on web (no assistant server /
+   * storage, so web never suspends), where its absence means "no suspended
+   * approvals" and hydration is byte-identical to today.
+   */
+  readonly discoverSuspendedApprovals?: SuspendedApprovalDiscovery;
   readonly repository: AssistantThreadRepository;
   readonly resourceId: string;
   readonly threadId: string;
@@ -1769,7 +1832,12 @@ export function createAssistantThreadHistoryAdapter({
         limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
       });
       const runEvents = await repository.listThreadRunEvents(threadId, resourceId);
-      return toHistoryRepository(messages, runEvents);
+      const base = toHistoryRepository(messages, runEvents);
+      if (!discoverSuspendedApprovals) {
+        return base;
+      }
+      const approvals = await discoverSuspendedApprovals(threadId, resourceId);
+      return appendSuspendedApprovalMessages(base, approvals);
     },
   };
 }

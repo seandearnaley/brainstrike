@@ -1,4 +1,8 @@
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
+import {
+  type RediscoveredToolApproval,
+  TOOL_APPROVAL_DATA_NAME,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { type DbHandle, wasmLoader } from '@brainstrike/db';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -7,6 +11,43 @@ import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from '../assistant-memory-repository';
+
+function makeMessagesOnlyRepository(): AssistantThreadRepository {
+  return {
+    appendThreadRunEvent: vi.fn(),
+    completeThreadRun: vi.fn(),
+    createThread: vi.fn(),
+    createThreadRun: vi.fn(),
+    deleteThread: vi.fn(),
+    getCrossRootUsage: vi.fn(async () => []),
+    getThreadCumulativeUsage: vi.fn(async () => null),
+    listLatestThreadRuns: vi.fn(),
+    listMessages: vi.fn(async () => [
+      {
+        content: { content: 'Please run the deploy.' },
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'message-1',
+        role: 'user' as const,
+      },
+    ]),
+    listThreadRunEvents: vi.fn(async () => []),
+    listThreads: vi.fn(),
+    recordRunUsage: vi.fn(),
+    renameThread: vi.fn(),
+    updateThreadMetadata: vi.fn(),
+  };
+}
+
+function makeApproval(overrides: Partial<RediscoveredToolApproval>): RediscoveredToolApproval {
+  return {
+    runId: 'run-1',
+    stale: false,
+    suspendedAt: '2026-04-22T10:05:00.000Z',
+    toolCallId: 'call-1',
+    toolName: 'brainstrike.executeCommand',
+    ...overrides,
+  };
+}
 
 describe('createAssistantThreadHistoryAdapter', () => {
   it('hydrates assistant-ui history from Mastra memory messages', async () => {
@@ -57,6 +98,82 @@ describe('createAssistantThreadHistoryAdapter', () => {
     expect(history.messages[0]?.message.content).toEqual([
       { text: 'Remember the deploy window is Friday.', type: 'text' },
     ]);
+  });
+
+  it('appends a synthetic approval notice message per rediscovered suspended run', async () => {
+    const repository = makeMessagesOnlyRepository();
+    const discoverSuspendedApprovals = vi.fn(async () => [makeApproval({})]);
+
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedApprovals,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+
+    expect(discoverSuspendedApprovals).toHaveBeenCalledWith('thread-1', 'workspace-a');
+    const last = history.messages.at(-1);
+    expect(last?.message.id).toBe('suspended-approval:run-1:call-1');
+    expect(last?.parentId).toBe('message-1');
+    expect(last?.message.role).toBe('assistant');
+    expect(last?.message.content).toEqual([
+      { data: makeApproval({}), name: TOOL_APPROVAL_DATA_NAME, type: 'data' },
+    ]);
+    expect(history.headId).toBe('suspended-approval:run-1:call-1');
+  });
+
+  it('orders multiple rediscovered approvals oldest-first as trailing messages', async () => {
+    const repository = makeMessagesOnlyRepository();
+    const newer = makeApproval({
+      runId: 'run-newer',
+      suspendedAt: '2026-04-22T12:00:00.000Z',
+      toolCallId: 'call-newer',
+    });
+    const older = makeApproval({
+      runId: 'run-older',
+      suspendedAt: '2026-04-22T11:00:00.000Z',
+      toolCallId: 'call-older',
+    });
+    const discoverSuspendedApprovals = vi.fn(async () => [newer, older]);
+
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedApprovals,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+
+    const suspendedIds = history.messages
+      .filter((item) => item.message.id.startsWith('suspended-approval:'))
+      .map((item) => item.message.id);
+    expect(suspendedIds).toEqual([
+      'suspended-approval:run-older:call-older',
+      'suspended-approval:run-newer:call-newer',
+    ]);
+    expect(history.headId).toBe('suspended-approval:run-newer:call-newer');
+  });
+
+  it('is byte-identical to the base hydration when no discovery capability is provided', async () => {
+    const repository = makeMessagesOnlyRepository();
+    const withoutCapability = await createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    }).load();
+
+    const emptyDiscovery = vi.fn(async () => []);
+    const withEmptyDiscovery = await createAssistantThreadHistoryAdapter({
+      discoverSuspendedApprovals: emptyDiscovery,
+      repository: makeMessagesOnlyRepository(),
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    }).load();
+
+    expect(withEmptyDiscovery).toEqual(withoutCapability);
   });
 
   it('hydrates only the bounded latest message window from Mastra memory', async () => {
