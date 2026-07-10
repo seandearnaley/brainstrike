@@ -9,15 +9,7 @@ import type {
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/utils/logger';
 import { Check, ListChecks, MessageCircleQuestion, X } from 'lucide-react';
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { createContext, type ReactNode, use, useCallback, useMemo, useState } from 'react';
 import { Button } from '../button';
 
 const logger = createLogger('AssistantToolSuspendNotice');
@@ -48,7 +40,7 @@ export function PlanModeExitProvider({
 }
 
 function usePlanModeExit(): (() => void) | null {
-  return useContext(PlanModeExitContext);
+  return use(PlanModeExitContext);
 }
 
 interface AssistantToolSuspendNoticeProps {
@@ -173,17 +165,21 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const runOutcome = useAuiState((state) =>
     resolveSuspendRunOutcome(state.thread.messages, request)
   );
+  // A failed resume (`retryable`) must clear the optimistic local lock so the
+  // buttons re-enable for a retry. Adjust the state during render on the
+  // TRANSITION into `retryable` (prev-outcome comparison) instead of via an
+  // effect — routing it through useEffect forces an extra render with a stale,
+  // still-locked UI between commits. Same net behavior as the approval notice's
+  // reset, without a set-state-in-effect cascade.
+  const [prevRunOutcome, setPrevRunOutcome] = useState(runOutcome);
+  if (runOutcome !== prevRunOutcome) {
+    setPrevRunOutcome(runOutcome);
+    if (submitted && runOutcome === 'retryable') {
+      setSubmitted(false);
+    }
+  }
   const lockedByRun = runOutcome === 'pending' || runOutcome === 'completed';
   const locked = submitted || lockedByRun;
-
-  // A failed resume (`retryable`) must clear the optimistic local lock so the
-  // buttons re-enable for a retry — mirrors the approval notice's reset effect.
-  useEffect(() => {
-    if (!submitted || runOutcome !== 'retryable') {
-      return;
-    }
-    setSubmitted(false);
-  }, [runOutcome, submitted]);
 
   const submit = useCallback(
     (resumeData: unknown, summary: string): void => {
