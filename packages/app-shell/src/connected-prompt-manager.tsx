@@ -13,7 +13,7 @@ import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-reg
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
@@ -47,6 +47,36 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim()
     ? error.message
     : `Unexpected Prompt Workbench failure: ${String(error)}`;
+}
+
+function promptRecallAbortError(): Error {
+  const error = new Error('Prompt recall was cancelled because suggestions are no longer active.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfPromptRecallAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : promptRecallAbortError();
+  }
+}
+
+function usePromptRecallAbortController(enabled: boolean) {
+  const controllerRef = useRef<AbortController | null>(null);
+  useLayoutEffect(() => {
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    if (!enabled) {
+      controller.abort(promptRecallAbortError());
+    }
+    return () => {
+      controller.abort(promptRecallAbortError());
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
+      }
+    };
+  }, [enabled]);
+  return controllerRef;
 }
 
 function parseCompositeModelKey(modelKey: string): { model: string; provider: string } {
@@ -356,6 +386,7 @@ export function ConnectedPromptManager({
   const [usageError, setUsageError] = useState<string | null>(null);
   const indexingTailRef = useRef<Promise<void> | null>(null);
   const latestIndexingRequestIdRef = useRef(0);
+  const promptRecallAbortControllerRef = usePromptRecallAbortController(suggestionsEnabled);
 
   const repository = useMemo(() => (db ? new PromptItemRepository(db) : null), [db]);
   const threadRepository = useMemo(
@@ -504,17 +535,32 @@ export function ConnectedPromptManager({
       if (!repository) {
         throw new Error('Cannot recall prompts before the database is ready.');
       }
+      const signal = promptRecallAbortControllerRef.current?.signal;
+      if (!(suggestionsEnabled && signal)) {
+        throw promptRecallAbortError();
+      }
+      throwIfPromptRecallAborted(signal);
       await ensureEmbeddingQueueReady();
+      throwIfPromptRecallAborted(signal);
       const modelInfo = await resolveModelInfo();
+      throwIfPromptRecallAborted(signal);
       return queryPromptSuggestions({
         context,
         embedder,
         modelInfo,
         options: { limit: 6, threshold: 0.35 },
         repository,
+        signal,
       });
     },
-    [embedder, ensureEmbeddingQueueReady, repository, resolveModelInfo]
+    [
+      embedder,
+      ensureEmbeddingQueueReady,
+      promptRecallAbortControllerRef,
+      repository,
+      resolveModelInfo,
+      suggestionsEnabled,
+    ]
   );
 
   const recordAppliedUsage = useCallback(

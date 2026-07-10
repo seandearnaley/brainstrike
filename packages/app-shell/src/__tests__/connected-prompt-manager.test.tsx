@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => {
     onLibraryError: vi.fn(),
     onUseError: vi.fn(),
     queryPromptSuggestions: vi.fn(),
+    recallRequest: null as Promise<unknown> | null,
     recordUsage: vi.fn(),
     renameThread: vi.fn(),
     sharedEmbedder: { embedDocumentWithRecovery, embedQueryWithRecovery },
@@ -202,6 +203,7 @@ vi.mock('../prompt-workbench-panel', () => ({
       action: 'compose' | 'insert' | 'new-thread'
     ) => Promise<void>;
     systemError?: string;
+    suggestionsEnabled?: boolean;
   }) => (
     <div data-testid="prompt-workbench-panel">
       <span data-testid="active-thread-id">{props.activeThreadId}</span>
@@ -442,7 +444,14 @@ vi.mock('../prompt-workbench-panel', () => ({
       >
         New thread from whitespace prompt
       </button>
-      <button onClick={() => props.onRequestSuggestions('Live draft')} type="button">
+      <button
+        onClick={() => {
+          const request = props.onRequestSuggestions('Live draft');
+          mocks.recallRequest = request;
+          void request.catch(mocks.onLibraryError);
+        }}
+        type="button"
+      >
         Recall suggestions
       </button>
       <button
@@ -471,6 +480,7 @@ describe('ConnectedPromptManager', () => {
     mocks.embedPendingPromptItems.mockResolvedValue([]);
     mocks.queryPromptSuggestions.mockResolvedValue([]);
     mocks.recordUsage.mockResolvedValue(testItem);
+    mocks.recallRequest = null;
     repository.list.mockReset().mockResolvedValue([]);
     mocks.createThread.mockImplementation(async (resourceId: string, title = 'New Thread') => ({
       createdAt: new Date('2026-07-10T12:00:00Z'),
@@ -879,6 +889,39 @@ describe('ConnectedPromptManager', () => {
         })
       )
     );
+  });
+
+  it('does not start query inference when recall is disabled while prerequisites load', async () => {
+    const user = userEvent.setup();
+    let resolveQueue!: (queue: { id: string }) => void;
+    const queueReady = new Promise<{ id: string }>((resolve) => {
+      resolveQueue = resolve;
+    });
+    mocks.loadEmbeddingQueue.mockReturnValue(queueReady);
+    mocks.embedQueryWithRecovery.mockResolvedValue([0.1, 0.2]);
+    mocks.queryPromptSuggestions.mockImplementation(
+      async ({ context, embedder, modelInfo, signal }) => {
+        signal.throwIfAborted();
+        await embedder.embedQueryWithRecovery(modelInfo, context);
+        return [];
+      }
+    );
+    const renderManager = (suggestionsEnabled: boolean) => (
+      <ConnectedPromptManager
+        loadEmbeddingQueue={mocks.loadEmbeddingQueue}
+        suggestionsEnabled={suggestionsEnabled}
+      />
+    );
+    const view = render(renderManager(true));
+
+    await user.click(await screen.findByRole('button', { name: 'Recall suggestions' }));
+    await waitFor(() => expect(mocks.loadEmbeddingQueue).toHaveBeenCalledTimes(2));
+    view.rerender(renderManager(false));
+
+    resolveQueue({ id: 'prompt-embedding-queue' });
+    await mocks.recallRequest?.catch(() => undefined);
+
+    expect(mocks.embedQueryWithRecovery).not.toHaveBeenCalled();
   });
 
   it('refreshes initially pending items after background indexing finishes', async () => {

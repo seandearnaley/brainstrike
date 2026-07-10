@@ -46,6 +46,7 @@ interface PromptEmbeddingDependencies {
 export interface QueryPromptSuggestionsInput extends PromptEmbeddingDependencies {
   readonly context: string;
   readonly options?: PromptItemSimilarityOptions;
+  readonly signal: AbortSignal;
 }
 
 function assertModelMatchesProfile(
@@ -139,12 +140,16 @@ export async function queryPromptSuggestions({
   modelInfo,
   options,
   repository,
+  signal,
 }: QueryPromptSuggestionsInput): Promise<PromptItemSimilarityResult[]> {
   if (!context.trim()) {
     throw new Error('Prompt suggestion context must contain non-whitespace text.');
   }
 
+  signal.throwIfAborted();
   await requireMatchingProfile(repository, modelInfo);
+  signal.throwIfAborted();
   const queryEmbedding = await embedder.embedQueryWithRecovery(modelInfo, context);
+  signal.throwIfAborted();
   return repository.searchSimilar(queryEmbedding, options);
 }

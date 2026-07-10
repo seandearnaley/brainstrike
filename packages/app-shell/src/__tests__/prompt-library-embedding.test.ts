@@ -26,6 +26,8 @@ const profile = {
   modelKey: modelInfo.modelKey,
 };
 
+const activeSignal = new AbortController().signal;
+
 function makeItem(overrides: Partial<PromptItem> = {}): PromptItem {
   return {
     archivedAt: null,
@@ -200,6 +202,7 @@ describe('prompt library embedding', () => {
         modelInfo,
         options: { excludeIds: ['current'], kinds: ['snippet'], limit: 4, threshold: 0.5 },
         repository,
+        signal: activeSignal,
       })
     ).resolves.toEqual([suggestion]);
 
@@ -216,6 +219,33 @@ describe('prompt library embedding', () => {
     expect(embedDocumentWithRecovery).not.toHaveBeenCalled();
   });
 
+  it('does not start query inference when recall is aborted during profile validation', async () => {
+    let resolveProfile!: (value: typeof profile) => void;
+    const profileReady = new Promise<typeof profile>((resolve) => {
+      resolveProfile = resolve;
+    });
+    const repository = makeRepository({
+      getEmbeddingProfile: vi.fn().mockReturnValue(profileReady),
+    });
+    const embedQueryWithRecovery = vi.fn().mockResolvedValue([0.7, 0.8]);
+    const controller = new AbortController();
+    const request = queryPromptSuggestions({
+      context: 'Review this context',
+      embedder: { embedDocumentWithRecovery: vi.fn(), embedQueryWithRecovery },
+      modelInfo,
+      repository,
+      signal: controller.signal,
+    });
+    const abortError = new Error('Prompt recall is no longer visible.');
+    abortError.name = 'AbortError';
+
+    controller.abort(abortError);
+    resolveProfile(profile);
+
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    expect(embedQueryWithRecovery).not.toHaveBeenCalled();
+  });
+
   it('fails explicitly for blank context, model-profile drift, or query embedding errors', async () => {
     const repository = makeRepository();
     const embedQueryWithRecovery = vi.fn().mockRejectedValue(new Error('provider key missing'));
@@ -223,6 +253,7 @@ describe('prompt library embedding', () => {
       embedder: { embedDocumentWithRecovery: vi.fn(), embedQueryWithRecovery },
       modelInfo,
       repository,
+      signal: activeSignal,
     };
 
     await expect(queryPromptSuggestions({ ...dependencies, context: '   ' })).rejects.toThrow(
