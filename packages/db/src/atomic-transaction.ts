@@ -15,7 +15,9 @@
 export interface TransactionStatement {
   /**
    * Optional assertion evaluated immediately after this statement, while the
-   * transaction is still open. A mismatch throws and rolls back the whole batch.
+   * transaction is still open. This compares returned rows (`res.rows.length`),
+   * not affected rows, so guarded mutations must include `RETURNING`. A mismatch
+   * throws and rolls back the whole batch.
    */
   expectedRowCount?: number;
   params?: unknown[];

@@ -226,12 +226,15 @@ Ownership and flow:
   import retains the payload and surfaces a durable warning, but it must not hide valid
   PGlite prompts: bootstrap still performs the authoritative initial repository `list()`.
   That database read remains fatal if it fails, and successful indexing must not clear the
-  separate legacy-import warning.
+  separate legacy-import warning. Text filters treat SQL LIKE metacharacters (`%`, `_`, and
+  `\`) as literals.
 - Recall: prompt records own vectors under the dedicated singleton prompt profile — they
   are NOT fake files and MUST NOT be added to `embedding_sets`. Saved items use document
   embeddings; live composer context uses query embeddings. Vector failures surface in the
-  workbench; there is no lexical fallback. The app-specific embedding queue loader MUST
-  resolve before either operation so desktop/web worker URLs are registered explicitly.
+  workbench; there is no lexical fallback. Similarity search currently supports only cosine
+  distance and fails closed when the configured profile declares `l2` or `ip`. The app-specific
+  embedding queue loader MUST resolve before either operation so desktop/web worker URLs are
+  registered explicitly.
   Indexing passes are serialized; overlapping bootstrap/save passes must never write the
   same revision concurrently. Connected refreshes remain authoritative and the interaction
   layer reconciles them into its local working set. Async save/list completions must merge

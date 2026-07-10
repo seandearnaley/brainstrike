@@ -18,6 +18,7 @@ import {
   type StorePromptItemEmbeddingInput,
   type UpdatePromptItemInput,
 } from '../models/prompt-item.js';
+import { escapeLikeLiteral } from '../search/grep-pattern.js';
 
 export interface PromptItemDatabase {
   query: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
@@ -740,9 +741,9 @@ export class PromptItemRepository {
     }
     const search = filter.search?.trim();
     if (search) {
-      params.push(`%${search}%`);
+      params.push(`%${escapeLikeLiteral(search)}%`);
       where.push(
-        `(title ILIKE $${params.length} OR content ILIKE $${params.length} OR description ILIKE $${params.length})`
+        `(title ILIKE $${params.length} ESCAPE '\\' OR content ILIKE $${params.length} ESCAPE '\\' OR description ILIKE $${params.length} ESCAPE '\\')`
       );
     }
     const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
@@ -910,6 +911,11 @@ export class PromptItemRepository {
     options: PromptItemSimilarityOptions = {}
   ): Promise<PromptItemSimilarityResult[]> {
     const profile = await this.getEmbeddingProfile();
+    if (profile.distance !== 'cosine') {
+      throw new Error(
+        `Prompt similarity search only supports cosine distance; profile "${profile.id}" uses "${profile.distance}".`
+      );
+    }
     const queryVector = toVectorLiteral(queryEmbedding, profile.dimensions);
     const limit = options.limit ?? 6;
     if (!(Number.isInteger(limit) && limit > 0 && limit <= MAX_SIMILARITY_RESULTS)) {
