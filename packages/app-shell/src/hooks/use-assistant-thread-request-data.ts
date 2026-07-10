@@ -25,6 +25,8 @@ interface UseAssistantThreadRequestDataArgs {
    * otherwise.
    */
   readonly permissionPolicyRequest: PermissionToolGateSnapshotInput | undefined;
+  /** Plan mode (opt-in); forwarded to the request only when `true`. */
+  readonly planMode?: boolean;
   readonly providerOptions: Record<string, unknown> | undefined;
   readonly runtimeWorkspaceContext: RuntimeData['workspaceContext'] | null;
   readonly selectedMemoryThreadId: string | undefined;
@@ -60,6 +62,7 @@ export function useAssistantThreadRequestData({
   modelSettings,
   observationalMemorySettings,
   permissionPolicyRequest,
+  planMode,
   providerOptions,
   runtimeWorkspaceContext,
   selectedMemoryThreadId,
@@ -87,6 +90,7 @@ export function useAssistantThreadRequestData({
         memorySettings: runtimeMemorySettings,
         modelSettings,
         permissionPolicyRequest,
+        ...(planMode ? { planMode: true } : {}),
         providerOptions,
         selectedMemoryThreadId,
         selectionData,
@@ -102,6 +106,7 @@ export function useAssistantThreadRequestData({
       memoryResourceId,
       modelSettings,
       permissionPolicyRequest,
+      planMode,
       providerOptions,
       runtimeMemorySettings,
       selectedMemoryThreadId,

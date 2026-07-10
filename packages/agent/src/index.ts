@@ -27,6 +27,22 @@ export {
   TOOL_APPROVAL_RUN_CONFIG_KEY,
   type ToolApprovalRunConfigActionReadResult,
 } from '@brainstrike/assistant-contract/tool-approval';
+export {
+  type AskUserAnswer,
+  type AskUserOption,
+  type AskUserPayload,
+  type AskUserSelectionMode,
+  type AssistantToolResumeAction,
+  type AssistantToolSuspendRequest,
+  isAssistantToolResumeAction,
+  readToolResumeRunConfigAction,
+  type SubmitPlanDecision,
+  type SubmitPlanPayload,
+  type SubmitPlanStep,
+  TOOL_SUSPEND_DATA_NAME,
+  TOOL_SUSPEND_RUN_CONFIG_KEY,
+  type ToolResumeRunConfigActionReadResult,
+} from '@brainstrike/assistant-contract/tool-suspend';
 export type { AssistantRequestPayload } from './assistant-request';
 export {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
@@ -81,6 +97,7 @@ export {
   type MastraAgentRuntimeOptions,
   streamMastraAgent,
   streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
 } from './mastra/agent-runtime';
 export {
   createMastraAgentError,
@@ -251,6 +268,8 @@ export {
   type ToolRegistry,
   type ToolRegistryEntry,
 } from './stream/tool-registry';
+// Suspending tools (plan mode + ask-user)
+export { ASK_USER_TOOL_ID, createAskUserTool, formatAskUserAnswer } from './tools/ask-user-tool';
 // System diagnostics tool factory (Tier 3)
 export {
   buildToolsWithDiagnostics,
@@ -349,6 +368,8 @@ export {
   type SkippedSourceRangeChunk,
 } from './tools/retrieval-tool';
 export {
+  type AskUserInput,
+  AskUserInputSchema,
   type DeleteWorkspaceFileInput,
   DeleteWorkspaceFileInputSchema,
   type ExecuteCommandInput,
@@ -381,6 +402,8 @@ export {
   SelectRootTreeFilesInputSchema,
   type StringReplaceWorkspaceFileInput,
   StringReplaceWorkspaceFileInputSchema,
+  type SubmitPlanInput,
+  SubmitPlanInputSchema,
   type UpdatePreviewContextFilesInput,
   UpdatePreviewContextFilesInputSchema,
   type UpdateWorkspaceContextSelectionInput,
@@ -400,6 +423,7 @@ export {
   type StringReplaceMatchType,
   type StringReplaceResult,
 } from './tools/string-replace';
+export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool';
 export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,

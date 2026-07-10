@@ -27,9 +27,9 @@ import {
   type AssistantToolApprovalRequest,
   type LocalLlmBackendFactory,
   TOOL_APPROVAL_DATA_NAME,
+  TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract';
 import {
-  ArrowUpIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -38,7 +38,6 @@ import {
   CopyIcon,
   PencilIcon,
   RefreshCwIcon,
-  SquareIcon,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
@@ -69,6 +68,8 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
+import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
+import { ComposerInputWithTriggers } from './composer-input';
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
@@ -146,6 +147,15 @@ const assistantRunTimelineDataUI = {
 const assistantToolApprovalDataUI = {
   name: TOOL_APPROVAL_DATA_NAME,
   render: AssistantToolApprovalDataPart,
+} satisfies AssistantDataUIProps;
+
+const AssistantToolSuspendDataPart: DataMessagePartComponent = ({ data }) => (
+  <AssistantToolSuspendNotice data={data} />
+);
+
+const assistantToolSuspendDataUI = {
+  name: TOOL_SUSPEND_DATA_NAME,
+  render: AssistantToolSuspendDataPart,
 } satisfies AssistantDataUIProps;
 
 // Re-export types needed by consumers
@@ -279,6 +289,13 @@ export interface AssistantUiPanelProps {
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
   /**
+   * Clear the persisted plan-mode preference. Called when the user APPROVES a
+   * submitted plan so the resume request exits plan mode and the rebuilt server
+   * runtime unlocks the mutation tools. Absent → approving a plan leaves plan
+   * mode unchanged.
+   */
+  onExitPlanMode?: () => void;
+  /**
    * Reports the active "@" mention query so the app can load matching files into
    * `fileMentions`. Presence of this callback gates the "@" feature on.
    */
@@ -299,6 +316,8 @@ export interface AssistantUiPanelProps {
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
+  /** Toggle the persisted plan-mode preference. Absent → no toggle is shown. */
+  onTogglePlanMode?: () => void;
   /**
    * Reports a tool-approval-required pause exactly once, deduped by
    * `runId:toolCallId` (a later re-render of the same pause is not a new
@@ -311,6 +330,8 @@ export interface AssistantUiPanelProps {
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
+  /** Current persisted plan-mode state; drives the composer toggle's pressed look. */
+  planModeEnabled?: boolean;
   prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
   providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
@@ -603,6 +624,7 @@ const LocalChainOfThought = () => {
 const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
   useAssistantDataUI(assistantToolApprovalDataUI);
+  useAssistantDataUI(assistantToolSuspendDataUI);
 
   return null;
 };
@@ -618,107 +640,6 @@ const EMPTY_SLASH_COMMANDS: readonly SlashCommand[] = [];
 // Stable empty default for the optional fileMentions prop (same memoization
 // rationale as EMPTY_SLASH_COMMANDS — a literal `[]` would churn the adapter).
 const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
-
-/**
- * The composer input row (textarea + Send/Cancel), defined ONCE so both the
- * trigger-enabled and plain composer paths share it — only the optional
- * `slashPopover`/`mentionPopover` differ. Send / Cancel are unchanged
- * regardless of the trigger features. When both are omitted the row renders
- * without any "/" or "@" menu.
- *
- * Since @assistant-ui/react 0.12.26, each popover is a
- * `ComposerPrimitive.Unstable_TriggerPopover` (see `composer-trigger-popover.tsx`
- * / `composer-mention-popover.tsx`) that renders its own `role="listbox"`
- * container directly — they no longer need (or accept) a wrapping Mention/
- * SlashCommand root around the input; they read composer text via the
- * enclosing `Unstable_TriggerPopoverRoot` instead (see
- * `ComposerInputWithTriggers` below).
- */
-const ComposerInputRow = ({
-  isComposerDisabled,
-  mentionPopover,
-  slashPopover,
-}: {
-  isComposerDisabled: boolean;
-  mentionPopover?: ReactNode;
-  slashPopover?: ReactNode;
-}) => (
-  <div className="bs-composer-input-frame">
-    <ComposerPrimitive.Input
-      aria-label="Message input"
-      className="aui-composer-input"
-      disabled={isComposerDisabled}
-      id="assistant-input"
-      placeholder="Ask BrainStrike anything..."
-      rows={1}
-    />
-    {slashPopover}
-    {mentionPopover}
-    <div className="bs-composer-primary-actions">
-      <ThreadPrimitive.If running={false}>
-        <ComposerPrimitive.Send
-          aria-label="Send"
-          className="aui-button aui-button-primary aui-composer-send"
-          disabled={isComposerDisabled}
-          title="Send"
-        >
-          <ArrowUpIcon className="size-4" />
-        </ComposerPrimitive.Send>
-      </ThreadPrimitive.If>
-      <ThreadPrimitive.If running>
-        <ComposerPrimitive.Cancel
-          aria-label="Stop"
-          className="aui-button aui-button-primary aui-composer-cancel"
-          disabled={isComposerDisabled}
-          title="Stop"
-        >
-          <SquareIcon className="size-3.5 fill-current" />
-        </ComposerPrimitive.Cancel>
-      </ThreadPrimitive.If>
-    </div>
-  </div>
-);
-
-/**
- * Wraps the composer input row in `Unstable_TriggerPopoverRoot` ONLY when at
- * least one trigger feature (slash commands and/or file mentions) is active —
- * the root itself is cheap, but omitting it entirely when neither feature is
- * present keeps the "no trigger features" path free of any trigger-popover
- * bookkeeping. `slashPopover`/`mentionPopover` (built by the caller from
- * `ComposerTriggerPopover`/`ComposerMentionPopover`) are each a
- * `Unstable_TriggerPopover` declaring its own `char` ("/" or "@") and adapter;
- * both read the same composer text via the shared root and coexist as
- * siblings (this replaces the pre-0.12.26 nested Mention-inside-SlashCommand
- * root pattern, which the library no longer supports — triggers are now
- * siblings under one root, not nested wrappers). When neither is present the
- * bare input row renders, so the trigger chars do nothing special (never an
- * empty menu).
- */
-const ComposerInputWithTriggers = ({
-  isComposerDisabled,
-  slashPopover,
-  mentionPopover,
-}: {
-  isComposerDisabled: boolean;
-  slashPopover?: ReactNode;
-  mentionPopover?: ReactNode;
-}) => {
-  const row = (
-    <ComposerInputRow
-      isComposerDisabled={isComposerDisabled}
-      {...(slashPopover ? { slashPopover } : {})}
-      {...(mentionPopover ? { mentionPopover } : {})}
-    />
-  );
-  if (!(slashPopover || mentionPopover)) {
-    return row;
-  }
-  return (
-    <ComposerPrimitive.Unstable_TriggerPopoverRoot>
-      {row}
-    </ComposerPrimitive.Unstable_TriggerPopoverRoot>
-  );
-};
 
 const ThreadHistoryControl = ({
   controlsId,
@@ -788,6 +709,8 @@ interface ChatThreadProps {
   onUsage?: ((usage: { inputTokens: number; outputTokens: number }) => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
+  /** Composer plan-mode toggle; absent → no toggle rendered. */
+  planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
@@ -830,6 +753,7 @@ const LocalRuntimeChat = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  planMode,
   toolMenu,
   requestData,
   prepareRequestData,
@@ -918,6 +842,7 @@ const LocalRuntimeChat = ({
           onToolApprovalRequired={onToolApprovalRequired}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
+          {...(planMode ? { planMode } : {})}
           providerGroups={providerGroups}
           providerSettings={providerSettings}
           selectedModel={selectedModel}
@@ -967,6 +892,7 @@ const DataStreamRuntimeChat = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  planMode,
   toolMenu,
   threadKey,
 }: ChatThreadProps & {
@@ -1044,35 +970,38 @@ const DataStreamRuntimeChat = ({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <AssistantPanelErrorBoundary>
-        <ChatThreadUI
-          contextWindow={contextWindow}
-          cumulativeUsage={cumulativeUsage}
-          disabledReason={disabledReason}
-          effectiveInputBudget={effectiveInputBudget}
-          fileMentions={fileMentions}
-          hasGroupedProviders={hasGroupedProviders}
-          isComposerDisabled={isComposerDisabled}
-          localLoadingState={localLoadingState}
-          omSegment={omSegment}
-          onFileMentionQueryChange={onFileMentionQueryChange}
-          onModelChange={onModelChange}
-          onProviderSettingsChange={onProviderSettingsChange}
-          onRunFailed={onRunFailed}
-          onRunFinished={onRunFinished}
-          onThreadRunStart={onThreadRunStart}
-          onToolApprovalRequired={onToolApprovalRequired}
-          pickerModels={pickerModels}
-          pickerProviders={pickerProviders}
-          providerGroups={providerGroups}
-          providerSettings={providerSettings}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-          slashCommands={slashCommands}
-          threadKey={threadKey}
-          toolMenu={toolMenu}
-        />
-      </AssistantPanelErrorBoundary>
+      <PlanModeExitProvider onExit={planMode?.onExit}>
+        <AssistantPanelErrorBoundary>
+          <ChatThreadUI
+            contextWindow={contextWindow}
+            cumulativeUsage={cumulativeUsage}
+            disabledReason={disabledReason}
+            effectiveInputBudget={effectiveInputBudget}
+            fileMentions={fileMentions}
+            hasGroupedProviders={hasGroupedProviders}
+            isComposerDisabled={isComposerDisabled}
+            localLoadingState={localLoadingState}
+            omSegment={omSegment}
+            onFileMentionQueryChange={onFileMentionQueryChange}
+            onModelChange={onModelChange}
+            onProviderSettingsChange={onProviderSettingsChange}
+            onRunFailed={onRunFailed}
+            onRunFinished={onRunFinished}
+            onThreadRunStart={onThreadRunStart}
+            onToolApprovalRequired={onToolApprovalRequired}
+            pickerModels={pickerModels}
+            pickerProviders={pickerProviders}
+            {...(planMode ? { planMode } : {})}
+            providerGroups={providerGroups}
+            providerSettings={providerSettings}
+            selectedModel={selectedModel}
+            selectedProvider={selectedProvider}
+            slashCommands={slashCommands}
+            threadKey={threadKey}
+            toolMenu={toolMenu}
+          />
+        </AssistantPanelErrorBoundary>
+      </PlanModeExitProvider>
     </AssistantRuntimeProvider>
   );
 };
@@ -1105,6 +1034,7 @@ const ChatThreadUI = ({
   slashCommands,
   fileMentions,
   onFileMentionQueryChange,
+  planMode,
   threadKey,
   toolMenu,
 }: {
@@ -1112,6 +1042,7 @@ const ChatThreadUI = ({
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
+  planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
   pickerModels: ModelPickerModel[];
@@ -1279,6 +1210,7 @@ const ChatThreadUI = ({
               (never an empty menu). Send / Cancel are unchanged. */}
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
+            {...(planMode ? { planMode } : {})}
             {...(hasSlashCommands
               ? {
                   slashPopover: (
@@ -1338,12 +1270,15 @@ export const AssistantUiPanel = ({
   requestData,
   prepareRequestData,
   onModelChange,
+  onExitPlanMode,
   onRunFailed,
   onRunFinished,
   onStreamActivity,
   onThreadRunStart,
+  onTogglePlanMode,
   onToolApprovalRequired,
   onUsage,
+  planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
   onFileMentionQueryChange,
@@ -1469,6 +1404,15 @@ export const AssistantUiPanel = ({
             onToolApprovalRequired={onToolApprovalRequired}
             prepareLocalModel={prepareLocalModel}
             {...(onUsage ? { onUsage } : {})}
+            {...(onTogglePlanMode
+              ? {
+                  planMode: {
+                    enabled: Boolean(planModeEnabled),
+                    onToggle: onTogglePlanMode,
+                    ...(onExitPlanMode ? { onExit: onExitPlanMode } : {}),
+                  },
+                }
+              : {})}
             fileMentions={fileMentions}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}

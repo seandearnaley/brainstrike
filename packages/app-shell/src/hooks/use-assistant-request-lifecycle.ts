@@ -1,5 +1,6 @@
 import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useCallback, useEffect, useRef } from 'react';
 import {
   type AssistantForegroundActivityLease,
@@ -22,6 +23,14 @@ interface UseAssistantRequestLifecycleArgs {
   readonly focusedRootId: string | null | undefined;
   readonly memoryResourceId: string | undefined;
   readonly modelSettings: RuntimeData['modelSettings'] | undefined;
+  /**
+   * Whether plan mode is offered at all for the current transport/provider
+   * (mirrors the caller's `planModeAvailable` gate — never offered for the
+   * built-in local provider). Combined at request-composition time with a
+   * FRESH read of the persisted toggle (see `prepareRequestData` below) so the
+   * gate itself never goes stale mid-request.
+   */
+  readonly planModeAvailable: boolean;
   readonly providerOptions: Record<string, unknown> | undefined;
   readonly requestData: Record<string, unknown>;
   readonly resolvedModelName: string | undefined;
@@ -66,6 +75,7 @@ export function useAssistantRequestLifecycle({
   focusedRootId,
   memoryResourceId,
   modelSettings,
+  planModeAvailable,
   providerOptions,
   requestData,
   resolvedModelName,
@@ -157,18 +167,35 @@ export function useAssistantRequestLifecycle({
       activeAssistantForegroundRunIdRef.current = runId;
     }
 
+    // Read the persisted plan-mode toggle FRESH here, at request-composition
+    // time, instead of trusting `requestData.planMode` (a value computed at
+    // the RENDER that produced the `requestData` object/closure this callback
+    // captured). `useAssistantPreferencesStore.getState()` reads the zustand
+    // store's live internal state directly — updated synchronously by
+    // `setPlanModeEnabled`, not gated on a React re-render/flush. This closes
+    // the approve-exits-plan-mode race: `SubmitPlanNotice.approve` flips the
+    // store off and then immediately submits the resume in the SAME
+    // synchronous handler, with no guarantee a re-render lands in between.
+    // `planMode` is presence-means-on: explicitly set `undefined` (never
+    // `false`) so it always overrides a stale `true` inherited from
+    // `requestData` and drops off the wire on JSON.stringify.
+    const freshPlanModeEnabled =
+      planModeAvailable && useAssistantPreferencesStore.getState().planModeEnabled;
+
     return {
       ...requestData,
       memory: {
         ...memoryContext,
         ...(runId ? { runId } : {}),
       },
+      planMode: freshPlanModeEnabled ? true : undefined,
     };
   }, [
     assistantThreadRepository,
     focusedRootId,
     memoryResourceId,
     modelSettings,
+    planModeAvailable,
     providerOptions,
     requestData,
     resolvedModelName,

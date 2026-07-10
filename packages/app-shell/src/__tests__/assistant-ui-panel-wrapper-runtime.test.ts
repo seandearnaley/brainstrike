@@ -331,6 +331,31 @@ describe('assistant runtime helpers', () => {
     expect(withSnapshot['permissionPolicyRequest']).toEqual(snapshot);
   });
 
+  it('attaches planMode only when true (presence-means-on, no false residue)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('planMode');
+    expect(buildAssistantRequestData({ ...baseArgs, planMode: false })).not.toHaveProperty(
+      'planMode'
+    );
+    expect(buildAssistantRequestData({ ...baseArgs, planMode: true })['planMode']).toBe(true);
+  });
+
   it('surfaces the count of selected files from OTHER roots (multi-root, never silently dropped)', () => {
     const data = buildAssistantRequestData({
       agentLoopSettings: { maxSteps: 6 },

@@ -1,4 +1,6 @@
 export const TOOL_DESCRIPTIONS: Record<string, string> = {
+  'brainstrike.askUser':
+    'Ask the user a clarifying question and WAIT for their answer (the run pauses). Provide options for a structured choice (selectionMode multi_select allows several), or omit options for a free-text question',
   'brainstrike.deleteWorkspaceFile':
     'Permanently delete a single file in the selected workspace root and invalidate its index rows. DESTRUCTIVE and NOT recoverable through the tool; refuses directories (use executeCommand) and acts on a symlink itself (removes the link, never its target). Workspace-scoped; requires approval',
   'brainstrike.executeCommand':
@@ -27,6 +29,8 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'Rename or move a single file within the selected workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval',
   'brainstrike.stringReplaceWorkspaceFile':
     'Surgically edit a workspace file by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; workspace-scoped, requires approval)',
+  'brainstrike.submitPlan':
+    'Submit a structured implementation plan (title, overview, ordered steps, optional risks/verification) for the user to Approve or Reject. The run PAUSES until they respond; rejection feedback is returned so you can revise and resubmit',
   'brainstrike.updateWorkspaceContextSelection':
     'Bulk add, remove, or replace files selected in the workspace context explorer for reusable curated context',
   'brainstrike.updateWorkspaceTapestrySelections':

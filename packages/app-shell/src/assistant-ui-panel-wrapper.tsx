@@ -850,6 +850,19 @@ export function AssistantUiPanelWrapper({
     permissionPerToolOverrides,
   ]);
 
+  // Plan mode (OPT-IN, persisted). Desktop-hosted-first: only the data-stream
+  // transport reaches the assistant server that enforces the plan-mode tool gate
+  // (web's in-renderer local runtime has no server). Presence-means-on downstream.
+  const planModeEnabledPref = useAssistantPreferencesStore((state) => state.planModeEnabled);
+  const togglePlanMode = useAssistantPreferencesStore((state) => state.togglePlanMode);
+  const setPlanModeEnabled = useAssistantPreferencesStore((state) => state.setPlanModeEnabled);
+  // Plan mode is never offered for the built-in local provider (its server gate
+  // ignores planMode — see O3), so the composer toggle is hidden there rather
+  // than silently no-opping.
+  const planModeAvailable = localChatTransport === 'data-stream' && selectedProvider !== 'local';
+  const planMode = planModeEnabledPref && planModeAvailable;
+  const exitPlanMode = useCallback(() => setPlanModeEnabled(false), [setPlanModeEnabled]);
+
   useEffect(() => {
     if (!assistantThreadRepository) {
       return;
@@ -879,6 +892,7 @@ export function AssistantUiPanelWrapper({
     modelSettings,
     observationalMemorySettings,
     permissionPolicyRequest,
+    planMode,
     providerOptions,
     runtimeWorkspaceContext,
     selectedMemoryThreadId,
@@ -900,6 +914,7 @@ export function AssistantUiPanelWrapper({
     focusedRootId: currentFolderId,
     memoryResourceId,
     modelSettings,
+    planModeAvailable,
     providerOptions,
     requestData,
     resolvedModelName,
@@ -1408,6 +1423,13 @@ export function AssistantUiPanelWrapper({
       onModelChange={handleModelChange}
       onModelToggle={handleModelToggle}
       {...(disabledReason ? { disabledReason } : {})}
+      {...(planModeAvailable
+        ? {
+            onExitPlanMode: exitPlanMode,
+            onTogglePlanMode: togglePlanMode,
+            planModeEnabled: planModeEnabledPref,
+          }
+        : {})}
     />
   );
 }

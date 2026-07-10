@@ -1276,15 +1276,14 @@ describe('mastra streaming integration', () => {
     );
   });
 
-  it('surfaces suspended tool calls as visible terminal errors instead of hanging', async () => {
+  it('surfaces a well-formed suspended tool call as a resumable tool-suspend-required pause', async () => {
     setMockStreamParts([
       {
         payload: {
-          args: { modelKey: 'openai:text-embedding-3-small', name: 'Docs' },
           resumeSchema: '{}',
-          suspendPayload: { reason: 'needs-user-input' },
+          suspendPayload: { question: 'Which city?' },
           toolCallId: 'suspended-1',
-          toolName: 'brainstrike.createEmbeddingSet',
+          toolName: 'brainstrike.askUser',
         },
         runId: 'run-suspended-1',
         type: 'tool-call-suspended',
@@ -1292,7 +1291,7 @@ describe('mastra streaming integration', () => {
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', parts: [{ text: 'create an embedding set', type: 'text' }], role: 'user' }],
+      [{ id: 'u1', parts: [{ text: 'ask me something', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -1301,35 +1300,60 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual([
+    // The pause is now a SUPPORTED resumable event (NOT a run.failed / error finish).
+    expect(chunks).toContainEqual({
+      resumeSchema: '{}',
+      runId: 'run-suspended-1',
+      suspendPayload: { question: 'Which city?' },
+      toolCallId: 'suspended-1',
+      toolName: 'brainstrike.askUser',
+      type: 'tool-suspend-required',
+    });
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
+    );
+    // No run.failed / error finish for a well-formed pause.
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+    );
+  });
+
+  it('keeps a malformed suspend pause (missing tool call id) a visible terminal error', async () => {
+    setMockStreamParts([
+      {
+        payload: {
+          suspendPayload: { question: 'Which city?' },
+          toolName: 'brainstrike.askUser',
+        },
+        runId: 'run-suspended-malformed',
+        type: 'tool-call-suspended',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'ask me something', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
       expect.objectContaining({
-        name: 'brainstrike.createEmbeddingSet',
         payload: expect.objectContaining({
           actionRequired: true,
-          approvalRequired: false,
-          callId: 'suspended-1',
-          runId: 'run-suspended-1',
+          missingToolCallId: true,
           suspended: true,
-          toolCallId: 'suspended-1',
         }),
         status: 'error',
         type: 'tool-event',
-      }),
-      expect.objectContaining({
-        event: expect.objectContaining({
-          kind: 'run.failed',
-          label: 'Tool resume required',
-          status: 'failed',
-        }),
-        type: 'run-event',
-      }),
-      {
-        finishReason: 'error',
-        path: [],
-        type: 'message-finish',
-        usage: { completionTokens: 0, promptTokens: 0 },
-      },
-    ]);
+      })
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+    );
   });
 
   it('keeps malformed approval pauses visible when Mastra omits the tool call id', async () => {
@@ -1648,6 +1672,71 @@ describe('mastra streaming integration', () => {
     );
     expect(instructions).not.toContain('brainstrike_listWorkspaceContext');
     expect(instructions).not.toContain('brainstrike_queryEmbeddingSpace');
+  });
+
+  it('builds plan-mode instructions from the FINAL (plan-filtered) tool map, not the raw tool map', async () => {
+    // Plan mode omits edit/execute tools from the map the Agent receives, so the
+    // default instructions MUST NOT advertise those filtered tools (name listing
+    // OR usage block) — otherwise the model is told to use tools it cannot call.
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', planMode: true, provider: 'openai' },
+      tools: {
+        'brainstrike.executeCommand': {
+          description: 'Execute command',
+          id: 'brainstrike.executeCommand',
+        },
+        'brainstrike.readWorkspaceFile': {
+          description: 'Read workspace file',
+          id: 'brainstrike.readWorkspaceFile',
+        },
+        'brainstrike.stringReplaceWorkspaceFile': {
+          description: 'String replace',
+          id: 'brainstrike.stringReplaceWorkspaceFile',
+        },
+        'brainstrike.writeWorkspaceFile': {
+          description: 'Write workspace file',
+          id: 'brainstrike.writeWorkspaceFile',
+        },
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    // Plan mode is announced and read-only investigation is still advertised.
+    expect(instructions).toContain('PLAN MODE IS ACTIVE');
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    // The plan-filtered mutation tools must NOT appear — neither their model-facing
+    // names (in the registered-tools listing) nor their usage instruction blocks.
+    expect(instructions).not.toContain('brainstrike_writeWorkspaceFile');
+    expect(instructions).not.toContain('brainstrike_stringReplaceWorkspaceFile');
+    expect(instructions).not.toContain('brainstrike_executeCommand');
+    expect(instructions).not.toContain('ARBITRARY shell command');
+    expect(instructions).not.toContain('fully rewrite one');
+  });
+
+  it('still advertises edit/execute tools in default instructions when plan mode is OFF', async () => {
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.executeCommand': {
+          description: 'Execute command',
+          id: 'brainstrike.executeCommand',
+        },
+        'brainstrike.readWorkspaceFile': {
+          description: 'Read workspace file',
+          id: 'brainstrike.readWorkspaceFile',
+        },
+        'brainstrike.writeWorkspaceFile': {
+          description: 'Write workspace file',
+          id: 'brainstrike.writeWorkspaceFile',
+        },
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    expect(instructions).not.toContain('PLAN MODE IS ACTIVE');
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    expect(instructions).toContain('brainstrike_writeWorkspaceFile');
+    expect(instructions).toContain('brainstrike_executeCommand');
   });
 
   it('keeps tools distinct when sanitized ids would otherwise collide', async () => {

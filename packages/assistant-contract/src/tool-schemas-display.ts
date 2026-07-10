@@ -42,6 +42,40 @@ export interface ToolSchemaDisplay {
  * This is a browser-safe representation of the Zod schemas.
  */
 export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
+  'brainstrike.askUser': {
+    description:
+      'Ask the user a clarifying question and wait for their answer; the run pauses until they respond. Provide options for a structured choice (set selectionMode to multi_select to allow several), or omit options for a free-text question.',
+    parameters: [
+      {
+        description: 'The clear, specific question to ask the user.',
+        maxLength: 2000,
+        minLength: 1,
+        name: 'question',
+        required: true,
+        type: 'string',
+      },
+      {
+        arrayItemType: 'object',
+        description:
+          'Optional choices; each has a label and optional description. Omit for free-text.',
+        max: 10,
+        name: 'options',
+        required: false,
+        type: 'array',
+      },
+      {
+        description:
+          'How many options the user may pick. Requires options; defaults to single_select.',
+        enumValues: ['single_select', 'multi_select'],
+        name: 'selectionMode',
+        required: false,
+        type: 'enum',
+      },
+    ],
+    returns: "The user's answer as a string (multi-select answers are comma-joined).",
+    toolId: 'brainstrike.askUser',
+  },
+
   'brainstrike.deleteWorkspaceFile': {
     description:
       'Delete a single file from the selected workspace root. FILES ONLY — a directory path is refused (use executeCommand for directory removal). Workspace-scoped: the path can never escape the open folder. Removes the file from the workspace index when it was indexed. Requires approval (edit-risk).',
@@ -686,6 +720,54 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns:
       'Edit result: the normalized workspace path, bytesWritten, matchType (which cascade branch matched), and replaced: true',
     toolId: 'brainstrike.stringReplaceWorkspaceFile',
+  },
+
+  'brainstrike.submitPlan': {
+    description:
+      'Submit a structured implementation plan for the user to Approve or Reject. The run pauses until the user responds; on rejection their feedback is returned so you can revise and submit again.',
+    parameters: [
+      {
+        description: 'Short title for the plan.',
+        maxLength: 300,
+        minLength: 1,
+        name: 'title',
+        required: true,
+        type: 'string',
+      },
+      {
+        description: 'One or two paragraphs summarizing the plan and its goal.',
+        maxLength: 4000,
+        minLength: 1,
+        name: 'overview',
+        required: true,
+        type: 'string',
+      },
+      {
+        arrayItemType: 'object',
+        description: 'Ordered implementation steps; each has a title and optional detail.',
+        max: 30,
+        name: 'steps',
+        required: true,
+        type: 'array',
+      },
+      {
+        description: 'Optional risks, tradeoffs, or things that could go wrong.',
+        maxLength: 4000,
+        name: 'risks',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Optional how-to-verify: tests, checks, or acceptance criteria.',
+        maxLength: 4000,
+        name: 'verification',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      "The user's decision: status approved or rejected, plus optional feedback on rejection.",
+    toolId: 'brainstrike.submitPlan',
   },
 
   'brainstrike.updateWorkspaceContextSelection': {

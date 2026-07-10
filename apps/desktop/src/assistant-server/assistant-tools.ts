@@ -2,7 +2,10 @@ import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
+  ASK_USER_TOOL_ID,
   applyStringReplace,
+  createAskUserTool,
+  createSubmitPlanTool,
   type DeleteWorkspaceFileInput,
   DeleteWorkspaceFileInputSchema,
   type ExecuteCommandInput,
@@ -38,6 +41,7 @@ import {
   type StringReplaceMatchType,
   type StringReplaceWorkspaceFileInput,
   StringReplaceWorkspaceFileInputSchema,
+  SUBMIT_PLAN_TOOL_ID,
   type UpdateWorkspaceContextSelectionInput,
   UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
@@ -2546,6 +2550,15 @@ export function buildDesktopAssistantTools(
     ...(isLocalProvider
       ? {}
       : {
+          // The two SUSPENDING native tools are registered as the factory-returned
+          // Mastra Tool objects DIRECTLY (not re-wrapped in the registry's
+          // { description, execute, id, inputSchema } literal shape): re-wrapping
+          // would drop suspendSchema/resumeSchema and break both suspension and the
+          // hasSuspendSchema fail-safe/plan-mode keep-rule. Excluded for the
+          // built-in local provider (same WebGPU-prefill reasoning as the task-list
+          // tool and the plan-mode gate).
+          [ASK_USER_TOOL_ID]: createAskUserTool(),
+          [SUBMIT_PLAN_TOOL_ID]: createSubmitPlanTool(),
           [MANAGE_TASK_LIST_TOOL_ID]: {
             description:
               'Record and update a structured plan for the current thread as a task list. Whole-list replace: pass the FULL desired list every call. When a task is multi-step, break it into tasks up front; keep exactly one task in_progress at a time and mark tasks completed as you finish them. Each task is { content (imperative label), activeForm (present-tense in-progress label), status: pending | in_progress | completed }. The list is re-injected into your instructions each turn (so it survives context truncation) and shown to the user as a progress checklist.',

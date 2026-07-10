@@ -80,6 +80,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
         yield { type: 'text-delta', value: 'approval resumed' };
       },
     })),
+    streamMastraToolResumeAction: vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'suspend resumed' };
+      },
+    })),
     toAiSdkStyleStream: vi.fn(async () => ({
       async *[Symbol.asyncIterator]() {
         yield { content: 'test', type: 'text' };
@@ -1379,6 +1384,180 @@ describe('assistant-server', () => {
         message: 'Tool approval resume requires Mastra memory context with workflow storage.',
       });
       expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
+    });
+
+    it('routes tool RESUME actions (submitPlan/askUser) through Mastra resume without a new prompt', async () => {
+      const { streamMastraToolResumeAction, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([]);
+      (streamMastraToolResumeAction as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text-delta', value: 'Plan approved.' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        (res as { end?: () => void }).end?.();
+      });
+
+      await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolSuspend: {
+                resumeData: { action: 'approved' },
+                runId: 'run-suspend-1',
+                toolCallId: 'tool-call-1',
+                toolName: 'brainstrike.submitPlan',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+      expect(streamMastraToolResumeAction).toHaveBeenCalledWith(
+        {
+          resumeData: { action: 'approved' },
+          runId: 'run-suspend-1',
+          toolCallId: 'tool-call-1',
+          toolName: 'brainstrike.submitPlan',
+        },
+        expect.objectContaining({
+          memory: mockPgliteMastraMemory,
+          runtime: expect.objectContaining({ provider: 'openai' }),
+          storage: mockPgliteMastraStorage,
+        })
+      );
+      // Approve must EXIT plan mode: the client clears the plan-mode toggle
+      // before composing the resume, so the request carries no planMode and the
+      // rebuilt runtime unlocks the mutation tools.
+      const [, approveResumeOptions] = (streamMastraToolResumeAction as Mock).mock.calls[0] as [
+        unknown,
+        { runtime: Record<string, unknown> },
+      ];
+      expect(approveResumeOptions.runtime.planMode).toBeUndefined();
+    });
+
+    it('preserves planMode on a REJECT resume so the model can revise in plan mode', async () => {
+      const { streamMastraToolResumeAction, convertAssistantUiMessages } = await import(
+        '@brainstrike/agent'
+      );
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([]);
+      (streamMastraToolResumeAction as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text-delta', value: 'Revising the plan.' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        (res as { end?: () => void }).end?.();
+      });
+
+      await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            planMode: true,
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolSuspend: {
+                resumeData: { action: 'rejected', feedback: 'tighten step 2' },
+                runId: 'run-suspend-2',
+                toolCallId: 'tool-call-2',
+                toolName: 'brainstrike.submitPlan',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      const [, rejectResumeOptions] = (streamMastraToolResumeAction as Mock).mock.calls[0] as [
+        unknown,
+        { runtime: Record<string, unknown> },
+      ];
+      expect(rejectResumeOptions.runtime.planMode).toBe(true);
+    });
+
+    it('rejects a tool resume when workflow storage is missing from memory', async () => {
+      const { streamMastraToolResumeAction } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+
+      (createPgliteMastraMemory as Mock).mockResolvedValueOnce({
+        memory: mockPgliteMastraMemory,
+        store: {},
+        vector: {},
+        workflows: {},
+      });
+
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            custom: {
+              brainstrikeToolSuspend: {
+                resumeData: 'San Francisco',
+                runId: 'run-suspend-1',
+                toolCallId: 'tool-call-1',
+              },
+            },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({
+        error: 'tool_resume_memory_required',
+        message: 'Tool suspend resume requires Mastra memory context with workflow storage.',
+      });
+      expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed tool resume action with 400 before dispatch', async () => {
+      const { streamMastraToolResumeAction } = await import('@brainstrike/agent');
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: {
+            memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
+            provider: 'openai',
+          },
+          messages: [],
+          runConfig: {
+            // Missing resumeData key → malformed.
+            custom: { brainstrikeToolSuspend: { runId: 'r', toolCallId: 't' } },
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body).error).toBe('invalid_tool_resume_action');
+      expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
     });
 
     it('retries desktop Mastra memory initialization after a transient failure', async () => {
