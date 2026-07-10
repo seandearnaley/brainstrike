@@ -82,6 +82,11 @@
       "import": "./dist/run-events.js",
       "require": "./dist/run-events.js"
     },
+    "./shell-output": {
+      "types": "./dist/shell-output.d.ts",
+      "import": "./dist/shell-output.js",
+      "require": "./dist/shell-output.js"
+    },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",
       "import": "./dist/runtime-data.js",
