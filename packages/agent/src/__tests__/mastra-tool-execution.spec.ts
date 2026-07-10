@@ -31,6 +31,7 @@ import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import type { AgentHookRunner, HookToolGateResult } from '../tools/hook-runner';
 import { ManageTaskListInputSchema } from '../tools/schemas';
 import type { StreamChunk } from '../types';
 
@@ -1146,5 +1147,227 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
     expect(finalText).toContain('Recorded the plan');
     // The tool-result chunk carries the ManageTaskListResult summary.
     expect(JSON.stringify(chunks)).toContain('"inProgress":1');
+  });
+});
+
+/**
+ * Tool-lifecycle hooks — REAL Agent runs proving `applyToolHooks` composes into
+ * the real tool-execute seam: a PreToolUse block short-circuits `execute`
+ * (surfaced as a failed tool event via the shared guarded-error code), a
+ * PostToolUse hook appends bounded context into the tool result, an absent
+ * runner is a no-op, and a runner FAULT never bricks tool calling (allow-on-
+ * fault). Same real `streamMastraAgent` → real `Agent` → real `execute` path.
+ */
+describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
+  beforeEach(() => {
+    modelHolder.current = undefined;
+  });
+
+  function makeWeatherTool(execute: (input: { city: string }) => Promise<unknown>) {
+    return createTool({
+      description: 'Get the current weather for a city.',
+      execute,
+      id: 'get_weather',
+      inputSchema: z.object({ city: z.string() }),
+      outputSchema: z.object({ city: z.string(), temperatureC: z.number() }),
+    });
+  }
+
+  it('blocks a permitted tool via a PreToolUse hook (execute never called, surfaces the reason)', async () => {
+    const executeSpy = vi.fn((input: { city: string }) =>
+      Promise.resolve({ city: input.city, temperatureC: 21 })
+    );
+    const weatherTool = makeWeatherTool(executeSpy);
+
+    const hookRunner: AgentHookRunner = {
+      postToolUse: () => Promise.resolve({}),
+      preToolUse: (): Promise<HookToolGateResult> =>
+        Promise.resolve({ decision: 'block', reason: 'weather is off-limits' }),
+    };
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'I could not check the weather.',
+      input: JSON.stringify({ city: 'Paris' }),
+      toolCallId: 'call-hook-block-1',
+      toolName: 'get_weather',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-hook-block', parts: [{ text: 'weather?', type: 'text' }], role: 'user' }],
+      {
+        hookRunner,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { get_weather: weatherTool },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    const runEventKinds: string[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      }
+    }
+
+    // The hook blocked the tool BEFORE execute.
+    expect(executeSpy).not.toHaveBeenCalled();
+    // The block surfaces as the shared guarded-error code + a FAILED tool event.
+    expect(JSON.stringify(chunks)).toContain('tool_blocked_by_hook');
+    expect(JSON.stringify(chunks)).toContain('weather is off-limits');
+    expect(runEventKinds).toContain('tool.failed');
+    expect(runEventKinds).not.toContain('tool.completed');
+  });
+
+  it('runs the tool and merges PostToolUse additionalContext into the result the model sees', async () => {
+    const executeSpy = vi.fn((input: { city: string }) =>
+      Promise.resolve({ city: input.city, temperatureC: 21 })
+    );
+    const weatherTool = makeWeatherTool(executeSpy);
+
+    const hookRunner: AgentHookRunner = {
+      postToolUse: () => Promise.resolve({ additionalContext: 'lint: ok' }),
+      preToolUse: (): Promise<HookToolGateResult> => Promise.resolve({ decision: 'allow' }),
+    };
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'It is 21C in Paris.',
+      input: JSON.stringify({ city: 'Paris' }),
+      toolCallId: 'call-hook-allow-1',
+      toolName: 'get_weather',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-hook-allow', parts: [{ text: 'weather?', type: 'text' }], role: 'user' }],
+      {
+        hookRunner,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { get_weather: weatherTool },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    const runEventKinds: string[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      }
+    }
+
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(runEventKinds).toContain('tool.completed');
+    // The tool result the model sees carries the hook-injected context.
+    expect(JSON.stringify(chunks)).toContain('hookAdditionalContext');
+    expect(JSON.stringify(chunks)).toContain('lint: ok');
+  });
+
+  it('threads the runner through runtime.hookRunner (survives runtime resolution)', async () => {
+    const executeSpy = vi.fn((input: { city: string }) =>
+      Promise.resolve({ city: input.city, temperatureC: 21 })
+    );
+    const weatherTool = makeWeatherTool(executeSpy);
+
+    const hookRunner: AgentHookRunner = {
+      postToolUse: () => Promise.resolve({}),
+      preToolUse: (): Promise<HookToolGateResult> =>
+        Promise.resolve({ decision: 'block', reason: 'blocked via runtime field' }),
+    };
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'Blocked.',
+      input: JSON.stringify({ city: 'Paris' }),
+      toolCallId: 'call-hook-runtime-1',
+      toolName: 'get_weather',
+    });
+
+    // Pass the runner on the RUNTIME (not options) — proves the non-serializable
+    // field survives resolveRuntimeConfiguration like localLlmHostClient.
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-hook-runtime', parts: [{ text: 'weather?', type: 'text' }], role: 'user' }],
+      {
+        runtime: { apiKey: 'test-key', hookRunner, provider: 'openai' },
+        tools: { get_weather: weatherTool },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(executeSpy).not.toHaveBeenCalled();
+    expect(JSON.stringify(chunks)).toContain('blocked via runtime field');
+  });
+
+  it('executes tools unchanged when no hook runner is present (regression guard)', async () => {
+    const executeSpy = vi.fn((input: { city: string }) =>
+      Promise.resolve({ city: input.city, temperatureC: 21 })
+    );
+    const weatherTool = makeWeatherTool(executeSpy);
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'It is 21C in Paris.',
+      input: JSON.stringify({ city: 'Paris' }),
+      toolCallId: 'call-hook-none-1',
+      toolName: 'get_weather',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-hook-none', parts: [{ text: 'weather?', type: 'text' }], role: 'user' }],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { get_weather: weatherTool },
+      }
+    );
+
+    const runEventKinds: string[] = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      }
+    }
+
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(runEventKinds).toContain('tool.completed');
+  });
+
+  it('allows the tool when the hook runner itself throws (a runner bug must not brick tool calling)', async () => {
+    const executeSpy = vi.fn((input: { city: string }) =>
+      Promise.resolve({ city: input.city, temperatureC: 21 })
+    );
+    const weatherTool = makeWeatherTool(executeSpy);
+
+    const hookRunner: AgentHookRunner = {
+      postToolUse: () => Promise.resolve({}),
+      preToolUse: () => Promise.reject(new Error('hook runner exploded')),
+    };
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'It is 21C in Paris.',
+      input: JSON.stringify({ city: 'Paris' }),
+      toolCallId: 'call-hook-throw-1',
+      toolName: 'get_weather',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-hook-throw', parts: [{ text: 'weather?', type: 'text' }], role: 'user' }],
+      {
+        hookRunner,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { get_weather: weatherTool },
+      }
+    );
+
+    const runEventKinds: string[] = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      }
+    }
+
+    // Runner fault → allow-on-fault: the tool still executes.
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(runEventKinds).toContain('tool.completed');
   });
 });

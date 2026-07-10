@@ -61,6 +61,7 @@ import {
   setBackgrounded,
   waitForDesktopDatabaseWorkSchedulerIdle,
 } from './ipc-handlers';
+import { registerHooksIpcHandlers } from './ipc-hooks';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from './ipc-mcp';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
@@ -666,6 +667,7 @@ let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
+let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
@@ -977,6 +979,7 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
+unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
 
 // Add global error handlers to catch silent crashes
@@ -1587,6 +1590,10 @@ app.on('will-quit', () => {
   if (unregisterGitIpcHandlers) {
     unregisterGitIpcHandlers();
     unregisterGitIpcHandlers = null;
+  }
+  if (unregisterHooksIpcHandlers) {
+    unregisterHooksIpcHandlers();
+    unregisterHooksIpcHandlers = null;
   }
   if (unregisterTerminalIpcHandlers) {
     // Disposer also reaps every live pty (no orphaned shell survives quit).

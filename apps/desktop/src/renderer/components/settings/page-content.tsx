@@ -19,6 +19,7 @@ import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
+  createHooksSettingsCategory,
   createLocalRuntimeSettingsCategory,
   createPermissionSettingsCategory,
   createSearchIndexingSettingsCategory,
@@ -327,6 +328,10 @@ export default function SettingsPageContent() {
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
+      // Live per-root list wiring (RootIdentity → settings subtree) is a
+      // follow-up; the panel shows the global config path + a clear empty state
+      // and activates approve/revoke once roots are threaded.
+      createHooksSettingsCategory(),
       createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({

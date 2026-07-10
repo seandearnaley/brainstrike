@@ -17,6 +17,11 @@ import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import {
+  buildHookTrustRequest,
+  hookTrustSelectors,
+  useHookTrustStore,
+} from '@brainstrike/preferences/stores/hook-trust-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
@@ -876,6 +881,18 @@ export function AssistantUiPanelWrapper({
     permissionPerToolOverrides,
   ]);
 
+  // Hook-trust attestation (desktop hooks). Subscribe to the persisted approvals
+  // so the wire snapshot stays in sync; the server independently re-hashes disk.
+  // Scoped to the desktop data-stream transport (web has no hook runner). The
+  // renderer never runs hooks — it only ATTESTS approved hashes.
+  const hookApprovalsByRootId = useHookTrustStore(hookTrustSelectors.approvalsByRootId);
+  const hookTrustRequest = useMemo(() => {
+    if (localChatTransport !== 'data-stream') {
+      return;
+    }
+    return buildHookTrustRequest({ approvalsByRootId: hookApprovalsByRootId });
+  }, [localChatTransport, hookApprovalsByRootId]);
+
   // Plan mode (OPT-IN, persisted). Desktop-hosted-first: only the data-stream
   // transport reaches the assistant server that enforces the plan-mode tool gate
   // (web's in-renderer local runtime has no server). Presence-means-on downstream.
@@ -922,6 +939,7 @@ export function AssistantUiPanelWrapper({
   const { requestData, runtimeMemorySettings } = useAssistantThreadRequestData({
     agentLoopSettings,
     enabledNativeToolIds,
+    hookTrustRequest,
     hostedMemoryBackendAvailable,
     memoryOptions: assistantMemoryOptions,
     memoryResourceId,

@@ -9,6 +9,7 @@ import {
   Settings,
   ShieldCheck,
   Sigma,
+  Webhook,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -16,6 +17,10 @@ import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
+import {
+  type HookReviewRoot,
+  HooksSettingsSection,
+} from './settings/system/hooks-settings-section';
 import { PermissionSettingsSection } from './settings/system/permission-settings-section';
 import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
@@ -492,6 +497,29 @@ export function createPermissionSettingsCategory(): SettingsCategory {
       'guardrails',
     ],
     title: 'Permissions',
+  };
+}
+
+export interface CreateHooksSettingsCategoryOptions {
+  readonly globalConfigPath?: string;
+  readonly roots?: readonly HookReviewRoot[];
+}
+
+export function createHooksSettingsCategory(
+  options: CreateHooksSettingsCategoryOptions = {}
+): SettingsCategory {
+  return {
+    content: (
+      <HooksSettingsSection
+        {...(options.roots ? { roots: options.roots } : {})}
+        {...(options.globalConfigPath ? { globalConfigPath: options.globalConfigPath } : {})}
+      />
+    ),
+    description: 'Approve a workspace’s shell hooks before they run at tool-lifecycle events.',
+    icon: Webhook,
+    id: 'hooks',
+    keywords: ['hooks', 'shell', 'lifecycle', 'pretooluse', 'posttooluse', 'trust', 'approve'],
+    title: 'Hooks',
   };
 }
 

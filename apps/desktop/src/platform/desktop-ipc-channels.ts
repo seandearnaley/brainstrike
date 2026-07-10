@@ -60,6 +60,9 @@ export const DESKTOP_IPC_CHANNELS = {
     status: 'git:status',
     unstage: 'git:unstage',
   },
+  hooks: {
+    getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
+  },
   mcp: {
     configCreateSample: 'mcp:config:createSample',
     configGet: 'mcp:config:get',
