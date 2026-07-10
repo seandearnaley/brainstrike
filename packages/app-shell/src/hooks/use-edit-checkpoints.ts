@@ -21,6 +21,7 @@ export function useEditCheckpoints(
   const [entries, setEntries] = useState<readonly AssistantEditCheckpointRecord[]>([]);
   const bridge = typeof window === 'undefined' ? undefined : window.assistantCheckpoints;
   const revertEntryBridge = bridge?.revertEntry;
+  const revertRunBridge = bridge?.revertRun;
 
   const refetch = useCallback(async (): Promise<void> => {
     if (!(repository && threadId)) {
@@ -40,7 +41,7 @@ export function useEditCheckpoints(
   }, [refetch]);
 
   return useMemo<EditCheckpointContextValue | null>(() => {
-    if (!(revertEntryBridge && repository && threadId)) {
+    if (!(revertEntryBridge && revertRunBridge && repository && threadId)) {
       return null;
     }
     const entriesByToolCallId = new Map<string, AssistantEditCheckpointRecord>();
@@ -58,6 +59,16 @@ export function useEditCheckpoints(
         }
         return result;
       },
+      revertRun: async (runId, options) => {
+        const result = await revertRunBridge(runId, options);
+        // Refetch when anything actually reverted; a conflict-only run changed
+        // nothing on disk, so the stale list would be identical (and a conflicting
+        // entry must stay revertible so "Revert anyway" can force it).
+        if (result.outcomes.some((outcome) => outcome.ok)) {
+          await refetch();
+        }
+        return result;
+      },
     };
-  }, [entries, refetch, repository, revertEntryBridge, threadId]);
+  }, [entries, refetch, repository, revertEntryBridge, revertRunBridge, threadId]);
 }

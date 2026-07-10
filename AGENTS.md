@@ -1028,8 +1028,9 @@ Adding/renaming an assistant native tool is multi-registry: zod schema + schemaM
 ## EDIT CHECKPOINT JOURNAL (UNDO OF AGENT FILE EDITS)
 
 Every agent file mutation records an undoable journal entry so a per-tool-card
-**Revert** control can restore the prior state. Desktop-only (web local chat has
-no assistant server / thread_runs rows). Capability-gated, not `isElectron()`.
+**Revert** control (and a per-turn **Revert all edits** footer) can restore the
+prior state. Desktop-only (web local chat has no assistant server / thread_runs
+rows). Capability-gated, not `isElectron()`.
 
 - **Capture point:** INSIDE the existing per-file `withFileLock` in all four
   `run*WorkspaceFile` functions (`assistant-tools.ts`), so the before-read →
@@ -1067,10 +1068,30 @@ no assistant server / thread_runs rows). Capability-gated, not `isElectron()`.
   the per-op inverse (restore-write / delete-created / recreate-deleted /
   rename-back) under the file lock; reuses the write tools' non-fatal reindex
   seams; stamps `reverted_at` (idempotent). Reverts are NOT re-journaled.
+  `revertRun(runId)` reverts every non-reverted entry of a run in reverse apply
+  order and is HONEST about partial success — one conflicting file returns an
+  `ok:false conflict` outcome without aborting the rest.
+- **UI = per-entry button + per-turn footer.** The per-tool-card
+  `CheckpointRevertButton` (`tool-fallback.tsx`, keyed by `toolCallId`) undoes one
+  edit. The per-turn `CheckpointTurnRevert` footer (`checkpoint-turn-revert.tsx`,
+  its own module for the assistant-panel line budget) mounts on every
+  `AssistantMessage`: it reads the turn's tool-call parts from assistant-ui
+  message state (`useAuiState(state => state.message.parts)` — same discriminant
+  live and on reload), maps them to journal entries via the shared
+  `EditCheckpointContext`, and renders "Revert all edits" ONLY when ≥1 entry is
+  still revertible (revertible capture status + not reverted). It reverts each
+  distinct run the turn spans (normally one) through the SAME `revertRun` bridge.
+  Both controls mirror one UX contract — confirm → revert, on-disk conflict →
+  "Revert anyway" (force), idempotent after success (reverted entries drop out on
+  refetch). Pure capability gating: `null` on web / for turns with no revertible
+  edit, never a disabled stub.
 - **Key files:** `edit-checkpoint-{journal,capture,revert,errors}.ts` +
   `ipc-domains/assistant-checkpoint-*.ts` (desktop),
-  `edit-checkpoint-context.tsx` + `tool-fallback.tsx` (ui),
-  `use-edit-checkpoints.ts` (app-shell), `packages/assistant-contract/src/edit-checkpoints.ts`.
+  `edit-checkpoint-context.tsx` (context + `selectRevertibleTurnEntries` /
+  `useCheckpointTurnRevert`) + `tool-fallback.tsx` + `checkpoint-turn-revert.tsx`
+  (ui), `use-edit-checkpoints.ts` (app-shell — both `revertEntry`/`revertRun`
+  wired to the bridge, refetch on any successful outcome),
+  `packages/assistant-contract/src/edit-checkpoints.ts`.
 
 When changing this flow, update this section and the paired tests.
 
