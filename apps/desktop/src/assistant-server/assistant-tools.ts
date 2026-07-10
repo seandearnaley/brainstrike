@@ -18,6 +18,8 @@ import {
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
+  type ManageTaskListInput,
+  ManageTaskListInputSchema,
   type QueryEmbeddingSpaceInput,
   QueryEmbeddingSpaceInputSchema,
   type ReadWorkspaceContextInput,
@@ -69,6 +71,7 @@ import { EXECUTE_COMMAND_TOOL_ID, runExecuteCommand } from './execute-command-to
 import { findSymbolMatches } from './find-workspace-symbol';
 import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
+import { MANAGE_TASK_LIST_TOOL_ID, runManageTaskList } from './manage-task-list-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
@@ -2282,12 +2285,30 @@ function resolveQueryEmbeddingSpaceInput(
 }
 
 /**
+ * True when the request targets the built-in on-device provider. Mirrors
+ * `isLocalChatProvider` in assistant-server.ts (kept separate: that module
+ * pulls in Electron IPC imports this file must stay free of for its own
+ * unit-test surface).
+ */
+function isLocalProviderRuntime(runtimeData: RuntimeData | undefined): boolean {
+  const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
+  return provider.toLowerCase() === 'local';
+}
+
+/**
  * Builds the Mastra ToolsInput for the desktop assistant server.
  */
 export function buildDesktopAssistantTools(
   runtimeData: RuntimeData | undefined,
   dependencies: DesktopAssistantToolDependencies = {}
 ): MastraTools {
+  // The built-in local model never gets the task-list tool: its persisted plan
+  // is never re-injected into local instructions either (see
+  // readThreadTaskListForTurn in assistant-server.ts and the provider gate on
+  // buildCurrentTaskListNote in agent-runtime.ts), and the tiny on-device
+  // model's WebGPU prefill budget cannot afford advertising a tool whose state
+  // it will never see reflected back.
+  const isLocalProvider = isLocalProviderRuntime(runtimeData);
   const tools: MastraTools = {
     [FIND_WORKSPACE_SYMBOL_TOOL_ID]: {
       description:
@@ -2522,6 +2543,25 @@ export function buildDesktopAssistantTools(
       id: LIST_EMBEDDING_SPACES_TOOL_ID,
       inputSchema: ListEmbeddingSetsInputSchema,
     },
+    ...(isLocalProvider
+      ? {}
+      : {
+          [MANAGE_TASK_LIST_TOOL_ID]: {
+            description:
+              'Record and update a structured plan for the current thread as a task list. Whole-list replace: pass the FULL desired list every call. When a task is multi-step, break it into tasks up front; keep exactly one task in_progress at a time and mark tasks completed as you finish them. Each task is { content (imperative label), activeForm (present-tense in-progress label), status: pending | in_progress | completed }. The list is re-injected into your instructions each turn (so it survives context truncation) and shown to the user as a progress checklist.',
+            execute: async (input: ToolExecuteInput<ManageTaskListInput>) => {
+              const resolvedInput = parseToolExecuteInput(ManageTaskListInputSchema, input);
+              try {
+                return await runManageTaskList(resolvedInput, runtimeData);
+              } catch (error) {
+                logToolFailure('manageTaskList failed', error, resolvedInput);
+                throw error;
+              }
+            },
+            id: MANAGE_TASK_LIST_TOOL_ID,
+            inputSchema: ManageTaskListInputSchema,
+          },
+        }),
     [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
       description:
         'Query semantic workspace context and return bounded source text plus metadata-only chunks with persisted line ranges. For workspace/codebase searches, omit embeddingSetId to use the Workspace Index. Provide embeddingSetId only for a specific non-default embedding space; use tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',

@@ -673,6 +673,41 @@ export const ExecuteCommandInputSchema = z
 
 export type ExecuteCommandInput = z.infer<typeof ExecuteCommandInputSchema>;
 
+// ============================================================================
+// Manage Task List Tool Schema
+// ============================================================================
+
+const ManageTaskListItemSchema = z
+  .object({
+    activeForm: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe('Present-tense in-progress label, e.g. "Implementing the parser"'),
+    content: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe('Imperative task label, e.g. "Implement the parser"'),
+    status: z
+      .enum(['pending', 'in_progress', 'completed'])
+      .describe('Task status; keep exactly one task in_progress'),
+  })
+  .strict();
+
+export const ManageTaskListInputSchema = z
+  .object({
+    tasks: z
+      .array(ManageTaskListItemSchema)
+      .max(50)
+      .describe(
+        'The full task list to store (whole-list replace — pass the entire desired list every call). Maximum 50 tasks.'
+      ),
+  })
+  .strict();
+
+export type ManageTaskListInput = z.infer<typeof ManageTaskListInputSchema>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.deleteWorkspaceFile': DeleteWorkspaceFileInputSchema,
   'brainstrike.executeCommand': ExecuteCommandInputSchema,
@@ -682,6 +717,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.grepSearch': GrepSearchInputSchema,
   'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
+  'brainstrike.manageTaskList': ManageTaskListInputSchema,
   'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
   'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,

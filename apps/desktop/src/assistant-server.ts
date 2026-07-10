@@ -3,6 +3,7 @@ import http from 'node:http';
 import type {
   AgentMessage,
   AssistantRunEvent,
+  AssistantTaskItem,
   AssistantToolApprovalAction,
   AssistantUiMessageStrict,
   McpConfig,
@@ -66,6 +67,7 @@ import {
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
+import { readThreadTaskList } from './assistant-server/task-list-repository';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
@@ -1049,6 +1051,31 @@ function collectLocalLlmWarmupModelIds(runtimeData: RuntimeData | undefined): st
   return [...modelIds];
 }
 
+/**
+ * Read the current thread's task list for re-injection this turn. Returns `[]`
+ * when there is no thread, no DB, the run targets the built-in local provider,
+ * or the read fails (a warn is logged) — an absent plan is a legitimate empty
+ * state, not a swallowed policy fallback. The local-provider skip is the
+ * DB-read-avoiding gate of the same policy enforced again (defense in depth)
+ * by the provider check on `taskListNote` in agent-runtime.ts, and by omitting
+ * the manageTaskList tool for local in buildDesktopAssistantTools.
+ */
+async function readThreadTaskListForTurn(
+  runtimeData: RuntimeData | undefined,
+  database: Parameters<typeof readThreadTaskList>[0] | null
+): Promise<readonly AssistantTaskItem[]> {
+  const threadId = runtimeData?.memory?.threadId;
+  if (!(threadId && database) || isLocalChatProvider(runtimeData)) {
+    return [];
+  }
+  try {
+    return await readThreadTaskList(database, threadId);
+  } catch (error) {
+    logger.warn('Failed to read thread task list; no task-list block this turn.', { error });
+    return [];
+  }
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   incomingRuntimeData: RuntimeData | undefined,
@@ -1070,6 +1097,10 @@ async function initializeAgentStream(
     return null;
   });
   const runtimeData = await enrichRuntimeDataWithWorkspaceRoots(incomingRuntimeData, rootsDatabase);
+
+  // Re-inject the current per-thread task list into the instructions this
+  // turn (see readThreadTaskListForTurn for the local-provider skip).
+  const taskList = await readThreadTaskListForTurn(runtimeData, rootsDatabase);
 
   // Build runtime context with abort signal for cancellation support
   // The signal is embedded in RuntimeData and flows through to:
@@ -1104,6 +1135,9 @@ async function initializeAgentStream(
       mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
       mcpEnabled: true,
       signal, // ← AbortSignal passed here, used by stream iterator
+      // Always set: an empty list yields no <current-task-list> block (the note
+      // builder returns null), so no branch is needed here.
+      taskList,
       ...(mcpConfig ? { mcpConfig } : {}),
       ...(apiKey ? { apiKey } : {}),
       ...(localLlmHostClient ? { localLlmHostClient } : {}),

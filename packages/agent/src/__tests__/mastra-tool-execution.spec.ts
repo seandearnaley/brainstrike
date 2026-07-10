@@ -21,10 +21,17 @@ import type {
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
+import {
+  type AssistantTaskItemInput,
+  assignTaskIds,
+  type ManageTaskListResult,
+  summarizeAssistantTaskList,
+} from '@brainstrike/assistant-contract';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { ManageTaskListInputSchema } from '../tools/schemas';
 import type { StreamChunk } from '../types';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
@@ -991,5 +998,75 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
     expect(deniedExecute).toHaveBeenCalledTimes(1);
     expect(deniedExecute.mock.calls[0]?.[0]).toMatchObject({ value: 'unfiltered' });
     expect(runEventKinds).toContain('tool.completed');
+  });
+
+  // Live-loop proof for the SHAPE of brainstrike.manageTaskList: the real Mastra
+  // loop drives a manageTaskList-shaped tool (same input schema + result shape as
+  // the desktop tool, which cannot run in this package) with the parsed task
+  // array, and the ManageTaskListResult (tasks + summary) flows back through a
+  // terminal run-event + the model's final answer.
+  it('drives the manageTaskList tool through the real loop and returns tasks + summary', async () => {
+    const recorded: { tasks?: readonly AssistantTaskItemInput[] } = {};
+    const manageTaskListTool = createTool({
+      description: 'Record and update a structured task list for the current thread.',
+      execute: (input: { tasks: AssistantTaskItemInput[] }): Promise<ManageTaskListResult> => {
+        recorded.tasks = input.tasks;
+        const tasks = assignTaskIds(input.tasks);
+        return Promise.resolve({ summary: summarizeAssistantTaskList(tasks), tasks });
+      },
+      id: 'brainstrike.manageTaskList',
+      inputSchema: ManageTaskListInputSchema,
+    });
+
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'Recorded the plan.',
+      input: JSON.stringify({
+        tasks: [
+          { activeForm: 'Reading the spec', content: 'Read the spec', status: 'completed' },
+          {
+            activeForm: 'Implementing the parser',
+            content: 'Implement the parser',
+            status: 'in_progress',
+          },
+          { activeForm: 'Writing the tests', content: 'Write the tests', status: 'pending' },
+        ],
+      }),
+      toolCallId: 'call-tasks-1',
+      // The dotted tool id is Mastra-sanitized to underscores; the model calls
+      // the sanitized name it is presented with.
+      toolName: 'brainstrike_manageTaskList',
+    });
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-tasks', parts: [{ text: 'plan the work', type: 'text' }], role: 'user' }],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { 'brainstrike.manageTaskList': manageTaskListTool },
+      }
+    );
+
+    const runEventKinds: string[] = [];
+    const chunks: StreamChunk[] = [];
+    let finalText = '';
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      } else if (chunk.type === 'text-delta') {
+        finalText += chunk.value;
+      }
+    }
+
+    // The real Mastra loop invoked execute with the parsed task array.
+    expect(recorded.tasks).toHaveLength(3);
+    expect(recorded.tasks?.[1]).toMatchObject({
+      content: 'Implement the parser',
+      status: 'in_progress',
+    });
+    // The result (tasks + summary) flowed back through a terminal event + answer.
+    expect(runEventKinds).toContain('tool.completed');
+    expect(finalText).toContain('Recorded the plan');
+    // The tool-result chunk carries the ManageTaskListResult summary.
+    expect(JSON.stringify(chunks)).toContain('"inProgress":1');
   });
 });

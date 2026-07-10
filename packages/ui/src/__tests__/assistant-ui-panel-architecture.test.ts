@@ -104,8 +104,11 @@ describe('assistant UI panel architecture', () => {
     const localChainOfThoughtSource = source.slice(localChainOfThoughtStart, collapsedHistoryStart);
 
     expect(assistantMessageSource).toContain('ChainOfThought: LocalChainOfThought');
-    expect(localChainOfThoughtSource).toContain('tools: {');
-    expect(localChainOfThoughtSource).toContain('Fallback: ToolFallback');
+    // The tool-components map (by_name + Fallback) is extracted to
+    // CHAIN_OF_THOUGHT_TOOL_COMPONENTS in todo-progress.tsx to stay under the
+    // source-file budget above; assert the wiring there instead of inline.
+    expect(localChainOfThoughtSource).toContain('tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS');
+    expect(readSource('assistant-ui-panel/todo-progress.tsx')).toContain('Fallback: ToolFallback');
   });
 
   it('uses the shared thinking indicator instead of a bare streaming caret', () => {

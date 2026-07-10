@@ -447,6 +447,104 @@ describe('agent-runtime edge cases', () => {
     });
   });
 
+  describe('task-list re-injection', () => {
+    it('appends a <current-task-list> block when runtime.taskList is populated', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          taskList: [
+            {
+              activeForm: 'Implementing the parser',
+              content: 'Implement the parser',
+              id: 'a',
+              status: 'in_progress',
+            },
+            {
+              activeForm: 'Writing the tests',
+              content: 'Write the tests',
+              id: 'b',
+              status: 'pending',
+            },
+          ],
+        },
+      });
+
+      const instructions = runtime.agent.getInstructions();
+      expect(instructions).toContain('<current-task-list count="2">');
+      expect(instructions).toContain('[in_progress] Implement the parser');
+      expect(instructions).toContain('[pending] Write the tests');
+      await runtime.dispose();
+    });
+
+    it('appends the task-list block AFTER the budget note (most recent last)', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: {
+          agentLoop: { inputTokenLimit: 126_000 },
+          apiKey: 'test-key',
+          provider: 'openai',
+          taskList: [
+            { activeForm: 'Doing', content: 'Do the thing', id: 'a', status: 'in_progress' },
+          ],
+        },
+      });
+
+      const instructions = runtime.agent.getInstructions();
+      expect(instructions.indexOf('Context budget:')).toBeLessThan(
+        instructions.indexOf('<current-task-list')
+      );
+      await runtime.dispose();
+    });
+
+    it('injects no task-list block when runtime.taskList is absent or empty', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const absent = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      });
+      expect(absent.agent.getInstructions()).not.toContain('<current-task-list');
+      await absent.dispose();
+
+      const empty = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai', taskList: [] },
+      });
+      expect(empty.agent.getInstructions()).not.toContain('<current-task-list');
+      await empty.dispose();
+    });
+
+    it('injects no task-list block for the local provider even when runtime.taskList is populated', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      // Minimal fake host client: createMastraAgentRuntime only needs it to
+      // resolve the LlmHostChatModel branch of createProvider('local', ...);
+      // generate/warmup are never called while only building instructions.
+      const localLlmHostClient = { generate: vi.fn(), warmup: vi.fn() };
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: {
+          localLlmHostClient,
+          provider: 'local',
+          taskList: [
+            {
+              activeForm: 'Implementing the parser',
+              content: 'Implement the parser',
+              id: 'a',
+              status: 'in_progress',
+            },
+          ],
+        },
+      });
+
+      const instructions = runtime.agent.getInstructions();
+      expect(instructions).not.toContain('<current-task-list');
+      await runtime.dispose();
+    });
+  });
+
   describe('streamMastraAgent with signals', () => {
     it('handles abort signal during streaming', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');

@@ -192,6 +192,20 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: false,
   },
+  // Whole-list replace of the assistant's own per-thread plan. `category:'action'`
+  // is the UI/load taxonomy, but the risk bucket is EXPLICITLY 'read': it mutates
+  // ONLY the assistant's ephemeral todo list — no workspace/fs/persistent-user
+  // state — so, like brainstrike.webSearch (also 'read' despite doing work), the
+  // permission engine allows it by default and the loop never suspends for a plan
+  // update. An `action` tool MUST declare riskCategory explicitly (tool-risk.ts
+  // throws otherwise — no silent bucketing).
+  'brainstrike.manageTaskList': {
+    category: 'action',
+    estimatedTokens: 140,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   'brainstrike.queryEmbeddingSpace': {
     category: 'retrieval',
     estimatedTokens: 190,

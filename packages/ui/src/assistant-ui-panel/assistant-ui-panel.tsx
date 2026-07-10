@@ -77,6 +77,7 @@ import {
   ThreadContextMeter,
 } from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
+import { deriveTaskListFromParts } from './derive-task-list';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { LocalModelStatus } from './local-model-status';
@@ -87,10 +88,10 @@ import {
   type SlashCommand,
   toSlashCommandAdapterOptions,
 } from './slash-commands';
+import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { runEventsSpanMs, summarizeToolActivity } from './tool-activity';
 import { ToolDurationProvider } from './tool-duration-context';
 import { collectToolDurations } from './tool-durations';
-import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
@@ -513,6 +514,7 @@ const LocalChainOfThought = () => {
   const toolActivity = useMemo(() => summarizeToolActivity(messageParts), [messageParts]);
   const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
   const toolDurations = useMemo(() => collectToolDurations(messageParts), [messageParts]);
+  const taskList = useMemo(() => deriveTaskListFromParts(messageParts), [messageParts]);
 
   const initializedRef = useRef(false);
   const reasoningPanelId = useId();
@@ -546,10 +548,7 @@ const LocalChainOfThought = () => {
         components={{
           /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
           Reasoning: collapsed ? HiddenReasoningPart : LocalReasoningPart,
-          tools: {
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
-            Fallback: ToolFallback,
-          },
+          tools: CHAIN_OF_THOUGHT_TOOL_COMPONENTS,
         }}
         index={index}
       />
@@ -595,6 +594,7 @@ const LocalChainOfThought = () => {
 
   return (
     <ChainOfThoughtPrimitive.Root className="bs-chain-of-thought mb-2 block max-w-xl">
+      {taskList ? <TodoProgress result={taskList} /> : null}
       <ToolDurationProvider durations={toolDurations}>{content}</ToolDurationProvider>
     </ChainOfThoughtPrimitive.Root>
   );
