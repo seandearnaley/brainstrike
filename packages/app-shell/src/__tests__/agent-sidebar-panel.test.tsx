@@ -197,6 +197,43 @@ describe('AgentSidebarPanel', () => {
     );
   });
 
+  it('reports actual prompt-tab activity while preserving the mounted prompt surface', async () => {
+    const activity: boolean[] = [];
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        promptsContent={(isActive) => {
+          activity.push(isActive);
+          return <input aria-label="Activity-aware prompt search" defaultValue="" />;
+        }}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    expect(activity.at(-1)).toBe(false);
+    expect(screen.queryByRole('textbox', { name: 'Activity-aware prompt search' })).toBeNull();
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Prompts' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    const searchField = await screen.findByRole('textbox', {
+      name: 'Activity-aware prompt search',
+    });
+    expect(activity.at(-1)).toBe(true);
+    fireEvent.change(searchField, { target: { value: 'preserve this' } });
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await waitFor(() => {
+      expect(activity.at(-1)).toBe(false);
+    });
+    expect(searchField).not.toBeVisible();
+    expect(searchField).toHaveValue('preserve this');
+  });
+
   it('migrates the legacy tools panel tab and removes the old storage key', () => {
     window.localStorage.setItem(
       'tools-panel.v1',

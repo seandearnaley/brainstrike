@@ -32,13 +32,11 @@ export interface PlanModeComposerControls {
 const ComposerInputRow = ({
   isComposerDisabled,
   mentionPopover,
-  onTextChange,
   planMode,
   slashPopover,
 }: {
   isComposerDisabled: boolean;
   mentionPopover?: ReactNode;
-  onTextChange?: ((text: string) => void) | undefined;
   planMode?: PlanModeComposerControls;
   slashPopover?: ReactNode;
 }) => (
@@ -48,7 +46,6 @@ const ComposerInputRow = ({
       className="aui-composer-input"
       disabled={isComposerDisabled}
       id="assistant-input"
-      onChange={(event) => onTextChange?.(event.currentTarget.value)}
       placeholder="Ask BrainStrike anything..."
       rows={1}
     />
@@ -113,19 +110,16 @@ export const ComposerInputWithTriggers = ({
   isComposerDisabled,
   slashPopover,
   mentionPopover,
-  onTextChange,
   planMode,
 }: {
   isComposerDisabled: boolean;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
-  onTextChange?: ((text: string) => void) | undefined;
   planMode?: PlanModeComposerControls;
 }) => {
   const row = (
     <ComposerInputRow
       isComposerDisabled={isComposerDisabled}
-      onTextChange={onTextChange}
       {...(slashPopover ? { slashPopover } : {})}
       {...(mentionPopover ? { mentionPopover } : {})}
       {...(planMode ? { planMode } : {})}

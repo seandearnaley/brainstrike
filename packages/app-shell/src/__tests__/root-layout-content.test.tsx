@@ -43,6 +43,8 @@ vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
 const mockHandlers = {
   onNavigationClick: (_path: string) => {},
   panelLayoutChanges: [] as Array<(state: PanelLayoutState) => void>,
+  promptManagerSuspended: false,
+  promptManagerSuspense: new Promise<never>(() => {}),
 };
 
 vi.mock('../app-layout', () => ({
@@ -129,27 +131,43 @@ vi.mock('../agent-sidebar-panel', () => ({
   }: {
     threadsContent: React.ReactNode;
     databaseContent: React.ReactNode;
-    promptsContent: React.ReactNode;
-  }) => (
-    <div data-testid="agent-sidebar-shell">
-      <div data-testid="threads-tab-content">{threadsContent}</div>
-      <div data-testid="database-tab-content">{databaseContent}</div>
-      <div data-testid="prompts-tab-content">{promptsContent}</div>
-    </div>
-  ),
+    promptsContent: React.ReactNode | ((isActive: boolean) => React.ReactNode);
+  }) => {
+    const [promptsActive, setPromptsActive] = useState(false);
+    return (
+      <div data-testid="agent-sidebar-shell">
+        <button onClick={() => setPromptsActive(true)} type="button">
+          Select Prompts tab
+        </button>
+        <div data-testid="threads-tab-content">{threadsContent}</div>
+        <div data-testid="database-tab-content">{databaseContent}</div>
+        <div data-testid="prompts-tab-content">
+          {typeof promptsContent === 'function' ? promptsContent(promptsActive) : promptsContent}
+        </div>
+      </div>
+    );
+  },
 }));
 
-vi.mock('../connected-prompt-manager', () => ({
-  ConnectedPromptManager: ({
+vi.mock('../connected-prompt-manager-lazy', () => ({
+  ConnectedPromptManagerLazy: ({
     loadEmbeddingQueue,
+    suggestionsEnabled,
   }: {
     loadEmbeddingQueue: (() => Promise<unknown>) | null;
-  }) => (
-    <div
-      data-has-embedding-queue={loadEmbeddingQueue ? 'true' : 'false'}
-      data-testid="connected-prompt-manager"
-    />
-  ),
+    suggestionsEnabled?: boolean;
+  }) => {
+    if (mockHandlers.promptManagerSuspended) {
+      throw mockHandlers.promptManagerSuspense;
+    }
+    return (
+      <div
+        data-has-embedding-queue={loadEmbeddingQueue ? 'true' : 'false'}
+        data-suggestions-enabled={suggestionsEnabled ? 'true' : 'false'}
+        data-testid="connected-prompt-manager"
+      />
+    );
+  },
 }));
 
 vi.mock('../threads-panel', () => ({
@@ -164,6 +182,7 @@ describe('RootLayoutContent', () => {
   beforeEach(() => {
     mockHandlers.onNavigationClick = vi.fn();
     mockHandlers.panelLayoutChanges = [];
+    mockHandlers.promptManagerSuspended = false;
     usePanelLayoutStore.setState({
       activeTab: 'explorer',
       showConsole: false,
@@ -219,6 +238,10 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('connected-prompt-manager')).toBe(
       screen.getByTestId('prompts-tab-content').firstElementChild
     );
+    expect(screen.getByTestId('connected-prompt-manager')).toHaveAttribute(
+      'data-suggestions-enabled',
+      'false'
+    );
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
@@ -239,6 +262,17 @@ describe('RootLayoutContent', () => {
     );
   });
 
+  it('shows a stable prompt-workbench fallback while the lazy panel graph loads', () => {
+    mockHandlers.promptManagerSuspended = true;
+
+    renderComponent();
+
+    expect(screen.getByTestId('prompt-workbench-lazy-fallback')).toHaveTextContent(
+      'Opening Prompt Workbench…'
+    );
+    expect(screen.queryByTestId('connected-prompt-manager')).not.toBeInTheDocument();
+  });
+
   it('renders settings as a full-frame route without the agent shell', () => {
     renderComponent();
 
@@ -251,6 +285,36 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
     expect(screen.getByTestId('settings-route')).toBeInTheDocument();
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
+  });
+
+  it('disables prompt suggestions on every hidden outer route without unmounting prompts', async () => {
+    const user = userEvent.setup();
+    renderComponent({
+      gitPageContent: <div>Git</div>,
+      terminalPageContent: <div>Terminal</div>,
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Select Prompts tab' }));
+    const promptManager = screen.getByTestId('connected-prompt-manager');
+    expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'true');
+
+    for (const path of ['/settings', '/git', '/terminal']) {
+      act(() => {
+        mockHandlers.onNavigationClick(path);
+      });
+
+      expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
+      expect(screen.getByTestId('connected-prompt-manager')).toBe(promptManager);
+      expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'false');
+
+      act(() => {
+        mockHandlers.onNavigationClick('/');
+      });
+
+      expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+      expect(screen.getByTestId('connected-prompt-manager')).toBe(promptManager);
+      expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'true');
+    }
   });
 
   it('keeps settings mounted after first visit so local form state survives route switches', async () => {

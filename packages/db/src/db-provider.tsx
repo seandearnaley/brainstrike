@@ -43,6 +43,30 @@ function logDatabaseError(message: string, error: unknown): void {
   logger.error({ err: error }, message);
 }
 
+function isMissingRelationError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(?:relation|table)\s+(?:"(?:[a-z_][\w$]*\.)?prompt_items"|(?:(?:"[a-z_][\w$]*"|[a-z_][\w$]*)\.)?(?:"prompt_items"|prompt_items))\s+does not exist\b/iu.test(
+    message
+  );
+}
+
+async function clearPromptItemsIfPresent(
+  tx: { query: (sql: string) => Promise<unknown> },
+  missingRelationMessage: string
+): Promise<void> {
+  try {
+    await tx.query('DELETE FROM prompt_items');
+  } catch (error) {
+    if (!isMissingRelationError(error)) {
+      throw error;
+    }
+    logger.warn(missingRelationMessage, error);
+  }
+}
+
 /**
  * Discriminated union for the internal DB connection handle.
  * IPC mode: renderer communicates via Electron IPC bridge (no local close).
@@ -78,6 +102,7 @@ async function purgeAndCloseDirectDb(
     });
   } catch (error) {
     logger.error('[DbProvider] Failed to purge tables during factory reset:', error);
+    throw error;
   }
   try {
     await db.exec('VACUUM');
@@ -773,13 +798,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         // Tables may not exist in older schema versions - log but don't fail
         logger.warn('[DbProvider] Failed to clear job_queue (table may not exist):', error);
       }
-      try {
-        // Revisions cascade from prompt_items. The system embedding profile is
-        // configuration seeded by migration 051 and intentionally survives.
-        await tx.query('DELETE FROM prompt_items');
-      } catch (error) {
-        logger.warn('[DbProvider] Failed to clear prompt_items (table may not exist):', error);
-      }
+      // Revisions cascade from prompt_items. The system embedding profile is
+      // configuration seeded by migration 051 and intentionally survives.
+      await clearPromptItemsIfPresent(
+        tx,
+        '[DbProvider] Skipped missing prompt_items table during clear:'
+      );
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
     });
@@ -815,11 +839,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   // Helpers to reduce complexity within contextValue actions
   const purgeTablesTx = useCallback(async (tx: { query: (sql: string) => Promise<unknown> }) => {
-    try {
-      await tx.query('DELETE FROM prompt_items');
-    } catch (err) {
-      logger.warn('Failed to clear prompt_items during reset:', err);
-    }
+    await clearPromptItemsIfPresent(tx, 'Skipped missing prompt_items table during reset:');
     try {
       await tx.query('DELETE FROM job_queue');
     } catch (err) {
@@ -916,10 +936,15 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const resetPGliteState = useCallback(async () => {
     resetPendingReloadRef.current = true;
 
-    if (connectionRef.current) {
-      await purgeAndClosePGlite();
-    } else {
-      logger.warn('[DbProvider] No active database to purge during factory reset');
+    try {
+      if (connectionRef.current) {
+        await purgeAndClosePGlite();
+      } else {
+        logger.warn('[DbProvider] No active database to purge during factory reset');
+      }
+    } catch (error) {
+      resetPendingReloadRef.current = false;
+      throw error;
     }
 
     connectionRef.current = null;

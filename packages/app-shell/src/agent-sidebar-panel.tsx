@@ -7,7 +7,7 @@ import { preloadDatabaseTab } from './database-tab';
 interface AgentSidebarPanelProps {
   readonly databaseContent: ReactNode;
   readonly preloadDatabaseTabOnMount?: boolean;
-  readonly promptsContent: ReactNode;
+  readonly promptsContent: ReactNode | ((isActive: boolean) => ReactNode);
   readonly threadsContent: ReactNode;
 }
 
@@ -129,6 +129,8 @@ export function AgentSidebarPanel({
         forceMount: true,
       } as const)
     : {};
+  const resolvedPromptsContent =
+    typeof promptsContent === 'function' ? promptsContent(activeTab === 'prompts') : promptsContent;
 
   return (
     <Tabs
@@ -188,7 +190,7 @@ export function AgentSidebarPanel({
         {...promptsTabMountProps}
         value="prompts"
       >
-        {promptsContent}
+        {resolvedPromptsContent}
       </TabsContent>
 
       <TabsContent

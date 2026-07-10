@@ -1,3 +1,4 @@
+import { listProviders } from '@brainstrike/assistant-contract';
 import {
   normalizePromptItemTags,
   type PromptItemImportSnapshot,
@@ -84,6 +85,41 @@ function parseJson(raw: string): unknown {
   }
 }
 
+function resolveLegacyModelKey(
+  modelSettings: Record<string, unknown> | null,
+  field: string
+): string | null {
+  const legacyModel = modelSettings?.['model'];
+  if (legacyModel === undefined) {
+    return null;
+  }
+  if (typeof legacyModel !== 'string') {
+    throw new Error(`Legacy prompt store field "${field}.model" must be a string.`);
+  }
+
+  const separator = legacyModel.indexOf('::');
+  if (separator >= 0) {
+    const providerId = legacyModel.slice(0, separator);
+    const modelId = legacyModel.slice(separator + 2);
+    const provider = listProviders().find((candidate) => candidate.id === providerId);
+    const isKnownLlm = provider?.models.some(
+      (model) => model.type === 'llm' && model.id === modelId
+    );
+    if (isKnownLlm) {
+      return legacyModel;
+    }
+    throw new Error(`Cannot map legacy prompt model "${legacyModel}" from "${field}.model".`);
+  }
+
+  const matchingProviders = listProviders().filter((provider) =>
+    provider.models.some((model) => model.type === 'llm' && model.id === legacyModel)
+  );
+  if (matchingProviders.length !== 1) {
+    throw new Error(`Cannot map legacy prompt model "${legacyModel}" from "${field}.model".`);
+  }
+  return `${matchingProviders[0]?.id}::${legacyModel}`;
+}
+
 export function parseLegacyPromptStore(raw: string): PromptItemImportSnapshot {
   const root = asRecord(parseJson(raw), 'root');
   const state = asRecord(root['state'], 'state');
@@ -100,10 +136,7 @@ export function parseLegacyPromptStore(raw: string): PromptItemImportSnapshot {
     const field = `state.prompts[${index}]`;
     const prompt = asRecord(value, field);
     const modelSettings = asOptionalRecord(prompt['modelSettings'], `${field}.modelSettings`);
-    const legacyModel = modelSettings?.['model'];
-    if (legacyModel !== undefined && typeof legacyModel !== 'string') {
-      throw new Error(`Legacy prompt store field "${field}.modelSettings.model" must be a string.`);
-    }
+    const modelKey = resolveLegacyModelKey(modelSettings, `${field}.modelSettings`);
     const categoryId = asString(prompt['categoryId'], `${field}.categoryId`);
     const categoryName = categories.get(categoryId);
     const tags = normalizePromptItemTags([
@@ -122,7 +155,7 @@ export function parseLegacyPromptStore(raw: string): PromptItemImportSnapshot {
           content: asString(revision['content'], `${revisionField}.content`),
           createdAt: asDate(revision['timestamp'], `${revisionField}.timestamp`),
           id: asString(revision['id'], `${revisionField}.id`),
-          modelKey: null,
+          modelKey: resolveLegacyModelKey(revisionSettings, `${revisionField}.modelSettings`),
           modelSettings: revisionSettings,
           note: asOptionalString(revision['note'], `${revisionField}.note`),
           title,
@@ -135,7 +168,7 @@ export function parseLegacyPromptStore(raw: string): PromptItemImportSnapshot {
       id: asString(prompt['id'], `${field}.id`),
       isFavorite: asBoolean(prompt['isFavorite'], `${field}.isFavorite`),
       kind: 'prompt' as const,
-      modelKey: typeof legacyModel === 'string' && legacyModel.includes('::') ? legacyModel : null,
+      modelKey,
       modelSettings,
       rating: asFiniteNumber(prompt['rating'], `${field}.rating`),
       revisions,

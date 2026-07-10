@@ -1,3 +1,5 @@
+import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
+import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   type PromptItem,
   PromptItemRepository,
@@ -15,7 +17,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
-import { useAssistantThreadStore } from './assistant-thread-store';
+import {
+  type AssistantThreadDraftRuntime,
+  useAssistantThreadStore,
+} from './assistant-thread-store';
+import {
+  buildDraftRuntimeForProvider,
+  copyProviderSettingsMap,
+} from './assistant-ui-panel-wrapper-runtime';
 import { resolvePromptEmbeddingModelInfo } from './prompt-embedding-model-info';
 import { embedPendingPromptItems, queryPromptSuggestions } from './prompt-library-embedding';
 import { importLegacyPromptStore } from './prompt-library-legacy-import';
@@ -53,6 +62,195 @@ function parseCompositeModelKey(modelKey: string): { model: string; provider: st
   return { model, provider };
 }
 
+const PROMPT_MODEL_SETTING_KEYS = new Set([
+  'frequencyPenalty',
+  'maxOutputTokens',
+  'maxTokens',
+  'model',
+  'presencePenalty',
+  'temperature',
+  'topP',
+]);
+
+function requireFiniteNumber(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Prompt model setting "${field}" must be a finite number.`);
+  }
+  return value;
+}
+
+function requireUnitInterval(value: unknown, field: string): number {
+  const number = requireFiniteNumber(value, field);
+  if (number < 0 || number > 1) {
+    throw new Error(`Prompt model setting "${field}" must be between 0 and 1.`);
+  }
+  return number;
+}
+
+function requirePenalty(value: unknown, field: string): number {
+  const number = requireFiniteNumber(value, field);
+  if (number < -2 || number > 2) {
+    throw new Error(`Prompt model setting "${field}" must be between -2 and 2.`);
+  }
+  return number;
+}
+
+function requireTemperature(value: unknown): number {
+  const number = requireFiniteNumber(value, 'temperature');
+  if (number < 0 || number > 2) {
+    throw new Error('Prompt model setting "temperature" must be between 0 and 2.');
+  }
+  return number;
+}
+
+function requireOutputTokenLimit(value: unknown, field: string): number {
+  const number = requireFiniteNumber(value, field);
+  if (!Number.isInteger(number) || number <= 0) {
+    throw new Error(`Prompt model setting "${field}" must be a positive integer.`);
+  }
+  return number;
+}
+
+function parsePromptModelSettings(item: PromptItem): RuntimeModelSettings | undefined {
+  const raw = item.modelSettings;
+  if (!raw) {
+    return;
+  }
+
+  const unknownKeys = Object.keys(raw).filter((key) => !PROMPT_MODEL_SETTING_KEYS.has(key));
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `Prompt "${item.title}" has unsupported model settings: ${unknownKeys.join(', ')}.`
+    );
+  }
+
+  if (raw['model'] !== undefined && (typeof raw['model'] !== 'string' || !raw['model'].trim())) {
+    throw new Error('Prompt model setting "model" must be a non-empty string.');
+  }
+
+  const legacyMaxTokens = raw['maxTokens'];
+  const maxOutputTokens = raw['maxOutputTokens'];
+  if (legacyMaxTokens !== undefined && maxOutputTokens !== undefined) {
+    throw new Error('Prompt model settings cannot specify both "maxTokens" and "maxOutputTokens".');
+  }
+
+  const settings: RuntimeModelSettings = {};
+  const outputTokenLimit = maxOutputTokens ?? legacyMaxTokens;
+  if (outputTokenLimit !== undefined) {
+    settings.maxOutputTokens = requireOutputTokenLimit(
+      outputTokenLimit,
+      maxOutputTokens === undefined ? 'maxTokens' : 'maxOutputTokens'
+    );
+  }
+  if (raw['temperature'] !== undefined) {
+    settings.temperature = requireTemperature(raw['temperature']);
+  }
+  if (raw['topP'] !== undefined) {
+    settings.topP = requireUnitInterval(raw['topP'], 'topP');
+  }
+  if (raw['frequencyPenalty'] !== undefined) {
+    settings.frequencyPenalty = requirePenalty(raw['frequencyPenalty'], 'frequencyPenalty');
+  }
+  if (raw['presencePenalty'] !== undefined) {
+    settings.presencePenalty = requirePenalty(raw['presencePenalty'], 'presencePenalty');
+  }
+  return Object.keys(settings).length > 0 ? settings : undefined;
+}
+
+function mergeProviderOptions(
+  current: AssistantThreadDraftRuntime['providerOptions'],
+  next: AssistantThreadDraftRuntime['providerOptions']
+): AssistantThreadDraftRuntime['providerOptions'] {
+  if (!current) {
+    return next;
+  }
+  if (!next) {
+    return current;
+  }
+  return mergeOptionRecords(current, next);
+}
+
+function isOptionRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeOptionRecords(
+  current: Record<string, unknown>,
+  next: Record<string, unknown>
+): Record<string, unknown> {
+  const merged = new Map(Object.entries(current));
+  for (const [providerId, options] of Object.entries(next)) {
+    const currentOptions = merged.get(providerId);
+    merged.set(
+      providerId,
+      isOptionRecord(currentOptions) && isOptionRecord(options)
+        ? mergeOptionRecords(currentOptions, options)
+        : options
+    );
+  }
+  return Object.fromEntries(merged);
+}
+
+function mergeModelSettings(
+  current: AssistantThreadDraftRuntime['modelSettings'],
+  rebuilt: AssistantThreadDraftRuntime['modelSettings'],
+  requested: RuntimeModelSettings | undefined
+): RuntimeModelSettings | undefined {
+  const settings = { ...rebuilt, ...current, ...requested };
+  return Object.keys(settings).length > 0 ? settings : undefined;
+}
+
+function omitModelSettings(runtime: AssistantThreadDraftRuntime): AssistantThreadDraftRuntime {
+  const { modelSettings: _modelSettings, ...runtimeWithoutModelSettings } = runtime;
+  return runtimeWithoutModelSettings;
+}
+
+function buildPromptDraftRuntime(
+  current: AssistantThreadDraftRuntime | undefined,
+  requested: ResolvedPromptRuntime,
+  fallbackProviderSettings: NonNullable<AssistantThreadDraftRuntime['providerSettings']>
+): AssistantThreadDraftRuntime {
+  if (!isSupportedProvider(requested.provider)) {
+    throw new Error(`Prompt item has an unsupported provider: ${requested.provider}`);
+  }
+  const providerSettingsMap = copyProviderSettingsMap(current?.providerSettings) ?? {};
+  const hadCurrentTargetSettings = Object.hasOwn(providerSettingsMap, requested.provider);
+  const currentTargetSettings = providerSettingsMap[requested.provider];
+  const fallbackTargetSettings = fallbackProviderSettings[requested.provider];
+  const effectiveTargetSettings = {
+    ...fallbackTargetSettings,
+    ...currentTargetSettings,
+  };
+  if (hadCurrentTargetSettings || Object.keys(effectiveTargetSettings).length > 0) {
+    providerSettingsMap[requested.provider] = effectiveTargetSettings;
+  }
+  const rebuilt = buildDraftRuntimeForProvider({
+    model: requested.model,
+    provider: requested.provider,
+    providerSettingsMap,
+  });
+  const providerOptions = mergeProviderOptions(current?.providerOptions, rebuilt.providerOptions);
+  const modelSettings = mergeModelSettings(
+    current?.provider === requested.provider ? current.modelSettings : undefined,
+    rebuilt.modelSettings,
+    requested.modelSettings
+  );
+  const preservedCurrent =
+    current && current.provider !== requested.provider ? omitModelSettings(current) : current;
+  return {
+    ...preservedCurrent,
+    ...rebuilt,
+    ...(providerOptions ? { providerOptions } : {}),
+    ...(modelSettings ? { modelSettings } : {}),
+  };
+}
+
+interface ResolvedPromptRuntime {
+  readonly model: string;
+  readonly modelSettings?: RuntimeModelSettings;
+  readonly provider: string;
+}
+
 async function resolveRequestedPromptRuntime({
   action,
   getAvailableProviders,
@@ -63,8 +261,14 @@ async function resolveRequestedPromptRuntime({
   readonly getAvailableProviders: () => Promise<readonly string[]>;
   readonly item: PromptItem;
   readonly modelOptions: readonly PromptWorkbenchModelOption[];
-}): Promise<{ model: string; provider: string } | null> {
-  if (!((action === 'compose' || action === 'new-thread') && item.modelKey)) {
+}): Promise<ResolvedPromptRuntime | null> {
+  if (!(action === 'compose' || action === 'new-thread')) {
+    return null;
+  }
+  if (!item.modelKey) {
+    if (item.modelSettings && Object.keys(item.modelSettings).length > 0) {
+      throw new Error(`Prompt "${item.title}" has model settings without a configured model.`);
+    }
     return null;
   }
   if (!modelOptions.some((option) => option.key === item.modelKey)) {
@@ -79,11 +283,16 @@ async function resolveRequestedPromptRuntime({
       `Prompt "${item.title}" requests ${requestedRuntime.provider}, but that provider is not available.`
     );
   }
-  return requestedRuntime;
+  const modelSettings = parsePromptModelSettings(item);
+  return {
+    ...requestedRuntime,
+    ...(modelSettings ? { modelSettings } : {}),
+  };
 }
 
 interface ConnectedPromptManagerProps {
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
+  readonly suggestionsEnabled?: boolean;
 }
 
 interface PromptIndexingPassResult {
@@ -120,7 +329,10 @@ async function reloadPromptItemsAfterIndexing(
   }
 }
 
-export function ConnectedPromptManager({ loadEmbeddingQueue }: ConnectedPromptManagerProps) {
+export function ConnectedPromptManager({
+  loadEmbeddingQueue,
+  suggestionsEnabled = true,
+}: ConnectedPromptManagerProps) {
   const db = usePGliteDatabase();
   useEnsureModelRegistry({ db });
   const models = useModelRegistryStore((state) => state.models);
@@ -128,6 +340,7 @@ export function ConnectedPromptManager({ loadEmbeddingQueue }: ConnectedPromptMa
   const getAvailableProviders = useAssistantPreferencesStore(
     (state) => state.getAvailableProviders
   );
+  const providerSettings = useAssistantPreferencesStore((state) => state.providerSettings);
   const embedder = useSharedSearchEmbedder();
   const activeThreadId = useAssistantThreadStore(
     (state) => state.activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
@@ -324,6 +537,9 @@ export function ConnectedPromptManager({ loadEmbeddingQueue }: ConnectedPromptMa
       if (!(repository && threadRepository)) {
         throw new Error('Cannot use a prompt before the database is ready.');
       }
+      if (!renderedContent.trim()) {
+        throw new Error('Rendered prompt content must contain non-whitespace text.');
+      }
 
       const requestedRuntime = await resolveRequestedPromptRuntime({
         action,
@@ -339,7 +555,14 @@ export function ConnectedPromptManager({ loadEmbeddingQueue }: ConnectedPromptMa
           item.title
         );
         if (requestedRuntime) {
-          setThreadDraftRuntime(thread.id, requestedRuntime);
+          setThreadDraftRuntime(
+            thread.id,
+            buildPromptDraftRuntime(
+              useAssistantThreadStore.getState().draftRuntimeByThreadId[thread.id],
+              requestedRuntime,
+              providerSettings
+            )
+          );
         }
         enqueueComposerCommand({
           mode: 'replace',
@@ -354,7 +577,14 @@ export function ConnectedPromptManager({ loadEmbeddingQueue }: ConnectedPromptMa
         throw new Error('Open an assistant thread before adding a prompt to the composer.');
       }
       if (action === 'compose' && requestedRuntime) {
-        setThreadDraftRuntime(activeThreadId, requestedRuntime);
+        setThreadDraftRuntime(
+          activeThreadId,
+          buildPromptDraftRuntime(
+            useAssistantThreadStore.getState().draftRuntimeByThreadId[activeThreadId],
+            requestedRuntime,
+            providerSettings
+          )
+        );
       }
       enqueueComposerCommand({
         mode: action === 'insert' ? 'append' : 'replace',
@@ -369,6 +599,7 @@ export function ConnectedPromptManager({ loadEmbeddingQueue }: ConnectedPromptMa
       enqueueComposerCommand,
       getAvailableProviders,
       modelOptions,
+      providerSettings,
       recordAppliedUsage,
       repository,
       setThreadDraftRuntime,
@@ -416,6 +647,7 @@ export function ConnectedPromptManager({ loadEmbeddingQueue }: ConnectedPromptMa
       onRequestSuggestions={handleRequestSuggestions}
       onUseItem={handleUseItem}
       repository={repository}
+      suggestionsEnabled={suggestionsEnabled}
       {...(systemError ? { systemError } : {})}
     />
   );

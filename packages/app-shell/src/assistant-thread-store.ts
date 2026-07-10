@@ -1,3 +1,4 @@
+import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -7,9 +8,7 @@ import type {
   AssistantThreadRepository,
 } from './assistant-memory-repository';
 
-interface AssistantThreadModelSettings {
-  readonly maxOutputTokens?: number;
-}
+type AssistantThreadModelSettings = RuntimeModelSettings;
 
 type AssistantThreadProviderOptions = Record<string, unknown>;
 

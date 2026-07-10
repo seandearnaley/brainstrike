@@ -77,6 +77,7 @@ export interface PromptWorkbenchPanelProps {
     action: PromptItemUsageAction
   ) => Promise<void>;
   readonly repository: PromptWorkbenchRepository;
+  readonly suggestionsEnabled?: boolean;
   readonly systemError?: string;
 }
 
@@ -155,6 +156,10 @@ function actionLabel(item: PromptItem): string {
   return item.kind === 'prompt' ? `Compose ${item.title}` : `Insert ${item.title}`;
 }
 
+function directUseKey(item: PromptItem, action: PromptItemUsageAction): string {
+  return JSON.stringify([item.id, action]);
+}
+
 function itemMatches(item: PromptItem, search: string, kind: KindFilter): boolean {
   if (kind !== 'all' && item.kind !== kind) {
     return false;
@@ -215,10 +220,12 @@ interface PromptSuggestionState {
 
 function useContextualPromptSuggestions({
   composerContext,
+  enabled,
   onRequestSuggestions,
   refreshKey,
 }: {
   readonly composerContext: string;
+  readonly enabled: boolean;
   readonly onRequestSuggestions: PromptWorkbenchPanelProps['onRequestSuggestions'];
   readonly refreshKey: number;
 }) {
@@ -232,7 +239,7 @@ function useContextualPromptSuggestions({
   });
 
   useEffect(() => {
-    if (!context) {
+    if (!(enabled && context)) {
       return;
     }
     let current = true;
@@ -265,9 +272,9 @@ function useContextualPromptSuggestions({
       current = false;
       clearTimeout(timeout);
     };
-  }, [context, onRequestSuggestions, refreshKey]);
+  }, [context, enabled, onRequestSuggestions, refreshKey]);
 
-  if (!context) {
+  if (!(enabled && context)) {
     return { error: null, results: [], status: 'idle' as const };
   }
   if (snapshot.context !== context || snapshot.refreshKey !== refreshKey) {
@@ -334,6 +341,10 @@ function PromptBuilderDialog({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const variables = useMemo(() => extractPromptTemplateVariables(draft.content), [draft.content]);
+  const unavailableModelKey =
+    draft.modelKey && !modelOptions.some((option) => option.key === draft.modelKey)
+      ? draft.modelKey
+      : null;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -470,6 +481,11 @@ function PromptBuilderDialog({
                 value={draft.modelKey}
               >
                 <option value="">Current thread model</option>
+                {unavailableModelKey ? (
+                  <option disabled value={unavailableModelKey}>
+                    {`Unavailable · ${unavailableModelKey}`}
+                  </option>
+                ) : null}
                 {modelOptions.map((option) => (
                   <option key={option.key} value={option.key}>
                     {option.label}
@@ -505,7 +521,10 @@ function PromptBuilderDialog({
           </div>
 
           {error ? (
-            <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-xs">
+            <p
+              className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-xs"
+              role="alert"
+            >
               {error}
             </p>
           ) : null}
@@ -540,18 +559,31 @@ function PreparePromptDialog({
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const submissionRef = useRef<Promise<void> | null>(null);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const activeSubmission = submissionRef.current;
+    if (activeSubmission) {
+      await activeSubmission.catch(() => undefined);
+      return;
+    }
     setError(null);
     setWorking(true);
+    let submission: Promise<void> | null = null;
     try {
-      await onPrepared(renderPromptTemplate(pendingUse.item.content, values));
+      submission = onPrepared(renderPromptTemplate(pendingUse.item.content, values));
+      submissionRef.current = submission;
+      await submission;
       setWorking(false);
       onClose();
     } catch (cause) {
       setError(errorMessage(cause));
       setWorking(false);
+    } finally {
+      if (submission && submissionRef.current === submission) {
+        submissionRef.current = null;
+      }
     }
   };
 
@@ -579,7 +611,11 @@ function PreparePromptDialog({
               />
             </div>
           ))}
-          {error ? <p className="text-destructive text-xs">{error}</p> : null}
+          {error ? (
+            <p className="text-destructive text-xs" role="alert">
+              {error}
+            </p>
+          ) : null}
           <DialogFooter>
             <Button onClick={onClose} type="button" variant="ghost">
               Cancel
@@ -596,11 +632,13 @@ function PreparePromptDialog({
 
 function ContextualRecall({
   activeThreadId,
-  onInsert,
+  isUsePending,
+  onUse,
   suggestions,
 }: {
   readonly activeThreadId: string | undefined;
-  readonly onInsert: (item: PromptItem) => void;
+  readonly isUsePending: (item: PromptItem, action: PromptItemUsageAction) => boolean;
+  readonly onUse: (item: PromptItem, action: PromptItemUsageAction) => void;
   readonly suggestions: ReturnType<typeof useContextualPromptSuggestions>;
 }) {
   return (
@@ -630,6 +668,8 @@ function ContextualRecall({
         <div className="mt-2 flex gap-2 overflow-x-auto pb-0.5">
           {suggestions.results.slice(0, 4).map((suggestion) => {
             const suggestedItem = promptItemWithoutSimilarity(suggestion);
+            const action = resolveItemUseAction(suggestedItem);
+            const verb = action === 'compose' ? 'Compose' : 'Insert';
             return (
               <div
                 className="min-w-48 flex-1 rounded-lg border border-sky-500/20 bg-background/90 p-2 shadow-xs"
@@ -646,14 +686,14 @@ function ContextualRecall({
                   {suggestion.content}
                 </p>
                 <Button
-                  aria-label="Insert suggestion"
+                  aria-label={`${verb} ${suggestion.title}`}
                   className="mt-1.5 h-6 px-1.5 text-[10px]"
-                  disabled={!activeThreadId}
-                  onClick={() => onInsert(suggestedItem)}
+                  disabled={!activeThreadId || isUsePending(suggestedItem, action)}
+                  onClick={() => onUse(suggestedItem, action)}
                   size="xs"
                   variant="ghost"
                 >
-                  <MessageSquarePlus aria-hidden="true" /> Insert
+                  <MessageSquarePlus aria-hidden="true" /> {verb}
                 </Button>
               </div>
             );
@@ -712,7 +752,7 @@ function QuickCapture({
       <div className="mt-3 rounded-xl border border-border/80 bg-background/80 p-2 shadow-sm backdrop-blur-sm">
         <textarea
           aria-label="Quick capture"
-          className="min-h-20 w-full resize-none bg-transparent px-1 py-0.5 text-[13px] leading-5 outline-none placeholder:text-muted-foreground"
+          className="min-h-20 w-full resize-none bg-transparent px-1 py-0.5 text-[13px] leading-5 outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
           onChange={(event) => onCaptureChange(event.target.value)}
           onKeyDown={onCaptureKeyDown}
           placeholder="Drop a phrase, constraint, example, or half-formed idea…"
@@ -825,11 +865,13 @@ function PromptLibraryControls({
 
 function PromptLibraryList({
   activeThreadId,
+  isUsePending,
   items,
   onEdit,
   onUse,
 }: {
   readonly activeThreadId: string | undefined;
+  readonly isUsePending: (item: PromptItem, action: PromptItemUsageAction) => boolean;
   readonly items: readonly PromptItem[];
   readonly onEdit: (item: PromptItem) => void;
   readonly onUse: (item: PromptItem, action: PromptItemUsageAction) => void;
@@ -899,6 +941,7 @@ function PromptLibraryList({
                   </Button>
                   <Button
                     aria-label={`New thread from ${item.title}`}
+                    disabled={isUsePending(item, 'new-thread')}
                     onClick={() => onUse(item, 'new-thread')}
                     size="icon-xs"
                     title="Start new thread"
@@ -909,7 +952,7 @@ function PromptLibraryList({
                   <Button
                     aria-label={actionLabel(item)}
                     className="h-7 px-2 text-[10px]"
-                    disabled={!activeThreadId}
+                    disabled={!activeThreadId || isUsePending(item, resolveItemUseAction(item))}
                     onClick={() => onUse(item, resolveItemUseAction(item))}
                     size="xs"
                     title={activeThreadId ? undefined : 'Open a thread to use this clip'}
@@ -943,6 +986,7 @@ export function PromptWorkbenchPanel({
   onRequestSuggestions,
   onUseItem,
   repository,
+  suggestionsEnabled = true,
   systemError,
 }: PromptWorkbenchPanelProps) {
   const {
@@ -960,9 +1004,16 @@ export function PromptWorkbenchPanel({
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [builderItem, setBuilderItem] = useState<PromptItem | null | undefined>();
   const [pendingUse, setPendingUse] = useState<PendingUse | null>(null);
+  const directUseKeysRef = useRef<Set<string> | null>(null);
+  if (directUseKeysRef.current === null) {
+    directUseKeysRef.current = new Set<string>();
+  }
+  const directUseGuard = directUseKeysRef.current;
+  const [directUseKeys, setDirectUseKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [suggestionRefreshKey, setSuggestionRefreshKey] = useState(0);
   const suggestions = useContextualPromptSuggestions({
     composerContext,
+    enabled: suggestionsEnabled,
     onRequestSuggestions,
     refreshKey: suggestionRefreshKey,
   });
@@ -1044,11 +1095,29 @@ export function PromptWorkbenchPanel({
         setPendingUse({ action, item });
         return;
       }
-      void completeUse(item, item.content, action).catch(() => {
-        // completeUse owns the visible primary-action error for fire-and-forget actions.
-      });
+
+      const key = directUseKey(item, action);
+      if (directUseGuard.has(key)) {
+        return;
+      }
+      directUseGuard.add(key);
+      setDirectUseKeys(new Set(directUseGuard));
+      void completeUse(item, item.content, action)
+        .catch(() => {
+          // completeUse owns the visible primary-action error for fire-and-forget actions.
+        })
+        .finally(() => {
+          directUseGuard.delete(key);
+          setDirectUseKeys(new Set(directUseGuard));
+        });
     },
-    [completeUse]
+    [completeUse, directUseGuard]
+  );
+
+  const isUsePending = useCallback(
+    (item: PromptItem, action: PromptItemUsageAction) =>
+      directUseKeys.has(directUseKey(item, action)),
+    [directUseKeys]
   );
 
   const saveBuilder = useCallback(
@@ -1060,8 +1129,6 @@ export function PromptWorkbenchPanel({
         isFavorite: draft.isFavorite,
         kind: draft.kind,
         modelKey: draft.modelKey || null,
-        modelSettings: null,
-        rating: null,
         sourceUrl: draft.sourceUrl || null,
         tags: tagsFromDraft(draft.tags),
         title: draft.title,
@@ -1072,9 +1139,11 @@ export function PromptWorkbenchPanel({
             ...common,
             expectedRevision: builderItem.revision,
             id: builderItem.id,
+            modelSettings: builderItem.modelSettings,
             note: 'Edited in Prompt Workbench',
+            rating: builderItem.rating,
           } satisfies UpdatePromptItemInput)
-        : await repository.create(common);
+        : await repository.create({ ...common, modelSettings: null, rating: null });
       updateItems((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       await notifyLibraryChanged();
     },
@@ -1104,7 +1173,8 @@ export function PromptWorkbenchPanel({
       {composerContext.trim() ? (
         <ContextualRecall
           activeThreadId={activeThreadId}
-          onInsert={(item) => requestUse(item, resolveItemUseAction(item))}
+          isUsePending={isUsePending}
+          onUse={requestUse}
           suggestions={suggestions}
         />
       ) : null}
@@ -1131,6 +1201,7 @@ export function PromptWorkbenchPanel({
 
       <PromptLibraryList
         activeThreadId={activeThreadId}
+        isUsePending={isUsePending}
         items={filteredItems}
         onEdit={setBuilderItem}
         onUse={requestUse}

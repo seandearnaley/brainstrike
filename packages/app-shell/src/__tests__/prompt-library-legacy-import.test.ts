@@ -17,7 +17,7 @@ const legacyState = {
         isFavorite: true,
         modelSettings: {
           maxTokens: 1200,
-          model: 'gpt-4.1',
+          model: 'gpt-5.2',
           temperature: 0.3,
           topP: 0.9,
         },
@@ -49,7 +49,7 @@ describe('legacy prompt library import', () => {
           id: 'legacy-prompt',
           isFavorite: true,
           kind: 'prompt',
-          modelKey: null,
+          modelKey: 'openai::gpt-5.2',
           rating: 5,
           sourceUrl: 'https://example.com/research',
           tags: ['analysis', 'research'],
@@ -62,8 +62,22 @@ describe('legacy prompt library import', () => {
     expect(item?.revisions[0]).toMatchObject({
       content: 'Compare the alternatives.',
       id: 'legacy-revision',
+      modelKey: 'openai::gpt-5.2',
       note: 'Before evidence requirement',
     });
+  });
+
+  it('fails closed when a bare legacy model id cannot be mapped unambiguously', () => {
+    const unknownModelState = structuredClone(legacyState);
+    const [unknownModelPrompt] = unknownModelState.state.prompts;
+    if (!unknownModelPrompt) {
+      throw new Error('Legacy prompt fixture must contain a prompt.');
+    }
+    unknownModelPrompt.modelSettings.model = 'retired-unknown-model';
+
+    expect(() => parseLegacyPromptStore(JSON.stringify(unknownModelState))).toThrow(
+      /cannot map legacy prompt model.*retired-unknown-model/i
+    );
   });
 
   it('removes legacy storage only after the database transaction succeeds', async () => {

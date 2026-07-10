@@ -1261,7 +1261,6 @@ const ChatThreadUI = ({
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
             {...(planMode ? { planMode } : {})}
-            onTextChange={onComposerTextChange}
             {...(hasSlashCommands
               ? {
                   slashPopover: (

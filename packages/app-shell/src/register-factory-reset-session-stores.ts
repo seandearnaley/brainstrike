@@ -3,6 +3,7 @@ import { registerFactoryResetSessionStore } from '@brainstrike/preferences/setti
 import { resetContextUsageStore } from '@brainstrike/ui/assistant-ui-panel/context-usage-store';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
+import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 
 /**
  * Wire session-only Zustand stores into the factory-reset pipeline per the
@@ -33,4 +34,8 @@ registerFactoryResetSessionStore(() => {
 
 registerFactoryResetSessionStore(() => {
   useWorkspaceContextCurationStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
+  useAssistantComposerCommandStore.getState().reset();
 });

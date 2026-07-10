@@ -185,6 +185,26 @@ describe('PromptWorkbenchPanel', () => {
     expect(screen.getByText('Compare the failure path with the success path.')).toBeInTheDocument();
   });
 
+  it('keeps keyboard focus visible on the primary quick-capture field', () => {
+    render(
+      <PromptWorkbenchPanel
+        activeThreadId="thread-active"
+        composerContext=""
+        initialItems={[]}
+        modelOptions={[]}
+        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+        onRequestSuggestions={vi.fn().mockResolvedValue([])}
+        onUseItem={vi.fn().mockResolvedValue(undefined)}
+        repository={createRepository([])}
+      />
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Quick capture' })).toHaveClass(
+      'focus-visible:ring-2',
+      'focus-visible:ring-ring/30'
+    );
+  });
+
   it('refreshes the saved row after indexing so status does not stay stale', async () => {
     const user = userEvent.setup();
     const pending = item({
@@ -247,6 +267,46 @@ describe('PromptWorkbenchPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Insert Evidence rule' }));
 
     expect(onUseItem).toHaveBeenCalledWith(savedItem, savedItem.content, 'insert');
+  });
+
+  it.each([
+    { action: 'insert' as const, buttonName: 'Insert Evidence rule' },
+    { action: 'new-thread' as const, buttonName: 'New thread from Evidence rule' },
+  ])('guards an in-flight direct $action action from duplicate activation', async ({
+    action,
+    buttonName,
+  }) => {
+    const savedItem = item();
+    let resolveUse!: () => void;
+    const onUseItem = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveUse = resolve;
+        })
+    );
+    render(
+      <PromptWorkbenchPanel
+        activeThreadId="thread-active"
+        composerContext=""
+        initialItems={[savedItem]}
+        modelOptions={[]}
+        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+        onRequestSuggestions={vi.fn().mockResolvedValue([])}
+        onUseItem={onUseItem}
+        repository={createRepository([savedItem])}
+      />
+    );
+
+    const actionButton = await screen.findByRole('button', { name: buttonName });
+    fireEvent.click(actionButton);
+    fireEvent.click(actionButton);
+
+    expect(onUseItem).toHaveBeenCalledTimes(1);
+    expect(onUseItem).toHaveBeenCalledWith(savedItem, savedItem.content, action);
+    expect(actionButton).toBeDisabled();
+
+    await act(async () => resolveUse());
+    await waitFor(() => expect(actionButton).toBeEnabled());
   });
 
   it('reports a refresh warning without treating an already staged prompt action as failed', async () => {
@@ -344,7 +404,53 @@ describe('PromptWorkbenchPanel', () => {
     ).toBeInTheDocument();
     expect(target).toHaveValue('the retry loop');
     expect(quality).toHaveValue('race safety');
-    expect(within(dialog).getByText('Requested provider is unavailable.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      'Requested provider is unavailable.'
+    );
+  });
+
+  it('guards a templated new-thread submission while the first action is still pending', async () => {
+    const user = userEvent.setup();
+    const savedItem = item({
+      content: 'Review {{target}} before implementation.',
+      kind: 'prompt',
+      title: 'Review target',
+    });
+    let resolveUse!: () => void;
+    const pendingUse = new Promise<void>((resolve) => {
+      resolveUse = resolve;
+    });
+    const onUseItem = vi.fn(() => pendingUse);
+    render(
+      <PromptWorkbenchPanel
+        activeThreadId="thread-active"
+        composerContext=""
+        initialItems={[savedItem]}
+        modelOptions={[]}
+        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+        onRequestSuggestions={vi.fn().mockResolvedValue([])}
+        onUseItem={onUseItem}
+        repository={createRepository([savedItem])}
+      />
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'New thread from Review target' }));
+    const dialog = screen.getByRole('dialog', { name: 'Prepare Review target' });
+    await user.type(within(dialog).getByRole('textbox', { name: 'target' }), 'the retry loop');
+    const form = dialog.querySelector('form');
+    expect(form).not.toBeNull();
+
+    fireEvent.submit(form as HTMLFormElement);
+    fireEvent.submit(form as HTMLFormElement);
+
+    expect(onUseItem).toHaveBeenCalledTimes(1);
+    expect(onUseItem).toHaveBeenCalledWith(
+      savedItem,
+      'Review the retry loop before implementation.',
+      'new-thread'
+    );
+
+    await act(async () => resolveUse());
   });
 
   it('automatically recalls contextual suggestions and keeps insertion explicit', async () => {
@@ -376,13 +482,79 @@ describe('PromptWorkbenchPanel', () => {
     expect(recalled).toHaveTextContent('87% match');
     expect(onUseItem).not.toHaveBeenCalled();
 
-    await user.click(within(recalled).getByRole('button', { name: 'Insert suggestion' }));
+    await user.click(within(recalled).getByRole('button', { name: 'Insert Evidence rule' }));
     expect(onUseItem).toHaveBeenCalledWith(suggestion, suggestion.content, 'insert');
+  });
+
+  it('labels a recalled runnable prompt as Compose and dispatches the compose action', async () => {
+    const user = userEvent.setup();
+    const suggestion = item({
+      id: 'suggested-prompt',
+      kind: 'prompt',
+      title: 'Adversarial review',
+    });
+    const onRequestSuggestions = vi
+      .fn<(context: string) => Promise<PromptItemSimilarityResult[]>>()
+      .mockResolvedValue([{ ...suggestion, similarity: 0.91 }]);
+    const onUseItem = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PromptWorkbenchPanel
+        activeThreadId="thread-active"
+        composerContext="Review this change adversarially."
+        initialItems={[]}
+        modelOptions={[]}
+        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+        onRequestSuggestions={onRequestSuggestions}
+        onUseItem={onUseItem}
+        repository={createRepository([])}
+      />
+    );
+
+    const recalled = await screen.findByTestId('prompt-context-suggestion-suggested-prompt');
+    const composeButton = within(recalled).getByRole('button', {
+      name: 'Compose Adversarial review',
+    });
+    expect(composeButton).toHaveTextContent('Compose');
+
+    await user.click(composeButton);
+    expect(onUseItem).toHaveBeenCalledWith(suggestion, suggestion.content, 'compose');
+  });
+
+  it('does not run contextual recall while the owning sidebar tab is inactive', async () => {
+    const onRequestSuggestions = vi.fn().mockResolvedValue([]);
+    const repository = createRepository([]);
+    const renderPanel = (suggestionsEnabled: boolean) => (
+      <PromptWorkbenchPanel
+        activeThreadId="thread-active"
+        composerContext="Review this live draft."
+        initialItems={[]}
+        modelOptions={[]}
+        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+        onRequestSuggestions={onRequestSuggestions}
+        onUseItem={vi.fn().mockResolvedValue(undefined)}
+        repository={repository}
+        suggestionsEnabled={suggestionsEnabled}
+      />
+    );
+    const view = render(renderPanel(false));
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(onRequestSuggestions).not.toHaveBeenCalled();
+
+    view.rerender(renderPanel(true));
+    await waitFor(() =>
+      expect(onRequestSuggestions).toHaveBeenCalledWith('Review this live draft.')
+    );
   });
 
   it('edits thoughtful prompt fields with optimistic revision ownership', async () => {
     const user = userEvent.setup();
-    const savedItem = item();
+    const modelSettings = { maxOutputTokens: 2048, temperature: 0.25 };
+    const savedItem = item({
+      modelKey: 'openai::gpt-5.2',
+      modelSettings,
+      rating: 4,
+    });
     const repository = createRepository([savedItem]);
     render(
       <PromptWorkbenchPanel
@@ -414,9 +586,89 @@ describe('PromptWorkbenchPanel', () => {
           expectedRevision: 1,
           id: 'item-1',
           modelKey: 'openai::gpt-5.4',
+          modelSettings,
+          rating: 4,
         })
       )
     );
+  });
+
+  it('shows and preserves an unavailable stored model during an unrelated edit', async () => {
+    const user = userEvent.setup();
+    const modelSettings = { maxOutputTokens: 2048, temperature: 0.25 };
+    const savedItem = item({
+      modelKey: 'openai::retired-model',
+      modelSettings,
+      rating: 4,
+    });
+    const repository = createRepository([savedItem]);
+    render(
+      <PromptWorkbenchPanel
+        activeThreadId="thread-active"
+        composerContext=""
+        initialItems={[savedItem]}
+        modelOptions={[{ key: 'openai::gpt-5.4', label: 'OpenAI · GPT-5.4' }]}
+        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+        onRequestSuggestions={vi.fn().mockResolvedValue([])}
+        onUseItem={vi.fn().mockResolvedValue(undefined)}
+        repository={repository}
+      />
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Edit Evidence rule' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Evidence rule' });
+    const modelSelect = within(dialog).getByRole<HTMLSelectElement>('combobox', {
+      name: 'Run with',
+    });
+    expect(modelSelect).toHaveValue('openai::retired-model');
+    expect(
+      within(modelSelect).getByRole('option', { name: 'Unavailable · openai::retired-model' })
+    ).toBeDisabled();
+
+    const intention = within(dialog).getByRole('textbox', { name: 'Intention' });
+    await user.clear(intention);
+    await user.type(intention, 'Preserve the configured runtime while clarifying intent');
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(repository.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: 'Preserve the configured runtime while clarifying intent',
+          modelKey: 'openai::retired-model',
+          modelSettings,
+          rating: 4,
+        })
+      )
+    );
+  });
+
+  it('announces builder save failures inside the open dialog', async () => {
+    const user = userEvent.setup();
+    const repository = createRepository([]);
+    repository.create.mockRejectedValueOnce(new Error('Prompt save failed.'));
+    render(
+      <PromptWorkbenchPanel
+        activeThreadId="thread-active"
+        composerContext=""
+        initialItems={[]}
+        modelOptions={[]}
+        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+        onRequestSuggestions={vi.fn().mockResolvedValue([])}
+        onUseItem={vi.fn().mockResolvedValue(undefined)}
+        repository={repository}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Build a prompt' }));
+    const dialog = screen.getByRole('dialog', { name: 'Build a prompt' });
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Prompt text' }),
+      'Audit the failure path before claiming success.'
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Save prompt' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Prompt save failed.');
+    expect(dialog).toBeInTheDocument();
   });
 
   it('closes the builder after creating a prompt even when indexing fails', async () => {

@@ -45,7 +45,11 @@ export interface LocalRuntimeProviderOptions extends RuntimeJsonObject {
 }
 
 export interface RuntimeModelSettings {
+  frequencyPenalty?: number;
   maxOutputTokens?: number;
+  presencePenalty?: number;
+  temperature?: number;
+  topP?: number;
 }
 
 export type RuntimeProviderOptions = RuntimeJsonObject & {

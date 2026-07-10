@@ -21,6 +21,11 @@ export function useComposerDraftCommand({
   const [appliedCommandIds] = useState(() => new Set<string>());
 
   useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- This is an intentional external-store bridge: prompt recall must observe assistant-ui's authoritative draft, including send/reset mutations that do not originate from the DOM input.
+    onTextChange?.(composerText);
+  }, [composerText, onTextChange]);
+
+  useEffect(() => {
     if (!command || appliedCommandIds.has(command.id)) {
       return;
     }
@@ -35,8 +40,6 @@ export function useComposerDraftCommand({
         : command.text;
     aui.composer().setText(nextText);
     appliedCommandIds.add(command.id);
-    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- The external command owner needs an acknowledgement only after assistant-ui accepts the text.
-    onTextChange?.(nextText);
     onApplied?.(command.id);
-  }, [appliedCommandIds, aui, command, composerText, onApplied, onTextChange]);
+  }, [appliedCommandIds, aui, command, composerText, onApplied]);
 }

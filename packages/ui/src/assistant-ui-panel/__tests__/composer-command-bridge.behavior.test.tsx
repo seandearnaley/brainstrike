@@ -4,6 +4,7 @@ import { useLocalRuntime } from '@assistant-ui/react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '../../tooltip';
 
 const run = vi.fn(async function* () {
   yield { content: [] };
@@ -40,7 +41,8 @@ function renderPanel(
       onComposerTextChange={callbacks.onTextChange}
       pickerModels={[]}
       pickerProviders={[]}
-    />
+    />,
+    { wrapper: TooltipProvider }
   );
 }
 
@@ -95,5 +97,22 @@ describe('assistant composer command bridge', () => {
     await waitFor(() => expect(input).toHaveValue('Existing draft\n\nCite exact evidence.'));
     expect(onApplied).toHaveBeenCalledWith('append-1');
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('reports the authoritative empty draft after a send clears the composer', async () => {
+    const user = userEvent.setup();
+    const onApplied = vi.fn();
+    const onTextChange = vi.fn();
+    run.mockClear();
+    renderPanel(undefined, { onApplied, onTextChange });
+    const input = await screen.findByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Message input',
+    });
+    await user.type(input, 'Send this draft');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(onTextChange).toHaveBeenLastCalledWith('');
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

@@ -25,6 +25,7 @@ import {
   memo,
   type ReactElement,
   type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -39,7 +40,7 @@ import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { CommandPaletteHost } from './command-palette-host';
-import { ConnectedPromptManager } from './connected-prompt-manager';
+import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
@@ -307,6 +308,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   loadEmbeddingQueue,
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
+  visible,
 }: {
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
@@ -314,6 +316,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
+  readonly visible: boolean;
 }): ReactElement {
   return (
     <div className="h-full min-h-0" data-testid="explorer-section">
@@ -330,7 +333,24 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
               />
             }
             preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-            promptsContent={<ConnectedPromptManager loadEmbeddingQueue={loadEmbeddingQueue} />}
+            promptsContent={(isActive) => (
+              <Suspense
+                fallback={
+                  <div
+                    className="grid h-full place-items-center text-muted-foreground text-xs"
+                    data-testid="prompt-workbench-lazy-fallback"
+                    role="status"
+                  >
+                    Opening Prompt Workbench…
+                  </div>
+                }
+              >
+                <ConnectedPromptManagerLazy
+                  loadEmbeddingQueue={loadEmbeddingQueue}
+                  suggestionsEnabled={visible && isActive}
+                />
+              </Suspense>
+            )}
             threadsContent={<ThreadsPanel />}
           />
         }
@@ -437,6 +457,7 @@ export function RootLayoutContent({
                     loadEmbeddingQueue={loadEmbeddingQueue}
                     {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                     preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                    visible={activeTab === 'explorer'}
                   />
                 </PanelLayoutProvider>
               </div>
