@@ -16,11 +16,13 @@ type MermaidState =
 export function MermaidBlock({ code }: { readonly code: string }) {
   const [state, setState] = useState<MermaidState>({ kind: 'loading' });
   const hostRef = useRef<HTMLDivElement | null>(null);
-  // Stable per-instance id for mermaid.render's target element. Colons from
-  // useId aren't valid in the DOM id mermaid injects, so strip them. The
-  // component is remounted per `code` (keyed in markdown-surface), so each
-  // diagram gets a distinct id without a module-level counter.
-  const renderId = `brainstrike-mermaid-${useId().replace(/:/g, '')}`;
+  // Stable per-instance id for mermaid.render's target element. useId wraps
+  // its ids in characters that are invalid in the CSS selector mermaid/d3
+  // builds from this id (':' on React 18, '«»' on React 19), so keep only
+  // selector-safe characters. The component is remounted per `code` (keyed in
+  // markdown-surface), so each diagram gets a distinct id without a
+  // module-level counter.
+  const renderId = `brainstrike-mermaid-${useId().replace(/[^a-zA-Z0-9-]/g, '')}`;
 
   // biome-ignore lint/plugin/react-effects: async mermaid.render result (loading -> ready/error) cannot be computed during render. This component is remounted per `code` (keyed in markdown-surface), so the initial `loading` state covers every new diagram — no in-effect reset needed.
   useEffect(() => {

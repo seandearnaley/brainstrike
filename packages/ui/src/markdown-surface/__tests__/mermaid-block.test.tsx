@@ -30,6 +30,19 @@ describe('MermaidBlock', () => {
     expect(screen.getByText('graph TD; a-->')).toBeInTheDocument();
   });
 
+  it('passes mermaid a CSS-selector-safe render id', async () => {
+    // mermaid/d3 query-select `#<id>` internally; React 19's useId emits '«»'
+    // (React 18 used ':'), which throws in querySelector unless stripped.
+    renderMock.mockResolvedValue({ svg: '<svg></svg>' });
+    render(<MermaidBlock code="graph TD; a-->b;" />);
+    await waitFor(() => {
+      expect(renderMock).toHaveBeenCalled();
+    });
+    const id = renderMock.mock.calls[0]?.[0] as string;
+    expect(id).toMatch(/^[A-Za-z][A-Za-z0-9_-]*$/);
+    expect(() => document.querySelector(`#${id}`)).not.toThrow();
+  });
+
   it('shows a loading state before render resolves', () => {
     renderMock.mockReturnValue(new Promise(() => undefined));
     render(<MermaidBlock code="graph TD; a-->b;" />);
