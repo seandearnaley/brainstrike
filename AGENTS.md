@@ -281,6 +281,12 @@ defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
 - Invariant: tool timeout < stream inactivity.
+- `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
+  which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced
+  notice (see PERMISSION ENGINE §restart-safe rediscovery). Deliberately
+  DECOUPLED from the two timeouts above: a human approval may legitimately take
+  hours after a restart, so it is NOT tied to the in-flight stream/tool windows.
+  Advisory only — both buttons stay enabled, never an auto-decline.
 
 Stream part continuity: run-event data parts ('aui-data') CLOSE the active
 text/reasoning append in assistant-stream's accumulator, slicing visible text
@@ -359,6 +365,36 @@ FREE while an ask tool is in the map (the per-tool-not-global guard). NOTE: the
 scripted model's synchronous stream starves the event loop during the
 PGlite-backed resume; the test drains with a per-chunk `setImmediate` yield
 (mirrors real streaming) — a harness concern, not a production bug.
+
+Restart-safe rediscovery (a run suspended for approval survives a desktop
+restart / renderer reload, but the LIVE approval notice — a never-persisted
+stream data part — is gone on reload): on thread open the desktop history
+adapter rediscovers pending approvals and re-surfaces a working notice, REUSING
+the (already restart-safe) `streamMastraToolApprovalAction` resume seam
+untouched. Flow:
+- `listSuspendedMastraRuns(filter, options)` (`agent-runtime.ts`) wraps
+  `agent.listSuspendedRuns` — rebuilds a FRESH runtime (no in-memory handle),
+  returns approval-gated tool calls only (`requiresApproval === true`);
+  non-approval `suspend()` pauses (submitPlan/askUser) and delegation-thread runs
+  are tolerated + skipped (debug-logged) — a unified suspend rediscovery is a
+  follow-up. Discovery is CONTEXT-FREE + KEYLESS: the stable agent id
+  (`brainstrike-assistant`) is provider-independent, so listing constructs a
+  keyless `ollama` agent (no provider/apiKey from the renderer, no inference).
+- Desktop route `GET /assistant/suspended-runs?threadId=&resourceId=`
+  (`apps/desktop/src/assistant-server.ts`): recomputes `riskCategory` from
+  `buildNativeToolRiskMap()` and stamps `stale` against
+  `BRAINSTRIKE_APPROVAL_STALE_MS`. Missing thread ctx → 400; no storage → 503.
+- Renderer client `createSuspendedApprovalDiscovery` (app-shell,
+  desktop-capability-gated — web omits it, no `isElectron()`) → hydration
+  injection `appendSuspendedApprovalMessages` appends one synthetic trailing
+  assistant message per approval carrying a `TOOL_APPROVAL_DATA_NAME` data part
+  identical to the live mapper's output; the existing notice + its
+  Approve/Decline resume render unchanged. Staleness is display-only (D5): a
+  muted "Pending since <relative>" line always, an amber advisory when `stale`,
+  both buttons enabled, NO auto-decline.
+- Restart proof extends the same spec: a run suspended under `openai` is
+  rediscovered by a keyless `ollama` listing over the same PGlite DB and resumed
+  to execution by a THIRD fresh runtime.
 
 When changing this flow, update this section and the related tests.
 
