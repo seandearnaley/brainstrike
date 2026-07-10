@@ -1149,10 +1149,17 @@ describe('mastra streaming integration', () => {
         resource: 'workspace-a',
         thread: 'thread-1',
       },
-      requireToolApproval: true,
       runId: 'run-approval-1',
       toolCallId: 'tool-call-1',
     });
+    // Run-wide `true` becomes the function form so Mastra-internal tools are
+    // exempt on the resume leg (D4); genuine tools still require approval.
+    const approveGate = agent?.approveToolCallCalls[0]?.requireToolApproval as (ctx: {
+      toolName: string;
+    }) => boolean;
+    expect(typeof approveGate).toBe('function');
+    expect(approveGate({ toolName: 'updateWorkingMemory' })).toBe(false);
+    expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
     expect(chunks).toContainEqual({
       finishReason: 'stop',
@@ -1192,10 +1199,16 @@ describe('mastra streaming integration', () => {
     expect(agent?.declineToolCallCalls).toHaveLength(1);
     expect(agent?.declineToolCallCalls[0]).toMatchObject({
       maxSteps: 20,
-      requireToolApproval: true,
       runId: 'run-approval-2',
       toolCallId: 'tool-call-2',
     });
+    // Same D4 exemption gate on the decline resume leg.
+    const declineGate = agent?.declineToolCallCalls[0]?.requireToolApproval as (ctx: {
+      toolName: string;
+    }) => boolean;
+    expect(typeof declineGate).toBe('function');
+    expect(declineGate({ toolName: 'updateWorkingMemory' })).toBe(false);
+    expect(declineGate({ toolName: 'shell_tool' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
   });
 

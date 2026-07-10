@@ -24,6 +24,38 @@ export interface AssistantToolApprovalRequest {
   toolName: string;
 }
 
+/**
+ * An approval re-discovered from workflow storage after a restart/reload (via
+ * `agent.listSuspendedRuns`). Extends the live-stream {@link
+ * AssistantToolApprovalRequest} additively so the SAME notice + resume seam can
+ * render it — the only additions are the suspend instant and an advisory
+ * staleness flag (see D5: surface, never auto-decline).
+ */
+export interface RediscoveredToolApproval extends AssistantToolApprovalRequest {
+  /** True when older than BRAINSTRIKE_APPROVAL_STALE_MS (advisory only). */
+  readonly stale: boolean;
+  /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
+  readonly suspendedAt: string;
+}
+
+export interface SuspendedApprovalsResponse {
+  readonly approvals: readonly RediscoveredToolApproval[];
+}
+
+export function isRediscoveredToolApproval(value: unknown): value is RediscoveredToolApproval {
+  return (
+    isRecord(value) &&
+    typeof value['runId'] === 'string' &&
+    value['runId'].trim().length > 0 &&
+    typeof value['toolCallId'] === 'string' &&
+    value['toolCallId'].trim().length > 0 &&
+    typeof value['toolName'] === 'string' &&
+    value['toolName'].trim().length > 0 &&
+    typeof value['suspendedAt'] === 'string' &&
+    typeof value['stale'] === 'boolean'
+  );
+}
+
 export type AssistantToolApprovalDecision = 'approve' | 'decline';
 
 export interface AssistantToolApprovalAction {

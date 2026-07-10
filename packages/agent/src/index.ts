@@ -32,11 +32,15 @@ export {
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
   isAssistantToolApprovalAction,
+  isRediscoveredToolApproval,
+  type RediscoveredToolApproval,
   readToolApprovalRunConfigAction,
+  type SuspendedApprovalsResponse,
   TOOL_APPROVAL_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
   type ToolApprovalRunConfigActionReadResult,
 } from '@brainstrike/assistant-contract/tool-approval';
+export { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 export {
   type AskUserAnswer,
   type AskUserOption,
@@ -65,6 +69,16 @@ export {
   readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes,
 } from './assistant-request';
+export {
+  type AssistantResilienceConfig,
+  DEFAULT_APPROVAL_STALE_MS,
+  DEFAULT_STREAM_INACTIVITY_MS,
+  DEFAULT_TOOL_TIMEOUT_MS,
+  resolveApprovalStaleMs,
+  resolveAssistantResilienceConfig,
+  resolveStreamInactivityMs,
+  resolveToolTimeoutMs,
+} from './config/resilience-config';
 export {
   ContextPacker,
   type ContextPackerChunk,
@@ -103,6 +117,9 @@ export {
 export {
   convertMessagesToMastra,
   createMastraAgentRuntime,
+  type DiscoveredSuspendedApproval,
+  type ListSuspendedApprovalsResult,
+  listSuspendedMastraRuns,
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
   streamMastraAgent,

@@ -46,7 +46,7 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   };
 });
 
-const { streamMastraAgent, streamMastraToolApprovalAction } = await import(
+const { listSuspendedMastraRuns, streamMastraAgent, streamMastraToolApprovalAction } = await import(
   '../mastra/agent-runtime'
 );
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
@@ -95,6 +95,74 @@ function createTurnCountedToolCallModel(args: {
             },
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
           ]),
+        });
+      }
+      const id = 'text-final';
+      return Promise.resolve({
+        stream: enqueue([
+          { type: 'stream-start', warnings: [] },
+          { id, type: 'text-start' },
+          { delta: args.finalText, id, type: 'text-delta' },
+          { id, type: 'text-end' },
+          { finishReason: 'stop', type: 'finish', usage: USAGE },
+        ]),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
+/**
+ * A three-turn scripted model for the D4 resume-exemption proof:
+ *   turn 1 (initial)          → call the ask tool (suspends for approval)
+ *   turn 2 (resume continues) → call Mastra's internal `updateWorkingMemory`
+ *   turn 3                    → final text
+ * On the resume leg the run passes run-wide `requireToolApproval: true`; the D4
+ * fix must let `updateWorkingMemory` run WITHOUT a second approval prompt.
+ */
+function createAskThenWorkingMemoryModel(args: {
+  askToolName: string;
+  askToolCallId: string;
+  askInput: string;
+  workingMemoryCallId: string;
+  finalText: string;
+}): LanguageModelV2 {
+  let turn = 0;
+  const enqueue = (parts: LanguageModelV2StreamPart[]) =>
+    new ReadableStream<LanguageModelV2StreamPart>({
+      start(controller) {
+        for (const part of parts) {
+          controller.enqueue(part);
+        }
+        controller.close();
+      },
+    });
+  const toolCall = (toolName: string, toolCallId: string, input: string) =>
+    enqueue([
+      { type: 'stream-start', warnings: [] },
+      { input, toolCallId, toolName, type: 'tool-call' },
+      { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+    ]);
+
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: () => {
+      turn += 1;
+      if (turn === 1) {
+        return Promise.resolve({
+          stream: toolCall(args.askToolName, args.askToolCallId, args.askInput),
+        });
+      }
+      if (turn === 2) {
+        return Promise.resolve({
+          stream: toolCall(
+            'updateWorkingMemory',
+            args.workingMemoryCallId,
+            JSON.stringify({ memory: '# Notes\n- user likes tests' })
+          ),
         });
       }
       const id = 'text-final';
@@ -406,6 +474,121 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     await database.close();
   });
 
+  it('RESTART: listSuspendedMastraRuns rediscovers a suspended approval a FRESH runtime can resume', async () => {
+    // The headline restart-safety proof. Phase 1 suspends over `database`. Phase 2
+    // simulates a process restart — a brand-new memory/storage/Agent over the SAME
+    // PGlite DB rediscovers the pending approval via `agent.listSuspendedRuns`
+    // (no in-memory stream handle survives a restart). Phase 3 feeds the discovered
+    // runId+toolCallId into a fresh `streamMastraToolApprovalAction` and the tool
+    // finally executes.
+    const database = new PGlite();
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = { resourceId: 'resource-restart-1', threadId: 'thread-restart-1' } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Command finished after restart.',
+      input: JSON.stringify({ command: 'echo restart' }),
+      toolCallId: 'call-ask-restart-1',
+      toolName: 'shell_tool',
+    });
+
+    // ── Phase 1: SUSPEND (first "process") ──
+    const firstBoot = await makeMemory(database);
+    const suspendIterator = await streamMastraAgent(
+      [{ id: 'u-rst-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
+      {
+        memory: firstBoot.memory,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openai',
+        },
+        storage: firstBoot.storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const suspendChunks = await drainYielding(suspendIterator);
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toBeDefined();
+    expect(askExecute).not.toHaveBeenCalled();
+
+    // ── Phase 2: RESTART SIMULATION — fresh runtime, same DB, rediscover ──
+    // KEYLESS discovery: the stable agent id ('brainstrike-assistant') is
+    // provider-independent, so listing constructs a keyless `ollama` agent (no
+    // apiKey) — the exact path the desktop /suspended-runs route uses — and still
+    // rediscovers a run that suspended under a DIFFERENT provider ('openai').
+    const secondBoot = await makeMemory(database);
+    const discovery = await listSuspendedMastraRuns(
+      { resourceId: thread.resourceId, threadId: thread.threadId },
+      {
+        memory: secondBoot.memory,
+        runtime: {
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          provider: 'ollama',
+        },
+        storage: secondBoot.storage,
+      }
+    );
+
+    expect(discovery.approvals).toHaveLength(1);
+    const rediscovered = discovery.approvals[0];
+    expect(rediscovered?.runId).toBe(approval?.runId);
+    expect(rediscovered?.toolCallId).toBe(approval?.toolCallId);
+    expect(rediscovered?.toolName).toBe('shell_tool');
+    expect(typeof rediscovered?.suspendedAt).toBe('string');
+    expect(Number.isNaN(Date.parse(rediscovered?.suspendedAt ?? 'x'))).toBe(false);
+    // Discovery is inert — it must never execute the pending tool.
+    expect(askExecute).not.toHaveBeenCalled();
+
+    // A different thread sees nothing (scope filter).
+    const emptyDiscovery = await listSuspendedMastraRuns(
+      { resourceId: thread.resourceId, threadId: 'thread-other' },
+      {
+        memory: secondBoot.memory,
+        runtime: {
+          memory: { resourceId: thread.resourceId, threadId: 'thread-other' },
+          provider: 'ollama',
+        },
+        storage: secondBoot.storage,
+      }
+    );
+    expect(emptyDiscovery.approvals).toHaveLength(0);
+
+    // ── Phase 3: RESUME the rediscovered run from a THIRD fresh runtime ──
+    const thirdBoot = await makeMemory(database);
+    const resumeIterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: rediscovered?.runId ?? '',
+        toolCallId: rediscovered?.toolCallId ?? '',
+        toolName: rediscovered?.toolName ?? '',
+      },
+      {
+        memory: thirdBoot.memory,
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openai',
+        },
+        storage: thirdBoot.storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const resumeChunks = await drainYielding(resumeIterator);
+
+    expect(askExecute).toHaveBeenCalledTimes(1);
+    expect(askExecute.mock.calls[0]?.[0]).toMatchObject({ command: 'echo restart' });
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
+
   it('DESKTOP wiring: native tools carried on runtime.mastraTools survive the approval RESUME', async () => {
     // The regression this guards (the desktop "I hit Approve and it did not take"
     // bug): the desktop carries native tools on `runtime.mastraTools` (NOT
@@ -496,6 +679,86 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       )
       .map((chunk) => chunk.event.kind);
     expect(resumeRunEventKinds).toContain('tool.completed');
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
+
+  it('D4: the resume leg does NOT prompt approval for Mastra-internal updateWorkingMemory', async () => {
+    // The resume passes run-wide requireToolApproval: true (required by the resume
+    // API). Without the D4 exemption that blanket gate suspends EVERY tool call on
+    // the resumed run — including Mastra's internal `updateWorkingMemory` — so
+    // memory bookkeeping surfaces a spurious approval prompt. The fix substitutes
+    // the function form of the gate, exempting internal tools.
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = { resourceId: 'resource-d4-wm', threadId: 'thread-d4-wm' } as const;
+
+    modelHolder.current = createAskThenWorkingMemoryModel({
+      askInput: JSON.stringify({ command: 'echo hi' }),
+      askToolCallId: 'call-ask-d4-1',
+      askToolName: 'shell_tool',
+      finalText: 'Noted and finished.',
+      workingMemoryCallId: 'call-wm-d4-1',
+    });
+
+    // ── Phase 1: initial turn suspends on the ask tool ──
+    const suspendIterator = await streamMastraAgent(
+      [{ id: 'u-d4-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
+      {
+        memory,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openai',
+        },
+        storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const suspendChunks = await drainYielding(suspendIterator);
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval?.toolName).toBe('shell_tool');
+    expect(askExecute).not.toHaveBeenCalled();
+
+    // ── Phase 2: APPROVE → shell_tool runs, then the model calls
+    //    updateWorkingMemory. It must NOT emit a second approval chunk. ──
+    const resumeIterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: approval?.runId ?? '',
+        toolCallId: approval?.toolCallId ?? '',
+        toolName: 'shell_tool',
+      },
+      {
+        memory,
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openai',
+        },
+        storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const resumeChunks = await drainYielding(resumeIterator);
+
+    // The approved ask tool executed on resume.
+    expect(askExecute).toHaveBeenCalledTimes(1);
+    // No approval prompt was surfaced for the internal working-memory tool.
+    const workingMemoryApproval = resumeChunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-approval-required' }> =>
+        chunk.type === 'tool-approval-required' && chunk.toolName === 'updateWorkingMemory'
+    );
+    expect(workingMemoryApproval).toBeUndefined();
+    // The resumed run reached a terminal finish (memory update executed inline).
     expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
 
     await database.close();

@@ -332,6 +332,34 @@ export function buildNativeToolRiskMap(): Record<string, ToolRiskCategory> {
 }
 
 /**
+ * Sanitized (Mastra-registered) tool id → dotted native id.
+ *
+ * When native tools are registered with Mastra their ids are sanitized
+ * (`name.replace(/[^a-zA-Z0-9_-]/g, '_')`), so `brainstrike.grepSearch` is stored
+ * as `brainstrike_grepSearch`. The LIVE stream un-sanitizes names for display via
+ * the runtime's name map, but PERSISTED `mastra_messages` tool-invocation parts
+ * keep the sanitized id, so a reloaded thread renders `brainstrike_grepSearch`
+ * while the live turn showed `brainstrike.grepSearch` (the D3 divergence). This
+ * map is the reverse for the KNOWN native ids — the only ones whose original form
+ * is unambiguous (an underscore in an unknown/MCP tool could be original).
+ */
+const SANITIZED_TO_DOTTED_NATIVE_TOOL: Record<string, string> = Object.fromEntries(
+  Object.keys(NATIVE_TOOL_DEFAULTS).map((toolId) => [
+    toolId.replace(/[^a-zA-Z0-9_-]/g, '_'),
+    toolId,
+  ])
+);
+
+/**
+ * Normalize a persisted (sanitized) native tool name back to its dotted display
+ * form so a hydrated tool card matches the live label (D3). Non-native /
+ * already-dotted / unknown names pass through unchanged.
+ */
+export function denormalizeNativeToolName(toolName: string): string {
+  return SANITIZED_TO_DOTTED_NATIVE_TOOL[toolName] ?? toolName;
+}
+
+/**
  * Get default metadata for a native tool by ID.
  * Returns undefined if the tool is not a known native tool.
  */
