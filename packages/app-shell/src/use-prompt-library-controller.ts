@@ -40,6 +40,7 @@ export interface PromptLibraryController {
   readonly handleLibraryChanged: () => Promise<void>;
   readonly handleRequestSuggestions: (context: string) => Promise<PromptItemSimilarityResult[]>;
   readonly indexingError: string | null;
+  readonly legacyImportWarning: string | null;
   readonly readiness: PromptManagerReadiness;
 }
 
@@ -79,9 +80,18 @@ function usePromptRecallAbortController(enabled: boolean) {
   return controllerRef;
 }
 
-async function loadInitialPromptItems(repository: PromptItemRepository): Promise<PromptItem[]> {
-  await importLegacyPromptStore(repository);
-  return repository.list();
+async function loadInitialPromptItems(repository: PromptItemRepository): Promise<{
+  readonly items: PromptItem[];
+  readonly legacyImportWarning: string | null;
+}> {
+  let legacyImportWarning: string | null = null;
+  try {
+    await importLegacyPromptStore(repository);
+  } catch (error) {
+    legacyImportWarning = `Legacy prompt import failed. Legacy data was retained: ${toPromptWorkbenchErrorMessage(error)}`;
+  }
+  const items = await repository.list();
+  return { items, legacyImportWarning };
 }
 
 async function reloadPromptItemsAfterIndexing(
@@ -117,6 +127,7 @@ export function usePromptLibraryController({
 }: UsePromptLibraryControllerOptions): PromptLibraryController {
   const [readiness, setReadiness] = useState<PromptManagerReadiness>({ status: 'loading' });
   const [indexingError, setIndexingError] = useState<string | null>(null);
+  const [legacyImportWarning, setLegacyImportWarning] = useState<string | null>(null);
   const indexingTailRef = useRef<Promise<void> | null>(null);
   const latestIndexingRequestIdRef = useRef(0);
   const promptRecallAbortControllerRef = usePromptRecallAbortController(suggestionsEnabled);
@@ -175,11 +186,12 @@ export function usePromptLibraryController({
     let current = true;
     const initialize = (): void => {
       void loadInitialPromptItems(repository)
-        .then((items) => {
+        .then((initial) => {
           if (!current) {
             return null;
           }
-          setReadiness({ items, repository, status: 'ready' });
+          setLegacyImportWarning(initial.legacyImportWarning);
+          setReadiness({ items: initial.items, repository, status: 'ready' });
           return reloadPromptItemsAfterIndexing(repository, runIndexingPass);
         })
         .then((refreshed) => {
@@ -264,6 +276,7 @@ export function usePromptLibraryController({
     handleLibraryChanged,
     handleRequestSuggestions,
     indexingError,
+    legacyImportWarning,
     readiness,
   };
 }

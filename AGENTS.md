@@ -222,7 +222,11 @@ Ownership and flow:
   compare every import-owned current/revision field before accepting an idempotent replay;
   never replace it with renderer-side `BEGIN`/`COMMIT` calls or a preflight comparison.
   Bare legacy model ids are promoted only when the assistant-contract registry maps them
-  to exactly one provider; unknown, retired, or ambiguous ids fail closed.
+  to exactly one provider; unknown, retired, or ambiguous ids fail closed. A failed legacy
+  import retains the payload and surfaces a durable warning, but it must not hide valid
+  PGlite prompts: bootstrap still performs the authoritative initial repository `list()`.
+  That database read remains fatal if it fails, and successful indexing must not clear the
+  separate legacy-import warning.
 - Recall: prompt records own vectors under the dedicated singleton prompt profile — they
   are NOT fake files and MUST NOT be added to `embedding_sets`. Saved items use document
   embeddings; live composer context uses query embeddings. Vector failures surface in the
