@@ -521,11 +521,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       const chunkRepo = new ElectronFileChunkRepository(repositoryDb);
 
-      // Dynamic import via module-level helpers (avoids import() in component scope)
-      const ElectronEmbeddingSetsRepo = await loadElectronEmbeddingSetsRepository();
+      // Dynamic imports via module-level helpers (avoids import() in component scope);
+      // the two repository modules are independent, so load them concurrently.
+      const [ElectronEmbeddingSetsRepo, ElectronViewFilterPresetsRepo] = await Promise.all([
+        loadElectronEmbeddingSetsRepository(),
+        loadElectronViewFilterPresetsRepository(),
+      ]);
       const embeddingSetsRepo = new ElectronEmbeddingSetsRepo(repositoryDb);
-
-      const ElectronViewFilterPresetsRepo = await loadElectronViewFilterPresetsRepository();
       const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepo(repositoryDb);
 
       if (!cancelled.value) {
@@ -575,9 +577,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
 
       // Create Drizzle instance and type-safe repositories
-      // Dynamic imports via module-level helpers (avoids import() in component scope)
-      const DrizzleEmbeddingSetsRepo = await loadDrizzleEmbeddingSetsRepository();
-      const DrizzleViewFilterPresetsRepo = await loadDrizzleViewFilterPresetsRepository();
+      // Dynamic imports via module-level helpers (avoids import() in component scope);
+      // the two repository modules are independent, so load them concurrently.
+      const [DrizzleEmbeddingSetsRepo, DrizzleViewFilterPresetsRepo] = await Promise.all([
+        loadDrizzleEmbeddingSetsRepository(),
+        loadDrizzleViewFilterPresetsRepository(),
+      ]);
       const drizzleInstance = drizzle(scheduledDb);
       const repository = new DrizzleFileRecordRepository(drizzleInstance);
       const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);

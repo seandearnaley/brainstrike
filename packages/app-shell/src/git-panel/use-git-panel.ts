@@ -2,6 +2,11 @@ import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  isTransientRootError,
+  TRANSIENT_ROOT_RETRY_DELAY_MS,
+  TRANSIENT_ROOT_RETRY_LIMIT,
+} from '../roots/transient-root-error';
 import { type GitBridge, type GitStatus, resolveGitBridge } from './git-bridge';
 
 const logger = createLogger('GitPanel');
@@ -72,7 +77,13 @@ export function useGitPanel(): UseGitPanelResult {
   // Bumped to force a refresh after a mutation or a manual refresh click.
   const [refreshToken, setRefreshToken] = useState(0);
 
+  // Counts consecutive transient "root not reconciled yet" failures so the
+  // silent boot-race retry loop is bounded. Reset on success, on a manual
+  // refresh, and when the focused root changes.
+  const transientRetryCountRef = useRef(0);
+
   const refresh = useCallback(() => {
+    transientRetryCountRef.current = 0;
     setRefreshToken((token) => token + 1);
   }, []);
 
@@ -88,6 +99,7 @@ export function useGitPanel(): UseGitPanelResult {
     }
 
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     setIsLoading(true);
     setStatusError(null);
 
@@ -98,8 +110,27 @@ export function useGitPanel(): UseGitPanelResult {
           return;
         }
         if (result.ok) {
+          transientRetryCountRef.current = 0;
           setStatus(result.value);
           setStatusError(null);
+        } else if (
+          isTransientRootError(result.error) &&
+          transientRetryCountRef.current < TRANSIENT_ROOT_RETRY_LIMIT
+        ) {
+          // Boot race: the workspace root row hasn't reconciled into the DB
+          // yet. Keep the loading state and poll again shortly — no error UI,
+          // no toast — until it lands or the retry budget runs out.
+          transientRetryCountRef.current += 1;
+          logger.debug('git status waiting for workspace root reconciliation', {
+            attempt: transientRetryCountRef.current,
+            error: result.error,
+          });
+          retryTimer = setTimeout(() => {
+            if (!cancelled) {
+              setRefreshToken((token) => token + 1);
+            }
+          }, TRANSIENT_ROOT_RETRY_DELAY_MS);
+          return;
         } else {
           setStatus(null);
           setStatusError(result.error);
@@ -122,15 +153,25 @@ export function useGitPanel(): UseGitPanelResult {
         toast({ description: message, title: 'Git status failed', variant: 'destructive' });
       })
       .finally(() => {
-        if (!cancelled) {
+        // Keep the loading state up while a transient-root retry is pending so
+        // the panel shows "loading", not a flash of empty/error UI.
+        if (!(cancelled || retryTimer)) {
           setIsLoading(false);
         }
       });
 
     return () => {
       cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
     };
   }, [bridge, activeRootId, refreshToken, toast]);
+
+  // A different focused root starts with a fresh transient-retry budget.
+  useEffect(() => {
+    transientRetryCountRef.current = 0;
+  }, [activeRootId]);
 
   /**
    * Run a mutating git op, surfacing any failure as a toast + log, and refresh

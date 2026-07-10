@@ -1105,11 +1105,24 @@ if (singleInstanceLockAcquired) {
       registerToolsIpcHandlers({ embeddingHostManager });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
-      await initializeDesktopDimensionIndexStrategy();
-      desktopDatabaseMaintenanceScheduler?.start();
-      logger.debug('Scheduled desktop database maintenance started');
-      desktopDimensionIndexMaintenanceScheduler?.start();
-      logger.debug('Scheduled desktop dimension index maintenance started');
+      // Kick off DB initialization (utilityProcess spawn + migrations) and the
+      // dimension-index capability probe WITHOUT blocking window creation: the
+      // visible window needs none of it to paint, and renderer DB calls
+      // coalesce on the same getDatabase() promise. Only the maintenance
+      // schedulers wait for the probe (they consume the selected strategy).
+      // initializeDesktopDimensionIndexStrategy never rejects (it catches and
+      // degrades internally); the .catch guards the scheduler start() calls so
+      // a future throw there can never become an unhandled rejection.
+      void initializeDesktopDimensionIndexStrategy()
+        .then(() => {
+          desktopDatabaseMaintenanceScheduler?.start();
+          logger.debug('Scheduled desktop database maintenance started');
+          desktopDimensionIndexMaintenanceScheduler?.start();
+          logger.debug('Scheduled desktop dimension index maintenance started');
+        })
+        .catch((error) => {
+          logger.error('Failed to start desktop maintenance schedulers', { error });
+        });
 
       // Setup security before creating windows
       setupSecurity();
