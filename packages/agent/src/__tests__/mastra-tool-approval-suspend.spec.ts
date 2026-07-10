@@ -115,6 +115,74 @@ function createTurnCountedToolCallModel(args: {
   };
 }
 
+/**
+ * A three-turn scripted model for the D4 resume-exemption proof:
+ *   turn 1 (initial)          → call the ask tool (suspends for approval)
+ *   turn 2 (resume continues) → call Mastra's internal `updateWorkingMemory`
+ *   turn 3                    → final text
+ * On the resume leg the run passes run-wide `requireToolApproval: true`; the D4
+ * fix must let `updateWorkingMemory` run WITHOUT a second approval prompt.
+ */
+function createAskThenWorkingMemoryModel(args: {
+  askToolName: string;
+  askToolCallId: string;
+  askInput: string;
+  workingMemoryCallId: string;
+  finalText: string;
+}): LanguageModelV2 {
+  let turn = 0;
+  const enqueue = (parts: LanguageModelV2StreamPart[]) =>
+    new ReadableStream<LanguageModelV2StreamPart>({
+      start(controller) {
+        for (const part of parts) {
+          controller.enqueue(part);
+        }
+        controller.close();
+      },
+    });
+  const toolCall = (toolName: string, toolCallId: string, input: string) =>
+    enqueue([
+      { type: 'stream-start', warnings: [] },
+      { input, toolCallId, toolName, type: 'tool-call' },
+      { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+    ]);
+
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: () => {
+      turn += 1;
+      if (turn === 1) {
+        return Promise.resolve({
+          stream: toolCall(args.askToolName, args.askToolCallId, args.askInput),
+        });
+      }
+      if (turn === 2) {
+        return Promise.resolve({
+          stream: toolCall(
+            'updateWorkingMemory',
+            args.workingMemoryCallId,
+            JSON.stringify({ memory: '# Notes\n- user likes tests' })
+          ),
+        });
+      }
+      const id = 'text-final';
+      return Promise.resolve({
+        stream: enqueue([
+          { type: 'stream-start', warnings: [] },
+          { id, type: 'text-start' },
+          { delta: args.finalText, id, type: 'text-delta' },
+          { id, type: 'text-end' },
+          { finishReason: 'stop', type: 'finish', usage: USAGE },
+        ]),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
 const ASK_POLICY = {
   policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
   riskByTool: { shell_tool: 'execute' },
@@ -611,6 +679,86 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       )
       .map((chunk) => chunk.event.kind);
     expect(resumeRunEventKinds).toContain('tool.completed');
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
+
+  it('D4: the resume leg does NOT prompt approval for Mastra-internal updateWorkingMemory', async () => {
+    // The resume passes run-wide requireToolApproval: true (required by the resume
+    // API). Without the D4 exemption that blanket gate suspends EVERY tool call on
+    // the resumed run — including Mastra's internal `updateWorkingMemory` — so
+    // memory bookkeeping surfaces a spurious approval prompt. The fix substitutes
+    // the function form of the gate, exempting internal tools.
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = { resourceId: 'resource-d4-wm', threadId: 'thread-d4-wm' } as const;
+
+    modelHolder.current = createAskThenWorkingMemoryModel({
+      askInput: JSON.stringify({ command: 'echo hi' }),
+      askToolCallId: 'call-ask-d4-1',
+      askToolName: 'shell_tool',
+      finalText: 'Noted and finished.',
+      workingMemoryCallId: 'call-wm-d4-1',
+    });
+
+    // ── Phase 1: initial turn suspends on the ask tool ──
+    const suspendIterator = await streamMastraAgent(
+      [{ id: 'u-d4-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
+      {
+        memory,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openai',
+        },
+        storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const suspendChunks = await drainYielding(suspendIterator);
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval?.toolName).toBe('shell_tool');
+    expect(askExecute).not.toHaveBeenCalled();
+
+    // ── Phase 2: APPROVE → shell_tool runs, then the model calls
+    //    updateWorkingMemory. It must NOT emit a second approval chunk. ──
+    const resumeIterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: approval?.runId ?? '',
+        toolCallId: approval?.toolCallId ?? '',
+        toolName: 'shell_tool',
+      },
+      {
+        memory,
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openai',
+        },
+        storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const resumeChunks = await drainYielding(resumeIterator);
+
+    // The approved ask tool executed on resume.
+    expect(askExecute).toHaveBeenCalledTimes(1);
+    // No approval prompt was surfaced for the internal working-memory tool.
+    const workingMemoryApproval = resumeChunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-approval-required' }> =>
+        chunk.type === 'tool-approval-required' && chunk.toolName === 'updateWorkingMemory'
+    );
+    expect(workingMemoryApproval).toBeUndefined();
+    // The resumed run reached a terminal finish (memory update executed inline).
     expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
 
     await database.close();

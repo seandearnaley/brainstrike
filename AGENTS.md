@@ -344,7 +344,13 @@ Flow (desktop assistant server → agent runtime):
    `riskCategory`/`policyDecision` so the notice can name the reason. The
    approve/decline resume (`streamMastraToolApprovalAction`) passes
    `requireToolApproval: true` (the resume API needs it); the gate runs again on
-   resume so the ask tools keep their per-tool flag.
+   resume so the ask tools keep their per-tool flag. Because run-wide
+   `requireToolApproval: true` would suspend EVERY tool call on the resumed leg —
+   including Mastra's INTERNAL memory tools (`updateWorkingMemory`) —
+   `resolveResumeApprovalGate` (agent-runtime.ts) substitutes the FUNCTION form of
+   the gate, exempting the canonical internal ids
+   (`internal-approval-exempt-tools.ts`: `updateWorkingMemory`/`setWorkingMemory`)
+   so memory bookkeeping never prompts while genuine mutation tools still suspend.
 
 Migration (enforce-on is a SECURITY fix): the store bumps to v2. Under v1,
 `false` was the default AND always persisted, so a pre-v2 `false` slice is

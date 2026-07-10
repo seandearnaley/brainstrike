@@ -699,10 +699,13 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
  * live-stream approval notice is gone (it was never persisted), but the suspended
  * run snapshot survives in workflow storage — this endpoint surfaces it so the
  * renderer can re-render a working Approve/Decline notice (reusing the existing
- * resume seam). Discovery is CONTEXT-FREE + KEYLESS: the stable agent id
- * ('brainstrike-assistant') is provider-independent, so the listing runtime is a
- * keyless `ollama` agent — no provider/apiKey is required from the renderer, and
- * no inference happens (listing only reads snapshots).
+ * resume seam). Discovery is CONTEXT-FREE + KEYLESS + MODEL-FREE: the stable
+ * agent id ('brainstrike-assistant') is provider-independent, and
+ * `listSuspendedMastraRuns` builds its runtime with an INERT listing-only model
+ * (no provider/model is ever resolved), so no provider/apiKey is required from
+ * the renderer and no inference happens (listing only reads snapshots). The
+ * `provider: 'ollama'` below is a keyless placeholder that satisfies runtime
+ * config; it is never used to construct a model.
  */
 async function handleSuspendedRunsRequest(
   req: http.IncomingMessage,
@@ -740,7 +743,9 @@ async function handleSuspendedRunsRequest(
       { resourceId, threadId },
       {
         memory: memoryResult.memory,
-        // Keyless, provider-independent listing (see the doc comment above).
+        // Keyless, provider-independent, model-free listing (see the doc comment
+        // above). `listSuspendedMastraRuns` injects an inert listing-only model,
+        // so this provider is a placeholder that is never used to build a model.
         runtime: { memory: { resourceId, threadId }, provider: 'ollama' },
         storage: memoryResult.storage,
       }

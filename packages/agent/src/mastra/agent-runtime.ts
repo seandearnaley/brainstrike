@@ -21,6 +21,7 @@ import {
   resolveAssistantResilienceConfig,
 } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
+import { createListingOnlyModel } from '../providers/listing-only-model';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import type {
   AssistantRunEventKind,
@@ -47,6 +48,7 @@ import {
   buildLocalDefaultInstructions,
   type DelegationPersonaSummary,
 } from './default-instructions';
+import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
 import {
@@ -80,6 +82,14 @@ export interface MastraAgentRuntimeOptions {
   mcpTimeoutMs?: number;
   memory?: MastraMemory;
   model?: string;
+  /**
+   * Pre-built language model to use INSTEAD of resolving provider/model. When
+   * set, `createProvider`/`getDefaultModel` are skipped entirely — the sole
+   * consumer is the suspended-run DISCOVERY path (see `createListingOnlyModel`),
+   * which needs a runtime with no inference and must not require a provider key
+   * or a static default model. Never set on a real chat/resume turn.
+   */
+  modelOverride?: MastraModelConfig;
   /**
    * Serializable permission posture + tool risk classification used to gate the
    * tool map before the Agent is built. Overrides `runtime.permissionPolicy`
@@ -393,6 +403,7 @@ export async function createMastraAgentRuntime(
     resolved,
     memory,
     storage,
+    modelOverride,
   } = options;
 
   let runtimeResolution: ResolvedRuntimeConfiguration;
@@ -476,14 +487,14 @@ export async function createMastraAgentRuntime(
     logger
   );
 
-  // Create provider-specific model instance
+  // Create provider-specific model instance. The DISCOVERY path passes
+  // `modelOverride` (an inert listing-only model) so provider/model are never
+  // resolved — listing suspended runs performs no inference and must not require
+  // a provider key or a static default model.
   const modelName = model ?? getDefaultModel(normalizedProvider);
-  const languageModel = instantiateLanguageModel(
-    normalizedProvider,
-    apiKey,
-    modelName,
-    sanitizedRuntime
-  );
+  const languageModel =
+    modelOverride ??
+    instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
 
   assertModernLanguageModel(languageModel, normalizedProvider, modelName);
 
@@ -1580,6 +1591,14 @@ interface ToolApprovalIterationParams {
   sanitizedNameMap?: Map<string, string>;
 }
 
+/**
+ * Per-call approval decision, matching Mastra's `RequireToolApproval` union
+ * (`boolean | (ctx) => boolean`). The function form gates approval per tool call;
+ * the resume leg uses it to exempt Mastra-internal tools (see
+ * {@link resolveResumeApprovalGate}).
+ */
+type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
+
 interface BrainstrikeAgentStreamOptions {
   abortSignal?: AbortSignal;
   delegation?: DelegationConfig;
@@ -1588,7 +1607,7 @@ interface BrainstrikeAgentStreamOptions {
   memory?: AgentMemoryOption;
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
-  requireToolApproval?: boolean;
+  requireToolApproval?: ApprovalGate;
 }
 
 const DEFAULT_AGENT_MAX_STEPS = 20;
@@ -1832,6 +1851,22 @@ function validateToolApprovalAction(action: AssistantToolApprovalAction): void {
   }
 }
 
+/**
+ * The approval RESUME leg passes Mastra's run-wide `requireToolApproval: true`
+ * (the resume API needs it — see AGENTS.md PERMISSION ENGINE). A blanket `true`
+ * gates EVERY tool call on the resumed run, so Mastra's INTERNAL memory tools
+ * (`updateWorkingMemory`) would surface a spurious approval prompt (the D4
+ * defect). Substitute the FUNCTION form of the gate so internal bookkeeping tools
+ * run free while genuine mutation tools still suspend. A caller-supplied function
+ * or a non-`true` value passes through unchanged.
+ */
+function resolveResumeApprovalGate(requireToolApproval: ApprovalGate | undefined): ApprovalGate {
+  if (requireToolApproval !== true) {
+    return requireToolApproval ?? false;
+  }
+  return ({ toolName }: { toolName: string }): boolean => !isApprovalExemptInternalTool(toolName);
+}
+
 async function createToolApprovalIteratorFromRuntime({
   runtime,
   runtimeData,
@@ -1859,7 +1894,11 @@ async function createToolApprovalIteratorFromRuntime({
       ...(runtime.personasById.size > 0
         ? { delegation: createDelegationConfig({ logger, personasById: runtime.personasById }) }
         : {}),
-      ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
+      // Exempt Mastra-internal tools (updateWorkingMemory) from the run-wide
+      // approval gate on the resume leg (D4).
+      ...(requireToolApproval === undefined
+        ? {}
+        : { requireToolApproval: resolveResumeApprovalGate(requireToolApproval) }),
     };
 
     const streamResult =
@@ -2051,8 +2090,12 @@ export async function listSuspendedMastraRuns(
   }
 
   const runtimeResolution = resolveRuntimeConfiguration(options.runtime);
+  // Listing performs NO inference: build the runtime with an inert model so no
+  // provider/model is resolved. This is why the discovery route can pass a
+  // keyless provider with no static default (e.g. ollama) without the
+  // `No default model configured` init throw (the D1 fix).
   const { runtime } = await initializeMastraRuntime(
-    withRuntimeDerivedStreamOptions(options),
+    withRuntimeDerivedStreamOptions({ ...options, modelOverride: createListingOnlyModel() }),
     runtimeResolution
   );
 
