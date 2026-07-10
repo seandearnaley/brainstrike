@@ -240,7 +240,6 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const policy = resolveToolDisplayPolicy(detailLevel);
   const durationMs = useToolDurationMs(toolCallId);
   const durationLabel = durationMs === undefined ? undefined : formatActivityDuration(durationMs);
-  const shellOutput = useShellOutput(toolCallId);
 
   // Follow the Detail level (policy.defaultExpanded) until the user explicitly
   // toggles this card — so switching to Developer auto-expands already-rendered
@@ -345,9 +344,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
       {/* Live incremental output while the command runs. Once it finishes, the
           captured output lives in the collapsible Result pane, so the live pane
           only shows during execution (transient — absent on a reloaded thread). */}
-      {isRunning && shellOutput && shellOutput.text.length > 0 ? (
-        <LiveShellOutputPane text={shellOutput.text} truncated={shellOutput.truncated} />
-      ) : null}
+      <LiveShellOutputRegion isRunning={isRunning} toolCallId={toolCallId} />
 
       {showDetails && !isCollapsed ? (
         <ToolDetailsPane
@@ -366,6 +363,27 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 };
 
 ToolFallback.displayName = 'ToolFallback';
+
+/**
+ * Live incremental output while a shell command runs. Once it finishes, the
+ * captured output lives in the collapsible Result pane, so this only renders
+ * during execution (transient — absent on a reloaded thread). Split out of
+ * ToolFallback so its own hook + condition don't add to that component's
+ * cognitive complexity.
+ */
+function LiveShellOutputRegion({
+  isRunning,
+  toolCallId,
+}: {
+  isRunning: boolean;
+  toolCallId: string;
+}): ReactNode {
+  const shellOutput = useShellOutput(toolCallId);
+  if (!(isRunning && shellOutput && shellOutput.text.length > 0)) {
+    return null;
+  }
+  return <LiveShellOutputPane text={shellOutput.text} truncated={shellOutput.truncated} />;
+}
 
 /**
  * Per-card undo control for the four agent mutation tools. Renders nothing when
