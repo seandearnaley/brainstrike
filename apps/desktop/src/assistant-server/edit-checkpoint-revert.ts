@@ -338,7 +338,7 @@ export async function revertCheckpointEntry(
 
     if (row.op === 'rename') {
       await applyRenameBack(row, rootPath, force, deps);
-    } else if (row.captureStatus === 'created') {
+    } else if (row.op === 'write' && row.captureStatus === 'created') {
       await applyDeleteCreated(row, rootPath, force, deps);
     } else if (row.op === 'delete') {
       await applyRecreateDeleted(row, rootPath, force, deps);
