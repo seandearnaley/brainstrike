@@ -559,6 +559,14 @@ function PreparePromptDialog({
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -566,9 +574,15 @@ function PreparePromptDialog({
     setWorking(true);
     try {
       await onPrepared(renderPromptTemplate(pendingUse.item.content, values));
+      if (!mountedRef.current) {
+        return;
+      }
       setWorking(false);
       onClose();
     } catch (cause) {
+      if (!mountedRef.current) {
+        return;
+      }
       setError(errorMessage(cause));
       setWorking(false);
     }
