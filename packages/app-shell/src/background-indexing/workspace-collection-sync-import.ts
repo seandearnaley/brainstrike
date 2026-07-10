@@ -157,7 +157,7 @@ const INACCESSIBLE_CONTENT_VALUES = new Set([
 ]);
 const NULL_BYTE_CONTENT_ERROR = 'File contains null bytes and cannot be indexed.';
 
-function getContentIndexingError(content: string): string | null {
+export function getContentIndexingError(content: string): string | null {
   if (INACCESSIBLE_CONTENT_VALUES.has(content)) {
     return content;
   }

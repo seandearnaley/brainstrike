@@ -72,6 +72,14 @@ import {
   WorkspaceIndexBlockedError,
 } from './workspace-index-blocked-error';
 import { bootstrapWorkspaceIndexCollection } from './workspace-index-bootstrap-service';
+import {
+  buildWorkspaceCoverageExpectedFiles,
+  classifyMissingCoverageFiles,
+  readIndexedRelativePathsByRoot,
+  resolveMissingCoverageFiles,
+  type WorkspaceCoverageExpectedFile,
+  type WorkspaceCoverageGapClassification,
+} from './workspace-index-coverage-audit';
 import { runWorkspaceIndexStageBenchmark } from './workspace-index-debug-benchmark';
 import {
   countExpectedWorkspaceIndexFiles,
@@ -191,6 +199,7 @@ function createClearedProgressPatch(): Pick<
 interface WorkspaceCoverageAuditTarget {
   readonly dbRootId: string;
   readonly expectedFileCount: number;
+  readonly expectedFiles: readonly WorkspaceCoverageExpectedFile[];
   readonly rootPath: string;
 }
 
@@ -200,6 +209,7 @@ type WorkspaceCoverageAuditOutcome =
     }
   | {
       readonly kind: 'incomplete';
+      readonly gapsByRoot: ReadonlyMap<string, WorkspaceCoverageGapClassification>;
       readonly indexedCounts: ReadonlyMap<string, number>;
       readonly message: string;
       readonly missingTargets: readonly WorkspaceCoverageAuditTarget[];
@@ -289,7 +299,33 @@ async function readIndexedFileCountsByRoot(args: {
   return counts;
 }
 
+const COVERAGE_MESSAGE_MISSING_PATH_SAMPLE_LIMIT = 3;
+
+function describeCoverageGapForMessage(
+  gap: WorkspaceCoverageGapClassification | undefined
+): string {
+  if (!gap) {
+    return '';
+  }
+  const parts: string[] = [];
+  if (gap.genuinelyMissing.length > 0) {
+    const sample = gap.genuinelyMissing.slice(0, COVERAGE_MESSAGE_MISSING_PATH_SAMPLE_LIMIT);
+    const remainder = gap.genuinelyMissing.length - sample.length;
+    parts.push(
+      `missing files include: ${sample.join(', ')}${remainder > 0 ? ` (+${remainder} more)` : ''}`
+    );
+  }
+  if (gap.unclassifiedCount > 0) {
+    parts.push(`${gap.unclassifiedCount} additional missing files were not classified`);
+  }
+  if (gap.contentExcluded.length > 0) {
+    parts.push(`${gap.contentExcluded.length} files are unindexable by content policy`);
+  }
+  return parts.length > 0 ? `; ${parts.join('; ')}` : '';
+}
+
 function buildCoverageAuditMessage(args: {
+  gapsByRoot: ReadonlyMap<string, WorkspaceCoverageGapClassification>;
   missingTargets: readonly WorkspaceCoverageAuditTarget[];
   indexedCounts: ReadonlyMap<string, number>;
 }): string {
@@ -298,7 +334,8 @@ function buildCoverageAuditMessage(args: {
     .slice(0, 3)
     .map((target) => {
       const indexedFileCount = args.indexedCounts.get(target.dbRootId) ?? 0;
-      return `${target.rootPath} (${indexedFileCount}/${target.expectedFileCount} files indexed)`;
+      const gapSummary = describeCoverageGapForMessage(args.gapsByRoot.get(target.dbRootId));
+      return `${target.rootPath} (${indexedFileCount}/${target.expectedFileCount} files indexed${gapSummary})`;
     })
     .join('; ');
   const extraCount =
@@ -385,9 +422,17 @@ async function buildCoverageAuditTargets(args: {
         policyPreset: args.policyPreset,
         rootHandle: handle,
       });
+      // Deduped by normalized relative path: file_records rows are keyed by
+      // (rootId, relativePath), so the DB can never hold more rows than the
+      // deduped expected set — a raw node count would over-count.
+      const expectedFiles = buildWorkspaceCoverageExpectedFiles({
+        fileNodes: expected.fileNodes,
+        rootPath: handle.path,
+      });
       return {
         dbRootId,
-        expectedFileCount: expected.expectedFileCount,
+        expectedFileCount: expectedFiles.length,
+        expectedFiles,
         rootPath: handle.path,
       };
     })
@@ -429,26 +474,85 @@ async function runWorkspaceCoverageAudit(args: {
   if (!args.isCurrent()) {
     return null;
   }
-  const indexedCounts = await readIndexedFileCountsByRoot({
+  // Compare SETS of relative paths, not counts: the DB is the source of truth
+  // for what was indexed, and the on-disk walk for what should be. The set
+  // difference names the actual missing files, which the content gate below
+  // then classifies — a count comparison cannot distinguish "pipeline missed a
+  // file" from "this file is legitimately unindexable".
+  const indexedPathsByRoot = await readIndexedRelativePathsByRoot({
     collectionId: args.collectionId,
     db: args.db,
     rootIds: targets.map((target) => target.dbRootId),
   });
-  if (args.isCurrent()) {
-    const missingTargets = targets.filter(
-      (target) => (indexedCounts.get(target.dbRootId) ?? 0) < target.expectedFileCount
-    );
-    if (missingTargets.length === 0) {
-      return { kind: 'complete' };
-    }
-    return {
-      indexedCounts,
-      kind: 'incomplete',
-      message: buildCoverageAuditMessage({ indexedCounts, missingTargets }),
-      missingTargets,
-    };
+  if (!args.isCurrent()) {
+    return null;
   }
-  return null;
+
+  const indexedCounts = new Map<string, number>();
+  const gapsByRoot = new Map<string, WorkspaceCoverageGapClassification>();
+  const missingTargets: WorkspaceCoverageAuditTarget[] = [];
+  const coveredContentExclusions: Array<{
+    contentExcluded: WorkspaceCoverageGapClassification['contentExcluded'];
+    rootPath: string;
+  }> = [];
+  // Roots are classified SEQUENTIALLY on purpose: each classification reads
+  // missing files from disk with its own bounded concurrency, and this audit
+  // runs as background QoS work — fanning out across roots would multiply IO
+  // against foreground work for no user-visible gain.
+  for (const target of targets) {
+    const indexedRelativePaths = indexedPathsByRoot.get(target.dbRootId) ?? new Set<string>();
+    const missingFiles = resolveMissingCoverageFiles({
+      expectedFiles: target.expectedFiles,
+      indexedRelativePaths,
+    });
+    indexedCounts.set(target.dbRootId, target.expectedFiles.length - missingFiles.length);
+    if (missingFiles.length === 0) {
+      continue;
+    }
+    // Re-apply the import pipeline's content gate to the missing files: a file
+    // the gate refuses (null bytes, binary content, unreadable, too large) can
+    // never be indexed and therefore counts as covered, not missing.
+    const gap = await classifyMissingCoverageFiles({
+      fileSystemAdapter: args.fileSystemAdapter,
+      missingFiles,
+      rootPath: target.rootPath,
+    });
+    if (!args.isCurrent()) {
+      return null;
+    }
+    if (gap.genuinelyMissing.length === 0 && gap.unclassifiedCount === 0) {
+      coveredContentExclusions.push({
+        contentExcluded: gap.contentExcluded,
+        rootPath: target.rootPath,
+      });
+      continue;
+    }
+    gapsByRoot.set(target.dbRootId, gap);
+    missingTargets.push(target);
+  }
+
+  if (coveredContentExclusions.length > 0) {
+    logger.info(
+      'Workspace Index idle coverage audit: unindexable files excluded from coverage by content policy',
+      {
+        collectionId: args.collectionId,
+        roots: coveredContentExclusions.map((entry) => ({
+          contentExcluded: entry.contentExcluded,
+          rootPath: entry.rootPath,
+        })),
+      }
+    );
+  }
+  if (missingTargets.length === 0) {
+    return { kind: 'complete' };
+  }
+  return {
+    gapsByRoot,
+    indexedCounts,
+    kind: 'incomplete',
+    message: buildCoverageAuditMessage({ gapsByRoot, indexedCounts, missingTargets }),
+    missingTargets,
+  };
 }
 
 function applyWorkspaceCoverageAuditOutcome(args: {
@@ -498,11 +602,17 @@ function applyWorkspaceCoverageIncompleteOutcome(args: {
 }): void {
   logger.warn('Workspace Index idle coverage audit found incomplete roots', {
     collectionId: args.collectionId,
-    missingRoots: args.outcome.missingTargets.map((target) => ({
-      expectedFileCount: target.expectedFileCount,
-      indexedFileCount: args.outcome.indexedCounts.get(target.dbRootId) ?? 0,
-      rootPath: target.rootPath,
-    })),
+    missingRoots: args.outcome.missingTargets.map((target) => {
+      const gap = args.outcome.gapsByRoot.get(target.dbRootId);
+      return {
+        contentExcluded: gap?.contentExcluded ?? [],
+        expectedFileCount: target.expectedFileCount,
+        genuinelyMissing: gap?.genuinelyMissing ?? [],
+        indexedFileCount: args.outcome.indexedCounts.get(target.dbRootId) ?? 0,
+        rootPath: target.rootPath,
+        unclassifiedCount: gap?.unclassifiedCount ?? 0,
+      };
+    }),
   });
   args.setStatus(
     createCoverageStatusPatch({
@@ -2131,7 +2241,7 @@ export function WorkspaceCollectionSyncProvider({
         : rootDirectoryHandle
           ? [rootDirectoryHandle]
           : [];
-    return await Promise.all(
+    const results = await Promise.all(
       handles.map((handle) =>
         countExpectedWorkspaceIndexFiles({
           fileSystemAdapter,
@@ -2140,6 +2250,9 @@ export function WorkspaceCollectionSyncProvider({
         })
       )
     );
+    // The debug surface serializes into snapshots; raw file nodes carry live
+    // fs handles and would bloat/break that, so expose paths only.
+    return results.map(({ fileNodes: _fileNodes, ...serializable }) => serializable);
   }, [fileSystemAdapter, indexingPolicyPreset, rootDirectoryHandle, rootDirectoryHandles]);
 
   const readDebugHostStatus = useCallback(async (bridgeName: 'chunkingHost' | 'embeddingHost') => {
