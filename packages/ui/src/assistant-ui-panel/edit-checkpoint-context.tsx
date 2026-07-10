@@ -19,6 +19,8 @@ export const REVERTIBLE_MUTATION_TOOL_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 export interface EditCheckpointContextValue {
+  /** Every journal entry for the active thread, in apply order (ascending). */
+  readonly entries: readonly AssistantEditCheckpointRecord[];
   /** Journal entries for the active thread, keyed by the tool call that made them. */
   readonly entriesByToolCallId: ReadonlyMap<string, AssistantEditCheckpointRecord>;
   /** Revert one edit. `force` skips the conflict check ("Revert anyway"). */
@@ -73,44 +75,88 @@ export function useCheckpointForToolCall(toolCallId: string): {
   };
 }
 
-/** The revertible, not-yet-reverted entries for a turn plus the distinct runs they span. */
-export interface TurnRevertSelection {
-  readonly entries: readonly AssistantEditCheckpointRecord[];
+/** The runs a message owns plus the true revert scope (whole run, not just this message). */
+export interface TurnRevertScope {
+  /** Every still-revertible entry across those runs — what `revertRun` will undo. */
+  readonly revertibleCount: number;
+  /** Distinct runs this message owns, newest-applied first. */
   readonly runIds: readonly string[];
 }
 
-/**
- * From the tool calls of one assistant turn, select the journal entries that can
- * still be reverted (revertible capture status, not already reverted) and the
- * distinct run ids they belong to. Pure so the turn-level control's gating can be
- * tested without React.
- */
-export function selectRevertibleTurnEntries(
-  toolCallIds: readonly string[],
-  entriesByToolCallId: ReadonlyMap<string, AssistantEditCheckpointRecord>
-): TurnRevertSelection {
-  const entries: AssistantEditCheckpointRecord[] = [];
-  const runIds: string[] = [];
-  const seenRunIds = new Set<string>();
-  for (const toolCallId of toolCallIds) {
-    const entry = entriesByToolCallId.get(toolCallId);
-    if (!entry || entry.revertedAt || !isRevertibleCaptureStatus(entry.captureStatus)) {
-      continue;
-    }
-    entries.push(entry);
-    if (!seenRunIds.has(entry.runId)) {
-      seenRunIds.add(entry.runId);
-      runIds.push(entry.runId);
-    }
+/** Later apply order = larger occurredAt, id as tie-break (mirrors the DB order). */
+function isLaterApply(a: AssistantEditCheckpointRecord, b: AssistantEditCheckpointRecord): boolean {
+  if (a.occurredAt !== b.occurredAt) {
+    return a.occurredAt > b.occurredAt;
   }
-  return { entries, runIds };
+  return a.id > b.id;
 }
 
 /**
- * Turn-level revert binding for a set of tool calls, or `null` when there is no
- * provider (web / not desktop) or the turn has no revertible edits — capability
- * gating, so the turn-level control renders nothing. `revert` runs every distinct
- * run the turn spans (normally one) and returns their per-run outcomes.
+ * Given ONE assistant message's tool-call ids and ALL of the thread's journal
+ * entries, decide which runs that message owns and the true revert scope.
+ *
+ * A live run splits across several assistant messages (each approval resume
+ * starts a new message sharing the runId), yet `revertRun(runId)` undoes EVERY
+ * still-revertible entry of the run. So the count must be the whole run's, not
+ * this message's parts, and the footer must render once per run — on the run's
+ * LAST leg. A message owns a run only when it contains that run's anchor: the
+ * last-applied revertible entry that rendered as a tool call. Exactly one
+ * message holds any given tool-call id, so exactly one message owns each run —
+ * no duplicate footers, and the count equals what actually reverts (including a
+ * run's `toolCallId: null` entries, which never render but still revert).
+ *
+ * Returns `null` when this message owns no run (no revertible edits, or it is
+ * not any run's last leg) — capability gating, so the control renders nothing.
+ */
+export function selectTurnRevertScope(
+  messageToolCallIds: readonly string[],
+  entries: readonly AssistantEditCheckpointRecord[]
+): TurnRevertScope | null {
+  const messageIds = new Set(messageToolCallIds);
+  const revertibleByRun = new Map<string, AssistantEditCheckpointRecord[]>();
+  for (const entry of entries) {
+    if (entry.revertedAt || !isRevertibleCaptureStatus(entry.captureStatus)) {
+      continue;
+    }
+    const runEntries = revertibleByRun.get(entry.runId);
+    if (runEntries) {
+      runEntries.push(entry);
+    } else {
+      revertibleByRun.set(entry.runId, [entry]);
+    }
+  }
+
+  const owned: { anchor: AssistantEditCheckpointRecord; count: number; runId: string }[] = [];
+  for (const [runId, runEntries] of revertibleByRun) {
+    let anchor: AssistantEditCheckpointRecord | null = null;
+    let anchorId: string | null = null;
+    for (const entry of runEntries) {
+      if (entry.toolCallId && (!anchor || isLaterApply(entry, anchor))) {
+        anchor = entry;
+        anchorId = entry.toolCallId;
+      }
+    }
+    if (anchor && anchorId && messageIds.has(anchorId)) {
+      owned.push({ anchor, count: runEntries.length, runId });
+    }
+  }
+
+  if (owned.length === 0) {
+    return null;
+  }
+  owned.sort((a, b) => (isLaterApply(a.anchor, b.anchor) ? -1 : 1));
+  return {
+    revertibleCount: owned.reduce((total, run) => total + run.count, 0),
+    runIds: owned.map((run) => run.runId),
+  };
+}
+
+/**
+ * Turn-level revert binding for one assistant message's tool calls, or `null`
+ * when there is no provider (web / not desktop) or the message owns no run —
+ * capability gating, so the turn-level control renders nothing. `revert` runs
+ * each owned run sequentially, newest first (a shared file edited by two runs
+ * must be reverted in reverse order — `Promise.all` cannot guarantee it).
  */
 export function useCheckpointTurnRevert(toolCallIds: readonly string[]): {
   revertibleCount: number;
@@ -123,14 +169,20 @@ export function useCheckpointTurnRevert(toolCallIds: readonly string[]): {
       return null;
     }
     const ids = idsKey === '' ? [] : idsKey.split('\n');
-    const selection = selectRevertibleTurnEntries(ids, context.entriesByToolCallId);
-    if (selection.entries.length === 0) {
+    const scope = selectTurnRevertScope(ids, context.entries);
+    if (!scope) {
       return null;
     }
+    const { revertRun } = context;
     return {
-      revert: (options) =>
-        Promise.all(selection.runIds.map((runId) => context.revertRun(runId, options))),
-      revertibleCount: selection.entries.length,
+      revert: async (options) => {
+        const results: AssistantCheckpointRevertRunResult[] = [];
+        for (const runId of scope.runIds) {
+          results.push(await revertRun(runId, options));
+        }
+        return results;
+      },
+      revertibleCount: scope.revertibleCount,
     };
     // idsKey is a stable serialization of toolCallIds; depend on it, not the array identity.
   }, [context, idsKey]);

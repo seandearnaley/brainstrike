@@ -37,6 +37,33 @@ import {
 } from './assistant-ui-panel-wrapper-test-support';
 
 describe('AssistantUiPanelWrapper', () => {
+  test('re-reads the checkpoint journal when a run finishes (no thread switch)', async () => {
+    const user = userEvent.setup();
+    const countCheckpointReads = (): number =>
+      mockDb.query.mock.calls.filter(
+        ([sql]) => typeof sql === 'string' && sql.includes('brainstrike_assistant_edit_checkpoints')
+      ).length;
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing');
+    await screen.findByTestId('assistant-ui-panel');
+
+    // The thread-open read happened; capture the baseline.
+    await waitFor(() => {
+      expect(countCheckpointReads()).toBeGreaterThan(0);
+    });
+    const beforeRunFinished = countCheckpointReads();
+
+    // A run reaching a terminal state must re-read the journal so an edit
+    // journaled during the turn that JUST ran surfaces without a thread switch.
+    await act(async () => {
+      await user.click(screen.getByTestId('trigger-run-finished'));
+    });
+
+    await waitFor(() => {
+      expect(countCheckpointReads()).toBeGreaterThan(beforeRunFinished);
+    });
+  });
+
   test('bridges only the active thread command into the composer and acknowledges it', async () => {
     const activeCommand = useAssistantComposerCommandStore.getState().enqueue({
       mode: 'append',

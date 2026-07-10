@@ -659,6 +659,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelToggle,
     onProviderSettingsChange,
     onThreadRunStart,
+    onRunFinished,
     completePreparedRequest,
     prepareRequestData,
     contextMenu,
@@ -686,6 +687,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     onProviderSettingsChange?: (providerId: string, updates: Record<string, unknown>) => void;
     onThreadRunStart?: () => void;
+    onRunFinished?: (event: { runId: string; kind: string }) => void;
     completePreparedRequest?: (
       requestData: Record<string, unknown> | undefined,
       status: 'cancelled' | 'completed' | 'failed',
@@ -744,6 +746,13 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           type="button"
         >
           Report composer text
+        </button>
+        <button
+          data-testid="trigger-run-finished"
+          onClick={() => onRunFinished?.({ kind: 'run.finished', runId: 'run-live' })}
+          type="button"
+        >
+          Trigger run finished
         </button>
         <div data-testid="panel-disabled">{String(disabled)}</div>
         <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>

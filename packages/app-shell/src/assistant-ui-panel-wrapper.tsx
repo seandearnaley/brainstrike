@@ -1,4 +1,4 @@
-import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import type { AssistantRunEvent, LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import {
   getProviderModelDefinitions,
   isSupportedProvider,
@@ -1359,7 +1359,29 @@ export function AssistantUiPanelWrapper({
 
   // Edit checkpoint (undo of agent file edits) context for the mutation tool
   // cards. Null on web / when no thread is selected (capability gating).
-  const editCheckpoints = useEditCheckpoints(assistantThreadRepository, selectedMemoryThreadId);
+  const { checkpoints: editCheckpoints, refetch: refetchCheckpoints } = useEditCheckpoints(
+    assistantThreadRepository,
+    selectedMemoryThreadId
+  );
+
+  // Re-read the checkpoint journal when a run reaches a terminal state — the
+  // journal rows are written in main during tool execution, after the last
+  // thread-open read, so the turn-level "Revert all edits" footer would
+  // otherwise stay empty for the turn that JUST ran until a thread switch.
+  const handleRunFinished = useCallback(
+    (event: AssistantRunEvent) => {
+      onRunFinished(event);
+      void refetchCheckpoints();
+    },
+    [onRunFinished, refetchCheckpoints]
+  );
+  const handleRunFailed = useCallback(
+    (event: AssistantRunEvent) => {
+      onRunFailed(event);
+      void refetchCheckpoints();
+    },
+    [onRunFailed, refetchCheckpoints]
+  );
 
   return (
     <EditCheckpointProvider value={editCheckpoints}>
@@ -1377,8 +1399,8 @@ export function AssistantUiPanelWrapper({
             }
           : {})}
         onProviderSettingsChange={handleProviderSettingsChange}
-        onRunFailed={onRunFailed}
-        onRunFinished={onRunFinished}
+        onRunFailed={handleRunFailed}
+        onRunFinished={handleRunFinished}
         onStreamActivity={renewActiveAssistantForegroundActivity}
         onToolApprovalRequired={onToolApprovalRequired}
         onUsage={handleUsage}

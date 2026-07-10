@@ -14,13 +14,13 @@ import {
 import type { EditCheckpointContextValue } from '../assistant-ui-panel/edit-checkpoint-context';
 import {
   EditCheckpointProvider,
-  selectRevertibleTurnEntries,
+  selectTurnRevertScope,
   useCheckpointTurnRevert,
 } from '../assistant-ui-panel/edit-checkpoint-context';
 import { TooltipProvider } from '../tooltip';
 
 function makeEntry(
-  overrides: Partial<AssistantEditCheckpointRecord> & { id: string; toolCallId: string }
+  overrides: Partial<AssistantEditCheckpointRecord> & { id: string; toolCallId: string | null }
 ): AssistantEditCheckpointRecord {
   return {
     afterExisted: true,
@@ -43,16 +43,23 @@ function makeEntry(
   };
 }
 
-function entryMap(
-  entries: readonly AssistantEditCheckpointRecord[]
-): ReadonlyMap<string, AssistantEditCheckpointRecord> {
-  const map = new Map<string, AssistantEditCheckpointRecord>();
+function contextValue(
+  entries: readonly AssistantEditCheckpointRecord[],
+  overrides: Partial<EditCheckpointContextValue> = {}
+): EditCheckpointContextValue {
+  const entriesByToolCallId = new Map<string, AssistantEditCheckpointRecord>();
   for (const entry of entries) {
     if (entry.toolCallId) {
-      map.set(entry.toolCallId, entry);
+      entriesByToolCallId.set(entry.toolCallId, entry);
     }
   }
-  return map;
+  return {
+    entries,
+    entriesByToolCallId,
+    revertEntry: vi.fn(),
+    revertRun: vi.fn(),
+    ...overrides,
+  };
 }
 
 function wrap(ui: ReactElement) {
@@ -75,8 +82,51 @@ describe('collectMutationToolCallIds', () => {
   });
 });
 
-describe('selectRevertibleTurnEntries', () => {
-  it('keeps only non-reverted, revertible-capture entries and dedupes run ids', () => {
+describe('selectTurnRevertScope', () => {
+  it('counts the whole run even when this message shows only its last edit (split run)', () => {
+    const entries = [
+      makeEntry({
+        id: 'e1',
+        occurredAt: '2026-07-10T00:00:00.000Z',
+        runId: 'run-1',
+        toolCallId: 'call-a',
+      }),
+      makeEntry({
+        id: 'e2',
+        occurredAt: '2026-07-10T00:01:00.000Z',
+        runId: 'run-1',
+        toolCallId: 'call-b',
+      }),
+    ];
+
+    // The message that renders the run's LAST edit owns the footer and its count
+    // is the whole run's revert scope (2), not just this message's one edit.
+    const scope = selectTurnRevertScope(['call-b'], entries);
+    expect(scope).toEqual({ revertibleCount: 2, runIds: ['run-1'] });
+  });
+
+  it("renders no footer on a message that is not the run's last leg", () => {
+    const entries = [
+      makeEntry({
+        id: 'e1',
+        occurredAt: '2026-07-10T00:00:00.000Z',
+        runId: 'run-1',
+        toolCallId: 'call-a',
+      }),
+      makeEntry({
+        id: 'e2',
+        occurredAt: '2026-07-10T00:01:00.000Z',
+        runId: 'run-1',
+        toolCallId: 'call-b',
+      }),
+    ];
+
+    // The earlier leg (call-a) must NOT show a footer — otherwise a split run
+    // would render duplicate footers, each with a dishonest count.
+    expect(selectTurnRevertScope(['call-a'], entries)).toBeNull();
+  });
+
+  it('excludes reverted and unrevertible-capture entries from the count', () => {
     const entries = [
       makeEntry({ id: 'e1', runId: 'run-1', toolCallId: 'call-a' }),
       makeEntry({
@@ -91,16 +141,52 @@ describe('selectRevertibleTurnEntries', () => {
         runId: 'run-1',
         toolCallId: 'call-c',
       }),
-      makeEntry({ id: 'e4', runId: 'run-2', toolCallId: 'call-d' }),
     ];
 
-    const selection = selectRevertibleTurnEntries(
-      ['call-a', 'call-b', 'call-c', 'call-d', 'call-missing'],
-      entryMap(entries)
-    );
+    const scope = selectTurnRevertScope(['call-a', 'call-b', 'call-c'], entries);
+    expect(scope).toEqual({ revertibleCount: 1, runIds: ['run-1'] });
+  });
 
-    expect(selection.entries.map((entry) => entry.id)).toEqual(['e1', 'e4']);
-    expect(selection.runIds).toEqual(['run-1', 'run-2']);
+  it("counts a run's toolCallId:null entries even though they never render a footer", () => {
+    const entries = [
+      makeEntry({
+        id: 'e1',
+        occurredAt: '2026-07-10T00:00:00.000Z',
+        runId: 'run-1',
+        toolCallId: 'call-a',
+      }),
+      makeEntry({
+        id: 'e2',
+        occurredAt: '2026-07-10T00:01:00.000Z',
+        runId: 'run-1',
+        toolCallId: null,
+      }),
+    ];
+
+    // revertRun(run-1) reverts BOTH entries; the count must reflect that, so the
+    // user never consents to fewer files than actually change.
+    const scope = selectTurnRevertScope(['call-a'], entries);
+    expect(scope).toEqual({ revertibleCount: 2, runIds: ['run-1'] });
+  });
+
+  it('orders multiple runs of a merged message newest-applied first', () => {
+    const entries = [
+      makeEntry({
+        id: 'e1',
+        occurredAt: '2026-07-10T00:00:00.000Z',
+        runId: 'run-1',
+        toolCallId: 'call-a',
+      }),
+      makeEntry({
+        id: 'e2',
+        occurredAt: '2026-07-10T00:05:00.000Z',
+        runId: 'run-2',
+        toolCallId: 'call-b',
+      }),
+    ];
+
+    const scope = selectTurnRevertScope(['call-a', 'call-b'], entries);
+    expect(scope).toEqual({ revertibleCount: 2, runIds: ['run-2', 'run-1'] });
   });
 });
 
@@ -126,33 +212,40 @@ describe('useCheckpointTurnRevert', () => {
   });
 
   it('returns null when the turn has no revertible entries', () => {
-    const value: EditCheckpointContextValue = {
-      entriesByToolCallId: entryMap([
-        makeEntry({ id: 'e1', revertedAt: '2026-07-10T01:00:00.000Z', toolCallId: 'call-a' }),
-      ]),
-      revertEntry: vi.fn(),
-      revertRun: vi.fn(),
-    };
+    const value = contextValue([
+      makeEntry({ id: 'e1', revertedAt: '2026-07-10T01:00:00.000Z', toolCallId: 'call-a' }),
+    ]);
     const { result } = renderHook(() => useCheckpointTurnRevert(['call-a']), {
       wrapper: providerWith(value),
     });
     expect(result.current).toBeNull();
   });
 
-  it('reverts each distinct run id and reports the revertible count', async () => {
-    const revertRun = vi
-      .fn()
-      .mockResolvedValue(
-        runResult('run-1', [{ entry: makeEntry({ id: 'e1', toolCallId: 'call-a' }), ok: true }])
+  it('reverts each distinct run sequentially (newest first) and reports the run-scoped count', async () => {
+    const order: string[] = [];
+    const revertRun = vi.fn((runId: string) => {
+      order.push(runId);
+      return Promise.resolve(
+        runResult(runId, [{ entry: makeEntry({ id: 'e1', toolCallId: 'call-a' }), ok: true }])
       );
-    const value: EditCheckpointContextValue = {
-      entriesByToolCallId: entryMap([
-        makeEntry({ id: 'e1', runId: 'run-1', toolCallId: 'call-a' }),
-        makeEntry({ id: 'e2', runId: 'run-2', toolCallId: 'call-b' }),
-      ]),
-      revertEntry: vi.fn(),
-      revertRun,
-    };
+    });
+    const value = contextValue(
+      [
+        makeEntry({
+          id: 'e1',
+          occurredAt: '2026-07-10T00:00:00.000Z',
+          runId: 'run-1',
+          toolCallId: 'call-a',
+        }),
+        makeEntry({
+          id: 'e2',
+          occurredAt: '2026-07-10T00:05:00.000Z',
+          runId: 'run-2',
+          toolCallId: 'call-b',
+        }),
+      ],
+      { revertRun }
+    );
     const { result } = renderHook(() => useCheckpointTurnRevert(['call-a', 'call-b']), {
       wrapper: providerWith(value),
     });
@@ -163,6 +256,8 @@ describe('useCheckpointTurnRevert', () => {
     expect(revertRun).toHaveBeenCalledWith('run-1', { force: true });
     expect(revertRun).toHaveBeenCalledWith('run-2', { force: true });
     expect(revertRun).toHaveBeenCalledTimes(2);
+    // Newest run first so cross-run inverse writes land in reverse order.
+    expect(order).toEqual(['run-2', 'run-1']);
   });
 });
 
@@ -219,5 +314,42 @@ describe('CheckpointTurnRevertControl', () => {
 
     expect(onRevert).not.toHaveBeenCalled();
     expect(screen.getByTestId('checkpoint-turn-revert')).toBeInTheDocument();
+  });
+
+  it('surfaces a visible failure and stays actionable when the revert rejects', async () => {
+    const user = userEvent.setup();
+    const onRevert = vi.fn().mockRejectedValue(new Error('disk full'));
+
+    wrap(<CheckpointTurnRevertControl onRevert={onRevert} revertibleCount={2} />);
+
+    await user.click(screen.getByTestId('checkpoint-turn-revert'));
+    await user.click(screen.getByTestId('checkpoint-turn-revert-confirm'));
+
+    // Never left stuck disabled in 'reverting' — a visible error + a retry.
+    const error = await screen.findByTestId('checkpoint-turn-revert-error');
+    expect(error).toBeInTheDocument();
+    expect(screen.getByTestId('checkpoint-turn-revert-retry')).toBeEnabled();
+  });
+
+  it('surfaces the reason when a revert reverts nothing (no conflict to force)', async () => {
+    const user = userEvent.setup();
+    const onRevert = vi.fn().mockResolvedValue([
+      runResult('run-1', [
+        {
+          code: 'not_revertible',
+          id: 'e1',
+          message: 'its workspace folder is no longer connected. Re-open the folder and try again.',
+          ok: false,
+        },
+      ]),
+    ]);
+
+    wrap(<CheckpointTurnRevertControl onRevert={onRevert} revertibleCount={1} />);
+
+    await user.click(screen.getByTestId('checkpoint-turn-revert'));
+    await user.click(screen.getByTestId('checkpoint-turn-revert-confirm'));
+
+    const error = await screen.findByTestId('checkpoint-turn-revert-error');
+    expect(error).toHaveTextContent('workspace folder is no longer connected');
   });
 });

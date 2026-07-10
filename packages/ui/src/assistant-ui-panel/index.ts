@@ -14,8 +14,8 @@ export {
   type EditCheckpointContextValue,
   EditCheckpointProvider,
   REVERTIBLE_MUTATION_TOOL_NAMES,
-  selectRevertibleTurnEntries,
-  type TurnRevertSelection,
+  selectTurnRevertScope,
+  type TurnRevertScope,
   useCheckpointForToolCall,
   useCheckpointTurnRevert,
 } from './edit-checkpoint-context';

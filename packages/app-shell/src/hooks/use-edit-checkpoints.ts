@@ -1,38 +1,63 @@
 import type { AssistantEditCheckpointRecord } from '@brainstrike/assistant-contract';
 import type { EditCheckpointContextValue } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AssistantThreadRepository } from '../assistant-memory-repository';
 
 const logger = createLogger('EditCheckpoints');
 
+export interface EditCheckpointsBinding {
+  /**
+   * The checkpoint context for the active thread, or `null` when the bridge is
+   * absent (web / not desktop) or no thread is selected — capability gating.
+   */
+  readonly checkpoints: EditCheckpointContextValue | null;
+  /**
+   * Re-read the journal for the active thread. Invoke it on run completion so a
+   * checkpoint journaled during the turn that JUST ran surfaces without a thread
+   * switch or reload.
+   */
+  readonly refetch: () => Promise<void>;
+}
+
 /**
- * Sources the edit-checkpoint context for the active thread. Reads journal
+ * Sources the edit-checkpoint binding for the active thread. Reads journal
  * entries via the repository (Path A) and reverts through the desktop
  * `window.assistantCheckpoints` IPC bridge, refetching on a successful revert.
- *
- * Returns `null` when the bridge is absent (web / not desktop) or no thread is
- * selected — capability gating, so the UI renders no Revert control there.
+ * Exposes `refetch` so the caller can re-read on run completion (the journal is
+ * written in main during tool execution, after the last thread-open read).
  */
 export function useEditCheckpoints(
   repository: AssistantThreadRepository | null,
   threadId: string | null | undefined
-): EditCheckpointContextValue | null {
+): EditCheckpointsBinding {
   const [entries, setEntries] = useState<readonly AssistantEditCheckpointRecord[]>([]);
   const bridge = typeof window === 'undefined' ? undefined : window.assistantCheckpoints;
   const revertEntryBridge = bridge?.revertEntry;
   const revertRunBridge = bridge?.revertRun;
+  // Monotonic generation so a slow refetch resolving after a newer one (e.g. a
+  // mid-revert thread switch) can never clobber the fresher entries.
+  const generationRef = useRef(0);
 
   const refetch = useCallback(async (): Promise<void> => {
+    generationRef.current += 1;
+    const generation = generationRef.current;
     if (!(repository && threadId)) {
-      setEntries([]);
+      if (generation === generationRef.current) {
+        setEntries([]);
+      }
       return;
     }
     try {
-      setEntries(await repository.listThreadCheckpoints(threadId));
+      const next = await repository.listThreadCheckpoints(threadId);
+      if (generation === generationRef.current) {
+        setEntries(next);
+      }
     } catch (error) {
       logger.error('Failed to load edit checkpoints for the active thread', { error });
-      setEntries([]);
+      if (generation === generationRef.current) {
+        setEntries([]);
+      }
     }
   }, [repository, threadId]);
 
@@ -40,7 +65,7 @@ export function useEditCheckpoints(
     void refetch();
   }, [refetch]);
 
-  return useMemo<EditCheckpointContextValue | null>(() => {
+  const checkpoints = useMemo<EditCheckpointContextValue | null>(() => {
     if (!(revertEntryBridge && revertRunBridge && repository && threadId)) {
       return null;
     }
@@ -51,6 +76,7 @@ export function useEditCheckpoints(
       }
     }
     return {
+      entries,
       entriesByToolCallId,
       revertEntry: async (id, options) => {
         const result = await revertEntryBridge(id, options);
@@ -60,15 +86,25 @@ export function useEditCheckpoints(
         return result;
       },
       revertRun: async (runId, options) => {
-        const result = await revertRunBridge(runId, options);
-        // Refetch when anything actually reverted; a conflict-only run changed
-        // nothing on disk, so the stale list would be identical (and a conflicting
-        // entry must stay revertible so "Revert anyway" can force it).
-        if (result.outcomes.some((outcome) => outcome.ok)) {
+        try {
+          const result = await revertRunBridge(runId, options);
+          // Refetch when anything actually reverted; a conflict-only run changed
+          // nothing on disk, so the stale list would be identical (and a
+          // conflicting entry must stay revertible so "Revert anyway" can force it).
+          if (result.outcomes.some((outcome) => outcome.ok)) {
+            await refetch();
+          }
+          return result;
+        } catch (error) {
+          // An unexpected executor throw may have partially reverted on disk
+          // before aborting: refetch so the per-entry/turn controls reconcile,
+          // then rethrow so the control shows a visible failure.
           await refetch();
+          throw error;
         }
-        return result;
       },
     };
   }, [entries, refetch, repository, revertEntryBridge, revertRunBridge, threadId]);
+
+  return { checkpoints, refetch };
 }

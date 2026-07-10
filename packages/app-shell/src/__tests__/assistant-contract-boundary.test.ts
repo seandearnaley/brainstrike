@@ -54,7 +54,11 @@ describe('app-shell assistant contract boundary', () => {
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
     const wrapperTestSource = readSource('__tests__/assistant-ui-panel-wrapper.test.tsx');
 
-    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2000);
+    // Bumped 2000 → 2025 for the run-completion checkpoint refetch wiring test:
+    // it fires the panel's onRunFinished seam and asserts the checkpoint journal
+    // is re-read without a thread switch (the turn-level "Revert all edits"
+    // footer's headline scenario — see PR #1568 / EDIT CHECKPOINT JOURNAL).
+    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2025);
   });
 
   it('reads built-in local LLM availability from assistant-contract instead of agent runtime packages', () => {

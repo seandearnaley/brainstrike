@@ -73,6 +73,7 @@ function contextValue(
   revertEntry: EditCheckpointContextValue['revertEntry']
 ): EditCheckpointContextValue {
   return {
+    entries: [entry],
     entriesByToolCallId: new Map([[TOOL_CALL_ID, entry]]),
     revertEntry,
     revertRun: vi.fn(),
