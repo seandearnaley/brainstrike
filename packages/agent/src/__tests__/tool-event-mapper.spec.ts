@@ -1,5 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import { mapMastraToolEvent } from '../mastra/tool-event-mapper';
+import { mapMastraToolEvent, readNestedToolOutputChunk } from '../mastra/tool-event-mapper';
+
+describe('readNestedToolOutputChunk', () => {
+  it('reads a nested tool-call chunk from a delegation tool-output payload', () => {
+    const part = {
+      payload: {
+        output: {
+          payload: { args: { pattern: 'flag' }, toolCallId: 'c1', toolName: 'child_search' },
+          type: 'tool-call',
+        },
+        toolCallId: 'd1',
+        toolName: 'agent-explore',
+      },
+      type: 'tool-output',
+    };
+    expect(readNestedToolOutputChunk(part)).toEqual({
+      isError: false,
+      toolCallId: 'c1',
+      toolName: 'child_search',
+      type: 'tool-call',
+    });
+  });
+
+  it('flags a nested error tool-result', () => {
+    const part = {
+      payload: {
+        output: {
+          payload: { isError: true, result: 'boom', toolCallId: 'c1', toolName: 'child_search' },
+          type: 'tool-result',
+        },
+        toolCallId: 'd1',
+        toolName: 'agent-explore',
+      },
+      type: 'tool-output',
+    };
+    expect(readNestedToolOutputChunk(part)).toMatchObject({ isError: true, type: 'tool-result' });
+  });
+
+  it('returns undefined when there is no nested chunk object', () => {
+    expect(
+      readNestedToolOutputChunk({ payload: { toolCallId: 'd1' }, type: 'tool-output' })
+    ).toBeUndefined();
+  });
+});
 
 describe('mapMastraToolEvent', () => {
   it('maps tool-call payloads to start events with args', () => {

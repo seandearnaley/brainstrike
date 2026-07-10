@@ -63,6 +63,32 @@ describe('boundToolOutputForModel structural degradation', () => {
     expect(bounded.errorText).toContain('returned too much output');
   });
 
+  it('trims an oversized delegation subAgentToolResults list instead of erroring', () => {
+    const subAgentToolResults = Array.from({ length: 300 }, (_, i) => ({
+      args: { pattern: `pattern-${i}` },
+      result: { matches: [`packages/db/src/some/deep/path/file-${i}.ts:${i}`] },
+      toolCallId: `child-call-${i}`,
+      toolName: 'brainstrike_grepSearch',
+    }));
+    const bounded = boundToolOutputForModel('agent-explore', {
+      subAgentToolResults,
+      text: 'Explored the workspace and found the flag.',
+    });
+
+    expect(bounded.errorText).toBeUndefined();
+    const output = bounded.output as {
+      hint?: string;
+      omittedItems?: number;
+      subAgentToolResults: unknown[];
+      truncated?: boolean;
+    };
+    expect(output.truncated).toBe(true);
+    expect(output.subAgentToolResults.length).toBeGreaterThan(0);
+    expect(output.subAgentToolResults.length).toBeLessThan(300);
+    expect(output.omittedItems).toBe(300 - output.subAgentToolResults.length);
+    expect(output.hint).toContain('subAgentToolResults');
+  });
+
   it('is idempotent for structurally trimmed results', () => {
     const matches = Array.from({ length: 500 }, (_, i) => ({
       line: i,

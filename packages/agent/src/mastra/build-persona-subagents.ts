@@ -167,9 +167,12 @@ export function buildPersonaSubAgents(
       continue;
     }
 
+    // The child agent id MUST equal the persona id: Mastra sets
+    // `DelegationStartContext.primitiveId = agent.id`, and the delegation caps
+    // (subagent-delegation.ts) resolve the persona by that id.
     subAgents[persona.id] = new Agent({
       description: persona.description,
-      id: `brainstrike-subagent-${persona.id}`,
+      id: persona.id,
       instructions: buildChildInstructions(persona, keptOriginalNames),
       model: params.languageModel,
       name: persona.label,

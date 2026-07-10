@@ -1,4 +1,5 @@
 import type { AssistantTaskItem, AssistantTaskStatus } from '@brainstrike/assistant-contract';
+import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
@@ -382,7 +383,19 @@ function buildTaskListInstruction(names: ModelFacingToolNames): string {
   return `For any multi-step or non-trivial task, call ${names.manageTaskList} to record a plan as a task list and keep it updated: pass the FULL list each call (whole-list replace), keep exactly one task in_progress, and mark tasks completed as you finish them. Statuses are pending/in_progress/completed. Your current list is shown back to you each turn, so update it as the work progresses.`;
 }
 
+/** The persona shape the delegation guidance needs (ids/labels/descriptions only). */
+export type DelegationPersonaSummary = Pick<
+  AssistantPersonaDefinition,
+  'description' | 'id' | 'label'
+>;
+
 export interface BuildDefaultInstructionsOptions {
+  /**
+   * Registered subagent personas. When non-empty, a delegation paragraph is
+   * appended naming each `agent-<id>` delegation tool. Empty/undefined ⇒ no text
+   * (dynamic — an unregistered persona is never advertised).
+   */
+  personas?: readonly DelegationPersonaSummary[];
   /**
    * When `true`, prepend a PLAN-MODE block: the model may investigate with
    * read-only tools and clarify with `askUser`, but MUST NOT modify files or run
@@ -391,6 +404,18 @@ export interface BuildDefaultInstructionsOptions {
    * {@link buildLocalDefaultInstructions}).
    */
   planMode?: boolean;
+}
+
+function buildDelegationInstruction(
+  personas: readonly DelegationPersonaSummary[] | undefined
+): string {
+  if (!personas || personas.length === 0) {
+    return '';
+  }
+  const toolList = personas
+    .map((persona) => `${persona.label} (agent-${persona.id}): ${persona.description}`)
+    .join('; ');
+  return `You can delegate to read-only subagents by calling their delegation tools: ${toolList}. Delegate when a sub-task needs broad multi-file exploration or independent research the user asked for, and pass a self-contained prompt describing exactly what you need back. Do NOT delegate a single lookup you can do yourself with one tool call, and NEVER delegate mutations (subagents are read-only). Each subagent runs its own tools and returns a written summary you must incorporate into your answer.`;
 }
 
 function buildAskUserInstruction(names: ModelFacingToolNames): string {
@@ -481,6 +506,7 @@ export function buildDefaultInstructions(
     .join(' ');
 
   const askUserInstruction = buildAskUserInstruction(names);
+  const delegationInstruction = buildDelegationInstruction(options.personas);
 
   // Each entry is one instruction line; empty optional clauses (e.g. an
   // unregistered askUser) are filtered out so they never leave a blank line.
@@ -493,6 +519,7 @@ export function buildDefaultInstructions(
     `When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction} ${executeCommandInstruction} ${webSearchInstruction}`,
     taskListInstruction,
     askUserInstruction,
+    delegationInstruction,
     multiRootInstruction,
     curationInstruction,
     selectionLine,

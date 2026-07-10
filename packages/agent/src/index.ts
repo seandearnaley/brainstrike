@@ -100,6 +100,11 @@ export {
   streamMastraToolResumeAction,
 } from './mastra/agent-runtime';
 export {
+  buildPersonaSubAgents,
+  PersonaModelPinningNotImplementedError,
+  type PersonaSubAgentBuildResult,
+} from './mastra/build-persona-subagents';
+export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
@@ -110,6 +115,12 @@ export {
   isAssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from './mastra/permission-policy-request';
+export {
+  createDelegationConfig,
+  MAX_CONCURRENT_DELEGATIONS,
+  MAX_DELEGATIONS_PER_RUN,
+  shouldEnablePersonas,
+} from './mastra/subagent-delegation';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';

@@ -228,3 +228,43 @@ function isToolEventPart(candidate: unknown): candidate is ToolEventPart {
       typeof (candidate as { type?: unknown }).type === 'string'
   );
 }
+
+/**
+ * The subset of a nested child chunk (carried inside a delegation `tool-output`
+ * part's `payload.output`) the subagent stream mapper needs. Pure reader,
+ * exported for unit tests.
+ */
+export interface NestedToolOutputChunkInfo {
+  isError: boolean;
+  toolCallId?: string;
+  toolName?: string;
+  type: string;
+}
+
+/**
+ * Read the nested child chunk from a delegation `tool-output` part.
+ *
+ * A delegation `tool-output` part is shaped
+ * `{ type:'tool-output', payload:{ toolCallId, toolName, output: <nested chunk> } }`
+ * where `output` is itself a `ChunkType` (e.g. `{ type:'tool-call', payload:{
+ * toolCallId, toolName, args } }`). Returns `undefined` when there is no nested
+ * chunk object.
+ */
+export function readNestedToolOutputChunk(part: unknown): NestedToolOutputChunkInfo | undefined {
+  const output = readMastraStreamPartValue(part, 'output');
+  if (!output || typeof output !== 'object') {
+    return;
+  }
+  const type = readMastraStreamPartString(output, 'type');
+  if (!type) {
+    return;
+  }
+  const toolCallId = readMastraStreamPartString(output, 'toolCallId');
+  const toolName = readMastraStreamPartString(output, 'toolName');
+  return {
+    isError: readMastraStreamPartValue(output, 'isError') === true,
+    type,
+    ...(toolCallId ? { toolCallId } : {}),
+    ...(toolName ? { toolName } : {}),
+  };
+}

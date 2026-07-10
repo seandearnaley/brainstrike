@@ -214,6 +214,9 @@ export async function toAiSdkStyleStream(
   if (runtime?.mastraTools) {
     options.tools = runtime.mastraTools;
   }
+  if (runtime?.personas) {
+    options.personas = runtime.personas;
+  }
 
   const streamMessages = runtime?.memory ? selectCurrentTurnMessages(messages) : messages;
   return streamMastraAgent(streamMessages, options);
