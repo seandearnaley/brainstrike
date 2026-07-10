@@ -1,6 +1,6 @@
 {
   // Turborepo monorepo configuration for brainstrike
-  "$schema": "https://turbo.build/schema.json",
+  "$schema": "https://v2-10-4.turborepo.dev/schema.json",
   // Global configuration
   "concurrency": "40",
   // Files that, when changed, should invalidate caches globally

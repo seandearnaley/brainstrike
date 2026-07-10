@@ -32,7 +32,7 @@
     "react-doctor": "0.7.1",
     "syncpack": "^15.3.2",
     "tsup": "^8.5.1",
-    "turbo": "2.10.3",
+    "turbo": "2.10.4",
     "typescript": "^6.0.3",
     "ultracite": "7.9.2",
     "vercel": "^54.20.1",
@@ -45,7 +45,7 @@
   "keywords": [],
   "license": "ISC",
   "main": "index.js",
-  "packageManager": "pnpm@11.5.1+sha512.93f7b57422ea7068257235b4c16eb60762eb68e1dc23723199cc739043ea9be2c4143274a399d8c6defa2b1176226d9ca1c4b63482d6200c1a8fbaa78c1d1485",
+  "packageManager": "pnpm@11.10.0",
   "scripts": {
     "bench:chunking": "pnpm -w build --filter @brainstrike/db && node scripts/chunking-benchmark.mjs",
     "build": "node scripts/run-turbo-command.mjs -- run build --summarize --log-order=grouped",
