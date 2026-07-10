@@ -912,6 +912,7 @@ export function AssistantUiPanelWrapper({
     focusedRootId: currentFolderId,
     memoryResourceId,
     modelSettings,
+    planModeAvailable,
     providerOptions,
     requestData,
     resolvedModelName,
