@@ -253,6 +253,18 @@ describe('FileTabBody markdown integration', () => {
       expect(openFileInTab).not.toHaveBeenCalled();
     });
 
+    it('rejects protocol-relative links instead of treating them as relative paths', async () => {
+      await renderPreview();
+      act(() => {
+        mdProps().onOpenLink('//example.test/page');
+      });
+      expect(openFileInTab).not.toHaveBeenCalled();
+      expect(capabilities.openExternalLink).not.toHaveBeenCalled();
+      expect(toastFn).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Unsupported link type', variant: 'destructive' })
+      );
+    });
+
     it('rejects non-http(s)/mailto schemes instead of treating them as relative paths', async () => {
       await renderPreview();
       act(() => {

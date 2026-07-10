@@ -88,11 +88,19 @@ export function MarkdownSurface({
   const handleLinkClick = useCallback(
     (href: string) => {
       if (href.startsWith('#')) {
-        const id = decodeURIComponent(href.slice(1));
-        containerRef.current?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
+        // Anchor navigation is a best-effort affordance. A malformed anchor (e.g. "#%")
+        // makes decodeURIComponent throw, and click-handler throws aren't caught by React
+        // error boundaries. Scrolling is a pure convenience (no data loss on failure), so
+        // swallow the decode/scroll error and simply don't scroll rather than crash.
+        try {
+          const id = decodeURIComponent(href.slice(1));
+          containerRef.current?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+        } catch {
+          // Malformed anchor — no-op (scrolling is an optional affordance).
+        }
         return;
       }
       onOpenLink(href);

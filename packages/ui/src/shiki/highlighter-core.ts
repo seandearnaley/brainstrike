@@ -5,6 +5,12 @@ import type { HighlighterCore } from 'shiki';
 
 const logger = createLogger('SyntaxHighlighter');
 
+/**
+ * Modern, performant syntax highlighting with Shiki. Provides dual theme support
+ * (github-light / github-dark) and builds the core bundle from a curated language set —
+ * the allowlist below avoids pulling invalid or unnecessary grammars into production —
+ * with async loading tuned for delayed/streamed code responses.
+ */
 const LANGUAGE_ALLOWLIST = new Set([
   'bash',
   'css',

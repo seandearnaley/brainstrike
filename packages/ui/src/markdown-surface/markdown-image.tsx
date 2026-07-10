@@ -69,6 +69,18 @@ export function MarkdownImage({ alt, resolveImageSrc, src }: MarkdownImageProps)
       </span>
     );
   }
-  // biome-ignore lint/correctness/useImageSize: host-resolved image has unknown intrinsic dimensions; max-w-full constrains layout
-  return <img alt={alt} className="max-w-full" src={state.url} />;
+  // A resolved src can still fail to load: desktop's resolveImageSrc only mints a
+  // brainstrike-asset:// URL (never rejects), so a protocol 404 or a CSP-blocked remote
+  // image would otherwise render a silent broken-image glyph. onError promotes the load
+  // failure to the same visible placeholder as a resolve failure.
+  return (
+    // biome-ignore lint/correctness/useImageSize: host-resolved image has unknown intrinsic dimensions; max-w-full constrains layout
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: onError is a media-load event on img, not a user interaction
+    <img
+      alt={alt}
+      className="max-w-full"
+      onError={() => setState({ kind: 'error', message: 'Image failed to load' })}
+      src={state.url}
+    />
+  );
 }

@@ -97,6 +97,41 @@ describe('MarkdownSurface', () => {
     });
   });
 
+  it('shows an explicit placeholder when a resolved image fails to load', async () => {
+    // Resolution succeeds (desktop's asset-protocol resolver never rejects) but the img
+    // element still errors — a protocol 404 or CSP-blocked remote image. onError must
+    // surface the same visible placeholder rather than a silent broken-image glyph.
+    const resolveImageSrc = vi.fn().mockResolvedValue('brainstrike-asset://missing.png');
+    renderSurface('![diagram](./broken.png)\n', { resolveImageSrc });
+    const img = await screen.findByRole('img', { name: 'diagram' });
+    fireEvent.error(img);
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-image-error')).toHaveTextContent('./broken.png');
+    });
+  });
+
+  it('scrolls to an in-document anchor without invoking onOpenLink', () => {
+    const onOpenLink = vi.fn();
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => undefined);
+    try {
+      renderSurface('# Section\n\n[jump](#section)\n', { onOpenLink });
+      fireEvent.click(screen.getByRole('link', { name: 'jump' }));
+      expect(scrollIntoView).toHaveBeenCalled();
+      expect(onOpenLink).not.toHaveBeenCalled();
+    } finally {
+      scrollIntoView.mockRestore();
+    }
+  });
+
+  it('does not throw or call onOpenLink for a malformed anchor', () => {
+    const onOpenLink = vi.fn();
+    renderSurface('[bad](#%)\n', { onOpenLink });
+    expect(() => fireEvent.click(screen.getByRole('link', { name: 'bad' }))).not.toThrow();
+    expect(onOpenLink).not.toHaveBeenCalled();
+  });
+
   it('reports scroll position changes', () => {
     const onScrollTopChange = vi.fn();
     renderSurface('# a\n', { onScrollTopChange, testId: 'md-surface' });

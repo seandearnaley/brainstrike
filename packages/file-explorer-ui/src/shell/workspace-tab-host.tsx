@@ -875,6 +875,13 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
 
   const handleOpenLink = useCallback(
     (href: string) => {
+      // Protocol-relative URLs (`//host/path`) carry no scheme but are NOT
+      // workspace-relative — the relative branch below would resolve them to a nonsense
+      // workspace key. Reject them explicitly with the same notice as unsupported schemes.
+      if (href.startsWith('//')) {
+        toast({ description: href, title: 'Unsupported link type', variant: 'destructive' });
+        return;
+      }
       if (/^(https?|mailto):/i.test(href)) {
         if (!capabilities) {
           toast({ description: href, title: 'External links unavailable', variant: 'destructive' });
