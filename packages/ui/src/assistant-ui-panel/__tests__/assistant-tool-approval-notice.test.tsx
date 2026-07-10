@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -12,34 +13,55 @@ vi.mock('@assistant-ui/react', () => ({
 
 // Lightweight stand-ins so the CodeMirror-backed surfaces do not run inside the
 // unit environment — the test only asserts that the right content reaches them.
-vi.mock('../../diff-view', () => ({
+vi.mock('../../diff-view/diff-view', () => ({
   DiffView: ({
     original,
     modified,
     filename,
     testId,
+    truncated,
   }: {
     original: string;
     modified: string;
     filename?: string;
     testId?: string;
+    truncated?: boolean;
   }) => (
     <div
       data-filename={filename}
       data-modified={modified}
       data-original={original}
       data-testid={testId ?? 'diff-view'}
+      data-truncated={truncated ? 'true' : 'false'}
     />
   ),
 }));
 
-vi.mock('../../code-surface', () => ({
-  CodeSurface: ({ value, path, testId }: { value: string; path?: string; testId?: string }) => (
-    <div data-path={path} data-testid={testId ?? 'code-surface'} data-value={value} />
+vi.mock('../../code-surface/code-surface', () => ({
+  CodeSurface: ({
+    value,
+    path,
+    testId,
+    truncated,
+  }: {
+    value: string;
+    path?: string;
+    testId?: string;
+    truncated?: boolean;
+  }) => (
+    <div
+      data-path={path}
+      data-testid={testId ?? 'code-surface'}
+      data-truncated={truncated ? 'true' : 'false'}
+      data-value={value}
+    />
   ),
 }));
 
-import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import {
+  APPROVAL_PREVIEW_CHAR_CAP,
+  AssistantToolApprovalNotice,
+} from '../assistant-tool-approval-notice';
 
 beforeAll(() => {
   global.ResizeObserver = class {
@@ -124,5 +146,81 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     expect(screen.queryByTestId('approval-diff-view')).toBeNull();
     expect(screen.queryByTestId('approval-write-preview')).toBeNull();
     expect(screen.queryByTestId('approval-preview-parse-error')).toBeNull();
+  });
+
+  it('does not show a truncation note for previews under the cap', () => {
+    renderNotice({
+      ...baseRequest,
+      args: {
+        newStr: 'const answer = 42;',
+        oldStr: 'const answer = 0;',
+        path: 'src/answer.ts',
+      },
+      toolName: 'brainstrike.stringReplaceWorkspaceFile',
+    });
+
+    expect(screen.getByTestId('approval-diff-view').getAttribute('data-truncated')).toBe('false');
+    expect(screen.queryByTestId('approval-preview-truncated-note')).toBeNull();
+  });
+
+  it('caps an oversized diff preview before it reaches DiffView', () => {
+    const bigOld = 'a'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 500);
+    const bigNew = 'b'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 10);
+    renderNotice({
+      ...baseRequest,
+      args: {
+        newStr: bigNew,
+        oldStr: bigOld,
+        path: 'src/big.ts',
+      },
+      toolName: 'brainstrike.stringReplaceWorkspaceFile',
+    });
+
+    const diff = screen.getByTestId('approval-diff-view');
+    expect(diff.getAttribute('data-original')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
+    expect(diff.getAttribute('data-modified')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
+    expect(diff.getAttribute('data-truncated')).toBe('true');
+
+    const note = screen.getByTestId('approval-preview-truncated-note');
+    // The larger of the two sides (oldStr, +500 over the cap) drives the note.
+    expect(note.textContent).toContain(String(APPROVAL_PREVIEW_CHAR_CAP));
+    expect(note.textContent).toContain(String(APPROVAL_PREVIEW_CHAR_CAP + 500));
+  });
+
+  it('caps an oversized write-file preview before it reaches CodeSurface', () => {
+    const bigContent = 'x'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 1234);
+    renderNotice({
+      ...baseRequest,
+      args: {
+        content: bigContent,
+        path: 'src/new-big.ts',
+      },
+      toolName: 'brainstrike.writeWorkspaceFile',
+    });
+
+    const preview = screen.getByTestId('approval-write-preview');
+    expect(preview.getAttribute('data-value')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
+    expect(preview.getAttribute('data-truncated')).toBe('true');
+
+    const note = screen.getByTestId('approval-preview-truncated-note');
+    expect(note.textContent).toContain(String(APPROVAL_PREVIEW_CHAR_CAP));
+    expect(note.textContent).toContain(String(APPROVAL_PREVIEW_CHAR_CAP + 1234));
+  });
+
+  it('exposes the untruncated args in the raw JSON expander even when the preview is capped', async () => {
+    const user = userEvent.setup();
+    const bigContent = 'x'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 1234);
+    const view = renderNotice({
+      ...baseRequest,
+      args: {
+        content: bigContent,
+        path: 'src/new-big.ts',
+      },
+      toolName: 'brainstrike.writeWorkspaceFile',
+    });
+
+    await user.click(screen.getByRole('button', { name: /expand tool approval details/i }));
+
+    expect(view.container.textContent).toContain(bigContent);
   });
 });

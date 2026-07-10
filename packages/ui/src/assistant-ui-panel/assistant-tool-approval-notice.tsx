@@ -9,10 +9,22 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
-import { CodeSurface } from '../code-surface';
-import { DiffView } from '../diff-view';
+import { CodeSurface } from '../code-surface/code-surface';
+import { DiffView } from '../diff-view/diff-view';
 
 const logger = createLogger('AssistantToolApprovalNotice');
+
+/**
+ * Character cap applied to each large text field (`oldStr`/`newStr`/`content`)
+ * before it is handed to the CodeMirror-backed `DiffView`/`CodeSurface`
+ * previews. The agent schema allows these fields up to 8,000,000 chars each
+ * (`packages/agent/src/tools/schemas.ts`); mounting that much text into
+ * CodeMirror would jank the renderer BEFORE the user can even approve or
+ * decline. Truncation is always visible (a note names the shown/total char
+ * counts below the preview) — the raw JSON expander further down always has
+ * the untruncated value, so nothing is silently dropped.
+ */
+export const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
 
 /**
  * Registered ids of the two file-mutating tools whose approval cards render a
@@ -105,6 +117,59 @@ function PreviewParseError() {
   );
 }
 
+interface TruncatedPreviewText {
+  readonly shownChars: number;
+  readonly text: string;
+  readonly totalChars: number;
+  readonly truncated: boolean;
+}
+
+/**
+ * Slices `raw` to at most `cap` chars, never splitting a UTF-16 surrogate
+ * pair at the boundary (mirrors the DOM-paint cap in
+ * `workspace-tab-host.tsx`'s `getDisplayContent`). Returns the shown/total
+ * char counts so callers can render an honest "N of M" truncation note.
+ */
+function truncatePreviewText(
+  raw: string,
+  cap: number = APPROVAL_PREVIEW_CHAR_CAP
+): TruncatedPreviewText {
+  if (raw.length <= cap) {
+    return { shownChars: raw.length, text: raw, totalChars: raw.length, truncated: false };
+  }
+  let end = cap;
+  const HighSurrogateStart = 0xd8_00;
+  const HighSurrogateEnd = 0xdb_ff;
+  if (
+    end > 0 &&
+    raw.charCodeAt(end - 1) >= HighSurrogateStart &&
+    raw.charCodeAt(end - 1) <= HighSurrogateEnd
+  ) {
+    end -= 1;
+  }
+  return { shownChars: end, text: raw.slice(0, end), totalChars: raw.length, truncated: true };
+}
+
+/** Of two candidate truncations, the one whose original text is larger drives the note. */
+function moreTruncatedPreview(
+  a: TruncatedPreviewText,
+  b: TruncatedPreviewText
+): TruncatedPreviewText {
+  return a.totalChars >= b.totalChars ? a : b;
+}
+
+function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
+  return (
+    <p
+      className="mt-1.5 text-amber-700 text-xs dark:text-amber-400"
+      data-testid="approval-preview-truncated-note"
+    >
+      Preview truncated — showing {preview.shownChars} of {preview.totalChars} chars. Full content
+      is in the raw arguments below.
+    </p>
+  );
+}
+
 /**
  * File-mutating approvals render a real code preview: `stringReplace` → a
  * side-by-side/unified diff of `oldStr` → `newStr`; `write` → a
@@ -117,6 +182,9 @@ function ApprovalPreview({ toolName, args }: { toolName: string; args: unknown }
     if (!parsed) {
       return <PreviewParseError />;
     }
+    const oldPreview = truncatePreviewText(parsed.oldStr);
+    const newPreview = truncatePreviewText(parsed.newStr);
+    const isTruncated = oldPreview.truncated || newPreview.truncated;
     return (
       <div className="mt-3">
         <p className="truncate font-medium text-foreground/90 text-xs">
@@ -127,11 +195,15 @@ function ApprovalPreview({ toolName, args }: { toolName: string; args: unknown }
           <DiffView
             ariaLabel={`Proposed changes to ${parsed.path}`}
             filename={parsed.path}
-            modified={parsed.newStr}
-            original={parsed.oldStr}
+            modified={newPreview.text}
+            original={oldPreview.text}
             testId="approval-diff-view"
+            truncated={isTruncated}
           />
         </div>
+        {isTruncated ? (
+          <PreviewTruncatedNote preview={moreTruncatedPreview(oldPreview, newPreview)} />
+        ) : null}
       </div>
     );
   }
@@ -141,6 +213,7 @@ function ApprovalPreview({ toolName, args }: { toolName: string; args: unknown }
     if (!parsed) {
       return <PreviewParseError />;
     }
+    const contentPreview = truncatePreviewText(parsed.content);
     return (
       <div className="mt-3">
         <p className="truncate font-medium text-foreground/90 text-xs">
@@ -152,9 +225,11 @@ function ApprovalPreview({ toolName, args }: { toolName: string; args: unknown }
             ariaLabel={`New content for ${parsed.path}`}
             path={parsed.path}
             testId="approval-write-preview"
-            value={parsed.content}
+            truncated={contentPreview.truncated}
+            value={contentPreview.text}
           />
         </div>
+        {contentPreview.truncated ? <PreviewTruncatedNote preview={contentPreview} /> : null}
       </div>
     );
   }
