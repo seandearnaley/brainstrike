@@ -255,6 +255,7 @@ export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
+const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
 const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
 ${MASTRA_MEMORY_SCHEMA_SQL}
 
@@ -336,6 +337,48 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (resource_id, root_id);
+
+-- Per-turn edit checkpoint journal (undo of agent file edits). The renderer
+-- reads this table directly (Path A, like run_events), so it is bootstrapped
+-- here AND created by migration 051 — keep the shape byte-identical to 051.
+-- NO FK to thread_runs/mastra_threads: the numbered migration runner (tests)
+-- and drizzle path run on a bare PGlite without those parent tables, so an FK
+-- REFERENCES would break the migration suite. Full BEFORE-content is stored
+-- (capped/binary-refused via capture_status); after_hash/after_existed are for
+-- conflict detection only. Factory reset purges the table (db-ipc clearAll).
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (
+  id             text PRIMARY KEY,
+  run_id         text NOT NULL,
+  resource_id    text NOT NULL,
+  thread_id      text NOT NULL,
+  tool_call_id   text,
+  tool_name      text NOT NULL,
+  op             text NOT NULL CHECK (op IN ('write','string_replace','delete','rename')),
+  root_id        text NOT NULL,
+  path           text NOT NULL,
+  from_path      text,
+  before_existed boolean NOT NULL,
+  before_hash    text,
+  before_content text,
+  before_size    integer,
+  after_hash     text,
+  after_existed  boolean NOT NULL,
+  capture_status text NOT NULL CHECK (capture_status IN
+                   ('ok','created','skipped_binary','skipped_too_large','expired','rename')),
+  reverted_at    timestamptz,
+  occurred_at    timestamptz NOT NULL,
+  created_at     timestamptz NOT NULL,
+  updated_at     timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_thread_idx
+  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, resource_id, occurred_at ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_run_idx
+  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (run_id, occurred_at ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_revert_idx
+  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, reverted_at);
 `;
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
