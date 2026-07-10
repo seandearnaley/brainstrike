@@ -2361,7 +2361,7 @@ export function buildDesktopAssistantTools(
     },
     [WEB_SEARCH_TOOL_ID]: {
       description:
-        'Search the web via Tavily for current documentation, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily) — never include secrets or private workspace contents. Use this only for general/public web knowledge; for THIS project\'s code use grepSearch/queryEmbeddingSpace instead. Requires a Tavily API key in Settings → API Keys: when none is configured the tool returns a non-fatal "unavailable, add a key" result rather than failing. Results (title, url, snippet) are truncated to a fixed budget.',
+        'Search the web for current documentation, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider\'s built-in search when available, otherwise Tavily) — never include secrets or private workspace contents. Use this only for general/public web knowledge; for THIS project\'s code use grepSearch/queryEmbeddingSpace instead. When no provider-native search is available and no Tavily API key is configured (Settings → API Keys), the tool returns a non-fatal "unavailable, add a key" result rather than failing. Results are truncated to a fixed budget.',
       // The Tavily key is resolved server-side inside runWebSearch and never
       // returned to the model. No injected deps here → real fetch + keychain.
       execute: async (input: ToolExecuteInput<WebSearchInput>) => {

@@ -36,7 +36,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.updateWorkspaceTapestrySelections':
     'Create, update, or clear token-aware Tapestry line ranges for selected workspace context files',
   'brainstrike.webSearch':
-    'Search the web via Tavily for current docs, APIs, error messages, and library usage. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily). Requires a Tavily API key in Settings; returns a clear "unavailable" message (not an error) when no key is configured',
+    'Search the web for current docs, APIs, error messages, and library usage. SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider\'s built-in search when available, otherwise Tavily). Returns a clear "unavailable" message (not an error) when no provider-native search and no Tavily key are configured',
   'brainstrike.writeWorkspaceFile':
     'Write or create a UTF-8 file in the selected workspace root (overwrites existing content; workspace-scoped, requires approval)',
 };

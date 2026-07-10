@@ -232,7 +232,7 @@ export function buildLocalDefaultInstructions(toolNameMap: ReadonlyMap<string, s
     ? `Use ${names.readWorkspaceFile} to read a specific file when needed.`
     : '';
   const webSearchLine = names.webSearch
-    ? `For public web info you do not know (library docs, errors), use ${names.webSearch} (it sends the query to an external service; needs a Tavily key).`
+    ? `For public web info you do not know (library docs, errors), use ${names.webSearch} (it sends the query to an external web-search service — the provider's built-in search when available, otherwise Tavily).`
     : '';
 
   return [
@@ -368,7 +368,7 @@ function buildWebSearchInstruction(names: ModelFacingToolNames): string {
     localSearchAlternatives.length > 0
       ? ` Do NOT use ${names.webSearch} for THIS project's own code or files — use ${localSearchAlternatives.join(' / ')} for that.`
       : '';
-  return `To look up CURRENT public information you do not already know — library/framework docs, external APIs, error messages, recent releases — use ${names.webSearch}. It SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily), so never include secrets or private workspace contents in the query.${alternativesClause} It needs a Tavily API key in Settings: when none is configured it returns a non-fatal "unavailable" result (available: false) — relay that to the user rather than retrying. On a search error it returns a non-fatal error result; report it and continue.`;
+  return `To look up CURRENT public information you do not already know — library/framework docs, external APIs, error messages, recent releases — use ${names.webSearch}. It SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider's built-in search when available, otherwise Tavily), so never include secrets or private workspace contents in the query.${alternativesClause} When no provider-native search is available and no Tavily API key is configured in Settings, it returns a non-fatal "unavailable" result (available: false) — relay that to the user rather than retrying. On a search error it returns a non-fatal error result; report it and continue.`;
 }
 
 /**
