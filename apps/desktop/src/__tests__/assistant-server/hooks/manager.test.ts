@@ -31,6 +31,7 @@ function makeManager(
     logger,
     primaryCwd: tmpRoot,
     sessionId: 'session-1',
+    userPromptSubmitAggregateMs: 60_000,
   });
 }
 

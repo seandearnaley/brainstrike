@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -22,6 +23,12 @@ function writeProjectHooks(rootAbsPath: string, content: string): string {
   const file = join(dir, 'hooks.json');
   writeFileSync(file, content, 'utf8');
   return file;
+}
+
+/** The raw-byte hash of the on-disk hooks file (the approve-time attestation). */
+function approvedHash(rootAbsPath: string): string {
+  const file = getProjectHooksPath(rootAbsPath);
+  return createHash('sha256').update(readFileSync(file)).digest('hex');
 }
 
 beforeEach(() => {
@@ -56,6 +63,7 @@ describe('loadHooksConfig', () => {
     );
 
     const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       globalPath,
       maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       primaryRootCwd: tmpRoot,
@@ -86,12 +94,13 @@ describe('loadHooksConfig', () => {
     writeProjectHooks(rootB, JSON.stringify({ PreToolUse: [{ command: 'b', type: 'command' }] }));
 
     const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       globalPath,
       maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       primaryRootCwd: rootA,
       roots: [
-        { absPath: rootA, rootId: 'root-a', trusted: true },
-        { absPath: rootB, rootId: 'root-b', trusted: true },
+        { absPath: rootA, approvedSha256: approvedHash(rootA), rootId: 'root-a' },
+        { absPath: rootB, approvedSha256: approvedHash(rootB), rootId: 'root-b' },
       ],
     });
 
@@ -113,12 +122,14 @@ describe('loadHooksConfig', () => {
     writeProjectHooks(rootB, JSON.stringify({ PreToolUse: [{ command: 'b', type: 'command' }] }));
 
     const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       globalPath: join(tmpRoot, 'no-global', 'hooks.json'),
       maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       primaryRootCwd: rootA,
       roots: [
-        { absPath: rootA, rootId: 'root-a', trusted: false },
-        { absPath: rootB, rootId: 'root-b', trusted: true },
+        // No approval → untrusted.
+        { absPath: rootA, rootId: 'root-a' },
+        { absPath: rootB, approvedSha256: approvedHash(rootB), rootId: 'root-b' },
       ],
     });
 
@@ -138,12 +149,13 @@ describe('loadHooksConfig', () => {
     writeProjectHooks(rootB, JSON.stringify({ PreToolUse: [{ command: 'b', type: 'command' }] }));
 
     const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       globalPath: join(tmpRoot, 'no-global', 'hooks.json'),
       maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       primaryRootCwd: rootA,
       roots: [
-        { absPath: rootA, rootId: 'root-a', trusted: true },
-        { absPath: rootB, rootId: 'root-b', trusted: true },
+        { absPath: rootA, approvedSha256: approvedHash(rootA), rootId: 'root-a' },
+        { absPath: rootB, approvedSha256: approvedHash(rootB), rootId: 'root-b' },
       ],
     });
 
@@ -163,10 +175,11 @@ describe('loadHooksConfig', () => {
     );
 
     const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       globalPath: join(tmpRoot, 'no-global', 'hooks.json'),
       maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       primaryRootCwd: rootA,
-      roots: [{ absPath: rootA, rootId: 'root-a', trusted: true }],
+      roots: [{ absPath: rootA, approvedSha256: approvedHash(rootA), rootId: 'root-a' }],
     });
 
     expect(result.hooks.PreToolUse ?? []).toHaveLength(0);
@@ -184,10 +197,11 @@ describe('loadHooksConfig', () => {
     );
 
     const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       globalPath: join(tmpRoot, 'no-global', 'hooks.json'),
       maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       primaryRootCwd: rootA,
-      roots: [{ absPath: rootA, rootId: 'root-a', trusted: true }],
+      roots: [{ absPath: rootA, approvedSha256: approvedHash(rootA), rootId: 'root-a' }],
     });
 
     expect(result.hooks.PreToolUse ?? []).toHaveLength(0);
@@ -197,10 +211,11 @@ describe('loadHooksConfig', () => {
 
   it('records no error for missing files and marks them exists:false', () => {
     const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       globalPath: join(tmpRoot, 'no-global', 'hooks.json'),
       maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       primaryRootCwd: tmpRoot,
-      roots: [{ absPath: join(tmpRoot, 'a'), rootId: 'root-a', trusted: true }],
+      roots: [{ absPath: join(tmpRoot, 'a'), rootId: 'root-a' }],
     });
 
     expect(result.errors).toEqual([]);
@@ -221,6 +236,7 @@ describe('loadHooksConfig', () => {
     );
 
     const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       globalPath,
       maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
       primaryRootCwd: tmpRoot,
@@ -231,5 +247,123 @@ describe('loadHooksConfig', () => {
     expect(regex).toBeInstanceOf(RegExp);
     expect(regex?.test('executeCommand')).toBe(true);
     expect(regex?.test('readFile')).toBe(false);
+  });
+
+  // M2: trust is resolved from the SAME single read that is parsed — the loaded
+  // commands are provably the ones whose hash was trusted.
+  describe('trust (single-read hash gate)', () => {
+    it('loads a root only when its disk-byte hash matches the approval', () => {
+      const rootA = join(tmpRoot, 'a');
+      mkdirSync(rootA, { recursive: true });
+      writeProjectHooks(rootA, JSON.stringify({ Stop: [{ command: 's', type: 'command' }] }));
+
+      const result = loadHooksConfig({
+        aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+        globalPath: join(tmpRoot, 'no-global', 'hooks.json'),
+        maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+        primaryRootCwd: rootA,
+        roots: [{ absPath: rootA, approvedSha256: approvedHash(rootA), rootId: 'root-a' }],
+      });
+
+      expect(result.errors).toEqual([]);
+      expect(result.hooks.Stop?.map((h) => h.definition.command)).toEqual(['s']);
+    });
+
+    it('rejects a root whose file changed since approval (stale hash)', () => {
+      const rootA = join(tmpRoot, 'a');
+      mkdirSync(rootA, { recursive: true });
+      writeProjectHooks(rootA, JSON.stringify({ Stop: [{ command: 's', type: 'command' }] }));
+      const stale = createHash('sha256').update('{"old":true}').digest('hex');
+
+      const result = loadHooksConfig({
+        aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+        globalPath: join(tmpRoot, 'no-global', 'hooks.json'),
+        maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+        primaryRootCwd: rootA,
+        roots: [{ absPath: rootA, approvedSha256: stale, rootId: 'root-a' }],
+      });
+
+      expect(result.hooks.Stop ?? []).toHaveLength(0);
+      expect(result.errors[0]?.message).toMatch(/untrusted/i);
+    });
+
+    it('does not cross-apply one root approval to a different root file', () => {
+      const rootA = join(tmpRoot, 'a');
+      const rootB = join(tmpRoot, 'b');
+      mkdirSync(rootA, { recursive: true });
+      mkdirSync(rootB, { recursive: true });
+      writeProjectHooks(rootA, JSON.stringify({ Stop: [{ command: 'a', type: 'command' }] }));
+      writeProjectHooks(rootB, JSON.stringify({ Stop: [{ command: 'b', type: 'command' }] }));
+
+      const result = loadHooksConfig({
+        aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+        globalPath: join(tmpRoot, 'no-global', 'hooks.json'),
+        maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+        primaryRootCwd: rootA,
+        // rootB carries rootA's hash → mismatch → untrusted.
+        roots: [{ absPath: rootB, approvedSha256: approvedHash(rootA), rootId: 'root-b' }],
+      });
+
+      expect(result.hooks.Stop ?? []).toHaveLength(0);
+      expect(result.errors[0]?.rootId).toBe('root-b');
+    });
+  });
+
+  // I1: the PRE-STREAM UserPromptSubmit phase is aggregate-bounded; over-budget
+  // config fails LOUD (phase disabled), never silently truncated.
+  it('disables the UserPromptSubmit phase when its combined timeout hits the aggregate budget', () => {
+    const globalDir = join(tmpRoot, 'home', '.brainstrike');
+    mkdirSync(globalDir, { recursive: true });
+    const globalPath = join(globalDir, 'hooks.json');
+    writeFileSync(
+      globalPath,
+      JSON.stringify({
+        UserPromptSubmit: [
+          { command: 'a', timeout: 20_000, type: 'command' },
+          { command: 'b', timeout: 20_000, type: 'command' },
+          { command: 'c', timeout: 20_000, type: 'command' },
+        ],
+      }),
+      'utf8'
+    );
+
+    const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+      globalPath,
+      maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+      primaryRootCwd: tmpRoot,
+      roots: [],
+    });
+
+    expect(result.hooks.UserPromptSubmit ?? []).toHaveLength(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.message).toMatch(/aggregate budget/i);
+  });
+
+  it('keeps UserPromptSubmit hooks that stay under the aggregate budget', () => {
+    const globalDir = join(tmpRoot, 'home', '.brainstrike');
+    mkdirSync(globalDir, { recursive: true });
+    const globalPath = join(globalDir, 'hooks.json');
+    writeFileSync(
+      globalPath,
+      JSON.stringify({
+        UserPromptSubmit: [
+          { command: 'a', timeout: 10_000, type: 'command' },
+          { command: 'b', timeout: 10_000, type: 'command' },
+        ],
+      }),
+      'utf8'
+    );
+
+    const result = loadHooksConfig({
+      aggregateTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+      globalPath,
+      maxHookTimeoutMs: MAX_HOOK_TIMEOUT_MS,
+      primaryRootCwd: tmpRoot,
+      roots: [],
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.hooks.UserPromptSubmit).toHaveLength(2);
   });
 });

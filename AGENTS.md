@@ -446,9 +446,24 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
   reason as a `hook.notice`; NO auto-continue). SessionStart/SessionEnd/
   Notification are implemented but UNWIRED in v1.
 
-**Timeout invariant (non-negotiable):** `hook timeout (default 10_000ms) <
-BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000) < BRAINSTRIKE_STREAM_INACTIVITY_MS
-(120_000)`. `config.ts` rejects any hook whose `timeout >= resolveToolTimeoutMs()`.
+**Timeout invariant (honest ceiling — no summed guarantee).** There is NO
+enforced `pre + tool + post` sum ceiling. What IS enforced:
+- **Per-hook:** `config.ts` rejects any hook whose `timeout >=
+  resolveToolTimeoutMs()`; every hook is SIGKILLed at its own timeout (default
+  10_000ms). Chain: `per-hook (<60s) < BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000) <
+  BRAINSTRIKE_STREAM_INACTIVITY_MS (120_000)`.
+- **In-stream phases** (`PreToolUse`/`PostToolUse`/`Stop`): bounded by the
+  per-hook SIGKILL + the stream inactivity watchdog (120s) as the backstop — NOT
+  by an aggregate cap.
+- **Pre-stream `UserPromptSubmit`** runs BEFORE the model is invoked, so the
+  watchdog cannot bound it. It therefore has its OWN aggregate bound
+  (`resolveToolTimeoutMs()`, 60s) enforced on BOTH ends: `loadHooksConfig`
+  disables the phase fail-LOUD (a `HookConfigError`) when the combined declared
+  timeout reaches the ceiling, and at runtime `runHooksForEvent`
+  (`aggregateTimeoutMs`) caps the whole phase's wall-clock — the in-flight hook
+  is SIGKILLed at the remaining budget and the rest are skipped with a loud
+  warning (timeout == warn-and-continue; hooks proceed, never silently stall
+  turn start). Over-budget config never silently truncates.
 
 **Malformed config = disable-with-visible-error (NOT throw-at-load).**
 `loadHooksConfig` returns `{hooks, errors, sources}`; a malformed/untrusted file
@@ -466,10 +481,18 @@ per-root approval **pinned to the file's SHA-256**. The trust store
 factory-reset-registered) records `{rootId → {approvedSha256, approvedAt}}`. The
 renderer only ATTESTS approved hashes over the wire (`HookTrustRequest`); the
 server independently RE-READS + RE-HASHES disk (`trust.ts` `resolveTrustedRoots`)
-and runs a root's hooks only when `sha256(disk) === approvedSha256`. A changed
-file → untrusted (re-approve). Keyed by durable `rootId`, never raw path. Stdin
-payloads are secret-redacted before spawn (`executor.ts` `redactSecrets`, mirrors
-the logger redact key set).
+and runs a root's hooks only when `sha256(disk) === approvedSha256`. The trust
+hash is over the RAW file BYTES (`sha256OfBuffer`), and the approve-time review
+(`ipc-hooks-handlers.ts`) hashes those same bytes — never a utf8-decoded string,
+which would diverge for BOM/non-utf8 bytes and silently void an approval. Trust
++ parse come from ONE read (`loadHooksConfig` reads the bytes once, hashes them,
+and parses those same bytes only when trusted — no read-vs-hash TOCTOU window). A
+changed file → untrusted (re-approve). Keyed by durable `rootId`, never raw path.
+Stdin payloads are secret-redacted before spawn (`executor.ts` `redactSecrets`,
+mirrors the logger redact key set). NOTE: redaction covers ONLY the stdin JSON —
+it does NOT extend to the hook's inherited `process.env` (hooks inherit the full
+assistant-server env). Low-risk here: provider API keys live in the encrypted
+keychain, never in the process env.
 
 **Config paths (D6):** global `~/.brainstrike/hooks.json` (new home-dotfile, for
 discoverability); per-root `<root>/.brainstrike/hooks.json`. Merge order:

@@ -5,10 +5,10 @@
  * server remains the trust authority (it re-hashes disk on every request).
  */
 
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { getProjectHooksPath } from './assistant-server/hooks/config';
+import { sha256OfBuffer } from './assistant-server/hooks/trust';
 
 export interface ProjectHooksReview {
   readonly content?: string;
@@ -21,7 +21,13 @@ export interface ProjectHooksReview {
 }
 
 export interface HooksReviewDeps {
-  readonly readFile?: (path: string) => string;
+  /**
+   * Reads the RAW file bytes. The review hash MUST be computed from these bytes
+   * (via `sha256OfBuffer`), byte-identically to the server's load-time trust
+   * hash — a utf8-decoded-string hash would diverge for BOM/non-utf8 bytes and
+   * an approval would silently never take.
+   */
+  readonly readFile?: (path: string) => Buffer;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -33,7 +39,7 @@ export function getProjectHooksForReview(
   absPath: unknown,
   deps: HooksReviewDeps = {}
 ): ProjectHooksReview {
-  const read = deps.readFile ?? ((path: string) => readFileSync(path, 'utf8'));
+  const read = deps.readFile ?? ((path: string) => readFileSync(path));
   if (typeof rootId !== 'string' || rootId.length === 0) {
     return { error: 'rootId must be a non-empty string', exists: false, path: '', rootId: '' };
   }
@@ -47,14 +53,17 @@ export function getProjectHooksForReview(
   }
 
   const path = getProjectHooksPath(absPath.trim());
-  let content: string;
+  let bytes: Buffer;
   try {
-    content = read(path);
+    bytes = read(path);
   } catch {
     return { exists: false, path, rootId };
   }
 
-  const sha256 = createHash('sha256').update(content, 'utf8').digest('hex');
+  // Hash the RAW bytes (byte-identical to the server trust hash), then decode
+  // for display + parse. A single read backs both the hash and the content.
+  const sha256 = sha256OfBuffer(bytes);
+  const content = bytes.toString('utf8');
   let parseError: string | undefined;
   try {
     const parsed: unknown = JSON.parse(content);

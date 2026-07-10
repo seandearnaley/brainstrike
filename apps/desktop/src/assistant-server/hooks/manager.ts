@@ -36,6 +36,12 @@ export interface HookManagerContext {
   readonly primaryCwd: string;
   /** = memory.threadId ?? runId ?? 'no-session'. */
   readonly sessionId: string;
+  /**
+   * Wall-clock ceiling for the whole PRE-STREAM `UserPromptSubmit` phase — that
+   * gate runs before the model is invoked, so the stream inactivity watchdog
+   * cannot bound it. In-stream phases are left uncapped here.
+   */
+  readonly userPromptSubmitAggregateMs: number;
 }
 
 function matchesTool(hook: LoadedHook, toolName: string): boolean {
@@ -159,7 +165,11 @@ export class HookManager {
         session_id: this.ctx.sessionId,
         user_message: userMessage,
       }),
-      { blocking: true, logger: this.ctx.logger }
+      {
+        aggregateTimeoutMs: this.ctx.userPromptSubmitAggregateMs,
+        blocking: true,
+        logger: this.ctx.logger,
+      }
     );
     this.surfaceOutcome('UserPromptSubmit', result);
     return result;

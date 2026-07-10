@@ -118,6 +118,34 @@ describe('buildHookManager (roots + trust + config)', () => {
     expect(gate.reason).toBe('blocked');
   });
 
+  it('trusts + loads a root whose hooks file has non-utf8 bytes (M1 hash parity)', () => {
+    // Review (approve-time) hash and load-time trust hash must both be of the RAW
+    // bytes. A lone 0xFF (invalid UTF-8) inside a string value would diverge a
+    // utf8-decoded-string hash from the raw-byte hash → the approval would
+    // silently never take. Prove the approved root's hooks load.
+    const prefix = Buffer.from(
+      '{"PreToolUse":[{"command":"echo \'{\\"reason\\":\\"blocked\\"}\'; exit 2","description":"x',
+      'utf8'
+    );
+    const suffix = Buffer.from('y","type":"command"}]}', 'utf8');
+    const bytes = Buffer.concat([prefix, Buffer.from([0xff]), suffix]);
+    const dir = join(tmpRoot, '.brainstrike');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'hooks.json');
+    writeFileSync(file, bytes);
+
+    // The approval hash the renderer attests == the raw-byte hash.
+    const approvedSha = sha256OfFile(file);
+    const manager = buildHookManager({
+      hookTrustRequest: { approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: approvedSha }] },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    expect(manager.hasHooks()).toBe(true);
+  });
+
   it('surfaces a disabled config file via reportConfigErrors (fail-loud)', () => {
     writeProjectHooks(tmpRoot, '{ invalid json');
     const events: HookRunEventInput[] = [];

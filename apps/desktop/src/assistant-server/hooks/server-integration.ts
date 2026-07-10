@@ -21,7 +21,6 @@ import { getWorkspaceRoots } from '../workspace-roots';
 import { getGlobalHooksPath, loadHooksConfig } from './config';
 import { createDesktopHookRunner } from './hook-runner-impl';
 import { HookManager, type HookRunEventInput } from './manager';
-import { resolveTrustedRoots } from './trust';
 
 /** Convert a manager run-event input into a full (unstamped) AssistantRunEvent. */
 export function hookRunEventToAssistant(input: HookRunEventInput): AssistantRunEvent {
@@ -49,18 +48,34 @@ export function buildHookManager(input: BuildHookManagerInput): HookManager {
     absPath: root.path,
     rootId: root.rootId,
   }));
-  const trusted = resolveTrustedRoots(roots, input.hookTrustRequest);
+  const approvedByRoot = new Map<string, string>();
+  for (const approval of input.hookTrustRequest?.approvals ?? []) {
+    approvedByRoot.set(approval.rootId, approval.sha256);
+  }
   const primaryCwd = roots[0]?.absPath ?? process.cwd();
+  // One number governs both the pre-stream aggregate config check and the
+  // runtime UserPromptSubmit wall-clock bound: the tool timeout (60s default),
+  // which sits under the stream inactivity watchdog (120s).
+  const aggregateTimeoutMs = resolveToolTimeoutMs();
   const load = loadHooksConfig({
+    aggregateTimeoutMs,
     globalPath: getGlobalHooksPath(),
     maxHookTimeoutMs: resolveToolTimeoutMs(),
     primaryRootCwd: primaryCwd,
-    roots: roots.map((root) => ({ ...root, trusted: trusted.get(root.rootId) ?? false })),
+    roots: roots.map((root) => {
+      const approvedSha256 = approvedByRoot.get(root.rootId);
+      return {
+        absPath: root.absPath,
+        rootId: root.rootId,
+        ...(approvedSha256 === undefined ? {} : { approvedSha256 }),
+      };
+    }),
   });
   return new HookManager(load, {
     logger: input.logger,
     primaryCwd,
     sessionId: input.sessionId,
+    userPromptSubmitAggregateMs: aggregateTimeoutMs,
     ...(input.emitRunEvent ? { emitRunEvent: input.emitRunEvent } : {}),
   });
 }

@@ -72,14 +72,22 @@ function parseStdout(stdout: string): HookStdout | undefined {
   return;
 }
 
-function executeHook(hook: LoadedHook, stdin: HookStdin): Promise<HookResult> {
-  const timeout = hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS;
+function executeHook(
+  hook: LoadedHook,
+  stdin: HookStdin,
+  timeoutOverrideMs?: number
+): Promise<HookResult> {
+  const timeout = timeoutOverrideMs ?? hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS;
   const startTime = Date.now();
   const isWindows = process.platform === 'win32';
   const shell = isWindows ? 'cmd' : '/bin/sh';
   const shellArgs = isWindows ? ['/c', hook.definition.command] : ['-c', hook.definition.command];
 
   return new Promise<HookResult>((resolve) => {
+    // The hook inherits the FULL parent `process.env` (plus the one marker
+    // below). Secret redaction applies ONLY to the stdin JSON payload — it does
+    // NOT extend to inherited env. Low-risk here because provider API keys live
+    // in the encrypted keychain, never in the assistant-server process env.
     const child = spawn(shell, shellArgs, {
       cwd: hook.source.cwd,
       env: { ...process.env, BRAINSTRIKE_HOOK_EVENT: stdin.hook_event_name },
@@ -147,6 +155,15 @@ function executeHook(hook: LoadedHook, stdin: HookStdin): Promise<HookResult> {
 }
 
 export interface RunHooksOptions {
+  /**
+   * Wall-clock ceiling for the WHOLE phase, enforced across all of the phase's
+   * hooks. Set for the PRE-STREAM `UserPromptSubmit` gate (which runs before the
+   * model is invoked and is therefore NOT covered by the stream inactivity
+   * watchdog), so a chain of slow hooks cannot stall turn start unboundedly.
+   * Undefined for in-stream phases (PreToolUse/PostToolUse/Stop), which rely on
+   * the per-hook SIGKILL + the stream inactivity watchdog instead.
+   */
+  readonly aggregateTimeoutMs?: number;
   readonly blocking: boolean;
   readonly logger: HookLogger;
 }
@@ -192,6 +209,30 @@ function classifyResult(hook: LoadedHook, result: HookResult, opts: RunHooksOpti
   return { kind: 'continue' };
 }
 
+/**
+ * Resolve the aggregate-budget position for the next hook: `exhausted` (stop the
+ * phase) or a `run` decision carrying the effective per-hook timeout cap. Capping
+ * the in-flight hook at the remaining budget lets the existing per-hook SIGKILL
+ * timer enforce the aggregate ceiling — no extra abort plumbing needed.
+ */
+function resolvePhaseBudget(
+  hook: LoadedHook,
+  opts: RunHooksOptions,
+  phaseStart: number
+): { readonly kind: 'exhausted' } | { readonly kind: 'run'; readonly timeoutOverrideMs?: number } {
+  if (opts.aggregateTimeoutMs === undefined) {
+    return { kind: 'run' };
+  }
+  const remaining = opts.aggregateTimeoutMs - (Date.now() - phaseStart);
+  if (remaining <= 0) {
+    return { kind: 'exhausted' };
+  }
+  return {
+    kind: 'run',
+    timeoutOverrideMs: Math.min(hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS, remaining),
+  };
+}
+
 export async function runHooksForEvent(
   hooks: readonly LoadedHook[],
   buildStdin: (hook: LoadedHook) => HookStdin,
@@ -204,9 +245,20 @@ export async function runHooksForEvent(
   const results: HookResult[] = [];
   const warnings: string[] = [];
   let additionalContext: string | undefined;
+  const phaseStart = Date.now();
 
   for (const hook of hooks) {
-    const result = await executeHook(hook, buildStdin(hook));
+    const budget = resolvePhaseBudget(hook, opts, phaseStart);
+    if (budget.kind === 'exhausted') {
+      opts.logger.warn('hook phase exceeded aggregate budget', {
+        aggregateTimeoutMs: opts.aggregateTimeoutMs,
+      });
+      warnings.push(
+        `Hooks exceeded the ${opts.aggregateTimeoutMs}ms aggregate budget; remaining hooks were skipped`
+      );
+      break;
+    }
+    const result = await executeHook(hook, buildStdin(hook), budget.timeoutOverrideMs);
     results.push(result);
 
     const extra = result.stdout?.additionalContext;

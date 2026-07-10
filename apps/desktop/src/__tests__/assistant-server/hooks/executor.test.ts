@@ -104,6 +104,25 @@ describe('runHooksForEvent', () => {
     expect(result.warnings.some((w) => /timed out/i.test(w))).toBe(true);
   });
 
+  it('bounds the whole phase to aggregateTimeoutMs (pre-stream backstop)', async () => {
+    // Two long hooks; the aggregate budget is far below their per-hook default.
+    // The phase must abandon the in-flight hook at the budget and skip the rest,
+    // surfacing a loud warning and proceeding (timeout == warn-and-continue).
+    const started = Date.now();
+    const result = await runHooksForEvent(
+      [makeLoadedHook('sleep 5'), makeLoadedHook('sleep 5')],
+      () => toolStdin(),
+      { aggregateTimeoutMs: 200, blocking: true, logger }
+    );
+    const elapsed = Date.now() - started;
+
+    expect(result.allowed).toBe(true);
+    expect(elapsed).toBeLessThan(2000);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]?.timedOut).toBe(true);
+    expect(result.warnings.some((w) => /aggregate/i.test(w))).toBe(true);
+  });
+
   it('aggregates additionalContext from every hook stdout', async () => {
     const result = await runHooksForEvent(
       [

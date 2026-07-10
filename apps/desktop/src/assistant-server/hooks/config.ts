@@ -7,18 +7,20 @@
  * surfaced through the result's `errors`.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type {
-  HookConfigError,
-  HookConfigSource,
-  HookDefinition,
-  HookEventName,
-  HookMatcher,
-  HooksConfigLoadResult,
-  LoadedHook,
-  LoadedHooksByEvent,
+import { sha256OfBuffer } from './trust';
+import {
+  DEFAULT_HOOK_TIMEOUT_MS,
+  type HookConfigError,
+  type HookConfigSource,
+  type HookDefinition,
+  type HookEventName,
+  type HookMatcher,
+  type HooksConfigLoadResult,
+  type LoadedHook,
+  type LoadedHooksByEvent,
 } from './types';
 
 const VALID_EVENTS: readonly HookEventName[] = [
@@ -33,19 +35,43 @@ const VALID_EVENTS: readonly HookEventName[] = [
 
 export interface HookConfigRootInput {
   readonly absPath: string;
+  /**
+   * The renderer-attested approved SHA-256 for this root (raw file bytes), or
+   * undefined if unapproved. The loader RE-READS + RE-HASHES the file's bytes
+   * and trusts the root ONLY when the disk hash equals this — computed from the
+   * SAME single read it then parses, so the loaded commands are provably the
+   * ones whose hash was trusted (no read-vs-hash TOCTOU window).
+   */
+  readonly approvedSha256?: string;
   readonly rootId: string;
-  readonly trusted: boolean;
 }
 
 export interface HookConfigInput {
+  /**
+   * Aggregate wall-clock ceiling for the PRE-STREAM `UserPromptSubmit` phase.
+   * If the combined declared timeout of all UserPromptSubmit hooks reaches this,
+   * the phase is disabled fail-LOUD (a `HookConfigError`) — over-budget config
+   * never silently truncates. In-stream phases have no aggregate cap here (they
+   * rely on the per-hook SIGKILL + the stream inactivity watchdog).
+   */
+  readonly aggregateTimeoutMs: number;
   /** Absolute path to the global hooks file (`~/.brainstrike/hooks.json`). */
   readonly globalPath: string;
   /** = `resolveToolTimeoutMs()` (D4). Any hook `timeout >=` this disables the file. */
   readonly maxHookTimeoutMs: number;
   /** cwd assigned to GLOBAL hooks (the primary/first mounted root). */
   readonly primaryRootCwd: string;
-  /** Mounted desktop roots, in scan order, each with its resolved trust. */
+  /** Mounted desktop roots, in scan order, each with its approved hash (if any). */
   readonly roots: readonly HookConfigRootInput[];
+}
+
+/** Single raw-byte read; null = missing/unreadable (no throw, no separate stat). */
+function readFileBytesOrNull(path: string): Buffer | null {
+  try {
+    return readFileSync(path);
+  } catch {
+    return null;
+  }
 }
 
 export function getGlobalHooksPath(): string {
@@ -218,19 +244,23 @@ function mergeInto(
   }
 }
 
+/** Sum of the phase's declared per-hook timeouts (unspecified = default). */
+function sumDeclaredTimeouts(hooks: readonly LoadedHook[]): number {
+  return hooks.reduce((acc, hook) => acc + (hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS), 0);
+}
+
 export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
   const merged: Partial<Record<HookEventName, LoadedHook[]>> = {};
   const errors: HookConfigError[] = [];
   const sources: HookConfigSource[] = [];
 
-  // Global first.
+  // Global first. Not trust-gated (the user's own machine), single read.
   {
-    const exists = existsSync(input.globalPath);
-    sources.push({ exists, path: input.globalPath, scope: 'global' });
-    if (exists) {
-      const raw = readFileSync(input.globalPath, 'utf8');
+    const bytes = readFileBytesOrNull(input.globalPath);
+    sources.push({ exists: bytes !== null, path: input.globalPath, scope: 'global' });
+    if (bytes !== null) {
       const validated = validateFile(
-        raw,
+        bytes.toString('utf8'),
         { cwd: input.primaryRootCwd, scope: 'global' },
         input.maxHookTimeoutMs
       );
@@ -242,15 +272,18 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
     }
   }
 
-  // Then each root, in input order.
+  // Then each root, in input order. Trust + parse from ONE read: hash the bytes,
+  // compare to the approval, and parse those SAME bytes only when trusted.
   for (const root of input.roots) {
     const filePath = getProjectHooksPath(root.absPath);
-    const exists = existsSync(filePath);
-    sources.push({ exists, path: filePath, rootId: root.rootId, scope: 'project' });
-    if (!exists) {
+    const bytes = readFileBytesOrNull(filePath);
+    sources.push({ exists: bytes !== null, path: filePath, rootId: root.rootId, scope: 'project' });
+    if (bytes === null) {
       continue;
     }
-    if (!root.trusted) {
+    const trusted =
+      root.approvedSha256 !== undefined && sha256OfBuffer(bytes) === root.approvedSha256;
+    if (!trusted) {
       errors.push({
         message: 'untrusted; approve in Settings > Hooks',
         path: filePath,
@@ -259,9 +292,8 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
       });
       continue;
     }
-    const raw = readFileSync(filePath, 'utf8');
     const validated = validateFile(
-      raw,
+      bytes.toString('utf8'),
       { cwd: root.absPath, rootId: root.rootId, scope: 'project' },
       input.maxHookTimeoutMs
     );
@@ -274,6 +306,22 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
         rootId: root.rootId,
         scope: 'project',
       });
+    }
+  }
+
+  // Pre-stream aggregate bound (I1): the combined UserPromptSubmit budget must
+  // stay under the ceiling. Over-budget → disable the phase fail-LOUD.
+  const userPrompt = merged.UserPromptSubmit;
+  if (userPrompt && userPrompt.length > 0) {
+    const total = sumDeclaredTimeouts(userPrompt);
+    if (total >= input.aggregateTimeoutMs) {
+      errors.push({
+        message: `UserPromptSubmit hooks' combined timeout ${total}ms reaches the ${input.aggregateTimeoutMs}ms pre-stream aggregate budget; phase disabled`,
+        path: 'UserPromptSubmit (aggregate)',
+        scope: 'global',
+      });
+      // Disable the phase (empty = no hooks run) fail-closed.
+      merged.UserPromptSubmit = [];
     }
   }
 
