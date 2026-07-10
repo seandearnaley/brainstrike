@@ -488,6 +488,61 @@ describe('PromptWorkbenchPanel', () => {
     await act(async () => resolveUse());
   });
 
+  it('keeps the templated action guard across dialog close and reopen', async () => {
+    const user = userEvent.setup();
+    const savedItem = item({
+      content: 'Review {{target}} before implementation.',
+      kind: 'prompt',
+      title: 'Review target',
+    });
+    let resolveUse!: () => void;
+    const pendingUse = new Promise<void>((resolve) => {
+      resolveUse = resolve;
+    });
+    const onUseItem = vi.fn(() => pendingUse);
+    render(
+      <PromptWorkbenchPanel
+        activeThreadId="thread-active"
+        composerContext=""
+        initialItems={[savedItem]}
+        modelOptions={[]}
+        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+        onRequestSuggestions={vi.fn().mockResolvedValue([])}
+        onUseItem={onUseItem}
+        repository={createRepository([savedItem])}
+      />
+    );
+
+    const openPreparedPrompt = () =>
+      user.click(screen.getByRole('button', { name: 'New thread from Review target' }));
+
+    await openPreparedPrompt();
+    const firstDialog = screen.getByRole('dialog', { name: 'Prepare Review target' });
+    await user.type(within(firstDialog).getByRole('textbox', { name: 'target' }), 'the retry loop');
+    fireEvent.submit(firstDialog.querySelector('form') as HTMLFormElement);
+    expect(onUseItem).toHaveBeenCalledTimes(1);
+
+    await user.click(within(firstDialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Prepare Review target' })).not.toBeInTheDocument();
+
+    await openPreparedPrompt();
+    const reopenedDialog = screen.getByRole('dialog', { name: 'Prepare Review target' });
+    await user.type(
+      within(reopenedDialog).getByRole('textbox', { name: 'target' }),
+      'the indexing loop'
+    );
+    fireEvent.submit(reopenedDialog.querySelector('form') as HTMLFormElement);
+
+    expect(onUseItem).toHaveBeenCalledTimes(1);
+    expect(onUseItem).toHaveBeenCalledWith(
+      savedItem,
+      'Review the retry loop before implementation.',
+      'new-thread'
+    );
+
+    await act(async () => resolveUse());
+  });
+
   it('automatically recalls contextual suggestions and keeps insertion explicit', async () => {
     const user = userEvent.setup();
     const suggestion = item({ id: 'suggested' });

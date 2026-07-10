@@ -559,33 +559,18 @@ function PreparePromptDialog({
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
-  const submissionRef = useRef<Promise<void> | null>(null);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const activeSubmission = submissionRef.current;
-    if (activeSubmission) {
-      await activeSubmission.catch(() => undefined);
-      return;
-    }
     setError(null);
     setWorking(true);
-    let submission: Promise<void> | null = null;
     try {
-      submission = onPrepared(renderPromptTemplate(pendingUse.item.content, values));
-      submissionRef.current = submission;
-      await submission;
+      await onPrepared(renderPromptTemplate(pendingUse.item.content, values));
       setWorking(false);
       onClose();
-      if (submissionRef.current === submission) {
-        submissionRef.current = null;
-      }
     } catch (cause) {
       setError(errorMessage(cause));
       setWorking(false);
-      if (submission && submissionRef.current === submission) {
-        submissionRef.current = null;
-      }
     }
   };
 
@@ -1018,6 +1003,11 @@ export function PromptWorkbenchPanel({
     directUseKeysRef.current = new Set<string>();
   }
   const directUseGuard = directUseKeysRef.current;
+  const preparedUsePromisesRef = useRef<Map<string, Promise<void>> | null>(null);
+  if (preparedUsePromisesRef.current === null) {
+    preparedUsePromisesRef.current = new Map<string, Promise<void>>();
+  }
+  const preparedUsePromises = preparedUsePromisesRef.current;
   const [directUseKeys, setDirectUseKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [suggestionRefreshKey, setSuggestionRefreshKey] = useState(0);
   const suggestions = useContextualPromptSuggestions({
@@ -1096,6 +1086,26 @@ export function PromptWorkbenchPanel({
       setLibraryWarning(null);
     },
     [onUseItem, refreshItems]
+  );
+
+  const completePreparedUse = useCallback(
+    (item: PromptItem, content: string, action: PromptItemUsageAction): Promise<void> => {
+      const key = directUseKey(item, action);
+      const activeSubmission = preparedUsePromises.get(key);
+      if (activeSubmission) {
+        return activeSubmission;
+      }
+
+      let trackedSubmission: Promise<void>;
+      trackedSubmission = completeUse(item, content, action).finally(() => {
+        if (preparedUsePromises.get(key) === trackedSubmission) {
+          preparedUsePromises.delete(key);
+        }
+      });
+      preparedUsePromises.set(key, trackedSubmission);
+      return trackedSubmission;
+    },
+    [completeUse, preparedUsePromises]
   );
 
   const requestUse = useCallback(
@@ -1229,7 +1239,7 @@ export function PromptWorkbenchPanel({
       {pendingUse ? (
         <PreparePromptDialog
           onClose={() => setPendingUse(null)}
-          onPrepared={(content) => completeUse(pendingUse.item, content, pendingUse.action)}
+          onPrepared={(content) => completePreparedUse(pendingUse.item, content, pendingUse.action)}
           pendingUse={pendingUse}
         />
       ) : null}
