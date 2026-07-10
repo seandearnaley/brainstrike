@@ -317,6 +317,56 @@ function resolveAskToolsForRun(
   return { askTools: gateResult.askTools, tools: gateResult.tools };
 }
 
+interface GatedToolMapParams {
+  readonly hasStorage: boolean;
+  readonly hookedTools: ToolsInput;
+  readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
+  readonly planModeActive: boolean;
+  readonly toolNameMap: Map<string, string>;
+}
+
+/**
+ * Assemble the FINAL tool map the Agent receives: plan-mode filter → permission
+ * gate → suspend-storage gate. Extracted from `createMastraAgentRuntime` so the
+ * plan/permission/suspend conditionals live in one cohesive place (and keep the
+ * runtime builder under the cognitive-complexity ceiling). Each stage only omits
+ * tools; see the inline invariants at the call site.
+ */
+function resolveGatedToolMap(params: GatedToolMapParams): {
+  readonly gatedTools: ToolsInput;
+  readonly askTools: ResolvedAskTools['askTools'];
+} {
+  const planFilteredTools = params.planModeActive
+    ? filterToolsForPlanMode(
+        params.hookedTools,
+        params.toolNameMap,
+        params.permissionSnapshot?.riskByTool ?? buildNativeToolRiskMap(),
+        logger
+      )
+    : params.hookedTools;
+
+  const gateResult = filterToolsByPermissionWithMetadata(
+    planFilteredTools,
+    params.permissionSnapshot,
+    params.toolNameMap,
+    logger
+  );
+  const { tools: askResolvedTools, askTools } = resolveAskToolsForRun(
+    gateResult,
+    params.hasStorage
+  );
+  // Fail-safe: a tool that pauses via suspend() cannot resume without workflow
+  // storage, so omit the suspending tools when storage is absent (never run one
+  // that would wedge the run — no-silent-fallbacks).
+  const gatedTools = resolveSuspendToolsForRun(
+    askResolvedTools,
+    params.hasStorage,
+    params.toolNameMap,
+    logger
+  );
+  return { askTools, gatedTools };
+}
+
 interface PersonaRuntimeParts {
   delegationToolPersonas: ReadonlyMap<string, string>;
   hasSubAgents: boolean;
@@ -486,31 +536,13 @@ export async function createMastraAgentRuntime(
   // dropped regardless of allow/ask/deny). The risk map is the authoritative
   // static registry classification (never client-supplied).
   const planModeActive = normalizedProvider !== 'local' && sanitizedRuntime.planMode === true;
-  const planFilteredTools = planModeActive
-    ? filterToolsForPlanMode(
-        hookedTools,
-        toolNameMap,
-        permissionSnapshot?.riskByTool ?? buildNativeToolRiskMap(),
-        logger
-      )
-    : hookedTools;
-
-  const gateResult = filterToolsByPermissionWithMetadata(
-    planFilteredTools,
+  const { gatedTools, askTools } = resolveGatedToolMap({
+    hasStorage: Boolean(storage),
+    hookedTools,
     permissionSnapshot,
+    planModeActive,
     toolNameMap,
-    logger
-  );
-  const { tools: askResolvedTools, askTools } = resolveAskToolsForRun(gateResult, Boolean(storage));
-  // Fail-safe: a tool that pauses via suspend() cannot resume without workflow
-  // storage, so omit the suspending tools when storage is absent (never run one
-  // that would wedge the run — no-silent-fallbacks).
-  const gatedTools = resolveSuspendToolsForRun(
-    askResolvedTools,
-    Boolean(storage),
-    toolNameMap,
-    logger
-  );
+  });
 
   // Create provider-specific model instance. The DISCOVERY path passes
   // `modelOverride` (an inert listing-only model) so provider/model are never

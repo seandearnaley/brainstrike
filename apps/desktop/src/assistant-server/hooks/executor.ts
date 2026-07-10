@@ -72,6 +72,32 @@ function parseStdout(stdout: string): HookStdout | undefined {
   return;
 }
 
+const isWindows = process.platform === 'win32';
+
+/**
+ * SIGKILL the hook and EVERY process it spawned. Killing only the shell
+ * (`child.kill`) leaves a grandchild (e.g. the `sleep` in `sh -c 'sleep 5'`,
+ * when the shell forks rather than exec's it) orphaned — and because that
+ * grandchild inherited the shell's stdout/stderr pipe fds, Node's `'close'`
+ * event does NOT fire until the orphan itself exits, defeating the timeout
+ * bound entirely. On POSIX the child is spawned `detached` (its own process
+ * group), so `process.kill(-pid)` signals the whole group; the orphan dies and
+ * the pipes close immediately.
+ */
+function killHookTree(child: ReturnType<typeof spawn>): void {
+  if (isWindows || typeof child.pid !== 'number') {
+    child.kill('SIGKILL');
+    return;
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    // Group already gone (raced with normal exit) or unsignalable — fall back
+    // to the direct child so we never leave the timer's kill un-attempted.
+    child.kill('SIGKILL');
+  }
+}
+
 function executeHook(
   hook: LoadedHook,
   stdin: HookStdin,
@@ -79,7 +105,6 @@ function executeHook(
 ): Promise<HookResult> {
   const timeout = timeoutOverrideMs ?? hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS;
   const startTime = Date.now();
-  const isWindows = process.platform === 'win32';
   const shell = isWindows ? 'cmd' : '/bin/sh';
   const shellArgs = isWindows ? ['/c', hook.definition.command] : ['-c', hook.definition.command];
 
@@ -90,6 +115,9 @@ function executeHook(
     // in the encrypted keychain, never in the assistant-server process env.
     const child = spawn(shell, shellArgs, {
       cwd: hook.source.cwd,
+      // POSIX: own process group so the timeout can group-kill the whole tree
+      // (see killHookTree). Windows has no process groups here.
+      detached: !isWindows,
       env: { ...process.env, BRAINSTRIKE_HOOK_EVENT: stdin.hook_event_name },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -101,7 +129,7 @@ function executeHook(
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      killHookTree(child);
     }, timeout);
     timer.unref?.();
 
