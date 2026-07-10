@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildAppCommandContext, createAppCommandRegistry } from '../command-registry';
 import { buildAppActionRegistryParts } from '../context-action-registry';
 import {
+  mergeSlashCommands,
   runSlashCommand,
   type SlashCommandFailureToast,
   selectSlashCommandSource,
@@ -95,6 +96,43 @@ describe('selectSlashCommandSource (slash-command projection)', () => {
     const ids = selectSlashCommandSource(registry, context).map((command) => command.id);
     expect(ids).toContain('thread.new');
     expect(ids).not.toContain('workspace.factory-reset');
+  });
+});
+
+describe('mergeSlashCommands (F4: app-vs-user id collision)', () => {
+  it('drops a user command whose id collides with an app command, keeping the app command, and warns once', () => {
+    configureLogger({ console: false });
+    const records: LogRecord[] = [];
+    const stop = addLogListener((record) => records.push(record));
+    const logger = createLogger('AssistantSlashCommands');
+    const warnedCollisionIds = new Set<string>();
+
+    const appCommands = [{ execute: () => {}, id: 'thread.new', label: 'New thread' }];
+    // A repo file named `thread.new.md` derives id `thread.new` — a direct collision.
+    const userCommands = [
+      { execute: () => {}, id: 'thread.new', label: 'My template' },
+      { execute: () => {}, id: 'review', label: 'Review' },
+    ];
+
+    let merged: ReturnType<
+      typeof mergeSlashCommands<{ execute: () => void; id: string; label: string }>
+    >;
+    try {
+      merged = mergeSlashCommands(appCommands, userCommands, { logger, warnedCollisionIds });
+      // Idempotent second call must NOT warn again (warn-once).
+      mergeSlashCommands(appCommands, userCommands, { logger, warnedCollisionIds });
+    } finally {
+      stop();
+    }
+
+    // The colliding user command never reaches the adapter list; the app one stays.
+    expect(merged.map((command) => command.id)).toEqual(['thread.new', 'review']);
+    expect(merged.filter((command) => command.id === 'thread.new')).toHaveLength(1);
+    expect(merged.find((command) => command.id === 'thread.new')?.label).toBe('New thread');
+    const collisionWarnings = records.filter(
+      (record) => record.level === 'warn' && record.message?.toLowerCase().includes('collide')
+    );
+    expect(collisionWarnings).toHaveLength(1);
   });
 });
 

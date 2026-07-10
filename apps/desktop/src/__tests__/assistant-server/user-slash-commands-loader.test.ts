@@ -2,6 +2,8 @@ import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/ut
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetUserCommandWarningsForTests,
+  MAX_USER_COMMAND_FILE_CHARS,
+  MAX_USER_COMMANDS,
   scanUserSlashCommands,
   type UserSlashCommandScanDeps,
   type UserSlashCommandScanRoot,
@@ -186,6 +188,65 @@ describe('scanUserSlashCommands', () => {
   it('tolerates missing directories (returns no commands, no throw)', () => {
     const deps = makeDeps({ dirs: {}, files: {} });
     expect(scanUserSlashCommands({ homeDir: HOME, roots: [] }, deps)).toEqual([]);
+  });
+
+  it('F3: skips an oversized command file with a visible warn-once and keeps the rest', () => {
+    const oversized = 'x'.repeat(MAX_USER_COMMAND_FILE_CHARS + 1);
+    const deps = makeDeps({
+      dirs: {
+        [`${HOME}/.brainstrike/commands`]: [
+          { kind: 'file', name: 'huge.md' },
+          { kind: 'file', name: 'ok.md' },
+        ],
+      },
+      files: {
+        [`${HOME}/.brainstrike/commands/huge.md`]: oversized,
+        [`${HOME}/.brainstrike/commands/ok.md`]: 'fine',
+      },
+    });
+
+    const { records, stop } = captureLogs();
+    let commands: ReturnType<typeof scanUserSlashCommands>;
+    try {
+      commands = scanUserSlashCommands({ homeDir: HOME, roots: [] }, deps);
+    } finally {
+      stop();
+    }
+
+    expect(commands.map((command) => command.id)).toEqual(['ok']);
+    expect(
+      records.some(
+        (record) => record.level === 'warn' && record.message?.toLowerCase().includes('oversized')
+      )
+    ).toBe(true);
+  });
+
+  it('F3: caps the total command count with a visible warn and ignores the rest', () => {
+    const overCount = MAX_USER_COMMANDS + 5;
+    const names = Array.from({ length: overCount }, (_unused, index) => `cmd${index}.md`);
+    const files: Record<string, string> = {};
+    for (const name of names) {
+      files[`${HOME}/.brainstrike/commands/${name}`] = 'body';
+    }
+    const deps = makeDeps({
+      dirs: { [`${HOME}/.brainstrike/commands`]: names.map((name) => ({ kind: 'file', name })) },
+      files,
+    });
+
+    const { records, stop } = captureLogs();
+    let commands: ReturnType<typeof scanUserSlashCommands>;
+    try {
+      commands = scanUserSlashCommands({ homeDir: HOME, roots: [] }, deps);
+    } finally {
+      stop();
+    }
+
+    expect(commands).toHaveLength(MAX_USER_COMMANDS);
+    expect(
+      records.some(
+        (record) => record.level === 'warn' && record.message?.toLowerCase().includes('cap')
+      )
+    ).toBe(true);
   });
 
   it('skips non-.md files and empty templates', () => {

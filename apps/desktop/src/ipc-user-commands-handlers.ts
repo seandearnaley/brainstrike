@@ -13,11 +13,12 @@
  * the failure is logged).
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
+  MAX_USER_COMMAND_FILE_CHARS,
   scanUserSlashCommands,
   type UserSlashCommandScanDeps,
   type UserSlashCommandScanRoot,
@@ -54,6 +55,13 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
     },
     readFile: (absFile) => {
       try {
+        // Bound the read BEFORE pulling untrusted bytes into the main process:
+        // a giant file would block main and (unbounded) balloon renderer memory
+        // over IPC. Oversized files are skipped (the loader re-checks length and
+        // emits the visible warn); never a blocking multi-hundred-MB read.
+        if (statSync(absFile).size > MAX_USER_COMMAND_FILE_CHARS) {
+          return null;
+        }
         return readFileSync(absFile, 'utf8');
       } catch {
         return null;

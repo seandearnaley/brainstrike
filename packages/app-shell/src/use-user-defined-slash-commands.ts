@@ -6,12 +6,20 @@ import {
   type UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { useToast } from '@brainstrike/ui';
 import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 
 const logger = createLogger('UserSlashCommands');
+
+/** Narrow toast shape (kept minimal so the hook does not couple to the full UI toast type). */
+type UserCommandToast = (input: {
+  description: string;
+  title: string;
+  variant: 'destructive';
+}) => void;
 
 const EMPTY_RESULT: UserSlashCommandsListResult = { commands: [], roots: [] };
 
@@ -68,10 +76,19 @@ function resolveMentionRootId(
 function applyUserCommand(
   command: UserSlashCommandDescriptor,
   roots: readonly UserSlashCommandRoot[],
-  threadId: string | undefined
+  threadId: string | undefined,
+  toast: UserCommandToast
 ): void {
   if (!threadId) {
+    // The window is narrow (a thread is auto-created on load), but here the
+    // library has already stripped the typed `/command` text — surface a visible
+    // toast rather than vanishing the input silently (no-silent-degradation).
     logger.warn('Cannot apply slash command without an active thread', { id: command.id });
+    toast({
+      description: 'Open or start a thread, then try the command again.',
+      title: 'No active thread',
+      variant: 'destructive',
+    });
     return;
   }
   const store = useAssistantComposerCommandStore.getState();
@@ -103,15 +120,20 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
   // Subscribe to the mounted roots ONLY as a refresh trigger.
   const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
   const [list, setList] = useState<UserSlashCommandsListResult>(EMPTY_RESULT);
+  const { toast } = useToast();
 
-  // Keep the latest threadId in a ref so `execute` reads the current thread at
+  // Keep the latest threadId + toast in refs so `execute` reads current values at
   // call time without rebuilding every command closure on each thread switch.
   const threadIdRef = useRef(threadId);
   threadIdRef.current = threadId;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     if (!bridge) {
-      return;
+      return () => {
+        // no-op cleanup when the desktop bridge is absent (web)
+      };
     }
     let cancelled = false;
     bridge()
@@ -126,16 +148,36 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
     return () => {
       cancelled = true;
     };
-  }, [bridge, activeRootIds]);
+  }, [bridge]);
+
+  // Reload on mount and whenever the mounted roots change.
+  useEffect(() => reload(), [reload, activeRootIds]);
+
+  // F9: refresh when the window regains visibility so a command file edited/added
+  // while the app was backgrounded appears without a full reload (the IPC is
+  // cheap; the list loads once per mount otherwise). Web has no bridge → no-op.
+  useEffect(() => {
+    if (!bridge || typeof document === 'undefined') {
+      return;
+    }
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') {
+        reload();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [bridge, reload]);
 
   return useMemo<readonly SlashCommand[]>(
     () =>
       list.commands.map((command) => ({
         execute: () => {
-          applyUserCommand(command, list.roots, threadIdRef.current);
+          applyUserCommand(command, list.roots, threadIdRef.current, toastRef.current);
         },
         id: command.id,
         label: command.label,
+        ...(command.description === undefined ? {} : { description: command.description }),
       })),
     [list]
   );

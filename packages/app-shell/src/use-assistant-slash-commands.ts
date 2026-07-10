@@ -3,13 +3,17 @@ import { usePGliteDatabase } from '@brainstrike/db';
 import { useToast } from '@brainstrike/ui';
 import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import {
   buildAppActionRegistryParts,
   buildAppCommandContext,
   createAppCommandRegistry,
 } from './command-registry';
-import { runSlashCommand, selectSlashCommandSource } from './slash-command-source';
+import {
+  mergeSlashCommands,
+  runSlashCommand,
+  selectSlashCommandSource,
+} from './slash-command-source';
 import { useGlobalCommandHandlers } from './use-global-command-handlers';
 import { useUserDefinedSlashCommands } from './use-user-defined-slash-commands';
 
@@ -87,8 +91,15 @@ export function useAssistantSlashCommands(threadId: string | undefined): readonl
 
   const userCommands = useUserDefinedSlashCommands(threadId);
 
+  // App-lifetime warn-once set for app-vs-user id collisions (F4).
+  const warnedCollisionIds = useRef<Set<string>>(new Set());
+
   return useMemo<readonly SlashCommand[]>(
-    () => [...appCommands, ...userCommands],
+    () =>
+      mergeSlashCommands(appCommands, userCommands, {
+        logger,
+        warnedCollisionIds: warnedCollisionIds.current,
+      }),
     [appCommands, userCommands]
   );
 }

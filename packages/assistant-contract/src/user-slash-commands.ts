@@ -67,10 +67,12 @@ const FRONTMATTER_FENCE = '---';
  * existing `.claude/commands` files load without modification.
  */
 export function parseUserCommandFile(content: string): ParsedUserCommandFile {
-  const normalized = content.replace(/\r\n/g, '\n');
+  // Strip a leading UTF-8 BOM so a BOM-prefixed `---` still opens frontmatter
+  // (otherwise the whole file — fences included — leaks into the template).
+  const normalized = content.replace(/^﻿/, '').replace(/\r\n/g, '\n');
   const lines = normalized.split('\n');
   if (lines[0] !== FRONTMATTER_FENCE) {
-    return { ok: true, template: content };
+    return { ok: true, template: normalized };
   }
 
   let closingIndex = -1;
@@ -88,7 +90,15 @@ export function parseUserCommandFile(content: string): ParsedUserCommandFile {
   let description: string | undefined;
   for (let index = 1; index < closingIndex; index += 1) {
     const line = lines[index] ?? '';
-    if (line.trim().length === 0) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    // Tolerate (ignore) Claude Code multiline-YAML continuation lines: list
+    // items (`- Read`) and comments (`# note`). Only `name`/`description` are
+    // recognized, so their VALUES never span lines; a bare list/comment line is
+    // legal frontmatter we skip rather than fail closed on.
+    if (trimmed.startsWith('-') || trimmed.startsWith('#')) {
       continue;
     }
     const separatorIndex = line.indexOf(':');
@@ -138,10 +148,13 @@ function escapeRegExp(value: string): string {
 
 /**
  * Read the raw argument string the user typed after `/commandId` in the LIVE
- * composer text (the documented assistant-ui "Commands with Arguments" pattern:
- * `execute` runs before the trigger text is removed, so the args are still
- * present). Returns `''` when the command was selected with no arguments, and
- * `null` when the composer does not invoke the command at all.
+ * composer text. NOTE (F1): the pinned `@assistant-ui/react` trigger popover
+ * closes at the FIRST whitespace after `/id`, so in the normal selection flow
+ * this returns `''` (no inline args are reachable). Arguments are only present
+ * via the cursor-before-args edge flow; when empty, {@link
+ * expandUserCommandTemplate} leaves the `$ARGUMENTS`/`$N` tokens visible for the
+ * user to fill in the composer. Returns `null` when the composer does not invoke
+ * the command at all.
  */
 export function extractUserCommandArgString(
   composerText: string,
@@ -155,10 +168,14 @@ export function extractUserCommandArgString(
   return (match[1] ?? '').trim();
 }
 
-const ARGUMENTS_TOKEN = /\$ARGUMENTS\b/g;
-const POSITIONAL_TOKEN = /\$(\d+)/g;
-// A path mention: `@` at the start or after whitespace, then a non-space run.
-const MENTION_TOKEN = /(^|\s)@(\S+)/g;
+// Combined token scanner: a `@path` mention (`@` at start/after whitespace, then
+// a non-space run) OR a `$ARGUMENTS` / `$<digits>` argument token. A SINGLE pass
+// with a function replacement guarantees substituted text is never re-scanned
+// (F2): `$100` inside an inserted arg stays literal, and a user-typed `@` in an
+// arg is never promoted to a file directive.
+const TEMPLATE_TOKEN = /(^|\s)@(\S+)|\$ARGUMENTS\b|\$(\d+)/g;
+// The same argument tokens, for substituting args WITHIN a template @path.
+const ARG_TOKEN = /\$ARGUMENTS\b|\$(\d+)/g;
 
 function basename(pathValue: string): string {
   const segments = pathValue.split('/');
@@ -166,18 +183,56 @@ function basename(pathValue: string): string {
 }
 
 /**
- * Expand a command template with the user's arguments. Three deterministic,
- * renderer-safe passes (NO filesystem, NO shell):
+ * Substitute one `$ARGUMENTS` / `$<digits>` token. A FILLED token expands to its
+ * value; an ABSENT token (empty arg string, or a positional past the end) is
+ * left LITERAL (`whole`) so it stays a visible placeholder the user can fill —
+ * never a silent empty blank (F1).
+ */
+function substituteArgToken(
+  whole: string,
+  digits: string | undefined,
+  argString: string,
+  positional: readonly string[]
+): string {
+  if (digits === undefined) {
+    return argString.length > 0 ? argString : whole;
+  }
+  const value = positional[Number.parseInt(digits, 10) - 1];
+  return value ?? whole;
+}
+
+function substituteArgsInText(
+  text: string,
+  argString: string,
+  positional: readonly string[]
+): string {
+  return text.replace(ARG_TOKEN, (whole, digits: string | undefined) =>
+    substituteArgToken(whole, digits, argString, positional)
+  );
+}
+
+/**
+ * Expand a command template with the user's arguments in ONE deterministic,
+ * renderer-safe pass (NO filesystem, NO shell):
  *
- * 1. `@path` tokens IN THE TEMPLATE become `:file[basename]{name=rootId::path}`
- *    directives when `mentionRootId` is bound; otherwise they stay literal text
- *    (the caller decides binding — a global command in a multi-root workspace has
- *    no unambiguous root, so it leaves the token for the user's `@` popover).
- *    Only template `@paths` are converted — user-supplied argument text is
- *    inserted verbatim in pass 3, so a `@` typed as an argument is never
- *    silently promoted to a file reference.
- * 2. `$ARGUMENTS` → the full argument string.
- * 3. `$1..$N` → positional arguments (missing positions expand to empty).
+ * - `@path` tokens IN THE TEMPLATE become `:file[basename]{name=rootId::path}`
+ *   directives when `mentionRootId` is bound; otherwise they stay literal text
+ *   (the caller decides binding — a global command in a multi-root workspace has
+ *   no unambiguous root, so it leaves the token for the user's `@` popover).
+ *   Argument tokens INSIDE a template `@path` (e.g. `@src/$1`) are substituted
+ *   BEFORE the directive is serialized, so a `}` in the arg is properly
+ *   percent-encoded by {@link encodeFileMentionId} and cannot truncate the
+ *   `{name=…}` attribute into a different file (F2). Only template `@paths`
+ *   convert — user-supplied argument text is inserted verbatim, so a `@` typed
+ *   as an argument is never silently promoted to a file reference.
+ * - `$ARGUMENTS` → the full argument string (or a visible placeholder when no
+ *   args were provided — the normal live flow, see {@link
+ *   extractUserCommandArgString}).
+ * - `$1..$N` → positional arguments (absent positions stay visible placeholders).
+ *
+ * Single-pass by construction: because the whole template is scanned once with a
+ * function replacement, inserted argument text is NEVER re-scanned — a `$100` or
+ * `$1` the user types as an argument survives verbatim (F2).
  *
  * There is deliberately NO handling of `!`command`` shell syntax — it is passed
  * through as inert text. Adding shell expansion (gated or not) is out of scope
@@ -189,24 +244,29 @@ export function expandUserCommandTemplate(input: {
   readonly template: string;
 }): string {
   const { argString, mentionRootId, template } = input;
+  const trimmedArgs = argString.trim();
+  const positional = trimmedArgs.length > 0 ? trimmedArgs.split(/\s+/) : [];
 
-  const withMentions = template.replace(MENTION_TOKEN, (whole, lead: string, path: string) => {
-    if (!mentionRootId) {
-      return whole;
+  return template.replace(
+    TEMPLATE_TOKEN,
+    (
+      whole: string,
+      lead: string | undefined,
+      mentionPath: string | undefined,
+      digits: string | undefined
+    ) => {
+      if (mentionPath !== undefined) {
+        const resolvedPath = substituteArgsInText(mentionPath, trimmedArgs, positional);
+        if (!mentionRootId) {
+          return `${lead ?? ''}@${resolvedPath}`;
+        }
+        const directive = serializeFileMentionDirective({
+          id: encodeFileMentionId(mentionRootId, resolvedPath),
+          label: basename(resolvedPath),
+        });
+        return `${lead ?? ''}${directive}`;
+      }
+      return substituteArgToken(whole, digits, trimmedArgs, positional);
     }
-    const directive = serializeFileMentionDirective({
-      id: encodeFileMentionId(mentionRootId, path),
-      label: basename(path),
-    });
-    return `${lead}${directive}`;
-  });
-
-  const positional = argString.trim().length > 0 ? argString.trim().split(/\s+/) : [];
-
-  return withMentions
-    .replace(ARGUMENTS_TOKEN, () => argString.trim())
-    .replace(POSITIONAL_TOKEN, (_whole, digits: string) => {
-      const index = Number.parseInt(digits, 10) - 1;
-      return positional[index] ?? '';
-    });
+  );
 }

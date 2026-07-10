@@ -9,6 +9,12 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     selector(storeState),
 }));
 
+// Capture toasts (F8) without a Toaster provider: the hook only needs useToast.
+const toastSpy = vi.fn();
+vi.mock('@brainstrike/ui', () => ({
+  useToast: () => ({ toast: toastSpy }),
+}));
+
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { useUserDefinedSlashCommands } from '../use-user-defined-slash-commands';
 
@@ -26,6 +32,7 @@ function setBridge(result: UserSlashCommandsListResult | null): void {
 
 beforeEach(() => {
   useAssistantComposerCommandStore.getState().reset();
+  toastSpy.mockClear();
 });
 
 afterEach(() => {
@@ -148,6 +155,60 @@ describe('useUserDefinedSlashCommands', () => {
     });
     expect(useAssistantComposerCommandStore.getState().commandsByThreadId[THREAD]?.[0]?.text).toBe(
       'Run !`rm -rf /` now'
+    );
+  });
+
+  it('F5: forwards the frontmatter description to the SlashCommand entry', async () => {
+    setBridge({
+      commands: [
+        {
+          description: 'Review a file',
+          id: 'review',
+          label: 'Review',
+          template: 'Review $ARGUMENTS',
+        },
+      ],
+      roots: [],
+    });
+    const { result } = renderHook(() => useUserDefinedSlashCommands(THREAD));
+    await waitFor(() => expect(result.current).toHaveLength(1));
+    expect(result.current[0]?.description).toBe('Review a file');
+  });
+
+  it('F8: surfaces a toast (not console-only) when execute runs with no active thread', async () => {
+    setBridge({
+      commands: [{ id: 'review', label: 'Review', template: 'Review $ARGUMENTS' }],
+      roots: [],
+    });
+    const { result } = renderHook(() => useUserDefinedSlashCommands(undefined));
+    await waitFor(() => expect(result.current).toHaveLength(1));
+
+    act(() => {
+      result.current[0]?.execute();
+    });
+
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'No active thread', variant: 'destructive' })
+    );
+    // Nothing is written to the composer when there is no thread.
+    expect(useAssistantComposerCommandStore.getState().commandsByThreadId).toEqual({});
+  });
+
+  it('F1/placeholder: with no live args, $ARGUMENTS stays a visible placeholder in the composer', async () => {
+    setBridge({
+      commands: [{ id: 'review', label: 'Review', template: 'Review this: $ARGUMENTS' }],
+      roots: [],
+    });
+    // No draft recorded → the normal live-selection state (popover closed at the
+    // first space, so no inline args are reachable).
+    const { result } = renderHook(() => useUserDefinedSlashCommands(THREAD));
+    await waitFor(() => expect(result.current).toHaveLength(1));
+    act(() => {
+      result.current[0]?.execute();
+    });
+    expect(useAssistantComposerCommandStore.getState().commandsByThreadId[THREAD]?.[0]?.text).toBe(
+      'Review this: $ARGUMENTS'
     );
   });
 });

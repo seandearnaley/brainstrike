@@ -61,12 +61,30 @@ export interface UserSlashCommandScanInput {
 
 const MD_EXTENSION = /\.(md|markdown|mdown|mkd)$/i;
 
-// App-lifetime warn-once per colliding id (mirrors use-file-mentions.ts). Reset
-// in tests via __resetUserCommandWarningsForTests.
+/**
+ * Per-file template size cap. Command `.md` files are UNTRUSTED repo content, so
+ * their bytes are bounded before they travel over IPC and into renderer memory
+ * (mirrors the referenced-files / hook-context / write-cap idioms — every other
+ * untrusted-content surface in the codebase is bounded). A prompt template
+ * larger than this is not a prompt template; it is SKIPPED with a visible
+ * warn-once, never silently truncated.
+ */
+export const MAX_USER_COMMAND_FILE_CHARS = 64_000;
+
+/** Hard cap on the number of discovered commands per scan (abuse/DoS bound). */
+export const MAX_USER_COMMANDS = 500;
+
+// App-lifetime warn-once per colliding id (mirrors use-file-mentions.ts) plus
+// per-path oversized warnings and a single count-cap warning. Reset in tests via
+// __resetUserCommandWarningsForTests.
 const warnedCollisionIds = new Set<string>();
+const warnedOversizedPaths = new Set<string>();
+let warnedCountCapReached = false;
 
 export function __resetUserCommandWarningsForTests(): void {
   warnedCollisionIds.clear();
+  warnedOversizedPaths.clear();
+  warnedCountCapReached = false;
 }
 
 function joinPath(base: string, segments: readonly string[]): string {
@@ -103,6 +121,81 @@ function collectMarkdownFiles(
   return files;
 }
 
+/** Warn once when a project-scoped cross-root id collision drops a later root. */
+function warnCrossRootCollision(
+  id: string,
+  source: ScanSource,
+  firstOwner: string | undefined
+): void {
+  if (
+    source.sourceRootId &&
+    firstOwner &&
+    source.sourceRootId !== firstOwner &&
+    !warnedCollisionIds.has(id)
+  ) {
+    warnedCollisionIds.add(id);
+    logger.warn('Duplicate slash command id across roots; keeping the first-mounted root', {
+      droppedRootId: source.sourceRootId,
+      id,
+      keptRootId: firstOwner,
+    });
+  }
+}
+
+/**
+ * Read + parse one command file into a descriptor body (`name`/`description`/
+ * `template`), or `null` when it is unreadable, oversized (F3), malformed, or an
+ * empty template — each skipped with the appropriate visible log, never silently.
+ */
+function readCommandBody(
+  file: { readonly absPath: string },
+  deps: UserSlashCommandScanDeps
+): { name?: string; description?: string; template: string } | null {
+  const content = deps.readFile(file.absPath);
+  if (content === null) {
+    logger.error('Failed to read slash command file', { path: file.absPath });
+    return null;
+  }
+  if (content.length > MAX_USER_COMMAND_FILE_CHARS) {
+    if (!warnedOversizedPaths.has(file.absPath)) {
+      warnedOversizedPaths.add(file.absPath);
+      logger.warn('Skipping oversized slash command file', {
+        cap: MAX_USER_COMMAND_FILE_CHARS,
+        chars: content.length,
+        path: file.absPath,
+      });
+    }
+    return null;
+  }
+  const parsed = parseUserCommandFile(content);
+  if (!parsed.ok) {
+    logger.error('Skipping malformed slash command file', {
+      error: parsed.error,
+      path: file.absPath,
+    });
+    return null;
+  }
+  if (parsed.template.trim().length === 0) {
+    logger.debug('Skipping empty slash command template', { path: file.absPath });
+    return null;
+  }
+  return parsed;
+}
+
+/** Whether the count cap is reached (warn-once on the first time it trips). */
+function isCountCapReached(ordered: readonly UserSlashCommandDescriptor[]): boolean {
+  if (ordered.length < MAX_USER_COMMANDS) {
+    return false;
+  }
+  if (!warnedCountCapReached) {
+    warnedCountCapReached = true;
+    logger.warn('User slash command count cap reached; ignoring the rest', {
+      cap: MAX_USER_COMMANDS,
+    });
+  }
+  return true;
+}
+
 function ingestDirectory(
   baseDir: string,
   source: ScanSource,
@@ -115,6 +208,9 @@ function ingestDirectory(
   files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 
   for (const file of files) {
+    if (isCountCapReached(ordered)) {
+      return;
+    }
     const id = deriveUserCommandId(file.relativePath);
     if (id.length === 0) {
       continue;
@@ -122,38 +218,12 @@ function ingestDirectory(
     if (seen.has(id)) {
       // A collision ACROSS roots in the same tier (both project-scoped) is the
       // meaningful one to surface; a lower-tier duplicate is expected precedence.
-      const firstOwner = seen.get(id);
-      if (
-        source.sourceRootId &&
-        firstOwner &&
-        source.sourceRootId !== firstOwner &&
-        !warnedCollisionIds.has(id)
-      ) {
-        warnedCollisionIds.add(id);
-        logger.warn('Duplicate slash command id across roots; keeping the first-mounted root', {
-          droppedRootId: source.sourceRootId,
-          id,
-          keptRootId: firstOwner,
-        });
-      }
+      warnCrossRootCollision(id, source, seen.get(id));
       continue;
     }
 
-    const content = deps.readFile(file.absPath);
-    if (content === null) {
-      logger.error('Failed to read slash command file', { path: file.absPath });
-      continue;
-    }
-    const parsed = parseUserCommandFile(content);
-    if (!parsed.ok) {
-      logger.error('Skipping malformed slash command file', {
-        error: parsed.error,
-        path: file.absPath,
-      });
-      continue;
-    }
-    if (parsed.template.trim().length === 0) {
-      logger.debug('Skipping empty slash command template', { path: file.absPath });
+    const parsed = readCommandBody(file, deps);
+    if (parsed === null) {
       continue;
     }
 

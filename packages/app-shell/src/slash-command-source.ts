@@ -20,6 +20,38 @@ export function selectSlashCommandSource(
 }
 
 /**
+ * Concatenate app commands with user-defined commands, dropping any user command
+ * whose id COLLIDES with an app command (F4). The pinned adapter's `onExecute`
+ * is find-FIRST, so a listed user row sharing an app id (e.g. a repo file
+ * `thread.new.md` → id `thread.new`) would execute the APP command from the
+ * user's own row — a mislead, plus duplicate React keys. App commands win; the
+ * colliding user command is filtered out (never merely shadowed) with a
+ * warn-once (the `warnedCollisionIds` set is caller-owned for app-lifetime
+ * dedupe + test isolation). Generic over `{ id }` so it stays UI-free.
+ */
+export function mergeSlashCommands<T extends { readonly id: string }>(
+  appCommands: readonly T[],
+  userCommands: readonly T[],
+  deps: { readonly logger: ScopedLogger; readonly warnedCollisionIds: Set<string> }
+): readonly T[] {
+  const appIds = new Set(appCommands.map((command) => command.id));
+  const filteredUserCommands = userCommands.filter((command) => {
+    if (!appIds.has(command.id)) {
+      return true;
+    }
+    if (!deps.warnedCollisionIds.has(command.id)) {
+      deps.warnedCollisionIds.add(command.id);
+      deps.logger.warn(
+        'User slash command id collides with a built-in app command; keeping the app command',
+        { id: command.id }
+      );
+    }
+    return false;
+  });
+  return [...appCommands, ...filteredUserCommands];
+}
+
+/**
  * Narrow destructive-toast callback shape — kept UI-free so this module (and its
  * test) never drags `@brainstrike/ui`. The app passes the real `useToast` toast.
  */
