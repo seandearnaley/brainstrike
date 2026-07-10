@@ -11,7 +11,7 @@ import {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
-  resolveAssistantVendorChunk,
+  isContextActionSystemModule,
 } from '@brainstrike/build-utils';
 import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
@@ -30,19 +30,6 @@ const pinoBrowserPath = require.resolve('pino/browser.js');
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
 const wasmPath = findPGliteWasm(__dirname);
-
-function resolveVendorChunk(id: string): string | undefined {
-  if (!id.includes('node_modules')) {
-    return;
-  }
-
-  const assistantChunk = resolveAssistantVendorChunk(id);
-  if (assistantChunk) {
-    return assistantChunk;
-  }
-
-  return 'vendor';
-}
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' } as const;
@@ -64,7 +51,12 @@ export default defineConfig({
           groups: [
             {
               name(moduleId: string): string | null {
-                return resolveVendorChunk(moduleId) ?? null;
+                // Co-locate the context-action/command system (chunk-init TDZ
+                // guard — see isContextActionSystemModule in build-utils).
+                // Everything else uses rolldown's default reachability-based
+                // splitting so dynamically-imported vendors (mermaid, shiki,
+                // katex, codemirror, …) stay OFF the startup critical path.
+                return isContextActionSystemModule(moduleId) ? 'context-action-system' : null;
               },
             },
           ],

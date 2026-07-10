@@ -71,14 +71,17 @@ describe('web vite config alias contract', () => {
     // chunk-init TDZ ("k is not a function") and #root stays empty (dev is
     // unaffected). The single 'context-action-system' chunk removes that hazard.
     // Removing this silently re-breaks the built web app's boot — keep it pinned.
+    // The helper lives in @brainstrike/build-utils (shared with desktop).
     const config = readWebViteConfig();
 
-    expect(config).toContain('function isContextActionSystemModule(');
-    expect(config).toContain("return 'context-action-system';");
-    // The namer must run the co-location check BEFORE vendor chunking.
-    const coLocationIndex = config.indexOf('isContextActionSystemModule(moduleId)');
-    const vendorFallbackIndex = config.indexOf('resolveVendorChunk(moduleId) ?? null');
-    expect(coLocationIndex).toBeGreaterThanOrEqual(0);
-    expect(vendorFallbackIndex).toBeGreaterThan(coLocationIndex);
+    expect(config).toContain('isContextActionSystemModule,');
+    expect(config).toMatch(
+      /isContextActionSystemModule\(moduleId\)\s*\?\s*'context-action-system'\s*:\s*null/
+    );
+    // No blanket vendor group: it merged lazily-imported libraries (mermaid,
+    // shiki, katex, …) into eagerly-loaded chunks and put ~12 MB of JS on the
+    // startup critical path. Default reachability-based splitting stays.
+    expect(config).not.toContain('resolveVendorChunk');
+    expect(config).not.toContain("return 'vendor'");
   });
 });
