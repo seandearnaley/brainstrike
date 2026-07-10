@@ -546,9 +546,7 @@ if (shouldExposeBridge('electronAPI')) {
       // to run inside one pglite.transaction() and return statements[resultIndex] rows.
       runTransaction: (
         statements: {
-          expectedRowCount?: number;
           params?: unknown[];
-          rowCountMismatchError?: string;
           sql: string;
         }[],
         resultIndex: number,

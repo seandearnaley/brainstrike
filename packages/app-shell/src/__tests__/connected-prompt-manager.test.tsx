@@ -55,7 +55,6 @@ const mocks = vi.hoisted(() => {
     embedPendingPromptItems: vi.fn(),
     embedQueryWithRecovery,
     getAvailableProviders: vi.fn(),
-    importLegacyPromptStore: vi.fn(),
     loadEmbeddingQueue: vi.fn(),
     onLibraryError: vi.fn(),
     onUseError: vi.fn(),
@@ -76,7 +75,6 @@ const repository = {
     modelId: 'Xenova/all-MiniLM-L6-v2',
     modelKey: 'local::Xenova/all-MiniLM-L6-v2',
   }),
-  importSnapshot: vi.fn(),
   list: vi.fn().mockResolvedValue([]),
   listNeedingEmbedding: vi.fn().mockResolvedValue([]),
   markEmbeddingError: vi.fn(),
@@ -93,7 +91,6 @@ vi.mock('@brainstrike/db', async () => {
     PromptItemRepository: class {
       create = repository.create;
       getEmbeddingProfile = repository.getEmbeddingProfile;
-      importSnapshot = repository.importSnapshot;
       list = repository.list;
       listNeedingEmbedding = repository.listNeedingEmbedding;
       markEmbeddingError = repository.markEmbeddingError;
@@ -178,10 +175,6 @@ vi.mock('../assistant-memory-repository', () => ({
     createThread: mocks.createThread,
     renameThread: mocks.renameThread,
   }),
-}));
-
-vi.mock('../prompt-library-legacy-import', () => ({
-  importLegacyPromptStore: mocks.importLegacyPromptStore,
 }));
 
 vi.mock('../prompt-library-embedding', async () => {
@@ -480,12 +473,12 @@ vi.mock('../prompt-workbench-panel', () => ({
 describe('ConnectedPromptManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mocks.assistantProviderSettings.google = {
       googleIncludeThoughts: true,
       googleThinkingLevel: 'high',
       maxOutputTokens: 768,
     };
-    mocks.importLegacyPromptStore.mockResolvedValue({ imported: 0 });
     mocks.getAvailableProviders.mockResolvedValue(['google', 'openai']);
     mocks.loadEmbeddingQueue.mockResolvedValue({ id: 'prompt-embedding-queue' });
     mocks.embedPendingPromptItems.mockResolvedValue([]);
@@ -518,14 +511,11 @@ describe('ConnectedPromptManager', () => {
     });
   });
 
-  it('imports before rendering and projects the active thread, live draft, and enabled LLMs', async () => {
+  it('loads database prompts and projects the active thread, live draft, and enabled LLMs', async () => {
     render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
 
     expect(screen.getByText('Opening Prompt Workbench…')).toBeInTheDocument();
     expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
-    expect(mocks.importLegacyPromptStore).toHaveBeenCalledWith(
-      expect.objectContaining({ recordUsage: mocks.recordUsage })
-    );
     expect(screen.getByTestId('active-thread-id')).toHaveTextContent('thread-active');
     expect(screen.getByTestId('composer-context')).toHaveTextContent('Live draft');
     expect(screen.getByTestId('model-options')).toHaveTextContent('openai::gpt-5.4');
@@ -536,23 +526,19 @@ describe('ConnectedPromptManager', () => {
     );
   });
 
-  it('keeps database prompts available when the retained legacy import is corrupt', async () => {
-    mocks.importLegacyPromptStore.mockRejectedValueOnce(
-      new Error('Legacy prompt store is not valid JSON.')
-    );
+  it('ignores obsolete legacy localStorage without surfacing compatibility UI', async () => {
+    const malformedLegacyValue = '{"version":1,';
+    localStorage.setItem('brainstrike-prompt-store', malformedLegacyValue);
     repository.list.mockResolvedValue([testItem]);
 
     render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
 
     expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
     expect(screen.getByTestId('first-item-embedding-status')).toHaveTextContent('ready');
-    expect(screen.getByTestId('system-error')).toHaveTextContent(/legacy prompt import failed/i);
-    expect(screen.getByTestId('system-error')).toHaveTextContent(/legacy data was retained/i);
-    expect(screen.getByTestId('system-error')).toHaveTextContent(
-      'Legacy prompt store is not valid JSON.'
-    );
+    expect(screen.getByTestId('system-error')).toBeEmptyDOMElement();
+    expect(localStorage.getItem('brainstrike-prompt-store')).toBe(malformedLegacyValue);
     await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalled());
-    expect(screen.getByTestId('system-error')).toHaveTextContent(/legacy prompt import failed/i);
+    expect(screen.getByTestId('system-error')).toBeEmptyDOMElement();
   });
 
   it('keeps an initial database listing failure fatal', async () => {
