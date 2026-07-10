@@ -577,10 +577,12 @@ function PreparePromptDialog({
       await submission;
       setWorking(false);
       onClose();
+      if (submissionRef.current === submission) {
+        submissionRef.current = null;
+      }
     } catch (cause) {
       setError(errorMessage(cause));
       setWorking(false);
-    } finally {
       if (submission && submissionRef.current === submission) {
         submissionRef.current = null;
       }
