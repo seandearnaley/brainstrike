@@ -1,4 +1,11 @@
 import {
+  ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
+  ASSISTANT_EDIT_CHECKPOINT_OPS,
+  type AssistantEditCheckpointCaptureStatus,
+  type AssistantEditCheckpointOp,
+  type AssistantEditCheckpointRecord,
+} from '@brainstrike/assistant-contract';
+import {
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
@@ -229,6 +236,7 @@ export interface AssistantThreadRepository {
     resourceId: string,
     options?: AssistantThreadMessageListOptions
   ) => Promise<readonly AssistantHistoryMessage[]>;
+  listThreadCheckpoints: (threadId: string) => Promise<readonly AssistantEditCheckpointRecord[]>;
   listThreadRunEvents: (
     threadId: string,
     resourceId: string
@@ -680,6 +688,60 @@ function toThreadRunEvent(row: Record<string, unknown>): AssistantRunEvent {
     throw new Error('Invalid assistant run event row: sequence is not valid.');
   }
   return event;
+}
+
+function requireCheckpointOp(value: unknown): AssistantEditCheckpointOp {
+  if (
+    typeof value === 'string' &&
+    (ASSISTANT_EDIT_CHECKPOINT_OPS as readonly string[]).includes(value)
+  ) {
+    return value as AssistantEditCheckpointOp;
+  }
+  throw new Error(`Invalid edit checkpoint row: op "${String(value)}" is not valid.`);
+}
+
+function requireCheckpointCaptureStatus(value: unknown): AssistantEditCheckpointCaptureStatus {
+  if (
+    typeof value === 'string' &&
+    (ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES as readonly string[]).includes(value)
+  ) {
+    return value as AssistantEditCheckpointCaptureStatus;
+  }
+  throw new Error(`Invalid edit checkpoint row: capture_status "${String(value)}" is not valid.`);
+}
+
+function nullableInteger(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toEditCheckpointRecord(row: Record<string, unknown>): AssistantEditCheckpointRecord {
+  const revertedAt = normalizeNullableDate(getRowValue(row, 'revertedAt', 'reverted_at'));
+  return {
+    afterExisted: Boolean(getRowValue(row, 'afterExisted', 'after_existed')),
+    afterHash: nullableString(getRowValue(row, 'afterHash', 'after_hash')),
+    beforeExisted: Boolean(getRowValue(row, 'beforeExisted', 'before_existed')),
+    beforeHash: nullableString(getRowValue(row, 'beforeHash', 'before_hash')),
+    beforeSize: nullableInteger(getRowValue(row, 'beforeSize', 'before_size')),
+    captureStatus: requireCheckpointCaptureStatus(
+      getRowValue(row, 'captureStatus', 'capture_status')
+    ),
+    fromPath: nullableString(getRowValue(row, 'fromPath', 'from_path')),
+    id: requireString(row['id'], 'id'),
+    occurredAt: normalizeDate(getRowValue(row, 'occurredAt', 'occurred_at')).toISOString(),
+    op: requireCheckpointOp(row['op']),
+    path: requireString(row['path'], 'path'),
+    resourceId: requireString(getRowValue(row, 'resourceId', 'resource_id'), 'resourceId'),
+    revertedAt: revertedAt ? revertedAt.toISOString() : null,
+    rootId: requireString(getRowValue(row, 'rootId', 'root_id'), 'rootId'),
+    runId: requireString(getRowValue(row, 'runId', 'run_id'), 'runId'),
+    threadId: requireString(getRowValue(row, 'threadId', 'thread_id'), 'threadId'),
+    toolCallId: nullableString(getRowValue(row, 'toolCallId', 'tool_call_id')),
+    toolName: requireString(getRowValue(row, 'toolName', 'tool_name'), 'toolName'),
+  };
 }
 
 function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunRecord {
@@ -1458,6 +1520,42 @@ export function createPgliteAssistantThreadRepository(
     return result.rows.map(toThreadRunRecord);
   };
 
+  const listThreadCheckpoints = async (
+    threadId: string
+  ): Promise<readonly AssistantEditCheckpointRecord[]> => {
+    await initialize();
+    // Read-through only (Path A, like listThreadRunEvents). Queried across ALL
+    // runs (not narrowed to the latest run) so past turns' edit cards stay
+    // revertible after reload. before_content is intentionally NOT selected —
+    // the raw prior bytes never leave the main process; revert reads them there.
+    const result = await database.query<Record<string, unknown>>(
+      `SELECT
+          id,
+          run_id AS "runId",
+          resource_id AS "resourceId",
+          thread_id AS "threadId",
+          tool_call_id AS "toolCallId",
+          tool_name AS "toolName",
+          op,
+          root_id AS "rootId",
+          path,
+          from_path AS "fromPath",
+          before_existed AS "beforeExisted",
+          before_hash AS "beforeHash",
+          before_size AS "beforeSize",
+          after_existed AS "afterExisted",
+          after_hash AS "afterHash",
+          capture_status AS "captureStatus",
+          reverted_at AS "revertedAt",
+          occurred_at AS "occurredAt"
+       FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
+       WHERE thread_id = $1
+       ORDER BY occurred_at ASC, id ASC`,
+      [threadId]
+    );
+    return result.rows.map(toEditCheckpointRecord);
+  };
+
   const listThreadRunEvents = async (
     threadId: string,
     resourceId: string
@@ -1774,6 +1872,7 @@ export function createPgliteAssistantThreadRepository(
         role: requireString(row['role'], 'role'),
       }));
     },
+    listThreadCheckpoints,
     listThreadRunEvents,
     async listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]> {
       await initialize();
