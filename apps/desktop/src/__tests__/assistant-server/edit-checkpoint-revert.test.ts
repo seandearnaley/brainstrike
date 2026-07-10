@@ -194,6 +194,81 @@ describe('revertCheckpointEntry', () => {
     expect(await readDiskFile('c.txt')).toBe('BEFORE');
   });
 
+  it('refuses recreating a deleted file when its path is now occupied (conflict)', async () => {
+    // The delete's inverse recreates the file — but a NEW file now sits at that
+    // path. Refuse (no force) and leave the occupant byte-for-byte untouched.
+    const record = await seed({
+      afterExisted: false,
+      afterHash: null,
+      beforeContent: 'GONE',
+      beforeExisted: true,
+      beforeHash: sha256Hex('GONE'),
+      beforeSize: 4,
+      op: 'delete',
+      path: '/d.txt',
+    });
+    await writeDiskFile('d.txt', 'NEW-OCCUPANT');
+
+    const result = await revertCheckpointEntry(db, { id: record.id }, deps());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe('conflict');
+    }
+    expect(await readDiskFile('d.txt')).toBe('NEW-OCCUPANT');
+  });
+
+  it('refuses renaming back when the original from_path is now occupied (conflict)', async () => {
+    // Rename-back moves new-name.txt -> old-name.txt, but a NEW file already
+    // occupies old-name.txt. Refuse and leave BOTH files untouched.
+    await writeDiskFile('new-name.txt', 'MOVED');
+    await writeDiskFile('old-name.txt', 'OCCUPANT');
+    const record = await seed({
+      afterExisted: true,
+      captureStatus: 'rename',
+      fromPath: '/old-name.txt',
+      op: 'rename',
+      path: '/new-name.txt',
+    });
+
+    const result = await revertCheckpointEntry(db, { id: record.id }, deps());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe('conflict');
+    }
+    expect(await readDiskFile('new-name.txt')).toBe('MOVED');
+    expect(await readDiskFile('old-name.txt')).toBe('OCCUPANT');
+  });
+
+  it('stamps reverted_at even when reindex throws (reindex is non-fatal)', async () => {
+    // The disk mutation succeeded; a failing reindex must NOT strand the file
+    // reverted-on-disk-but-unstamped. The revert reports ok and reverted_at set.
+    await writeDiskFile('t.txt', 'AFTER');
+    const record = await seed({
+      afterHash: sha256Hex('AFTER'),
+      beforeContent: 'BEFORE',
+      beforeHash: sha256Hex('BEFORE'),
+      beforeSize: 6,
+      op: 'write',
+      path: '/t.txt',
+    });
+    const throwingReindex = vi.fn<(action: CheckpointReindexAction) => Promise<void>>(async () => {
+      throw new Error('reindex boom');
+    });
+
+    const result = await revertCheckpointEntry(
+      db,
+      { id: record.id },
+      {
+        reindex: throwingReindex,
+      }
+    );
+    expect(result.ok).toBe(true);
+    expect(await readDiskFile('t.txt')).toBe('BEFORE');
+    if (result.ok) {
+      expect(result.entry.revertedAt).not.toBeNull();
+    }
+  });
+
   it('refuses a skipped_binary entry as not_revertible', async () => {
     const record = await seed({
       beforeContent: null,

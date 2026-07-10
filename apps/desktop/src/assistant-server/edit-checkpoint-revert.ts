@@ -8,6 +8,7 @@ import type {
   AssistantEditCheckpointRecord,
 } from '@brainstrike/agent';
 import { isRevertibleCaptureStatus, withFileLock } from '@brainstrike/agent';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   ensureContainedDirectory,
   resolveWorkspaceLeafMutationPath,
@@ -28,6 +29,32 @@ import {
 import { loadWorkspaceRootsFromDatabase } from './workspace-roots';
 
 const TABLE = 'brainstrike_assistant_edit_checkpoints';
+const logger = createLogger('EditCheckpointRevert');
+
+/**
+ * Wrap the injected reindex seam so a throw is logged, NON-FATAL, and never
+ * propagates: the disk mutation has already succeeded under the file lock, so a
+ * reindex failure must not strand the file reverted-on-disk-but-unstamped (it
+ * would then fail the `afterHash` conflict check on the next attempt, breaking
+ * idempotency). Reindex is a best-effort background trigger — production wires it
+ * to the SAME non-fatal seams the write tools use — so `reverted_at` is always
+ * stamped once the inverse mutation lands. A stale index is self-healing; a lost
+ * reverted_at stamp is not.
+ */
+function withNonFatalReindex(deps: CheckpointRevertDeps): CheckpointRevertDeps {
+  return {
+    reindex: async (action: CheckpointReindexAction): Promise<void> => {
+      try {
+        await deps.reindex(action);
+      } catch (error) {
+        logger.error('Checkpoint revert reindex failed (non-fatal; file already reverted)', {
+          error: error instanceof Error ? error.message : String(error),
+          kind: action.kind,
+        });
+      }
+    },
+  };
+}
 
 /**
  * Reindex actions the revert executor emits after mutating the filesystem. The
@@ -319,6 +346,7 @@ export async function revertCheckpointEntry(
   deps: CheckpointRevertDeps
 ): Promise<AssistantCheckpointRevertResult> {
   const force = args.force ?? false;
+  const safeDeps = withNonFatalReindex(deps);
   try {
     const row = await loadCheckpointRow(db, args.id);
     if (!row) {
@@ -337,13 +365,13 @@ export async function revertCheckpointEntry(
     const rootPath = await resolveRootPathForRow(db, row);
 
     if (row.op === 'rename') {
-      await applyRenameBack(row, rootPath, force, deps);
+      await applyRenameBack(row, rootPath, force, safeDeps);
     } else if (row.op === 'write' && row.captureStatus === 'created') {
-      await applyDeleteCreated(row, rootPath, force, deps);
+      await applyDeleteCreated(row, rootPath, force, safeDeps);
     } else if (row.op === 'delete') {
-      await applyRecreateDeleted(row, rootPath, force, deps);
+      await applyRecreateDeleted(row, rootPath, force, safeDeps);
     } else {
-      await applyRestoreWrite(row, rootPath, force, deps);
+      await applyRestoreWrite(row, rootPath, force, safeDeps);
     }
 
     const entry = await markReverted(db, row.id);

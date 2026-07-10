@@ -1772,6 +1772,11 @@ export function createPgliteAssistantThreadRepository(
             WHERE thread_id = $1
             RETURNING id
           ),
+          deleted_edit_checkpoints AS (
+            DELETE FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
+            WHERE thread_id = $1
+            RETURNING id
+          ),
           deleted_thread AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE id = $1
@@ -1780,6 +1785,7 @@ export function createPgliteAssistantThreadRepository(
          SELECT
           (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
+          (SELECT count(*) FROM deleted_edit_checkpoints) AS deleted_edit_checkpoint_count,
           (SELECT count(*) FROM deleted_thread) AS deleted_thread_count`,
         [threadId, `thread:${threadId}`]
       );
