@@ -2,6 +2,7 @@ import {
   type AnthropicProviderOptions,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
+  type HookTrustRequest,
   type LocalProviderOptions,
   type OpenAiProviderOptions,
   type RuntimeAssistantMemorySettings,
@@ -192,6 +193,7 @@ export function createAssistantThreadRunPromise(args: {
 export function buildAssistantRequestData(args: {
   agentLoopSettings: RuntimeData['agentLoop'] | undefined;
   enabledNativeToolIds: readonly string[];
+  hookTrustRequest?: HookTrustRequest | undefined;
   hostedMemoryBackendAvailable: boolean;
   memoryOptions: RuntimeMemoryOptions;
   memoryResourceId: string | undefined;
@@ -298,6 +300,11 @@ export function buildAssistantRequestData(args: {
   // runtime keeps its passthrough default.
   if (args.permissionPolicyRequest) {
     data['permissionPolicyRequest'] = args.permissionPolicyRequest;
+  }
+  // Hook-trust attestation is presence-means-desktop: only sent on the
+  // data-stream transport (the caller gates it); the server re-hashes disk.
+  if (args.hookTrustRequest) {
+    data['hookTrustRequest'] = args.hookTrustRequest;
   }
   // Plan mode is presence-means-on: only send `true`, never a `false` residue.
   if (args.planMode) {

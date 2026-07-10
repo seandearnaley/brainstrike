@@ -356,6 +356,33 @@ describe('assistant runtime helpers', () => {
     expect(buildAssistantRequestData({ ...baseArgs, planMode: true })['planMode']).toBe(true);
   });
 
+  it('attaches hookTrustRequest only when provided (desktop transport gate)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    // Absent (web / non-data-stream) → nothing attached.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('hookTrustRequest');
+
+    const request = { approvals: [{ approvedAt: 1, rootId: 'r1', sha256: 'hash-1' }] };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, hookTrustRequest: request })['hookTrustRequest']
+    ).toEqual(request);
+  });
+
   it('surfaces the count of selected files from OTHER roots (multi-root, never silently dropped)', () => {
     const data = buildAssistantRequestData({
       agentLoopSettings: { maxSteps: 6 },

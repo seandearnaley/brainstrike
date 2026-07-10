@@ -80,6 +80,7 @@ const GIT_COMMIT_CHANNEL = 'git:commit' as const;
 const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
 const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
+const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
 const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
 const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
@@ -1071,6 +1072,16 @@ if (shouldExposeBridge('git')) {
     status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
     unstage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_UNSTAGE_CHANNEL, rootId, params ?? {}),
+  });
+}
+
+// Hooks trust-review bridge (desktop). Capability-gated: the Hooks settings
+// panel reads a project root's `.brainstrike/hooks.json` (content + sha256) to
+// display before the user approves it. The server remains the trust authority.
+if (shouldExposeBridge('hooks')) {
+  contextBridge.exposeInMainWorld('hooks', {
+    getProjectHooksForReview: (rootId: string, absPath: string) =>
+      ipcRenderer.invoke(HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL, rootId, absPath),
   });
 }
 

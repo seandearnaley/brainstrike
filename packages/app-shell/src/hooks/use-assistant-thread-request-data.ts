@@ -1,4 +1,4 @@
-import type { RuntimeData } from '@brainstrike/assistant-contract';
+import type { HookTrustRequest, RuntimeData } from '@brainstrike/assistant-contract';
 import type {
   RuntimeAssistantMemorySettings,
   RuntimeAssistantObservationalMemorySettings,
@@ -14,6 +14,11 @@ import {
 interface UseAssistantThreadRequestDataArgs {
   readonly agentLoopSettings: RuntimeData['agentLoop'] | undefined;
   readonly enabledNativeToolIds: readonly string[];
+  /**
+   * Opt-in hook-trust attestation; only set on the desktop data-stream
+   * transport (web has no hook runner). The server re-hashes disk independently.
+   */
+  readonly hookTrustRequest?: HookTrustRequest | undefined;
   readonly hostedMemoryBackendAvailable: boolean;
   readonly memoryOptions: RuntimeMemoryOptions;
   readonly memoryResourceId: string | undefined;
@@ -57,6 +62,7 @@ export function useAssistantThreadRequestData({
   agentLoopSettings,
   enabledNativeToolIds,
   hostedMemoryBackendAvailable,
+  hookTrustRequest,
   memoryOptions,
   memoryResourceId,
   modelSettings,
@@ -84,6 +90,7 @@ export function useAssistantThreadRequestData({
       buildAssistantRequestData({
         agentLoopSettings,
         enabledNativeToolIds,
+        hookTrustRequest,
         hostedMemoryBackendAvailable,
         memoryOptions,
         memoryResourceId,
@@ -101,6 +108,7 @@ export function useAssistantThreadRequestData({
     [
       agentLoopSettings,
       enabledNativeToolIds,
+      hookTrustRequest,
       hostedMemoryBackendAvailable,
       memoryOptions,
       memoryResourceId,
