@@ -283,4 +283,23 @@ describe('ActionContextMenu', () => {
     await openMenuOnRow();
     expect(screen.getByRole('menuitem', { name: 'Copy "notes.md"' })).toBeInTheDocument();
   });
+
+  it('renders a semantic platform shortcut without coupling actions to display strings', async () => {
+    const platformSpy = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32');
+    try {
+      const shortcutAction = defineContextAction({
+        appliesTo: ['file-entry'] as const,
+        group: 'copy',
+        id: 'file.copy-shortcut',
+        label: 'Copy',
+        run: () => Promise.resolve({ ok: true }),
+        shortcut: { key: 'C', modifiers: ['primary'] as const },
+      });
+      renderHarness({ localActions: [shortcutAction] });
+      await openMenuOnRow();
+      expect(screen.getByText('Ctrl+C')).toBeInTheDocument();
+    } finally {
+      platformSpy.mockRestore();
+    }
+  });
 });

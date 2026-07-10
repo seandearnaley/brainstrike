@@ -20,7 +20,14 @@ export interface ActionRegistry {
   services: ActionServices;
 }
 
-const GROUP_ORDER: readonly ActionGroup[] = ['tree', 'copy', 'navigate', 'inspect', 'danger'];
+const GROUP_ORDER: readonly ActionGroup[] = [
+  'primary',
+  'tree',
+  'copy',
+  'navigate',
+  'inspect',
+  'danger',
+];
 
 export interface CreateActionRegistryOptions {
   actions: readonly AnyContextAction[];

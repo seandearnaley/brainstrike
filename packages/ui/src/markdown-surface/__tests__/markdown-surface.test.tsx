@@ -143,4 +143,50 @@ describe('MarkdownSurface', () => {
     renderSurface('# a\n', { truncated: true });
     expect(screen.getByText(/truncated/i)).toBeInTheDocument();
   });
+
+  it('snapshots exact text selected entirely inside the surface on contextmenu', () => {
+    const onContextMenuSelection = vi.fn();
+    renderSurface('alpha beta', { onContextMenuSelection, testId: 'md-surface' });
+    const surface = screen.getByTestId('md-surface');
+    const textNode = screen.getByText('alpha beta').firstChild;
+    expect(textNode).not.toBeNull();
+    const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+      anchorNode: textNode,
+      focusNode: textNode,
+      isCollapsed: false,
+      rangeCount: 1,
+      toString: () => '  alpha\n',
+    } as unknown as Selection);
+    try {
+      fireEvent.contextMenu(surface);
+      expect(onContextMenuSelection).toHaveBeenCalledWith({ text: '  alpha\n' });
+    } finally {
+      selectionSpy.mockRestore();
+    }
+  });
+
+  it('rejects a stale selection whose endpoint is outside the surface', () => {
+    const onContextMenuSelection = vi.fn();
+    const { container } = renderSurface('alpha beta', {
+      onContextMenuSelection,
+      testId: 'md-surface',
+    });
+    const surface = screen.getByTestId('md-surface');
+    const internalNode = screen.getByText('alpha beta').firstChild;
+    const outsideNode = document.createTextNode('outside');
+    container.append(outsideNode);
+    const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+      anchorNode: internalNode,
+      focusNode: outsideNode,
+      isCollapsed: false,
+      rangeCount: 1,
+      toString: () => 'alpha outside',
+    } as unknown as Selection);
+    try {
+      fireEvent.contextMenu(surface);
+      expect(onContextMenuSelection).toHaveBeenCalledWith({ text: null });
+    } finally {
+      selectionSpy.mockRestore();
+    }
+  });
 });

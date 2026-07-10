@@ -3,9 +3,12 @@ import {
   type TabFileStatus,
   useTabFileRestoration,
 } from '@brainstrike/file-explorer-hooks';
+import type { FileExplorerState } from '@brainstrike/types';
 import {
+  ActionContextMenu,
   Button,
   CodeSurface,
+  type CodeSurfaceContextMenuSelection,
   cn,
   DropdownMenu,
   DropdownMenuContent,
@@ -13,9 +16,11 @@ import {
   DropdownMenuTrigger,
   isMarkdownPath,
   type OpenFileInTab,
+  useContextMenuTarget,
   useIdeFileEditor,
   useToast,
 } from '@brainstrike/ui';
+import type { MarkdownSurfaceContextMenuSelection } from '@brainstrike/ui/markdown-surface';
 import { resolveRelativePath } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -40,6 +45,7 @@ import {
   useState,
 } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { fileViewerToTarget } from '../context-actions/file-surface-target';
 import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
 import { type FileTab, useTabManager } from '../hooks/use-tab-manager';
 import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
@@ -48,6 +54,7 @@ import {
   type WorkspaceTabSelection,
 } from '../stores/workspace-tab-selection-store';
 import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
+import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { FileTabHeader } from './file-tab-header';
 import { MarkdownPreviewErrorBoundary } from './markdown-preview-error-boundary';
 import { useFileExplorer } from './use-file-explorer-context';
@@ -103,6 +110,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
   const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
     useFileExplorer();
+  const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
   const selectApp = useWorkspaceTabSelectionStore((s) => s.selectApp);
@@ -452,6 +460,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
           fileContents={fileContents}
           isRestoring={isRestoring}
           loadingFiles={loadingFiles}
+          rootDescriptors={rootDescriptors}
           selection={selection}
           tabStatuses={tabStatuses}
           tabs={tabs}
@@ -707,6 +716,7 @@ interface WorkspaceBodyProps {
   readonly fileContents: { [key: string]: string };
   readonly isRestoring: boolean;
   readonly loadingFiles: Set<string>;
+  readonly rootDescriptors: FileExplorerState['rootDescriptors'];
   readonly selection: WorkspaceTabSelection;
   readonly tabStatuses: Map<string, TabFileStatus>;
   readonly tabs: FileTab[];
@@ -727,6 +737,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   tabs,
   fileContents,
   loadingFiles,
+  rootDescriptors,
   tabStatuses,
   isRestoring,
 }) {
@@ -774,6 +785,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   const status = tabStatuses.get(tab.compositeKey);
   const isLoading = loadingFiles.has(tab.compositeKey);
   const content = fileContents[tab.compositeKey];
+  const rootPath = getTabRootPath(tab, rootDescriptors);
   return (
     <div
       aria-labelledby={`workspace-file-tab-${tab.id}`}
@@ -786,6 +798,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
         isLoading={isLoading}
         isRestoring={isRestoring}
         key={tab.compositeKey}
+        rootPath={rootPath}
         status={status}
         tab={tab}
       />
@@ -797,11 +810,19 @@ interface FileTabBodyProps {
   readonly content: string | undefined;
   readonly isLoading: boolean;
   readonly isRestoring: boolean;
+  readonly rootPath?: string | null;
   readonly status: TabFileStatus | undefined;
   readonly tab: FileTab;
 }
 
-function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBodyProps) {
+function FileTabBody({
+  tab,
+  content,
+  isLoading,
+  isRestoring,
+  rootPath = null,
+  status,
+}: FileTabBodyProps) {
   const path = useMemo(() => {
     try {
       return decodeFileSelection(tab.compositeKey).path;
@@ -822,6 +843,9 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
   const capabilities = useMarkdownPreviewCapabilities();
   const { toast } = useToast();
   const ideEditor = useIdeFileEditor();
+  const contextMenuController = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget, targetRef: contextMenuTargetRef } =
+    contextMenuController;
 
   // A line-targeted open (search match) forces source for THIS open only; the
   // user's persisted preference is untouched. Captured once on mount (FileTabBody
@@ -855,6 +879,47 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     },
     [setScrollTop, tab.compositeKey]
   );
+
+  const claimViewerContext = useCallback(
+    (selectionText: string | null): void => {
+      const target = fileViewerToTarget(tab, rootPath, {
+        selectionText,
+        viewMode: effectiveMode,
+      });
+      if (!target) {
+        logger.error('Could not resolve file viewer context target', {
+          compositeKey: tab.compositeKey,
+        });
+        setContextMenuTarget(null);
+        return;
+      }
+      setContextMenuTarget(target);
+    },
+    [effectiveMode, rootPath, setContextMenuTarget, tab]
+  );
+
+  const handleCodeContextMenuSelection = useCallback(
+    (selection: CodeSurfaceContextMenuSelection): void => {
+      claimViewerContext(selection.text);
+    },
+    [claimViewerContext]
+  );
+
+  const handleMarkdownContextMenuSelection = useCallback(
+    (selection: MarkdownSurfaceContextMenuSelection): void => {
+      claimViewerContext(selection.text);
+    },
+    [claimViewerContext]
+  );
+
+  const handleViewerContextMenu = useCallback((): void => {
+    // CodeSurface/MarkdownSurface claim an exact semantic selection first.
+    // Header/loading-state right-clicks still get file-level actions, but must
+    // never reuse a selection from an earlier invocation.
+    if (contextMenuTargetRef.current === null) {
+      claimViewerContext(null);
+    }
+  }, [claimViewerContext, contextMenuTargetRef]);
 
   const resolveImage = useCallback(
     async (src: string): Promise<string> => {
@@ -1031,6 +1096,7 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
             <MarkdownSurfaceLazy
               ariaLabel={`Markdown preview for ${path}`}
               initialScrollTop={getScrollTop(`preview:${tab.compositeKey}`)}
+              onContextMenuSelection={handleMarkdownContextMenuSelection}
               onOpenLink={handleOpenLink}
               onScrollTopChange={handlePreviewScrollTopChange}
               resolveImageSrc={resolveImage}
@@ -1047,6 +1113,7 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
           initialScrollTop={getScrollTop(tab.compositeKey)}
           initialSelection={target?.selection}
           key={tab.compositeKey}
+          onContextMenuSelection={handleCodeContextMenuSelection}
           onScrollTopChange={handleScrollTopChange}
           path={path}
           testId="file-code-surface"
@@ -1060,16 +1127,24 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
   const directory = path.slice(0, Math.max(0, path.length - fileName.length - 1));
 
   return (
-    <div className="flex h-full flex-col">
-      <FileTabHeader
-        directory={directory}
-        fileName={fileName}
-        mode={effectiveMode}
-        onModeChange={handleModeChange}
-        showModeToggle={isMarkdown}
-      />
-      <div className="min-h-0 flex-1">{body}</div>
-    </div>
+    <ActionContextMenu controller={contextMenuController}>
+      {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: read-only file viewer exposes a context menu while preserving tabpanel/editor semantics */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: contextmenu is an auxiliary action; keyboard invocation is owned by the focused CodeMirror/preview content */}
+      <div
+        className="flex h-full flex-col"
+        onContextMenu={handleViewerContextMenu}
+        onContextMenuCapture={() => setContextMenuTarget(null)}
+      >
+        <FileTabHeader
+          directory={directory}
+          fileName={fileName}
+          mode={effectiveMode}
+          onModeChange={handleModeChange}
+          showModeToggle={isMarkdown}
+        />
+        <div className="min-h-0 flex-1">{body}</div>
+      </div>
+    </ActionContextMenu>
   );
 }
 
@@ -1096,6 +1171,18 @@ function MissingAppFallback() {
 function getFileName(path: string): string {
   const last = path.split('/').pop();
   return last && last.length > 0 ? last : path;
+}
+
+function getTabRootPath(
+  tab: FileTab,
+  rootDescriptors: FileExplorerState['rootDescriptors']
+): string | null {
+  try {
+    const { folderId } = decodeFileSelection(tab.compositeKey);
+    return rootDescriptors[folderId]?.path ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

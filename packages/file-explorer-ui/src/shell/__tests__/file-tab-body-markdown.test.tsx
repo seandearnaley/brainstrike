@@ -1,7 +1,10 @@
+import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface MockMarkdownSurfaceProps {
+  readonly onContextMenuSelection?: (selection: { text: string | null }) => void;
   readonly onOpenLink: (href: string) => void;
   readonly onScrollTopChange?: (scrollTop: number) => void;
   readonly resolveImageSrc: (src: string) => Promise<string>;
@@ -9,17 +12,32 @@ interface MockMarkdownSurfaceProps {
 }
 
 interface MockCodeSurfaceProps {
+  readonly onContextMenuSelection?: (selection: {
+    from: number;
+    text: string | null;
+    to: number;
+  }) => void;
   readonly onScrollTopChange?: (scrollTop: number) => void;
 }
 
-const { codeSurfaceProps, markdownState, markdownSurfaceProps, openFileInTab, toastFn } =
-  vi.hoisted(() => ({
-    codeSurfaceProps: { current: null as MockCodeSurfaceProps | null },
-    markdownState: { shouldThrow: false },
-    markdownSurfaceProps: { current: null as MockMarkdownSurfaceProps | null },
-    openFileInTab: vi.fn(),
-    toastFn: vi.fn(),
-  }));
+const {
+  codeSurfaceProps,
+  contextSelections,
+  markdownState,
+  markdownSurfaceProps,
+  openFileInTab,
+  toastFn,
+} = vi.hoisted(() => ({
+  codeSurfaceProps: { current: null as MockCodeSurfaceProps | null },
+  contextSelections: {
+    code: null as string | null,
+    markdown: null as string | null,
+  },
+  markdownState: { shouldThrow: false },
+  markdownSurfaceProps: { current: null as MockMarkdownSurfaceProps | null },
+  openFileInTab: vi.fn(),
+  toastFn: vi.fn(),
+}));
 
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/ui')>();
@@ -27,7 +45,20 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     ...actual,
     CodeSurface: (props: MockCodeSurfaceProps) => {
       codeSurfaceProps.current = props;
-      return <div data-testid="file-code-surface" />;
+      return (
+        // biome-ignore lint/a11y/noNoninteractiveElementInteractions: test double must reproduce CodeSurface's contextmenu callback timing
+        // biome-ignore lint/a11y/noStaticElementInteractions: test double must reproduce CodeSurface's contextmenu callback timing
+        <div
+          data-testid="file-code-surface"
+          onContextMenu={() =>
+            props.onContextMenuSelection?.({
+              from: 0,
+              text: contextSelections.code,
+              to: contextSelections.code?.length ?? 0,
+            })
+          }
+        />
+      );
     },
     useIdeFileEditor: () => ({ openFileInTab, registerOpenFileInTab: vi.fn() }),
     useToast: () => ({ toast: toastFn }),
@@ -39,11 +70,21 @@ vi.mock('@brainstrike/ui/markdown-surface', () => ({
       throw new Error('markdown boom');
     }
     markdownSurfaceProps.current = props;
-    return <div data-testid="markdown-surface">{props.value}</div>;
+    return (
+      // biome-ignore lint/a11y/noNoninteractiveElementInteractions: test double must reproduce MarkdownSurface's contextmenu callback timing
+      // biome-ignore lint/a11y/noStaticElementInteractions: test double must reproduce MarkdownSurface's contextmenu callback timing
+      <div
+        data-testid="markdown-surface"
+        onContextMenu={() => props.onContextMenuSelection?.({ text: contextSelections.markdown })}
+      >
+        {props.value}
+      </div>
+    );
   },
 }));
 
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { fileEntryActions } from '../../context-actions/file-entry-actions';
 import { MarkdownPreviewCapabilitiesProvider } from '../../contexts/markdown-preview-capabilities';
 import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
 import { FileTabBodyForTesting as FileTabBody } from '../workspace-tab-host';
@@ -58,24 +99,29 @@ const capabilities = {
 
 function renderBody(compositeKey: string, content = '# Hello', withCapabilities = true) {
   const { path } = decodeFileSelection(compositeKey);
+  const { registry, writtenTexts } = createTestActionRegistry({ actions: fileEntryActions });
   const body = (
     <FileTabBody
       content={content}
       isLoading={false}
       isRestoring={false}
+      rootPath="/root"
       status={undefined}
       tab={{ compositeKey, content: null, id: compositeKey, isLoading: false, path }}
     />
   );
-  return render(
-    withCapabilities ? (
-      <MarkdownPreviewCapabilitiesProvider capabilities={capabilities}>
-        {body}
-      </MarkdownPreviewCapabilitiesProvider>
-    ) : (
-      body
-    )
+  const rendered = render(
+    <ActionRegistryProvider registry={registry}>
+      {withCapabilities ? (
+        <MarkdownPreviewCapabilitiesProvider capabilities={capabilities}>
+          {body}
+        </MarkdownPreviewCapabilitiesProvider>
+      ) : (
+        body
+      )}
+    </ActionRegistryProvider>
   );
+  return { ...rendered, writtenTexts };
 }
 
 async function renderPreview(withCapabilities = true) {
@@ -110,6 +156,8 @@ describe('FileTabBody markdown integration', () => {
     markdownState.shouldThrow = false;
     markdownSurfaceProps.current = null;
     codeSurfaceProps.current = null;
+    contextSelections.code = null;
+    contextSelections.markdown = null;
     // clearAllMocks clears calls but not implementations — re-arm the defaults so a
     // per-test mockResolvedValue (e.g. {ok:false}) never leaks into the next test.
     capabilities.openExternalLink.mockResolvedValue({ ok: true });
@@ -154,6 +202,36 @@ describe('FileTabBody markdown integration', () => {
     fireEvent.click(screen.getByRole('button', { name: /source/i }));
     expect(useEditorViewStateStore.getState().getMode(MD_KEY)).toBe('source');
     expect(screen.queryByTestId('markdown-surface')).not.toBeInTheDocument();
+  });
+
+  describe('context menu selection copy', () => {
+    it('copies the CodeMirror event-time snapshot even if selection changes while the menu is open', async () => {
+      useEditorViewStateStore.getState().setMode(TS_KEY, 'source');
+      contextSelections.code = 'const x';
+      const { writtenTexts } = renderBody(TS_KEY, 'const x = 1;');
+
+      fireEvent.contextMenu(screen.getByTestId('file-code-surface'));
+      const copyItem = await screen.findByRole('menuitem', { name: /copy\s+(ctrl|⌘)/i });
+      contextSelections.code = 'changed later';
+      fireEvent.click(copyItem);
+
+      await waitFor(() => {
+        expect(writtenTexts).toEqual(['const x']);
+      });
+    });
+
+    it('copies an exact Markdown DOM selection snapshot', async () => {
+      contextSelections.markdown = '  Hello\n';
+      const { writtenTexts } = renderBody(MD_KEY, '# Hello');
+      await screen.findByTestId('markdown-surface');
+
+      fireEvent.contextMenu(screen.getByTestId('markdown-surface'));
+      fireEvent.click(await screen.findByRole('menuitem', { name: /copy\s+(ctrl|⌘)/i }));
+
+      await waitFor(() => {
+        expect(writtenTexts).toEqual(['  Hello\n']);
+      });
+    });
   });
 
   describe('scroll persistence slots', () => {

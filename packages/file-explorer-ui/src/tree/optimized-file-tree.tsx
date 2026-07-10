@@ -382,6 +382,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       ? (foreignFolderModel ?? EMPTY_EXPLICIT_SELECTION_MODEL)
       : topLevelSelectionModel;
     const querySelectionManifest = useFileExplorerStoreSelector((s) => s.querySelectionManifest);
+    const contextMenuRootPath = useFileExplorerStoreSelector(
+      (s) => s.rootDescriptors[folderId]?.path ?? null
+    );
     // The limit math (wouldExceedLimit) uses the WHOLE-FOREST union — the
     // cap is a workspace budget, not a per-tree budget. Per-tree display
     // counts come from selectedDirectoryCounts, not this number.
@@ -874,9 +877,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const { setTarget: setContextMenuTarget } = contextMenuController;
     const handleRowContextMenu = useCallback(
       (_nodeId: string, node: TreeNode<FileTreeRowData>, _event: MouseEvent) => {
-        setContextMenuTarget(fileNodeToTarget(node.data.fileNode));
+        setContextMenuTarget(fileNodeToTarget(node.data.fileNode, contextMenuRootPath));
       },
-      [setContextMenuTarget]
+      [contextMenuRootPath, setContextMenuTarget]
     );
 
     // Columns are now STABLE across selection changes. Selection state is handled

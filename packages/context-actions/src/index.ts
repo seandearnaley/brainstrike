@@ -11,6 +11,8 @@ export {
   type ActionGroup,
   type ActionOutcome,
   type ActionServices,
+  type ActionShortcut,
+  type ActionShortcutModifier,
   type AnyContextAction,
   type CapabilityKey,
   type ClipboardService,
@@ -18,6 +20,7 @@ export {
   type ContextTarget,
   type ContextTargetKind,
   defineContextAction,
+  type FileContextIdentity,
   type PlatformFsService,
   type TargetOf,
 } from './types';

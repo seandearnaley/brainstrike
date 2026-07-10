@@ -100,7 +100,7 @@ describe('createActionRegistry', () => {
     expect(ids).toEqual(['file.copy-name']);
   });
 
-  it('orders groups tree → copy → navigate → inspect → danger and omits empty groups', () => {
+  it('orders groups primary → tree → copy → navigate → inspect → danger and omits empty groups', () => {
     const actions = makeActions();
     const registry = createActionRegistry({
       actions: Object.values(actions),
@@ -145,7 +145,14 @@ describe('createActionRegistry', () => {
       label: 'Expand',
       run: async () => ok,
     });
-    const groups = registry.actionsFor(fileTarget, [local]);
-    expect(groups.map((group) => group.group)).toEqual(['tree', 'copy']);
+    const primary = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'primary',
+      id: 'local.open',
+      label: 'Open',
+      run: async () => ok,
+    });
+    const groups = registry.actionsFor(fileTarget, [local, primary]);
+    expect(groups.map((group) => group.group)).toEqual(['primary', 'tree', 'copy']);
   });
 });
