@@ -362,6 +362,94 @@ PGlite-backed resume; the test drains with a per-chunk `setImmediate` yield
 
 When changing this flow, update this section and the related tests.
 
+NOTE: the per-tool approval gate is SEPARATE from tool SUSPENSION (submitPlan /
+askUser) — see PLAN MODE & TOOL SUSPENSION below. Approval pauses BEFORE a tool
+runs (`tool-call-approval` → `approveToolCall`/`declineToolCall`); suspension
+pauses DURING a tool's `execute` via `suspend()` (`tool-call-suspended` →
+`resumeStream`). submitPlan/askUser are classified `riskCategory:'read'` so the
+permission engine never stacks an approval prompt on top of their own suspend.
+
+---
+
+## PLAN MODE & TOOL SUSPENSION (ask-user / submit-plan)
+
+Two SUSPENDING native tools pause the run DURING execution and resume with
+arbitrary data, on a NEW transport that PARALLELS the approval transport (it does
+not overload it). Built on `@mastra/core@1.50` tool `suspend()`/`suspendSchema`/
+`resumeSchema` + `agent.resumeStream(resumeData, {runId, toolCallId})`.
+
+- **`submitPlan`** (packages/agent/src/tools/submit-plan-tool.ts): takes a
+  structured plan INLINE (`{title, overview, steps[], risks?, verification?}` —
+  NOT an on-disk path like Mastra's builtin `submit_plan`), `suspend()`s with it,
+  and on resume returns `{status, feedback?}`. Resume vocab is the builtin-
+  compatible `{action:'approved'|'rejected', feedback?}` (SubmitPlanDecision).
+- **`askUser`** (ask-user-tool.ts): `{question, options?, selectionMode?}`,
+  resumes with `string | string[]` (AskUserAnswer); multi-select joins with ", ".
+
+**Transport table (parallel to approval):**
+
+| Layer | Approval | Suspend (this feature) |
+|---|---|---|
+| Stream chunk | `tool-approval-required` | `tool-suspend-required` |
+| Data part | `brainstrike.tool-approval` | `brainstrike.tool-suspend` |
+| Run-config key | `brainstrikeToolApproval` | `brainstrikeToolSuspend` |
+| Resume action | `AssistantToolApprovalAction` | `AssistantToolResumeAction` |
+| Server fn | `streamMastraToolApprovalAction` | `streamMastraToolResumeAction` |
+| Mastra call | `approveToolCall`/`declineToolCall` | `resumeStream(resumeData,{runId,toolCallId})` |
+| UI renderer | `AssistantToolApprovalNotice` | `AssistantToolSuspendNotice` (branches by toolName) |
+
+Contract types + guards live in `@brainstrike/assistant-contract/tool-suspend`
+(`readToolResumeRunConfigAction` returns `{invalid:true}` on a malformed action —
+surfaced as a 400, never coerced).
+
+**Stream path** (agent-runtime.ts): Mastra emits `tool-call-suspended` when a
+suspending tool calls `suspend()`. `makeToolSuspendRequiredChunks` turns it into
+a resumable `tool-suspend-required` chunk + a tool-calls finish and STOPS at the
+pause (this replaced the old `makeUnsupportedApprovalChunks` dead-end at ~936).
+A malformed pause (missing toolCallId/runId) still falls back to the unsupported
+termination so it fails visibly. `DataStreamMapper.handleToolSuspendRequired`
+emits the `brainstrike.tool-suspend` data part, honoring the text-part deferral
+contract (flush pending run events + finalize open text first). The data part is
+transient (aui-data, NOT persisted) — same as approval.
+
+**Resume** (`streamMastraToolResumeAction`): REQUIRES Mastra workflow storage
+(throws without it — no silent fallback), calls `resumeStream`, threads
+`withRuntimeDerivedStreamOptions` so the rebuilt Agent keeps its native tools
+(the same desktop write-on-approval fix), and does NOT pass `requireToolApproval`
+(that is approval-specific). Stateless: it holds no in-memory runId, so a future
+`listSuspendedRuns` rehydrator can call it with a discovered runId unchanged.
+
+**Storage fail-safe** (`resolveSuspendToolsForRun`, plan-mode-tool-gate.ts): a
+tool that can `suspend()` (detected structurally by an own `suspendSchema`) is
+FAIL-SAFE omitted from the map when there is no storage to resume it — mirrors
+the ask-tools omit in `resolveAskToolsForRun`. Web in-renderer LocalRuntimeChat
+has no server/storage, so both suspend tools are omitted there (desktop-first, v1).
+
+**Plan mode** (opt-in, per-request `runtimeData.planMode`): a persisted composer
+toggle (`assistant-preferences-store.planModeEnabled`) sends `planMode:true` only
+when on (presence-means-on, gated to the desktop data-stream transport in the
+app-shell wrapper). `filterToolsForPlanMode` runs BEFORE the permission gate in
+`createMastraAgentRuntime`: it keeps read/mcp tools + the suspending tools and
+OMITS every edit/execute tool, so the model investigates read-only and proposes a
+plan before any changes. `buildDefaultInstructions(toolNameMap, {planMode})`
+prepends a PLAN-MODE block. THREE-SIDED local gating (mirrors the task-list tool):
+plan mode is EXCLUDED for provider `'local'` (the filter + the instruction block
++ the runtime `planModeActive` guard all check `normalizedProvider !== 'local'`).
+
+**Cross-reload hydration:** in-session resume works today; cross-reload resume
+waits on the separate `listSuspendedRuns` feature (the data part is transient).
+`AssistantToolResumeAction`'s fields are all recoverable from
+`listSuspendedRuns().runs[].toolCalls[]`, so nothing here blocks it.
+
+Paired tests: packages/agent/src/__tests__/mastra-tool-suspend-resume.spec.ts
+(real Agent + real PGlite: suspend→approve, reject-with-feedback, askUser
+free-text + multi-select, no-storage fail-safe omit + resume-throws, plan-mode
+drops edit / keeps submitPlan); plan-mode-tool-gate.spec.ts; the streaming +
+data-part-continuity + default-instructions plan-mode specs; the desktop
+assistant-server resume-dispatch tests; and the UI suspend-notice tests.
+
+When changing this flow, update this section and the paired tests.
+
 ---
 
 ## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
