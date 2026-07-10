@@ -515,6 +515,34 @@ describe('agent-runtime edge cases', () => {
       expect(empty.agent.getInstructions()).not.toContain('<current-task-list');
       await empty.dispose();
     });
+
+    it('injects no task-list block for the local provider even when runtime.taskList is populated', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      // Minimal fake host client: createMastraAgentRuntime only needs it to
+      // resolve the LlmHostChatModel branch of createProvider('local', ...);
+      // generate/warmup are never called while only building instructions.
+      const localLlmHostClient = { generate: vi.fn(), warmup: vi.fn() };
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: {
+          localLlmHostClient,
+          provider: 'local',
+          taskList: [
+            {
+              activeForm: 'Implementing the parser',
+              content: 'Implement the parser',
+              id: 'a',
+              status: 'in_progress',
+            },
+          ],
+        },
+      });
+
+      const instructions = runtime.agent.getInstructions();
+      expect(instructions).not.toContain('<current-task-list');
+      await runtime.dispose();
+    });
   });
 
   describe('streamMastraAgent with signals', () => {

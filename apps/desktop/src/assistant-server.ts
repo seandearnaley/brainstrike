@@ -1053,14 +1053,19 @@ function collectLocalLlmWarmupModelIds(runtimeData: RuntimeData | undefined): st
 
 /**
  * Read the current thread's task list for re-injection this turn. Returns `[]`
- * when there is no thread, no DB, or the read fails (a warn is logged) — an
- * absent plan is a legitimate empty state, not a swallowed policy fallback.
+ * when there is no thread, no DB, the run targets the built-in local provider,
+ * or the read fails (a warn is logged) — an absent plan is a legitimate empty
+ * state, not a swallowed policy fallback. The local-provider skip is the
+ * DB-read-avoiding gate of the same policy enforced again (defense in depth)
+ * by the provider check on `taskListNote` in agent-runtime.ts, and by omitting
+ * the manageTaskList tool for local in buildDesktopAssistantTools.
  */
 async function readThreadTaskListForTurn(
-  threadId: string | undefined,
+  runtimeData: RuntimeData | undefined,
   database: Parameters<typeof readThreadTaskList>[0] | null
 ): Promise<readonly AssistantTaskItem[]> {
-  if (!(threadId && database)) {
+  const threadId = runtimeData?.memory?.threadId;
+  if (!(threadId && database) || isLocalChatProvider(runtimeData)) {
     return [];
   }
   try {
@@ -1093,10 +1098,9 @@ async function initializeAgentStream(
   });
   const runtimeData = await enrichRuntimeDataWithWorkspaceRoots(incomingRuntimeData, rootsDatabase);
 
-  // Re-inject the current per-thread task list into the instructions this turn.
-  // A read failure legitimately yields "no plan" (an absence, not a swallowed
-  // policy decision) — logged at warn, never fabricated.
-  const taskList = await readThreadTaskListForTurn(runtimeData?.memory?.threadId, rootsDatabase);
+  // Re-inject the current per-thread task list into the instructions this
+  // turn (see readThreadTaskListForTurn for the local-provider skip).
+  const taskList = await readThreadTaskListForTurn(runtimeData, rootsDatabase);
 
   // Build runtime context with abort signal for cancellation support
   // The signal is embedded in RuntimeData and flows through to:

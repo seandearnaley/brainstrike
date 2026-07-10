@@ -347,7 +347,13 @@ export async function createMastraAgentRuntime(
   // The current per-thread plan, re-serialized into the instructions every turn
   // (the loop's TokenLimiter never trims the system instructions), so it
   // survives observational-memory truncation. Absent list → null (no block).
-  const taskListNote = buildCurrentTaskListNote(sanitizedRuntime.taskList);
+  // The built-in local provider never gets this block (its own manageTaskList
+  // tool is also omitted from the tool map — see buildDesktopAssistantTools):
+  // the tiny on-device model's WebGPU prefill budget cannot afford it. Gated
+  // here too (not just at the caller's DB-read site) so a caller that still
+  // threads a populated taskList through can never leak it into a local run.
+  const taskListNote =
+    normalizedProvider === 'local' ? null : buildCurrentTaskListNote(sanitizedRuntime.taskList);
   // The built-in local model gets a compact instruction set: the hosted
   // playbook overwhelms a 2B on-device model and bloats the WebGPU prefill.
   const resolvedInstructions =

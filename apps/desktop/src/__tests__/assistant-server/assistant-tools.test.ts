@@ -2155,4 +2155,26 @@ describe('assistant-tools multi-root read tools', () => {
       await cleanup();
     }
   });
+
+  describe('manageTaskList provider gating', () => {
+    it('registers manageTaskList for a hosted provider', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
+      expect(tools['brainstrike.manageTaskList']).toBeDefined();
+    });
+
+    it('registers manageTaskList when no provider is set (production default)', () => {
+      const tools = buildDesktopAssistantTools(undefined);
+      expect(tools['brainstrike.manageTaskList']).toBeDefined();
+    });
+
+    it('omits manageTaskList for the built-in local provider (WebGPU prefill budget)', () => {
+      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
+      expect(tools['brainstrike.manageTaskList']).toBeUndefined();
+    });
+
+    it('omits manageTaskList for the local provider regardless of case/whitespace', () => {
+      const tools = buildDesktopAssistantTools({ provider: '  Local  ' } as RuntimeData);
+      expect(tools['brainstrike.manageTaskList']).toBeUndefined();
+    });
+  });
 });
