@@ -141,16 +141,29 @@ function hasOmTitleMarker(metadata: Record<string, unknown> | undefined): boolea
 
 /**
  * Decide whether an `updateThread` write may replace the stored title.
- * Overwritable when the existing title is empty (never set) or carries the
+ * Overwritable when the existing title is empty (never set), carries the
  * `titleSource: 'om'` marker (a seeded placeholder or a prior auto-title
- * write) — never when it is a title the user explicitly set, which is
+ * write), or is the literal `DEFAULT_THREAD_TITLE` with no marker at all —
+ * never when it is any other title the user explicitly set, which is
  * written through the dedicated raw-SQL rename path that clears the marker.
+ *
+ * The `DEFAULT_THREAD_TITLE` fallback is a legacy back-compat allowance:
+ * threads seeded before the OM marker existed have title 'New Thread' and
+ * no `titleSource` metadata at all, so without it they would read as
+ * user-owned forever and never receive an automatic title. Accepted
+ * tradeoff: a user who manually renames a thread to exactly
+ * 'New Thread' loses that title to the next auto-title write — negligible
+ * relative to unblocking every pre-existing thread.
  */
 function canOverwriteThreadTitle(existing: StorageThreadType | null): boolean {
   if (!existing) {
     return true;
   }
-  return isEmptyThreadTitle(existing.title) || hasOmTitleMarker(existing.metadata);
+  return (
+    isEmptyThreadTitle(existing.title) ||
+    hasOmTitleMarker(existing.metadata) ||
+    existing.title === DEFAULT_THREAD_TITLE
+  );
 }
 
 /** Inline run-event detail like "12 messages" / "1 record". */

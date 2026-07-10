@@ -236,6 +236,60 @@ describe('PgliteMemoryStore', () => {
     expect(updated.metadata).not.toHaveProperty('titleSource');
   });
 
+  it('lets an automated title rename a legacy default-titled thread with no OM marker', async () => {
+    // Threads seeded before the OM marker existed carry the literal
+    // DEFAULT_THREAD_TITLE ('New Thread') with no titleSource metadata at
+    // all. Without this legacy allowance, canOverwriteThreadTitle would
+    // treat that placeholder as user-owned forever and these pre-existing
+    // threads would never receive an automatic title.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-legacy-default-title',
+        metadata: { source: 'brainstrike' },
+        resourceId: 'workspace-a',
+        title: 'New Thread',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-legacy-default-title',
+      metadata: {},
+      title: 'Paris Weather Chat',
+    });
+
+    expect(updated.title).toBe('Paris Weather Chat');
+    // The real Mastra caller merges the thread's existing metadata into this
+    // write (see the comment on `canOverwriteThreadTitle`); this raw
+    // updateThread call only asserts the marker this adapter itself stamps.
+    expect(updated.metadata).toMatchObject({ titleSource: 'om' });
+  });
+
+  it('still protects a custom title that happens to have no OM marker', async () => {
+    // A user-chosen title with no marker (the normal case for a manual
+    // rename) must stay protected — only the literal DEFAULT_THREAD_TITLE
+    // gets the legacy allowance above.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-custom-no-marker',
+        resourceId: 'workspace-a',
+        title: 'My Custom Title',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-custom-no-marker',
+      metadata: {},
+      title: 'Auto Generated Title',
+    });
+
+    expect(updated.title).toBe('My Custom Title');
+    expect(updated.metadata).not.toHaveProperty('titleSource');
+  });
+
   it('lands metadata-only observer persists (title unchanged) without touching the title', async () => {
     await store.saveThread({
       thread: {
