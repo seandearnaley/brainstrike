@@ -5,6 +5,7 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { getRegisteredEmbeddingQueueFactory } from './runtime-config';
 import type {
   EmbeddingConfig,
+  EmbeddingExecutionOptions,
   EmbeddingProgress,
   EmbeddingResult,
   EmbeddingStreamBatch,
@@ -285,21 +286,29 @@ export class TransformersBackend {
   /**
    * Generate embedding for a given text
    */
-  async generateEmbedding(text: string, modelId: string): Promise<EmbeddingResult> {
+  async generateEmbedding(
+    text: string,
+    modelId: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
     if (!this._isInitialized) {
       throw new Error('Backend not initialized. Call initialize() first.');
     }
-    return this.tryGenerateWithQueue(text, modelId);
+    return this.tryGenerateWithQueue(text, modelId, options);
   }
 
   /**
    * Generate embeddings for multiple texts
    */
-  async generateEmbeddings(texts: string[], modelId: string): Promise<EmbeddingResult[]> {
+  async generateEmbeddings(
+    texts: string[],
+    modelId: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult[]> {
     if (!this._isInitialized) {
       throw new Error('Backend not initialized. Call initialize() first.');
     }
-    return this.tryGenerateBatchWithQueue(texts, modelId);
+    return this.tryGenerateBatchWithQueue(texts, modelId, options);
   }
 
   async generateEmbeddingsStream(
@@ -354,8 +363,12 @@ export class TransformersBackend {
     }
   }
 
-  private async tryGenerateWithQueue(text: string, modelId: string): Promise<EmbeddingResult> {
-    const batch = await this.tryGenerateBatchWithQueue([text], modelId);
+  private async tryGenerateWithQueue(
+    text: string,
+    modelId: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
+    const batch = await this.tryGenerateBatchWithQueue([text], modelId, options);
     const first = batch[0];
     if (!first) {
       throw new Error('Embedding worker returned no vector');
@@ -365,14 +378,22 @@ export class TransformersBackend {
 
   private async tryGenerateBatchWithQueue(
     texts: string[],
-    modelId: string
+    modelId: string,
+    options?: EmbeddingExecutionOptions
   ): Promise<EmbeddingResult[]> {
     if (!this._useWorkerQueue) {
       throw new Error('Embedding worker queue required; inline pipeline disabled.');
     }
     try {
+      const signal = options?.signal;
+      signal?.throwIfAborted();
       const queue = await this.ensureQueue();
-      const response = await queue.add(this.createWorkerRequest(texts, modelId));
+      signal?.throwIfAborted();
+      const response = await queue.add(
+        this.createWorkerRequest(texts, modelId),
+        signal ? { signal } : undefined
+      );
+      signal?.throwIfAborted();
 
       if (!response.vectors || response.vectors.length === 0) {
         // If input was empty, return empty

@@ -1,4 +1,3 @@
-import { ConnectedPromptManager } from '@brainstrike/app-shell';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/git-panel`, which also re-exports GitPanel + @codemirror/merge) so the
 // startup check does not defeat the lazy code-split in git-page-content.tsx.
@@ -107,7 +106,6 @@ export default function RootLayoutContent() {
     contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'host-proxy',
     navigationItems: navigationConfig,
-    promptsPageContent: <ConnectedPromptManager />,
     settingsPageContent: <SettingsPageContent />,
     ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),

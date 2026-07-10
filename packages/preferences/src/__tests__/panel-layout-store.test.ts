@@ -73,11 +73,6 @@ describe('panel-layout-store', () => {
     expect(s.showLeftPanel).toBe(true);
   });
 
-  it('supports prompts tab', () => {
-    store.getState().setActiveTab('prompts');
-    expect(store.getState().activeTab).toBe('prompts');
-  });
-
   it('supports terminal tab', () => {
     store.getState().setActiveTab('terminal');
     expect(store.getState().activeTab).toBe('terminal');
@@ -164,6 +159,28 @@ describe('panel-layout-store', () => {
     await getPersistApi(persistedStore).rehydrate();
 
     expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
+    expect(persistedStore.getState().activeTab).toBe('explorer');
+  });
+
+  it('does not restore the removed prompts root tab from a legacy snapshot', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      STORE_NAME,
+      JSON.stringify({
+        state: {
+          activeTab: 'prompts',
+          showConsole: false,
+          showLeftPanel: true,
+          showRightPanel: true,
+          sizes: [18, 40, 20],
+        },
+        version: 4,
+      })
+    );
+
+    const persistedStore = createPanelLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
     expect(persistedStore.getState().activeTab).toBe('explorer');
   });
 });

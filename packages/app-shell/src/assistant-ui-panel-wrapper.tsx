@@ -42,6 +42,7 @@ import {
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {
   type CumulativeUsageDisplay,
   type ModelPricingResolver,
@@ -809,6 +810,29 @@ export function AssistantUiPanelWrapper({
   // override), never the focused root path. See assistant-memory-resource.ts.
   const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
+  const composerDraftCommand = useAssistantComposerCommandStore((state) =>
+    selectedMemoryThreadId ? state.commandsByThreadId[selectedMemoryThreadId]?.[0] : undefined
+  );
+  const acknowledgeComposerCommand = useAssistantComposerCommandStore((state) => state.acknowledge);
+  const recordComposerDraft = useAssistantComposerCommandStore((state) => state.recordDraft);
+  const handleComposerCommandApplied = useCallback(
+    (commandId: string) => {
+      if (!composerDraftCommand || composerDraftCommand.id !== commandId) {
+        throw new Error(`Cannot acknowledge unknown composer command: ${commandId}`);
+      }
+      acknowledgeComposerCommand(composerDraftCommand.threadId, commandId);
+    },
+    [acknowledgeComposerCommand, composerDraftCommand]
+  );
+  const handleComposerTextChange = useCallback(
+    (text: string) => {
+      if (!selectedMemoryThreadId) {
+        throw new Error('Cannot record composer text without an active assistant thread.');
+      }
+      recordComposerDraft(selectedMemoryThreadId, text);
+    },
+    [recordComposerDraft, selectedMemoryThreadId]
+  );
   const memoryLoadState = loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const };
   const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
   const hostedMemoryBackendAvailable =
@@ -1403,11 +1427,18 @@ export function AssistantUiPanelWrapper({
 
   return (
     <AssistantUiPanel
+      {...(composerDraftCommand ? { composerDraftCommand } : {})}
       completePreparedRequest={completePreparedRequest}
       contextWindow={selectedModelBudgetDef?.contextWindow}
       {...(cumulativeUsage ? { cumulativeUsage } : {})}
       effectiveInputBudget={effectiveInputBudget}
       omSegment={omSegment}
+      {...(selectedMemoryThreadId
+        ? {
+            onComposerDraftCommandApplied: handleComposerCommandApplied,
+            onComposerTextChange: handleComposerTextChange,
+          }
+        : {})}
       onProviderSettingsChange={handleProviderSettingsChange}
       onRunFailed={onRunFailed}
       onRunFinished={onRunFinished}

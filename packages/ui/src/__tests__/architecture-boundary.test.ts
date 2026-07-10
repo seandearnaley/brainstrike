@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -50,5 +50,10 @@ describe('ui architecture boundaries', () => {
       .map(([relativePath]) => relativePath);
 
     expect(violatingFiles).toEqual([]);
+  });
+
+  it('does not retain or publicly export the retired localStorage prompt manager', () => {
+    expect(existsSync(path.join(UI_SRC_ROOT, 'prompt-management'))).toBe(false);
+    expect(readPackageFile('src/index.ts')).not.toContain("export * from './prompt-management'");
   });
 });

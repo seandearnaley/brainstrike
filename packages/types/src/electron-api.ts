@@ -277,7 +277,12 @@ export interface ElectronDatabaseAPI {
    * search) so it can't interleave.
    */
   runTransaction?: (
-    statements: { sql: string; params?: unknown[] }[],
+    statements: {
+      expectedRowCount?: number;
+      params?: unknown[];
+      rowCountMismatchError?: string;
+      sql: string;
+    }[],
     resultIndex: number,
     options?: DatabaseWorkOptions
   ) => Promise<{ rows: unknown[] }>;

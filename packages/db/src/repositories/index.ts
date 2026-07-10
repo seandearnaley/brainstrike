@@ -56,6 +56,10 @@ export type {
   IFileRecordRepository,
   IViewFilterPresetsRepository,
 } from './interfaces.js';
+export {
+  type PromptItemDatabase,
+  PromptItemRepository,
+} from './prompt-item-repository.js';
 
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';

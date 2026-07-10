@@ -174,6 +174,29 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       }
     });
 
+    slowTest('passes the input abort signal to local document embedding work', async () => {
+      await provider.initialize();
+      const controller = new AbortController();
+      const service = provider.getService();
+      const generateDocEmbedding = vi.spyOn(service, 'generateDocEmbedding').mockResolvedValue({
+        dimensions: DEFAULT_EMBEDDING_DIMENSION,
+        embedding: new Array(DEFAULT_EMBEDDING_DIMENSION).fill(0.1),
+        model: 'jinaai/jina-embeddings-v2-base-code',
+      });
+
+      const input: EmbeddingInput = {
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
+        signal: controller.signal,
+        text: 'cancelable document',
+      };
+      const result = await provider.embed(input);
+
+      expect(result.ok).toBe(true);
+      expect(generateDocEmbedding).toHaveBeenCalledWith('cancelable document', {
+        signal: controller.signal,
+      });
+    });
+
     slowTest('returns consistent embeddings for same input', async () => {
       await provider.initialize();
 

@@ -118,7 +118,7 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     try {
-      const response = await this.makeEmbeddingRequest(input.text);
+      const response = await this.makeEmbeddingRequest(input.text, input.signal);
       if (!response.ok) {
         return this.handleErrorResponse(response);
       }
@@ -156,7 +156,10 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
     return null;
   }
 
-  private async makeEmbeddingRequest(text: string | string[]): Promise<Response> {
+  private async makeEmbeddingRequest(
+    text: string | string[],
+    signal?: AbortSignal
+  ): Promise<Response> {
     const requestBody: Record<string, unknown> = {
       input: Array.isArray(text) ? text : [text],
       model: this.modelId,
@@ -174,6 +177,7 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
         'Content-Type': 'application/json',
       },
       method: 'POST',
+      ...(signal ? { signal } : {}),
     });
   }
 
