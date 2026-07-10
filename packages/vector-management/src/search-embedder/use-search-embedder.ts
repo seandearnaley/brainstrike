@@ -416,7 +416,7 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
   const currentIdentityRef = useRef<EmbedderIdentity | null>(null);
   const initializationRef = useRef<EmbedderInitialization | null>(null);
   const lifecycleStateRef = useRef<LifecycleState>({ generation: 0, reason: null });
-  const transitionGateRef = useRef<Promise<void>>(Promise.resolve());
+  const transitionGateRef = useRef<Promise<unknown> | null>(null);
   const recoveryByEmbedderRef = useRef<WeakMap<SearchEmbedder, EmbedderRecovery> | null>(null);
   if (!recoveryByEmbedderRef.current) {
     recoveryByEmbedderRef.current = new WeakMap();
@@ -434,12 +434,18 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
         return true;
       }
 
+      const invokeDisposal = (): Promise<void> => {
+        try {
+          return Promise.resolve(embedder.dispose?.());
+        } catch (error: unknown) {
+          return Promise.reject(error);
+        }
+      };
       const priorTransition = transitionGateRef.current;
-      const disposal = priorTransition.then(() => Promise.resolve(embedder.dispose?.()));
-      transitionGateRef.current = disposal.then(
-        () => undefined,
-        () => undefined
-      );
+      const disposal = priorTransition
+        ? priorTransition.then(invokeDisposal, invokeDisposal)
+        : invokeDisposal();
+      transitionGateRef.current = disposal;
       try {
         await disposal;
         logger.debug('Disposed cached embedder', { reason });
@@ -448,6 +454,10 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
           error: error instanceof Error ? error.message : String(error),
           reason,
         });
+      } finally {
+        if (transitionGateRef.current === disposal) {
+          transitionGateRef.current = null;
+        }
       }
       return true;
     },
@@ -553,9 +563,31 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
       embedderRef.current = null;
       currentIdentityRef.current = null;
       const priorTransition = transitionGateRef.current;
+      const transitionStart = priorTransition
+        ? priorTransition.then(
+            () => undefined,
+            () => undefined
+          )
+        : Promise.resolve();
 
       let initialization!: EmbedderInitialization;
-      const initPromise = priorTransition.then(async (): Promise<SearchEmbedder> => {
+      let initPromise!: Promise<SearchEmbedder>;
+      const clearFailedInitialization = (): void => {
+        if (initializationRef.current !== initialization) {
+          return;
+        }
+        embedderRef.current = null;
+        currentIdentityRef.current = null;
+      };
+      const finishInitialization = (): void => {
+        if (initializationRef.current === initialization) {
+          initializationRef.current = null;
+        }
+        if (transitionGateRef.current === initPromise) {
+          transitionGateRef.current = null;
+        }
+      };
+      initPromise = transitionStart.then(async (): Promise<SearchEmbedder> => {
         try {
           if (previousEmbedder?.dispose) {
             logger.info('Disposing previous embedder');
@@ -577,24 +609,16 @@ export function useSearchEmbedder(): UseSearchEmbedderResult {
           currentIdentityRef.current = identity;
           return embedder;
         } catch (error) {
-          if (initializationRef.current === initialization) {
-            embedderRef.current = null;
-            currentIdentityRef.current = null;
-          }
+          clearFailedInitialization();
           throw error;
         } finally {
-          if (initializationRef.current === initialization) {
-            initializationRef.current = null;
-          }
+          finishInitialization();
         }
       });
 
       initialization = { identity, invalidatedBy: null, promise: initPromise };
       initializationRef.current = initialization;
-      transitionGateRef.current = initPromise.then(
-        () => undefined,
-        () => undefined
-      );
+      transitionGateRef.current = initPromise;
       return initPromise;
     },
     [devicePref]
