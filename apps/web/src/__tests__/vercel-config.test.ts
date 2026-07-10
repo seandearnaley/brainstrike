@@ -20,15 +20,29 @@ function readVercelConfig(): VercelConfig {
   ) as VercelConfig;
 }
 
+const REVALIDATE = 'public, max-age=0, must-revalidate';
+const IMMUTABLE = 'public, max-age=31536000, immutable';
+
+function cacheControlOf(rule: VercelHeaderRule): string | undefined {
+  return rule.headers.find((header) => header.key.toLowerCase() === 'cache-control')?.value;
+}
+
 /**
- * Production cache contract: everything under /assets/ is content-hashed by
- * the build (JS chunks, CSS, wasm, grammars), so it must be served immutable.
- * Without this rule Vercel serves `max-age=0, must-revalidate` (verified
- * against the live deployment) and every repeat visit revalidates every
- * chunk — hundreds of conditional requests since the bundle resplit.
+ * Production cache contract. Vite content-hashes emitted assets under
+ * /assets/, so those are immutable — BUT two things under /assets/ keep
+ * STABLE names across deploys and must keep revalidating or a deploy that
+ * changes their contents would be invisible to returning visitors for up to
+ * a year:
+ * - /assets/grammars/<lang>.wasm — vendored tree-sitter grammars copied by
+ *   viteStaticCopy and fetched at runtime by that literal URL
+ *   (packages/build-utils getTreeSitterGrammarCopyTargets)
+ * - /assets/pglite.wasm — the un-hashed viteStaticCopy of the PGlite wasm
  *
- * index.html is deliberately NOT covered: it is the un-hashed entry that must
- * revalidate so deploys roll out.
+ * The override rules rely on Vercel applying header rules in order with the
+ * later matching rule winning for the same header key — verified empirically
+ * against the PR preview deployment.
+ *
+ * index.html is un-hashed and keeps Vercel's default revalidation (no rule).
  */
 describe('vercel.json production headers', () => {
   it('serves hashed /assets/* immutable for a year', () => {
@@ -36,22 +50,33 @@ describe('vercel.json production headers', () => {
     const assetsRule = config.headers?.find((rule) => rule.source === '/assets/(.*)');
 
     expect(assetsRule).toBeDefined();
-    expect(assetsRule?.headers).toContainEqual({
-      key: 'Cache-Control',
-      value: 'public, max-age=31536000, immutable',
-    });
+    expect(cacheControlOf(assetsRule as VercelHeaderRule)).toBe(IMMUTABLE);
   });
 
-  it('does not cache the un-hashed HTML entry', () => {
+  it('keeps stable-named wasm (grammars, pglite) revalidating, ordered after the blanket rule', () => {
     const config = readVercelConfig();
-    const htmlRules = config.headers?.filter(
-      (rule) => rule.source === '/' || rule.source === '/index.html'
-    );
-    for (const rule of htmlRules ?? []) {
-      for (const header of rule.headers) {
-        if (header.key.toLowerCase() === 'cache-control') {
-          expect(header.value).not.toContain('immutable');
-        }
+    const sources = (config.headers ?? []).map((rule) => rule.source);
+    const blanketIndex = sources.indexOf('/assets/(.*)');
+
+    for (const stableSource of ['/assets/grammars/(.*)', '/assets/pglite.wasm']) {
+      const index = sources.indexOf(stableSource);
+      expect(index, `${stableSource} rule must exist`).toBeGreaterThanOrEqual(0);
+      // Later matching rule wins for the same header key, so the override
+      // must come AFTER the blanket immutable rule.
+      expect(index, `${stableSource} must come after the blanket rule`).toBeGreaterThan(
+        blanketIndex
+      );
+      const rule = (config.headers ?? [])[index] as VercelHeaderRule;
+      expect(cacheControlOf(rule)).toBe(REVALIDATE);
+    }
+  });
+
+  it('never marks anything outside /assets/ immutable (index.html must revalidate)', () => {
+    const config = readVercelConfig();
+    for (const rule of config.headers ?? []) {
+      const cacheControl = cacheControlOf(rule);
+      if (cacheControl?.includes('immutable')) {
+        expect(rule.source.startsWith('/assets/')).toBe(true);
       }
     }
   });
