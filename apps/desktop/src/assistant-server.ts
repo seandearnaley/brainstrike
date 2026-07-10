@@ -5,6 +5,7 @@ import type {
   AssistantRunEvent,
   AssistantTaskItem,
   AssistantToolApprovalAction,
+  AssistantToolResumeAction,
   AssistantUiMessageStrict,
   McpConfig,
   RuntimeAssistantMemorySettings,
@@ -26,11 +27,13 @@ import {
   PROVIDER_DEFAULT_MODELS,
   parseAssistantRequestPayloadText,
   readToolApprovalRunConfigAction,
+  readToolResumeRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
   resolveRequestPermissionPolicy,
   sanitizeAssistantRunEventMetadata,
   streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
@@ -45,6 +48,8 @@ interface AssistantRequestPayload {
   rawMessages: AssistantUiMessage[];
   toolApprovalAction?: AssistantToolApprovalAction;
   toolApprovalActionInvalid?: boolean;
+  toolResumeAction?: AssistantToolResumeAction;
+  toolResumeActionInvalid?: boolean;
 }
 interface AgentStreamSuccess {
   ok: true;
@@ -227,7 +232,7 @@ async function handleAssistantPost(
   if (!prepared) {
     return;
   }
-  const { messages, runtimeData, apiKey, toolApprovalAction } = prepared;
+  const { messages, runtimeData, apiKey, toolApprovalAction, toolResumeAction } = prepared;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -248,6 +253,7 @@ async function handleAssistantPost(
         embeddingHostManager: options.embeddingHostManager,
         llmHostManager: options.llmHostManager,
       },
+      toolResumeAction,
     });
   } catch (error) {
     await handleAssistantPostStreamError({ error, res, runId, signal });
@@ -296,6 +302,7 @@ async function streamAssistantPostResponse({
   signal,
   runId,
   toolApprovalAction,
+  toolResumeAction,
   toolDependencies,
 }: {
   readonly res: http.ServerResponse;
@@ -305,6 +312,7 @@ async function streamAssistantPostResponse({
   readonly signal: AbortSignal;
   readonly runId: string | undefined;
   readonly toolApprovalAction?: AssistantToolApprovalAction;
+  readonly toolResumeAction?: AssistantToolResumeAction;
   readonly toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
@@ -319,6 +327,7 @@ async function streamAssistantPostResponse({
     signal,
     runId,
     toolApprovalAction,
+    toolResumeAction,
     toolDependencies
   );
   if (!streamResult.ok) {
@@ -539,6 +548,7 @@ interface PreparedAssistantPostRequest {
   messages: AgentMessage[];
   runtimeData: RuntimeData;
   toolApprovalAction?: AssistantToolApprovalAction;
+  toolResumeAction?: AssistantToolResumeAction;
 }
 
 async function prepareAssistantPostRequest(
@@ -549,12 +559,16 @@ async function prepareAssistantPostRequest(
   let data: RuntimeData | undefined;
   let toolApprovalAction: AssistantToolApprovalAction | undefined;
   let toolApprovalActionInvalid = false;
+  let toolResumeAction: AssistantToolResumeAction | undefined;
+  let toolResumeActionInvalid = false;
   try {
     const payload = await parseAssistantRequestPayload(req);
     rawMessages = payload.rawMessages;
     data = payload.data;
     toolApprovalAction = payload.toolApprovalAction;
     toolApprovalActionInvalid = Boolean(payload.toolApprovalActionInvalid);
+    toolResumeAction = payload.toolResumeAction;
+    toolResumeActionInvalid = Boolean(payload.toolResumeActionInvalid);
   } catch (error) {
     if (error instanceof AssistantInvalidJsonError) {
       respondJson(res, 400, {
@@ -581,6 +595,14 @@ async function prepareAssistantPostRequest(
     respondJson(res, 400, {
       error: 'invalid_tool_approval_action',
       message: 'Tool approval action must include action, runId, and toolCallId.',
+    });
+    return;
+  }
+
+  if (toolResumeActionInvalid) {
+    respondJson(res, 400, {
+      error: 'invalid_tool_resume_action',
+      message: 'Tool resume action must include runId, toolCallId, and resumeData.',
     });
     return;
   }
@@ -621,7 +643,7 @@ async function prepareAssistantPostRequest(
     return;
   }
 
-  if (!(toolApprovalAction || hasNonEmptyPrompt(messages))) {
+  if (!(toolApprovalAction || toolResumeAction || hasNonEmptyPrompt(messages))) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.statusCode = 400;
     res.end(JSON.stringify({ error: 'empty_prompt' }));
@@ -633,6 +655,7 @@ async function prepareAssistantPostRequest(
     messages,
     runtimeData,
     ...(toolApprovalAction ? { toolApprovalAction } : {}),
+    ...(toolResumeAction ? { toolResumeAction } : {}),
   };
 }
 
@@ -950,13 +973,21 @@ async function parseAssistantRequestPayload(
   });
   const payload = parseAssistantRequestPayloadText(body);
   const toolApprovalActionResult = readToolApprovalRunConfigAction(payload.runConfig);
-  if (!toolApprovalActionResult) {
-    return payload;
+  if (toolApprovalActionResult) {
+    if ('invalid' in toolApprovalActionResult) {
+      return { ...payload, toolApprovalActionInvalid: true };
+    }
+    return { ...payload, toolApprovalAction: toolApprovalActionResult.action };
   }
-  if ('invalid' in toolApprovalActionResult) {
-    return { ...payload, toolApprovalActionInvalid: true };
+  // Suspend/resume transport (submitPlan/askUser), parallel to approval.
+  const toolResumeActionResult = readToolResumeRunConfigAction(payload.runConfig);
+  if (toolResumeActionResult) {
+    if ('invalid' in toolResumeActionResult) {
+      return { ...payload, toolResumeActionInvalid: true };
+    }
+    return { ...payload, toolResumeAction: toolResumeActionResult.action };
   }
-  return { ...payload, toolApprovalAction: toolApprovalActionResult.action };
+  return payload;
 }
 
 async function resumeStreamIfAvailable(
@@ -1076,6 +1107,42 @@ async function readThreadTaskListForTurn(
   }
 }
 
+interface InitialStreamMemoryOptions {
+  memory?: DesktopMastraMemoryResult['memory'];
+  storage?: DesktopMastraMemoryResult['storage'];
+}
+
+/**
+ * Pick the initial stream for the turn: approval-resume, suspend-resume
+ * (submitPlan/askUser), or a fresh generation. Both resume paths skip
+ * `injectReferencedFilesContext` — there is no new user turn to scan — mirroring
+ * the approval path's contract.
+ */
+async function resolveInitialAgentStream(args: {
+  messages: AgentMessage[];
+  runtime: RuntimeData;
+  memoryOptions: InitialStreamMemoryOptions;
+  toolApprovalAction: AssistantToolApprovalAction | undefined;
+  toolResumeAction: AssistantToolResumeAction | undefined;
+}): Promise<AsyncIterable<StreamChunk>> {
+  const { messages, runtime, memoryOptions, toolApprovalAction, toolResumeAction } = args;
+  if (toolApprovalAction) {
+    return streamMastraToolApprovalAction(toolApprovalAction, {
+      ...memoryOptions,
+      requireToolApproval: true,
+      runtime,
+    });
+  }
+  if (toolResumeAction) {
+    return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
+  }
+  return toAiSdkStyleStream(
+    await injectReferencedFilesContext(messages, runtime, readWorkspaceTextFile),
+    runtime,
+    memoryOptions
+  );
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   incomingRuntimeData: RuntimeData | undefined,
@@ -1084,6 +1151,7 @@ async function initializeAgentStream(
   signal: AbortSignal,
   runId: string | undefined,
   toolApprovalAction: AssistantToolApprovalAction | undefined,
+  toolResumeAction: AssistantToolResumeAction | undefined,
   toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
@@ -1175,23 +1243,32 @@ async function initializeAgentStream(
         status: 400,
       };
     }
+    if (toolResumeAction && !memoryResult?.storage) {
+      return {
+        ok: false,
+        payload: {
+          error: 'tool_resume_memory_required',
+          message: 'Tool suspend resume requires Mastra memory context with workflow storage.',
+        },
+        status: 400,
+      };
+    }
     // @file context-insert: resolve any `:file[…]{name=…}` directives in the
     // current turn's user message into a prepended `system` context message
     // carrying the referenced files' content. Uses the same containment/size/
     // binary-guarded reader as the read tools; unresolvable references surface a
     // visible note rather than being silently dropped. Skipped on the approval-
     // resume path (no new user turn to scan).
-    const stream = toolApprovalAction
-      ? await streamMastraToolApprovalAction(toolApprovalAction, {
-          ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
-          requireToolApproval: true,
-          runtime,
-        })
-      : await toAiSdkStyleStream(
-          await injectReferencedFilesContext(messages, runtime, readWorkspaceTextFile),
-          runtime,
-          memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}
-        );
+    const memoryOptions = memoryResult
+      ? { memory: memoryResult.memory, storage: memoryResult.storage }
+      : {};
+    const stream = await resolveInitialAgentStream({
+      memoryOptions,
+      messages,
+      runtime,
+      toolApprovalAction,
+      toolResumeAction,
+    });
     logger.info('Assistant stream initialized');
     return {
       ok: true,
