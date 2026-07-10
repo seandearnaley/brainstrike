@@ -91,6 +91,17 @@ describe('HooksSettingsSection', () => {
     expect(screen.getByTestId('hooks-approve-root-a')).not.toBeNull();
   });
 
+  it('shows an error state when the review bridge rejects for a root', async () => {
+    (window as Window & { hooks?: unknown }).hooks = {
+      getProjectHooksForReview: vi.fn(() => Promise.reject(new Error('ipc down'))),
+    };
+    render(<HooksSettingsSection roots={roots} />);
+
+    // A transport-level bridge failure must surface as a visible per-row error,
+    // never a stale "Untrusted"/empty state (honest failure surfacing).
+    expect(await screen.findByText(/Unavailable/)).not.toBeNull();
+  });
+
   it('disables approve for a config with a parse error', async () => {
     mockBridge({
       content: '{ bad',

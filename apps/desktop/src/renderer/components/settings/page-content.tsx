@@ -24,6 +24,7 @@ import {
   createPermissionSettingsCategory,
   createSearchIndexingSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
+  type HookReviewRoot,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences/settings-page-content';
@@ -78,6 +79,26 @@ export default function SettingsPageContent() {
   const setDevInlineFixtureEnabled = useFileExplorerStoreSelector(
     (s) => s.setDevInlineFixtureEnabled
   );
+  // Live mounted workspace roots (reactive to mount/unmount via the zustand
+  // store) power the Hooks trust-review panel. Keyed by durable adapter rootId
+  // in sidebar order; absolute paths feed the desktop review IPC.
+  const activeRootIds = useFileExplorerStoreSelector((s) => s.activeRootIds);
+  const rootDescriptors = useFileExplorerStoreSelector((s) => s.rootDescriptors);
+  const hookReviewRoots = useMemo<readonly HookReviewRoot[]>(() => {
+    const roots: HookReviewRoot[] = [];
+    for (const rootId of activeRootIds) {
+      const descriptor = rootDescriptors[rootId];
+      if (!descriptor) {
+        continue;
+      }
+      roots.push({
+        absPath: descriptor.path,
+        displayName: descriptor.displayName,
+        rootId: descriptor.rootId,
+      });
+    }
+    return roots;
+  }, [activeRootIds, rootDescriptors]);
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
     // E2E overrides are read on mount/remount only. Tests that mutate them
     // mid-lifecycle should reload or navigate to remount this settings view.
@@ -328,10 +349,7 @@ export default function SettingsPageContent() {
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
-      // Live per-root list wiring (RootIdentity → settings subtree) is a
-      // follow-up; the panel shows the global config path + a clear empty state
-      // and activates approve/revoke once roots are threaded.
-      createHooksSettingsCategory(),
+      createHooksSettingsCategory({ roots: hookReviewRoots }),
       createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
@@ -347,6 +365,7 @@ export default function SettingsPageContent() {
   }, [
     accurateRuntimeAvailable,
     devInlineFixtureEnabled,
+    hookReviewRoots,
     setDevInlineFixtureEnabled,
     toolOperations,
   ]);

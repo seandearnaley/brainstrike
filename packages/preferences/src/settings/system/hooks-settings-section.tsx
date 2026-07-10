@@ -113,28 +113,41 @@ export function HooksSettingsSection({
 
   // Fetch each root's on-disk review (content + hash) from the desktop bridge.
   // Canonical data-fetch-in-effect: an `ignore` flag drops a stale response if
-  // the roots change (or the panel unmounts) before the fetch resolves.
+  // the roots change (or the panel unmounts) before the fetch resolves. Each
+  // root is fetched independently and its own transport failure is converted to
+  // a structured `error` review, so a single broken bridge call renders that ONE
+  // row as "Unavailable" rather than leaving every row in a stale/empty state.
   useEffect(() => {
     const bridge = getHooksBridge();
     if (!bridge) {
       return;
     }
     let ignore = false;
-    Promise.all(
-      roots.map(async (root) => {
-        const review = await bridge.getProjectHooksForReview(root.rootId, root.absPath);
-        return [root.rootId, review] as const;
-      })
-    )
-      .then((entries) => {
-        if (!ignore) {
-          setReviews(Object.fromEntries(entries));
+    // Each root's fetch resolves (transport failures are caught into an `error`
+    // review below), so this chain never rejects from the bridge; `void` marks it
+    // intentionally floating without swallowing a genuine setState/render throw.
+    void Promise.all(
+      roots.map(async (root): Promise<readonly [string, ProjectHooksReview]> => {
+        try {
+          const review = await bridge.getProjectHooksForReview(root.rootId, root.absPath);
+          return [root.rootId, review] as const;
+        } catch (error) {
+          return [
+            root.rootId,
+            {
+              error: error instanceof Error ? error.message : 'Failed to read project hooks',
+              exists: false,
+              path: `${root.absPath}/.brainstrike/hooks.json`,
+              rootId: root.rootId,
+            },
+          ] as const;
         }
       })
-      .catch(() => {
-        // Bridge failures leave the prior reviews in place; the row shows
-        // "Unavailable" via the resolveStatus 'error' branch on next fetch.
-      });
+    ).then((entries) => {
+      if (!ignore) {
+        setReviews(Object.fromEntries(entries));
+      }
+    });
     return () => {
       ignore = true;
     };

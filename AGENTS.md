@@ -648,7 +648,22 @@ mirrors `localLlmHostClient`; preserved by `resolveRuntimeConfiguration`'s sprea
 **Settings + review IPC:** `hooks-settings-section.tsx` (per-root
 trusted/untrusted/changed/parse-error + approve/revoke) via
 `hooks:getProjectHooksForReview` IPC (`ipc-hooks.ts`, path-validated, hashes disk)
-+ `window.hooks` preload bridge (capability-gated).
++ `window.hooks` preload bridge (capability-gated). The LIVE mounted roots are
+threaded from the desktop settings page (`apps/desktop/.../settings/page-content.tsx`):
+it reads `activeRootIds` + `rootDescriptors` from the file-explorer zustand store
+(reactive to mount/unmount, no restart) and maps them to `HookReviewRoot`
+(`{rootId, absPath, displayName}`, sidebar order) for `createHooksSettingsCategory`.
+Capability-gated by construction — the WEB settings page never constructs the Hooks
+category, so it needs no roots. Each row's review is fetched independently; a
+transport-level bridge failure for one root renders THAT row `Unavailable` (a
+structured `error` review), never a stale/empty "no hooks" lie. KNOWN LIMITATION:
+the panel keys approvals by the durable ADAPTER rootId (the file-explorer store's
+id, which the hook-trust store already keys on); for reconcile-era roots this
+equals the server's DB `roots.id` (they coincide — see `reconcileRoots`), but a
+legacy path-matched root whose DB id diverges would attest under the wrong id and
+fail CLOSED (hooks stay off) — same divergence documented for `@file` mentions in
+`use-file-mentions.ts`; the durable fix is threading the RootIdentity DB-id seam
+(not in the settings subtree today).
 
 Live-loop proofs (real Agent + real `applyToolHooks`, no stream mocks):
 `packages/agent/src/__tests__/mastra-tool-execution.spec.ts` (block / allow +
@@ -657,7 +672,8 @@ Server composition: `apps/desktop/src/__tests__/assistant-server/hooks/`.
 
 **Deferred (documented follow-ups):** SessionStart/SessionEnd/Notification
 wiring; Stop auto-continue; Stop `assistant_message` accumulation; full hooks.json
-editor UI; live per-root list wiring into the settings subtree;
+editor UI; keying approvals by the DB `roots.id` seam (RootIdentity threaded into
+the settings subtree) so legacy path-matched roots resolve;
 `<userData>` vs home-dotfile decision.
 
 When changing this flow, update this section and the paired tests.

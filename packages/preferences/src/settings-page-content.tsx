@@ -500,6 +500,8 @@ export function createPermissionSettingsCategory(): SettingsCategory {
   };
 }
 
+export type { HookReviewRoot };
+
 export interface CreateHooksSettingsCategoryOptions {
   readonly globalConfigPath?: string;
   readonly roots?: readonly HookReviewRoot[];
