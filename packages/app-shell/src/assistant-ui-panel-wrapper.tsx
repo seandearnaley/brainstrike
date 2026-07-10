@@ -36,6 +36,7 @@ import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
   AssistantUiPanel,
+  EditCheckpointProvider,
   hasDesktopLlmHost,
   useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
@@ -91,6 +92,7 @@ import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
+import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useFileMentions } from './use-file-mentions';
@@ -1401,48 +1403,54 @@ export function AssistantUiPanelWrapper({
   // entirely inside the hook.
   const { onRunFailed, onRunFinished, onToolApprovalRequired } = useAssistantRunNotifications();
 
+  // Edit checkpoint (undo of agent file edits) context for the mutation tool
+  // cards. Null on web / when no thread is selected (capability gating).
+  const editCheckpoints = useEditCheckpoints(assistantThreadRepository, selectedMemoryThreadId);
+
   return (
-    <AssistantUiPanel
-      completePreparedRequest={completePreparedRequest}
-      contextWindow={selectedModelBudgetDef?.contextWindow}
-      {...(cumulativeUsage ? { cumulativeUsage } : {})}
-      effectiveInputBudget={effectiveInputBudget}
-      omSegment={omSegment}
-      onProviderSettingsChange={handleProviderSettingsChange}
-      onRunFailed={onRunFailed}
-      onRunFinished={onRunFinished}
-      onStreamActivity={renewActiveAssistantForegroundActivity}
-      onToolApprovalRequired={onToolApprovalRequired}
-      onUsage={handleUsage}
-      pickerModels={pickerModels}
-      pickerProviders={pickerProviders}
-      prepareRequestData={prepareRequestData}
-      providerGroups={providerGroups}
-      providerSettings={effectiveProviderSettings}
-      requestData={requestData}
-      slashCommands={slashCommands}
-      {...(desktopAssistantBackendAvailable
-        ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
-        : {})}
-      toolMenu={toolMenu}
-      {...(historyAdapter ? { historyAdapter } : {})}
-      {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-      localChatTransport={localChatTransport}
-      {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
-      {...(selectedProvider ? { selectedProvider } : {})}
-      {...(currentModel ? { selectedModel: currentModel } : {})}
-      disabled={!isProviderReady || Boolean(memoryDisabledReason)}
-      onModelChange={handleModelChange}
-      onModelToggle={handleModelToggle}
-      {...(disabledReason ? { disabledReason } : {})}
-      {...(planModeAvailable
-        ? {
-            onExitPlanMode: exitPlanMode,
-            onTogglePlanMode: togglePlanMode,
-            planModeEnabled: planModeEnabledPref,
-          }
-        : {})}
-    />
+    <EditCheckpointProvider value={editCheckpoints}>
+      <AssistantUiPanel
+        completePreparedRequest={completePreparedRequest}
+        contextWindow={selectedModelBudgetDef?.contextWindow}
+        {...(cumulativeUsage ? { cumulativeUsage } : {})}
+        effectiveInputBudget={effectiveInputBudget}
+        omSegment={omSegment}
+        onProviderSettingsChange={handleProviderSettingsChange}
+        onRunFailed={onRunFailed}
+        onRunFinished={onRunFinished}
+        onStreamActivity={renewActiveAssistantForegroundActivity}
+        onToolApprovalRequired={onToolApprovalRequired}
+        onUsage={handleUsage}
+        pickerModels={pickerModels}
+        pickerProviders={pickerProviders}
+        prepareRequestData={prepareRequestData}
+        providerGroups={providerGroups}
+        providerSettings={effectiveProviderSettings}
+        requestData={requestData}
+        slashCommands={slashCommands}
+        {...(desktopAssistantBackendAvailable
+          ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+          : {})}
+        toolMenu={toolMenu}
+        {...(historyAdapter ? { historyAdapter } : {})}
+        {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+        localChatTransport={localChatTransport}
+        {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
+        {...(selectedProvider ? { selectedProvider } : {})}
+        {...(currentModel ? { selectedModel: currentModel } : {})}
+        disabled={!isProviderReady || Boolean(memoryDisabledReason)}
+        onModelChange={handleModelChange}
+        onModelToggle={handleModelToggle}
+        {...(disabledReason ? { disabledReason } : {})}
+        {...(planModeAvailable
+          ? {
+              onExitPlanMode: exitPlanMode,
+              onTogglePlanMode: togglePlanMode,
+              planModeEnabled: planModeEnabledPref,
+            }
+          : {})}
+      />
+    </EditCheckpointProvider>
   );
 }
 
