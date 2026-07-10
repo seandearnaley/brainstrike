@@ -109,37 +109,6 @@ export interface StorePromptItemEmbeddingInput {
   readonly revision: number;
 }
 
-export interface ImportPromptItemRevision {
-  readonly content: string;
-  readonly createdAt: Date;
-  readonly id: string;
-  readonly modelKey?: string | null;
-  readonly modelSettings?: Record<string, unknown> | null;
-  readonly note?: string | null;
-  readonly title: string;
-}
-
-export interface ImportPromptItem {
-  readonly content: string;
-  readonly createdAt: Date;
-  readonly description?: string | null;
-  readonly id: string;
-  readonly isFavorite: boolean;
-  readonly kind: PromptItemKind;
-  readonly modelKey?: string | null;
-  readonly modelSettings?: Record<string, unknown> | null;
-  readonly rating?: number | null;
-  readonly revisions: readonly ImportPromptItemRevision[];
-  readonly sourceUrl?: string | null;
-  readonly tags: readonly string[];
-  readonly title: string;
-  readonly updatedAt: Date;
-}
-
-export interface PromptItemImportSnapshot {
-  readonly items: readonly ImportPromptItem[];
-}
-
 const DERIVED_TITLE_MAX_LENGTH = 72;
 
 export function derivePromptItemTitle(content: string): string {

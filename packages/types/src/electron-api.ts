@@ -278,9 +278,7 @@ export interface ElectronDatabaseAPI {
    */
   runTransaction?: (
     statements: {
-      expectedRowCount?: number;
       params?: unknown[];
-      rowCountMismatchError?: string;
       sql: string;
     }[],
     resultIndex: number,

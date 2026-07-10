@@ -216,18 +216,10 @@ localStorage-backed parallel store.
 Ownership and flow:
 - Persistence: migration 051 (`prompt_embedding_profiles`, `prompt_items`,
   `prompt_item_revisions`) + `PromptItemRepository`. Prompt edits use revision CAS and
-  retain the previous revision. The one-time `brainstrike-prompt-store` import is strict,
-  transactional, and removes localStorage only after a successful commit. Desktop import
-  uses the callback-free `runTransaction` bridge with in-transaction row-count guards that
-  compare every import-owned current/revision field before accepting an idempotent replay;
-  never replace it with renderer-side `BEGIN`/`COMMIT` calls or a preflight comparison.
-  Bare legacy model ids are promoted only when the assistant-contract registry maps them
-  to exactly one provider; unknown, retired, or ambiguous ids fail closed. A failed legacy
-  import retains the payload and surfaces a durable warning, but it must not hide valid
-  PGlite prompts: bootstrap still performs the authoritative initial repository `list()`.
-  That database read remains fatal if it fails, and successful indexing must not clear the
-  separate legacy-import warning. Text filters treat SQL LIKE metacharacters (`%`, `_`, and
-  `\`) as literals.
+  retain the previous revision. PGlite is the only prompt store; there is no localStorage
+  compatibility path. Bootstrap performs the authoritative initial repository `list()`, and
+  that database read remains fatal if it fails. Text filters treat SQL LIKE metacharacters
+  (`%`, `_`, and `\`) as literals.
 - Recall: prompt records own vectors under the dedicated singleton prompt profile — they
   are NOT fake files and MUST NOT be added to `embedding_sets`. Saved items use document
   embeddings; live composer context uses query embeddings. Vector failures surface in the
