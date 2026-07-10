@@ -335,14 +335,19 @@ export function ConnectedPromptManager({
     }
     return options;
   }, [enabledProviderIds, models, providerNames]);
-  const { handleLibraryChanged, handleRequestSuggestions, indexingError, readiness } =
-    usePromptLibraryController({
-      embedder,
-      loadEmbeddingQueue,
-      localModelConfigMap,
-      repository,
-      suggestionsEnabled,
-    });
+  const {
+    handleLibraryChanged,
+    handleRequestSuggestions,
+    indexingError,
+    legacyImportWarning,
+    readiness,
+  } = usePromptLibraryController({
+    embedder,
+    loadEmbeddingQueue,
+    localModelConfigMap,
+    repository,
+    suggestionsEnabled,
+  });
 
   const recordAppliedUsage = useCallback(
     async (itemId: string, action: PromptItemUsageAction): Promise<void> => {
@@ -464,7 +469,7 @@ export function ConnectedPromptManager({
     );
   }
 
-  const systemError = [indexingError, usageError].filter(Boolean).join('\n');
+  const systemError = [legacyImportWarning, indexingError, usageError].filter(Boolean).join('\n');
 
   return (
     <PromptWorkbenchPanel

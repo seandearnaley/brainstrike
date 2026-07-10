@@ -536,6 +536,35 @@ describe('ConnectedPromptManager', () => {
     );
   });
 
+  it('keeps database prompts available when the retained legacy import is corrupt', async () => {
+    mocks.importLegacyPromptStore.mockRejectedValueOnce(
+      new Error('Legacy prompt store is not valid JSON.')
+    );
+    repository.list.mockResolvedValue([testItem]);
+
+    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+
+    expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('first-item-embedding-status')).toHaveTextContent('ready');
+    expect(screen.getByTestId('system-error')).toHaveTextContent(/legacy prompt import failed/i);
+    expect(screen.getByTestId('system-error')).toHaveTextContent(/legacy data was retained/i);
+    expect(screen.getByTestId('system-error')).toHaveTextContent(
+      'Legacy prompt store is not valid JSON.'
+    );
+    await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalled());
+    expect(screen.getByTestId('system-error')).toHaveTextContent(/legacy prompt import failed/i);
+  });
+
+  it('keeps an initial database listing failure fatal', async () => {
+    repository.list.mockRejectedValueOnce(new Error('Prompt database is unavailable.'));
+
+    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Prompt database is unavailable.');
+    expect(screen.queryByTestId('prompt-workbench-panel')).not.toBeInTheDocument();
+    expect(mocks.embedPendingPromptItems).not.toHaveBeenCalled();
+  });
+
   it('stages insertions into the active thread rather than the selected sidebar thread', async () => {
     const user = userEvent.setup();
     render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
