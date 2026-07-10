@@ -413,6 +413,95 @@ permission engine never stacks an approval prompt on top of their own suspend.
 
 ---
 
+## TOOL-LIFECYCLE HOOKS (Claude-Code-style)
+
+User-authored shell commands that run at lifecycle events and (for blocking
+events) can refuse to proceed. **Desktop-only by construction** — shell hooks
+need Node `child_process` + absolute root paths + the assistant server; web
+constructs NO hook runner (capability-gated, no `isElectron()` checks).
+
+Seven events, three blocking (`PreToolUse`, `Stop`, `UserPromptSubmit`). A hook
+is `{ type:'command', command, matcher?:{tool_name}, timeout?, description? }`.
+It receives a JSON payload on **stdin** (secret-redacted), returns optional JSON
+on **stdout** (`{decision, reason, additionalContext}`); its **exit code** is
+authoritative: `2` = hard block on a blocking event, other non-zero =
+warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
+
+**Insertion points (do not move):**
+- `PreToolUse`/`PostToolUse` live in the tool-execute seam. `applyToolHooks`
+  (`packages/agent/src/tools/hook-tool-wrap.ts`) is a SIBLING of `applyToolGuards`,
+  composed OUTSIDE the guard, BEFORE the permission gate:
+  `combinedTools → applyToolGuards → applyToolHooks → plan-mode → permission gate`
+  (`agent-runtime.ts`). Permission runs downstream of `execute`, so **hooks
+  REFINE, never widen**: a PreToolUse hook can BLOCK a permitted tool but can
+  never allow a denied/ask tool. A block returns a `HookBlockedToolError`
+  (`error.code:'tool_blocked_by_hook'`, recognized by `isGuardedToolError`) so it
+  renders as a FAILED tool event. PostToolUse `additionalContext` is capped
+  (`HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET` 2000) and merged into the tool result.
+  A hook-runner FAULT is allow-on-fault (a runner bug must not brick tool calling).
+- `UserPromptSubmit`/`Stop` run in `apps/desktop/src/assistant-server.ts`
+  (`initializeAgentStream`). A UserPromptSubmit block short-circuits the turn with
+  a visible message + `run.failed` and NEVER invokes the model; additionalContext
+  prepends a `system` message. **Stop is NOTIFY-ONLY in v1** (surface the block
+  reason as a `hook.notice`; NO auto-continue). SessionStart/SessionEnd/
+  Notification are implemented but UNWIRED in v1.
+
+**Timeout invariant (non-negotiable):** `hook timeout (default 10_000ms) <
+BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000) < BRAINSTRIKE_STREAM_INACTIVITY_MS
+(120_000)`. `config.ts` rejects any hook whose `timeout >= resolveToolTimeoutMs()`.
+
+**Malformed config = disable-with-visible-error (NOT throw-at-load).**
+`loadHooksConfig` returns `{hooks, errors, sources}`; a malformed/untrusted file
+contributes ZERO hooks (fail-CLOSED) AND records a `HookConfigError` surfaced on
+THREE channels (`logger.error`, a `hook.notice(failed)` run event via
+`reportConfigErrors`, the Hooks settings banner). Never throw at load — that
+would brick every run over a config typo and hand a malicious repo a DoS. This is
+loud + fail-closed, the opposite of a silent fallback.
+
+**Security spine (trust gate).** Global hooks (`~/.brainstrike/hooks.json`, the
+user's own machine) run without approval. **Project** hooks
+(`<root>/.brainstrike/hooks.json`, per mounted desktop root) run ONLY after a
+per-root approval **pinned to the file's SHA-256**. The trust store
+(`packages/preferences/src/stores/hook-trust-store.ts`, persisted,
+factory-reset-registered) records `{rootId → {approvedSha256, approvedAt}}`. The
+renderer only ATTESTS approved hashes over the wire (`HookTrustRequest`); the
+server independently RE-READS + RE-HASHES disk (`trust.ts` `resolveTrustedRoots`)
+and runs a root's hooks only when `sha256(disk) === approvedSha256`. A changed
+file → untrusted (re-approve). Keyed by durable `rootId`, never raw path. Stdin
+payloads are secret-redacted before spawn (`executor.ts` `redactSecrets`, mirrors
+the logger redact key set).
+
+**Config paths (D6):** global `~/.brainstrike/hooks.json` (new home-dotfile, for
+discoverability); per-root `<root>/.brainstrike/hooks.json`. Merge order:
+global-first, then roots in mounted order; each loaded hook is tagged with its
+source `cwd`/`rootId` (global hooks' cwd = primary root).
+
+**Threading:** `RuntimeData.hookRunner` (trusted, agent-only, never serialized —
+mirrors `localLlmHostClient`; preserved by `resolveRuntimeConfiguration`'s spread)
++ `RuntimeData.hookTrustRequest` (wire). The server STRIPS any client-supplied
+`hookRunner` and injects the server-built one (closure over `HookManager`).
+
+**Run-event kinds:** `hook.blocked`, `hook.notice` (in `ASSISTANT_RUN_EVENT_KINDS`).
+
+**Settings + review IPC:** `hooks-settings-section.tsx` (per-root
+trusted/untrusted/changed/parse-error + approve/revoke) via
+`hooks:getProjectHooksForReview` IPC (`ipc-hooks.ts`, path-validated, hashes disk)
++ `window.hooks` preload bridge (capability-gated).
+
+Live-loop proofs (real Agent + real `applyToolHooks`, no stream mocks):
+`packages/agent/src/__tests__/mastra-tool-execution.spec.ts` (block / allow +
+PostToolUse context / runtime-threaded / no-runner regression / runner-fault).
+Server composition: `apps/desktop/src/__tests__/assistant-server/hooks/`.
+
+**Deferred (documented follow-ups):** SessionStart/SessionEnd/Notification
+wiring; Stop auto-continue; Stop `assistant_message` accumulation; full hooks.json
+editor UI; live per-root list wiring into the settings subtree;
+`<userData>` vs home-dotfile decision.
+
+When changing this flow, update this section and the paired tests.
+
+---
+
 ## PLAN MODE & TOOL SUSPENSION (ask-user / submit-plan)
 
 Two SUSPENDING native tools pause the run DURING execution and resume with
@@ -1266,7 +1355,9 @@ Implementation:
 - Update:
   - packages/preferences/src/settings/system/factory-reset-helpers.ts
   - Ensure clearPersistentUiState() includes:
-    - All new persistent UI store keys.
+    - All new persistent UI store keys (e.g. `hook-trust-store` — the
+      security-sensitive per-root hook approvals; reset drops every approval so a
+      re-mounted repo's hooks require fresh review — see TOOL-LIFECYCLE HOOKS).
     - Electron renderer storage bridge.
     - IndexedDB (enumerated + fallback list).
     - CacheStorage.
