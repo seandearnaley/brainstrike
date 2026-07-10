@@ -106,6 +106,14 @@ vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
   ),
 }));
 
+vi.mock('@brainstrike/preferences/settings/system/notification-settings-category', () => ({
+  createNotificationSettingsCategory: () => ({
+    content: <div data-testid="notifications-category" />,
+    id: 'notifications',
+    title: 'Notifications',
+  }),
+}));
+
 vi.mock('@brainstrike/preferences/settings-page-content', () => ({
   createApiKeysSettingsCategory: () => ({
     content: <div data-testid="api-keys-category" />,

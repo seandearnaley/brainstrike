@@ -89,6 +89,7 @@ import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
+import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useFileMentions } from './use-file-mentions';
 import { useObservationalMemoryRow } from './use-om-segment-row';
@@ -1351,6 +1352,12 @@ export function AssistantUiPanelWrapper({
   const [fileMentionQuery, setFileMentionQuery] = useState('');
   const { fileMentions } = useFileMentions(fileMentionQuery);
 
+  // Run-lifecycle OS notifications (run finished/failed, tool approval
+  // required) — see AGENTS.md "ASSISTANT RUN NOTIFICATIONS". Only ever fires
+  // for the Mastra-loop transport; the settings/permission/focus gates live
+  // entirely inside the hook.
+  const { onRunFailed, onRunFinished, onToolApprovalRequired } = useAssistantRunNotifications();
+
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
@@ -1359,7 +1366,10 @@ export function AssistantUiPanelWrapper({
       effectiveInputBudget={effectiveInputBudget}
       omSegment={omSegment}
       onProviderSettingsChange={handleProviderSettingsChange}
+      onRunFailed={onRunFailed}
+      onRunFinished={onRunFinished}
       onStreamActivity={renewActiveAssistantForegroundActivity}
+      onToolApprovalRequired={onToolApprovalRequired}
       onUsage={handleUsage}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}

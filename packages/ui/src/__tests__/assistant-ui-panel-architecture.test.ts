@@ -49,7 +49,19 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1730 → 1735 for React.FC → plain function typings: explicit
     // destructured props + inline type annotations add a few lines per component
     // without changing runtime behavior.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1735);
+    // Bumped 1735 → 1786 for assistant run-lifecycle OS notifications:
+    // onRunFailed/onRunFinished/onToolApprovalRequired thread the SAME 5 layers
+    // as onUsage/onModelChange (AssistantUiPanel → Local/DataStream chat →
+    // ChatThreadUI), and ChatThreadUI mounts a `RunLifecycleNotificationBridge`
+    // (its own module, run-lifecycle-notifications.ts) that reports each new
+    // terminal run event / approval request up to app-shell exactly once. The
+    // notification DECISION logic (settings gate, permission, coalescing) lives
+    // entirely in @brainstrike/preferences — this file only plumbs three
+    // optional callback props, matching the existing onUsage seam.
+    // Bumped 1786 → 1787 for the hydration-replay fix: RunLifecycleNotificationBridge
+    // now also receives `threadKey` so a thread switch re-seeds its "seen"
+    // sets instead of treating the new thread's history as new activity.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1787);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

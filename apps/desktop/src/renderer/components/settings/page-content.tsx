@@ -9,6 +9,7 @@ import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/inde
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/preferences/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
+import { createNotificationSettingsCategory } from '@brainstrike/preferences/settings/system/notification-settings-category';
 import {
   createToolsSettingsCategory,
   type ToolDisplayMetadata,
@@ -326,6 +327,7 @@ export default function SettingsPageContent() {
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
+      createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
         inlineFixtureSetting: {

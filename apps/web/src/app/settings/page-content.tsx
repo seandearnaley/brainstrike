@@ -15,6 +15,7 @@ import {
   LoggingSettingsSection,
   type LogSourceAdapter,
 } from '@brainstrike/preferences/settings/system/logging-settings-section';
+import { createNotificationSettingsCategory } from '@brainstrike/preferences/settings/system/notification-settings-category';
 import {
   createToolsSettingsCategory,
   type ToolDisplayMetadata,
@@ -203,6 +204,7 @@ export default function SettingsPageContent() {
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
+      createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
         hasStoredFolders: storedFolders.length > 0,
