@@ -130,6 +130,15 @@ describe('default assistant instructions', () => {
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
   });
 
+  it('leaves no blank instruction line when optional tools (e.g. askUser) are unregistered', () => {
+    // Only grepSearch is registered → askUser, manageTaskList, curation, etc.
+    // all resolve to empty clauses. Those must not leave stray blank lines.
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
+    );
+    expect(instructions).not.toMatch(/\n[ \t]*\n/);
+  });
+
   it('advertises globWorkspace guidance only when the tool is registered', () => {
     const withGlob = buildDefaultInstructions(
       new Map<string, string>([['brainstrike_globWorkspace', 'brainstrike.globWorkspace']])

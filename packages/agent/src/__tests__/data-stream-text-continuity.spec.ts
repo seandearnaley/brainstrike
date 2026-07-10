@@ -179,9 +179,15 @@ describe('tool-suspend-required data part respects text continuity', () => {
       toolCallId: 'call-suspend-1',
       toolName: 'brainstrike.askUser',
     });
-    // The suspend data part lands AFTER the last text delta (text was finalized).
+    // Text-part-closed-before-data-part: the open text is FULLY finalized before
+    // ANY data part is emitted. Pinning only the LAST data part would still pass
+    // if an earlier data part sliced mid-text, so assert the FIRST data part
+    // (the flushed run event) already lands after the last text delta — no data
+    // part may appear before the text block is closed.
+    const lastTextIndex = codes.lastIndexOf('0');
+    expect(codes.indexOf('aui-data')).toBeGreaterThan(lastTextIndex);
     const suspendDataIndex = codes.lastIndexOf('aui-data');
-    expect(suspendDataIndex).toBeGreaterThan(codes.lastIndexOf('0'));
+    expect(suspendDataIndex).toBeGreaterThan(lastTextIndex);
   });
 });
 
