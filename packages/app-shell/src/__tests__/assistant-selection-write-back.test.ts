@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeRootPathForLookup,
   resolveWriteBackFolderId,
-} from '../assistant-ui-panel-wrapper';
+} from '../assistant-selection-write-back';
 
 const PATH_TO_CLIENT_ROOT_ID = new Map<string, string>([
   ['/work/ProjectA', 'client-a'],
