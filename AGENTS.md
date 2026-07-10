@@ -295,6 +295,34 @@ while a text/reasoning part is streaming and flushes them at the next boundary
 (tool start, approval, finish, error, stream end) — never drop them, never
 emit them mid-part (proof: data-stream-text-continuity.spec.ts).
 
+Live shell output (executeCommand streaming): `executeCommand` streams its
+subprocess stdout/stderr incrementally through Mastra's tool `writer` as it is
+produced (a long build/test run is visible live, not only on exit). The tool
+writes via `writer.custom({ type: SHELL_OUTPUT_STREAM_PART_TYPE, … })`
+(`packages/agent/src/mastra/shell-output-stream.ts`), which places the slice on
+the fullStream VERBATIM — deliberately NOT `writer.write` (that wraps it as a
+`tool-output` part, colliding with subagent delegation and masquerading as a
+successful tool result). `processMastraStreamPart` maps that part to a dedicated
+transient `shell-output` StreamChunk; `DataStreamMapper.handleShellOutput` emits
+it as a `SHELL_OUTPUT_DATA_NAME` aui-data part (subject to the SAME text-part
+deferral). It is NOT a run-event kind ON PURPOSE: run-events are persisted
+server-side into `assistant_run_events` (and their metadata is redaction-
+sanitized, which strips `output`/`text` keys) — a `shell-output` StreamChunk is
+ignored by that persistence tap (`chunk.type !== 'run-event'`), so live slices
+are TRANSIENT (never persisted; absent on reload — the FINAL captured output
+persists as the tool result). A COMBINED streaming cap
+(`MAX_STREAMED_OUTPUT_BYTES`, separate from the 1 MB capture cap) stops a runaway
+process flooding the stream: at the cap one truncation notice is emitted,
+streaming stops, and teardown/capture continue unchanged. Mastra hands a plain
+tool OBJECT the raw `outputWriter` fn + top-level `toolCallId` (a `createTool`
+instance gets `writer.custom` + `agent.toolCallId`); the desktop wiring accepts
+both. The renderer accumulates slices per toolCallId
+(`collectShellOutputs` + `ShellOutputProvider`) into the live tool card
+(`LiveShellOutputPane`, shown only while running). background:true (run the tool
+as a Mastra background task) is a documented FOLLOW-UP, not in v1. Proofs:
+mastra-tool-execution.spec ('streams incremental shell-output …'),
+execute-command-tool.test / execute-command-live-loop.test, shell-output-parts.test.
+
 Parallel tool calls: Mastra executes tool calls within a step concurrently
 (default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
 sequential execution when the run-wide `requireToolApproval` is set OR any active
