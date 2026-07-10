@@ -341,6 +341,8 @@ export {
   type SkippedSourceRangeChunk,
 } from './tools/retrieval-tool';
 export {
+  type DeleteWorkspaceFileInput,
+  DeleteWorkspaceFileInputSchema,
   type ExecuteCommandInput,
   ExecuteCommandInputSchema,
   type FindWorkspaceSymbolInput,
@@ -361,6 +363,8 @@ export {
   ReadWorkspaceDirectoryInputSchema,
   type ReadWorkspaceFileInput,
   ReadWorkspaceFileInputSchema,
+  type RenameWorkspaceFileInput,
+  RenameWorkspaceFileInputSchema,
   type RetrievalContextInput,
   RetrievalContextInputSchema,
   type SelectRootTreeFilesInput,

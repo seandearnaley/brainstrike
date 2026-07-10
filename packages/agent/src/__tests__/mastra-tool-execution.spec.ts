@@ -225,6 +225,68 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     expect(finalText).toContain('hello-from-real-shell');
   });
 
+  // Live-loop proof for the SHAPE of brainstrike.deleteWorkspaceFile (an
+  // edit-risk file-mutation tool): the real Mastra loop drives a tool whose
+  // execute performs a REAL filesystem delete of a temp file, and its structured
+  // { ok, path } result flows back to a terminal tool.completed + final answer.
+  // The desktop runDeleteWorkspaceFile cannot run here (the desktop test setup
+  // stubs streamMastraAgent), so this mirrors its core behavior in the unmocked
+  // agent package: real loop + real fs mutation.
+  it('drives a file-deleting tool through the real loop (unlink → ok: true)', async () => {
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const fsPromises = await import('node:fs/promises');
+    const dir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-delete-loop-'));
+    const target = path.join(dir, 'doomed.txt');
+    await fsPromises.writeFile(target, 'delete me', 'utf8');
+
+    try {
+      const deleteTool = createTool({
+        description: 'Delete a workspace file and report the result.',
+        execute: async ({ absolutePath }: { absolutePath: string }) => {
+          await fsPromises.unlink(absolutePath);
+          return { ok: true as const, path: absolutePath };
+        },
+        id: 'delete_workspace_file',
+        inputSchema: z.object({ absolutePath: z.string() }),
+        outputSchema: z.object({ ok: z.literal(true), path: z.string() }),
+      });
+
+      modelHolder.current = createScriptedToolCallModel({
+        finalText: 'Deleted the file.',
+        input: JSON.stringify({ absolutePath: target }),
+        toolCallId: 'call-delete-1',
+        toolName: 'delete_workspace_file',
+      });
+
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-delete', parts: [{ text: 'delete it', type: 'text' }], role: 'user' }],
+        {
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          tools: { delete_workspace_file: deleteTool },
+        }
+      );
+
+      const runEventKinds: string[] = [];
+      let finalText = '';
+      for await (const chunk of iterator) {
+        if (chunk.type === 'run-event') {
+          runEventKinds.push(chunk.event.kind);
+        } else if (chunk.type === 'text-delta') {
+          finalText += chunk.value;
+        }
+      }
+
+      // The real fs delete ran to completion through the real loop, and its result
+      // flowed back to the model's final answer.
+      expect(runEventKinds).toContain('tool.completed');
+      expect(finalText).toContain('Deleted the file.');
+      await expect(fsPromises.access(target)).rejects.toThrow();
+    } finally {
+      await fsPromises.rm(dir, { force: true, recursive: true });
+    }
+  });
+
   it('terminates the real agent loop when a tool execute never resolves', async () => {
     const previousToolTimeout = process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;
     const previousStreamInactivity = process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS;

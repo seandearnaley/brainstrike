@@ -3,6 +3,8 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
   applyStringReplace,
+  type DeleteWorkspaceFileInput,
+  DeleteWorkspaceFileInputSchema,
   type ExecuteCommandInput,
   ExecuteCommandInputSchema,
   type FindWorkspaceSymbolInput,
@@ -24,6 +26,8 @@ import {
   ReadWorkspaceDirectoryInputSchema,
   type ReadWorkspaceFileInput,
   ReadWorkspaceFileInputSchema,
+  type RenameWorkspaceFileInput,
+  RenameWorkspaceFileInputSchema,
   type RuntimeData,
   type RuntimeWorkspaceContextFileMetadata,
   type RuntimeWorkspaceContextMetadata,
@@ -46,6 +50,7 @@ import {
   EmbeddingSetsRepository,
   type EmbeddingSpaceListing,
   type EmbeddingSpaceStats,
+  invalidateManagedCacheEntriesByIdentity,
 } from '@brainstrike/db';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type {
@@ -100,6 +105,8 @@ const FIND_WORKSPACE_SYMBOL_TOOL_ID = 'brainstrike.findWorkspaceSymbol' as const
 const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
 const WRITE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.writeWorkspaceFile' as const;
 const STRING_REPLACE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile' as const;
+const DELETE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.deleteWorkspaceFile' as const;
+const RENAME_WORKSPACE_FILE_TOOL_ID = 'brainstrike.renameWorkspaceFile' as const;
 const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
 const LIST_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.listWorkspaceContext' as const;
 const READ_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.readWorkspaceContext' as const;
@@ -293,7 +300,12 @@ async function resolveCanonicalWritablePath(absolutePath: string): Promise<strin
 async function resolveWorkspaceWritePath(
   rootPath: string,
   workspacePath: string
-): Promise<{ canonicalRootPath: string; workspacePath: string; absolutePath: string }> {
+): Promise<{
+  canonicalRootPath: string;
+  workspacePath: string;
+  absolutePath: string;
+  requestedAbsolutePath: string;
+}> {
   const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
   const relativePath =
     normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
@@ -307,10 +319,49 @@ async function resolveWorkspaceWritePath(
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
+    // Canonical (symlink-resolved) target — correct for WRITE tools, which write
+    // THROUGH a symlink to its target. `requestedAbsolutePath` is the raw
+    // (pre-realpath) requested path — delete/rename need it to act on the LINK
+    // itself rather than the resolved target (see resolveWorkspaceLeafMutationPath).
     absolutePath: canonicalAbsolutePath,
     canonicalRootPath,
+    requestedAbsolutePath: absolutePath,
     workspacePath: normalizedWorkspacePath,
   };
+}
+
+/**
+ * Resolve the on-disk path that a delete/rename should MUTATE. Unlike the write
+ * tools — which correctly resolve THROUGH a symlink to write its target — a
+ * delete/rename must act on the symlink itself: unlinking removes the pointer
+ * (never the target file) and renaming moves the pointer. `resolveWorkspaceWritePath`
+ * realpaths an existing leaf, so its `absolutePath` is the TARGET for a live
+ * in-root symlink. Here we canonicalize only the leaf's PARENT and re-append the
+ * leaf name, so the result is the LINK's own location for a symlink leaf (live or
+ * dangling) and the file's canonical location for a regular file. The parent's
+ * realpath is containment-checked (a symlinked parent escaping the root is
+ * refused, mirroring `ensureContainedDirectory`); a LIVE symlink whose TARGET
+ * escapes the root is already refused upstream by `resolveWorkspaceWritePath`
+ * (realpath-then-containment), so it never reaches this helper.
+ */
+async function resolveWorkspaceLeafMutationPath(
+  canonicalRootPath: string,
+  requestedAbsolutePath: string,
+  workspacePath: string
+): Promise<string> {
+  let canonicalParent: string;
+  try {
+    canonicalParent = await fsPromises.realpath(path.dirname(requestedAbsolutePath));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Path "${workspacePath}" does not exist.`);
+    }
+    throw error;
+  }
+  if (!isWithinRoot(canonicalRootPath, canonicalParent)) {
+    throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
+  }
+  return path.join(canonicalParent, path.basename(requestedAbsolutePath));
 }
 
 /**
@@ -752,6 +803,304 @@ async function runStringReplaceWorkspaceFile(
     replaced: true,
     rootName: root.displayName,
   };
+}
+
+/**
+ * Acquire the per-file write lock for BOTH `keyA` and `keyB` before running
+ * `task`, releasing both afterward. The two locks are acquired in sorted order so
+ * two concurrent renames touching an overlapping pair of paths always take them
+ * in the SAME order and can never deadlock (classic lock-ordering). Same-key
+ * pairs (a no-op self-rename) collapse to a single lock.
+ */
+function withTwoFileLocks<T>(keyA: string, keyB: string, task: () => Promise<T>): Promise<T> {
+  if (keyA === keyB) {
+    return withFileLock(keyA, task);
+  }
+  const [first, second] = keyA < keyB ? [keyA, keyB] : [keyB, keyA];
+  return withFileLock(first, () => withFileLock(second, task));
+}
+
+/**
+ * Post-delete/-rename index coherence (mirrors {@link triggerEditedFileReindex}):
+ * remove the file's Workspace Index rows (file_records + chunks) and cancel its
+ * in-flight embed jobs via the SAME standalone seam the background watcher uses
+ * for a disappeared file. Runs AFTER the filesystem mutation and is non-fatal —
+ * the file is already gone/renamed on disk, so a failed invalidation is LOGGED
+ * (never swallowed) and reported honestly as `indexInvalidated: false` rather
+ * than failing the tool. Returns whether any indexed row was actually removed.
+ *
+ * No-op (returns false) when no Workspace Index is configured or the DB is
+ * unavailable (as in the DB-less unit tests) — there is then nothing to keep
+ * coherent.
+ */
+async function triggerFileDeletionInvalidation(args: {
+  runtimeData: RuntimeData | undefined;
+  rootId: string;
+  workspacePath: string;
+}): Promise<{ invalidated: boolean }> {
+  const embeddingSetId = args.runtimeData?.workspaceIndexEmbeddingSetId?.trim();
+  if (!embeddingSetId) {
+    return { invalidated: false };
+  }
+
+  let db: ReindexDatabaseHandle;
+  try {
+    db = await getDatabase();
+  } catch (error) {
+    logger.debug('Skipped index invalidation: database unavailable', {
+      error: redactToolErrorForLog(error),
+      path: REDACTED_PATH_LOG_VALUE,
+    });
+    return { invalidated: false };
+  }
+
+  try {
+    const result = await invalidateManagedCacheEntriesByIdentity(
+      db as Parameters<typeof invalidateManagedCacheEntriesByIdentity>[0],
+      {
+        embeddingSetId,
+        targets: [
+          {
+            mode: 'exact',
+            relativePath: toFileRecordRelativePath(args.workspacePath),
+            rootId: args.rootId,
+          },
+        ],
+      }
+    );
+    return { invalidated: result.deletedFileRecordIds.length > 0 };
+  } catch (error) {
+    logger.error(
+      'Failed to invalidate index rows for a removed/renamed file; RAG index may be stale until next sync',
+      {
+        error: redactToolErrorForLog(error),
+        path: REDACTED_PATH_LOG_VALUE,
+      }
+    );
+    return { invalidated: false };
+  }
+}
+
+/**
+ * Best-effort re-index of a rename DESTINATION through the same seam edits use
+ * ({@link triggerEditedFileReindex}). That seam only UPDATES an existing
+ * file_records row, so for a brand-new destination path (the common case — a
+ * rename requires the target NOT to exist) it no-ops and the destination's row is
+ * imported by the background workspace sync; it matters only when the destination
+ * path had a stale row. Reading the content is bounded (2 MB + binary probe); a
+ * binary/oversized/unreadable destination simply skips (non-fatal — the file is
+ * already renamed on disk).
+ *
+ * Gated up front on `workspaceIndexEmbeddingSetId` (same derivation as
+ * {@link triggerFileDeletionInvalidation}): with no Workspace Index configured
+ * there is nothing to re-index, so this returns before paying for the up-to-2MB
+ * destination read.
+ */
+async function triggerRenamedDestinationReindex(args: {
+  runtimeData: RuntimeData | undefined;
+  rootId: string;
+  rootPath: string;
+  workspacePath: string;
+  absolutePath: string;
+}): Promise<void> {
+  const embeddingSetId = args.runtimeData?.workspaceIndexEmbeddingSetId?.trim();
+  if (!embeddingSetId) {
+    return;
+  }
+
+  let file: { content: string; size: number };
+  try {
+    file = await readWorkspaceTextFile({
+      requestedPath: args.workspacePath,
+      rootPath: args.rootPath,
+    });
+  } catch (error) {
+    logger.debug('Skipped renamed-destination re-index: not readable as text', {
+      error: redactToolErrorForLog(error),
+      path: REDACTED_PATH_LOG_VALUE,
+    });
+    return;
+  }
+  await triggerEditedFileReindex({
+    absolutePath: args.absolutePath,
+    content: file.content,
+    rootId: args.rootId,
+    runtimeData: args.runtimeData,
+    size: file.size,
+    workspacePath: args.workspacePath,
+  });
+}
+
+async function runDeleteWorkspaceFile(
+  input: DeleteWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  ok: true;
+  path: string;
+  rootName: string;
+  indexInvalidated: boolean;
+}> {
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  // Same path hardening as the write tools: clamps "..", contains symlinked
+  // ancestors, and rejects the workspace root itself. A LIVE symlink whose target
+  // escapes the root is refused here (realpath-then-containment). The delete +
+  // index invalidation run inside the per-file lock so a concurrent edit to the
+  // same path cannot interleave.
+  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+  // Act on the LINK itself, not its resolved target: deleting a symlink must
+  // remove the pointer and leave the target intact (resolved.absolutePath is the
+  // TARGET for a live in-root symlink).
+  const mutationPath = await resolveWorkspaceLeafMutationPath(
+    resolved.canonicalRootPath,
+    resolved.requestedAbsolutePath,
+    input.path
+  );
+
+  return withFileLock(mutationPath, async () => {
+    let leafStats: import('node:fs').Stats;
+    try {
+      leafStats = await fsPromises.lstat(mutationPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Path "${input.path}" does not exist.`);
+      }
+      throw error;
+    }
+    // A symlink leaf (live or dangling) is deleted AS A LINK — `unlink` removes
+    // the pointer, never the target. Only a REAL directory is refused (lstat does
+    // not follow the leaf, so a symlink-to-directory reports isDirectory() false).
+    if (leafStats.isDirectory()) {
+      throw new Error(
+        `Path "${input.path}" is a directory. Deleting directories is not supported — use executeCommand for that.`
+      );
+    }
+
+    await fsPromises.unlink(mutationPath);
+    const { invalidated } = await triggerFileDeletionInvalidation({
+      rootId: root.rootId,
+      runtimeData,
+      workspacePath: resolved.workspacePath,
+    });
+
+    return {
+      indexInvalidated: invalidated,
+      ok: true,
+      path: resolved.workspacePath,
+      rootName: root.displayName,
+    };
+  });
+}
+
+async function runRenameWorkspaceFile(
+  input: RenameWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  ok: true;
+  fromPath: string;
+  toPath: string;
+  rootName: string;
+  indexInvalidated: boolean;
+}> {
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const fromResolved = await resolveWorkspaceWritePath(root.path, input.fromPath);
+  const toResolved = await resolveWorkspaceWritePath(root.path, input.toPath);
+  // Both paths resolve against the SAME single `root`, so a cross-root move is not
+  // expressible through this schema; assert equal canonical roots as defense in
+  // depth (never silently accept a cross-root move).
+  if (fromResolved.canonicalRootPath !== toResolved.canonicalRootPath) {
+    throw new Error(
+      'Cross-root moves are not supported. Both paths must be in the same open folder.'
+    );
+  }
+  // Act on the LINK itself for the source: renaming a symlink must move the
+  // pointer and leave its target intact (fromResolved.absolutePath is the TARGET
+  // for a live in-root symlink). A live symlink whose target escapes the root is
+  // already refused above by resolveWorkspaceWritePath.
+  const fromMutationPath = await resolveWorkspaceLeafMutationPath(
+    fromResolved.canonicalRootPath,
+    fromResolved.requestedAbsolutePath,
+    input.fromPath
+  );
+  if (fromMutationPath === toResolved.absolutePath) {
+    throw new Error(
+      `fromPath and toPath resolve to the same file "${toResolved.workspacePath}"; nothing to rename.`
+    );
+  }
+
+  // Lock BOTH paths (sorted order → deadlock-free) so a concurrent edit or rename
+  // touching either path cannot interleave with this move.
+  return withTwoFileLocks(fromMutationPath, toResolved.absolutePath, async () => {
+    let fromStats: import('node:fs').Stats;
+    try {
+      fromStats = await fsPromises.lstat(fromMutationPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Path "${input.fromPath}" does not exist.`);
+      }
+      throw error;
+    }
+    // A symlink source is moved AS A LINK (rename(2) does not follow the final
+    // component). Only a REAL directory is refused.
+    if (fromStats.isDirectory()) {
+      throw new Error(
+        `Path "${input.fromPath}" is a directory. Renaming directories is not supported — use executeCommand for that.`
+      );
+    }
+
+    // Destination must NOT already exist (no overwrite in v1). lstat so a symlink
+    // at the destination also counts as "exists".
+    let destinationExists = true;
+    try {
+      await fsPromises.lstat(toResolved.absolutePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      destinationExists = false;
+    }
+    if (destinationExists) {
+      throw new Error(
+        `Destination "${input.toPath}" already exists. Delete it first or choose another path (rename does not overwrite).`
+      );
+    }
+
+    // Create any missing destination parent directories one component at a time,
+    // rejecting symlinked intermediates (a plain mkdir -p would traverse them).
+    await ensureContainedDirectory(
+      toResolved.canonicalRootPath,
+      path.dirname(toResolved.absolutePath)
+    );
+
+    await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
+
+    // Index coherence: invalidate the SOURCE rows immediately (the differentiator
+    // vs a shell mv). `indexInvalidated` reflects that source removal. The
+    // DESTINATION is re-indexed through the edit seam, which no-ops for a
+    // brand-new path — a not-previously-indexed destination's row is imported by
+    // the background workspace sync (the documented staleness window: the moved
+    // file is searchable via the live grep pass immediately, and via the semantic
+    // index once the next sync imports it).
+    const { invalidated } = await triggerFileDeletionInvalidation({
+      rootId: root.rootId,
+      runtimeData,
+      workspacePath: fromResolved.workspacePath,
+    });
+    await triggerRenamedDestinationReindex({
+      absolutePath: toResolved.absolutePath,
+      rootId: root.rootId,
+      rootPath: root.path,
+      runtimeData,
+      workspacePath: toResolved.workspacePath,
+    });
+
+    return {
+      fromPath: fromResolved.workspacePath,
+      indexInvalidated: invalidated,
+      ok: true,
+      rootName: root.displayName,
+      toPath: toResolved.workspacePath,
+    };
+  });
 }
 
 interface DirectoryEntry {
@@ -2046,6 +2395,36 @@ export function buildDesktopAssistantTools(
       },
       id: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
       inputSchema: StringReplaceWorkspaceFileInputSchema,
+    },
+    [DELETE_WORKSPACE_FILE_TOOL_ID]: {
+      description:
+        'Delete a single file from the selected workspace root. FILES ONLY — a directory path is refused (use executeCommand for directory removal). The path is clamped to the workspace root and can never escape it. Removes the file from the workspace index when it was indexed. Requires user approval (edit-risk).',
+      execute: async (input: ToolExecuteInput<DeleteWorkspaceFileInput>) => {
+        const resolvedInput = parseToolExecuteInput(DeleteWorkspaceFileInputSchema, input);
+        try {
+          return await runDeleteWorkspaceFile(resolvedInput, runtimeData);
+        } catch (error) {
+          logToolFailure('deleteWorkspaceFile failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: DELETE_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: DeleteWorkspaceFileInputSchema,
+    },
+    [RENAME_WORKSPACE_FILE_TOOL_ID]: {
+      description:
+        'Rename or move a single file within the selected workspace root. FILES ONLY. The destination must NOT already exist (rename never overwrites — delete the target first). Both paths stay inside ONE open folder (cross-root moves refused); missing destination parent directories are created. Prefer this over a shell "mv" so the workspace index stays coherent. Requires user approval (edit-risk).',
+      execute: async (input: ToolExecuteInput<RenameWorkspaceFileInput>) => {
+        const resolvedInput = parseToolExecuteInput(RenameWorkspaceFileInputSchema, input);
+        try {
+          return await runRenameWorkspaceFile(resolvedInput, runtimeData);
+        } catch (error) {
+          logToolFailure('renameWorkspaceFile failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: RENAME_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: RenameWorkspaceFileInputSchema,
     },
     [READ_WORKSPACE_DIRECTORY_TOOL_ID]: {
       description:

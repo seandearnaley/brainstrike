@@ -11,6 +11,7 @@ const HARNESS_FRAMING =
   'You run inside the Brainstrike IDE. The user is interactively curating context in a visual Context Explorer alongside this chat; the selections you make with the context tools appear in that UI and become the context the user feeds to an LLM. Be precise: prefer selecting the specific lines that matter over whole files.';
 
 const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
+  deleteWorkspaceFile: 'brainstrike.deleteWorkspaceFile',
   executeCommand: 'brainstrike.executeCommand',
   findWorkspaceSymbol: 'brainstrike.findWorkspaceSymbol',
   globWorkspace: 'brainstrike.globWorkspace',
@@ -20,6 +21,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
   readWorkspaceContext: 'brainstrike.readWorkspaceContext',
   readWorkspaceFile: 'brainstrike.readWorkspaceFile',
+  renameWorkspaceFile: 'brainstrike.renameWorkspaceFile',
   stringReplaceWorkspaceFile: 'brainstrike.stringReplaceWorkspaceFile',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
@@ -28,6 +30,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
 } as const;
 
 interface ModelFacingToolNames {
+  deleteWorkspaceFile: string | null;
   executeCommand: string | null;
   findWorkspaceSymbol: string | null;
   globWorkspace: string | null;
@@ -37,6 +40,7 @@ interface ModelFacingToolNames {
   queryEmbeddingSpace: string | null;
   readWorkspaceContext: string | null;
   readWorkspaceFile: string | null;
+  renameWorkspaceFile: string | null;
   stringReplaceWorkspaceFile: string | null;
   updateWorkspaceContextSelection: string | null;
   updateWorkspaceTapestrySelections: string | null;
@@ -64,6 +68,10 @@ function resolveModelFacingToolName(
 function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): ModelFacingToolNames {
   const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
   return {
+    deleteWorkspaceFile: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.deleteWorkspaceFile
+    ),
     executeCommand: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.executeCommand
@@ -99,6 +107,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     readWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceFile
+    ),
+    renameWorkspaceFile: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.renameWorkspaceFile
     ),
     stringReplaceWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
@@ -183,6 +195,8 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.findWorkspaceSymbol,
     names.writeWorkspaceFile,
     names.stringReplaceWorkspaceFile,
+    names.deleteWorkspaceFile,
+    names.renameWorkspaceFile,
     names.executeCommand,
   ].filter((name): name is string => Boolean(name));
   if (!(names.listWorkspaceContext && rootQualifiedToolNames.length > 0)) {
@@ -200,9 +214,9 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
 }
 
 /**
- * Guidance for the mutation tools (writeWorkspaceFile + stringReplaceWorkspaceFile).
- * Each clause is emitted only when its tool is registered, so an unavailable verb
- * is never advertised.
+ * Guidance for the mutation tools (writeWorkspaceFile + stringReplaceWorkspaceFile
+ * + deleteWorkspaceFile + renameWorkspaceFile). Each clause is emitted only when
+ * its tool is registered, so an unavailable verb is never advertised.
  */
 function buildWriteInstruction(names: ModelFacingToolNames): string {
   const clauses: string[] = [];
@@ -217,6 +231,16 @@ function buildWriteInstruction(names: ModelFacingToolNames): string {
       : '';
     clauses.push(
       `To make a surgical edit to an existing file, use ${names.stringReplaceWorkspaceFile}: read the file first, then pass an oldStr block of WHOLE LINES with enough surrounding context to identify exactly ONE location, plus the newStr to replace it with (empty newStr deletes the block). A block that matches more than once is REFUSED (add context and retry), and a short fragment can match inside a larger token (e.g. "bar" inside "foobarbaz"), so prefer complete lines over substrings. It also REFUSES not-found matches instead of guessing, so re-read and adjust oldStr if it reports one.${preferClause}`
+    );
+  }
+  if (names.renameWorkspaceFile) {
+    clauses.push(
+      `To rename or move a file, use ${names.renameWorkspaceFile} (fromPath, toPath) rather than a shell "mv": it keeps the workspace index coherent, stays inside one open folder, and REFUSES an existing destination (delete the target first if you truly mean to replace it).`
+    );
+  }
+  if (names.deleteWorkspaceFile) {
+    clauses.push(
+      `To delete a file, use ${names.deleteWorkspaceFile} (FILES only — it refuses directories; use the shell for directory removal) rather than a shell "rm", so the workspace index is updated.`
     );
   }
   if (clauses.length === 0) {
