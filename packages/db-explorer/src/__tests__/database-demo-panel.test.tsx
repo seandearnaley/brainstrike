@@ -743,7 +743,7 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
     });
 
-    it('disables manual import when the active collection has the workspace index system role', async () => {
+    it('clears an active workspace index and keeps manual import unavailable', async () => {
       useVectorStatusUIStoreDirect.getState().setCachedCollections([
         {
           category: null,
@@ -784,11 +784,11 @@ describe('DatabaseDemoPanel', () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+        expect(useVectorStatusUIStoreDirect.getState().activeEmbeddingSetId).toBeNull();
       });
 
       expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
-      expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
+      expect(screen.queryByText(/manual db imports are disabled/i)).not.toBeInTheDocument();
     });
 
     it('attempts to call import function when import button is clicked', async () => {

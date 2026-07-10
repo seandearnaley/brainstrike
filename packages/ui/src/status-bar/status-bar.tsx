@@ -26,27 +26,35 @@ export function StatusBar({
   testId = 'status-bar',
 }: StatusBarProps): React.ReactElement {
   return (
-    <output
-      aria-live="polite"
+    <footer
       className={cn(
-        'flex h-6 items-center justify-between px-2',
+        'grid h-6 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-2',
         'border-border border-t bg-muted/50',
         'text-muted-foreground text-xs',
         className
       )}
       data-testid={testId}
     >
-      <div className="flex items-center gap-2" data-testid={`${testId}-left`}>
+      <div
+        className="col-start-1 flex w-full min-w-0 items-center gap-2 justify-self-start overflow-hidden"
+        data-testid={`${testId}-left`}
+      >
         {leftContent}
       </div>
       {centerContent && (
-        <div className="flex items-center gap-2" data-testid={`${testId}-center`}>
+        <div
+          className="col-start-2 flex min-w-0 items-center gap-2 justify-self-center"
+          data-testid={`${testId}-center`}
+        >
           {centerContent}
         </div>
       )}
-      <div className="flex items-center gap-2" data-testid={`${testId}-right`}>
+      <div
+        className="col-start-3 flex w-full min-w-0 items-center justify-end gap-2 justify-self-end overflow-hidden"
+        data-testid={`${testId}-right`}
+      >
         {rightContent}
       </div>
-    </output>
+    </footer>
   );
 }

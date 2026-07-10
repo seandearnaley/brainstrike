@@ -42,11 +42,12 @@ describe('StatusBarItem', () => {
     expect(screen.getByTestId('test-item')).toHaveClass('text-yellow-600');
   });
 
-  it('applies loading status styling with animation', () => {
-    render(<StatusBarItem label="Loading" status="loading" testId="test-item" />);
+  it('animates only the loading icon and respects reduced motion', () => {
+    render(<StatusBarItem icon={Database} label="Loading" status="loading" testId="test-item" />);
     const item = screen.getByTestId('test-item');
     expect(item).toHaveClass('text-muted-foreground');
-    expect(item).toHaveClass('animate-pulse');
+    expect(item).not.toHaveClass('animate-pulse');
+    expect(item.querySelector('svg')).toHaveClass('animate-pulse', 'motion-reduce:animate-none');
   });
 
   it('defaults to connected status when not specified', () => {
@@ -57,6 +58,30 @@ describe('StatusBarItem', () => {
   it('applies custom className', () => {
     render(<StatusBarItem className="custom-class" label="Custom" testId="test-item" />);
     expect(screen.getByTestId('test-item')).toHaveClass('custom-class');
+  });
+
+  it('announces only items that explicitly opt into live status semantics', () => {
+    const { rerender } = render(<StatusBarItem label="Quiet" testId="test-item" />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    rerender(<StatusBarItem announce label="Storage: IPC" testId="test-item" />);
+    expect(screen.getByRole('status')).toHaveTextContent('Storage: IPC');
+  });
+
+  it('uses explicit announcement text without duplicating compact visual content', () => {
+    render(
+      <StatusBarItem
+        announce
+        announcement="Storage connected: IPC"
+        label="Storage: IPC"
+        testId="test-item"
+      />
+    );
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Storage connected: IPC');
+    expect(screen.getByText('Storage connected: IPC')).toHaveClass('sr-only');
+    expect(screen.getByText('Storage: IPC').closest('[aria-hidden="true"]')).not.toBeNull();
   });
 
   describe('Snapshots', () => {
