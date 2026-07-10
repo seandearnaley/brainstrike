@@ -1674,6 +1674,71 @@ describe('mastra streaming integration', () => {
     expect(instructions).not.toContain('brainstrike_queryEmbeddingSpace');
   });
 
+  it('builds plan-mode instructions from the FINAL (plan-filtered) tool map, not the raw tool map', async () => {
+    // Plan mode omits edit/execute tools from the map the Agent receives, so the
+    // default instructions MUST NOT advertise those filtered tools (name listing
+    // OR usage block) — otherwise the model is told to use tools it cannot call.
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', planMode: true, provider: 'openai' },
+      tools: {
+        'brainstrike.executeCommand': {
+          description: 'Execute command',
+          id: 'brainstrike.executeCommand',
+        },
+        'brainstrike.readWorkspaceFile': {
+          description: 'Read workspace file',
+          id: 'brainstrike.readWorkspaceFile',
+        },
+        'brainstrike.stringReplaceWorkspaceFile': {
+          description: 'String replace',
+          id: 'brainstrike.stringReplaceWorkspaceFile',
+        },
+        'brainstrike.writeWorkspaceFile': {
+          description: 'Write workspace file',
+          id: 'brainstrike.writeWorkspaceFile',
+        },
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    // Plan mode is announced and read-only investigation is still advertised.
+    expect(instructions).toContain('PLAN MODE IS ACTIVE');
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    // The plan-filtered mutation tools must NOT appear — neither their model-facing
+    // names (in the registered-tools listing) nor their usage instruction blocks.
+    expect(instructions).not.toContain('brainstrike_writeWorkspaceFile');
+    expect(instructions).not.toContain('brainstrike_stringReplaceWorkspaceFile');
+    expect(instructions).not.toContain('brainstrike_executeCommand');
+    expect(instructions).not.toContain('ARBITRARY shell command');
+    expect(instructions).not.toContain('fully rewrite one');
+  });
+
+  it('still advertises edit/execute tools in default instructions when plan mode is OFF', async () => {
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.executeCommand': {
+          description: 'Execute command',
+          id: 'brainstrike.executeCommand',
+        },
+        'brainstrike.readWorkspaceFile': {
+          description: 'Read workspace file',
+          id: 'brainstrike.readWorkspaceFile',
+        },
+        'brainstrike.writeWorkspaceFile': {
+          description: 'Write workspace file',
+          id: 'brainstrike.writeWorkspaceFile',
+        },
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    expect(instructions).not.toContain('PLAN MODE IS ACTIVE');
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    expect(instructions).toContain('brainstrike_writeWorkspaceFile');
+    expect(instructions).toContain('brainstrike_executeCommand');
+  });
+
   it('keeps tools distinct when sanitized ids would otherwise collide', async () => {
     const runtime = await createMastraAgentRuntime({
       runtime: { apiKey: 'key', provider: 'openai' },
