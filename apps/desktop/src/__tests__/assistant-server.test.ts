@@ -72,7 +72,8 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
       provider,
     })),
     isSupportedProvider: (provider: string) =>
-      ['openai', 'anthropic', 'google', 'openrouter', 'local'].includes(provider),
+      ['openai', 'anthropic', 'google', 'openrouter', 'local', 'ollama'].includes(provider),
+    listSuspendedMastraRuns: vi.fn(() => Promise.resolve({ approvals: [] })),
     resolveDataStreamSession: vi.fn(() => {}),
     sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
     streamMastraToolApprovalAction: vi.fn(async () => ({
@@ -1598,6 +1599,111 @@ describe('assistant-server', () => {
       expect(response.status).toBe(400);
       expect(JSON.parse(response.body).error).toBe('invalid_tool_resume_action');
       expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
+    });
+
+    it('GET /assistant/suspended-runs returns rediscovered approvals with recomputed risk + staleness', async () => {
+      const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+      (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+        approvals: [
+          {
+            args: { command: 'echo hi' },
+            runId: 'run-restart-1',
+            suspendedAt: new Date().toISOString(),
+            toolCallId: 'call-restart-1',
+            toolName: 'brainstrike.executeCommand',
+          },
+        ],
+      });
+
+      const response = await runRequest({
+        headers: { 'content-type': 'application/json' },
+        method: 'GET',
+        url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+      });
+
+      expect(response.status).toBe(200);
+      expect(listSuspendedMastraRuns).toHaveBeenCalledWith(
+        { resourceId: 'workspace-a', threadId: 'thread-1' },
+        expect.objectContaining({
+          runtime: expect.objectContaining({ provider: 'ollama' }),
+          storage: mockPgliteMastraStorage,
+        })
+      );
+      const body = JSON.parse(response.body);
+      expect(body).toEqual({
+        approvals: [
+          {
+            args: { command: 'echo hi' },
+            policyDecision: 'ask',
+            riskCategory: 'execute',
+            runId: 'run-restart-1',
+            stale: false,
+            suspendedAt: expect.any(String),
+            toolCallId: 'call-restart-1',
+            toolName: 'brainstrike.executeCommand',
+          },
+        ],
+      });
+    });
+
+    it('GET /assistant/suspended-runs flags a run older than the staleness threshold', async () => {
+      const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+      (listSuspendedMastraRuns as Mock).mockResolvedValueOnce({
+        approvals: [
+          {
+            runId: 'run-old-1',
+            // Two days ago — beyond the 24h default BRAINSTRIKE_APPROVAL_STALE_MS.
+            suspendedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+            toolCallId: 'call-old-1',
+            toolName: 'brainstrike.writeWorkspaceFile',
+          },
+        ],
+      });
+
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+      });
+
+      expect(response.status).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.approvals[0]).toMatchObject({
+        riskCategory: 'edit',
+        stale: true,
+        toolName: 'brainstrike.writeWorkspaceFile',
+      });
+    });
+
+    it('GET /assistant/suspended-runs returns 400 when thread context is missing', async () => {
+      const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/suspended-runs?resourceId=workspace-a',
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body).error).toBe('missing_thread_context');
+      expect(listSuspendedMastraRuns).not.toHaveBeenCalled();
+    });
+
+    it('GET /assistant/suspended-runs returns 503 when workflow storage is unavailable', async () => {
+      const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      (createPgliteMastraMemory as Mock).mockResolvedValueOnce({
+        memory: mockPgliteMastraMemory,
+        store: {},
+        vector: {},
+        workflows: {},
+      });
+
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/suspended-runs?threadId=thread-1&resourceId=workspace-a',
+      });
+
+      expect(response.status).toBe(503);
+      expect(JSON.parse(response.body).error).toBe('tool_approval_storage_unavailable');
+      expect(listSuspendedMastraRuns).not.toHaveBeenCalled();
     });
 
     it('retries desktop Mastra memory initialization after a transient failure', async () => {
