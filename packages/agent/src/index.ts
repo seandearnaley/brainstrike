@@ -18,6 +18,16 @@ export {
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
 export {
+  type AssistantPersonaDefinition,
+  type AssistantPersonaId,
+  type AssistantPersonaModelPin,
+  assertReadOnlyPersona,
+  BUILT_IN_PERSONAS,
+  delegationToolNameForPersona,
+  PersonaToolRiskViolationError,
+  SUBAGENT_DELEGATION_TOOL_PREFIX,
+} from '@brainstrike/assistant-contract/personas';
+export {
   type AssistantToolApprovalAction,
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
