@@ -1,11 +1,13 @@
 import type { WebSearchInput } from '@brainstrike/agent';
-import { fitItemsToCharBudget } from '@brainstrike/agent';
+import { fitItemsToCharBudget, WEB_SEARCH_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getSecretsService } from '../secrets';
 
 const logger = createLogger('AssistantWebSearchTool');
 
-export const WEB_SEARCH_TOOL_ID = 'brainstrike.webSearch' as const;
+// Single source of truth lives in @brainstrike/assistant-contract so the desktop
+// registry and the agent runtime's provider-native swap agree on the id.
+export { WEB_SEARCH_TOOL_ID };
 
 /**
  * The secrets-store provider id under which the Tavily API key is stored. NOT a

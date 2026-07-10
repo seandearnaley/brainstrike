@@ -5,6 +5,8 @@
  * These are simplified representations of the Zod schemas for UI display.
  */
 
+import { WEB_SEARCH_TOOL_ID } from './tool-categories.js';
+
 /**
  * Parameter type for display purposes.
  */
@@ -847,12 +849,12 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     toolId: 'brainstrike.updateWorkspaceTapestrySelections',
   },
 
-  'brainstrike.webSearch': {
+  [WEB_SEARCH_TOOL_ID]: {
     description:
-      'Search the web via Tavily for current docs, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily): never include secrets or private workspace contents. Requires a Tavily API key configured in Settings; when no key is set the tool returns a clear "unavailable, add a key" message instead of failing the run.',
+      'Search the web for current docs, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE: never include secrets or private workspace contents. Uses the model provider\'s built-in web search when available (Anthropic/OpenAI), otherwise Tavily; when neither a provider-native search nor a Tavily API key is configured the tool returns a clear "unavailable, add a key" message instead of failing the run.',
     parameters: [
       {
-        description: 'The web search query (sent to Tavily, an external service)',
+        description: 'The web search query (sent to an external web-search service)',
         maxLength: 400,
         minLength: 2,
         name: 'query',
@@ -870,8 +872,8 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       },
     ],
     returns:
-      'A list of results (title, url, snippet) self-bound to the tool output budget, with a truncation flag and continuation hint. When no Tavily key is configured, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
-    toolId: 'brainstrike.webSearch',
+      'A list of results (title, url, snippet) self-bound to the tool output budget, with a truncation flag and continuation hint. When neither a provider-native search nor a Tavily key is available, an available: false result with an actionable message. On error/timeout, a non-fatal error result (the run continues).',
+    toolId: WEB_SEARCH_TOOL_ID,
   },
 
   'brainstrike.writeWorkspaceFile': {

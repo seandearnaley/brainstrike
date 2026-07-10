@@ -255,6 +255,13 @@ export {
   type LocalRuntimeNormalizedModel,
   type LocalRuntimeNotApplicableDimensionsState,
 } from './providers/local-runtime-model-catalog';
+export {
+  applyProviderNativeWebSearch,
+  createProviderNativeWebSearchTool,
+  type NativeWebSearchProvider,
+  providerSupportsNativeWebSearch,
+  WEB_SEARCH_TOOL_ID,
+} from './providers/native-web-search';
 export { createEmbeddingProvider, createProvider } from './providers/provider-factory';
 // Provider models and utilities (no Mastra dependencies - safe for client-side)
 export {

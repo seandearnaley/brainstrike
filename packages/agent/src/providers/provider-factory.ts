@@ -90,6 +90,14 @@ export function createProvider(
 
   switch (validatedProvider) {
     case 'openai': {
+      // INVARIANT: the default `openaiProvider(modelName)` callable routes to the
+      // Responses API (`/v1/responses`). `createProviderNativeWebSearchTool` in
+      // native-web-search.ts builds `openai.tools.webSearch()` from an
+      // INDEPENDENT `createOpenAI()` instance (decoupled from this factory) and
+      // silently assumes that same Responses surface. If this case is ever
+      // repointed at `.chat(modelName)` (chat-completions) or an
+      // OpenAI-compatible base URL, the native web-search tool must move with
+      // it — see the matching invariant comment in native-web-search.ts.
       const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
       return openaiProvider(modelName);
     }
