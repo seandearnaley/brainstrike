@@ -46,7 +46,7 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   };
 });
 
-const { streamMastraAgent, streamMastraToolApprovalAction } = await import(
+const { listSuspendedMastraRuns, streamMastraAgent, streamMastraToolApprovalAction } = await import(
   '../mastra/agent-runtime'
 );
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
@@ -402,6 +402,121 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       .map((chunk) => chunk.value)
       .join('');
     expect(finalText).toContain('Here is the file.');
+
+    await database.close();
+  });
+
+  it('RESTART: listSuspendedMastraRuns rediscovers a suspended approval a FRESH runtime can resume', async () => {
+    // The headline restart-safety proof. Phase 1 suspends over `database`. Phase 2
+    // simulates a process restart — a brand-new memory/storage/Agent over the SAME
+    // PGlite DB rediscovers the pending approval via `agent.listSuspendedRuns`
+    // (no in-memory stream handle survives a restart). Phase 3 feeds the discovered
+    // runId+toolCallId into a fresh `streamMastraToolApprovalAction` and the tool
+    // finally executes.
+    const database = new PGlite();
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = { resourceId: 'resource-restart-1', threadId: 'thread-restart-1' } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Command finished after restart.',
+      input: JSON.stringify({ command: 'echo restart' }),
+      toolCallId: 'call-ask-restart-1',
+      toolName: 'shell_tool',
+    });
+
+    // ── Phase 1: SUSPEND (first "process") ──
+    const firstBoot = await makeMemory(database);
+    const suspendIterator = await streamMastraAgent(
+      [{ id: 'u-rst-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
+      {
+        memory: firstBoot.memory,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openai',
+        },
+        storage: firstBoot.storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const suspendChunks = await drainYielding(suspendIterator);
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toBeDefined();
+    expect(askExecute).not.toHaveBeenCalled();
+
+    // ── Phase 2: RESTART SIMULATION — fresh runtime, same DB, rediscover ──
+    // KEYLESS discovery: the stable agent id ('brainstrike-assistant') is
+    // provider-independent, so listing constructs a keyless `ollama` agent (no
+    // apiKey) — the exact path the desktop /suspended-runs route uses — and still
+    // rediscovers a run that suspended under a DIFFERENT provider ('openai').
+    const secondBoot = await makeMemory(database);
+    const discovery = await listSuspendedMastraRuns(
+      { resourceId: thread.resourceId, threadId: thread.threadId },
+      {
+        memory: secondBoot.memory,
+        runtime: {
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          provider: 'ollama',
+        },
+        storage: secondBoot.storage,
+      }
+    );
+
+    expect(discovery.approvals).toHaveLength(1);
+    const rediscovered = discovery.approvals[0];
+    expect(rediscovered?.runId).toBe(approval?.runId);
+    expect(rediscovered?.toolCallId).toBe(approval?.toolCallId);
+    expect(rediscovered?.toolName).toBe('shell_tool');
+    expect(typeof rediscovered?.suspendedAt).toBe('string');
+    expect(Number.isNaN(Date.parse(rediscovered?.suspendedAt ?? 'x'))).toBe(false);
+    // Discovery is inert — it must never execute the pending tool.
+    expect(askExecute).not.toHaveBeenCalled();
+
+    // A different thread sees nothing (scope filter).
+    const emptyDiscovery = await listSuspendedMastraRuns(
+      { resourceId: thread.resourceId, threadId: 'thread-other' },
+      {
+        memory: secondBoot.memory,
+        runtime: {
+          memory: { resourceId: thread.resourceId, threadId: 'thread-other' },
+          provider: 'ollama',
+        },
+        storage: secondBoot.storage,
+      }
+    );
+    expect(emptyDiscovery.approvals).toHaveLength(0);
+
+    // ── Phase 3: RESUME the rediscovered run from a THIRD fresh runtime ──
+    const thirdBoot = await makeMemory(database);
+    const resumeIterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: rediscovered?.runId ?? '',
+        toolCallId: rediscovered?.toolCallId ?? '',
+        toolName: rediscovered?.toolName ?? '',
+      },
+      {
+        memory: thirdBoot.memory,
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openai',
+        },
+        storage: thirdBoot.storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const resumeChunks = await drainYielding(resumeIterator);
+
+    expect(askExecute).toHaveBeenCalledTimes(1);
+    expect(askExecute.mock.calls[0]?.[0]).toMatchObject({ command: 'echo restart' });
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
 
     await database.close();
   });

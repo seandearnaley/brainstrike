@@ -2013,6 +2013,93 @@ export async function streamMastraToolApprovalAction(
   });
 }
 
+export interface DiscoveredSuspendedApproval {
+  readonly args?: unknown;
+  readonly runId: string;
+  /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
+  readonly suspendedAt: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
+export interface ListSuspendedApprovalsResult {
+  readonly approvals: readonly DiscoveredSuspendedApproval[];
+}
+
+/**
+ * Restart-safe discovery of pending tool approvals for a thread. Rebuilds a
+ * FRESH runtime (like {@link streamMastraToolApprovalAction}) and calls the
+ * sanctioned `agent.listSuspendedRuns` — it holds no in-memory stream handle, so
+ * it works after a process restart / renderer reload given only the thread
+ * context. It is INERT: listing performs no inference and never resumes a run.
+ *
+ * Returns ONLY approval-gated tool calls (`requiresApproval === true`) that carry
+ * a `toolCallId` + `toolName`. Non-approval `suspend()` pauses (submitPlan/askUser)
+ * and delegation-thread runs are tolerated and skipped without error (logged at
+ * debug) — a unified suspend rediscovery is a follow-up. Storage is REQUIRED (no
+ * storage ⇒ no discovery, never a silent empty result).
+ */
+export async function listSuspendedMastraRuns(
+  filter: { readonly threadId: string; readonly resourceId: string },
+  options: MastraAgentRuntimeOptions = {}
+): Promise<ListSuspendedApprovalsResult> {
+  assertNoUnsupportedDirectStreamOptions(options);
+  if (!options.storage) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'Mastra workflow storage is required to discover suspended approvals.',
+    });
+  }
+
+  const runtimeResolution = resolveRuntimeConfiguration(options.runtime);
+  const { runtime } = await initializeMastraRuntime(
+    withRuntimeDerivedStreamOptions(options),
+    runtimeResolution
+  );
+
+  try {
+    const { runs } = await runtime.agent.listSuspendedRuns({
+      resourceId: filter.resourceId,
+      threadId: filter.threadId,
+    });
+
+    const approvals: DiscoveredSuspendedApproval[] = [];
+    for (const run of runs) {
+      const suspendedAt = run.suspendedAt.toISOString();
+      for (const toolCall of run.toolCalls) {
+        if (!(toolCall.requiresApproval && toolCall.toolCallId && toolCall.toolName)) {
+          logger.debug('skipping non-approval suspended tool call', {
+            code: 'mastra_agent_suspended_run_skipped',
+            requiresApproval: toolCall.requiresApproval,
+            runId: run.runId,
+            toolName: toolCall.toolName,
+          });
+          continue;
+        }
+        approvals.push({
+          runId: run.runId,
+          suspendedAt,
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
+        });
+      }
+    }
+
+    approvals.sort((a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt));
+
+    logger.info('discovered suspended approvals', {
+      approvalCount: approvals.length,
+      code: 'mastra_agent_suspended_runs_discovered',
+      runCount: runs.length,
+      threadId: filter.threadId,
+    });
+
+    return { approvals };
+  } finally {
+    await runtime.dispose();
+  }
+}
+
 // resumeStream's resumeData param is typed `any` by Mastra; we cast a typed
 // `unknown` through this alias at the single call site (no other `any` here).
 type AgentResumeStreamOptions = Parameters<Agent['resumeStream']>[1];
