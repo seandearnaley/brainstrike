@@ -1,6 +1,7 @@
 export * from './assistant-task-list.js';
 export * from './context-budget.js';
 export * from './context-packer.js';
+export * from './edit-checkpoints.js';
 export * from './file-mention-directive.js';
 export * from './hook-trust-request.js';
 export * from './local-llm.js';

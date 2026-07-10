@@ -1,4 +1,11 @@
 import {
+  ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
+  ASSISTANT_EDIT_CHECKPOINT_OPS,
+  type AssistantEditCheckpointCaptureStatus,
+  type AssistantEditCheckpointOp,
+  type AssistantEditCheckpointRecord,
+} from '@brainstrike/assistant-contract';
+import {
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
@@ -229,6 +236,7 @@ export interface AssistantThreadRepository {
     resourceId: string,
     options?: AssistantThreadMessageListOptions
   ) => Promise<readonly AssistantHistoryMessage[]>;
+  listThreadCheckpoints: (threadId: string) => Promise<readonly AssistantEditCheckpointRecord[]>;
   listThreadRunEvents: (
     threadId: string,
     resourceId: string
@@ -255,6 +263,7 @@ export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
+const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
 const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
 ${MASTRA_MEMORY_SCHEMA_SQL}
 
@@ -336,6 +345,48 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (resource_id, root_id);
+
+-- Per-turn edit checkpoint journal (undo of agent file edits). The renderer
+-- reads this table directly (Path A, like run_events), so it is bootstrapped
+-- here AND created by migration 051 — keep the shape byte-identical to 051.
+-- NO FK to thread_runs/mastra_threads: the numbered migration runner (tests)
+-- and drizzle path run on a bare PGlite without those parent tables, so an FK
+-- REFERENCES would break the migration suite. Full BEFORE-content is stored
+-- (capped/binary-refused via capture_status); after_hash/after_existed are for
+-- conflict detection only. Factory reset purges the table (db-ipc clearAll).
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (
+  id             text PRIMARY KEY,
+  run_id         text NOT NULL,
+  resource_id    text NOT NULL,
+  thread_id      text NOT NULL,
+  tool_call_id   text,
+  tool_name      text NOT NULL,
+  op             text NOT NULL CHECK (op IN ('write','string_replace','delete','rename')),
+  root_id        text NOT NULL,
+  path           text NOT NULL,
+  from_path      text,
+  before_existed boolean NOT NULL,
+  before_hash    text,
+  before_content text,
+  before_size    integer,
+  after_hash     text,
+  after_existed  boolean NOT NULL,
+  capture_status text NOT NULL CHECK (capture_status IN
+                   ('ok','created','skipped_binary','skipped_too_large','expired','rename')),
+  reverted_at    timestamptz,
+  occurred_at    timestamptz NOT NULL,
+  created_at     timestamptz NOT NULL,
+  updated_at     timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_thread_idx
+  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, resource_id, occurred_at ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_run_idx
+  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (run_id, occurred_at ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_revert_idx
+  ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, reverted_at);
 `;
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
@@ -648,6 +699,60 @@ function toThreadRunEvent(row: Record<string, unknown>): AssistantRunEvent {
     throw new Error('Invalid assistant run event row: sequence is not valid.');
   }
   return event;
+}
+
+function requireCheckpointOp(value: unknown): AssistantEditCheckpointOp {
+  if (
+    typeof value === 'string' &&
+    (ASSISTANT_EDIT_CHECKPOINT_OPS as readonly string[]).includes(value)
+  ) {
+    return value as AssistantEditCheckpointOp;
+  }
+  throw new Error(`Invalid edit checkpoint row: op "${String(value)}" is not valid.`);
+}
+
+function requireCheckpointCaptureStatus(value: unknown): AssistantEditCheckpointCaptureStatus {
+  if (
+    typeof value === 'string' &&
+    (ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES as readonly string[]).includes(value)
+  ) {
+    return value as AssistantEditCheckpointCaptureStatus;
+  }
+  throw new Error(`Invalid edit checkpoint row: capture_status "${String(value)}" is not valid.`);
+}
+
+function nullableInteger(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toEditCheckpointRecord(row: Record<string, unknown>): AssistantEditCheckpointRecord {
+  const revertedAt = normalizeNullableDate(getRowValue(row, 'revertedAt', 'reverted_at'));
+  return {
+    afterExisted: Boolean(getRowValue(row, 'afterExisted', 'after_existed')),
+    afterHash: nullableString(getRowValue(row, 'afterHash', 'after_hash')),
+    beforeExisted: Boolean(getRowValue(row, 'beforeExisted', 'before_existed')),
+    beforeHash: nullableString(getRowValue(row, 'beforeHash', 'before_hash')),
+    beforeSize: nullableInteger(getRowValue(row, 'beforeSize', 'before_size')),
+    captureStatus: requireCheckpointCaptureStatus(
+      getRowValue(row, 'captureStatus', 'capture_status')
+    ),
+    fromPath: nullableString(getRowValue(row, 'fromPath', 'from_path')),
+    id: requireString(row['id'], 'id'),
+    occurredAt: normalizeDate(getRowValue(row, 'occurredAt', 'occurred_at')).toISOString(),
+    op: requireCheckpointOp(row['op']),
+    path: requireString(row['path'], 'path'),
+    resourceId: requireString(getRowValue(row, 'resourceId', 'resource_id'), 'resourceId'),
+    revertedAt: revertedAt ? revertedAt.toISOString() : null,
+    rootId: requireString(getRowValue(row, 'rootId', 'root_id'), 'rootId'),
+    runId: requireString(getRowValue(row, 'runId', 'run_id'), 'runId'),
+    threadId: requireString(getRowValue(row, 'threadId', 'thread_id'), 'threadId'),
+    toolCallId: nullableString(getRowValue(row, 'toolCallId', 'tool_call_id')),
+    toolName: requireString(getRowValue(row, 'toolName', 'tool_name'), 'toolName'),
+  };
 }
 
 function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunRecord {
@@ -1426,6 +1531,42 @@ export function createPgliteAssistantThreadRepository(
     return result.rows.map(toThreadRunRecord);
   };
 
+  const listThreadCheckpoints = async (
+    threadId: string
+  ): Promise<readonly AssistantEditCheckpointRecord[]> => {
+    await initialize();
+    // Read-through only (Path A, like listThreadRunEvents). Queried across ALL
+    // runs (not narrowed to the latest run) so past turns' edit cards stay
+    // revertible after reload. before_content is intentionally NOT selected —
+    // the raw prior bytes never leave the main process; revert reads them there.
+    const result = await database.query<Record<string, unknown>>(
+      `SELECT
+          id,
+          run_id AS "runId",
+          resource_id AS "resourceId",
+          thread_id AS "threadId",
+          tool_call_id AS "toolCallId",
+          tool_name AS "toolName",
+          op,
+          root_id AS "rootId",
+          path,
+          from_path AS "fromPath",
+          before_existed AS "beforeExisted",
+          before_hash AS "beforeHash",
+          before_size AS "beforeSize",
+          after_existed AS "afterExisted",
+          after_hash AS "afterHash",
+          capture_status AS "captureStatus",
+          reverted_at AS "revertedAt",
+          occurred_at AS "occurredAt"
+       FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
+       WHERE thread_id = $1
+       ORDER BY occurred_at ASC, id ASC`,
+      [threadId]
+    );
+    return result.rows.map(toEditCheckpointRecord);
+  };
+
   const listThreadRunEvents = async (
     threadId: string,
     resourceId: string
@@ -1643,6 +1784,11 @@ export function createPgliteAssistantThreadRepository(
             WHERE thread_id = $1
             RETURNING id
           ),
+          deleted_edit_checkpoints AS (
+            DELETE FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
+            WHERE thread_id = $1
+            RETURNING id
+          ),
           deleted_thread AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE id = $1
@@ -1651,6 +1797,7 @@ export function createPgliteAssistantThreadRepository(
          SELECT
           (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
+          (SELECT count(*) FROM deleted_edit_checkpoints) AS deleted_edit_checkpoint_count,
           (SELECT count(*) FROM deleted_thread) AS deleted_thread_count`,
         [threadId, `thread:${threadId}`]
       );
@@ -1743,6 +1890,7 @@ export function createPgliteAssistantThreadRepository(
         role: requireString(row['role'], 'role'),
       }));
     },
+    listThreadCheckpoints,
     listThreadRunEvents,
     async listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]> {
       await initialize();

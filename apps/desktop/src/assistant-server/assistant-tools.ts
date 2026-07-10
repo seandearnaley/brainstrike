@@ -73,6 +73,12 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
 import {
+  beforeStateToCapture,
+  captureBeforeState,
+  recordEditCheckpointForTool,
+} from './edit-checkpoint-capture';
+import { sha256Hex } from './edit-checkpoint-journal';
+import {
   EXECUTE_COMMAND_TOOL_ID,
   runExecuteCommand,
   type ShellOutputStreamer,
@@ -134,7 +140,7 @@ const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceCon
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
-const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
+export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;
 const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
@@ -152,6 +158,21 @@ type AssistantEmbeddingSpaceListing = Omit<EmbeddingSpaceListing, 'stats'> & {
 };
 
 type ToolExecuteInput<T> = { context: T } | T;
+
+/**
+ * Minimal structural view of Mastra's 2nd `execute` argument
+ * (`ToolExecutionContext`, verified against @mastra/core@1.50.0 `tools/types.d.ts`
+ * — `agent?: AgentToolExecutionContext` carries `toolCallId`). Typed loosely so it
+ * stays assignable from the concrete Mastra context by contravariance; the
+ * mutation tools read `agent.toolCallId` to key each edit's journal entry.
+ */
+interface ToolExecuteRunContext {
+  agent?: { toolCallId?: string };
+}
+
+function readToolCallId(context: ToolExecuteRunContext | undefined): string | undefined {
+  return context?.agent?.toolCallId;
+}
 
 function resolveToolExecuteInputCandidate<T>(
   schema: z.ZodType<T>,
@@ -351,7 +372,7 @@ async function resolveCanonicalWritablePath(absolutePath: string): Promise<strin
  * is containment-checked against the canonical root so a symlinked directory
  * cannot redirect the write outside the workspace.
  */
-async function resolveWorkspaceWritePath(
+export async function resolveWorkspaceWritePath(
   rootPath: string,
   workspacePath: string
 ): Promise<{
@@ -398,7 +419,7 @@ async function resolveWorkspaceWritePath(
  * escapes the root is already refused upstream by `resolveWorkspaceWritePath`
  * (realpath-then-containment), so it never reaches this helper.
  */
-async function resolveWorkspaceLeafMutationPath(
+export async function resolveWorkspaceLeafMutationPath(
   canonicalRootPath: string,
   requestedAbsolutePath: string,
   workspacePath: string
@@ -427,7 +448,7 @@ async function resolveWorkspaceLeafMutationPath(
  * with an `lstat` guard keeps every created/traversed segment a real directory
  * inside the root.
  */
-async function ensureContainedDirectory(
+export async function ensureContainedDirectory(
   canonicalRootPath: string,
   targetDir: string
 ): Promise<void> {
@@ -607,7 +628,7 @@ async function runReadWorkspaceFile(
  * pass `requestedPath` only for error messages. Returns whether the file was
  * newly created.
  */
-async function writeContainedFileBytes(args: {
+export async function writeContainedFileBytes(args: {
   resolved: { absolutePath: string; canonicalRootPath: string };
   buffer: Buffer;
   requestedPath: string;
@@ -685,7 +706,7 @@ function toFileRecordRelativePath(workspacePath: string): string {
  *  - RE-INDEX FAILED on a real DB (the transaction throws): ERROR log, since a
  *    resolvable DB that then fails to re-index is a genuine, debuggable problem.
  */
-async function triggerEditedFileReindex(args: {
+export async function triggerEditedFileReindex(args: {
   runtimeData: RuntimeData | undefined;
   rootId: string;
   workspacePath: string;
@@ -729,7 +750,8 @@ async function triggerEditedFileReindex(args: {
 
 async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  toolCallId?: string
 ): Promise<{
   rootName: string;
   path: string;
@@ -756,6 +778,12 @@ async function runWriteWorkspaceFile(
   // non-fatal (it catches+logs internally), so it never extends the lock's
   // failure surface.
   const { created } = await withFileLock(resolved.absolutePath, async () => {
+    // Snapshot the before-state for the undo journal INSIDE the lock so no
+    // concurrent same-file edit can slip newer bytes between capture and write.
+    const beforeState = await captureBeforeState(
+      resolved.absolutePath,
+      MAX_WRITE_WORKSPACE_FILE_BYTES
+    );
     const writeResult = await writeContainedFileBytes({
       buffer,
       requestedPath: input.path,
@@ -768,6 +796,17 @@ async function runWriteWorkspaceFile(
       runtimeData,
       size: buffer.byteLength,
       workspacePath: resolved.workspacePath,
+    });
+    await recordEditCheckpointForTool({
+      afterExisted: true,
+      afterHash: sha256Hex(buffer),
+      before: beforeStateToCapture(beforeState),
+      op: 'write',
+      path: resolved.workspacePath,
+      rootId: root.rootId,
+      runtimeData,
+      toolCallId,
+      toolName: WRITE_WORKSPACE_FILE_TOOL_ID,
     });
     return writeResult;
   });
@@ -782,7 +821,8 @@ async function runWriteWorkspaceFile(
 
 async function runStringReplaceWorkspaceFile(
   input: StringReplaceWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  toolCallId?: string
 ): Promise<{
   rootName: string;
   path: string;
@@ -826,6 +866,28 @@ async function runStringReplaceWorkspaceFile(
 
     await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
 
+    // Journal the undo: the before-content was just read as `file.content` (the
+    // checked reader guarantees text — binary/oversized already threw), so this
+    // is always a revertible `ok` capture.
+    const beforeBuffer = Buffer.from(file.content, 'utf8');
+    await recordEditCheckpointForTool({
+      afterExisted: true,
+      afterHash: sha256Hex(buffer),
+      before: {
+        beforeContent: file.content,
+        beforeExisted: true,
+        beforeHash: sha256Hex(beforeBuffer),
+        beforeSize: beforeBuffer.byteLength,
+        captureStatus: 'ok',
+      },
+      op: 'string_replace',
+      path: resolved.workspacePath,
+      rootId: root.rootId,
+      runtimeData,
+      toolCallId,
+      toolName: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
+    });
+
     // Keep the RAG index coherent: re-index the edited file INSIDE the same
     // per-file critical section as the read-modify-write. Running it after the
     // lock released reopened the very race the lock closes — a concurrent edit
@@ -866,7 +928,11 @@ async function runStringReplaceWorkspaceFile(
  * in the SAME order and can never deadlock (classic lock-ordering). Same-key
  * pairs (a no-op self-rename) collapse to a single lock.
  */
-function withTwoFileLocks<T>(keyA: string, keyB: string, task: () => Promise<T>): Promise<T> {
+export function withTwoFileLocks<T>(
+  keyA: string,
+  keyB: string,
+  task: () => Promise<T>
+): Promise<T> {
   if (keyA === keyB) {
     return withFileLock(keyA, task);
   }
@@ -887,7 +953,7 @@ function withTwoFileLocks<T>(keyA: string, keyB: string, task: () => Promise<T>)
  * unavailable (as in the DB-less unit tests) — there is then nothing to keep
  * coherent.
  */
-async function triggerFileDeletionInvalidation(args: {
+export async function triggerFileDeletionInvalidation(args: {
   runtimeData: RuntimeData | undefined;
   rootId: string;
   workspacePath: string;
@@ -950,7 +1016,7 @@ async function triggerFileDeletionInvalidation(args: {
  * there is nothing to re-index, so this returns before paying for the up-to-2MB
  * destination read.
  */
-async function triggerRenamedDestinationReindex(args: {
+export async function triggerRenamedDestinationReindex(args: {
   runtimeData: RuntimeData | undefined;
   rootId: string;
   rootPath: string;
@@ -987,7 +1053,8 @@ async function triggerRenamedDestinationReindex(args: {
 
 async function runDeleteWorkspaceFile(
   input: DeleteWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  toolCallId?: string
 ): Promise<{
   ok: true;
   path: string;
@@ -1029,11 +1096,28 @@ async function runDeleteWorkspaceFile(
       );
     }
 
+    // Snapshot the before-state for the undo journal BEFORE unlinking, so a
+    // delete can be reverted by recreating the file with its prior content.
+    const beforeState = await captureBeforeState(mutationPath, MAX_WRITE_WORKSPACE_FILE_BYTES);
     await fsPromises.unlink(mutationPath);
     const { invalidated } = await triggerFileDeletionInvalidation({
       rootId: root.rootId,
       runtimeData,
       workspacePath: resolved.workspacePath,
+    });
+    await recordEditCheckpointForTool({
+      afterExisted: false,
+      afterHash: null,
+      // A text before-state is revertible (recreate with content); a
+      // binary/oversized/absent (dangling-symlink) leaf records honestly and
+      // is refused on revert.
+      before: beforeStateToCapture(beforeState),
+      op: 'delete',
+      path: resolved.workspacePath,
+      rootId: root.rootId,
+      runtimeData,
+      toolCallId,
+      toolName: DELETE_WORKSPACE_FILE_TOOL_ID,
     });
 
     return {
@@ -1047,7 +1131,8 @@ async function runDeleteWorkspaceFile(
 
 async function runRenameWorkspaceFile(
   input: RenameWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  toolCallId?: string
 ): Promise<{
   ok: true;
   fromPath: string;
@@ -1145,6 +1230,27 @@ async function runRenameWorkspaceFile(
       rootPath: root.path,
       runtimeData,
       workspacePath: toResolved.workspacePath,
+    });
+
+    // Journal the undo: a rename has no content change, so the revert is a
+    // rename-back (to_path → from_path). fromPath = original source.
+    await recordEditCheckpointForTool({
+      afterExisted: true,
+      afterHash: null,
+      before: {
+        beforeContent: null,
+        beforeExisted: true,
+        beforeHash: null,
+        beforeSize: null,
+        captureStatus: 'rename',
+      },
+      fromPath: fromResolved.workspacePath,
+      op: 'rename',
+      path: toResolved.workspacePath,
+      rootId: root.rootId,
+      runtimeData,
+      toolCallId,
+      toolName: RENAME_WORKSPACE_FILE_TOOL_ID,
     });
 
     return {
@@ -2441,10 +2547,13 @@ export function buildDesktopAssistantTools(
     [WRITE_WORKSPACE_FILE_TOOL_ID]: {
       description:
         'Write or create a UTF-8 file in the selected workspace root. Overwrites existing content and creates missing parent directories. The path is clamped to the workspace root and can never escape it. Requires user approval (edit-risk).',
-      execute: async (input: ToolExecuteInput<WriteWorkspaceFileInput>) => {
+      execute: async (
+        input: ToolExecuteInput<WriteWorkspaceFileInput>,
+        context?: ToolExecuteRunContext
+      ) => {
         const resolvedInput = parseToolExecuteInput(WriteWorkspaceFileInputSchema, input);
         try {
-          return await runWriteWorkspaceFile(resolvedInput, runtimeData);
+          return await runWriteWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
         } catch (error) {
           logToolFailure('writeWorkspaceFile failed', error, resolvedInput);
           throw error;
@@ -2456,10 +2565,17 @@ export function buildDesktopAssistantTools(
     [STRING_REPLACE_WORKSPACE_FILE_TOOL_ID]: {
       description:
         'Surgically edit an existing workspace file: replace one oldStr block with newStr. Read the file first, then pass an oldStr with enough surrounding context to identify ONE location (a single line matching several places is refused), and the newStr (empty deletes the block). Matching is fuzzy (exact → whitespace-tolerant → close-match) but ambiguous or not-found matches are refused, never guessed. The path is clamped to the workspace root. Requires user approval (edit-risk).',
-      execute: async (input: ToolExecuteInput<StringReplaceWorkspaceFileInput>) => {
+      execute: async (
+        input: ToolExecuteInput<StringReplaceWorkspaceFileInput>,
+        context?: ToolExecuteRunContext
+      ) => {
         const resolvedInput = parseToolExecuteInput(StringReplaceWorkspaceFileInputSchema, input);
         try {
-          return await runStringReplaceWorkspaceFile(resolvedInput, runtimeData);
+          return await runStringReplaceWorkspaceFile(
+            resolvedInput,
+            runtimeData,
+            readToolCallId(context)
+          );
         } catch (error) {
           logToolFailure('stringReplaceWorkspaceFile failed', error, resolvedInput);
           throw error;
@@ -2471,10 +2587,13 @@ export function buildDesktopAssistantTools(
     [DELETE_WORKSPACE_FILE_TOOL_ID]: {
       description:
         'Delete a single file from the selected workspace root. FILES ONLY — a directory path is refused (use executeCommand for directory removal). The path is clamped to the workspace root and can never escape it. Removes the file from the workspace index when it was indexed. Requires user approval (edit-risk).',
-      execute: async (input: ToolExecuteInput<DeleteWorkspaceFileInput>) => {
+      execute: async (
+        input: ToolExecuteInput<DeleteWorkspaceFileInput>,
+        context?: ToolExecuteRunContext
+      ) => {
         const resolvedInput = parseToolExecuteInput(DeleteWorkspaceFileInputSchema, input);
         try {
-          return await runDeleteWorkspaceFile(resolvedInput, runtimeData);
+          return await runDeleteWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
         } catch (error) {
           logToolFailure('deleteWorkspaceFile failed', error, resolvedInput);
           throw error;
@@ -2486,10 +2605,13 @@ export function buildDesktopAssistantTools(
     [RENAME_WORKSPACE_FILE_TOOL_ID]: {
       description:
         'Rename or move a single file within the selected workspace root. FILES ONLY. The destination must NOT already exist (rename never overwrites — delete the target first). Both paths stay inside ONE open folder (cross-root moves refused); missing destination parent directories are created. Prefer this over a shell "mv" so the workspace index stays coherent. Requires user approval (edit-risk).',
-      execute: async (input: ToolExecuteInput<RenameWorkspaceFileInput>) => {
+      execute: async (
+        input: ToolExecuteInput<RenameWorkspaceFileInput>,
+        context?: ToolExecuteRunContext
+      ) => {
         const resolvedInput = parseToolExecuteInput(RenameWorkspaceFileInputSchema, input);
         try {
-          return await runRenameWorkspaceFile(resolvedInput, runtimeData);
+          return await runRenameWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
         } catch (error) {
           logToolFailure('renameWorkspaceFile failed', error, resolvedInput);
           throw error;

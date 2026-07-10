@@ -71,6 +71,7 @@ interface PGliteLiveQuerySurface {
 }
 
 type OptionalRelationTable =
+  | 'brainstrike_assistant_edit_checkpoints'
   | 'brainstrike_assistant_run_usage'
   | 'brainstrike_assistant_task_lists'
   | 'collection_indexing_stats'
@@ -714,6 +715,11 @@ export function registerDatabaseIpcHandlers(
             // factory reset must wipe the plan so it does not survive a "true
             // fresh start" (FACTORY RESET CONTRACT). No FK, so clear explicitly.
             await clearOptionalRelation(tx, 'brainstrike_assistant_task_lists');
+            // Per-turn edit checkpoint journal (undo of agent file edits): a
+            // factory reset must wipe stored before-content + revert history so
+            // it does not survive a "true fresh start" (FACTORY RESET CONTRACT).
+            // No FK, so nothing cascades it — clear explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_edit_checkpoints');
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');

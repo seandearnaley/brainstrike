@@ -8,6 +8,7 @@ import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferenc
 import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { __resetAssistantForegroundActivityForTests } from '../assistant-foreground-activity';
@@ -919,6 +920,10 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       </div>
     );
   },
+  // Passthrough double for the real context provider — these tests render the
+  // mocked AssistantUiPanel, so the checkpoint context is never read; the
+  // provider just needs to mount its children without error.
+  EditCheckpointProvider: ({ children }: { children: ReactNode }) => children,
   // Defaults to no desktop llm-host bridge, so local chat resolves to the
   // in-renderer transport; tests flip the mock to cover the data-stream route.
   hasDesktopLlmHost: hasDesktopLlmHostMock,

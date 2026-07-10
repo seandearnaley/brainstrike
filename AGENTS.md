@@ -1018,6 +1018,57 @@ Adding/renaming an assistant native tool is multi-registry: zod schema + schemaM
 
 ---
 
+## EDIT CHECKPOINT JOURNAL (UNDO OF AGENT FILE EDITS)
+
+Every agent file mutation records an undoable journal entry so a per-tool-card
+**Revert** control can restore the prior state. Desktop-only (web local chat has
+no assistant server / thread_runs rows). Capability-gated, not `isElectron()`.
+
+- **Capture point:** INSIDE the existing per-file `withFileLock` in all four
+  `run*WorkspaceFile` functions (`assistant-tools.ts`), so the before-read →
+  mutate → journal write is atomic against concurrent same-file edits.
+  `toolCallId` comes from Mastra's 2nd `execute` arg
+  (`context.agent.toolCallId`, verified against @mastra/core@1.50.0 dist types);
+  identity (runId/threadId/resourceId) from `runtimeData.memory`. Capture is
+  GATED on an active memory context and is NON-FATAL (debug on DB-absent, error
+  on DB-throw) — the tool result contract is never changed.
+- **Storage:** full BEFORE-content (capped at the 2 MB write limit), not a diff,
+  so revert is an exact independent write and conflict detection is a hash
+  compare. `after_hash`/`after_existed` are for conflict detection only (no
+  after-content — redo is deferred). Binary/oversized before-state is recorded
+  honestly via `capture_status` (`skipped_binary`/`skipped_too_large`) with null
+  content — NEVER a truncated snapshot. `capture_status` enum:
+  `ok`/`created`/`skipped_binary`/`skipped_too_large`/`expired`/`rename`; only
+  `ok`/`created`/`rename` are revertible.
+- **Table** `brainstrike_assistant_edit_checkpoints` (migration 051, registered in
+  BOTH runners + bootstrapped byte-identically in app-shell's
+  `assistant-memory-repository.ts`). NO FK (mirrors run_usage 046 — the numbered +
+  drizzle migration paths run on a bare PGlite without the thread_runs/mastra_threads
+  parents; an FK would break the full migration suite). Purged on factory reset
+  (`db-ipc.ts` `OptionalRelationTable`).
+- **Retention** (`edit-checkpoint-journal.ts`, strict-parsed env, no silent
+  fallback): `BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES` (32 MB) NULLs the oldest
+  non-reverted before-content to `expired`; `BRAINSTRIKE_CHECKPOINT_MAX_ROWS`
+  (500) hard-deletes the oldest rows. Pruned after every insert.
+- **LIST = renderer-direct DB (Path A):** `listThreadCheckpoints(threadId)` on the
+  PGlite repository, across ALL runs (revertible after reload). `before_content`
+  is NEVER selected — it stays in main.
+- **REVERT = IPC to main (Path B):** `window.assistantCheckpoints.revertEntry/revertRun`
+  → `assistant-checkpoint:revert-*` → `edit-checkpoint-revert.ts`. Resolves the
+  stored `root_id` via the roots table and REFUSES a disconnected root (never
+  guesses); detects on-disk conflicts (hash compare, `force` overrides); applies
+  the per-op inverse (restore-write / delete-created / recreate-deleted /
+  rename-back) under the file lock; reuses the write tools' non-fatal reindex
+  seams; stamps `reverted_at` (idempotent). Reverts are NOT re-journaled.
+- **Key files:** `edit-checkpoint-{journal,capture,revert,errors}.ts` +
+  `ipc-domains/assistant-checkpoint-*.ts` (desktop),
+  `edit-checkpoint-context.tsx` + `tool-fallback.tsx` (ui),
+  `use-edit-checkpoints.ts` (app-shell), `packages/assistant-contract/src/edit-checkpoints.ts`.
+
+When changing this flow, update this section and the paired tests.
+
+---
+
 ## WORKSPACE SEARCH
 
 The Explorer|Search panel (`packages/workspace-search`, composed by

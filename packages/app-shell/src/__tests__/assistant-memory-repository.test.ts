@@ -30,6 +30,7 @@ function makeMessagesOnlyRepository(): AssistantThreadRepository {
         role: 'user' as const,
       },
     ]),
+    listThreadCheckpoints: vi.fn(async () => []),
     listThreadRunEvents: vi.fn(async () => []),
     listThreads: vi.fn(),
     recordRunUsage: vi.fn(),
@@ -74,6 +75,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -225,6 +227,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -255,6 +258,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -303,6 +307,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'user',
         },
       ]),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -342,6 +347,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => [
         {
           id: 'event-1',
@@ -424,6 +430,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -508,6 +515,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -579,6 +587,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -640,6 +649,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'tool',
         },
       ]),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -710,6 +720,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'user',
         },
       ]),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -756,6 +767,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
             role: 'assistant',
           },
         ]),
+        listThreadCheckpoints: vi.fn(async () => []),
         listThreadRunEvents: vi.fn(async () => []),
         listThreads: vi.fn(),
         recordRunUsage: vi.fn(),
@@ -856,6 +868,7 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => args.messages),
+      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => args.runEvents ?? []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -1536,6 +1549,70 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('lists thread edit checkpoints across all runs and omits before_content', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('brainstrike_assistant_edit_checkpoints')) {
+        return {
+          rows: [
+            {
+              afterExisted: true,
+              afterHash: 'after-hash',
+              beforeExisted: false,
+              beforeHash: null,
+              beforeSize: null,
+              captureStatus: 'created',
+              fromPath: null,
+              id: 'ckpt-1',
+              occurredAt: new Date('2026-04-22T10:00:00Z'),
+              op: 'write',
+              path: '/new.ts',
+              resourceId: '/tmp/workspace-a',
+              revertedAt: null,
+              rootId: 'root-1',
+              runId: 'run-1',
+              threadId: 'thread-1',
+              toolCallId: 'call-1',
+              toolName: 'brainstrike.writeWorkspaceFile',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    const checkpoints = await repository.listThreadCheckpoints('thread-1');
+
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0]).toEqual({
+      afterExisted: true,
+      afterHash: 'after-hash',
+      beforeExisted: false,
+      beforeHash: null,
+      beforeSize: null,
+      captureStatus: 'created',
+      fromPath: null,
+      id: 'ckpt-1',
+      occurredAt: '2026-04-22T10:00:00.000Z',
+      op: 'write',
+      path: '/new.ts',
+      resourceId: '/tmp/workspace-a',
+      revertedAt: null,
+      rootId: 'root-1',
+      runId: 'run-1',
+      threadId: 'thread-1',
+      toolCallId: 'call-1',
+      toolName: 'brainstrike.writeWorkspaceFile',
+    });
+    expect(checkpoints[0]).not.toHaveProperty('beforeContent');
+    // Queried by thread only (across all runs), never narrowed to a single run.
+    const checkpointCall = db.query.mock.calls.find((call) =>
+      String(call[0]).includes('brainstrike_assistant_edit_checkpoints')
+    );
+    expect(String(checkpointCall?.[0])).not.toContain('LIMIT 1');
+  });
+
   it('bootstraps the Brainstrike-owned assistant run table before writes', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -2102,6 +2179,43 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     await expect(
       countRows(db, 'brainstrike_assistant_run_events', 'thread_id', thread.id)
     ).resolves.toBe(0);
+  });
+
+  it('purges edit-checkpoint rows for the deleted thread in real PGlite', async () => {
+    // The checkpoint journal has NO FK to mastra_threads (bare-PGlite migration
+    // constraint), so deleteThread must explicitly delete its rows or up to
+    // 32 MB/thread of before_content is stranded until factory reset.
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-checkpoints');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    const insertCheckpoint = async (id: string, threadId: string): Promise<void> => {
+      await db.query(
+        `INSERT INTO brainstrike_assistant_edit_checkpoints (
+           id, run_id, resource_id, thread_id, tool_name, op, root_id, path,
+           before_existed, before_content, before_size, after_existed,
+           capture_status, occurred_at, created_at, updated_at
+         ) VALUES (
+           $1, 'run-1', 'workspace-a', $2, 'brainstrike.writeWorkspaceFile', 'write',
+           'root-1', '/a.txt', true, 'BEFORE', 6, true, 'ok', NOW(), NOW(), NOW()
+         )`,
+        [id, threadId]
+      );
+    };
+    await insertCheckpoint('ckpt-1', thread.id);
+    await insertCheckpoint('ckpt-2', thread.id);
+    // A sibling thread's checkpoint must survive the delete.
+    await insertCheckpoint('ckpt-other', 'other-thread');
+
+    await repository.deleteThread(thread.id);
+
+    await expect(
+      countRows(db, 'brainstrike_assistant_edit_checkpoints', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_edit_checkpoints', 'thread_id', 'other-thread')
+    ).resolves.toBe(1);
   });
 
   it('persists curated metadata updates in real PGlite thread rows', async () => {
