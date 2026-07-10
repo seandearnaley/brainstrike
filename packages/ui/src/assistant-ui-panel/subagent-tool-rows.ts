@@ -86,6 +86,26 @@ export function readLiveSubagentToolRows(
 }
 
 /**
+ * Value-stable serialization of {@link readLiveSubagentToolRows} for a
+ * `useAuiState` selector.
+ *
+ * `useAuiState` re-runs its selector on every store update and compares the
+ * result with `Object.is`; returning the raw `state.message.parts` array (a
+ * referentially-stable reference that grows in place as run-event data parts are
+ * appended) never trips that comparison, so the connected card froze on an early
+ * snapshot and undercounted live child rows (D2 — showed 2 of 10 mid-delegation).
+ * Serializing to a string makes the selector change by VALUE exactly when the
+ * derived rows change — the same pattern the run-lifecycle notifier uses for its
+ * array selectors.
+ */
+export function serializeLiveSubagentToolRows(
+  parts: readonly unknown[],
+  parentToolCallId: string
+): string {
+  return JSON.stringify(readLiveSubagentToolRows(parts, parentToolCallId));
+}
+
+/**
  * Union of live + persisted rows, keyed by child toolCallId; a persisted row
  * (terminal, authoritative) supersedes the matching live row while preserving
  * its position, and persisted-only rows append.

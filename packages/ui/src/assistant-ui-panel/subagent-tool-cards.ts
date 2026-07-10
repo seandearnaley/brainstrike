@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/assistant-contract/personas';
 import { createElement, useMemo } from 'react';
 import { SubagentExecutionCard } from './subagent-execution-card';
-import { readLiveSubagentToolRows } from './subagent-tool-rows';
+import { type SubAgentToolRow, serializeLiveSubagentToolRows } from './subagent-tool-rows';
 
 /**
  * The registered delegation-tool component: reads the current message's parts
@@ -14,13 +14,17 @@ import { readLiveSubagentToolRows } from './subagent-tool-rows';
  * SubagentExecutionCard so a running delegation shows in-progress child tools
  * before the result (with `subAgentToolResults`) lands. Kept out of the card so
  * the card stays render-testable without the assistant-ui store.
+ *
+ * The selector serializes the derived rows (see `serializeLiveSubagentToolRows`):
+ * `useAuiState` compares selector results with `Object.is`, so returning the raw
+ * `state.message.parts` array — a stable reference that grows in place — would
+ * never re-render, freezing the live count on an early snapshot (D2).
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
-  const parts = useAuiState((state) => state.message.parts);
-  const liveRows = useMemo(
-    () => readLiveSubagentToolRows(parts, props.toolCallId),
-    [parts, props.toolCallId]
+  const liveRowsJson = useAuiState((state) =>
+    serializeLiveSubagentToolRows(state.message.parts, props.toolCallId)
   );
+  const liveRows = useMemo(() => JSON.parse(liveRowsJson) as SubAgentToolRow[], [liveRowsJson]);
   return createElement(SubagentExecutionCard, {
     liveRows,
     result: props.result,

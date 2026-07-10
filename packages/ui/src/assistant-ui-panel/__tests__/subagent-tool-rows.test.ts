@@ -3,6 +3,7 @@ import {
   mergeSubagentToolRows,
   readLiveSubagentToolRows,
   readSubAgentToolRows,
+  serializeLiveSubagentToolRows,
 } from '../subagent-tool-rows';
 
 const RUN_EVENT_NAME = 'brainstrike.run-event';
@@ -112,6 +113,29 @@ describe('readLiveSubagentToolRows (in-flight run events)', () => {
     expect(rows[0]?.status).toBe('error');
   });
 
+  it('D2: derives one row per child for a full 10-tool live delegation (no undercount)', () => {
+    const parts: unknown[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      parts.push(
+        liveEventPart({
+          childToolName: 'brainstrike_grepSearch',
+          kind: 'subagent.tool.started',
+          parentToolCallId: 'delegation-1',
+          toolCallId: `child-${index}`,
+        }),
+        liveEventPart({
+          childToolName: 'brainstrike_grepSearch',
+          kind: 'subagent.tool.completed',
+          parentToolCallId: 'delegation-1',
+          toolCallId: `child-${index}`,
+        })
+      );
+    }
+    const rows = readLiveSubagentToolRows(parts, 'delegation-1');
+    expect(rows).toHaveLength(10);
+    expect(rows.every((row) => row.status === 'success')).toBe(true);
+  });
+
   it('ignores events for a different parent delegation and non-subagent-tool events', () => {
     const rows = readLiveSubagentToolRows(
       [
@@ -126,6 +150,33 @@ describe('readLiveSubagentToolRows (in-flight run events)', () => {
       'delegation-1'
     );
     expect(rows).toEqual([]);
+  });
+});
+
+describe('serializeLiveSubagentToolRows (D2 value-stable selector)', () => {
+  const started = (toolCallId: string) =>
+    liveEventPart({
+      childToolName: 'grep',
+      kind: 'subagent.tool.started',
+      parentToolCallId: 'delegation-1',
+      toolCallId,
+    });
+
+  it('is byte-identical for equal inputs (so useAuiState does NOT over-render)', () => {
+    const parts = [started('child-1')];
+    expect(serializeLiveSubagentToolRows(parts, 'delegation-1')).toBe(
+      serializeLiveSubagentToolRows([...parts], 'delegation-1')
+    );
+  });
+
+  it('changes value when a new child event is appended (so useAuiState re-renders)', () => {
+    const before = serializeLiveSubagentToolRows([started('child-1')], 'delegation-1');
+    const after = serializeLiveSubagentToolRows(
+      [started('child-1'), started('child-2')],
+      'delegation-1'
+    );
+    expect(after).not.toBe(before);
+    expect(JSON.parse(after)).toHaveLength(2);
   });
 });
 
