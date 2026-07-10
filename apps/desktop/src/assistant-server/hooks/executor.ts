@@ -101,6 +101,7 @@ function killHookTree(child: ReturnType<typeof spawn>): void {
 function executeHook(
   hook: LoadedHook,
   stdin: HookStdin,
+  logger: HookLogger,
   timeoutOverrideMs?: number
 ): Promise<HookResult> {
   const timeout = timeoutOverrideMs ?? hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS;
@@ -172,12 +173,30 @@ function executeHook(
       });
     });
 
+    // A hook that exits without consuming stdin (e.g. `exit 0`) closes its read
+    // end before our write flushes, so the write fails with EPIPE. Stream write
+    // failures surface ASYNCHRONOUSLY as an `'error'` event — the synchronous
+    // try/catch below cannot see them, and without this listener Node escalates
+    // the error to an `uncaughtException` that crashes the process. Delivering
+    // stdin is best-effort by design; the process still runs to completion or
+    // timeout, so we log and continue rather than fail the hook.
+    child.stdin?.on('error', (error: Error) => {
+      logger.debug('hook stdin write failed', {
+        command: hook.definition.command,
+        error: error.message,
+      });
+    });
     try {
       const redacted = redactSecrets(stdin);
       child.stdin?.write(JSON.stringify(redacted));
       child.stdin?.end();
-    } catch {
-      // stdin write failure — the process still runs to completion/timeout.
+    } catch (error) {
+      // Synchronous stdin failure (e.g. an already-destroyed stream). Async
+      // failures are handled by the `'error'` listener above.
+      logger.debug('hook stdin write threw synchronously', {
+        command: hook.definition.command,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   });
 }
@@ -286,7 +305,7 @@ export async function runHooksForEvent(
       );
       break;
     }
-    const result = await executeHook(hook, buildStdin(hook), budget.timeoutOverrideMs);
+    const result = await executeHook(hook, buildStdin(hook), opts.logger, budget.timeoutOverrideMs);
     results.push(result);
 
     const extra = result.stdout?.additionalContext;

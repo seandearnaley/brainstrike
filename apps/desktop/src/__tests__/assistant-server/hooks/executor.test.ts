@@ -167,6 +167,42 @@ describe('runHooksForEvent', () => {
     expect(captured.tool_input.cmd).toBe('ls');
   });
 
+  it('does not crash the process when a hook exits before a large stdin payload flushes', async () => {
+    // Regression: `child.stdin.write` emits its failure ASYNCHRONOUSLY on the
+    // stream (an `'error'` event), which the surrounding synchronous try/catch
+    // cannot see. A payload larger than the OS pipe buffer (~64KB) cannot flush
+    // before a fast-exiting hook closes its stdin read end, so the write hits
+    // `EPIPE`. Without an `'error'` listener on `child.stdin`, Node escalates it
+    // to an `uncaughtException` that fails the whole Vitest run (observed only
+    // under coverage timing). This asserts no such exception escapes.
+    const captured: unknown[] = [];
+    const onUncaught = (error: unknown): void => {
+      captured.push(error);
+    };
+    const priorHandlers = process.listeners('uncaughtException');
+    for (const handler of priorHandlers) {
+      process.removeListener('uncaughtException', handler);
+    }
+    process.on('uncaughtException', onUncaught);
+    try {
+      const huge = 'x'.repeat(1_000_000);
+      const result = await runHooksForEvent(
+        [makeLoadedHook('exit 0')],
+        () => toolStdin({ tool_input: { blob: huge } } as Partial<HookStdin>),
+        { blocking: true, logger }
+      );
+      // Let the async stdin `'error'` (if unhandled) propagate to uncaughtException.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(result.allowed).toBe(true);
+      expect(captured).toEqual([]);
+    } finally {
+      process.removeListener('uncaughtException', onUncaught);
+      for (const handler of priorHandlers) {
+        process.on('uncaughtException', handler as (error: Error) => void);
+      }
+    }
+  });
+
   it('uses each hook source cwd for the spawn', async () => {
     const outFile = join(tmpRoot, 'pwd.txt');
     const hook = makeLoadedHook(`pwd > "${outFile}"`);
