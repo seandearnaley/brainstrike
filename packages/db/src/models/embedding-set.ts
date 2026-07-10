@@ -1,10 +1,7 @@
 export type EmbeddingDistance = 'cosine' | 'l2' | 'ip';
 export const WORKSPACE_INDEX_SYSTEM_ROLE = 'workspace-index' as const;
-export const PROMPT_LIBRARY_SYSTEM_ROLE = 'prompt-library' as const;
 
-export type EmbeddingSetSystemRole =
-  | typeof WORKSPACE_INDEX_SYSTEM_ROLE
-  | typeof PROMPT_LIBRARY_SYSTEM_ROLE;
+export type EmbeddingSetSystemRole = typeof WORKSPACE_INDEX_SYSTEM_ROLE;
 
 // The managed Workspace Index uses the desktop embedding host's local model so
 // default indexing stays local-first and avoids hosted API costs/egress.

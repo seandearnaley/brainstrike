@@ -4,11 +4,10 @@ import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
-interface PromptLibraryEmbeddingSetRow {
+interface PromptLibraryEmbeddingProfileRow {
   dimensions: number;
   id: string;
   model_key: string;
-  system_role: string;
 }
 
 interface CountRow {
@@ -43,19 +42,23 @@ describe('migration 050: prompt library', () => {
   }, async () => {
     await runner.runMigration(getMigration050());
 
-    const embeddingSet = await db.query<PromptLibraryEmbeddingSetRow>(
-      `SELECT id, model_key, dimensions, system_role
-       FROM embedding_sets
-       WHERE system_role = 'prompt-library'`
+    const embeddingProfile = await db.query<PromptLibraryEmbeddingProfileRow>(
+      `SELECT id, model_key, dimensions
+       FROM prompt_embedding_profiles`
     );
-    expect(embeddingSet.rows).toEqual([
+    expect(embeddingProfile.rows).toEqual([
       {
         dimensions: 384,
-        id: 'system:prompt-library',
+        id: 'default',
         model_key: 'local::Xenova/all-MiniLM-L6-v2',
-        system_role: 'prompt-library',
       },
     ]);
+    const leakedCollection = await db.query<CountRow>(
+      `SELECT COUNT(*)::int AS count
+       FROM embedding_sets
+       WHERE id = 'system:prompt-library' OR system_role = 'prompt-library'`
+    );
+    expect(Number(leakedCollection.rows[0]?.count ?? -1)).toBe(0);
 
     await db.query(
       `INSERT INTO prompt_items (
@@ -132,16 +135,13 @@ describe('migration 050: prompt library', () => {
     const tables = await db.query<{ table_name: string }>(
       `SELECT table_name
        FROM information_schema.tables
-       WHERE table_name IN ('prompt_items', 'prompt_item_revisions')
+       WHERE table_name IN (
+         'prompt_items',
+         'prompt_item_revisions',
+         'prompt_embedding_profiles'
+       )
        ORDER BY table_name`
     );
     expect(tables.rows).toEqual([]);
-
-    const embeddingSet = await db.query<CountRow>(
-      `SELECT COUNT(*)::int AS count
-       FROM embedding_sets
-       WHERE system_role = 'prompt-library'`
-    );
-    expect(Number(embeddingSet.rows[0]?.count ?? -1)).toBe(0);
   });
 });

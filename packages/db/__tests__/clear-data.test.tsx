@@ -177,6 +177,7 @@ describe('Database clearing functionality', () => {
       // Factory-reset contract: stale roots must not survive a clear and
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM prompt_items');
     });
 
     it('should handle transaction errors gracefully', async () => {

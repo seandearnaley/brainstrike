@@ -4,9 +4,9 @@ import type { Migration } from './migration-runner';
  * Migration 050: durable Prompt Workbench records and semantic recall space.
  *
  * Prompt items are application records, not pretend files, so they own their
- * metadata, revision history, and vector directly. The dedicated embedding set
- * keeps prompt recall out of workspace/file search while reusing the same
- * renderer-only local embedding model and pgvector extension.
+ * metadata, revision history, and vector directly. The dedicated singleton
+ * profile keeps prompt recall out of the file-collection `embedding_sets`
+ * lifecycle while reusing the same renderer-only local model and pgvector.
  */
 export const migration050PromptLibrary: Migration = {
   down: `
@@ -14,46 +14,39 @@ export const migration050PromptLibrary: Migration = {
     --> statement-breakpoint
     DROP TABLE IF EXISTS prompt_items;
     --> statement-breakpoint
-    DELETE FROM embedding_sets WHERE system_role = 'prompt-library';
-    --> statement-breakpoint
-    DROP INDEX IF EXISTS idx_embedding_sets_prompt_library_system_role;
+    DROP TABLE IF EXISTS prompt_embedding_profiles;
   `,
   name: 'prompt_library',
   up: `
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_embedding_sets_prompt_library_system_role
-      ON embedding_sets(system_role)
-      WHERE system_role = 'prompt-library';
+    CREATE TABLE IF NOT EXISTS prompt_embedding_profiles (
+      id TEXT PRIMARY KEY,
+      model_id TEXT NOT NULL,
+      model_key TEXT NOT NULL,
+      dimensions INTEGER NOT NULL,
+      distance TEXT NOT NULL DEFAULT 'cosine',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT prompt_embedding_profiles_singleton_check CHECK (id = 'default'),
+      CONSTRAINT prompt_embedding_profiles_dimensions_check CHECK (dimensions > 0),
+      CONSTRAINT prompt_embedding_profiles_distance_check CHECK (distance IN ('cosine', 'l2', 'ip'))
+    );
     --> statement-breakpoint
 
-    INSERT INTO embedding_sets (
-      id,
-      model_id,
-      model_key,
-      dimensions,
-      distance,
-      name,
-      description,
-      system_role,
-      created_at
+    INSERT INTO prompt_embedding_profiles (
+      id, model_id, model_key, dimensions, distance
     ) VALUES (
-      'system:prompt-library',
+      'default',
       'Xenova/all-MiniLM-L6-v2',
       'local::Xenova/all-MiniLM-L6-v2',
       384,
-      'cosine',
-      'Prompt Library',
-      'System-managed semantic recall for prompts, snippets, and fragments.',
-      'prompt-library',
-      to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      'cosine'
     )
     ON CONFLICT (id) DO UPDATE SET
       model_id = EXCLUDED.model_id,
       model_key = EXCLUDED.model_key,
       dimensions = EXCLUDED.dimensions,
       distance = EXCLUDED.distance,
-      name = EXCLUDED.name,
-      description = EXCLUDED.description,
-      system_role = EXCLUDED.system_role;
+      updated_at = CURRENT_TIMESTAMP;
     --> statement-breakpoint
 
     CREATE TABLE IF NOT EXISTS prompt_items (
@@ -74,7 +67,7 @@ export const migration050PromptLibrary: Migration = {
       last_used_at TIMESTAMPTZ,
       last_used_action TEXT,
       embedding VECTOR,
-      embedding_set_id TEXT,
+      embedding_profile_id TEXT REFERENCES prompt_embedding_profiles(id) ON DELETE SET NULL,
       embedding_revision INTEGER,
       embedding_error TEXT,
       embedding_updated_at TIMESTAMPTZ,
@@ -100,8 +93,8 @@ export const migration050PromptLibrary: Migration = {
       ON prompt_items(updated_at DESC)
       WHERE is_favorite = TRUE;
     --> statement-breakpoint
-    CREATE INDEX IF NOT EXISTS idx_prompt_items_embedding_set_id
-      ON prompt_items(embedding_set_id);
+    CREATE INDEX IF NOT EXISTS idx_prompt_items_embedding_profile_id
+      ON prompt_items(embedding_profile_id);
     --> statement-breakpoint
     CREATE INDEX IF NOT EXISTS idx_prompt_items_tags
       ON prompt_items USING gin(tags);

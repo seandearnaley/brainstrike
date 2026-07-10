@@ -756,6 +756,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         // Tables may not exist in older schema versions - log but don't fail
         logger.warn('[DbProvider] Failed to clear job_queue (table may not exist):', error);
       }
+      try {
+        // Revisions cascade from prompt_items. The system embedding profile is
+        // configuration seeded by migration 050 and intentionally survives.
+        await tx.query('DELETE FROM prompt_items');
+      } catch (error) {
+        logger.warn('[DbProvider] Failed to clear prompt_items (table may not exist):', error);
+      }
 
       return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
     });
@@ -791,6 +798,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   // Helpers to reduce complexity within contextValue actions
   const purgeTablesTx = useCallback(async (tx: { query: (sql: string) => Promise<unknown> }) => {
+    try {
+      await tx.query('DELETE FROM prompt_items');
+    } catch (err) {
+      logger.warn('Failed to clear prompt_items during reset:', err);
+    }
     try {
       await tx.query('DELETE FROM job_queue');
     } catch (err) {

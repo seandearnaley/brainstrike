@@ -269,13 +269,23 @@ export const embeddingSets = pgTable('embedding_sets', {
   modelId: text('model_id').notNull(),
   modelKey: text('model_key').notNull(),
   name: text('name'),
-  systemRole: text('system_role').$type<'workspace-index' | 'prompt-library'>(),
+  systemRole: text('system_role').$type<'workspace-index'>(),
   tags: text('tags'),
 });
 
 // ============================================================================
 // PROMPT WORKBENCH TABLES
 // ============================================================================
+
+export const promptEmbeddingProfiles = pgTable('prompt_embedding_profiles', {
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  dimensions: integer('dimensions').notNull(),
+  distance: text('distance').$type<'cosine' | 'l2' | 'ip'>().default('cosine').notNull(),
+  id: text('id').primaryKey(),
+  modelId: text('model_id').notNull(),
+  modelKey: text('model_key').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
 
 export const promptItems = pgTable(
   'prompt_items',
@@ -286,8 +296,10 @@ export const promptItems = pgTable(
     description: text('description'),
     embedding: vector('embedding'),
     embeddingError: text('embedding_error'),
+    embeddingProfileId: text('embedding_profile_id').references(() => promptEmbeddingProfiles.id, {
+      onDelete: 'set null',
+    }),
     embeddingRevision: integer('embedding_revision'),
-    embeddingSetId: text('embedding_set_id'),
     embeddingUpdatedAt: timestamp('embedding_updated_at', { withTimezone: true }),
     id: text('id').primaryKey(),
     isFavorite: boolean('is_favorite').default(false).notNull(),
@@ -306,7 +318,7 @@ export const promptItems = pgTable(
   },
   (table) => [
     index('idx_prompt_items_kind_updated_at').on(table.kind, table.updatedAt),
-    index('idx_prompt_items_embedding_set_id').on(table.embeddingSetId),
+    index('idx_prompt_items_embedding_profile_id').on(table.embeddingProfileId),
   ]
 );
 

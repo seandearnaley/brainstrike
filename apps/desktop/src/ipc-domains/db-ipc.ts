@@ -76,6 +76,7 @@ type OptionalRelationTable =
   | 'collection_indexing_stats'
   | 'embedding_sets'
   | 'job_queue'
+  | 'prompt_items'
   | 'roots';
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
@@ -702,6 +703,9 @@ export function registerDatabaseIpcHandlers(
             // factory reset must wipe the plan so it does not survive a "true
             // fresh start" (FACTORY RESET CONTRACT). No FK, so clear explicitly.
             await clearOptionalRelation(tx, 'brainstrike_assistant_task_lists');
+            // Revisions cascade from prompt_items. The singleton embedding
+            // profile is app configuration and remains available after clear.
+            await clearOptionalRelation(tx, 'prompt_items');
 
             return {
               deletedChunks,
