@@ -1,5 +1,7 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
+import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
+import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { Agent, type AgentMemoryOption, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
@@ -44,6 +46,7 @@ import {
   type PermissionAskToolMetadata,
   type PermissionToolGateSnapshot,
 } from './permission-tool-gate';
+import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
 import {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
@@ -324,13 +327,39 @@ export async function createMastraAgentRuntime(
   // with an empty askTools. An explicit `options.permissionPolicy` wins over one
   // carried on the runtime data.
   const permissionSnapshot = permissionPolicy ?? sanitizedRuntime.permissionPolicy;
+
+  // Plan mode (opt-in, per-request; NEVER for the built-in local provider — it
+  // mirrors the local gating on the task-list tool/note): constrain the tool map
+  // to read/mcp + the suspending tools (submitPlan/askUser) and omit every
+  // edit/execute tool, BEFORE the permission gate (a dropped mutation tool is
+  // dropped regardless of allow/ask/deny). The risk map is the authoritative
+  // static registry classification (never client-supplied).
+  const planModeActive = normalizedProvider !== 'local' && sanitizedRuntime.planMode === true;
+  const planFilteredTools = planModeActive
+    ? filterToolsForPlanMode(
+        guardedTools,
+        toolNameMap,
+        permissionSnapshot?.riskByTool ?? buildNativeToolRiskMap(),
+        logger
+      )
+    : guardedTools;
+
   const gateResult = filterToolsByPermissionWithMetadata(
-    guardedTools,
+    planFilteredTools,
     permissionSnapshot,
     toolNameMap,
     logger
   );
-  const { tools: gatedTools, askTools } = resolveAskToolsForRun(gateResult, Boolean(storage));
+  const { tools: askResolvedTools, askTools } = resolveAskToolsForRun(gateResult, Boolean(storage));
+  // Fail-safe: a tool that pauses via suspend() cannot resume without workflow
+  // storage, so omit the suspending tools when storage is absent (never run one
+  // that would wedge the run — no-silent-fallbacks).
+  const gatedTools = resolveSuspendToolsForRun(
+    askResolvedTools,
+    Boolean(storage),
+    toolNameMap,
+    logger
+  );
 
   // Create provider-specific model instance
   const modelName = model ?? getDefaultModel(normalizedProvider);
@@ -360,7 +389,7 @@ export async function createMastraAgentRuntime(
     instructions ??
     (normalizedProvider === 'local'
       ? buildLocalDefaultInstructions(toolNameMap)
-      : buildDefaultInstructions(toolNameMap));
+      : buildDefaultInstructions(toolNameMap, { planMode: planModeActive }));
   // Order: instructions, budget note, then the task list LAST so it is the most
   // recent context the model sees.
   const composedInstructions = [resolvedInstructions, budgetNote, taskListNote]
@@ -844,6 +873,55 @@ function makeApprovalRequiredChunks(
   ];
 }
 
+/**
+ * Turn a `tool-call-suspended` stream part (emitted when a suspending tool calls
+ * `suspend()`) into the resumable `tool-suspend-required` chunk + a tool-calls
+ * finish. Mirrors {@link makeApprovalRequiredChunks} but carries the tool-defined
+ * `suspendPayload` (plan body / question) instead of approval-risk metadata. When
+ * the pause is malformed (missing toolCallId/runId) we fall back to the existing
+ * unsupported-termination so a bad pause fails visibly rather than silently.
+ */
+function makeToolSuspendRequiredChunks(
+  part: unknown,
+  toolNames: Map<string, string>,
+  sanitizedNameMap: Map<string, string> | undefined
+): StreamChunk[] {
+  const toolCallId =
+    readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
+  const runId = readMastraStreamPartString(part, 'runId');
+  if (!(toolCallId && runId)) {
+    return makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, 'tool-call-suspended');
+  }
+
+  const rawToolName =
+    readMastraStreamPartString(part, 'toolName') ??
+    readMastraStreamPartString(part, 'name') ??
+    toolNames.get(toolCallId) ??
+    'unknown-tool';
+  const toolName = sanitizedNameMap?.get(rawToolName) ?? rawToolName;
+  const suspendPayload = readMastraStreamPartValue(part, 'suspendPayload');
+  const resumeSchema = readMastraStreamPartValue(part, 'resumeSchema');
+
+  logger.info('mastra tool suspend pause surfaced for client resume', {
+    code: 'mastra_agent_tool_suspend_required',
+    runId,
+    toolCallId,
+    toolName,
+  });
+
+  return [
+    {
+      runId,
+      toolCallId,
+      toolName,
+      type: 'tool-suspend-required',
+      ...(suspendPayload === undefined ? {} : { suspendPayload }),
+      ...(resumeSchema === undefined ? {} : { resumeSchema }),
+    },
+    makeToolCallsFinishChunk(),
+  ];
+}
+
 interface ProcessStreamPartResult {
   chunks: StreamChunk[];
   finished: boolean;
@@ -950,13 +1028,13 @@ function processMastraStreamPart(
         finished: true,
       };
     case 'tool-call-suspended':
-      // This client cannot resume suspended tool calls yet, so stop at the
-      // first pause instead of consuming later stream parts that would imply
-      // forward progress.
+      // A suspending tool (submitPlan/askUser) paused via suspend(). Surface the
+      // resumable suspend metadata and STOP at the pause; later stream parts are
+      // only valid after an explicit resume (streamMastraToolResumeAction).
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
-          ...makeUnsupportedApprovalChunks(part, toolNames, sanitizedNameMap, p.type),
+          ...makeToolSuspendRequiredChunks(part, toolNames, sanitizedNameMap),
         ],
         finished: true,
       };
@@ -1567,6 +1645,121 @@ export async function streamMastraToolApprovalAction(
     ...(options.requireToolApproval === undefined
       ? {}
       : { requireToolApproval: options.requireToolApproval }),
+    ...(runtimeData ? { runtimeData } : {}),
+    ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+  });
+}
+
+// resumeStream's resumeData param is typed `any` by Mastra; we cast a typed
+// `unknown` through this alias at the single call site (no other `any` here).
+type AgentResumeStreamOptions = Parameters<Agent['resumeStream']>[1];
+
+interface ToolResumeIterationParams {
+  action: AssistantToolResumeAction;
+  memory?: MastraMemory;
+  runtime: MastraAgentRuntime;
+  runtimeData?: RuntimeData;
+  sanitizedNameMap?: Map<string, string>;
+}
+
+function validateToolResumeAction(action: AssistantToolResumeAction): void {
+  if (!action.runId.trim()) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'tool resume action requires runId',
+    });
+  }
+  if (!action.toolCallId.trim()) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'tool resume action requires toolCallId',
+    });
+  }
+}
+
+async function createToolResumeIteratorFromRuntime({
+  runtime,
+  runtimeData,
+  action,
+  memory,
+  sanitizedNameMap,
+}: ToolResumeIterationParams): Promise<StreamIterator> {
+  try {
+    validateToolResumeAction(action);
+    const memoryOption = resolveMemoryOption(runtimeData, memory);
+    const resumeOptions = {
+      ...buildToolLoopOptions(runtimeData),
+      runId: action.runId,
+      toolCallId: action.toolCallId,
+      ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...(memoryOption ? { memory: memoryOption } : {}),
+      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
+      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+    };
+
+    // resumeData is validated by Mastra against the suspended tool's resumeSchema.
+    const streamResult = await runtime.agent.resumeStream(
+      action.resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
+      resumeOptions as AgentResumeStreamOptions
+    );
+
+    logger.info('mastra tool resume stream started', {
+      code: 'mastra_agent_tool_resume_started',
+      runId: action.runId,
+      toolCallId: action.toolCallId,
+    });
+
+    const fullStream = resolveFullStream(streamResult);
+    if (!fullStream) {
+      throw createMastraAgentError('mastra_agent_stream_failure', {
+        detail: 'empty_stream',
+      });
+    }
+
+    return streamChunksFromMastra({
+      runtime,
+      stream: fullStream,
+      ...(runtimeData ? { runtimeData } : {}),
+      ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+    });
+  } catch (err) {
+    return await handleStreamFailure(err, runtime);
+  }
+}
+
+/**
+ * Resume a SUSPENDED tool call (submitPlan/askUser) via
+ * `agent.resumeStream(resumeData, { runId, toolCallId })`. Parallels
+ * {@link streamMastraToolApprovalAction} but for the generic suspend transport:
+ * `action.resumeData` is arbitrary (a plan decision or an answer) and validated
+ * by Mastra against the tool's resumeSchema. Workflow storage is REQUIRED (the
+ * snapshot must exist to resume — no silent fallback). `withRuntimeDerivedStreamOptions`
+ * is mandatory so the rebuilt Agent keeps its native tools (the same desktop
+ * write-on-approval fix). Stateless: it holds no in-memory runId, so a future
+ * `listSuspendedRuns` rehydrator can call it with a discovered runId unchanged.
+ * Does NOT pass `requireToolApproval` (that is approval-specific).
+ */
+export async function streamMastraToolResumeAction(
+  action: AssistantToolResumeAction,
+  options: MastraAgentRuntimeOptions = {}
+): Promise<StreamIterator> {
+  assertNoUnsupportedDirectStreamOptions(options);
+  validateToolResumeAction(action);
+  if (!options.storage) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: 'Mastra workflow storage is required to resume a suspended tool.',
+    });
+  }
+
+  const runtimeData = options.runtime;
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
+    withRuntimeDerivedStreamOptions(options),
+    runtimeResolution
+  );
+
+  return createToolResumeIteratorFromRuntime({
+    action,
+    runtime,
+    ...(options.memory ? { memory: options.memory } : {}),
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });

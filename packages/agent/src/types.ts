@@ -6,6 +6,7 @@ import type {
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
+import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { AssistantPermissionPolicyRequest } from './mastra/permission-policy-request';
 import type { McpConfig } from './mcp/config';
@@ -225,6 +226,9 @@ export interface StreamChunkTool {
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
+export interface StreamChunkToolSuspendRequired extends AssistantToolSuspendRequest {
+  type: 'tool-suspend-required';
+}
 export interface StreamChunkFinish {
   type: 'finish';
   usage: { promptTokens: number; completionTokens: number };
@@ -251,6 +255,7 @@ export type StreamChunk =
   | StreamChunkText
   | StreamChunkTool
   | StreamChunkToolApprovalRequired
+  | StreamChunkToolSuspendRequired
   | StreamChunkFinish
   | StreamChunkMessageFinish;
 

@@ -1276,15 +1276,14 @@ describe('mastra streaming integration', () => {
     );
   });
 
-  it('surfaces suspended tool calls as visible terminal errors instead of hanging', async () => {
+  it('surfaces a well-formed suspended tool call as a resumable tool-suspend-required pause', async () => {
     setMockStreamParts([
       {
         payload: {
-          args: { modelKey: 'openai:text-embedding-3-small', name: 'Docs' },
           resumeSchema: '{}',
-          suspendPayload: { reason: 'needs-user-input' },
+          suspendPayload: { question: 'Which city?' },
           toolCallId: 'suspended-1',
-          toolName: 'brainstrike.createEmbeddingSet',
+          toolName: 'brainstrike.askUser',
         },
         runId: 'run-suspended-1',
         type: 'tool-call-suspended',
@@ -1292,7 +1291,7 @@ describe('mastra streaming integration', () => {
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', parts: [{ text: 'create an embedding set', type: 'text' }], role: 'user' }],
+      [{ id: 'u1', parts: [{ text: 'ask me something', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -1301,35 +1300,60 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual([
+    // The pause is now a SUPPORTED resumable event (NOT a run.failed / error finish).
+    expect(chunks).toContainEqual({
+      resumeSchema: '{}',
+      runId: 'run-suspended-1',
+      suspendPayload: { question: 'Which city?' },
+      toolCallId: 'suspended-1',
+      toolName: 'brainstrike.askUser',
+      type: 'tool-suspend-required',
+    });
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
+    );
+    // No run.failed / error finish for a well-formed pause.
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+    );
+  });
+
+  it('keeps a malformed suspend pause (missing tool call id) a visible terminal error', async () => {
+    setMockStreamParts([
+      {
+        payload: {
+          suspendPayload: { question: 'Which city?' },
+          toolName: 'brainstrike.askUser',
+        },
+        runId: 'run-suspended-malformed',
+        type: 'tool-call-suspended',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'ask me something', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
       expect.objectContaining({
-        name: 'brainstrike.createEmbeddingSet',
         payload: expect.objectContaining({
           actionRequired: true,
-          approvalRequired: false,
-          callId: 'suspended-1',
-          runId: 'run-suspended-1',
+          missingToolCallId: true,
           suspended: true,
-          toolCallId: 'suspended-1',
         }),
         status: 'error',
         type: 'tool-event',
-      }),
-      expect.objectContaining({
-        event: expect.objectContaining({
-          kind: 'run.failed',
-          label: 'Tool resume required',
-          status: 'failed',
-        }),
-        type: 'run-event',
-      }),
-      {
-        finishReason: 'error',
-        path: [],
-        type: 'message-finish',
-        usage: { completionTokens: 0, promptTokens: 0 },
-      },
-    ]);
+      })
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+    );
   });
 
   it('keeps malformed approval pauses visible when Mastra omits the tool call id', async () => {
