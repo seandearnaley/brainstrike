@@ -269,6 +269,17 @@ function isMissingRelationError(error: unknown): boolean {
   return message.includes('relation') && message.includes('does not exist');
 }
 
+function isMissingOptionalRelationError(error: unknown, tableName: OptionalRelationTable): boolean {
+  if (!isMissingRelationError(error)) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new RegExp(
+    `\\b(?:relation|table)\\s+(?:"(?:[a-z_][\\w$]*\\.)?${tableName}"|(?:(?:"[a-z_][\\w$]*"|[a-z_][\\w$]*)\\.)?(?:"${tableName}"|${tableName}))\\s+does not exist\\b`,
+    'iu'
+  ).test(message);
+}
+
 async function clearOptionalRelation(
   tx: { query: (sql: string) => Promise<{ rows: unknown[] }> },
   tableName: OptionalRelationTable
@@ -276,7 +287,7 @@ async function clearOptionalRelation(
   try {
     await tx.query(`DELETE FROM ${tableName}`);
   } catch (error) {
-    if (isMissingRelationError(error)) {
+    if (isMissingOptionalRelationError(error, tableName)) {
       return;
     }
     logger.warn('Failed to clear optional database table', { error, tableName });
