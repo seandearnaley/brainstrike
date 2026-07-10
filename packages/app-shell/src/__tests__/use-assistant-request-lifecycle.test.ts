@@ -1,3 +1,4 @@
+import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -46,6 +47,7 @@ describe('useAssistantRequestLifecycle', () => {
   afterEach(() => {
     __resetAssistantForegroundActivityForTests();
     vi.useRealTimers();
+    useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
   });
 
   it('creates a run record, injects its id into memory, and releases the lease on completion', async () => {
@@ -64,6 +66,7 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: { maxOutputTokens: 512 },
+        planModeAvailable: false,
         providerOptions: { openai: { reasoningEffort: 'medium' } },
         requestData: baseRequestData,
         resolvedModelName: 'gpt-5.2',
@@ -132,6 +135,7 @@ describe('useAssistantRequestLifecycle', () => {
           focusedRootId: props.focusedRootId,
           memoryResourceId: 'workspace-a',
           modelSettings: undefined,
+          planModeAvailable: false,
           providerOptions: undefined,
           requestData: baseRequestData,
           resolvedModelName: props.model,
@@ -192,6 +196,7 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: null,
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
+        planModeAvailable: false,
         providerOptions: undefined,
         requestData: baseRequestData,
         resolvedModelName: 'gpt-5.2',
@@ -226,6 +231,7 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
+        planModeAvailable: false,
         providerOptions: undefined,
         requestData: baseRequestData,
         resolvedModelName: 'gpt-5.2',
@@ -249,6 +255,7 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
+        planModeAvailable: false,
         providerOptions: undefined,
         requestData: { enabledNativeToolIds: [] },
         resolvedModelName: 'gpt-5.2',
@@ -270,6 +277,7 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
+        planModeAvailable: false,
         providerOptions: undefined,
         requestData: baseRequestData,
         resolvedModelName: 'gpt-5.2',
@@ -287,5 +295,123 @@ describe('useAssistantRequestLifecycle', () => {
         'boom'
       )
     ).rejects.toThrow('Assistant run completion requires an active thread repository.');
+  });
+
+  describe('plan-mode freshness at the request-composition seam', () => {
+    // The reviewer's option-b acceptance criterion: approving a plan calls
+    // `setPlanModeEnabled(false)` and then immediately composes the resume
+    // request in the SAME synchronous handler — there is no guarantee a React
+    // re-render lands in between, so `requestData.planMode` (fixed at the
+    // render that produced it) is not a reliable source for the composed
+    // request. `prepareRequestData` must read the store's CURRENT state at
+    // call time instead. These tests flip the store directly, between the
+    // hook's render and the `prepareRequestData()` call, with no rerender —
+    // proving the fix reads live state rather than the render-captured prop.
+
+    it('OFF-fresh wins over a stale ON requestData snapshot (the approve-exits-plan-mode fix)', async () => {
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(true);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-plan-exit',
+          status: 'running',
+        })),
+      });
+
+      // Render captures requestData with planMode:true, mirroring
+      // buildAssistantRequestData's output while the toggle is on.
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          planModeAvailable: true,
+          providerOptions: undefined,
+          requestData: { ...baseRequestData, planMode: true },
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      // The approve handler flips the store off, then immediately composes
+      // the request — no intervening re-render.
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      // Presence-means-on: the composed request must NOT carry a truthy
+      // planMode, despite the stale requestData prop saying `true`.
+      expect(prepared['planMode']).toBeUndefined();
+    });
+
+    it('ON-fresh wins over a stale OFF/absent requestData snapshot (symmetric correctness)', async () => {
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-plan-enter',
+          status: 'running',
+        })),
+      });
+
+      // Render captures requestData with no planMode key at all (the toggle
+      // was off at render time).
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          planModeAvailable: true,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      // The toggle flips on after render, still with no intervening re-render.
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(true);
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['planMode']).toBe(true);
+    });
+
+    it('planModeAvailable=false gates plan mode off even when the store is on (built-in local provider)', async () => {
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(true);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-plan-unavailable',
+          status: 'running',
+        })),
+      });
+
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['planMode']).toBeUndefined();
+    });
   });
 });
