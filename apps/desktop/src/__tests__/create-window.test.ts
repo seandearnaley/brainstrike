@@ -54,6 +54,7 @@ describe('createWindow', () => {
     };
 
     mockBrowserWindow = {
+      destroy: vi.fn(),
       isDestroyed: vi.fn(() => false),
       isFocused: vi.fn(() => true),
       loadFile: vi.fn(),
@@ -233,7 +234,7 @@ describe('createWindow', () => {
       );
     });
 
-    it('should show window after renderer load in non-headless mode', async () => {
+    it('should show window in non-headless mode', async () => {
       existsSyncMock.mockReturnValue(true);
       Reflect.deleteProperty(process.env, 'CI');
       mockBrowserWindow.loadURL.mockResolvedValue(undefined);
@@ -242,6 +243,80 @@ describe('createWindow', () => {
 
       expect(mockBrowserWindow.once).toHaveBeenCalledWith('ready-to-show', expect.any(Function));
       expect(mockBrowserWindow.show).toHaveBeenCalled();
+    });
+
+    it('shows the window before the dev renderer load resolves', async () => {
+      existsSyncMock.mockReturnValue(false);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
+      Reflect.deleteProperty(process.env, 'CI');
+      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+
+      let resolveLoad: (() => void) | undefined;
+      mockBrowserWindow.loadURL.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveLoad = resolve;
+          })
+      );
+
+      const pending = createWindow();
+
+      // The window must be revealed while the renderer load is still in flight
+      // (canonical backgroundColor strategy: instant frame, splash masks load).
+      expect(mockBrowserWindow.show).toHaveBeenCalledTimes(1);
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(DESKTOP_DEV_RENDERER_URL);
+
+      resolveLoad?.();
+      await pending;
+      expect(mockBrowserWindow.show).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the window before the built renderer load resolves', async () => {
+      existsSyncMock.mockReturnValue(true);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: true });
+      Reflect.deleteProperty(process.env, 'CI');
+
+      let resolveLoad: (() => void) | undefined;
+      mockBrowserWindow.loadFile.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveLoad = resolve;
+          })
+      );
+
+      const pending = createWindow();
+
+      expect(mockBrowserWindow.show).toHaveBeenCalledTimes(1);
+      expect(mockBrowserWindow.loadFile).toHaveBeenCalled();
+
+      resolveLoad?.();
+      await pending;
+    });
+
+    it('awaits the built renderer load and destroys the window when it fails', async () => {
+      existsSyncMock.mockReturnValue(true);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: true });
+      Reflect.deleteProperty(process.env, 'CI');
+      mockBrowserWindow.loadFile.mockRejectedValue(new Error('ERR_FILE_NOT_FOUND'));
+
+      await expect(createWindow()).rejects.toThrow('ERR_FILE_NOT_FOUND');
+
+      expect(mockBrowserWindow.destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('destroys the shown window when the dev renderer is unavailable', async () => {
+      existsSyncMock.mockReturnValue(false);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
+      Reflect.deleteProperty(process.env, 'CI');
+      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+      mockBrowserWindow.loadURL.mockRejectedValue(new Error('Dev server unavailable'));
+
+      await expect(createWindow()).rejects.toThrow(
+        'Dev renderer unavailable in non-packaged mode; refusing production fallback'
+      );
+
+      expect(mockBrowserWindow.show).toHaveBeenCalledTimes(1);
+      expect(mockBrowserWindow.destroy).toHaveBeenCalledTimes(1);
     });
 
     it('should not show window in headless mode (CI environment)', async () => {
