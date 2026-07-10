@@ -28,6 +28,9 @@ interface MockAuiState {
     collapsed: boolean;
     parts: unknown[];
   };
+  composer: {
+    text: string;
+  };
   message: {
     parts: unknown[];
   };
@@ -43,6 +46,7 @@ const completedReasoningPart = {
 
 const createMockAuiState = (parts: unknown[]): MockAuiState => ({
   chainOfThought: { collapsed: true, parts },
+  composer: { text: '' },
   message: { parts },
   thread: { messages: [] },
 });
@@ -275,6 +279,7 @@ vi.mock('@assistant-ui/react', () => {
       chainOfThought: () => ({
         setCollapsed: setCollapsedMock,
       }),
+      composer: () => ({ setText: vi.fn() }),
     }),
     useAuiState: <T,>(selector: (state: MockAuiState) => T) => selector(mockAuiState),
     useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),

@@ -70,6 +70,7 @@ import {
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
+import { type ComposerDraftCommand, useComposerDraftCommand } from './composer-draft-command';
 import { ComposerInputWithTriggers } from './composer-input';
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
@@ -241,12 +242,6 @@ export interface AssistantToolMenuConfig {
   summary?: string;
 }
 
-export interface ComposerDraftCommand {
-  readonly id: string;
-  readonly mode: 'append' | 'replace';
-  readonly text: string;
-}
-
 // Provider-settings types live in `@brainstrike/types` so `packages/ui` and
 // `packages/preferences` share a single canonical definition. They are
 // re-exported here to keep the existing public surface of the
@@ -262,6 +257,7 @@ export type {
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
+export type { ComposerDraftCommand } from './composer-draft-command';
 
 import type {
   AssistantProviderSettingsMap,
@@ -1047,40 +1043,6 @@ const DataStreamRuntimeChat = ({
     </AssistantRuntimeProvider>
   );
 };
-
-function useComposerDraftCommand({
-  command,
-  onApplied,
-  onTextChange,
-}: {
-  command: ComposerDraftCommand | undefined;
-  onApplied: ((commandId: string) => void) | undefined;
-  onTextChange: ((text: string) => void) | undefined;
-}): void {
-  const aui = useAui();
-  const composerText = useAuiState((state) => state.composer.text);
-  const [appliedCommandIds] = useState(() => new Set<string>());
-
-  useEffect(() => {
-    if (!command || appliedCommandIds.has(command.id)) {
-      return;
-    }
-    // react-doctor-disable-next-line react-doctor/no-event-handler -- This effect synchronizes a thread-scoped external command; there is no local DOM event to handle.
-    if (!command.text.trim()) {
-      throw new Error('Composer draft commands require non-whitespace text.');
-    }
-
-    const nextText =
-      command.mode === 'append' && composerText.length > 0
-        ? `${composerText}\n\n${command.text}`
-        : command.text;
-    aui.composer().setText(nextText);
-    appliedCommandIds.add(command.id);
-    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- The external command owner needs an acknowledgement only after assistant-ui accepts the text.
-    onTextChange?.(nextText);
-    onApplied?.(command.id);
-  }, [appliedCommandIds, aui, command, composerText, onApplied, onTextChange]);
-}
 
 /**
  * Shared UI component for the chat thread.
