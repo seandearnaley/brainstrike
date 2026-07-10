@@ -9,8 +9,31 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
+import { CodeSurface } from '../code-surface/code-surface';
+import { DiffView } from '../diff-view/diff-view';
 
 const logger = createLogger('AssistantToolApprovalNotice');
+
+/**
+ * Character cap applied to each large text field (`oldStr`/`newStr`/`content`)
+ * before it is handed to the CodeMirror-backed `DiffView`/`CodeSurface`
+ * previews. The agent schema allows these fields up to 8,000,000 chars each
+ * (`packages/agent/src/tools/schemas.ts`); mounting that much text into
+ * CodeMirror would jank the renderer BEFORE the user can even approve or
+ * decline. Truncation is always visible (a note names the shown/total char
+ * counts below the preview) — the raw JSON expander further down always has
+ * the untruncated value, so nothing is silently dropped.
+ */
+export const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
+
+/**
+ * Registered ids of the two file-mutating tools whose approval cards render a
+ * real code preview instead of raw JSON. These are the sanitized-name-resolved
+ * ids the approval chunk carries (see `makeApprovalRequiredChunks` in the agent
+ * runtime), NOT the model-facing names.
+ */
+const STRING_REPLACE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile';
+const WRITE_FILE_TOOL_ID = 'brainstrike.writeWorkspaceFile';
 
 interface AssistantToolApprovalNoticeProps {
   data: unknown;
@@ -18,6 +41,200 @@ interface AssistantToolApprovalNoticeProps {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+interface StringReplaceApprovalArgs {
+  newStr: string;
+  oldStr: string;
+  path: string;
+  root?: string;
+}
+
+interface WriteFileApprovalArgs {
+  content: string;
+  path: string;
+  root?: string;
+}
+
+/**
+ * Structural guard mirroring the agent-package `StringReplaceWorkspaceFileInput`
+ * shape. The UI package does not depend on `@brainstrike/agent`, so this is a
+ * minimal local narrowing (path/oldStr/newStr strings, optional root) rather than
+ * a shared zod parse. A failure returns `null` so the card falls back to the raw
+ * JSON view with a visible note — never a confidently-wrong empty diff.
+ */
+function narrowStringReplaceArgs(value: unknown): StringReplaceApprovalArgs | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { path, oldStr, newStr, root } = value;
+  if (typeof path !== 'string' || path.length === 0) {
+    return null;
+  }
+  if (typeof oldStr !== 'string' || typeof newStr !== 'string') {
+    return null;
+  }
+  if (root !== undefined && typeof root !== 'string') {
+    return null;
+  }
+  return { newStr, oldStr, path, ...(typeof root === 'string' ? { root } : {}) };
+}
+
+/** Structural guard mirroring the agent-package `WriteWorkspaceFileInput` shape. */
+function narrowWriteFileArgs(value: unknown): WriteFileApprovalArgs | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { path, content, root } = value;
+  if (typeof path !== 'string' || path.length === 0) {
+    return null;
+  }
+  if (typeof content !== 'string') {
+    return null;
+  }
+  if (root !== undefined && typeof root !== 'string') {
+    return null;
+  }
+  return { content, path, ...(typeof root === 'string' ? { root } : {}) };
+}
+
+function RootLabel({ root }: { root: string }) {
+  return (
+    <span className="ml-2 rounded border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+      {root}
+    </span>
+  );
+}
+
+function PreviewParseError() {
+  return (
+    <p
+      className="mt-3 text-amber-700 text-xs dark:text-amber-400"
+      data-testid="approval-preview-parse-error"
+    >
+      Could not render a preview for these arguments — see the raw arguments below.
+    </p>
+  );
+}
+
+interface TruncatedPreviewText {
+  readonly shownChars: number;
+  readonly text: string;
+  readonly totalChars: number;
+  readonly truncated: boolean;
+}
+
+/**
+ * Slices `raw` to at most `cap` chars, never splitting a UTF-16 surrogate
+ * pair at the boundary (mirrors the DOM-paint cap in
+ * `workspace-tab-host.tsx`'s `getDisplayContent`). Returns the shown/total
+ * char counts so callers can render an honest "N of M" truncation note.
+ */
+function truncatePreviewText(
+  raw: string,
+  cap: number = APPROVAL_PREVIEW_CHAR_CAP
+): TruncatedPreviewText {
+  if (raw.length <= cap) {
+    return { shownChars: raw.length, text: raw, totalChars: raw.length, truncated: false };
+  }
+  let end = cap;
+  const HighSurrogateStart = 0xd8_00;
+  const HighSurrogateEnd = 0xdb_ff;
+  if (
+    end > 0 &&
+    raw.charCodeAt(end - 1) >= HighSurrogateStart &&
+    raw.charCodeAt(end - 1) <= HighSurrogateEnd
+  ) {
+    end -= 1;
+  }
+  return { shownChars: end, text: raw.slice(0, end), totalChars: raw.length, truncated: true };
+}
+
+/** Of two candidate truncations, the one whose original text is larger drives the note. */
+function moreTruncatedPreview(
+  a: TruncatedPreviewText,
+  b: TruncatedPreviewText
+): TruncatedPreviewText {
+  return a.totalChars >= b.totalChars ? a : b;
+}
+
+function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
+  return (
+    <p
+      className="mt-1.5 text-amber-700 text-xs dark:text-amber-400"
+      data-testid="approval-preview-truncated-note"
+    >
+      Preview truncated — showing {preview.shownChars} of {preview.totalChars} chars. Full content
+      is in the raw arguments below.
+    </p>
+  );
+}
+
+/**
+ * File-mutating approvals render a real code preview: `stringReplace` → a
+ * side-by-side/unified diff of `oldStr` → `newStr`; `write` → a
+ * syntax-highlighted full-file preview. Every other tool (and any file-tool
+ * whose args fail narrowing) renders `null` here and keeps the raw-JSON view.
+ */
+function ApprovalPreview({ toolName, args }: { toolName: string; args: unknown }) {
+  if (toolName === STRING_REPLACE_TOOL_ID) {
+    const parsed = narrowStringReplaceArgs(args);
+    if (!parsed) {
+      return <PreviewParseError />;
+    }
+    const oldPreview = truncatePreviewText(parsed.oldStr);
+    const newPreview = truncatePreviewText(parsed.newStr);
+    const isTruncated = oldPreview.truncated || newPreview.truncated;
+    return (
+      <div className="mt-3">
+        <p className="truncate font-medium text-foreground/90 text-xs">
+          <span className="font-mono">{parsed.path}</span>
+          {parsed.root ? <RootLabel root={parsed.root} /> : null}
+        </p>
+        <div className="mt-1.5 h-72 overflow-hidden rounded-md border border-border">
+          <DiffView
+            ariaLabel={`Proposed changes to ${parsed.path}`}
+            filename={parsed.path}
+            modified={newPreview.text}
+            original={oldPreview.text}
+            testId="approval-diff-view"
+            truncated={isTruncated}
+          />
+        </div>
+        {isTruncated ? (
+          <PreviewTruncatedNote preview={moreTruncatedPreview(oldPreview, newPreview)} />
+        ) : null}
+      </div>
+    );
+  }
+
+  if (toolName === WRITE_FILE_TOOL_ID) {
+    const parsed = narrowWriteFileArgs(args);
+    if (!parsed) {
+      return <PreviewParseError />;
+    }
+    const contentPreview = truncatePreviewText(parsed.content);
+    return (
+      <div className="mt-3">
+        <p className="truncate font-medium text-foreground/90 text-xs">
+          Creates or overwrites <span className="font-mono">{parsed.path}</span>
+          {parsed.root ? <RootLabel root={parsed.root} /> : null}
+        </p>
+        <div className="mt-1.5 h-64 overflow-hidden rounded-md border border-border">
+          <CodeSurface
+            ariaLabel={`New content for ${parsed.path}`}
+            path={parsed.path}
+            testId="approval-write-preview"
+            truncated={contentPreview.truncated}
+            value={contentPreview.text}
+          />
+        </div>
+        {contentPreview.truncated ? <PreviewTruncatedNote preview={contentPreview} /> : null}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function isAssistantToolApprovalRequest(value: unknown): value is AssistantToolApprovalRequest {
@@ -297,6 +514,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
               Requires approval: {approvalReason}
             </p>
           ) : null}
+          <ApprovalPreview args={approval.args} toolName={approval.toolName} />
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               aria-label={`Approve ${approval.toolName}`}
