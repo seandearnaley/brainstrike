@@ -858,7 +858,15 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
 
   const resolveImage = useCallback(
     async (src: string): Promise<string> => {
-      if (/^(https?:|data:)/i.test(src)) {
+      // Remote images are blocked in previews regardless of CSP (which allows
+      // localhost in dev and is deployment-dependent on web): untrusted file
+      // content must not trigger network requests (file-explorer-ui AGENTS.md
+      // resource-loading restriction). Failure surfaces as the visible
+      // image-unavailable placeholder.
+      if (/^https?:/i.test(src)) {
+        throw new Error('Remote images are blocked in previews');
+      }
+      if (/^data:/i.test(src)) {
         return src;
       }
       if (!capabilities) {

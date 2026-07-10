@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 interface MockMarkdownSurfaceProps {
   readonly onOpenLink: (href: string) => void;
   readonly onScrollTopChange?: (scrollTop: number) => void;
+  readonly resolveImageSrc: (src: string) => Promise<string>;
   readonly value: string;
 }
 
@@ -197,6 +198,29 @@ describe('FileTabBody markdown integration', () => {
       } finally {
         consoleError.mockRestore();
       }
+    });
+  });
+
+  describe('image resolution', () => {
+    it('blocks remote image URLs without touching the capability (visible via placeholder)', async () => {
+      await renderPreview();
+      // file-explorer-ui AGENTS.md: preview content must not load external
+      // resources — remote srcs reject (MarkdownImage renders its placeholder)
+      // and never reach the platform capability or the network.
+      await expect(mdProps().resolveImageSrc('https://tracker.example/x.png')).rejects.toThrow(
+        /remote images are blocked/i
+      );
+      await expect(mdProps().resolveImageSrc('http://localhost:9999/x.png')).rejects.toThrow(
+        /remote images are blocked/i
+      );
+      expect(capabilities.resolveImageSrc).not.toHaveBeenCalled();
+    });
+
+    it('still resolves workspace-relative images through the capability', async () => {
+      capabilities.resolveImageSrc.mockResolvedValue('blob:ok');
+      await renderPreview();
+      await expect(mdProps().resolveImageSrc('./img/a.png')).resolves.toBe('blob:ok');
+      expect(capabilities.resolveImageSrc).toHaveBeenCalledWith('/root/docs/img/a.png');
     });
   });
 

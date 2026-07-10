@@ -85,6 +85,8 @@ A hostile `.md` in a mounted workspace cannot: execute script (no raw HTML, url 
 
 **Amendment (2026-07-09, user-approved):** the asset protocol returns a uniform 404 for both missing and outside-root paths so it cannot be used as a filesystem existence oracle; the outside-root case is still logged in main.
 
+**Amendment (2026-07-09, PR #1543 review):** remote http(s) images are blocked in the renderer with a visible placeholder — preview content must not trigger network requests (packages/file-explorer-ui/AGENTS.md resource-loading restriction), independent of CSP, which permits localhost in dev and is deployment-dependent on web.
+
 ## Error handling summary
 
 | Failure | Behavior |

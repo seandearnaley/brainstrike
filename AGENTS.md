@@ -579,7 +579,9 @@ additionally get a Source/Preview toggle; preview is the default.
   desktop → `brainstrike-asset://local/asset?path=…` (protocol handler in
   apps/desktop/src/asset-protocol.ts realpath-validates containment in mounted
   DB roots; CSP img-src includes the scheme); web → FS Access handle →
-  object URL (revoked on unmount). Every failure is visible (placeholder,
+  object URL (revoked on unmount). Remote http(s) images are BLOCKED in the
+  renderer (visible placeholder) — untrusted file content must not trigger
+  network requests, independent of CSP. Every failure is visible (placeholder,
   toast, or error block) — no silent fallbacks.
 - **Crash safety:** MarkdownPreviewErrorBoundary offers "Open in source".
 

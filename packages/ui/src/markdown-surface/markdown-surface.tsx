@@ -71,11 +71,14 @@ export function MarkdownSurface({
   const frontmatter = useMemo(() => extractFrontmatter(value), [value]);
 
   // Mount-only restore, mirroring CodeSurface's contract: an imperative one-time
-  // scroll restore, not derived state.
+  // scroll restore, not derived state. The ref freezes the mount-time value so
+  // the empty dep array cannot read a stale later prop.
+  const initialScrollTopRef = useRef(initialScrollTop);
   // biome-ignore lint/plugin: one-time imperative scroll restore on mount, not a data-fetch/derived-state effect
   useLayoutEffect(() => {
-    if (containerRef.current && typeof initialScrollTop === 'number' && initialScrollTop > 0) {
-      containerRef.current.scrollTop = initialScrollTop;
+    const initial = initialScrollTopRef.current;
+    if (containerRef.current && typeof initial === 'number' && initial > 0) {
+      containerRef.current.scrollTop = initial;
     }
   }, []);
 

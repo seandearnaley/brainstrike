@@ -37,4 +37,15 @@ describe('extractFrontmatter', () => {
     const src = 'intro\n---\ntitle: nope\n---\n';
     expect(extractFrontmatter(src).body).toBe(src);
   });
+  it('treats a leading --- as a frontmatter fence, not a thematic break (intentional)', () => {
+    // Jekyll/GitHub semantics: a document that OPENS with --- is frontmatter
+    // territory, even when the author meant a horizontal rule. The failure mode
+    // is visible (the properties/error block shows the captured lines), never
+    // silent. Pinned per PR #1543 review discussion.
+    const r = extractFrontmatter('---\n# Real heading\n---\nBody\n');
+    expect(r.raw).toBe('# Real heading');
+    expect(r.data).toBeNull(); // a YAML comment parses to null → non-mapping
+    expect(r.error).toMatch(/mapping/i);
+    expect(r.body).toBe('Body\n');
+  });
 });

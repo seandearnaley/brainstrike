@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext } from 'react';
+import { createContext, type ReactNode, use } from 'react';
 
 export interface MarkdownPreviewCapabilities {
   /** Open http(s)/mailto externally. Resolves {ok:false,error} on failure — callers toast. */
@@ -26,5 +26,5 @@ export function MarkdownPreviewCapabilitiesProvider({
 /** Nullable by design: an absent provider means the surface shows explicit
  * "unavailable" states (placeholder/toast), never a silent degradation. */
 export function useMarkdownPreviewCapabilities(): MarkdownPreviewCapabilities | null {
-  return useContext(MarkdownPreviewCapabilitiesContext);
+  return use(MarkdownPreviewCapabilitiesContext);
 }
