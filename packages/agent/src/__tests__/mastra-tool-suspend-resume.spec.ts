@@ -672,11 +672,28 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
   it('STALE resume: a nonexistent runId with real storage surfaces a typed error / visible error finish and never hangs', async () => {
     const database = new PGlite();
     const { memory, storage } = await makeMemory(database);
+    // The scripted model MUST be configured (mirrors the sibling tests above):
+    // without it, `createProvider` throws the harness sentinel
+    // (`mastra_agent_runtime_init_failed: test fake model was not configured`)
+    // at Agent construction — BEFORE Mastra's own snapshot lookup ever runs —
+    // and the assertions below would pass without ever exercising a stale
+    // resume. It is unused by this test (the resume is rejected by Mastra's
+    // snapshot lookup before any model call), but the runtime still
+    // constructs the Agent eagerly and requires one.
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'unused',
+      input: JSON.stringify({ title: 'x' }),
+      toolCallId: 'call-stale-1',
+      toolName: 'brainstrike_submitPlan',
+    });
 
     // A bounded attempt: either the resume PROMISE rejects with a typed error,
     // or it yields a visible error finish — but it must resolve one way or the
     // other (never hang). The race guards against a wedge.
-    const attempt: Promise<{ kind: 'error-finish' | 'rejected' | 'silent' }> = (async () => {
+    const attempt: Promise<{
+      kind: 'error-finish' | 'rejected' | 'silent';
+      message?: string;
+    }> = (async () => {
       try {
         const iterator = await streamMastraToolResumeAction(
           {
@@ -700,9 +717,12 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
         const hasErrorFinish = chunks.some(
           (chunk) => chunk.type === 'message-finish' && chunk.finishReason === 'error'
         );
-        return { kind: hasErrorFinish ? 'error-finish' : 'silent' };
-      } catch {
-        return { kind: 'rejected' };
+        return { kind: hasErrorFinish ? 'error-finish' : 'silent' } as const;
+      } catch (err) {
+        return {
+          kind: 'rejected' as const,
+          message: err instanceof Error ? err.message : String(err),
+        };
       }
     })();
 
@@ -712,6 +732,21 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     const result = await Promise.race([attempt, timeout]);
     // Never a silent success: a stale/nonexistent run must be surfaced.
     expect(result.kind === 'rejected' || result.kind === 'error-finish').toBe(true);
+    if (result.kind === 'rejected') {
+      const message = result.message ?? '';
+      // Guards against the vacuous-test regression: the harness sentinel for a
+      // misconfigured scripted model must never masquerade as Mastra's real
+      // stale-snapshot rejection (verified: with `modelHolder.current` unset,
+      // this is exactly what surfaces — "mastra_agent_runtime_init_failed:
+      // test fake model was not configured" — well before Mastra's snapshot
+      // lookup runs).
+      expect(message).not.toContain('test fake model');
+      // The real Mastra rejection: `Agent.resumeStream`'s snapshot lookup
+      // throws a MastraError naming the missing/invalid run (surfaced here as
+      // `mastra_agent_stream_failure: Agent "..." resumeStream() could not
+      // find a suspended run for runId "...". ... invalid ...`).
+      expect(message).toMatch(/snapshot|not.?found|resume|suspend/i);
+    }
 
     await database.close();
   });
