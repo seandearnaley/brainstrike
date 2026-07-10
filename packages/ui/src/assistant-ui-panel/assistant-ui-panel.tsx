@@ -70,6 +70,7 @@ import {
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
+import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, useComposerDraftCommand } from './composer-draft-command';
 import { ComposerInputWithTriggers } from './composer-input';
 import { ComposerMentionPopover } from './composer-mention-popover';
@@ -264,15 +265,13 @@ import type {
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
 
-export interface AssistantUiPanelProps {
+export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   className?: string;
   completePreparedRequest?: (
     requestData: Record<string, unknown> | undefined,
     status: 'cancelled' | 'completed' | 'failed',
     error?: string
   ) => Promise<void> | void;
-  /** Applies one explicit prompt-library command to the draft without sending it. */
-  composerDraftCommand?: ComposerDraftCommand | undefined;
   /** Full model context window size. Passed to the context meter. */
   contextWindow?: number | undefined;
   /** Durable cumulative usage (tokens + cost) for the active thread. Desktop-only. */
@@ -303,10 +302,6 @@ export interface AssistantUiPanelProps {
    */
   localChatTransport?: 'data-stream' | 'local-runtime';
   omSegment?: OmMeterState | undefined;
-  /** Acknowledges a composer command only after its text is visible in the draft. */
-  onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
-  /** Reports the live draft so prompt suggestions can use the user's actual context. */
-  onComposerTextChange?: ((text: string) => void) | undefined;
   /**
    * Clear the persisted plan-mode preference. Called when the user APPROVES a
    * submitted plan so the resume request exits plan mode and the rebuilt server
@@ -702,7 +697,7 @@ const ThreadHistoryControl = ({
 };
 
 // Shared props for inner chat components
-interface ChatThreadProps {
+interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   completePreparedRequest?:
     | ((
         requestData: Record<string, unknown> | undefined,
@@ -710,7 +705,6 @@ interface ChatThreadProps {
         error?: string
       ) => Promise<void> | void)
     | undefined;
-  composerDraftCommand?: ComposerDraftCommand | undefined;
   contextWindow?: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   disabled: boolean;
@@ -720,8 +714,6 @@ interface ChatThreadProps {
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
-  onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
-  onComposerTextChange?: ((text: string) => void) | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:

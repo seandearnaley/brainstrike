@@ -7,6 +7,15 @@ export interface ComposerDraftCommand {
   readonly text: string;
 }
 
+export interface ComposerDraftCommandBridgeProps {
+  /** Applies one explicit prompt-library command to the draft without sending it. */
+  composerDraftCommand?: ComposerDraftCommand | undefined;
+  /** Acknowledges a composer command only after its text is visible in the draft. */
+  onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
+  /** Reports the live draft so prompt suggestions can use the user's actual context. */
+  onComposerTextChange?: ((text: string) => void) | undefined;
+}
+
 export function useComposerDraftCommand({
   command,
   onApplied,
