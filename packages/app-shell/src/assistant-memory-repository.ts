@@ -1,6 +1,9 @@
 import {
+  DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
+  THREAD_TITLE_SOURCE_METADATA_KEY,
+  THREAD_TITLE_SOURCE_OM,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -392,7 +395,7 @@ function toMemoryThread(thread: {
     createdAt: normalizeDate(thread.createdAt),
     id: thread.id,
     resourceId: thread.resourceId,
-    title: thread.title?.trim() || 'New Thread',
+    title: thread.title?.trim() || DEFAULT_THREAD_TITLE,
     updatedAt: normalizeDate(thread.updatedAt),
     ...(thread.latestRun ? { latestRun: thread.latestRun } : {}),
     ...(metadata ? { metadata } : {}),
@@ -1472,7 +1475,7 @@ export function createPgliteAssistantThreadRepository(
         createdAt: now,
         id: createThreadId(),
         resourceId,
-        title: 'New Thread',
+        title: DEFAULT_THREAD_TITLE,
         updatedAt: now,
       } satisfies AssistantMemoryThread;
       await database.query(
@@ -1483,7 +1486,13 @@ export function createPgliteAssistantThreadRepository(
           thread.id,
           thread.resourceId,
           thread.title,
-          JSON.stringify({ source: 'brainstrike' }),
+          // The seeded title is a placeholder, not user-chosen, so it carries
+          // the OM marker: the observer's auto-title extractor may still
+          // overwrite it. A manual rename clears this marker.
+          JSON.stringify({
+            source: 'brainstrike',
+            [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM,
+          }),
           thread.createdAt,
           thread.updatedAt,
         ]
@@ -1717,11 +1726,13 @@ export function createPgliteAssistantThreadRepository(
         throw new Error('Thread title is required.');
       }
       await initialize();
+      // A manual rename is user-owned: clear the OM marker (if present) so no
+      // later auto-title write can ever overwrite this title again.
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
-         SET title = $2, "updatedAt" = $3
+         SET title = $2, metadata = COALESCE(metadata, '{}'::jsonb) - $3, "updatedAt" = $4
          WHERE id = $1`,
-        [threadId, normalizedTitle, new Date()]
+        [threadId, normalizedTitle, THREAD_TITLE_SOURCE_METADATA_KEY, new Date()]
       );
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {

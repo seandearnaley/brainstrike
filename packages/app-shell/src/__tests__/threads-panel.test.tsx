@@ -398,6 +398,7 @@ describe('ThreadsPanel', () => {
     expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE mastra_threads'), [
       'thread-b',
       'Deployment plan',
+      'titleSource',
       expect.any(Date),
     ]);
   });

@@ -802,6 +802,7 @@ export function AssistantUiPanelWrapper({
   );
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
+  const refreshResourceThreads = useAssistantThreadStore((state) => state.refreshResourceThreads);
   // Workspace-global assistant memory: a stable resource id (or an explicit
   // override), never the focused root path. See assistant-memory-resource.ts.
   const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
@@ -1259,6 +1260,20 @@ export function AssistantUiPanelWrapper({
       const threadId = selectedMemoryThreadId ?? 'active';
       useContextUsageStore.getState().recordUsage(threadId, usage);
 
+      // A turn just finished: re-list threads so an observer-generated title
+      // (observational memory names threads as observations run) becomes
+      // visible in the thread list. Lightweight, non-polling, and a no-op for
+      // resources that have not finished their initial load.
+      if (assistantThreadRepository) {
+        refreshResourceThreads(assistantThreadRepository, memoryResourceId).catch(
+          (error: unknown) => {
+            assistantUsageWriteBackLogger.warn('Failed to refresh thread titles after run', {
+              error,
+            });
+          }
+        );
+      }
+
       // Durable sink: requires a real thread id, the desktop PGlite repo, and the
       // in-flight run's request-start usage context. A missing piece means we
       // cannot attribute the row honestly, so we skip the durable write (the
@@ -1294,6 +1309,7 @@ export function AssistantUiPanelWrapper({
       getActiveRunUsageContext,
       memoryResourceId,
       refreshCumulativeUsage,
+      refreshResourceThreads,
       selectedMemoryThreadId,
     ]
   );

@@ -14,6 +14,21 @@ export const MASTRA_MEMORY_TABLES = {
 export const MASTRA_VECTOR_TABLE = 'mastra_vectors';
 export const MASTRA_WORKFLOW_TABLE = TABLE_WORKFLOW_SNAPSHOT;
 
+/** Title seeded on a thread before anyone (user or observer) has named it. */
+export const DEFAULT_THREAD_TITLE = 'New Thread';
+
+/**
+ * Thread metadata key marking a title as system/auto-generated rather than
+ * user-chosen: stamped on the seeded placeholder at thread creation and
+ * re-stamped whenever the observational-memory title extractor writes a
+ * title through `PgliteMemoryStore#updateThread`. A title carrying this
+ * marker (or an empty title) may be overwritten by a later auto-title write;
+ * any other title was set by the user through the dedicated rename path,
+ * which clears this marker, so it stays protected forever after.
+ */
+export const THREAD_TITLE_SOURCE_METADATA_KEY = 'titleSource';
+export const THREAD_TITLE_SOURCE_OM = 'om';
+
 export const MASTRA_MEMORY_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS ${TABLE_THREADS} (
   id TEXT PRIMARY KEY,

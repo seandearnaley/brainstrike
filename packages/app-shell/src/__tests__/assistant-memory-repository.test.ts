@@ -1761,6 +1761,21 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     });
   });
 
+  it('seeds a new thread as OM-overwritable, then a manual rename clears the marker', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-title-marker');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    expect(await readThreadTitleSource(db, thread.id)).toBe('om');
+
+    await repository.renameThread(thread.id, 'My Curated Thread');
+
+    expect(await readThreadTitleSource(db, thread.id)).toBeUndefined();
+    const threads = await repository.listThreads('workspace-a');
+    expect(threads[0]?.title).toBe('My Curated Thread');
+  });
+
   it('records run usage and aggregates cumulative tokens per model in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-cumulative');
     const db = await wasmLoader.createPGlite(pgliteDataDir);
@@ -2007,4 +2022,17 @@ async function countRows(
     [value]
   );
   return Number(result.rows[0]?.count ?? 0);
+}
+
+async function readThreadTitleSource(
+  db: Pick<DbHandle, 'query'>,
+  threadId: string
+): Promise<unknown> {
+  const result = await db.query<{ metadata: unknown }>(
+    'SELECT metadata FROM mastra_threads WHERE id = $1',
+    [threadId]
+  );
+  const metadata = result.rows[0]?.metadata;
+  const parsed = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
+  return (parsed as Record<string, unknown> | undefined)?.['titleSource'];
 }

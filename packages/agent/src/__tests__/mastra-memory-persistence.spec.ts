@@ -194,6 +194,42 @@ function createFakeObservationModel(delayMs = 0): LanguageModelV2 {
   };
 }
 
+/**
+ * Observer model that emits both an observation block AND a `<thread-title>`
+ * inline extraction, mirroring the real Observer output when
+ * `observation.threadTitle` is enabled. Used to prove the extracted title is
+ * persisted to `mastra_threads.title` through the real PgliteMemoryStore.
+ */
+function createThreadTitleObservationModel(title: string): LanguageModelV2 {
+  const text = `<observations>\n- 🟢 The user asked about Paris weather.\n</observations>\n<thread-title>${title}</thread-title>`;
+  return {
+    doGenerate: () =>
+      Promise.resolve({
+        content: [{ text, type: 'text' as const }],
+        finishReason: 'stop' as const,
+        usage: USAGE,
+        warnings: [],
+      }),
+    doStream: () =>
+      Promise.resolve({
+        stream: new ReadableStream<LanguageModelV2StreamPart>({
+          start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] });
+            controller.enqueue({ id: 'om', type: 'text-start' });
+            controller.enqueue({ delta: text, id: 'om', type: 'text-delta' });
+            controller.enqueue({ id: 'om', type: 'text-end' });
+            controller.enqueue({ finishReason: 'stop', type: 'finish', usage: USAGE });
+            controller.close();
+          },
+        }),
+      }),
+    modelId: 'fake-om-title-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
 const OM_DISABLED_SETTINGS: RuntimeAssistantMemorySettings = {
   ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   observationalMemory: {
@@ -288,6 +324,14 @@ async function listThreadMessages(
     [threadId]
   );
   return result.rows as PersistedMessageRow[];
+}
+
+async function readThreadTitle(database: PGlite, threadId: string): Promise<string | null> {
+  const result = await database.query<{ title: string }>(
+    'SELECT title FROM mastra_threads WHERE id = $1',
+    [threadId]
+  );
+  return result.rows[0]?.title ?? null;
 }
 
 describe('mastra memory persistence through the live stream path', () => {
@@ -396,6 +440,30 @@ describe('mastra memory persistence through the live stream path', () => {
       .filter((part) => part.type === 'text')
       .map((part) => part.text ?? '');
     expect(persistedTexts.join('\n')).toContain('21C in Paris');
+  }, 30_000);
+
+  it('persists the observer-extracted thread title to mastra_threads.title', async () => {
+    // With `observation.threadTitle` wired on, the real Observer's
+    // `<thread-title>` output must land in the thread row through the real
+    // PgliteMemoryStore.updateThread path — the auto-naming contract.
+    const threadId = 'thread-om-title';
+    const extractedTitle = 'Paris Weather Chat';
+    const { finalText } = await runTurnWithMemory({
+      database,
+      memorySettings: OM_TINY_THRESHOLD_SETTINGS,
+      observationalMemoryModel: createThreadTitleObservationModel(extractedTitle),
+      threadId,
+    });
+
+    expect(finalText).toContain('21C in Paris');
+
+    // OM observation can fire from background buffering shortly after the turn.
+    await vi.waitFor(
+      async () => {
+        expect(await readThreadTitle(database, threadId)).toBe(extractedTitle);
+      },
+      { timeout: 10_000 }
+    );
   }, 30_000);
 
   it('persists the final assistant text even when the request signal aborts right after the stream is consumed (desktop request-close behavior)', async () => {

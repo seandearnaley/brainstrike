@@ -160,6 +160,158 @@ describe('PgliteMemoryStore', () => {
     ).resolves.toBeNull();
   });
 
+  it('lets an automated title name a still-unnamed thread', async () => {
+    // Mastra auto-creates threads with an empty title — fair game for the
+    // observer's auto-title.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-placeholder-empty',
+        resourceId: 'workspace-a',
+        title: '',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-placeholder-empty',
+      metadata: {},
+      title: 'Paris Weather Chat',
+    });
+
+    expect(updated.title).toBe('Paris Weather Chat');
+    // The write stamps the OM marker so a later topic-change re-title stays
+    // eligible (see the next test).
+    expect(updated.metadata).toMatchObject({ titleSource: 'om' });
+  });
+
+  it('lets an automated title rename a thread whose title carries the OM marker', async () => {
+    // A title the observer itself set earlier (or a seeded placeholder
+    // stamped with the marker) is still system content, not user-chosen, so
+    // a later topic-change re-title from the observer may replace it.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-om-named',
+        metadata: { titleSource: 'om' },
+        resourceId: 'workspace-a',
+        title: 'Paris Weather Chat',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-om-named',
+      metadata: { note: 'topic shifted' },
+      title: 'Lyon Restaurant Picks',
+    });
+
+    expect(updated.title).toBe('Lyon Restaurant Picks');
+    expect(updated.metadata).toMatchObject({ note: 'topic shifted', titleSource: 'om' });
+  });
+
+  it('never lets an automated title overwrite an established (user-owned) title', async () => {
+    // A real, non-empty title with no OM marker is user-owned — whether it
+    // arrived through a manual rename (a dedicated raw-SQL path) or was
+    // otherwise set directly — and a later observer-driven updateThread with
+    // a DIFFERENT title must not clobber it.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-user-named',
+        resourceId: 'workspace-a',
+        title: 'My Paris Trip',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-user-named',
+      metadata: { note: 'observer metadata still lands' },
+      title: 'Weather In France',
+    });
+
+    expect(updated.title).toBe('My Paris Trip');
+    expect(updated.metadata).toMatchObject({ note: 'observer metadata still lands' });
+    expect(updated.metadata).not.toHaveProperty('titleSource');
+  });
+
+  it('lets an automated title rename a legacy default-titled thread with no OM marker', async () => {
+    // Threads seeded before the OM marker existed carry the literal
+    // DEFAULT_THREAD_TITLE ('New Thread') with no titleSource metadata at
+    // all. Without this legacy allowance, canOverwriteThreadTitle would
+    // treat that placeholder as user-owned forever and these pre-existing
+    // threads would never receive an automatic title.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-legacy-default-title',
+        metadata: { source: 'brainstrike' },
+        resourceId: 'workspace-a',
+        title: 'New Thread',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-legacy-default-title',
+      metadata: {},
+      title: 'Paris Weather Chat',
+    });
+
+    expect(updated.title).toBe('Paris Weather Chat');
+    // The real Mastra caller merges the thread's existing metadata into this
+    // write (see the comment on `canOverwriteThreadTitle`); this raw
+    // updateThread call only asserts the marker this adapter itself stamps.
+    expect(updated.metadata).toMatchObject({ titleSource: 'om' });
+  });
+
+  it('still protects a custom title that happens to have no OM marker', async () => {
+    // A user-chosen title with no marker (the normal case for a manual
+    // rename) must stay protected — only the literal DEFAULT_THREAD_TITLE
+    // gets the legacy allowance above.
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-custom-no-marker',
+        resourceId: 'workspace-a',
+        title: 'My Custom Title',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-custom-no-marker',
+      metadata: {},
+      title: 'Auto Generated Title',
+    });
+
+    expect(updated.title).toBe('My Custom Title');
+    expect(updated.metadata).not.toHaveProperty('titleSource');
+  });
+
+  it('lands metadata-only observer persists (title unchanged) without touching the title', async () => {
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-metadata-only',
+        resourceId: 'workspace-a',
+        title: 'My Paris Trip',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    const updated = await store.updateThread({
+      id: 'thread-metadata-only',
+      metadata: { currentTask: 'booking a hotel' },
+      title: 'My Paris Trip',
+    });
+
+    expect(updated.title).toBe('My Paris Trip');
+    expect(updated.metadata).toMatchObject({ currentTask: 'booking a hotel' });
+    expect(updated.metadata).not.toHaveProperty('titleSource');
+  });
+
   it('persists messages and supports thread/resource recall queries', async () => {
     await store.saveThread({
       thread: {

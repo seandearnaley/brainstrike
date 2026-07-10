@@ -31,7 +31,13 @@ import {
   type AssistantRunEventStatus,
   emitAssistantRunEventSafely,
 } from '../run-events';
-import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from './sql';
+import {
+  DEFAULT_THREAD_TITLE,
+  MASTRA_MEMORY_SCHEMA_SQL,
+  MASTRA_MEMORY_TABLES,
+  THREAD_TITLE_SOURCE_METADATA_KEY,
+  THREAD_TITLE_SOURCE_OM,
+} from './sql';
 import type { PgliteDatabase, PgliteQueryValue } from './types';
 
 const logger = createLogger('PgliteMemoryStore');
@@ -124,6 +130,41 @@ const DEFAULT_THREADS_PER_PAGE = 100;
 const DEFAULT_MESSAGES_PER_PAGE = 40;
 const THREAD_ORDER_FIELDS = new Set<ThreadOrderBy>(['createdAt', 'updatedAt']);
 const THREAD_ORDER_DIRECTIONS = new Set<ThreadSortDirection>(['ASC', 'DESC']);
+
+function isEmptyThreadTitle(title: string | null | undefined): boolean {
+  return title === null || title === undefined || title.trim() === '';
+}
+
+function hasOmTitleMarker(metadata: Record<string, unknown> | undefined): boolean {
+  return metadata?.[THREAD_TITLE_SOURCE_METADATA_KEY] === THREAD_TITLE_SOURCE_OM;
+}
+
+/**
+ * Decide whether an `updateThread` write may replace the stored title.
+ * Overwritable when the existing title is empty (never set), carries the
+ * `titleSource: 'om'` marker (a seeded placeholder or a prior auto-title
+ * write), or is the literal `DEFAULT_THREAD_TITLE` with no marker at all —
+ * never when it is any other title the user explicitly set, which is
+ * written through the dedicated raw-SQL rename path that clears the marker.
+ *
+ * The `DEFAULT_THREAD_TITLE` fallback is a legacy back-compat allowance:
+ * threads seeded before the OM marker existed have title 'New Thread' and
+ * no `titleSource` metadata at all, so without it they would read as
+ * user-owned forever and never receive an automatic title. Accepted
+ * tradeoff: a user who manually renames a thread to exactly
+ * 'New Thread' loses that title to the next auto-title write — negligible
+ * relative to unblocking every pre-existing thread.
+ */
+function canOverwriteThreadTitle(existing: StorageThreadType | null): boolean {
+  if (!existing) {
+    return true;
+  }
+  return (
+    isEmptyThreadTitle(existing.title) ||
+    hasOmTitleMarker(existing.metadata) ||
+    existing.title === DEFAULT_THREAD_TITLE
+  );
+}
 
 /** Inline run-event detail like "12 messages" / "1 record". */
 function formatCountDetail(count: number, noun: string): string {
@@ -602,6 +643,16 @@ export class PgliteMemoryStore extends MemoryStorage {
   }
 
   override async saveThread({ thread }: { thread: StorageThreadType }): Promise<StorageThreadType> {
+    // Mastra's own thread bootstrap always supplies a title (typically '');
+    // an omitted title is a defensive fallback, and — like the seeded
+    // placeholder our own repository writes — is system content, not
+    // user-chosen, so it carries the OM marker to stay auto-title eligible.
+    const providedTitle = thread.title;
+    const title = providedTitle ?? DEFAULT_THREAD_TITLE;
+    const metadata =
+      providedTitle === undefined || providedTitle === null
+        ? { ...thread.metadata, [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM }
+        : thread.metadata;
     await this.database.query(
       `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
         (id, "resourceId", title, metadata, "createdAt", "updatedAt")
@@ -615,8 +666,8 @@ export class PgliteMemoryStore extends MemoryStorage {
       [
         thread.id,
         thread.resourceId,
-        thread.title ?? 'New Thread',
-        toJsonString(thread.metadata),
+        title,
+        toJsonString(metadata),
         thread.createdAt,
         thread.updatedAt,
       ]
@@ -637,12 +688,40 @@ export class PgliteMemoryStore extends MemoryStorage {
     title: string;
     metadata: Record<string, unknown>;
   }): Promise<StorageThreadType> {
+    const existing = await this.getThreadById({ threadId: id });
+    const existingTitle = existing?.title ?? '';
+    const canOverwrite = canOverwriteThreadTitle(existing);
+    const effectiveTitle = canOverwrite ? title : existingTitle;
+    const titleChanged = effectiveTitle.trim() !== existingTitle.trim();
+
+    if (existing && !canOverwrite && title.trim() !== existingTitle.trim()) {
+      // The observational-memory thread-title extractor is the only actor that
+      // writes titles through this adapter; manual rename uses a dedicated
+      // raw-SQL path that clears the OM marker on write. Preserve an
+      // established title so an auto-generated title never clobbers one the
+      // user already set — user-owned titles win.
+      logger.debug('Preserving established thread title against auto-title update', {
+        existingTitle: existing.title,
+        proposedTitle: title,
+        threadId: id,
+      });
+    }
+
+    // Stamp the OM marker only when this write actually changes the title,
+    // so a metadata-only OM persist (proposed title unchanged) neither adds
+    // nor needs to re-add it — any marker already on the thread already
+    // survives via the caller's own metadata merge (see setThreadOMMetadata
+    // in @mastra/memory), since it spreads the thread's existing metadata.
+    const effectiveMetadata: Record<string, unknown> = titleChanged
+      ? { ...metadata, [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM }
+      : metadata;
+
     const now = new Date();
     await this.database.query(
       `UPDATE ${MASTRA_MEMORY_TABLES.threads}
        SET title = $2, metadata = $3::jsonb, "updatedAt" = $4
        WHERE id = $1`,
-      [id, title, toJsonString(metadata), now]
+      [id, effectiveTitle, toJsonString(effectiveMetadata), now]
     );
     const updated = await this.getThreadById({ threadId: id });
     if (!updated) {
