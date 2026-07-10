@@ -15,7 +15,10 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
-import { runStatementsInTransaction } from '../src/atomic-transaction.js';
+import {
+  runStatementsInTransaction,
+  type TransactionStatement,
+} from '../src/atomic-transaction.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
 describe('runStatementsInTransaction (pglite integration)', () => {
@@ -92,6 +95,27 @@ describe('runStatementsInTransaction (pglite integration)', () => {
       /resultIndex/
     );
     await expect(runStatementsInTransaction(db, [], 0)).rejects.toThrow(/at least one/);
+
+    await db.close();
+  });
+
+  it('rolls back the whole batch when a statement row-count assertion fails', async () => {
+    const db: PGlite = await wasmLoader.createPGlite('memory://atomic-tx-row-assertion');
+    await db.query('CREATE TABLE assertion_probe (id text PRIMARY KEY)');
+
+    const statements = [
+      { params: ['before-failure'], sql: 'INSERT INTO assertion_probe (id) VALUES ($1)' },
+      {
+        expectedRowCount: 0,
+        rowCountMismatchError: 'Legacy import conflict.',
+        sql: "SELECT id FROM assertion_probe WHERE id = 'before-failure'",
+      },
+    ] as TransactionStatement[];
+
+    await expect(runStatementsInTransaction(db, statements, 1)).rejects.toThrow(
+      'Legacy import conflict.'
+    );
+    expect((await db.query('SELECT id FROM assertion_probe')).rows).toEqual([]);
 
     await db.close();
   });

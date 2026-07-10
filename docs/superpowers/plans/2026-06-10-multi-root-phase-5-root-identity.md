@@ -22,7 +22,7 @@
 - Reconciliation: useRootsReconciliation (app-shell/src/roots/) — once-per-boot, settling promise; `reconcileRoots({adapterRoots, platformKind, query})` is already single-root-callable. `WorkspaceCollectionSyncProvider` has db + the useFileSystem surface — the registration mount site.
 - Desktop IPC: `fs:addRoot`/`fs:restoreRoots` exist (file-system-ipc.ts:454+); **no removeRoot channel exists**. rootsList entries: `{addedAt, path, rootId}`. Web: `handleCache.removeRootHandle(folderId)` exists (web-handle-cache.ts interface :173) — folderId IS the RootId since phase 2.
 - Cascade chain confirmed: roots → file_records (039 ON DELETE CASCADE) → file_chunks (004) — which is WHY phase 5 ships disconnect only. Token cache is NOT in the cascade (no FK) — disconnect calls `clearFolder(rootId)`.
-- Destructive-dialog pattern to mirror: AlertDialog as used in packages/ui/src/prompt-management/prompt-manager.tsx (NOT window.confirm).
+- Destructive-dialog pattern to mirror: the controlled Dialog in packages/file-explorer-ui/src/components/disconnect-root-dialog.tsx (NOT window.confirm).
 - House rules: TDD; no `any`; never `git checkout` files you didn't author; pre-commit formats; the ultracite plugin rejects `useEffect(() => () => {...})` curried cleanups — use a block body with a captured const; sync from main bottom-up before the PR.
 
 ---

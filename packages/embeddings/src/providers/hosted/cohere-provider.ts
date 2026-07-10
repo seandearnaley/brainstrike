@@ -152,6 +152,7 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
           'Content-Type': 'application/json',
         },
         method: 'POST',
+        ...(input.signal ? { signal: input.signal } : {}),
       });
 
       if (!response.ok) {

@@ -52,10 +52,6 @@ const workspaceAliases = [
     replacement: resolve(import.meta.dirname, '../utils/src/report-generator.ts'),
   },
   {
-    find: '@brainstrike/storage',
-    replacement: resolve(import.meta.dirname, '../storage/src/index.ts'),
-  },
-  {
     find: '@brainstrike/hooks',
     replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
   },

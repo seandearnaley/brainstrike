@@ -13,7 +13,14 @@
 
 /** One statement to run inside the transaction. */
 export interface TransactionStatement {
+  /**
+   * Optional assertion evaluated immediately after this statement, while the
+   * transaction is still open. A mismatch throws and rolls back the whole batch.
+   */
+  expectedRowCount?: number;
   params?: unknown[];
+  /** User-facing error used when `expectedRowCount` does not match. */
+  rowCountMismatchError?: string;
   sql: string;
 }
 
@@ -45,10 +52,43 @@ export async function runStatementsInTransaction(
     );
   }
 
+  for (const [index, statement] of statements.entries()) {
+    const { expectedRowCount, rowCountMismatchError } = statement;
+    if (
+      expectedRowCount !== undefined &&
+      !(Number.isInteger(expectedRowCount) && expectedRowCount >= 0)
+    ) {
+      throw new Error(
+        `Transaction statement ${index} expectedRowCount must be a non-negative integer.`
+      );
+    }
+    if (rowCountMismatchError !== undefined) {
+      if (expectedRowCount === undefined) {
+        throw new Error(
+          `Transaction statement ${index} rowCountMismatchError requires expectedRowCount.`
+        );
+      }
+      if (!(typeof rowCountMismatchError === 'string' && rowCountMismatchError.trim())) {
+        throw new Error(
+          `Transaction statement ${index} rowCountMismatchError must be a non-empty string.`
+        );
+      }
+    }
+  }
+
   return db.transaction(async (tx) => {
     let designated: { rows: unknown[] } = { rows: [] };
-    for (const [i, { sql, params }] of statements.entries()) {
+    for (const [
+      i,
+      { expectedRowCount, params, rowCountMismatchError, sql },
+    ] of statements.entries()) {
       const res = params && params.length > 0 ? await tx.query(sql, params) : await tx.query(sql);
+      if (expectedRowCount !== undefined && res.rows.length !== expectedRowCount) {
+        throw new Error(
+          rowCountMismatchError ??
+            `Transaction statement ${i} expected ${expectedRowCount} rows, received ${res.rows.length}.`
+        );
+      }
       if (i === resultIndex) {
         designated = { rows: res.rows };
       }

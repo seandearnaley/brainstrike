@@ -33,7 +33,7 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
-import { markDesktopShuttingDown } from './desktop-shutdown-state';
+import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   type DimensionIndexStrategySelection,
   probeDimensionIndexRuntimeCapabilities,
@@ -642,7 +642,15 @@ async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
     });
   } catch (error) {
     desktopDimensionIndexStrategySelection = null;
-    logger.error('Dimension index maintenance capability probe failed', { error });
+    // The probe runs concurrently with the app lifecycle (it no longer gates
+    // window creation), so a short-lived session can tear the DB down while
+    // the probe is mid-flight. That rejection is an EXPECTED teardown (see
+    // desktop-shutdown-state), not a capability failure — log it quietly.
+    if (isDesktopShuttingDown()) {
+      logger.info('Dimension index maintenance capability probe aborted by shutdown', { error });
+    } else {
+      logger.error('Dimension index maintenance capability probe failed', { error });
+    }
   }
 }
 

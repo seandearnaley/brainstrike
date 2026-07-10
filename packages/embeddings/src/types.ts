@@ -83,6 +83,10 @@ export interface EmbeddingWorkerRuntimeMetadata {
   readonly fallbackApplied: boolean;
 }
 
+export interface EmbeddingExecutionOptions {
+  readonly signal?: AbortSignal;
+}
+
 export interface EmbeddingStreamBatch {
   /** Exclusive batch end index within the original request order */
   endIndex: number;
@@ -150,13 +154,22 @@ export interface EmbeddingService {
   dispose: () => Promise<void>;
 
   /** Generate an embedding optimized for documents/passages (indexing) */
-  generateDocEmbedding: (text: string) => Promise<EmbeddingResult>;
+  generateDocEmbedding: (
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ) => Promise<EmbeddingResult>;
 
   /** Generate embedding for a single text */
-  generateEmbedding: (text: string) => Promise<EmbeddingResult>;
+  generateEmbedding: (
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ) => Promise<EmbeddingResult>;
 
   /** Generate embeddings for multiple texts */
-  generateEmbeddings: (texts: string[]) => Promise<EmbeddingResult[]>;
+  generateEmbeddings: (
+    texts: string[],
+    options?: EmbeddingExecutionOptions
+  ) => Promise<EmbeddingResult[]>;
 
   /**
    * Stream embeddings for multiple texts in request order.
@@ -170,7 +183,10 @@ export interface EmbeddingService {
   ) => Promise<unknown>;
 
   /** Generate an embedding optimized for search queries */
-  generateQueryEmbedding: (text: string) => Promise<EmbeddingResult>;
+  generateQueryEmbedding: (
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ) => Promise<EmbeddingResult>;
 
   /** Get current configuration */
   getConfig: () => EmbeddingConfig;

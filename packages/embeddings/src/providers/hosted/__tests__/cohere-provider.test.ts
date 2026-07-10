@@ -181,8 +181,10 @@ describe('CohereEmbeddingProvider', () => {
         modelId: mockModelId,
       });
 
+      const signal = new AbortController().signal;
       const input: EmbeddingInput = {
         modelId: mockModelId,
+        signal,
         text: 'test text',
       };
 
@@ -205,6 +207,7 @@ describe('CohereEmbeddingProvider', () => {
             'Content-Type': 'application/json',
           }),
           method: 'POST',
+          signal,
         })
       );
     });

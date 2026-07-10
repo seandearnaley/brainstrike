@@ -10,6 +10,7 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import {
   ASSISTANT_FOREGROUND_ACTIVITY_IDLE_FUSE_MS,
   acquireAssistantForegroundActivity,
@@ -36,6 +37,35 @@ import {
 } from './assistant-ui-panel-wrapper-test-support';
 
 describe('AssistantUiPanelWrapper', () => {
+  test('bridges only the active thread command into the composer and acknowledges it', async () => {
+    const activeCommand = useAssistantComposerCommandStore.getState().enqueue({
+      mode: 'append',
+      text: 'Use the evidence rubric.',
+      threadId: 'thread-active',
+    });
+    useAssistantComposerCommandStore.getState().enqueue({
+      mode: 'replace',
+      text: 'Do not leak into the active composer.',
+      threadId: 'thread-other',
+    });
+
+    await renderAssistantThreadPanel(['openai'], 'thread-active');
+
+    expect(screen.getByTestId('composer-draft-command')).toHaveTextContent(activeCommand.id);
+    await userEvent.click(screen.getByTestId('apply-composer-draft-command'));
+    expect(
+      useAssistantComposerCommandStore.getState().commandsByThreadId['thread-active']
+    ).toBeUndefined();
+    expect(
+      useAssistantComposerCommandStore.getState().commandsByThreadId['thread-other']
+    ).toHaveLength(1);
+
+    await userEvent.click(screen.getByTestId('report-composer-text'));
+    expect(useAssistantComposerCommandStore.getState().draftTextByThreadId['thread-active']).toBe(
+      'Live composer draft'
+    );
+  });
+
   test('routes local chat through the data-stream transport when the desktop bridges exist', async () => {
     Object.defineProperty(window, 'assistant', {
       configurable: true,

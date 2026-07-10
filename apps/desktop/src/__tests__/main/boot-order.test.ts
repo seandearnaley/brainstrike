@@ -183,6 +183,20 @@ vi.mock('../../dimension-index-maintenance-capabilities', async () => {
   };
 });
 
+const { isDesktopShuttingDownMock } = vi.hoisted(() => ({
+  isDesktopShuttingDownMock: vi.fn(() => false),
+}));
+
+vi.mock('../../desktop-shutdown-state', async () => {
+  const actual = await vi.importActual<typeof import('../../desktop-shutdown-state')>(
+    '../../desktop-shutdown-state'
+  );
+  return {
+    ...actual,
+    isDesktopShuttingDown: isDesktopShuttingDownMock,
+  };
+});
+
 const { databaseSchedulerStartMock, dimensionSchedulerStartMock } = vi.hoisted(() => ({
   databaseSchedulerStartMock: vi.fn(),
   dimensionSchedulerStartMock: vi.fn(),
@@ -253,5 +267,33 @@ describe('main boot order', () => {
       expect(databaseSchedulerStartMock).toHaveBeenCalledTimes(1);
       expect(dimensionSchedulerStartMock).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('logs a probe failure during shutdown as an expected teardown, not an error', async () => {
+    // The probe now runs concurrently with the app lifecycle. A short-lived
+    // session (e2e apps, quick open/quit) can tear the DB down mid-probe;
+    // that rejection is an EXPECTED teardown per desktop-shutdown-state and
+    // must not produce an alarming error-level log on every fast quit.
+    getDatabaseMock.mockResolvedValue({});
+    probeMock.mockRejectedValueOnce(new Error('db host disposed'));
+    isDesktopShuttingDownMock.mockReturnValue(true);
+
+    await import('../../main');
+
+    await vi.waitFor(() => {
+      expect(databaseSchedulerStartMock).toHaveBeenCalledTimes(1);
+    });
+
+    const mainLogger = createLoggerMock.mock.results
+      .map((result) => result.value)
+      .at(createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain'));
+    const errorMessages = (mainLogger?.error.mock.calls ?? []).map(
+      ([message]: [string]) => message
+    );
+    expect(errorMessages).not.toContain('Dimension index maintenance capability probe failed');
+    const infoMessages = (mainLogger?.info.mock.calls ?? []).map(([message]: [string]) => message);
+    expect(infoMessages).toContain(
+      'Dimension index maintenance capability probe aborted by shutdown'
+    );
   });
 });

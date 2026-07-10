@@ -40,6 +40,7 @@ import { migration047RunUsageRootId } from '../migrations/047-run-usage-root-id.
 import { migration048FileRecordsNameTrgm } from '../migrations/048-file-records-name-trgm.js';
 import { migration049JobQueueMetrics } from '../migrations/049-job-queue-metrics.js';
 import { migration050AssistantTaskLists } from '../migrations/050-assistant-task-lists.js';
+import { migration051PromptLibrary } from '../migrations/051-prompt-library.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -182,6 +183,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-048-file-records-name-trgm', migration048FileRecordsNameTrgm),
   customMigration('custom-049-job-queue-metrics', migration049JobQueueMetrics),
   customMigration('custom-050-assistant-task-lists', migration050AssistantTaskLists),
+  customMigration('custom-051-prompt-library', migration051PromptLibrary),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
