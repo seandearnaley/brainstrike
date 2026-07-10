@@ -1,7 +1,14 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  runStatementsInTransaction,
+  type TransactionStatement,
+} from '../src/atomic-transaction.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { PromptItemRepository } from '../src/repositories/prompt-item-repository.js';
+import {
+  type PromptItemDatabase,
+  PromptItemRepository,
+} from '../src/repositories/prompt-item-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
@@ -230,5 +237,147 @@ describe('PromptItemRepository', () => {
         items: [{ ...snapshot.items[0], content: 'Divergent local content' }],
       })
     ).rejects.toThrow(/conflicts with an existing database record/i);
+    await expect(
+      repository.importSnapshot({
+        items: [{ ...snapshot.items[0], description: 'Divergent description' }],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+    await expect(
+      repository.importSnapshot({
+        items: [
+          {
+            ...snapshot.items[0],
+            modelSettings: { model: 'gpt-4.1', temperature: 0.9 },
+          },
+        ],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+    await expect(
+      repository.importSnapshot({
+        items: [{ ...snapshot.items[0], updatedAt: new Date('2025-01-03T10:00:00.000Z') }],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+    await expect(
+      repository.importSnapshot({
+        items: [
+          {
+            ...snapshot.items[0],
+            revisions: [
+              { ...snapshot.items[0].revisions[0], content: 'Divergent revision content' },
+            ],
+          },
+        ],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+  });
+
+  it('imports legacy snapshots through the callback-free desktop transaction bridge', async () => {
+    const desktopRepository = new PromptItemRepository({
+      query: db.query.bind(db),
+      runTransaction: (statements: TransactionStatement[], resultIndex: number) =>
+        runStatementsInTransaction(db, statements, resultIndex),
+    } as PromptItemDatabase);
+    const snapshot = {
+      items: [
+        {
+          content: 'Current desktop prompt',
+          createdAt: new Date('2025-02-01T10:00:00.000Z'),
+          id: 'desktop-legacy-prompt',
+          isFavorite: false,
+          kind: 'prompt' as const,
+          revisions: [
+            {
+              content: 'Original desktop prompt',
+              createdAt: new Date('2025-01-31T10:00:00.000Z'),
+              id: 'desktop-legacy-revision',
+              title: 'Desktop legacy prompt',
+            },
+          ],
+          tags: ['desktop'],
+          title: 'Desktop legacy prompt',
+          updatedAt: new Date('2025-02-02T10:00:00.000Z'),
+        },
+      ],
+    };
+
+    await desktopRepository.importSnapshot(snapshot);
+    await desktopRepository.importSnapshot(snapshot);
+
+    await expect(desktopRepository.findById('desktop-legacy-prompt')).resolves.toMatchObject({
+      content: 'Current desktop prompt',
+      revision: 2,
+      tags: ['desktop'],
+    });
+    await expect(
+      desktopRepository.importSnapshot({
+        items: [{ ...snapshot.items[0], content: 'Divergent desktop content' }],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+    await expect(
+      desktopRepository.importSnapshot({
+        items: [
+          {
+            ...snapshot.items[0],
+            revisions: [
+              { ...snapshot.items[0].revisions[0], note: 'Divergent desktop revision note' },
+            ],
+          },
+        ],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+    await expect(
+      desktopRepository.importSnapshot({
+        items: [
+          {
+            ...snapshot.items[0],
+            revisions: [
+              {
+                ...snapshot.items[0].revisions[0],
+                createdAt: new Date('2025-01-30T10:00:00.000Z'),
+              },
+            ],
+          },
+        ],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+    await expect(
+      desktopRepository.importSnapshot({
+        items: [
+          {
+            ...snapshot.items[0],
+            revisions: [
+              ...snapshot.items[0].revisions,
+              {
+                content: 'Unexpected additional revision',
+                createdAt: new Date('2025-02-01T09:00:00.000Z'),
+                id: 'unexpected-revision',
+                title: 'Desktop legacy prompt',
+              },
+            ],
+          },
+        ],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+
+    await expect(
+      desktopRepository.importSnapshot({
+        items: [
+          {
+            ...snapshot.items[0],
+            id: 'desktop-import-that-must-roll-back',
+            revisions: [
+              {
+                ...snapshot.items[0].revisions[0],
+                id: 'desktop-rollback-revision',
+              },
+            ],
+          },
+          { ...snapshot.items[0], content: 'Still divergent desktop content' },
+        ],
+      })
+    ).rejects.toThrow(/conflicts with an existing database record/i);
+    await expect(
+      desktopRepository.findById('desktop-import-that-must-roll-back')
+    ).resolves.toBeNull();
   });
 });

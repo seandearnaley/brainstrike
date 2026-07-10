@@ -1,3 +1,4 @@
+import type { TransactionStatement } from '../atomic-transaction.js';
 import {
   type CreatePromptItemInput,
   derivePromptItemTitle,
@@ -20,6 +21,10 @@ import {
 
 export interface PromptItemDatabase {
   query: <T = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  runTransaction?: (
+    statements: TransactionStatement[],
+    resultIndex: number
+  ) => Promise<{ rows: unknown[] }>;
   transaction?: <T>(fn: (tx: PromptItemDatabase) => Promise<T>) => Promise<T>;
 }
 
@@ -61,6 +66,13 @@ interface PromptItemRevisionRow {
   revision: number;
   tags: unknown;
   title: string;
+}
+
+interface PreparedImportPromptItem {
+  item: ImportPromptItem;
+  normalizedTags: readonly string[];
+  normalizedTitle: string;
+  sortedRevisions: readonly ImportPromptItemRevision[];
 }
 
 const DEFAULT_PROMPT_EMBEDDING_PROFILE_ID = 'default';
@@ -230,23 +242,26 @@ function assertValidImportDate(date: Date, field: string): void {
   }
 }
 
-function comparable(value: unknown): string {
-  if (value === null || value === undefined) {
-    return 'null';
-  }
+function sortComparableJson(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return JSON.stringify(value);
+    return value.map(sortComparableJson);
   }
-  if (typeof value === 'object') {
-    return JSON.stringify(
-      Object.fromEntries(
-        Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
-          left.localeCompare(right)
-        )
-      )
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, sortComparableJson(entry)])
     );
   }
-  return JSON.stringify(value);
+  return value;
+}
+
+function comparable(value: unknown): string {
+  const serialized = JSON.stringify(value ?? null);
+  if (serialized === undefined) {
+    return 'null';
+  }
+  return JSON.stringify(sortComparableJson(JSON.parse(serialized) as unknown));
 }
 
 function sortAndValidateImportedRevisions(item: ImportPromptItem): ImportPromptItemRevision[] {
@@ -260,6 +275,18 @@ function sortAndValidateImportedRevisions(item: ImportPromptItem): ImportPromptI
   return sorted;
 }
 
+function prepareImportedItem(item: ImportPromptItem): PreparedImportPromptItem {
+  requireContent(item.content);
+  assertValidImportDate(item.createdAt, 'createdAt');
+  assertValidImportDate(item.updatedAt, 'updatedAt');
+  return {
+    item,
+    normalizedTags: normalizePromptItemTags(item.tags),
+    normalizedTitle: normalizeTitle(item.title, item.content),
+    sortedRevisions: sortAndValidateImportedRevisions(item),
+  };
+}
+
 function importedItemMatches(
   existing: PromptItem,
   existingRevisions: readonly PromptItemRevision[],
@@ -268,19 +295,46 @@ function importedItemMatches(
   normalizedTitle: string,
   sortedRevisions: readonly ImportPromptItemRevision[]
 ): boolean {
-  return (
+  const normalizedDescription = item.description?.trim() || null;
+  const ascendingExistingRevisions = [...existingRevisions].sort(
+    (left, right) => left.revision - right.revision
+  );
+  const currentItemMatches =
     existing.content === item.content &&
     existing.title === normalizedTitle &&
     existing.kind === item.kind &&
+    existing.description === normalizedDescription &&
     existing.isFavorite === item.isFavorite &&
     comparable(existing.tags) === comparable(normalizedTags) &&
     comparable(existing.modelSettings) === comparable(item.modelSettings) &&
     existing.modelKey === (item.modelKey?.trim() || null) &&
     existing.sourceUrl === (item.sourceUrl?.trim() || null) &&
     existing.rating === (item.rating ?? null) &&
-    comparable(existingRevisions.map((revision) => revision.id).reverse()) ===
-      comparable(sortedRevisions.map((revision) => revision.id))
-  );
+    existing.revision === sortedRevisions.length + 1 &&
+    existing.createdAt.getTime() === item.createdAt.getTime() &&
+    existing.updatedAt.getTime() === item.updatedAt.getTime();
+  if (!currentItemMatches || ascendingExistingRevisions.length !== sortedRevisions.length) {
+    return false;
+  }
+  return ascendingExistingRevisions.every((existingRevision, index) => {
+    const importedRevision = sortedRevisions[index];
+    if (!importedRevision) {
+      return false;
+    }
+    return (
+      existingRevision.id === importedRevision.id &&
+      existingRevision.promptItemId === item.id &&
+      existingRevision.revision === index + 1 &&
+      existingRevision.title === normalizeTitle(importedRevision.title, importedRevision.content) &&
+      existingRevision.content === importedRevision.content &&
+      existingRevision.description === normalizedDescription &&
+      comparable(existingRevision.tags) === comparable(normalizedTags) &&
+      existingRevision.modelKey === (importedRevision.modelKey?.trim() || null) &&
+      comparable(existingRevision.modelSettings) === comparable(importedRevision.modelSettings) &&
+      existingRevision.note === (importedRevision.note?.trim() || null) &&
+      existingRevision.createdAt.getTime() === importedRevision.createdAt.getTime()
+    );
+  });
 }
 
 async function insertImportedItem(
@@ -347,12 +401,7 @@ async function importSnapshotItem(
   repository: PromptItemRepository,
   item: ImportPromptItem
 ): Promise<void> {
-  requireContent(item.content);
-  assertValidImportDate(item.createdAt, 'createdAt');
-  assertValidImportDate(item.updatedAt, 'updatedAt');
-  const normalizedTags = normalizePromptItemTags(item.tags);
-  const normalizedTitle = normalizeTitle(item.title, item.content);
-  const sortedRevisions = sortAndValidateImportedRevisions(item);
+  const { normalizedTags, normalizedTitle, sortedRevisions } = prepareImportedItem(item);
   const existing = await repository.findById(item.id);
   if (!existing) {
     await insertImportedItem(tx, item, normalizedTags, normalizedTitle, sortedRevisions);
@@ -371,6 +420,201 @@ async function importSnapshotItem(
   ) {
     throw new Error(`Legacy prompt "${item.id}" conflicts with an existing database record.`);
   }
+}
+
+function buildImportConflictGuards({
+  item,
+  normalizedTags,
+  normalizedTitle,
+  sortedRevisions,
+}: PreparedImportPromptItem): TransactionStatement[] {
+  const conflictMessage = `Legacy prompt "${item.id}" conflicts with an existing database record.`;
+  const normalizedDescription = item.description?.trim() || null;
+  const currentItemGuard: TransactionStatement = {
+    expectedRowCount: 0,
+    params: [
+      item.id,
+      item.kind,
+      normalizedTitle,
+      item.content,
+      normalizedDescription,
+      JSON.stringify(normalizedTags),
+      item.isFavorite,
+      item.sourceUrl?.trim() || null,
+      item.rating ?? null,
+      item.modelKey?.trim() || null,
+      toJson(item.modelSettings),
+      sortedRevisions.length + 1,
+      item.createdAt.toISOString(),
+      item.updatedAt.toISOString(),
+    ],
+    rowCountMismatchError: conflictMessage,
+    sql: `SELECT prompt_item.id
+          FROM prompt_items AS prompt_item
+          WHERE prompt_item.id = $1
+            AND NOT (
+              prompt_item.kind = $2
+              AND prompt_item.title = $3
+              AND prompt_item.content = $4
+              AND prompt_item.description IS NOT DISTINCT FROM $5::text
+              AND prompt_item.tags = $6::jsonb
+              AND prompt_item.is_favorite = $7
+              AND prompt_item.source_url IS NOT DISTINCT FROM $8::text
+              AND prompt_item.rating IS NOT DISTINCT FROM $9::integer
+              AND prompt_item.model_key IS NOT DISTINCT FROM $10::text
+              AND prompt_item.model_settings IS NOT DISTINCT FROM $11::jsonb
+              AND prompt_item.revision = $12::integer
+              AND prompt_item.created_at = $13::timestamptz
+              AND prompt_item.updated_at = $14::timestamptz
+            )`,
+  };
+  const revisionCountGuard: TransactionStatement = {
+    expectedRowCount: 0,
+    params: [item.id, sortedRevisions.length],
+    rowCountMismatchError: conflictMessage,
+    sql: `SELECT prompt_item.id
+          FROM prompt_items AS prompt_item
+          WHERE prompt_item.id = $1
+            AND (
+              SELECT COUNT(*)::integer
+              FROM prompt_item_revisions AS revision_row
+              WHERE revision_row.prompt_item_id = prompt_item.id
+            ) <> $2::integer`,
+  };
+  const revisionGuards = sortedRevisions.map(
+    (revision, index): TransactionStatement => ({
+      expectedRowCount: 0,
+      params: [
+        item.id,
+        revision.id,
+        index + 1,
+        normalizeTitle(revision.title, revision.content),
+        revision.content,
+        normalizedDescription,
+        JSON.stringify(normalizedTags),
+        revision.modelKey?.trim() || null,
+        toJson(revision.modelSettings),
+        revision.note?.trim() || null,
+        revision.createdAt.toISOString(),
+      ],
+      rowCountMismatchError: conflictMessage,
+      sql: `SELECT prompt_item.id
+            FROM prompt_items AS prompt_item
+            WHERE prompt_item.id = $1
+              AND NOT EXISTS (
+                SELECT 1
+                FROM prompt_item_revisions AS revision_row
+                WHERE revision_row.prompt_item_id = prompt_item.id
+                  AND revision_row.id = $2
+                  AND revision_row.revision = $3::integer
+                  AND revision_row.title = $4
+                  AND revision_row.content = $5
+                  AND revision_row.description IS NOT DISTINCT FROM $6::text
+                  AND revision_row.tags = $7::jsonb
+                  AND revision_row.model_key IS NOT DISTINCT FROM $8::text
+                  AND revision_row.model_settings IS NOT DISTINCT FROM $9::jsonb
+                  AND revision_row.note IS NOT DISTINCT FROM $10::text
+                  AND revision_row.created_at = $11::timestamptz
+              )`,
+    })
+  );
+  return [currentItemGuard, revisionCountGuard, ...revisionGuards];
+}
+
+function buildConditionalImportInsert({
+  item,
+  normalizedTags,
+  normalizedTitle,
+  sortedRevisions,
+}: PreparedImportPromptItem): TransactionStatement {
+  const params: unknown[] = [];
+  const bind = (value: unknown, cast = ''): string => {
+    params.push(value);
+    return `$${params.length}${cast}`;
+  };
+  const itemValues = [
+    bind(item.id),
+    bind(item.kind),
+    bind(normalizedTitle),
+    bind(item.content),
+    bind(item.description?.trim() || null),
+    bind(JSON.stringify(normalizedTags), '::jsonb'),
+    bind(item.isFavorite),
+    bind(item.sourceUrl?.trim() || null),
+    bind(item.rating ?? null),
+    bind(item.modelKey?.trim() || null),
+    bind(toJson(item.modelSettings), '::jsonb'),
+    bind(sortedRevisions.length + 1),
+    bind(item.createdAt.toISOString()),
+    bind(item.updatedAt.toISOString()),
+  ];
+  const revisionRows = sortedRevisions.map((revision, index) => {
+    const values = [
+      bind(revision.id),
+      bind(index + 1, '::integer'),
+      bind(normalizeTitle(revision.title, revision.content)),
+      bind(revision.content),
+      bind(item.description?.trim() || null),
+      bind(JSON.stringify(normalizedTags), '::jsonb'),
+      bind(revision.modelKey?.trim() || null),
+      bind(toJson(revision.modelSettings), '::jsonb'),
+      bind(revision.note?.trim() || null),
+      bind(revision.createdAt.toISOString(), '::timestamptz'),
+    ];
+    return `(${values.join(', ')})`;
+  });
+  const revisionInsert =
+    revisionRows.length === 0
+      ? ''
+      : `,
+         inserted_revisions AS (
+           INSERT INTO prompt_item_revisions (
+             id, prompt_item_id, revision, title, content, description,
+             tags, model_key, model_settings, note, created_at
+           )
+           SELECT
+             imported_revision.id,
+             inserted_item.id,
+             imported_revision.revision,
+             imported_revision.title,
+             imported_revision.content,
+             imported_revision.description,
+             imported_revision.tags,
+             imported_revision.model_key,
+             imported_revision.model_settings,
+             imported_revision.note,
+             imported_revision.created_at
+           FROM inserted_item
+           CROSS JOIN (
+             VALUES ${revisionRows.join(',\n                    ')}
+           ) AS imported_revision (
+             id, revision, title, content, description, tags,
+             model_key, model_settings, note, created_at
+           )
+           RETURNING id
+         )`;
+
+  return {
+    params,
+    sql: `WITH inserted_item AS (
+            INSERT INTO prompt_items (
+              id, kind, title, content, description, tags, is_favorite,
+              source_url, rating, model_key, model_settings, revision,
+              created_at, updated_at
+            ) VALUES (${itemValues.join(', ')})
+            ON CONFLICT (id) DO NOTHING
+            RETURNING id
+          )${revisionInsert}
+          SELECT id FROM inserted_item`,
+  };
+}
+
+function buildAtomicImportStatements(snapshot: PromptItemImportSnapshot): TransactionStatement[] {
+  const preparedItems = snapshot.items.map(prepareImportedItem);
+  return preparedItems.flatMap((item) => [
+    ...buildImportConflictGuards(item),
+    buildConditionalImportInsert(item),
+  ]);
 }
 
 function toVectorLiteral(embedding: readonly number[], expectedDimensions: number): string {
@@ -446,15 +690,24 @@ export class PromptItemRepository {
   }
 
   async importSnapshot(snapshot: PromptItemImportSnapshot): Promise<void> {
-    if (!this.db.transaction) {
-      throw new Error('Legacy prompt import requires an atomic database transaction.');
+    if (this.db.transaction) {
+      await this.db.transaction(async (tx) => {
+        const transactionalRepository = new PromptItemRepository(tx);
+        for (const item of snapshot.items) {
+          await importSnapshotItem(tx, transactionalRepository, item);
+        }
+      });
+      return;
     }
-    await this.db.transaction(async (tx) => {
-      const transactionalRepository = new PromptItemRepository(tx);
-      for (const item of snapshot.items) {
-        await importSnapshotItem(tx, transactionalRepository, item);
+    if (this.db.runTransaction) {
+      const statements = buildAtomicImportStatements(snapshot);
+      if (statements.length === 0) {
+        return;
       }
-    });
+      await this.db.runTransaction(statements, statements.length - 1);
+      return;
+    }
+    throw new Error('Legacy prompt import requires an atomic database transaction.');
   }
 
   async findById(id: string): Promise<PromptItem | null> {

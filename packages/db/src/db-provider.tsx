@@ -15,6 +15,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { TransactionStatement } from './atomic-transaction.js';
 import {
   getDefaultBrowserPGliteDataDir,
   isBrowserPersistentPGliteDataDir,
@@ -139,6 +140,11 @@ export interface DbHandle extends IDatabase {
     workOptions?: DatabaseWorkOptions
   ) => Promise<void>;
   readonly raw?: unknown;
+  runTransaction?: (
+    statements: TransactionStatement[],
+    resultIndex: number,
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: unknown[] }>;
   readonly syncToFs?: () => Promise<void>;
 }
 
@@ -155,6 +161,11 @@ interface QueryExecutor {
     params?: unknown[],
     options?: unknown
   ) => Promise<{ rows: T[] }>;
+  runTransaction?: (
+    statements: TransactionStatement[],
+    resultIndex: number,
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: unknown[] }>;
   readonly syncToFs?: () => Promise<void>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
@@ -280,6 +291,12 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
         workOptions
       );
     };
+  }
+
+  if (typeof executor.runTransaction === 'function') {
+    const runTransaction = executor.runTransaction;
+    handle.runTransaction = async (statements, resultIndex, options) =>
+      await runTransaction.call(executor, statements, resultIndex, options);
   }
 
   if (typeof executor.transaction === 'function') {
