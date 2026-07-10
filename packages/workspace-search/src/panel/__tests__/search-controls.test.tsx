@@ -19,7 +19,7 @@ vi.mock('@brainstrike/db', () => ({
 
 // The Radix-backed Select renders its content into a portal only while open,
 // which makes it brittle to drive headlessly. Every other consumer in this
-// repo (preferences, vector-management, prompt-management) mocks the Select
+// repo (preferences, vector-management, app-shell) mocks the Select
 // family the same way — keep Button/Input/Tooltip/Badge/cn real.
 interface MockSelectContextValue {
   onValueChange: (value: string) => void;

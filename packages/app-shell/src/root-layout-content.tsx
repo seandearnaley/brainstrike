@@ -25,6 +25,7 @@ import {
   memo,
   type ReactElement,
   type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -39,6 +40,7 @@ import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { CommandPaletteHost } from './command-palette-host';
+import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
@@ -148,7 +150,6 @@ export interface RootLayoutContentProps {
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly navigationItems: NavigationItem[];
   readonly preloadDatabaseTabOnMount?: boolean;
-  readonly promptsPageContent?: ReactNode;
   readonly settingsPageContent: ReactNode;
   /**
    * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
@@ -161,7 +162,6 @@ export interface RootLayoutContentProps {
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/git': 'git',
-  '/prompts': 'prompts',
   '/settings': 'settings',
   '/terminal': 'terminal',
 };
@@ -308,6 +308,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   loadEmbeddingQueue,
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
+  visible,
 }: {
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
@@ -315,6 +316,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
+  readonly visible: boolean;
 }): ReactElement {
   return (
     <div className="h-full min-h-0" data-testid="explorer-section">
@@ -331,6 +333,24 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
               />
             }
             preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+            promptsContent={(isActive) => (
+              <Suspense
+                fallback={
+                  <div
+                    className="grid h-full place-items-center text-muted-foreground text-xs"
+                    data-testid="prompt-workbench-lazy-fallback"
+                    role="status"
+                  >
+                    Opening Prompt Workbench…
+                  </div>
+                }
+              >
+                <ConnectedPromptManagerLazy
+                  loadEmbeddingQueue={loadEmbeddingQueue}
+                  suggestionsEnabled={visible && isActive}
+                />
+              </Suspense>
+            )}
             threadsContent={<ThreadsPanel />}
           />
         }
@@ -349,7 +369,6 @@ export function RootLayoutContent({
   contextExplorerPageContent,
   contextExplorerPanelContent,
   settingsPageContent,
-  promptsPageContent,
   gitPageContent,
   terminalPageContent,
   navigationItems,
@@ -438,18 +457,10 @@ export function RootLayoutContent({
                     loadEmbeddingQueue={loadEmbeddingQueue}
                     {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                     preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                    visible={activeTab === 'explorer'}
                   />
                 </PanelLayoutProvider>
               </div>
-              {mountedTabs.has('prompts') ? (
-                <div
-                  aria-hidden={activeTab !== 'prompts'}
-                  className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
-                  data-testid="prompts-route"
-                >
-                  {promptsPageContent ?? null}
-                </div>
-              ) : null}
               {mountedTabs.has('settings') ? (
                 <div
                   aria-hidden={activeTab !== 'settings'}

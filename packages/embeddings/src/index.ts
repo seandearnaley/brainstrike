@@ -102,6 +102,7 @@ export {
 export { TransformersBackend } from './transformers-backend';
 export type {
   EmbeddingConfig,
+  EmbeddingExecutionOptions,
   EmbeddingProgress,
   EmbeddingResult,
   EmbeddingService,

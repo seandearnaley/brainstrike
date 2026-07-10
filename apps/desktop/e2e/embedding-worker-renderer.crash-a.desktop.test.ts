@@ -133,13 +133,10 @@ test.describe('Embedding Host Renderer - crash a', () => {
     const before = await createTestBackfillJob(activeWindow);
     expect(await getJobStatus(activeWindow, before.jobId)).not.toBeNull();
 
-    const promptsNav = activeWindow
-      .getByRole('button', { name: /prompts/i })
-      .or(activeWindow.getByRole('link', { name: /prompts/i }))
-      .first();
-    await expect(promptsNav).toBeVisible({ timeout: 10_000 });
-    await promptsNav.click();
-    await expect(activeWindow.getByRole('heading', { name: /prompt library/i })).toBeVisible({
+    const promptsTab = activeWindow.getByTestId('prompts-tab-trigger');
+    await expect(promptsTab).toBeVisible({ timeout: 10_000 });
+    await promptsTab.click();
+    await expect(activeWindow.getByRole('region', { name: 'Prompt workbench' })).toBeVisible({
       timeout: 15_000,
     });
 

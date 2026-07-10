@@ -49,7 +49,8 @@ import { migration047RunUsageRootId } from './047-run-usage-root-id.js';
 import { migration048FileRecordsNameTrgm } from './048-file-records-name-trgm.js';
 import { migration049JobQueueMetrics } from './049-job-queue-metrics.js';
 import { migration050AssistantTaskLists } from './050-assistant-task-lists.js';
-import { migration051AssistantEditCheckpoints } from './051-assistant-edit-checkpoints.js';
+import { migration051PromptLibrary } from './051-prompt-library.js';
+import { migration052AssistantEditCheckpoints } from './052-assistant-edit-checkpoints.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -105,7 +106,8 @@ export const migrations: Migration[] = [
   migration048FileRecordsNameTrgm,
   migration049JobQueueMetrics,
   migration050AssistantTaskLists,
-  migration051AssistantEditCheckpoints,
+  migration051PromptLibrary,
+  migration052AssistantEditCheckpoints,
 ];
 
 // Export base migrations (without chunks table) for test environments

@@ -105,13 +105,14 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
       // Generate embedding using the service
       let embeddings: number[][];
       let dimensions: number;
+      const executionOptions = input.signal ? { signal: input.signal } : undefined;
 
       if (Array.isArray(input.text)) {
-        const results = await this.service.generateEmbeddings(input.text);
+        const results = await this.service.generateEmbeddings(input.text, executionOptions);
         embeddings = results.map((r) => r.embedding);
         dimensions = results[0]?.dimensions || 0;
       } else {
-        const result = await this.service.generateDocEmbedding(input.text);
+        const result = await this.service.generateDocEmbedding(input.text, executionOptions);
         embeddings = [result.embedding];
         dimensions = result.dimensions;
       }

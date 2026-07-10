@@ -14,7 +14,7 @@ interface IndexRow {
 
 const TABLE = 'brainstrike_assistant_edit_checkpoints';
 
-describe('migration 051: assistant edit checkpoints table', () => {
+describe('migration 052: assistant edit checkpoints table', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -23,17 +23,17 @@ describe('migration 051: assistant edit checkpoints table', () => {
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 51));
+    await runner.up(migrations.filter((migration) => migration.version < 52));
   });
 
   afterEach(async () => {
     await db.close();
   });
 
-  function getMigration051() {
-    const migration = migrations.find((candidate) => candidate.version === 51);
+  function getMigration052() {
+    const migration = migrations.find((candidate) => candidate.version === 52);
     if (!migration) {
-      throw new Error('Migration 051 is missing');
+      throw new Error('Migration 052 is missing');
     }
     return migration;
   }
@@ -68,7 +68,7 @@ describe('migration 051: assistant edit checkpoints table', () => {
   }
 
   it('creates the table and its three indexes', { timeout: 60_000 }, async () => {
-    await runner.runMigration(getMigration051());
+    await runner.runMigration(getMigration052());
 
     const table = await db.query<CountRow>(
       `SELECT COUNT(*)::int AS count FROM information_schema.tables
@@ -86,7 +86,7 @@ describe('migration 051: assistant edit checkpoints table', () => {
   });
 
   it('accepts every valid op and capture_status', { timeout: 60_000 }, async () => {
-    await runner.runMigration(getMigration051());
+    await runner.runMigration(getMigration052());
 
     const ops = ['write', 'string_replace', 'delete', 'rename'];
     const statuses = ['ok', 'created', 'skipped_binary', 'skipped_too_large', 'expired', 'rename'];
@@ -102,19 +102,19 @@ describe('migration 051: assistant edit checkpoints table', () => {
   });
 
   it('rejects an invalid op via the CHECK constraint', { timeout: 60_000 }, async () => {
-    await runner.runMigration(getMigration051());
+    await runner.runMigration(getMigration052());
     await expect(insertRow({ id: 'bad-op', op: 'chmod' })).rejects.toThrow();
   });
 
   it('rejects an invalid capture_status via the CHECK constraint', {
     timeout: 60_000,
   }, async () => {
-    await runner.runMigration(getMigration051());
+    await runner.runMigration(getMigration052());
     await expect(insertRow({ capture_status: 'garbage', id: 'bad-status' })).rejects.toThrow();
   });
 
   it('rollback drops the table', { timeout: 60_000 }, async () => {
-    const migration = getMigration051();
+    const migration = getMigration052();
     await runner.runMigration(migration);
     await runner.rollback(migration);
 

@@ -2117,6 +2117,19 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     }
   });
 
+  it('persists an explicit initial title in the same operation that creates the thread', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-create-with-title');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    const thread = await repository.createThread('workspace-a', 'Evidence review');
+
+    expect(thread.title).toBe('Evidence review');
+    const threads = await repository.listThreads('workspace-a');
+    expect(threads).toEqual([expect.objectContaining({ id: thread.id, title: 'Evidence review' })]);
+    expect(threads[0]?.metadata).toEqual({ source: 'brainstrike' });
+  });
+
   it('deletes messages and cascades thread runs and run events in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-cascade');
     const db = await wasmLoader.createPGlite(pgliteDataDir);

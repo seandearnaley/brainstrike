@@ -62,22 +62,21 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     await expect(home.settingsHeading).not.toBeVisible();
   });
 
-  test('should load prompts without hanging fallbacks', async ({ page }) => {
+  test('should load prompts in the agent sidebar without leaving the workspace', async ({
+    page,
+  }) => {
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
     await waitForAppLoad(page, { waitForDatabase: false });
 
-    const promptsNavButton = page
-      .getByRole('button', { name: /prompts/i })
-      .or(page.getByRole('link', { name: /prompts/i }))
-      .first();
-    await expect(promptsNavButton).toBeVisible({ timeout: 10_000 });
-    await promptsNavButton.click();
+    const promptsTab = page.getByTestId('prompts-tab-trigger');
+    await expect(promptsTab).toBeVisible({ timeout: 10_000 });
+    await promptsTab.click();
 
-    await expect(page.getByRole('heading', { name: /prompt library/i })).toBeVisible({
+    await expect(page.getByRole('region', { name: 'Prompt workbench' })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByText(/Loading prompts/i)).toHaveCount(0);
+    await expect(home.contextExplorerPageMarker).toBeVisible();
   });
 
   test.describe('Panel Layout Basics', () => {

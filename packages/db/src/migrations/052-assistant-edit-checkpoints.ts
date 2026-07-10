@@ -25,7 +25,7 @@ import type { Migration } from './migration-runner';
  * different paths; the desktop/renderer repository ALSO bootstraps this table on
  * first read, so the migration and the runtime bootstrap must stay byte-identical.
  */
-export const migration051AssistantEditCheckpoints: Migration = {
+export const migration052AssistantEditCheckpoints: Migration = {
   down: `
     DROP INDEX IF EXISTS brainstrike_assistant_edit_checkpoints_revert_idx;
     --> statement-breakpoint
@@ -77,5 +77,5 @@ export const migration051AssistantEditCheckpoints: Migration = {
     CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_revert_idx
       ON brainstrike_assistant_edit_checkpoints (thread_id, reverted_at);
   `,
-  version: 51,
+  version: 52,
 };

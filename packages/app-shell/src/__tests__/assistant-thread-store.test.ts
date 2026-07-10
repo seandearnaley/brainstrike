@@ -42,11 +42,11 @@ function createRepository(
   return {
     appendThreadRunEvent: vi.fn(),
     completeThreadRun: vi.fn(),
-    createThread: vi.fn(async (resourceId: string) => ({
+    createThread: vi.fn(async (resourceId: string, title = 'New Thread') => ({
       createdAt: new Date('2026-04-22T12:00:00Z'),
       id: 'thread-created',
       resourceId,
-      title: 'New Thread',
+      title,
       updatedAt: new Date('2026-04-22T12:00:00Z'),
     })),
     createThreadRun: vi.fn(),
@@ -100,6 +100,48 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(useAssistantThreadStore.getState().threadIdsByResourceId[workspaceId]).toEqual([
       'thread-a',
     ]);
+  });
+
+  it('creates a durable titled thread in one repository operation', async () => {
+    const repository = createRepository([]);
+
+    const thread = await useAssistantThreadStore
+      .getState()
+      .createThread(repository, workspaceId, 'Evidence review');
+
+    expect(repository.createThread).toHaveBeenCalledWith(workspaceId, 'Evidence review');
+    expect(thread.title).toBe('Evidence review');
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Evidence review'
+    );
+  });
+
+  it('waits for an in-flight initial load before creating and activating a titled thread', async () => {
+    const repository = createRepository([]);
+    let resolveInitialLoad!: (threads: readonly AssistantMemoryThread[]) => void;
+    vi.mocked(repository.listThreads).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveInitialLoad = resolve;
+        })
+    );
+
+    const initialLoad = useAssistantThreadStore
+      .getState()
+      .ensureResourceThreads(repository, workspaceId);
+    const create = useAssistantThreadStore
+      .getState()
+      .createThread(repository, workspaceId, 'Evidence review');
+    resolveInitialLoad([makeThread('thread-existing', '2026-04-22T11:00:00Z')]);
+    await Promise.all([initialLoad, create]);
+
+    const state = useAssistantThreadStore.getState();
+    expect(state.threadsByResourceId[workspaceId]?.map((thread) => thread.id)).toEqual([
+      'thread-created',
+      'thread-existing',
+    ]);
+    expect(state.threadsByResourceId[workspaceId]?.[0]?.title).toBe('Evidence review');
+    expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-created');
   });
 
   it('opens and focuses historical threads without replacing the durable thread list', async () => {
@@ -193,6 +235,32 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(state.threadIdsByResourceId[workspaceId]).toEqual(['thread-created']);
     expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-created']);
     expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-created');
+  });
+
+  it('does not let a redundant ready-state load overwrite a just-renamed thread', async () => {
+    const repository = createRepository([]);
+    let resolveStaleThreads: (threads: readonly AssistantMemoryThread[]) => void = () => undefined;
+    vi.mocked(repository.listThreads).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveStaleThreads = resolve;
+        })
+    );
+
+    const created = await useAssistantThreadStore.getState().createThread(repository, workspaceId);
+    const redundantLoad = useAssistantThreadStore
+      .getState()
+      .ensureResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore
+      .getState()
+      .renameThread(repository, workspaceId, created.id, 'Evidence review');
+    resolveStaleThreads([{ ...created, title: 'New Thread' }]);
+    await redundantLoad;
+
+    expect(repository.listThreads).not.toHaveBeenCalled();
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Evidence review'
+    );
   });
 
   it('keeps draft runtime config isolated per open thread', () => {

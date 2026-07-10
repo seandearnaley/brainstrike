@@ -77,6 +77,7 @@ type OptionalRelationTable =
   | 'collection_indexing_stats'
   | 'embedding_sets'
   | 'job_queue'
+  | 'prompt_items'
   | 'roots';
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
@@ -269,6 +270,17 @@ function isMissingRelationError(error: unknown): boolean {
   return message.includes('relation') && message.includes('does not exist');
 }
 
+function isMissingOptionalRelationError(error: unknown, tableName: OptionalRelationTable): boolean {
+  if (!isMissingRelationError(error)) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new RegExp(
+    `\\b(?:relation|table)\\s+(?:"(?:[a-z_][\\w$]*\\.)?${tableName}"|(?:(?:"[a-z_][\\w$]*"|[a-z_][\\w$]*)\\.)?(?:"${tableName}"|${tableName}))\\s+does not exist\\b`,
+    'iu'
+  ).test(message);
+}
+
 async function clearOptionalRelation(
   tx: { query: (sql: string) => Promise<{ rows: unknown[] }> },
   tableName: OptionalRelationTable
@@ -276,7 +288,7 @@ async function clearOptionalRelation(
   try {
     await tx.query(`DELETE FROM ${tableName}`);
   } catch (error) {
-    if (isMissingRelationError(error)) {
+    if (isMissingOptionalRelationError(error, tableName)) {
       return;
     }
     logger.warn('Failed to clear optional database table', { error, tableName });
@@ -708,6 +720,9 @@ export function registerDatabaseIpcHandlers(
             // it does not survive a "true fresh start" (FACTORY RESET CONTRACT).
             // No FK, so nothing cascades it — clear explicitly.
             await clearOptionalRelation(tx, 'brainstrike_assistant_edit_checkpoints');
+            // Revisions cascade from prompt_items. The singleton embedding
+            // profile is app configuration and remains available after clear.
+            await clearOptionalRelation(tx, 'prompt_items');
 
             return {
               deletedChunks,

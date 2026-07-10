@@ -9,6 +9,9 @@ const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
+const sharedRootLayoutCapture = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}));
 
 const createQueueStub = (): QueueAdapter => {
   const result = {
@@ -86,10 +89,6 @@ vi.mock('@brainstrike/app-shell/navigation', () => ({
   navigationItems: [],
 }));
 
-vi.mock('@brainstrike/app-shell', () => ({
-  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
-}));
-
 // The Git surface is capability-gated. `gitBridgeAvailableMock` lets each test
 // drive the `isGitBridgeAvailable()` branch (default false = web-safe). Mocking
 // the availability subpath keeps the heavy @codemirror/merge graph out of this
@@ -115,36 +114,37 @@ vi.mock('../../../renderer/components/terminal-page-content', () => ({
 }));
 
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
-  RootLayoutContent: ({
-    contextExplorerPageContent,
-    gitPageContent,
-    terminalPageContent,
-    navigationItems,
-  }: {
+  RootLayoutContent: (props: {
     contextExplorerPageContent: React.ReactNode;
     gitPageContent?: React.ReactNode;
-    terminalPageContent?: React.ReactNode;
     navigationItems?: Array<{ name: string; path: string }>;
-  }) => (
-    <div data-testid="file-explorer-provider">
-      <div data-testid="app-layout">
-        {/* Surface the nav items + git/terminal pages so capability-gating can
-            be asserted. */}
-        <nav data-testid="nav-items">
-          {(navigationItems ?? []).map((item) => (
-            <span data-testid={`nav-item-${item.path}`} key={item.path}>
-              {item.name}
-            </span>
-          ))}
-        </nav>
-        <main>{contextExplorerPageContent}</main>
-        {gitPageContent ? <aside data-testid="git-page-slot">{gitPageContent}</aside> : null}
-        {terminalPageContent ? (
-          <aside data-testid="terminal-page-slot">{terminalPageContent}</aside>
-        ) : null}
+    promptsPageContent?: React.ReactNode;
+    terminalPageContent?: React.ReactNode;
+  }) => {
+    sharedRootLayoutCapture.props = props as Record<string, unknown>;
+    const { contextExplorerPageContent, gitPageContent, navigationItems, terminalPageContent } =
+      props;
+    return (
+      <div data-testid="file-explorer-provider">
+        <div data-testid="app-layout">
+          {/* Surface the nav items + git/terminal pages so capability-gating can
+              be asserted. */}
+          <nav data-testid="nav-items">
+            {(navigationItems ?? []).map((item) => (
+              <span data-testid={`nav-item-${item.path}`} key={item.path}>
+                {item.name}
+              </span>
+            ))}
+          </nav>
+          <main>{contextExplorerPageContent}</main>
+          {gitPageContent ? <aside data-testid="git-page-slot">{gitPageContent}</aside> : null}
+          {terminalPageContent ? (
+            <aside data-testid="terminal-page-slot">{terminalPageContent}</aside>
+          ) : null}
+        </div>
       </div>
-    </div>
-  ),
+    );
+  },
 }));
 
 // Mock the page components to avoid adapter dependencies
@@ -225,6 +225,7 @@ describe('RootLayoutContent', () => {
     currentDb = null;
     homeMountCount = 0;
     vi.clearAllMocks();
+    sharedRootLayoutCapture.props = null;
     // Default: Git + Terminal bridges unavailable (web-safe). clearAllMocks wiped
     // the impls.
     gitBridgeAvailableMock.mockReturnValue(false);
@@ -256,6 +257,12 @@ describe('RootLayoutContent', () => {
   it('should render home page content by default', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+  });
+
+  it('does not configure the removed full-frame prompts route', () => {
+    render(<RootLayoutContent />);
+    expect(sharedRootLayoutCapture.props).not.toHaveProperty('promptsPageContent');
+    expect(screen.queryByTestId('nav-item-/prompts')).not.toBeInTheDocument();
   });
 
   it('does NOT surface the Git tab when window.git is absent (web-safe gate)', () => {

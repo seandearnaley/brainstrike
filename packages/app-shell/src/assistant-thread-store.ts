@@ -1,3 +1,4 @@
+import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -7,9 +8,7 @@ import type {
   AssistantThreadRepository,
 } from './assistant-memory-repository';
 
-interface AssistantThreadModelSettings {
-  readonly maxOutputTokens?: number;
-}
+type AssistantThreadModelSettings = RuntimeModelSettings;
 
 type AssistantThreadProviderOptions = Record<string, unknown>;
 
@@ -24,7 +23,8 @@ interface AssistantThreadState {
   closeThreadTab: (resourceId: string, threadId: string) => void;
   createThread: (
     repository: AssistantThreadRepository,
-    resourceId: string
+    resourceId: string,
+    title?: string
   ) => Promise<AssistantMemoryThread>;
   deleteThread: (
     repository: AssistantThreadRepository,
@@ -213,7 +213,15 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           };
         });
       },
-      createThread: async (repository: AssistantThreadRepository, resourceId: string) => {
+      createThread: async (
+        repository: AssistantThreadRepository,
+        resourceId: string,
+        title?: string
+      ) => {
+        const initialLoad = resourceThreadLoadPromises.get(resourceId);
+        if (initialLoad) {
+          await initialLoad;
+        }
         set((state) => ({
           loadStateByResourceId: {
             ...state.loadStateByResourceId,
@@ -221,7 +229,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           },
         }));
         try {
-          const thread = serializeThread(await repository.createThread(resourceId));
+          const thread = serializeThread(await repository.createThread(resourceId, title));
           set((state) => {
             const threads = mergeThread(state.threadsByResourceId[resourceId] ?? [], thread);
             return {
@@ -324,7 +332,8 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         if (existingLoad) {
           return existingLoad;
         }
-        if (get().loadStateByResourceId[resourceId]?.status === 'loading') {
+        const currentLoadStatus = get().loadStateByResourceId[resourceId]?.status;
+        if (currentLoadStatus === 'ready' || currentLoadStatus === 'loading') {
           return;
         }
 

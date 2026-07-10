@@ -225,7 +225,7 @@ export interface ThreadCumulativeUsage {
 export interface AssistantThreadRepository {
   appendThreadRunEvent: (runId: string, event: AssistantRunEvent) => Promise<void>;
   completeThreadRun: (runId: string, input: CompleteAssistantThreadRunInput) => Promise<void>;
-  createThread: (resourceId: string) => Promise<AssistantMemoryThread>;
+  createThread: (resourceId: string, title?: string) => Promise<AssistantMemoryThread>;
   createThreadRun: (input: CreateAssistantThreadRunInput) => Promise<AssistantThreadRunRecord>;
   deleteThread: (threadId: string) => Promise<void>;
   getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
@@ -413,6 +413,17 @@ function assertMemoryDatabase(database: DbHandle): asserts database is DbHandle 
 
 function createThreadId(): string {
   return `thread-${crypto.randomUUID()}`;
+}
+
+function resolveInitialThreadTitle(title: string | undefined): string {
+  if (title === undefined) {
+    return DEFAULT_THREAD_TITLE;
+  }
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle) {
+    throw new Error('Thread title is required.');
+  }
+  return normalizedTitle;
 }
 
 function normalizeDate(value: unknown): Date {
@@ -1669,14 +1680,14 @@ export function createPgliteAssistantThreadRepository(
         [runId, input.status, input.error ?? null, new Date(), new Date()]
       );
     },
-    async createThread(resourceId: string): Promise<AssistantMemoryThread> {
+    async createThread(resourceId: string, title?: string): Promise<AssistantMemoryThread> {
       await initialize();
       const now = new Date();
       const thread = {
         createdAt: now,
         id: createThreadId(),
         resourceId,
-        title: DEFAULT_THREAD_TITLE,
+        title: resolveInitialThreadTitle(title),
         updatedAt: now,
       } satisfies AssistantMemoryThread;
       await database.query(
@@ -1687,12 +1698,13 @@ export function createPgliteAssistantThreadRepository(
           thread.id,
           thread.resourceId,
           thread.title,
-          // The seeded title is a placeholder, not user-chosen, so it carries
-          // the OM marker: the observer's auto-title extractor may still
-          // overwrite it. A manual rename clears this marker.
+          // Only the default title is an OM-owned placeholder. An explicit
+          // creation title is user-owned and must never be auto-overwritten.
           JSON.stringify({
             source: 'brainstrike',
-            [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM,
+            ...(title === undefined
+              ? { [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM }
+              : {}),
           }),
           thread.createdAt,
           thread.updatedAt,

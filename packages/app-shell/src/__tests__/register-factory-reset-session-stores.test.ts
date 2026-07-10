@@ -7,6 +7,7 @@ import {
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 
 // Import for side-effect registration (same path root-layout-content uses).
 import '../register-factory-reset-session-stores';
@@ -17,6 +18,7 @@ describe('register-factory-reset-session-stores', () => {
     useChunkSelectionStore.getState().clearAll();
     resetContextUsageStore();
     useWorkspaceContextCurationStore.getState().reset();
+    useAssistantComposerCommandStore.getState().reset();
   });
 
   it('clears sibling session stores when factory reset drains registered resetters', async () => {
@@ -45,6 +47,12 @@ describe('register-factory-reset-session-stores', () => {
       .setTapestryRangesForKey('folder-a::src/a.ts', [
         { color: '#2563eb', endLine: 3, id: 'r1', isActive: true, startLine: 1 },
       ]);
+    useAssistantComposerCommandStore.getState().recordDraft('thread-1', 'private draft');
+    useAssistantComposerCommandStore.getState().enqueue({
+      mode: 'append',
+      text: 'queued snippet',
+      threadId: 'thread-1',
+    });
 
     expect(useWorkspaceSearchStore.getState().query).toBe('find me');
     expect(useChunkSelectionStore.getState().selectionsByKey['root|@|src/a.ts']).toBeDefined();
@@ -53,6 +61,12 @@ describe('register-factory-reset-session-stores', () => {
     expect(
       useWorkspaceContextCurationStore.getState().tapestryRangesByKey['folder-a::src/a.ts']
     ).toBeDefined();
+    expect(useAssistantComposerCommandStore.getState().draftTextByThreadId).toEqual({
+      'thread-1': 'private draft',
+    });
+    expect(useAssistantComposerCommandStore.getState().commandsByThreadId['thread-1']).toHaveLength(
+      1
+    );
 
     const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
     expect(result.success).toBe(true);
@@ -62,5 +76,7 @@ describe('register-factory-reset-session-stores', () => {
     expect(useContextUsageStore.getState().usageByThread).toEqual({});
     expect(useWorkspaceContextCurationStore.getState().contextSnapshot).toBeNull();
     expect(useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toEqual({});
+    expect(useAssistantComposerCommandStore.getState().draftTextByThreadId).toEqual({});
+    expect(useAssistantComposerCommandStore.getState().commandsByThreadId).toEqual({});
   });
 });

@@ -203,7 +203,13 @@ describe('assistant runtime helpers', () => {
       threadId: input.threadId,
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     }));
-    const modelSettings = { maxOutputTokens: 512 };
+    const modelSettings = {
+      frequencyPenalty: -0.25,
+      maxOutputTokens: 512,
+      presencePenalty: 0.5,
+      temperature: 0.3,
+      topP: 0.9,
+    };
     const providerOptions = { openai: { reasoningEffort: 'high' } };
 
     const runId = await createAssistantThreadRunPromise({

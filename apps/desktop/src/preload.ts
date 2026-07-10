@@ -544,7 +544,12 @@ if (shouldExposeBridge('electronAPI')) {
       // Atomic transaction over IPC (#1141): ships an ordered statement list to main
       // to run inside one pglite.transaction() and return statements[resultIndex] rows.
       runTransaction: (
-        statements: { sql: string; params?: unknown[] }[],
+        statements: {
+          expectedRowCount?: number;
+          params?: unknown[];
+          rowCountMismatchError?: string;
+          sql: string;
+        }[],
         resultIndex: number,
         options?: DatabaseWorkOptions
       ) => ipcRenderer.invoke(DB_TRANSACTION_CHANNEL, statements, resultIndex, options),
