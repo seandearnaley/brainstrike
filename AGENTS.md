@@ -244,7 +244,8 @@ When changing this flow, update this doc.
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety
-net and the two server-side resilience layers below are LIVE.
+net, the two server-side resilience layers, and the Mastra error-processor layer
+below are LIVE.
 
 1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
@@ -269,12 +270,40 @@ net and the two server-side resilience layers below are LIVE.
    A stream stall emits a visible assistant message, a terminal `run.failed`
    event, and an error finish so the renderer does not remain in-flight forever.
 
+4. **Mastra error-processor layer (LIVE)** —
+   `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
+   `buildToolLoopOptions` in `agent-runtime.ts`. Adopts three `@mastra/core`
+   built-ins that recover on EMITTED provider/API errors — disjoint from the
+   guard (tool-execute failures) and watchdog (silent stalls), so no
+   double-wrapping:
+   - **StreamErrorRetryProcessor** — retries transient mid-stream errors
+     (OpenAI Responses `error`/`response.failed`, provider `isRetryable`, and an
+     `isEconnResetStreamError` matcher with capped exponential backoff).
+   - **PrefillErrorHandler** — recovers reloaded-thread assistant-prefill
+     rejections (Anthropic / Qwen `enable_thinking`).
+   - **ProviderHistoryCompat** — cross-provider `mastra_messages` reuse.
+   Placement (verified against the compiled loop, do NOT relitigate): the two
+   `processAPIError`-only processors + ProviderHistoryCompat's REACTIVE rules go
+   on the Agent-config `errorProcessors` seam (never clobbered by the per-call
+   TokenLimiter). ProviderHistoryCompat's PREEMPTIVE `processLLMRequest` rules
+   (strip foreign reasoning — the ONLY place that incompatibility is handled)
+   fire ONLY from `inputProcessors`, so a SECOND ProviderHistoryCompat instance
+   is composed into the per-call `inputProcessors` array ALONGSIDE the
+   TokenLimiter in `buildToolLoopOptions` (composing, not clobbering — their
+   hooks are disjoint stages). **`maxProcessorRetries` MUST stay pinned**
+   (`ASSISTANT_MAX_PROCESSOR_RETRIES = 3`): any `errorProcessors` flips Mastra's
+   implicit default to 10. The whole layer is EXCLUDED for the built-in local
+   provider (the hidden llm-host owns its own engine-fault recovery; no
+   hosted-provider wire quirks apply).
+
 > **LIVE validation requirement:** A prior attempt wired the guard + watchdog into
 > the live path and BROKE real Mastra tool calling (hosted-provider tools silently
 > stopped executing) while mocked tests stayed green. Future changes to these
 > layers MUST preserve coverage that runs the actual Mastra agent loop end to end
-> with real tool `execute`, not only mocked stream parts. The current proof lives
-> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts`.
+> with real tool `execute`, not only mocked stream parts. The current proofs live
+> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts` and
+> `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
+> clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
 
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
 defined in `packages/agent/src/config/resilience-config.ts`:
