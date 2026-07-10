@@ -1,7 +1,15 @@
 // Types — all inline type definitions live in types.ts
 
 export {
+  ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
+  ASSISTANT_EDIT_CHECKPOINT_OPS,
+  ASSISTANT_EDIT_CHECKPOINT_REVERTIBLE_STATUSES,
   ASSISTANT_TASK_STATUSES,
+  type AssistantCheckpointRevertResult,
+  type AssistantCheckpointRevertRunResult,
+  type AssistantEditCheckpointCaptureStatus,
+  type AssistantEditCheckpointOp,
+  type AssistantEditCheckpointRecord,
   type AssistantTaskItem,
   type AssistantTaskItemInput,
   type AssistantTaskListSummary,
@@ -11,6 +19,7 @@ export {
   encodeFileMentionId,
   FILE_MENTION_DIRECTIVE_TYPE,
   type FileMentionDirective,
+  isRevertibleCaptureStatus,
   type ManageTaskListResult,
   type ParsedFileMention,
   parseFileMentionDirectives,
