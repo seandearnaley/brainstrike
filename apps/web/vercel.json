@@ -3,5 +3,16 @@
   "buildCommand": "cd ../.. && pnpm build --filter @brainstrike/web^... && cd apps/web && pnpm build",
   "outputDirectory": "dist",
   "installCommand": "cd ../.. && pnpm install",
-  "ignoreCommand": "exit 1"
+  "ignoreCommand": "exit 1",
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ]
 }
