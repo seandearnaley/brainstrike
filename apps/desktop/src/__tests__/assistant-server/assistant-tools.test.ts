@@ -2106,6 +2106,93 @@ describe('assistant-tools', () => {
       }
     });
 
+    it('deletes a SYMLINK to an in-root file: the link is removed, the target is untouched', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const targetPath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
+      const linkPath = path.join(workspaceRootPath, 'src', 'alias.ts');
+      try {
+        try {
+          await fsPromises.symlink(targetPath, linkPath, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.deleteWorkspaceFile'
+        ];
+
+        const result = await tool.execute({ context: { path: '/src/alias.ts' } });
+
+        expect(result).toMatchObject({ ok: true, path: '/src/alias.ts' });
+        // The LINK is gone; the target file it pointed at is intact.
+        await expect(fsPromises.lstat(linkPath)).rejects.toThrow();
+        expect(await fsPromises.readFile(targetPath, 'utf8')).toBe('export const add = () => 1;\n');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('deletes a DANGLING in-root symlink (just a pointer, target does not exist)', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const linkPath = path.join(workspaceRootPath, 'src', 'dangling.ts');
+      const missingTarget = path.join(workspaceRootPath, 'src', 'ghost.ts');
+      try {
+        try {
+          await fsPromises.symlink(missingTarget, linkPath, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.deleteWorkspaceFile'
+        ];
+
+        const result = await tool.execute({ context: { path: '/src/dangling.ts' } });
+
+        expect(result.ok).toBe(true);
+        await expect(fsPromises.lstat(linkPath)).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('refuses to delete a LIVE symlink leaf whose target is OUTSIDE the root (target untouched)', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-del-ll-'));
+      const outsideTarget = path.join(outsideRoot, 'secret.txt');
+      const linkPath = path.join(workspaceRootPath, 'src', 'out-alias.ts');
+      await fsPromises.writeFile(outsideTarget, 'secret', 'utf8');
+      try {
+        try {
+          await fsPromises.symlink(outsideTarget, linkPath, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.deleteWorkspaceFile'
+        ];
+        await expect(tool.execute({ context: { path: '/src/out-alias.ts' } })).rejects.toThrow(
+          /outside the selected workspace root/i
+        );
+        // Neither the link nor the outside target was removed.
+        expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('secret');
+        await expect(fsPromises.lstat(linkPath)).resolves.toBeDefined();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
+      }
+    });
+
     it('fails explicitly when no workspace folder is open', async () => {
       const tool = buildDesktopAssistantTools(undefined)['brainstrike.deleteWorkspaceFile'];
       await expect(tool.execute({ context: { path: '/x.ts' } })).rejects.toThrow(
@@ -2377,6 +2464,79 @@ describe('assistant-tools', () => {
       } finally {
         realpathSpy.mockRestore();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('renames a SYMLINK to an in-root file: the LINK moves (still points at target), target untouched', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const targetPath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
+      const linkPath = path.join(workspaceRootPath, 'src', 'alias.ts');
+      const movedLinkPath = path.join(workspaceRootPath, 'src', 'renamed-alias.ts');
+      try {
+        try {
+          await fsPromises.symlink(targetPath, linkPath, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+
+        const result = await tool.execute({
+          context: { fromPath: '/src/alias.ts', toPath: '/src/renamed-alias.ts' },
+        });
+
+        expect(result).toMatchObject({
+          fromPath: '/src/alias.ts',
+          ok: true,
+          toPath: '/src/renamed-alias.ts',
+        });
+        // The old link path is gone; the moved path is STILL a symlink pointing at
+        // the original target, and the target file itself was never moved/modified.
+        await expect(fsPromises.lstat(linkPath)).rejects.toThrow();
+        const movedStats = await fsPromises.lstat(movedLinkPath);
+        expect(movedStats.isSymbolicLink()).toBe(true);
+        expect(await fsPromises.readlink(movedLinkPath)).toBe(targetPath);
+        expect(await fsPromises.readFile(targetPath, 'utf8')).toBe('export const add = () => 1;\n');
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('refuses to rename a LIVE symlink leaf whose target is OUTSIDE the root', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-mv-ll-'));
+      const outsideTarget = path.join(outsideRoot, 'secret.txt');
+      const linkPath = path.join(workspaceRootPath, 'src', 'out-alias.ts');
+      await fsPromises.writeFile(outsideTarget, 'secret', 'utf8');
+      try {
+        try {
+          await fsPromises.symlink(outsideTarget, linkPath, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+        const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
+          'brainstrike.renameWorkspaceFile'
+        ];
+        await expect(
+          tool.execute({ context: { fromPath: '/src/out-alias.ts', toPath: '/src/moved.ts' } })
+        ).rejects.toThrow(/outside the selected workspace root/i);
+        // The outside target is intact and nothing was moved into place.
+        expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('secret');
+        await expect(
+          fsPromises.lstat(path.join(workspaceRootPath, 'src', 'moved.ts'))
+        ).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
       }
     });
 

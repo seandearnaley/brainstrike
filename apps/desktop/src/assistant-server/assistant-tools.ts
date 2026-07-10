@@ -300,7 +300,12 @@ async function resolveCanonicalWritablePath(absolutePath: string): Promise<strin
 async function resolveWorkspaceWritePath(
   rootPath: string,
   workspacePath: string
-): Promise<{ canonicalRootPath: string; workspacePath: string; absolutePath: string }> {
+): Promise<{
+  canonicalRootPath: string;
+  workspacePath: string;
+  absolutePath: string;
+  requestedAbsolutePath: string;
+}> {
   const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
   const relativePath =
     normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
@@ -314,10 +319,49 @@ async function resolveWorkspaceWritePath(
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
+    // Canonical (symlink-resolved) target — correct for WRITE tools, which write
+    // THROUGH a symlink to its target. `requestedAbsolutePath` is the raw
+    // (pre-realpath) requested path — delete/rename need it to act on the LINK
+    // itself rather than the resolved target (see resolveWorkspaceLeafMutationPath).
     absolutePath: canonicalAbsolutePath,
     canonicalRootPath,
+    requestedAbsolutePath: absolutePath,
     workspacePath: normalizedWorkspacePath,
   };
+}
+
+/**
+ * Resolve the on-disk path that a delete/rename should MUTATE. Unlike the write
+ * tools — which correctly resolve THROUGH a symlink to write its target — a
+ * delete/rename must act on the symlink itself: unlinking removes the pointer
+ * (never the target file) and renaming moves the pointer. `resolveWorkspaceWritePath`
+ * realpaths an existing leaf, so its `absolutePath` is the TARGET for a live
+ * in-root symlink. Here we canonicalize only the leaf's PARENT and re-append the
+ * leaf name, so the result is the LINK's own location for a symlink leaf (live or
+ * dangling) and the file's canonical location for a regular file. The parent's
+ * realpath is containment-checked (a symlinked parent escaping the root is
+ * refused, mirroring `ensureContainedDirectory`); a LIVE symlink whose TARGET
+ * escapes the root is already refused upstream by `resolveWorkspaceWritePath`
+ * (realpath-then-containment), so it never reaches this helper.
+ */
+async function resolveWorkspaceLeafMutationPath(
+  canonicalRootPath: string,
+  requestedAbsolutePath: string,
+  workspacePath: string
+): Promise<string> {
+  let canonicalParent: string;
+  try {
+    canonicalParent = await fsPromises.realpath(path.dirname(requestedAbsolutePath));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Path "${workspacePath}" does not exist.`);
+    }
+    throw error;
+  }
+  if (!isWithinRoot(canonicalRootPath, canonicalParent)) {
+    throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
+  }
+  return path.join(canonicalParent, path.basename(requestedAbsolutePath));
 }
 
 /**
@@ -898,34 +942,40 @@ async function runDeleteWorkspaceFile(
 }> {
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Same path hardening as the write tools: clamps "..", contains symlinked
-  // ancestors, and rejects the workspace root itself. The delete + index
-  // invalidation run inside the per-file lock so a concurrent edit to the same
-  // path cannot interleave.
+  // ancestors, and rejects the workspace root itself. A LIVE symlink whose target
+  // escapes the root is refused here (realpath-then-containment). The delete +
+  // index invalidation run inside the per-file lock so a concurrent edit to the
+  // same path cannot interleave.
   const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+  // Act on the LINK itself, not its resolved target: deleting a symlink must
+  // remove the pointer and leave the target intact (resolved.absolutePath is the
+  // TARGET for a live in-root symlink).
+  const mutationPath = await resolveWorkspaceLeafMutationPath(
+    resolved.canonicalRootPath,
+    resolved.requestedAbsolutePath,
+    input.path
+  );
 
-  return withFileLock(resolved.absolutePath, async () => {
+  return withFileLock(mutationPath, async () => {
     let leafStats: import('node:fs').Stats;
     try {
-      leafStats = await fsPromises.lstat(resolved.absolutePath);
+      leafStats = await fsPromises.lstat(mutationPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new Error(`Path "${input.path}" does not exist.`);
       }
       throw error;
     }
-    // A symlink leaf here is a dangling one (a live symlink was already resolved
-    // to its target by resolveWorkspaceWritePath, and one pointing outside the
-    // root would have failed containment). Reject it as a containment escape.
-    if (leafStats.isSymbolicLink()) {
-      throw new Error(`Path "${input.path}" is outside the selected workspace root.`);
-    }
+    // A symlink leaf (live or dangling) is deleted AS A LINK — `unlink` removes
+    // the pointer, never the target. Only a REAL directory is refused (lstat does
+    // not follow the leaf, so a symlink-to-directory reports isDirectory() false).
     if (leafStats.isDirectory()) {
       throw new Error(
         `Path "${input.path}" is a directory. Deleting directories is not supported — use executeCommand for that.`
       );
     }
 
-    await fsPromises.unlink(resolved.absolutePath);
+    await fsPromises.unlink(mutationPath);
     const { invalidated } = await triggerFileDeletionInvalidation({
       rootId: root.rootId,
       runtimeData,
@@ -962,27 +1012,35 @@ async function runRenameWorkspaceFile(
       'Cross-root moves are not supported. Both paths must be in the same open folder.'
     );
   }
-  if (fromResolved.absolutePath === toResolved.absolutePath) {
+  // Act on the LINK itself for the source: renaming a symlink must move the
+  // pointer and leave its target intact (fromResolved.absolutePath is the TARGET
+  // for a live in-root symlink). A live symlink whose target escapes the root is
+  // already refused above by resolveWorkspaceWritePath.
+  const fromMutationPath = await resolveWorkspaceLeafMutationPath(
+    fromResolved.canonicalRootPath,
+    fromResolved.requestedAbsolutePath,
+    input.fromPath
+  );
+  if (fromMutationPath === toResolved.absolutePath) {
     throw new Error(
       `fromPath and toPath resolve to the same file "${toResolved.workspacePath}"; nothing to rename.`
     );
   }
 
-  // Lock BOTH canonical paths (sorted order → deadlock-free) so a concurrent edit
-  // or rename touching either path cannot interleave with this move.
-  return withTwoFileLocks(fromResolved.absolutePath, toResolved.absolutePath, async () => {
+  // Lock BOTH paths (sorted order → deadlock-free) so a concurrent edit or rename
+  // touching either path cannot interleave with this move.
+  return withTwoFileLocks(fromMutationPath, toResolved.absolutePath, async () => {
     let fromStats: import('node:fs').Stats;
     try {
-      fromStats = await fsPromises.lstat(fromResolved.absolutePath);
+      fromStats = await fsPromises.lstat(fromMutationPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new Error(`Path "${input.fromPath}" does not exist.`);
       }
       throw error;
     }
-    if (fromStats.isSymbolicLink()) {
-      throw new Error(`Path "${input.fromPath}" is outside the selected workspace root.`);
-    }
+    // A symlink source is moved AS A LINK (rename(2) does not follow the final
+    // component). Only a REAL directory is refused.
     if (fromStats.isDirectory()) {
       throw new Error(
         `Path "${input.fromPath}" is a directory. Renaming directories is not supported — use executeCommand for that.`
@@ -1013,7 +1071,7 @@ async function runRenameWorkspaceFile(
       path.dirname(toResolved.absolutePath)
     );
 
-    await fsPromises.rename(fromResolved.absolutePath, toResolved.absolutePath);
+    await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
 
     // Index coherence: invalidate the SOURCE rows immediately (the differentiator
     // vs a shell mv). `indexInvalidated` reflects that source removal. The

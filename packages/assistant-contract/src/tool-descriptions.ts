@@ -1,4 +1,6 @@
 export const TOOL_DESCRIPTIONS: Record<string, string> = {
+  'brainstrike.deleteWorkspaceFile':
+    'Permanently delete a single file in the selected workspace root and invalidate its index rows. DESTRUCTIVE and NOT recoverable through the tool; refuses directories (use executeCommand) and acts on a symlink itself (removes the link, never its target). Workspace-scoped; requires approval',
   'brainstrike.executeCommand':
     "Run an arbitrary shell command (tests, builds, linters, git, package managers). ARBITRARY EXECUTION with NO sandbox: the command can read or change anything the user can. By default the call suspends for the user's per-call approval before running; the user can let it run unprompted or deny it. Starts in the workspace root; the whole process tree is killed on timeout. Returns exitCode, a budget-bounded stdout/stderr tail, and durationMs",
   'brainstrike.findWorkspaceSymbol':
@@ -19,6 +21,8 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'List a workspace directory in a compact, token-efficient format',
   'brainstrike.readWorkspaceFile':
     'Read a file from the selected workspace root with optional range and truncation',
+  'brainstrike.renameWorkspaceFile':
+    'Rename or move a single file within the selected workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval',
   'brainstrike.stringReplaceWorkspaceFile':
     'Surgically edit a workspace file by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; workspace-scoped, requires approval)',
   'brainstrike.updateWorkspaceContextSelection':
