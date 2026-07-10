@@ -43,10 +43,12 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   };
 });
 
-const { streamMastraAgent, streamMastraToolResumeAction } = await import('../mastra/agent-runtime');
+const { streamMastraAgent, streamMastraToolApprovalAction, streamMastraToolResumeAction } =
+  await import('../mastra/agent-runtime');
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const { createSubmitPlanTool } = await import('../tools/submit-plan-tool');
 const { createAskUserTool } = await import('../tools/ask-user-tool');
+const { buildNativeToolRiskMap } = await import('@brainstrike/assistant-contract/tool-metadata');
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
@@ -114,6 +116,13 @@ function findSuspendChunk(chunks: StreamChunk[]) {
   return chunks.find(
     (chunk): chunk is Extract<StreamChunk, { type: 'tool-suspend-required' }> =>
       chunk.type === 'tool-suspend-required'
+  );
+}
+
+function findApprovalChunk(chunks: StreamChunk[]) {
+  return chunks.find(
+    (chunk): chunk is Extract<StreamChunk, { type: 'tool-approval-required' }> =>
+      chunk.type === 'tool-approval-required'
   );
 }
 
@@ -504,6 +513,205 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
       )
     );
     expect(findSuspendChunk(planChunks)?.toolName).toBe('brainstrike.submitPlan');
+
+    await database.close();
+  });
+
+  it('O4: an ENFORCED permission policy does NOT double-gate submitPlan (it suspends, never asks approval)', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = { resourceId: 'resource-o4', threadId: 'thread-o4' } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Plan submitted.',
+      input: SUBMIT_PLAN_INPUT,
+      toolCallId: 'call-o4-plan',
+      toolName: 'brainstrike_submitPlan',
+    });
+
+    // A real enforced snapshot with the SERVER-built risk map: submitPlan is
+    // classified 'read', which resolves to 'allow', so the permission gate must
+    // NOT clone it with requireApproval. Its own suspend() is the only gate.
+    const chunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-o4', parts: [{ text: 'make a plan', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: {
+              policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+              riskByTool: buildNativeToolRiskMap(),
+              yolo: false,
+            },
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.submitPlan': createSubmitPlanTool() },
+        }
+      )
+    );
+
+    expect(findSuspendChunk(chunks)?.toolName).toBe('brainstrike.submitPlan');
+    // NEVER double-gated: no approval-required chunk was emitted.
+    expect(findApprovalChunk(chunks)).toBeUndefined();
+
+    await database.close();
+  });
+
+  it('BOTH FLAGS: a read:ask policy clones submitPlan with requireApproval AND it keeps suspendSchema — the two transports compose serially (approval → suspend → resume) without deadlock or lost suspension', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = { resourceId: 'resource-both', threadId: 'thread-both' } as const;
+
+    // read:'ask' forces the permission gate to CLONE submitPlan (risk 'read')
+    // with per-tool requireApproval. The clone preserves suspendSchema, so the
+    // tool now carries BOTH transports.
+    const policy = {
+      policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'ask' },
+      riskByTool: buildNativeToolRiskMap(),
+      yolo: false,
+    } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Proceeding with the approved plan.',
+      input: SUBMIT_PLAN_INPUT,
+      toolCallId: 'call-both-plan',
+      toolName: 'brainstrike_submitPlan',
+    });
+
+    // ── Phase 1: the permission APPROVAL transport fires FIRST (before execute,
+    //    so no suspend yet). ──
+    const approvalChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-both', parts: [{ text: 'make a plan', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: policy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.submitPlan': createSubmitPlanTool() },
+        }
+      )
+    );
+    const approval = findApprovalChunk(approvalChunks);
+    expect(approval?.toolName).toBe('brainstrike.submitPlan');
+    expect(approval?.policyDecision).toBe('ask');
+    // Approval gate fired before execute → no suspension payload yet.
+    expect(findSuspendChunk(approvalChunks)).toBeUndefined();
+
+    // ── Phase 2: APPROVE the tool call → execute() runs → the tool's own
+    //    suspend() fires (the SUSPEND transport), no deadlock, no lost pause. ──
+    const suspendChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'brainstrike.submitPlan',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: policy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.submitPlan': createSubmitPlanTool() },
+        }
+      )
+    );
+    const suspend = findSuspendChunk(suspendChunks);
+    expect(suspend?.toolName).toBe('brainstrike.submitPlan');
+    expect(suspend?.suspendPayload).toMatchObject({ title: 'Parser refactor' });
+
+    // ── Phase 3: resume the SUSPEND with the plan decision → the tool re-runs
+    //    and the run reaches its final answer. ──
+    const resumeChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { action: 'approved' },
+          runId: suspend?.runId ?? '',
+          toolCallId: suspend?.toolCallId ?? '',
+          toolName: 'brainstrike.submitPlan',
+        },
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: policy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { 'brainstrike.submitPlan': createSubmitPlanTool() },
+        }
+      )
+    );
+    // No lost suspension: resuming reached the FINAL answer (the model saw the
+    // approved plan result and proceeded), and the run finished cleanly — no
+    // deadlock, no error finish. (On this double-gated path Mastra folds the
+    // resumed tool result into the model turn rather than re-emitting a
+    // standalone tool-event; the final text is the authoritative proof.)
+    expect(finalText(resumeChunks)).toContain('Proceeding with the approved plan.');
+    expect(
+      resumeChunks.find((chunk) => chunk.type === 'message-finish' && chunk.finishReason === 'stop')
+    ).toBeDefined();
+
+    await database.close();
+  });
+
+  it('STALE resume: a nonexistent runId with real storage surfaces a typed error / visible error finish and never hangs', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+
+    // A bounded attempt: either the resume PROMISE rejects with a typed error,
+    // or it yields a visible error finish — but it must resolve one way or the
+    // other (never hang). The race guards against a wedge.
+    const attempt: Promise<{ kind: 'error-finish' | 'rejected' | 'silent' }> = (async () => {
+      try {
+        const iterator = await streamMastraToolResumeAction(
+          {
+            resumeData: { action: 'approved' },
+            runId: 'nonexistent-run-id',
+            toolCallId: 'nonexistent-call-id',
+            toolName: 'brainstrike.submitPlan',
+          },
+          {
+            memory,
+            runtime: {
+              apiKey: 'test-key',
+              memory: { resourceId: 'resource-stale', threadId: 'thread-stale' },
+              provider: 'openai',
+            },
+            storage,
+            tools: { 'brainstrike.submitPlan': createSubmitPlanTool() },
+          }
+        );
+        const chunks = await drainYielding(iterator);
+        const hasErrorFinish = chunks.some(
+          (chunk) => chunk.type === 'message-finish' && chunk.finishReason === 'error'
+        );
+        return { kind: hasErrorFinish ? 'error-finish' : 'silent' };
+      } catch {
+        return { kind: 'rejected' };
+      }
+    })();
+
+    const timeout = new Promise<never>((_resolve, reject) => {
+      setTimeout(() => reject(new Error('stale resume hung')), 15_000);
+    });
+    const result = await Promise.race([attempt, timeout]);
+    // Never a silent success: a stale/nonexistent run must be surfaced.
+    expect(result.kind === 'rejected' || result.kind === 'error-finish').toBe(true);
 
     await database.close();
   });

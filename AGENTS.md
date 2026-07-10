@@ -431,10 +431,20 @@ when on (presence-means-on, gated to the desktop data-stream transport in the
 app-shell wrapper). `filterToolsForPlanMode` runs BEFORE the permission gate in
 `createMastraAgentRuntime`: it keeps read/mcp tools + the suspending tools and
 OMITS every edit/execute tool, so the model investigates read-only and proposes a
-plan before any changes. `buildDefaultInstructions(toolNameMap, {planMode})`
+plan before any changes. `manageTaskList` (`riskCategory:'read'`) DELIBERATELY
+stays available in plan mode: it is thread bookkeeping (the assistant's own todo
+list), not workspace/fs mutation, so the model can plan its steps while planning.
+`buildDefaultInstructions(toolNameMap, {planMode})`
 prepends a PLAN-MODE block. THREE-SIDED local gating (mirrors the task-list tool):
 plan mode is EXCLUDED for provider `'local'` (the filter + the instruction block
-+ the runtime `planModeActive` guard all check `normalizedProvider !== 'local'`).
++ the runtime `planModeActive` guard all check `normalizedProvider !== 'local'`),
+and the composer toggle itself is HIDDEN for the `'local'` provider in the
+app-shell wrapper (`selectedProvider !== 'local'`) rather than silently no-opping.
+**Approve exits plan mode:** APPROVING a submitted plan clears the persisted
+`planModeEnabled` toggle BEFORE the resume request is composed (via the
+`PlanModeExitProvider` seam consumed by `AssistantToolSuspendNotice`), so the
+resume omits `planMode` and the rebuilt runtime unlocks the mutation tools;
+REJECT keeps plan mode on so the model can revise.
 
 **Cross-reload hydration:** in-session resume works today; cross-reload resume
 waits on the separate `listSuspendedRuns` feature (the data part is transient).

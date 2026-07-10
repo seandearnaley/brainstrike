@@ -458,22 +458,28 @@ export function buildDefaultInstructions(
 
   const askUserInstruction = buildAskUserInstruction(names);
 
-  return `${planModePrefix}You are a helpful assistant for the Brainstrike IDE.
-${HARNESS_FRAMING}
-Use tools when they help you answer accurately.
-Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
-Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
-When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction} ${executeCommandInstruction} ${webSearchInstruction}
-${taskListInstruction}
-${askUserInstruction}
-${multiRootInstruction}
-${curationInstruction}
-${selectionLine}
-Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
-Tool results are bounded: when a result has truncated: true, it is a valid partial result — use its hint (offset, filePaths, smaller limits, deeper paths) to fetch exactly what is missing instead of repeating or broadening the same call.
-Independent read-only lookups (searches, directory listings, file reads with no dependency between them) execute in parallel — issue them together in one step instead of one per turn.
-If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.
-If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.
-Only run state-changing tools after the user confirms.
-Provide concise answers after using tools.`;
+  // Each entry is one instruction line; empty optional clauses (e.g. an
+  // unregistered askUser) are filtered out so they never leave a blank line.
+  return [
+    `${planModePrefix}You are a helpful assistant for the Brainstrike IDE.`,
+    HARNESS_FRAMING,
+    'Use tools when they help you answer accurately.',
+    'Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.',
+    `Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.`,
+    `When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction} ${executeCommandInstruction} ${webSearchInstruction}`,
+    taskListInstruction,
+    askUserInstruction,
+    multiRootInstruction,
+    curationInstruction,
+    selectionLine,
+    'Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.',
+    'Tool results are bounded: when a result has truncated: true, it is a valid partial result — use its hint (offset, filePaths, smaller limits, deeper paths) to fetch exactly what is missing instead of repeating or broadening the same call.',
+    'Independent read-only lookups (searches, directory listings, file reads with no dependency between them) execute in parallel — issue them together in one step instead of one per turn.',
+    'If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.',
+    'If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.',
+    'Only run state-changing tools after the user confirms.',
+    'Provide concise answers after using tools.',
+  ]
+    .filter((line) => line.length > 0)
+    .join('\n');
 }
