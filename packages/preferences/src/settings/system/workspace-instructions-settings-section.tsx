@@ -15,6 +15,7 @@
 
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -23,8 +24,11 @@ import {
   Label,
   Switch,
 } from '@brainstrike/ui';
-import { useEffect, useState } from 'react';
+import { createLogger } from '@brainstrike/utils/logger';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWorkspaceInstructionsPreferencesStore } from '../../stores/workspace-instructions-preferences-store';
+
+const logger = createLogger('WorkspaceInstructionsSettings');
 
 interface WorkspaceContextFileStatus {
   readonly approxTokens: number | null;
@@ -92,31 +96,47 @@ export function WorkspaceInstructionsSettingsSection() {
     (state) => state.setOversizedOptIn
   );
   const [statuses, setStatuses] = useState<WorkspaceContextFileStatus[]>([]);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
-  // Fetch the per-root scan from the desktop bridge. Canonical data-fetch-in-
-  // effect: an `ignore` flag drops a stale response if the panel unmounts before
-  // the scan resolves.
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Fetch the per-root scan from the desktop bridge. A scan rejection (DB
+  // unavailable, IPC failure, handler bug) is surfaced as a distinct, logged
+  // error state — NEVER swallowed into the empty state, which would falsely
+  // claim no workspace folders are open. The applier arrows keep setState out of
+  // the effect body (react-compiler-friendly data-fetch-in-effect).
+  const runScan = useCallback(() => {
     const bridge = getContextFilesBridge();
     if (!bridge) {
       return;
     }
-    let ignore = false;
     bridge
       .scan()
       .then((result) => {
-        if (!ignore) {
+        if (mountedRef.current) {
           setStatuses(result);
+          setScanError(null);
         }
       })
-      .catch(() => {
-        // A bridge failure leaves the prior scan in place; the rows simply do
-        // not update. The empty state covers the never-loaded case.
+      .catch((error: unknown) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        const detail = error instanceof Error ? error.message : 'unknown error';
+        logger.error('Workspace context-file scan failed', { error: detail });
+        setScanError(detail);
       });
-    return () => {
-      ignore = true;
-    };
   }, []);
+
+  useEffect(() => {
+    runScan();
+  }, [runScan]);
 
   return (
     <Card>
@@ -149,7 +169,24 @@ export function WorkspaceInstructionsSettingsSection() {
 
         <fieldset className="space-y-3 border-0 p-0" disabled={!masterEnabled}>
           <legend className="font-medium text-sm">Detected files</legend>
-          {statuses.length === 0 ? (
+          {scanError ? (
+            <div
+              className="space-y-2 rounded-md border border-destructive/50 p-3"
+              data-testid="context-files-scan-error"
+            >
+              <p className="text-destructive text-sm">
+                Could not scan workspace folders: {scanError}
+              </p>
+              <Button
+                data-testid="context-files-scan-retry"
+                onClick={() => runScan()}
+                size="sm"
+                variant="outline"
+              >
+                Retry
+              </Button>
+            </div>
+          ) : statuses.length === 0 ? (
             <p className="text-muted-foreground text-sm" data-testid="context-files-no-roots">
               No workspace folders with an instructions file are open.
             </p>

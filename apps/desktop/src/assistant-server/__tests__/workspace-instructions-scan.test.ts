@@ -10,7 +10,10 @@ function makeReader(files: Record<string, Record<string, string>>): WorkspaceFil
   return vi.fn(async ({ rootPath, requestedPath }) => {
     const content = files[rootPath]?.[requestedPath];
     if (content === undefined) {
-      throw new Error(`Path "${requestedPath}" is not a file.`);
+      // Genuinely-absent files throw ENOENT in the real reader (from `realpath`).
+      throw Object.assign(new Error(`ENOENT: no such file, open '${requestedPath}'`), {
+        code: 'ENOENT',
+      });
     }
     return { content, path: requestedPath, size: Buffer.byteLength(content, 'utf8') };
   });
@@ -51,6 +54,31 @@ describe('scanWorkspaceContextFiles', () => {
     });
     const [status] = await scanWorkspaceContextFiles([ROOT_A], reader);
     expect(status?.fileName).toBe('AGENTS.md');
+  });
+
+  it.each([
+    ['binary', new Error('Path "AGENTS.md" is a binary file and cannot be read as text.')],
+    ['oversized', new Error('Path "AGENTS.md" exceeds 2000000 bytes and cannot be read in full.')],
+    [
+      'permission (EACCES)',
+      Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+    ],
+  ])("reports 'error' for a present-but-unreadable file (%s)", async (_label, thrown) => {
+    // A non-ENOENT reader throw means the file EXISTS but cannot be read; it must
+    // surface as `status:'error'`, never be fabricated into 'none'.
+    const reader: WorkspaceFileReader = vi.fn(async ({ requestedPath }) => {
+      if (requestedPath === 'AGENTS.md') {
+        throw thrown;
+      }
+      throw Object.assign(new Error(`ENOENT: no such file, open '${requestedPath}'`), {
+        code: 'ENOENT',
+      });
+    });
+    const [status] = await scanWorkspaceContextFiles([ROOT_A], reader);
+    expect(status?.status).toBe('error');
+    expect(status?.error).toBe((thrown as Error).message);
+    expect(status?.fileName).toBeNull();
+    expect(status?.sizeBytes).toBeNull();
   });
 
   it('scans every mounted root', async () => {

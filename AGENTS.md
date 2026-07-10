@@ -1091,10 +1091,25 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
   containment/size/binary guards (NO new raw-fs read path). Headings are
   qualified by `root.displayName` (two roots that both ship `AGENTS.md` stay
   distinct). Budgets mirror referenced-files: `MAX_CONTEXT_FILE_CHARS` = 12_000
-  per file, `MAX_CONTEXT_FILES_TOTAL_CHARS` = 48_000 aggregate, with honest
-  truncation/omission notes when the aggregate binds. Skipped ENTIRELY for
-  provider `'local'` (the built-in Gemma's whole context budget is 8,192 tokens —
-  mirrors the personas/plan-mode local exclusions).
+  per file, `MAX_CONTEXT_FILES_TOTAL_CHARS` = 48_000 aggregate — a HARD ceiling:
+  a file that would OVERSHOOT the aggregate is counted as omitted (the injected
+  total never exceeds 48_000), with an honest omission note. Truncation of an
+  opted-in oversized file never splits a UTF-16 surrogate pair (a lone surrogate
+  at the cut boundary is dropped). Skipped ENTIRELY for provider `'local'` (the
+  built-in Gemma's whole context budget is 8,192 tokens — mirrors the
+  personas/plan-mode local exclusions).
+  - **Read-failure discrimination (no fabricated absence):** `findRootContextFile`
+    returns a discriminated `{kind:'found'|'none'|'error'}`. Only a GENUINELY
+    absent candidate (ENOENT) advances to the next name; a PRESENT-but-unreadable
+    candidate (binary, over the 2 MB read cap, EACCES/EIO, containment violation,
+    not-a-file) short-circuits to `'error'`. Injection LOGS a warn and omits that
+    root (never a prompt note, never a silent "no file"); the Settings scan maps
+    it to `status:'error'` → an "Unavailable" badge with the detail. A >2 MB
+    `AGENTS.md` therefore shows as Unavailable, not silently dropped.
+  - **Legacy fallback is fail-closed:** oversized opt-in is defined only for
+    DB-backed roots. A DB-less legacy root (synthesized from `workspaceRootPath`,
+    `rootId` = raw path) can never appear in the DB-driven Settings scan, so its
+    opt-in is un-settable and its oversized file stays un-injected.
 
 - **THRESHOLD-HYBRID policy** (product ruling — never a silent drop):
   - A file that FITS the per-file budget → auto-injected WHOLE by default (no note).
@@ -1116,7 +1131,11 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
   (contract type `WorkspaceInstructionsContextRequest`), gated to the desktop
   data-stream transport like `permissionPolicyRequest` — but this is a
   PREFERENCE, not a security boundary: the server reads it directly (no
-  server-side re-derivation, unlike the permission gate).
+  server-side re-derivation, unlike the permission gate). It is still parsed
+  strictly — `readWorkspaceInstructionsPreference` DROPS a malformed field (a
+  non-object preference, non-boolean `masterEnabled`, non-object opt-in map) with
+  a warn rather than silently coercing it, then applies the fail-safe default
+  (master ON, no oversized opt-ins).
 
 - **Settings UI** (`packages/preferences/src/settings/system/workspace-instructions-settings-{section,category}.tsx`,
   registered in the DESKTOP page-content only) lists each mounted root's detected
@@ -1127,7 +1146,9 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
   `contextFiles` bridge, capability-gated) whose main-process handler loads roots
   from the DB (`loadWorkspaceRootsFromDatabase`) and reuses the injection path's
   `findRootContextFile` (`workspace-instructions-scan.ts`) so status/oversized
-  decisions are byte-identical to injection.
+  decisions are byte-identical to injection. A rejected `scan()` (DB unavailable,
+  IPC failure) renders a DISTINCT, logged error state with a Retry button — NEVER
+  the empty "no folders" state (which would falsely claim the workspace is empty).
 
 - **Deferred**: Mastra skills adoption (on-demand `createSkill()` per-root
   instructions — the architecturally better long-term fit, blocked on verifying

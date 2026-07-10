@@ -28,6 +28,13 @@ function stubBridge(statuses: WorkspaceContextFileStatus[]) {
   });
 }
 
+function stubRejectingBridge(error: Error) {
+  Object.defineProperty(window, 'contextFiles', {
+    configurable: true,
+    value: { scan: vi.fn(async () => Promise.reject(error)) },
+  });
+}
+
 describe('WorkspaceInstructionsSettingsSection', () => {
   beforeEach(() => {
     __resetWorkspaceInstructionsPreferencesStoreForTests();
@@ -111,5 +118,41 @@ describe('WorkspaceInstructionsSettingsSection', () => {
     await waitFor(() => {
       expect(screen.getByTestId('context-files-no-roots')).not.toBeNull();
     });
+  });
+
+  it('shows a distinct error state (not the empty state) when the scan rejects', async () => {
+    stubRejectingBridge(new Error('database unavailable'));
+    render(<WorkspaceInstructionsSettingsSection />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('context-files-scan-error')).not.toBeNull();
+    });
+    const errorBanner = screen.getByTestId('context-files-scan-error');
+    expect(errorBanner.textContent).toContain('database unavailable');
+    // The failure must NOT masquerade as "no folders open".
+    expect(screen.queryByTestId('context-files-no-roots')).toBeNull();
+  });
+
+  it('retries the scan and clears the error on success', async () => {
+    const scan = vi
+      .fn<() => Promise<WorkspaceContextFileStatus[]>>()
+      .mockRejectedValueOnce(new Error('transient failure'))
+      .mockResolvedValueOnce([]);
+    Object.defineProperty(window, 'contextFiles', {
+      configurable: true,
+      value: { scan },
+    });
+    render(<WorkspaceInstructionsSettingsSection />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('context-files-scan-error')).not.toBeNull();
+    });
+    fireEvent.click(screen.getByTestId('context-files-scan-retry'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('context-files-scan-error')).toBeNull();
+    });
+    expect(screen.getByTestId('context-files-no-roots')).not.toBeNull();
+    expect(scan).toHaveBeenCalledTimes(2);
   });
 });

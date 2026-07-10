@@ -53,19 +53,21 @@ export async function scanWorkspaceContextFiles(
   const results = await Promise.all(
     roots.map(async (root): Promise<WorkspaceContextFileStatus> => {
       const base = { displayName: root.displayName, rootId: root.rootId } as const;
-      let found: Awaited<ReturnType<typeof findRootContextFile>>;
-      try {
-        found = await findRootContextFile(root, readFile);
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : 'unknown error';
+      const result = await findRootContextFile(root, readFile);
+
+      if (result.kind === 'error') {
+        // A present-but-unreadable file (binary, over the 2 MB cap, EACCES, …).
+        // Surfaced as `error` so the Settings UI shows "Unavailable" — never
+        // fabricated into "No file".
         logger.warn('Failed to scan workspace instructions file', {
-          error: detail,
+          error: result.detail,
+          fileName: result.fileName,
           rootId: root.rootId,
         });
         return {
           ...base,
           approxTokens: null,
-          error: detail,
+          error: result.detail,
           fileName: null,
           oversized: false,
           path: null,
@@ -74,7 +76,7 @@ export async function scanWorkspaceContextFiles(
         };
       }
 
-      if (!found) {
+      if (result.kind === 'none') {
         return {
           ...base,
           approxTokens: null,
@@ -86,6 +88,7 @@ export async function scanWorkspaceContextFiles(
         };
       }
 
+      const found = result.file;
       const oversized = found.content.length > MAX_CONTEXT_FILE_CHARS;
       return {
         ...base,
