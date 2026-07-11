@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetUserCommandWarningsForTests,
   MAX_USER_COMMAND_FILE_CHARS,
+  MAX_USER_COMMAND_SCAN_DEPTH,
   MAX_USER_COMMANDS,
   scanUserSlashCommands,
   type UserSlashCommandScanDeps,
@@ -322,5 +323,109 @@ describe('scanUserSlashCommands', () => {
       },
     });
     expect(scanUserSlashCommands({ homeDir: HOME, roots: [] }, deps)).toEqual([]);
+  });
+
+  it('P2-A: stops TRAVERSING (not just collecting) once the count cap is reached', () => {
+    // A hostile/huge tree: (cap + 20) subdirectories, each with one command file.
+    // The traversal itself must stop at the cap — bounded listDir/readFile WORK,
+    // not merely a capped RESULT (sync fs on Electron main must never walk the
+    // whole tree first).
+    const extra = 20;
+    const base = `${HOME}/.brainstrike/commands`;
+    const dirs: Record<string, { name: string; kind: 'file' | 'dir' }[]> = {
+      [base]: Array.from({ length: MAX_USER_COMMANDS + extra }, (_unused, index) => ({
+        kind: 'dir' as const,
+        // Zero-padded so enumeration order == sorted order (determinism aside,
+        // the bound assertions below hold regardless).
+        name: `d${String(index).padStart(4, '0')}`,
+      })),
+    };
+    const files: Record<string, string> = {};
+    for (let index = 0; index < MAX_USER_COMMANDS + extra; index += 1) {
+      const dir = `${base}/d${String(index).padStart(4, '0')}`;
+      dirs[dir] = [{ kind: 'file', name: 'cmd.md' }];
+      files[`${dir}/cmd.md`] = 'body';
+    }
+    const inner = makeDeps({ dirs, files });
+    let listDirCalls = 0;
+    let readFileCalls = 0;
+    const deps: UserSlashCommandScanDeps = {
+      listDir: (absDir) => {
+        listDirCalls += 1;
+        return inner.listDir(absDir);
+      },
+      readFile: (absFile) => {
+        readFileCalls += 1;
+        return inner.readFile(absFile);
+      },
+    };
+
+    const { records, stop } = captureLogs();
+    let commands: ReturnType<typeof scanUserSlashCommands>;
+    try {
+      commands = scanUserSlashCommands({ homeDir: HOME, roots: [] }, deps);
+    } finally {
+      stop();
+    }
+
+    expect(commands).toHaveLength(MAX_USER_COMMANDS);
+    // Traversal work is bounded: the tier dir + at most `cap` subdirs are listed
+    // (plus the other three empty tiers), never all cap+extra subdirs.
+    expect(listDirCalls).toBeLessThanOrEqual(MAX_USER_COMMANDS + 5);
+    expect(readFileCalls).toBeLessThanOrEqual(MAX_USER_COMMANDS);
+    expect(
+      records.some(
+        (record) => record.level === 'warn' && record.message?.toLowerCase().includes('cap')
+      )
+    ).toBe(true);
+  });
+
+  it('P2-A: bounds recursion depth with a visible warn (namespacing keeps working above the bound)', () => {
+    // A chain nested past MAX_USER_COMMAND_SCAN_DEPTH must not be descended into;
+    // a file at a legal depth still loads with its full namespace.
+    const base = `${HOME}/.brainstrike/commands`;
+    const dirs: Record<string, { name: string; kind: 'file' | 'dir' }[]> = {
+      [base]: [
+        { kind: 'dir', name: 'a' },
+        { kind: 'file', name: 'ok.md' },
+      ],
+    };
+    let path = `${base}/a`;
+    const chainLength = MAX_USER_COMMAND_SCAN_DEPTH + 4;
+    for (let index = 0; index < chainLength; index += 1) {
+      dirs[path] = [{ kind: 'dir', name: 'a' }];
+      path = `${path}/a`;
+    }
+    dirs[path] = [{ kind: 'file', name: 'deep.md' }];
+    const files: Record<string, string> = {
+      [`${base}/ok.md`]: 'fine',
+      [`${path}/deep.md`]: 'too deep',
+    };
+    const inner = makeDeps({ dirs, files });
+    let listDirCalls = 0;
+    const deps: UserSlashCommandScanDeps = {
+      listDir: (absDir) => {
+        listDirCalls += 1;
+        return inner.listDir(absDir);
+      },
+      readFile: inner.readFile,
+    };
+
+    const { records, stop } = captureLogs();
+    let commands: ReturnType<typeof scanUserSlashCommands>;
+    try {
+      commands = scanUserSlashCommands({ homeDir: HOME, roots: [] }, deps);
+    } finally {
+      stop();
+    }
+
+    expect(commands.map((command) => command.id)).toEqual(['ok']);
+    // Descent stops at the bound: the deep chain is never fully walked.
+    expect(listDirCalls).toBeLessThanOrEqual(MAX_USER_COMMAND_SCAN_DEPTH + 5);
+    expect(
+      records.some(
+        (record) => record.level === 'warn' && record.message?.toLowerCase().includes('depth')
+      )
+    ).toBe(true);
   });
 });

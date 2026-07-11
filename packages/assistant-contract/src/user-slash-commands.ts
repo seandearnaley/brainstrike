@@ -183,42 +183,49 @@ function basename(pathValue: string): string {
 }
 
 /**
- * Substitute one `$ARGUMENTS` / `$<digits>` token. A FILLED token expands to its
+ * Resolve one `$ARGUMENTS` / `$<digits>` token. A FILLED token resolves to its
  * value; an ABSENT token (empty arg string, or a positional past the end) is
  * left LITERAL (`whole`) so it stays a visible placeholder the user can fill —
- * never a silent empty blank (F1).
+ * never a silent empty blank (F1). Filled-ness is reported EXPLICITLY (from
+ * parse-time knowledge of which values exist), never re-derived by scanning the
+ * substituted output — an argument value that happens to look like a token
+ * (e.g. `$100.ts` or a literal `$1`) is user data, not a placeholder (P2-B).
  */
-function substituteArgToken(
+function resolveArgToken(
   whole: string,
   digits: string | undefined,
   argString: string,
   positional: readonly string[]
-): string {
+): { readonly filled: boolean; readonly value: string } {
   if (digits === undefined) {
-    return argString.length > 0 ? argString : whole;
+    return argString.length > 0
+      ? { filled: true, value: argString }
+      : { filled: false, value: whole };
   }
   const value = positional[Number.parseInt(digits, 10) - 1];
-  return value ?? whole;
-}
-
-function substituteArgsInText(
-  text: string,
-  argString: string,
-  positional: readonly string[]
-): string {
-  return text.replace(ARG_TOKEN, (whole, digits: string | undefined) =>
-    substituteArgToken(whole, digits, argString, positional)
-  );
+  return value === undefined ? { filled: false, value: whole } : { filled: true, value };
 }
 
 /**
- * True when `text` still carries an UNFILLED `$ARGUMENTS` / `$<digits>` token
- * after argument substitution — i.e. a placeholder the user never provided a
- * value for. A fresh (non-global) regex avoids the shared `ARG_TOKEN`'s stateful
- * `lastIndex`.
+ * Substitute argument tokens WITHIN a template `@path`, reporting whether any
+ * token was left unfilled. The flag is accumulated DURING substitution (single
+ * pass, F2/P2-B) — substituted arg text is never regex-rescanned, so
+ * dollar-prefixed argument values cannot masquerade as unfilled placeholders.
  */
-function hasUnfilledArgPlaceholder(text: string): boolean {
-  return /\$ARGUMENTS\b|\$\d+/.test(text);
+function substituteArgsInPath(
+  text: string,
+  argString: string,
+  positional: readonly string[]
+): { readonly hasUnfilledPlaceholder: boolean; readonly text: string } {
+  let hasUnfilledPlaceholder = false;
+  const substituted = text.replace(ARG_TOKEN, (whole, digits: string | undefined) => {
+    const resolved = resolveArgToken(whole, digits, argString, positional);
+    if (!resolved.filled) {
+      hasUnfilledPlaceholder = true;
+    }
+    return resolved.value;
+  });
+  return { hasUnfilledPlaceholder, text: substituted };
 }
 
 /**
@@ -266,14 +273,21 @@ export function expandUserCommandTemplate(input: {
       digits: string | undefined
     ) => {
       if (mentionPath !== undefined) {
-        const resolvedPath = substituteArgsInText(mentionPath, trimmedArgs, positional);
+        const { hasUnfilledPlaceholder, text: resolvedPath } = substituteArgsInPath(
+          mentionPath,
+          trimmedArgs,
+          positional
+        );
         // Leave the raw `@path` text (never serialize a directive) when the
-        // root is unbound OR the path still holds an UNFILLED placeholder (e.g.
+        // root is unbound OR a placeholder in the path was left UNFILLED (e.g.
         // `@src/$1` invoked with no args). Baking a literal `$1`/`$ARGUMENTS`
         // into a `:file[…]{name=…}` directive would point it at a bogus path
         // `src/$1` that fails to resolve; leaving the raw text lets the user
         // fill it in (the `@` popover then binds it) — no fabricated directive.
-        if (!mentionRootId || hasUnfilledArgPlaceholder(resolvedPath)) {
+        // Filled-ness comes from the substitution itself (P2-B): a FILLED path
+        // that merely CONTAINS dollar text from the argument (`src/$100.ts`)
+        // still emits its directive.
+        if (!mentionRootId || hasUnfilledPlaceholder) {
           return `${lead ?? ''}@${resolvedPath}`;
         }
         const directive = serializeFileMentionDirective({
@@ -289,7 +303,7 @@ export function expandUserCommandTemplate(input: {
         });
         return `${lead ?? ''}${directive}`;
       }
-      return substituteArgToken(whole, digits, trimmedArgs, positional);
+      return resolveArgToken(whole, digits, trimmedArgs, positional).value;
     }
   );
 }

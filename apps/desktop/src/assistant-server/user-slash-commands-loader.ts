@@ -99,17 +99,38 @@ export const MAX_USER_COMMAND_FILE_BYTES = MAX_USER_COMMAND_FILE_CHARS * 4;
 /** Hard cap on the number of discovered commands per scan (abuse/DoS bound). */
 export const MAX_USER_COMMANDS = 500;
 
+/**
+ * Maximum directory-nesting depth below a commands dir (P2-A). Namespacing is
+ * `git/commit.md` → `git:commit`; nobody namespaces commands this deep, but a
+ * hostile/accidental deep tree must not be walked with sync fs on Electron main.
+ * Directories past the bound are SKIPPED with a visible warn-once.
+ */
+export const MAX_USER_COMMAND_SCAN_DEPTH = 8;
+
 // App-lifetime warn-once per colliding id (mirrors use-file-mentions.ts) plus
-// per-path oversized warnings and a single count-cap warning. Reset in tests via
-// __resetUserCommandWarningsForTests.
+// per-path oversized warnings and single count-cap/depth warnings. Reset in
+// tests via __resetUserCommandWarningsForTests.
 const warnedCollisionIds = new Set<string>();
 const warnedOversizedPaths = new Set<string>();
 let warnedCountCapReached = false;
+let warnedDepthCapReached = false;
 
 export function __resetUserCommandWarningsForTests(): void {
   warnedCollisionIds.clear();
   warnedOversizedPaths.clear();
   warnedCountCapReached = false;
+  warnedDepthCapReached = false;
+}
+
+/** Warn ONCE per scan-lifetime that the command count cap stopped the scan. */
+function warnCountCapReached(): void {
+  if (warnedCountCapReached) {
+    return;
+  }
+  warnedCountCapReached = true;
+  logger.warn('User slash command count cap reached; ignoring the rest', {
+    cap: MAX_USER_COMMANDS,
+  });
 }
 
 function joinPath(base: string, segments: readonly string[]): string {
@@ -121,12 +142,38 @@ interface ScanSource {
   readonly sourceRootId?: string;
 }
 
-/** Recursively collect `.md` files under `baseDir`, relative-namespaced. */
+/**
+ * Mutable traversal budget threaded through the recursive collection (P2-A):
+ * `remaining` candidate slots left; `truncated` flips when the budget stopped
+ * traversal early (surfaced as the count-cap warn by the caller). Bounding the
+ * TRAVERSAL — not just the accepted result — is the point: the scan runs
+ * synchronous `readdirSync`/`statSync` on Electron main (and re-runs on
+ * visibilitychange), so a hostile or huge tree must stop being WALKED at the
+ * cap, never fully materialized first.
+ */
+interface TraversalBudget {
+  remaining: number;
+  truncated: boolean;
+}
+
+/**
+ * Recursively collect `.md` files under `baseDir`, relative-namespaced, bounded
+ * by `budget` (stops descending/collecting the moment it is exhausted) and by
+ * {@link MAX_USER_COMMAND_SCAN_DEPTH} (deeper directories are skipped with a
+ * warn-once). NOTE: when the budget truncates a directory, WHICH candidates were
+ * collected follows enumeration order (the post-collection sort only orders the
+ * bounded set) — acceptable for an abuse bound that normal trees never hit.
+ */
 function collectMarkdownFiles(
   baseDir: string,
   deps: UserSlashCommandScanDeps,
+  budget: TraversalBudget,
   relativeSegments: readonly string[] = []
 ): { readonly absPath: string; readonly relativePath: string }[] {
+  if (budget.remaining <= 0) {
+    budget.truncated = true;
+    return [];
+  }
   const dirPath = relativeSegments.length > 0 ? joinPath(baseDir, relativeSegments) : baseDir;
   const entries = deps.listDir(dirPath);
   if (!entries) {
@@ -134,13 +181,28 @@ function collectMarkdownFiles(
   }
   const files: { absPath: string; relativePath: string }[] = [];
   for (const entry of entries) {
+    if (budget.remaining <= 0) {
+      budget.truncated = true;
+      break;
+    }
     if (entry.isDirectory) {
-      files.push(...collectMarkdownFiles(baseDir, deps, [...relativeSegments, entry.name]));
+      if (relativeSegments.length >= MAX_USER_COMMAND_SCAN_DEPTH) {
+        if (!warnedDepthCapReached) {
+          warnedDepthCapReached = true;
+          logger.warn('User slash command scan depth cap reached; skipping deeper directories', {
+            cap: MAX_USER_COMMAND_SCAN_DEPTH,
+            path: joinPath(baseDir, [...relativeSegments, entry.name]),
+          });
+        }
+        continue;
+      }
+      files.push(...collectMarkdownFiles(baseDir, deps, budget, [...relativeSegments, entry.name]));
       continue;
     }
     if (entry.isFile && MD_EXTENSION.test(entry.name)) {
       const relativePath = [...relativeSegments, entry.name].join('/');
       files.push({ absPath: joinPath(baseDir, [...relativeSegments, entry.name]), relativePath });
+      budget.remaining -= 1;
     }
   }
   return files;
@@ -223,20 +285,6 @@ function readCommandBody(
   return parsed;
 }
 
-/** Whether the count cap is reached (warn-once on the first time it trips). */
-function isCountCapReached(ordered: readonly UserSlashCommandDescriptor[]): boolean {
-  if (ordered.length < MAX_USER_COMMANDS) {
-    return false;
-  }
-  if (!warnedCountCapReached) {
-    warnedCountCapReached = true;
-    logger.warn('User slash command count cap reached; ignoring the rest', {
-      cap: MAX_USER_COMMANDS,
-    });
-  }
-  return true;
-}
-
 function ingestDirectory(
   baseDir: string,
   source: ScanSource,
@@ -244,12 +292,26 @@ function ingestDirectory(
   seen: Map<string, string | undefined>,
   ordered: UserSlashCommandDescriptor[]
 ): void {
-  const files = collectMarkdownFiles(baseDir, deps);
+  const remaining = MAX_USER_COMMANDS - ordered.length;
+  if (remaining <= 0) {
+    warnCountCapReached();
+    return;
+  }
+  // The budget counts CANDIDATES (bounding traversal work); candidates later
+  // skipped as duplicates/malformed still consumed budget, so an adversarial
+  // duplicate-heavy tree may yield fewer than the cap — the honest tradeoff for
+  // never walking an unbounded tree (the truncation is warned either way).
+  const budget: TraversalBudget = { remaining, truncated: false };
+  const files = collectMarkdownFiles(baseDir, deps, budget);
+  if (budget.truncated) {
+    warnCountCapReached();
+  }
   // Stable order within a directory so first-name-wins is deterministic.
   files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 
   for (const file of files) {
-    if (isCountCapReached(ordered)) {
+    if (ordered.length >= MAX_USER_COMMANDS) {
+      warnCountCapReached();
       return;
     }
     const id = deriveUserCommandId(file.relativePath);

@@ -232,4 +232,35 @@ describe('expandUserCommandTemplate', () => {
       })
     ).toBe('Open :file[foo.ts]{name=r1::src/foo.ts}');
   });
+
+  it('P2-B: a dollar-prefixed ARGUMENT filling a template @path still emits the directive', () => {
+    // Arg `$100.ts` fills `$1`; the resolved path `src/$100.ts` is FILLED — the
+    // `$100` is user data, not an unfilled placeholder. Filled-ness must be
+    // tracked at substitution time, never by regex-rescanning substituted text.
+    expect(
+      expandUserCommandTemplate({
+        argString: '$100.ts',
+        mentionRootId: 'r1',
+        template: 'Open @src/$1',
+      })
+    ).toBe('Open :file[$100.ts]{name=r1::src/$100.ts}');
+  });
+
+  it('P2-B: an argument that is itself a literal "$1" fills the placeholder and emits the directive', () => {
+    expect(
+      expandUserCommandTemplate({ argString: '$1', mentionRootId: 'r1', template: 'Open @src/$1' })
+    ).toBe('Open :file[$1]{name=r1::src/$1}');
+  });
+
+  it('P2-B: a literal non-placeholder $ in a template path still emits the directive', () => {
+    // `$foo` is not a placeholder token ($ARGUMENTS / $<digits>), so the path is
+    // complete as authored and converts normally.
+    expect(
+      expandUserCommandTemplate({
+        argString: '',
+        mentionRootId: 'r1',
+        template: 'Open @src/$foo/bar.ts',
+      })
+    ).toBe('Open :file[bar.ts]{name=r1::src/$foo/bar.ts}');
+  });
 });
