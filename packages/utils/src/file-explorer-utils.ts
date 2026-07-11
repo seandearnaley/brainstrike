@@ -136,12 +136,18 @@ export const fileExplorer = {
     if (node.type === 'file') {
       return { count: 1, isComplete: true };
     }
+    // A directory's subtree is complete only when the directory itself has
+    // finished loading AND every descendant directory has too. Lazily-loaded
+    // trees mark pending directories with loadState 'unloaded'/'loading', so a
+    // count over an incomplete subtree understates the true total — consumers
+    // (e.g. tri-state checkbox derivation) must not treat it as exhaustive.
+    const selfComplete = node.loadState === 'loaded';
     if (!node.children) {
-      return { count: 0, isComplete: true };
+      return { count: 0, isComplete: selfComplete };
     }
 
     let totalCount = 0;
-    let isComplete = true;
+    let isComplete = selfComplete;
 
     for (const child of node.children) {
       const result = this.getFolderFileCount(child);
