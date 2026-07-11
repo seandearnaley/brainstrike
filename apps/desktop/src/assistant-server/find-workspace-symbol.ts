@@ -172,6 +172,18 @@ const DECLARATION_KEYWORDS = 'function|class|interface|type|enum|struct|trait|fn
 /** Member/property/assignment-style declaration prefixes (class methods, object props). */
 const MEMBER_PREFIXES = 'export|default|async|public|private|protected|static|readonly|get|set';
 
+function createDeclarationMatchers(escapedQuery: string): {
+  member: RegExp;
+  named: RegExp;
+  word: RegExp;
+} {
+  return {
+    member: new RegExp(`^(?:(?:${MEMBER_PREFIXES})\\s+)*${escapedQuery}\\s*[(:=]`),
+    named: new RegExp(`\\b(?:${DECLARATION_KEYWORDS})\\s+${escapedQuery}\\b`),
+    word: new RegExp(`\\b${escapedQuery}\\b`),
+  };
+}
+
 /**
  * Rank how strongly a matching line looks like the *declaration* of `query`
  * (vs. an import, call site, or partial-identifier collision). Higher is more
@@ -179,12 +191,14 @@ const MEMBER_PREFIXES = 'export|default|async|public|private|protected|static|re
  * by earlier usages. Substring-only matching is best-effort, so this is a
  * heuristic, not a parser.
  */
-function declarationScore(line: string, escapedQuery: string): number {
+function declarationScore(
+  line: string,
+  matchers: ReturnType<typeof createDeclarationMatchers>
+): number {
   // `function add`, `class Add`, `const add =` — the query IS the declared name.
   // The strongest signal, ranked above member/method shapes so a real named
   // declaration wins over an earlier call site that happens to look like `name(`.
-  const namedDecl = new RegExp(`\\b(?:${DECLARATION_KEYWORDS})\\s+${escapedQuery}\\b`);
-  if (namedDecl.test(line)) {
+  if (matchers.named.test(line)) {
     return 3;
   }
   // Trimmed line starts with the query as a member/method/property declaration:
@@ -193,12 +207,11 @@ function declarationScore(line: string, escapedQuery: string): number {
   // substring matching can't fully tell a class method from a call — so it ranks
   // BELOW a named declaration. A call before a class method (both score 2) still
   // ties on file order; output is best-effort and the model is told to verify.
-  const memberDecl = new RegExp(`^(?:(?:${MEMBER_PREFIXES})\\s+)*${escapedQuery}\\s*[(:=]`);
-  if (memberDecl.test(line.trimStart())) {
+  if (matchers.member.test(line.trimStart())) {
     return 2;
   }
   // Word-boundary match (a genuine use of the symbol, not e.g. `addItem`).
-  if (new RegExp(`\\b${escapedQuery}\\b`).test(line)) {
+  if (matchers.word.test(line)) {
     return 1;
   }
   // Substring-only collision (kept so totals/behavior are unchanged), ranked last.
@@ -212,11 +225,18 @@ export function findSymbolMatches(
 ): FindSymbolResult {
   const lines = content.split('\n');
   const escapedQuery = escapeRegExp(query);
+  let declarationMatchers: ReturnType<typeof createDeclarationMatchers> | undefined;
   const scored: Array<{ index: number; order: number; score: number }> = [];
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? '';
     if (line.includes(query)) {
-      scored.push({ index: i, order: scored.length, score: declarationScore(line, escapedQuery) });
+      // Compile once on the first match; large files can contain thousands of matching lines.
+      declarationMatchers ??= createDeclarationMatchers(escapedQuery);
+      scored.push({
+        index: i,
+        order: scored.length,
+        score: declarationScore(line, declarationMatchers),
+      });
     }
   }
   const totalMatches = scored.length;
