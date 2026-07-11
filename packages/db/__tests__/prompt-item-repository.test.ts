@@ -81,8 +81,13 @@ describe('PromptItemRepository', () => {
     expect(revisions).toEqual([
       expect.objectContaining({
         content: 'Ask for concrete evidence.',
+        description: null,
+        modelKey: null,
+        modelSettings: null,
         note: 'Tighten evidence requirements',
         revision: 1,
+        tags: ['research', 'evidence'],
+        title: 'Evidence pass',
       }),
     ]);
 
@@ -97,6 +102,15 @@ describe('PromptItemRepository', () => {
         title: 'Stale overwrite',
       })
     ).rejects.toThrow(/changed since it was opened/i);
+
+    // A refused CAS write is fully atomic: no orphaned revision row, no item mutation.
+    await expect(repository.listRevisions(created.id)).resolves.toEqual(revisions);
+    await expect(repository.findById(created.id)).resolves.toMatchObject({
+      content: 'Ask for concrete evidence and cite the source.',
+      modelKey: 'openai::gpt-5.4',
+      modelSettings: { maxOutputTokens: 1200, reasoningEffort: 'high' },
+      revision: 2,
+    });
   });
 
   it('stores only current-revision vectors and ranks same-space semantic matches', async () => {

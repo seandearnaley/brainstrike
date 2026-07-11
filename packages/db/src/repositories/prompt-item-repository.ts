@@ -89,6 +89,17 @@ const PROMPT_ITEM_COLUMNS = `
   updated_at AS "updatedAt"
 `;
 
+// Re-selects PROMPT_ITEM_COLUMNS output columns from a CTE. Derived (not
+// hand-maintained) so the list can never drift from PROMPT_ITEM_COLUMNS: each
+// entry re-selects its output alias (quoted `AS "alias"` when present,
+// otherwise the bare column name).
+const PROMPT_ITEM_RESULT_COLUMNS = PROMPT_ITEM_COLUMNS.split(',')
+  .map((entry) => {
+    const trimmed = entry.trim();
+    return /\sAS\s+("[^"]+")$/i.exec(trimmed)?.[1] ?? trimmed;
+  })
+  .join(', ');
+
 function promptItemColumnsFor(alias: string): string {
   return `
     ${alias}.id,
@@ -341,42 +352,50 @@ export class PromptItemRepository {
 
   async update(input: UpdatePromptItemInput): Promise<PromptItem> {
     requireContent(input.content);
+    // The CAS update is the single source of truth: the superseded revision is
+    // captured from the UPDATE itself via PG18 RETURNING old.*, so the revision
+    // insert structurally cannot fire unless the expected-revision match succeeded.
     const result = await this.db.query<PromptItemRow>(
-      `WITH current_item AS (
-         SELECT * FROM prompt_items WHERE id = $3 AND revision = $4
+      `WITH updated AS (
+         UPDATE prompt_items
+         SET kind = $5,
+             title = $6,
+             content = $7,
+             description = $8,
+             tags = $9::jsonb,
+             is_favorite = $10,
+             source_url = $11,
+             rating = $12,
+             model_key = $13,
+             model_settings = $14::jsonb,
+             revision = revision + 1,
+             embedding = NULL,
+             embedding_profile_id = NULL,
+             embedding_revision = NULL,
+             embedding_error = NULL,
+             embedding_updated_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3 AND revision = $4
+         RETURNING
+           ${PROMPT_ITEM_COLUMNS},
+           old.revision AS "supersededRevision",
+           old.title AS "supersededTitle",
+           old.content AS "supersededContent",
+           old.description AS "supersededDescription",
+           old.tags AS "supersededTags",
+           old.model_key AS "supersededModelKey",
+           old.model_settings AS "supersededModelSettings"
        ), saved_revision AS (
          INSERT INTO prompt_item_revisions (
            id, prompt_item_id, revision, title, content, description,
            tags, model_key, model_settings, note
          )
-         SELECT $1, id, revision, title, content, description,
-                tags, model_key, model_settings, $2
-         FROM current_item
-         RETURNING prompt_item_id
+         SELECT $1, id, "supersededRevision", "supersededTitle", "supersededContent",
+                "supersededDescription", "supersededTags", "supersededModelKey",
+                "supersededModelSettings", $2
+         FROM updated
        )
-       UPDATE prompt_items AS item
-       SET kind = $5,
-           title = $6,
-           content = $7,
-           description = $8,
-           tags = $9::jsonb,
-           is_favorite = $10,
-           source_url = $11,
-           rating = $12,
-           model_key = $13,
-           model_settings = $14::jsonb,
-           revision = item.revision + 1,
-           embedding = NULL,
-           embedding_profile_id = NULL,
-           embedding_revision = NULL,
-           embedding_error = NULL,
-           embedding_updated_at = NULL,
-           updated_at = CURRENT_TIMESTAMP
-       FROM saved_revision
-       WHERE item.id = $3
-         AND item.id = saved_revision.prompt_item_id
-         AND item.revision = $4
-       RETURNING ${promptItemColumnsFor('item')}`,
+       SELECT ${PROMPT_ITEM_RESULT_COLUMNS} FROM updated`,
       [
         createId('prompt-revision'),
         input.note?.trim() || null,
