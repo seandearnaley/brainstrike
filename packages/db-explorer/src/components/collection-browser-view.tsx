@@ -1200,7 +1200,7 @@ export function CollectionBrowserView({
   }, [activeCollectionId, searchMode, hasScopedSemanticSearch, scopedSearchResults.length]);
 
   return (
-    <div className="flex h-full flex-col" style={{ height }}>
+    <div className="flex h-full min-w-0 flex-col" style={{ height }}>
       {/* Search mode bar - Top level controls */}
       <SearchModeBar
         advancedOptions={
@@ -1242,7 +1242,7 @@ export function CollectionBrowserView({
       />
 
       {/* Main content area */}
-      <div className="relative flex min-h-0 flex-1 border-t">
+      <div className="relative flex min-h-0 min-w-0 flex-1 border-t">
         {/* Chip handle for collapsed inspector panel */}
         {hasInspectableSelection && isInspectorCollapsed && (
           <div className="absolute top-1/2 right-0 z-10 -translate-y-1/2">
@@ -1258,7 +1258,11 @@ export function CollectionBrowserView({
           </div>
         )}
 
-        <Group onLayoutChange={handleLayoutChange} orientation="horizontal">
+        <Group
+          className="min-w-0 flex-1"
+          onLayoutChange={handleLayoutChange}
+          orientation="horizontal"
+        >
           {/* Main browser */}
           <Panel
             className="min-h-0 min-w-0"
@@ -1267,50 +1271,57 @@ export function CollectionBrowserView({
             }%`}
             minSize="30%"
           >
-            <ActionContextMenu
-              controller={contextMenuController}
-              localActions={localContextActions}
-            >
-              {/* Capture-phase reset: every right-click starts with a clean
-                  target before the row handler claims it; unclaimed clicks
-                  leave it null and ActionContextMenu suppresses the menu. */}
-              <div
-                className="h-full min-h-0"
-                onContextMenuCapture={() => setContextMenuTarget(null)}
-              >
-                <CollectionBrowser
-                  bulkActions={bulkActions}
-                  className="h-full"
-                  columnSizes={columnSizes}
-                  data={treeData}
-                  emptyMessage={emptyMessage}
-                  expandedIds={expandedIdsSet}
-                  filters={filters}
-                  hasSearched={hasScopedSemanticSearch}
-                  height="100%"
-                  isLoading={isLoading}
-                  isSearching={isSearching}
-                  multiSelectEnabled={multiSelectEnabled}
-                  onColumnSizesChange={setColumnSizes}
-                  onContextMenu={handleContextMenu}
-                  onDoubleClick={handleDoubleClick}
-                  onExpandedIdsChange={handleExpandedIdsChange}
-                  onFiltersChange={handleFiltersChange}
-                  onSelect={handleSelect}
-                  onSelectedIdChange={handleSelectedIdChange}
-                  onSortChange={handleSortChange}
-                  searchMode={searchMode}
-                  selectedId={selectedId}
-                  showCheckbox={showCheckbox && multiSelectEnabled}
-                  treeWindowingStrategy="virtual"
-                  {...(sortState ? { sortState } : {})}
-                  {...(searchMode === 'semantic' && hasActiveCollection
-                    ? { semanticResults: scopedSearchResults }
-                    : {})}
-                  {...(groupBy === 'none' ? {} : { groupBy })}
-                />
+            <div className="flex h-full min-h-0 min-w-0 flex-col">
+              <div className="min-h-0 min-w-0 flex-1">
+                <ActionContextMenu
+                  controller={contextMenuController}
+                  localActions={localContextActions}
+                >
+                  {/* Capture-phase reset: every right-click starts with a clean
+                      target before the row handler claims it; unclaimed clicks
+                      leave it null and ActionContextMenu suppresses the menu. */}
+                  <div
+                    className="h-full min-h-0 min-w-0"
+                    onContextMenuCapture={() => setContextMenuTarget(null)}
+                  >
+                    <CollectionBrowser
+                      bulkActions={bulkActions}
+                      className="h-full"
+                      columnSizes={columnSizes}
+                      data={treeData}
+                      emptyMessage={emptyMessage}
+                      expandedIds={expandedIdsSet}
+                      filters={filters}
+                      hasSearched={hasScopedSemanticSearch}
+                      height="100%"
+                      isLoading={isLoading}
+                      isSearching={isSearching}
+                      multiSelectEnabled={multiSelectEnabled}
+                      onColumnSizesChange={setColumnSizes}
+                      onContextMenu={handleContextMenu}
+                      onDoubleClick={handleDoubleClick}
+                      onExpandedIdsChange={handleExpandedIdsChange}
+                      onFiltersChange={handleFiltersChange}
+                      onSelect={handleSelect}
+                      onSelectedIdChange={handleSelectedIdChange}
+                      onSortChange={handleSortChange}
+                      searchMode={searchMode}
+                      selectedId={selectedId}
+                      showCheckbox={showCheckbox && multiSelectEnabled}
+                      treeWindowingStrategy="virtual"
+                      {...(sortState ? { sortState } : {})}
+                      {...(searchMode === 'semantic' && hasActiveCollection
+                        ? { semanticResults: scopedSearchResults }
+                        : {})}
+                      {...(groupBy === 'none' ? {} : { groupBy })}
+                    />
+                  </div>
+                </ActionContextMenu>
               </div>
-            </ActionContextMenu>
+              {pagination && !isShowingSemanticResults && (
+                <CollectionBrowserPaginationFooter pagination={pagination} />
+              )}
+            </div>
           </Panel>
 
           {hasInspectableSelection && !isInspectorCollapsed && (
@@ -1344,10 +1355,6 @@ export function CollectionBrowserView({
           )}
         </Group>
       </div>
-
-      {pagination && !isShowingSemanticResults && (
-        <CollectionBrowserPaginationFooter pagination={pagination} />
-      )}
     </div>
   );
 }

@@ -172,6 +172,24 @@ test.describe('File Explorer', () => {
         );
       }
 
+      const edgeGutters = await toolbar.evaluate((element) => {
+        const selectionSettings = element.querySelector('button[aria-label^="Selection settings"]');
+        const bulkSelection = element.querySelector('button[aria-label="Select All"]');
+        if (!(selectionSettings && bulkSelection)) {
+          throw new Error('Expected both edge controls in the Explorer toolbar');
+        }
+        const toolbarRect = element.getBoundingClientRect();
+        const selectionRect = selectionSettings.getBoundingClientRect();
+        const bulkRect = bulkSelection.getBoundingClientRect();
+        return {
+          left: selectionRect.left - toolbarRect.left,
+          right: toolbarRect.right - bulkRect.right,
+        };
+      });
+      expect(edgeGutters.left).toBeGreaterThanOrEqual(11.5);
+      expect(edgeGutters.right).toBeGreaterThanOrEqual(11.5);
+      expect(Math.abs(edgeGutters.left - edgeGutters.right)).toBeLessThanOrEqual(1);
+
       const addFolderCenterDelta = await toolbar
         .getByRole('button', { name: 'Add Folder to Workspace' })
         .evaluate((button, toolbarTestId) => {
@@ -187,10 +205,218 @@ test.describe('File Explorer', () => {
         }, 'file-explorer-toolbar');
       expect(addFolderCenterDelta).toBeLessThanOrEqual(1);
 
+      const toolbarControlCenters = await toolbar.evaluate((element) => {
+        const centerX = (target: Element): number => {
+          const rect = target.getBoundingClientRect();
+          return rect.left + rect.width / 2;
+        };
+        const selectionSettings = element.querySelector('button[aria-label^="Selection settings"]');
+        const addFolder = element.querySelector('button[aria-label="Add Folder to Workspace"]');
+        const bulkSelection = element.querySelector('button[aria-label="Select All"]');
+        if (!(selectionSettings && addFolder && bulkSelection)) {
+          throw new Error('Expected all three Explorer toolbar controls');
+        }
+        return {
+          addFolder: centerX(addFolder),
+          bulkSelection: centerX(bulkSelection),
+          selectionSettings: centerX(selectionSettings),
+        };
+      });
+      expect(toolbarControlCenters.selectionSettings).toBeLessThan(toolbarControlCenters.addFolder);
+      expect(toolbarControlCenters.addFolder).toBeLessThan(toolbarControlCenters.bulkSelection);
+
       await page.getByRole('button', { name: /^Selection settings/ }).press('Enter');
       await expect(page.getByRole('button', { name: '5K' })).toBeVisible();
       await expect(page.getByRole('button', { name: '6K' })).toBeVisible();
       await expect(page.getByRole('button', { name: '8K' })).toBeVisible();
+    });
+
+    test('keeps sparse file-tree rows intrinsic while its scrollport fills the panel', async ({
+      page,
+    }) => {
+      explorer = await bootstrapFileExplorer(page, {
+        resetSettings: true,
+        tree: {
+          'only-file.ts': 'export const onlyFile = true;',
+        },
+      });
+
+      await explorer.selectRoot();
+      await expect(
+        explorer.fileTree.getByRole('checkbox', { name: 'Select only-file.ts' })
+      ).toBeVisible();
+
+      const geometry = await explorer.fileTree.evaluate((treegrid) => {
+        const owner = treegrid.parentElement;
+        const row = treegrid.querySelector<HTMLElement>('tbody tr');
+        const panel = treegrid.closest<HTMLElement>('[data-testid="file-tree"]');
+        if (!(owner && row && panel)) {
+          throw new Error('Expected a complete sparse file-tree surface');
+        }
+
+        const ownerRect = owner.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        return {
+          ownerBottom: ownerRect.bottom,
+          ownerHeight: ownerRect.height,
+          ownerOverflowX: getComputedStyle(owner).overflowX,
+          ownerOverflowY: getComputedStyle(owner).overflowY,
+          panelBottom: panelRect.bottom,
+          rowHeight: rowRect.height,
+          tableHeight: treegrid.getBoundingClientRect().height,
+        };
+      });
+
+      expect(geometry.ownerOverflowX).toBe('auto');
+      expect(geometry.ownerOverflowY).toBe('auto');
+      expect(Math.abs(geometry.ownerBottom - geometry.panelBottom)).toBeLessThanOrEqual(1);
+      expect(geometry.ownerHeight).toBeGreaterThan(geometry.rowHeight * 3);
+      expect(geometry.rowHeight).toBeLessThanOrEqual(40);
+      expect(geometry.tableHeight).toBeLessThanOrEqual(40);
+    });
+
+    test('uses one bottom-anchored scrollport with sticky table headers', async ({ page }) => {
+      explorer = await bootstrapFileExplorer(page, {
+        resetSettings: true,
+        tree: Object.fromEntries(
+          Array.from({ length: 24 }, (_, index) => [
+            `long-context-file-name-${String(index).padStart(2, '0')}.ts`,
+            `export const value${index} = ${index};`,
+          ])
+        ),
+      });
+
+      await explorer.selectRoot();
+      await setMaxSelectionCount(page, 50);
+      await explorer.selectAllButton.click();
+      await expect(page.getByTestId('selection-count')).toHaveText('24', { timeout: 15_000 });
+
+      const previewTable = page.getByTestId('preview-table');
+      const contextTree = page.getByRole('treegrid', { name: 'Context explorer table' });
+      await expect(previewTable).toBeVisible();
+      await expect(contextTree).toBeVisible();
+
+      const geometry = await previewTable.evaluate(async (previewElement) => {
+        const treegrid = previewElement.querySelector<HTMLElement>('[role="treegrid"]');
+        if (!treegrid) {
+          throw new Error('Context explorer treegrid is missing');
+        }
+
+        const scrollOwners: HTMLElement[] = [];
+        let ancestor = treegrid.parentElement;
+        while (ancestor && previewElement.contains(ancestor)) {
+          const style = getComputedStyle(ancestor);
+          if (
+            style.overflowX === 'auto' ||
+            style.overflowX === 'scroll' ||
+            style.overflowY === 'auto' ||
+            style.overflowY === 'scroll'
+          ) {
+            scrollOwners.push(ancestor);
+          }
+          ancestor = ancestor.parentElement;
+        }
+
+        const owner = scrollOwners[0];
+        const header = treegrid.querySelector<HTMLElement>('thead');
+        const firstHeader = treegrid.querySelector<HTMLElement>('th');
+        const firstBodyCell = treegrid.querySelector<HTMLElement>('tbody td');
+        const firstBodyRow = treegrid.querySelector<HTMLElement>('tbody tr');
+        if (!(owner && header && firstHeader && firstBodyCell && firstBodyRow)) {
+          throw new Error('Expected a complete scrollable table surface');
+        }
+
+        const previewRect = previewElement.getBoundingClientRect();
+        const ownerRect = owner.getBoundingClientRect();
+        const initialHeaderRect = header.getBoundingClientRect();
+        const initialHeaderCellRect = firstHeader.getBoundingClientRect();
+        const initialBodyCellRect = firstBodyCell.getBoundingClientRect();
+        const initialBodyRowRect = firstBodyRow.getBoundingClientRect();
+        const targetScrollTop = Math.min(96, owner.scrollHeight - owner.clientHeight);
+        const targetScrollLeft = Math.min(80, owner.scrollWidth - owner.clientWidth);
+
+        owner.scrollTo({ left: targetScrollLeft, top: targetScrollTop });
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+
+        const scrolledOwnerRect = owner.getBoundingClientRect();
+        const scrolledHeaderRect = header.getBoundingClientRect();
+        const scrolledHeaderCellRect = firstHeader.getBoundingClientRect();
+        const scrolledBodyCellRect = firstBodyCell.getBoundingClientRect();
+        const scrolledBodyRowRect = firstBodyRow.getBoundingClientRect();
+
+        return {
+          bodyCellDeltaX: scrolledBodyCellRect.left - initialBodyCellRect.left,
+          bodyRowDeltaY: scrolledBodyRowRect.top - initialBodyRowRect.top,
+          headerCellDeltaX: scrolledHeaderCellRect.left - initialHeaderCellRect.left,
+          headerTopAfterScroll: scrolledHeaderRect.top,
+          headerTopBeforeScroll: initialHeaderRect.top,
+          horizontalOverflow: owner.scrollWidth - owner.clientWidth,
+          ownerBottom: ownerRect.bottom,
+          ownerTopAfterScroll: scrolledOwnerRect.top,
+          previewBottom: previewRect.bottom,
+          scrollLeft: owner.scrollLeft,
+          scrollOwnerCount: scrollOwners.length,
+          scrollTop: owner.scrollTop,
+          verticalOverflow: owner.scrollHeight - owner.clientHeight,
+        };
+      });
+
+      expect(geometry.scrollOwnerCount).toBe(1);
+      expect(geometry.horizontalOverflow).toBeGreaterThan(0);
+      expect(geometry.verticalOverflow).toBeGreaterThan(0);
+      expect(Math.abs(geometry.ownerBottom - geometry.previewBottom)).toBeLessThanOrEqual(1);
+      expect(geometry.scrollTop).toBeGreaterThan(0);
+      expect(geometry.bodyRowDeltaY).toBeLessThan(-1);
+      expect(
+        Math.abs(geometry.headerTopAfterScroll - geometry.ownerTopAfterScroll)
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(geometry.headerTopAfterScroll - geometry.headerTopBeforeScroll)
+      ).toBeLessThanOrEqual(1);
+      expect(geometry.scrollLeft).toBeGreaterThan(0);
+      expect(geometry.headerCellDeltaX).toBeLessThan(-1);
+      expect(Math.abs(geometry.headerCellDeltaX - geometry.bodyCellDeltaX)).toBeLessThanOrEqual(1);
+
+      await contextTree.locator('tbody').getByRole('checkbox').first().click();
+      const clearContextSelection = page.getByRole('button', { name: 'Clear context selection' });
+      await expect(clearContextSelection).toBeVisible();
+
+      const bulkActionGeometry = await clearContextSelection.evaluate(async (button) => {
+        const bar = button.parentElement;
+        const preview = document.querySelector<HTMLElement>('[data-testid="preview-table"]');
+        const treegrid = preview?.querySelector<HTMLElement>('[role="treegrid"]');
+        const owner = treegrid?.parentElement;
+        const lastRow = treegrid?.querySelector<HTMLElement>('tbody tr:last-child');
+        if (!(bar && preview && owner && lastRow)) {
+          throw new Error('Expected complete context bulk-action geometry');
+        }
+
+        owner.scrollTop = owner.scrollHeight;
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+
+        return {
+          barTop: bar.getBoundingClientRect().top,
+          lastRowBottom: lastRow.getBoundingClientRect().bottom,
+          layoutHasPadding: preview.classList.contains('pb-20'),
+          ownerBottom: owner.getBoundingClientRect().bottom,
+          ownerHasPadding: owner.classList.contains('pb-20'),
+          ownerPaddingBottom: getComputedStyle(owner).paddingBottom,
+          previewBottom: preview.getBoundingClientRect().bottom,
+        };
+      });
+
+      expect(bulkActionGeometry.layoutHasPadding).toBe(false);
+      expect(bulkActionGeometry.ownerHasPadding).toBe(true);
+      expect(bulkActionGeometry.ownerPaddingBottom).toBe('80px');
+      expect(
+        Math.abs(bulkActionGeometry.ownerBottom - bulkActionGeometry.previewBottom)
+      ).toBeLessThanOrEqual(1);
+      expect(bulkActionGeometry.lastRowBottom).toBeLessThanOrEqual(bulkActionGeometry.barTop + 1);
     });
 
     test('renders no focused-root badge or separate current-directory row in the toolbar', async ({

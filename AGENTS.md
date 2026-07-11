@@ -1827,6 +1827,11 @@ Rules:
   - File explorer tree (left nav).
   - Context explorer grouped preview tree (main panel).
 - Preserve WAI-ARIA treegrid semantics (`role="treegrid"`, row/level metadata, keyboard traversal).
+- Keep the shared `TreeTableViewport` as the sole two-axis scroll owner and the
+  virtualizer's scroll element. Consumer wrappers must remain layout-only
+  (`overflow-hidden`); do not reintroduce nested `overflow-auto` wrappers or a
+  split header/body scroller. The semantic table and sticky header belong in
+  that same viewport.
 
 Windowing and performance:
 - Default strategy should remain `auto` unless a product requirement explicitly pins behavior.

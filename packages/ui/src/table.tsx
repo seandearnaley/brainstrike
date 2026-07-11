@@ -2,21 +2,30 @@ import type * as React from 'react';
 
 import { cn } from './lib/utils';
 
-const Table = ({
-  className,
-  ref,
-  ...props
-}: React.HTMLAttributes<HTMLTableElement> & {
+interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
   ref?: React.Ref<HTMLTableElement> | undefined;
-}) => (
-  <div className="relative w-full overflow-auto">
+  /**
+   * Set to false when an enclosing component already owns both scroll axes.
+   * This keeps sticky descendants bound to that single scrollport.
+   */
+  scrollContainer?: boolean | undefined;
+}
+
+const Table = ({ className, ref, scrollContainer = true, ...props }: TableProps) => {
+  const table = (
     <table
       className={cn('w-full table-fixed caption-bottom text-sm', className)}
       ref={ref}
       {...props}
     />
-  </div>
-);
+  );
+
+  if (!scrollContainer) {
+    return table;
+  }
+
+  return <div className="relative w-full overflow-auto">{table}</div>;
+};
 Table.displayName = 'Table';
 
 const TableHeader = ({
