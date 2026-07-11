@@ -1,11 +1,20 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { __resetUserCommandWarningsForTests } from '../../assistant-server/user-slash-commands-loader';
 import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
-import { listUserSlashCommands } from '../../ipc-user-commands-handlers';
+import { createNodeFsScanDeps, listUserSlashCommands } from '../../ipc-user-commands-handlers';
+
+let tempRoot: string | undefined;
 
 afterEach(() => {
   __resetUserCommandWarningsForTests();
+  if (tempRoot) {
+    rmSync(tempRoot, { force: true, recursive: true });
+    tempRoot = undefined;
+  }
 });
 
 const HOME = '/home/user';
@@ -38,6 +47,20 @@ function fsWith(files: Record<string, string>, dirs: Record<string, string[]>) {
 }
 
 describe('listUserSlashCommands', () => {
+  it('does not follow symlinked command directories outside the workspace', () => {
+    tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
+    const workspace = path.join(tempRoot, 'workspace');
+    const outside = path.join(tempRoot, 'outside');
+    mkdirSync(path.join(workspace, '.brainstrike'), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(path.join(outside, 'leaked.md'), 'Outside workspace');
+    symlinkSync(outside, path.join(workspace, '.brainstrike', 'commands'), 'dir');
+
+    expect(
+      createNodeFsScanDeps().listDir(path.join(workspace, '.brainstrike', 'commands'))
+    ).toBeNull();
+  });
+
   it('resolves DB roots (DB roots.id + path) and returns commands + roots', async () => {
     const db = dbReturning([{ displayName: 'Proj', id: 'db-root-1', path: '/proj' }]);
     const fs = fsWith(

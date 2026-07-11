@@ -13,7 +13,7 @@
  * the failure is logged).
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -29,6 +29,7 @@ import {
 } from './assistant-server/workspace-roots';
 
 const logger = createLogger('UserSlashCommands');
+const warnedSymlinkCommandDirectories = new Set<string>();
 
 export interface UserCommandsListDeps {
   /** Injected fs surface (real disk in production, in-memory in tests). */
@@ -44,6 +45,13 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
   return {
     listDir: (absDir) => {
       try {
+        if (lstatSync(absDir).isSymbolicLink()) {
+          if (!warnedSymlinkCommandDirectories.has(absDir)) {
+            warnedSymlinkCommandDirectories.add(absDir);
+            logger.warn('Skipping symlinked slash command directory');
+          }
+          return null;
+        }
         return readdirSync(absDir, { withFileTypes: true }).map((entry) => ({
           isDirectory: entry.isDirectory(),
           isFile: entry.isFile(),
