@@ -643,3 +643,60 @@ export function getNormalizedParentPath(
 ): string | null | undefined {
   return state.parentPathByPath.get(path);
 }
+
+export interface VisibleDirectoryAggregates {
+  /** Per directory: descendant FILE count within the visible (allowed) set. */
+  fileCountByPath: Map<string, number>;
+  /**
+   * Per directory: count of not-fully-loaded directories in its VISIBLE
+   * subtree (itself included) — the filtered twin of incompleteDirCountByPath.
+   * A filtered-out unloaded directory must not block a checked state the
+   * visible universe has earned.
+   */
+  incompleteDirCountByPath: Map<string, number>;
+}
+
+/**
+ * Compute per-directory aggregates restricted to the VISIBLE path set (the
+ * filtered display tree). One O(paths × depth) pass per tree/filter change —
+ * consumers then read O(1) per row, keeping tri-state derivation, click
+ * resolution, and row denominators in the SAME (visible) universe.
+ */
+export function buildVisibleDirectoryAggregates(
+  state: NormalizedFileTreeState,
+  allowedPaths: ReadonlySet<string>
+): VisibleDirectoryAggregates {
+  const fileCountByPath = new Map<string, number>();
+  const incompleteDirCountByPath = new Map<string, number>();
+
+  const bumpAncestors = (startPath: string, target: Map<string, number>): void => {
+    let currentPath: string | null | undefined = state.parentPathByPath.get(startPath);
+    while (currentPath) {
+      if (allowedPaths.has(currentPath)) {
+        target.set(currentPath, (target.get(currentPath) ?? 0) + 1);
+      }
+      currentPath = state.parentPathByPath.get(currentPath);
+    }
+  };
+
+  for (const path of allowedPaths) {
+    const node = state.nodeByPath.get(path);
+    if (!node) {
+      continue;
+    }
+    if (node.type === 'file') {
+      bumpAncestors(path, fileCountByPath);
+      continue;
+    }
+    // Ensure every visible directory has an entry (0 = known-empty visible).
+    if (!fileCountByPath.has(path)) {
+      fileCountByPath.set(path, 0);
+    }
+    if (node.loadState !== 'loaded') {
+      incompleteDirCountByPath.set(path, (incompleteDirCountByPath.get(path) ?? 0) + 1);
+      bumpAncestors(path, incompleteDirCountByPath);
+    }
+  }
+
+  return { fileCountByPath, incompleteDirCountByPath };
+}

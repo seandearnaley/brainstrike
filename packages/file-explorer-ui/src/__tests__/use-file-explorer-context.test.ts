@@ -127,6 +127,7 @@ describe('useFileExplorer (context)', () => {
       })),
       addSelectedFile: vi.fn(),
       clearAllFileContents: vi.fn(),
+      clearDisabledFilters: vi.fn(),
       clearFileContents: vi.fn(),
       clearQuickFilter: vi.fn(),
       clearSelectedFiles: vi.fn(),

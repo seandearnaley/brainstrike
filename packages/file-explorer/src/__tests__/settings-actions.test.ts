@@ -281,6 +281,26 @@ describe('settings-actions', () => {
     });
   });
 
+  describe('clearDisabledFilters', () => {
+    it('re-enables every disabled include and exclude filter', () => {
+      // Applying a view-filter preset replaces the filter LISTS; stale
+      // per-entry disable toggles must not silently survive into the new
+      // preset (spike B9) — the effective filters must equal the preset.
+      const store = makeStore();
+      const s = store.getState();
+
+      s.toggleFilterEnabled('*.ts', 'include');
+      s.toggleFilterEnabled('node_modules', 'exclude');
+      expect(store.getState().disabledIncludeFilters.size).toBe(1);
+      expect(store.getState().disabledExcludeFilters.size).toBe(1);
+
+      store.getState().clearDisabledFilters();
+
+      expect(store.getState().disabledIncludeFilters.size).toBe(0);
+      expect(store.getState().disabledExcludeFilters.size).toBe(0);
+    });
+  });
+
   describe('toggleFilterEnabled', () => {
     it('disables an include filter', () => {
       const store = makeStore();

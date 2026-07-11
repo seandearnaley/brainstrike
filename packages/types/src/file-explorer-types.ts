@@ -363,6 +363,8 @@ export interface FileExplorerState extends FileExplorerData {
   ) => Promise<{ addedCount: number; cancelled: boolean; limitReached: boolean }>;
   addSelectedFile: (folderId: string, path: string) => void;
   clearAllFileContents: () => void;
+  /** Re-enable every disabled include/exclude filter (preset application). */
+  clearDisabledFilters: () => void;
   clearFileContents: (compositeKeys: string[]) => void;
   clearQuickFilter: () => void;
   clearSelectedFiles: () => void;
