@@ -23,10 +23,10 @@ export interface StatusBarItemProps {
 }
 
 const statusClasses: Record<StatusBarItemStatus, string> = {
-  connected: 'text-green-600',
-  disconnected: 'text-red-600',
+  connected: 'text-emerald-700 dark:text-emerald-300',
+  disconnected: 'text-red-700 dark:text-red-300',
   loading: 'text-muted-foreground',
-  warning: 'text-yellow-600',
+  warning: 'text-amber-700 dark:text-amber-300',
 };
 
 /**
@@ -53,15 +53,19 @@ export function StatusBarItem({
           )}
         />
       )}
-      {label && <span>{label}</span>}
-      {value && <span>{value}</span>}
+      {label && <span className="min-w-0 flex-1 truncate whitespace-nowrap">{label}</span>}
+      {value && <span className="shrink-0 whitespace-nowrap tabular-nums">{value}</span>}
     </>
   );
 
   return (
     <span
       aria-atomic={announce ? true : undefined}
-      className={cn('flex items-center gap-1', statusClasses[status], className)}
+      className={cn(
+        'flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1.5 leading-none',
+        statusClasses[status],
+        className
+      )}
       data-testid={testId}
       role={announce ? 'status' : undefined}
     >

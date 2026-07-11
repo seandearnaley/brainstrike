@@ -287,7 +287,7 @@ test.describe('Database Persistence', () => {
       const statusBarElement = activeWindow.locator('[data-testid="status-bar"]');
       await expect(statusBarElement).toBeVisible();
 
-      // Wait for database connection to complete (may show "Connecting..." initially)
+      // Wait for database connection to complete (may show "Connecting…" initially)
       // Increased timeout to account for embedding worker initialization in renderer
       await expect(
         activeWindow.locator('[data-testid="status-bar-db-connected"]').first()
@@ -301,7 +301,7 @@ test.describe('Database Persistence', () => {
         .first()
         .textContent();
       expect(statusText).toContain('Storage:');
-      expect(statusText).not.toContain('Connecting...'); // Ensure it's not in loading state
+      expect(statusText).not.toContain('Connecting…'); // Ensure it's not in loading state
       // Accept either IPC connection or PGlite connection
       expect(statusText).toMatch(/IPC|PGlite/i);
       return;

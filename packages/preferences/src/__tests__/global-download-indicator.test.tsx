@@ -26,9 +26,17 @@ describe('GlobalDownloadIndicator', () => {
 
     const label = screen.getByText('Downloading model…');
     const indicator = label.parentElement;
-    expect(indicator).toHaveClass('w-16', 'min-w-0', 'md:w-32', 'lg:w-auto');
-    expect(label).toHaveClass('hidden', 'lg:block');
-    expect(screen.getByRole('progressbar')).toHaveClass('w-8', 'md:w-16');
-    expect(screen.getByText('42%')).toHaveClass('sr-only', 'md:not-sr-only', 'md:w-8');
+    expect(indicator).toHaveClass(
+      'h-7',
+      'w-14',
+      'min-w-0',
+      'overflow-hidden',
+      'whitespace-nowrap',
+      'lg:w-28',
+      'xl:w-auto'
+    );
+    expect(label).toHaveClass('hidden', 'whitespace-nowrap', 'xl:block');
+    expect(screen.getByRole('progressbar')).toHaveClass('w-8', 'lg:w-12');
+    expect(screen.getByText('42%')).toHaveClass('sr-only', 'lg:not-sr-only', 'lg:w-8');
   });
 });

@@ -47,17 +47,26 @@ describe('StatusBar', () => {
 
     expect(screen.getByTestId('status-bar')).toHaveClass(
       'grid',
-      'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]'
+      'h-7',
+      'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]',
+      'border-border/80',
+      'bg-muted/70',
+      'text-[11px]',
+      'leading-none'
     );
     expect(screen.getByTestId('status-bar-left')).toHaveClass(
+      'h-full',
       'w-full',
       'overflow-hidden',
+      'whitespace-nowrap',
       'justify-self-start'
     );
     expect(screen.getByTestId('status-bar-center')).toHaveClass('justify-self-center');
     expect(screen.getByTestId('status-bar-right')).toHaveClass(
+      'h-full',
       'w-full',
       'overflow-hidden',
+      'whitespace-nowrap',
       'justify-self-end'
     );
   });

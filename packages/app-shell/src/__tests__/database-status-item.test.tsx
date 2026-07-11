@@ -17,7 +17,7 @@ describe('DatabaseStatusItem', () => {
 
     expect(screen.getByTestId('status-bar-db-loading')).toBeInTheDocument();
     expect(screen.getByText('Storage:')).toBeInTheDocument();
-    expect(screen.getByText('Connecting...')).toBeInTheDocument();
+    expect(screen.getByText('Connecting…')).toBeInTheDocument();
   });
 
   it('announces meaningful database connection transitions', () => {
@@ -42,6 +42,13 @@ describe('DatabaseStatusItem', () => {
     render(<DatabaseStatusItem />);
 
     expect(screen.getByTestId('status-bar-db-connected')).toBeInTheDocument();
+    expect(screen.getByTestId('status-bar-db-connected')).toHaveClass(
+      'w-40',
+      'max-w-full',
+      'shrink-0',
+      'overflow-hidden',
+      'whitespace-nowrap'
+    );
     expect(screen.getByText('Storage: IPC')).toBeInTheDocument();
   });
 

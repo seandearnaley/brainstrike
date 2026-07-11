@@ -109,11 +109,13 @@ describe('IndexingStatusItem', () => {
     const value = screen.getByTestId('indexing-status-value');
 
     expect(trigger).toHaveClass(
-      'h-6',
-      'w-10',
-      'md:w-48',
+      'h-7',
+      'w-7',
+      'md:w-56',
       'cursor-pointer',
-      'hover:bg-accent',
+      'overflow-hidden',
+      'whitespace-nowrap',
+      'hover:bg-accent/80',
       'focus-visible:ring-1',
       'focus-visible:ring-inset'
     );
@@ -123,10 +125,23 @@ describe('IndexingStatusItem', () => {
     expect(status.closest('button')).toBeNull();
     expect(visualStatus).not.toHaveAttribute('role');
     expect(within(visualStatus).getByText('Workspace Index')).toHaveClass(
-      'sr-only',
-      'md:not-sr-only'
+      'hidden',
+      'min-w-0',
+      'flex-1',
+      'truncate',
+      'whitespace-nowrap',
+      'md:block'
     );
-    expect(value).toHaveClass('sr-only', 'md:not-sr-only', 'md:w-20', 'tabular-nums');
+    expect(value).toHaveClass(
+      'hidden',
+      'w-20',
+      'shrink-0',
+      'overflow-hidden',
+      'text-ellipsis',
+      'whitespace-nowrap',
+      'md:block',
+      'tabular-nums'
+    );
     expect(screen.getAllByRole('status')).toHaveLength(1);
 
     act(() => {
