@@ -23,6 +23,7 @@
     "@vitest/browser-playwright": "^4.1.9",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.1",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "29.1.1",
     "playwright": "^1.61.1",
     "tsx": "^4.23.0",

@@ -70,6 +70,7 @@ export const dbUnitLaneDefinitions = [
     matches: [
       /^active-collection-live-counts\.test\.ts$/,
       /^atomic-transaction\.integration\.test\.ts$/,
+      /^browser-first-run-bootstrap/,
       /^browser-pglite-storage/,
       /^chunking-config\.test\.ts$/,
       /^clear-data\.test\.tsx$/,
