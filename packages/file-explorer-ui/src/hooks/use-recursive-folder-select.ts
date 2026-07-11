@@ -17,7 +17,10 @@ import {
 } from '../shell/file-explorer-provider';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { createQuerySelectionSnapshot } from '../utils/query-selection-snapshot';
-import { querySelectableFiles } from '../utils/recursive-selection-query';
+import {
+  querySelectableFiles,
+  type RecursiveSelectionDirectoryUpdate,
+} from '../utils/recursive-selection-query';
 import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
 import {
   type AddMultipleSelectedFilesChunked,
@@ -152,6 +155,13 @@ export interface UseRecursiveFolderSelectOptions {
   fileSystemAdapter?: FileSystemAdapter | null;
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
   getSubtreeByPath: (path: string) => IFileNode | undefined;
+  /**
+   * Receives the RAW directory listings the scan read from the adapter so the
+   * owning tree can hydrate itself (loadState + counts). Invoked once per
+   * successful scan, BEFORE the selection is applied, so tri-state derivation
+   * sees a complete subtree when the selection lands.
+   */
+  onDirectoriesLoaded?: (updates: readonly RecursiveSelectionDirectoryUpdate[]) => void;
   onError?: (error: Error) => void;
 }
 
@@ -188,8 +198,14 @@ const RESET_STATE: RecursiveFolderSelectState = {
 export function useRecursiveFolderSelect(
   options: UseRecursiveFolderSelectOptions
 ): UseRecursiveFolderSelectReturn {
-  const { cancelLoadOperations, fileSystemAdapter, filterTreeFn, getSubtreeByPath, onError } =
-    options;
+  const {
+    cancelLoadOperations,
+    fileSystemAdapter,
+    filterTreeFn,
+    getSubtreeByPath,
+    onDirectoriesLoaded,
+    onError,
+  } = options;
 
   const store = useOptionalFileExplorerStoreContext();
   const db = useOptionalPGliteDatabase();
@@ -302,6 +318,12 @@ export function useRecursiveFolderSelect(
           useRegex,
         });
 
+        // Hydrate the owning tree with what the scan already read from disk —
+        // even a zero-match scan loads real structure the tree can keep.
+        if (result.directoryUpdates.length > 0) {
+          onDirectoriesLoaded?.(result.directoryUpdates);
+        }
+
         if (result.filePaths.length === 0) {
           // The historical mystery no-op: a folder whose contents are all
           // excluded by the active view filters (e.g. include *.ts on an
@@ -394,6 +416,7 @@ export function useRecursiveFolderSelect(
       getSubtreeByPath,
       includeFilters,
       internalFilterTreeFn,
+      onDirectoriesLoaded,
       onError,
       setQuerySelection,
       showToast,

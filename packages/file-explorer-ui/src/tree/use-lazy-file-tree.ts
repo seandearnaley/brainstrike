@@ -62,6 +62,7 @@ import {
   replaceNormalizedDirectoryChildren,
   setNormalizedNodeLoadState,
 } from '../utils/normalized-file-tree';
+import type { RecursiveSelectionDirectoryUpdate } from '../utils/recursive-selection-query';
 import {
   buildHandleMap,
   type FileSystemHandle,
@@ -1158,11 +1159,52 @@ export function useLazyFileTree(
 
   const filterTreeOption = filterTreeFn ? { filterTreeFn } : {};
 
+  /**
+   * Ingest the raw directory listings a recursive-select scan already read
+   * from disk. Without this the selection lands while the tree stays
+   * unloaded, so the folder can never prove completeness and sits at
+   * indeterminate until the user manually expands every subdirectory (the
+   * forest/explicit-selection path has no query manifest to fall back on).
+   */
+  const handleScannedDirectoriesLoaded = useCallback(
+    (updates: readonly RecursiveSelectionDirectoryUpdate[]) => {
+      if (updates.length === 0) {
+        return;
+      }
+      const indexedChildren: IFileNode[] = [];
+      for (const update of updates) {
+        for (const child of update.children) {
+          if (child.handle) {
+            handleMapRef.current.set(child.path, child.handle);
+          }
+          indexedChildren.push(child);
+        }
+      }
+      if (portRef.current) {
+        for (const update of updates) {
+          portRef.current.updateTree(update.path, toWorkerFileNodes([...update.children]));
+        }
+      }
+      const nextTree = commitNormalizedTree((currentTree) =>
+        applyNormalizedDirectoryChildrenUpdates(
+          currentTree,
+          updates.map((update) => ({ children: [...update.children], path: update.path }))
+        )
+      );
+      setState((s) => ({ ...s, fileTree: nextTree }));
+      if (onNodesIndexedRef.current && indexedChildren.length > 0) {
+        onNodesIndexedRef.current(indexedChildren, null);
+      }
+    },
+    [commitNormalizedTree, handleMapRef, onNodesIndexedRef, portRef]
+  );
+
   const folderSelectHookOptions = {
     cancelLoadOperations: cancelAllChildLoading,
     fileSystemAdapter,
     getSubtreeByPath: (path: string) =>
       materializeNormalizedSubtree(normalizedTreeRef.current, path),
+    onDirectoriesLoaded: handleScannedDirectoriesLoaded,
     onError: handleWorkerError,
     ...filterTreeOption,
   };

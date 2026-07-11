@@ -2501,4 +2501,48 @@ describe('useFileTree (lazy loading version)', () => {
       expect(betaDirectory?.loadError).toBe('Permission denied');
     });
   });
+
+  describe('recursive-select tree hydration', () => {
+    it('hydrates scanned directories so a completed folder select can derive checked without manual expansion', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentNode = result.current.fileTree.find((n) => n.name === 'parent');
+      if (!parentNode) {
+        throw new Error('parent directory not found in loaded root');
+      }
+      expect(parentNode.loadState).toBe('unloaded');
+
+      const addMultipleSelectedFiles = vi.fn();
+      await act(async () => {
+        await result.current.selectFolderRecursively(
+          parentNode,
+          'folder-1',
+          addMultipleSelectedFiles,
+          1000,
+          0,
+          0
+        );
+      });
+
+      // The scan read parent/ and parent/child/ from the adapter — the lazy
+      // tree must ingest those listings (loadState 'loaded' + counts) so the
+      // tri-state derivation can prove completeness immediately. Previously
+      // the selection landed but the tree stayed unloaded, leaving the folder
+      // stuck at indeterminate until the user expanded every subdirectory.
+      await waitFor(() => {
+        expect(result.current.__internalGetDescendantFileCount?.(parentNode.path)).toBe(1);
+      });
+      const hydratedParent = result.current.fileTree.find((n) => n.name === 'parent');
+      expect(hydratedParent?.loadState).toBe('loaded');
+      const child = hydratedParent?.children?.find((n) => n.name === 'child');
+      expect(child?.loadState).toBe('loaded');
+      expect(child?.children?.map((n) => n.name)).toEqual(['nested-file.txt']);
+    });
+  });
 });

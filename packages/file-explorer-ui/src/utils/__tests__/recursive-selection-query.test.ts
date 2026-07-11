@@ -604,3 +604,75 @@ describe('recursive-selection-query', () => {
     expect(result.filePaths).toEqual(['/root/a/a.ts', '/root/b/b.ts', '/root/c/c.ts']);
   });
 });
+
+describe('recursive-selection-query directory hydration updates', () => {
+  it('returns RAW children updates for every adapter-read directory (filters not applied)', async () => {
+    const adapter = createMockAdapter({
+      '/root/sub': [
+        createFileNode({ depth: 2, name: 'b.ts', path: '/root/sub/b.ts' }),
+        createFileNode({ depth: 2, name: 'c.md', path: '/root/sub/c.md' }),
+      ],
+    });
+    const root = createDirectoryNode({
+      children: [
+        createFileNode({ depth: 1, name: 'a.ts', path: '/root/a.ts' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'sub', path: '/root/sub' }),
+      ],
+      loadState: 'loaded',
+      name: 'root',
+      path: '/root',
+    });
+
+    const result = await querySelectableFiles({
+      excludeFilters: [],
+      fileSystemAdapter: adapter,
+      // Workspace filter drops markdown — the SELECTION must respect it, but
+      // hydration updates must carry the RAW listing (the normalized tree is
+      // the unfiltered universe; display filtering happens downstream).
+      filterTreeFn: (tree) => tree.filter((node) => !node.path.endsWith('.md')),
+      includeFilters: [],
+      roots: [root],
+      useRegex: false,
+    });
+
+    expect(result.filePaths.sort()).toEqual(['/root/a.ts', '/root/sub/b.ts']);
+    expect(result.directoryUpdates).toEqual([
+      {
+        children: [
+          expect.objectContaining({ path: '/root/sub/b.ts' }),
+          expect.objectContaining({ path: '/root/sub/c.md' }),
+        ],
+        path: '/root/sub',
+      },
+    ]);
+  });
+
+  it('returns no update for directories that were already loaded in the tree', async () => {
+    const adapter = createMockAdapter({});
+    const root = createDirectoryNode({
+      children: [
+        createDirectoryNode({
+          children: [createFileNode({ depth: 2, name: 'x.ts', path: '/root/lib/x.ts' })],
+          depth: 1,
+          loadState: 'loaded',
+          name: 'lib',
+          path: '/root/lib',
+        }),
+      ],
+      loadState: 'loaded',
+      name: 'root',
+      path: '/root',
+    });
+
+    const result = await querySelectableFiles({
+      excludeFilters: [],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      roots: [root],
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual(['/root/lib/x.ts']);
+    expect(result.directoryUpdates).toEqual([]);
+  });
+});
