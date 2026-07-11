@@ -314,6 +314,14 @@ export interface TreeTableProps<T> {
    * mode).
    */
   onCheckboxChange?: (node: TreeNode<T>, nextState: TreeTableCheckboxNextState) => void;
+  /**
+   * Consumer-provided Space handler for rows whose checkbox is rendered in the
+   * cell (not TreeTable's pluggable checkbox). Return `true` to consume Space
+   * (toggle the consumer's own selection) so it does NOT fall through to row
+   * activation (`onSelect`) — APG: Space toggles selection, Enter activates.
+   * Takes precedence over the internal pluggable-checkbox Space handler.
+   */
+  onCheckboxSpace?: (nodeId: string) => boolean;
   /** Callback to collapse all nodes */
   onCollapseAll?: () => void;
   /**

@@ -44,12 +44,10 @@ describe('file-explorer-ui index exports', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const treeImplementationFiles = [
       'file-tree-index.ts',
-      'file-tree-node.tsx',
       'file-tree-provider.tsx',
       'file-tree.tsx',
       'optimized-file-tree.tsx',
       'use-file-tree-context.ts',
-      'use-file-tree-node-selection.ts',
       'use-lazy-file-tree.ts',
     ];
 

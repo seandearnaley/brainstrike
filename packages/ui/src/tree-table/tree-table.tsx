@@ -570,6 +570,21 @@ function buildCheckboxStateMap<T>(
  * />
  * ```
  */
+/**
+ * Resolve the effective Space handler: a consumer-provided one wins; otherwise
+ * the internal pluggable-checkbox handler when that visual path is active.
+ */
+function resolveCheckboxSpaceHandler(
+  consumerHandler: ((nodeId: string) => boolean) | undefined,
+  pluggablePathActive: boolean,
+  pluggableHandler: (nodeId: string) => boolean
+): ((nodeId: string) => boolean) | undefined {
+  if (consumerHandler !== undefined) {
+    return consumerHandler;
+  }
+  return pluggablePathActive ? pluggableHandler : undefined;
+}
+
 export function TreeTable<T>({
   nodes,
   columns,
@@ -604,6 +619,7 @@ export function TreeTable<T>({
   getCheckboxState,
   getCheckboxAriaLabel,
   onCheckboxChange,
+  onCheckboxSpace,
   insetTreeControls = false,
   onRowDoubleClick,
   onRowContextMenu,
@@ -1015,10 +1031,15 @@ export function TreeTable<T>({
   if (onMultiSelectChange !== undefined) {
     keyboardOptions.onMultiSelectChange = onMultiSelectChange;
   }
-  // Wire whenever the pluggable visual path is active — including getter-only
-  // mode, which must swallow Space to keep keyboard/click parity.
-  if (getCheckboxState !== undefined || onCheckboxChange !== undefined) {
-    keyboardOptions.onCheckboxSpace = handlePluggableCheckboxSpace;
+  // A consumer-provided Space handler (for in-cell checkboxes) wins; otherwise
+  // the internal pluggable handler is used whenever that visual path is active.
+  const resolvedCheckboxSpace = resolveCheckboxSpaceHandler(
+    onCheckboxSpace,
+    getCheckboxState !== undefined || onCheckboxChange !== undefined,
+    handlePluggableCheckboxSpace
+  );
+  if (resolvedCheckboxSpace !== undefined) {
+    keyboardOptions.onCheckboxSpace = resolvedCheckboxSpace;
   }
   const keyboard = useTreeKeyboard(keyboardOptions);
 
