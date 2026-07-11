@@ -160,6 +160,23 @@ export interface FoundContextFile {
 }
 
 /**
+ * Heading label for a root's instructions block. Normally just the root's
+ * `displayName`, but when SEVERAL mounted roots share the same displayName (e.g.
+ * `/apps/service` and `/libs/service` both surface `service`), the bare
+ * `### service/AGENTS.md` heading is identical for each and the model can't tell
+ * them apart. Colliding names are qualified with the durable `(id <rootId>)` —
+ * mirroring `resolveWorkspaceRoot`'s collision-resolution convention — while a
+ * unique name keeps the simple heading.
+ */
+function rootHeadingLabel(
+  root: RuntimeWorkspaceRoot,
+  displayNameCounts: Map<string, number>
+): string {
+  const shared = (displayNameCounts.get(root.displayName) ?? 0) > 1;
+  return shared ? `${root.displayName} (id ${root.rootId})` : root.displayName;
+}
+
+/**
  * Decide the injectable body + honest suffix for a found file under the
  * threshold-hybrid policy: a fits-the-budget file injects whole; an oversized
  * file injects TRUNCATED only when its root is opted in, else `null` (detected
@@ -276,6 +293,13 @@ export async function buildWorkspaceInstructionsContextMessage(
 
   const optIns = preference.oversizedOptInByRootId;
 
+  // Precompute displayName frequency so a heading is qualified with the root id
+  // ONLY when the name collides across roots (see `rootHeadingLabel`).
+  const displayNameCounts = new Map<string, number>();
+  for (const root of roots) {
+    displayNameCounts.set(root.displayName, (displayNameCounts.get(root.displayName) ?? 0) + 1);
+  }
+
   const sections: string[] = [
     'The following workspace instruction files define the conventions and constraints for the open workspace folder(s). Follow them for this and every turn.',
   ];
@@ -325,9 +349,11 @@ export async function buildWorkspaceInstructionsContextMessage(
 
     injectedChars += injectable.body.length;
     // Qualify the heading with the root so two roots that both ship an
-    // `AGENTS.md` produce DISTINCT headings, not ambiguous identical ones.
+    // `AGENTS.md` produce DISTINCT headings, not ambiguous identical ones —
+    // adding the root id only when the displayName itself collides.
+    const headingLabel = rootHeadingLabel(root, displayNameCounts);
     sections.push(
-      `### ${root.displayName}/${found.path}\n${fenceContent(injectable.body)}${injectable.suffix}`
+      `### ${headingLabel}/${found.path}\n${fenceContent(injectable.body)}${injectable.suffix}`
     );
     anyInjected = true;
   }

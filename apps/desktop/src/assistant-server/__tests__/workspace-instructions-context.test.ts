@@ -174,6 +174,51 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     expect(text).toContain('b-conventions');
   });
 
+  it('disambiguates headings when two roots share a displayName', async () => {
+    // /apps/service and /libs/service both surface displayName "service"; the
+    // bare `### service/AGENTS.md` heading would be identical for both, so the
+    // model cannot tell which root each block belongs to. Colliding names get an
+    // `(id …)` qualifier (mirrors resolveWorkspaceRoot's collision convention).
+    const rootApps = { displayName: 'service', path: '/apps/service', rootId: 'root-apps' };
+    const rootLibs = { displayName: 'service', path: '/libs/service', rootId: 'root-libs' };
+    const reader = makeReader({
+      '/apps/service': { 'AGENTS.md': 'apps-conventions' },
+      '/libs/service': { 'AGENTS.md': 'libs-conventions' },
+    });
+
+    const message = await buildWorkspaceInstructionsContextMessage(
+      runtime({ workspaceRoots: [rootApps, rootLibs] }),
+      reader
+    );
+    const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
+
+    expect(text).toContain('apps-conventions');
+    expect(text).toContain('libs-conventions');
+    const headings = text.match(/### [^\n]*AGENTS\.md/g) ?? [];
+    expect(headings).toHaveLength(2);
+    // Distinct headings — the ambiguous identical `service/AGENTS.md` is gone.
+    expect(new Set(headings).size).toBe(2);
+    expect(text).toContain('root-apps');
+    expect(text).toContain('root-libs');
+  });
+
+  it('keeps the simple heading when displayNames are unique (no id qualifier)', async () => {
+    const reader = makeReader({
+      '/abs/repo-a': { 'AGENTS.md': 'a-conventions' },
+      '/abs/repo-b': { 'AGENTS.md': 'b-conventions' },
+    });
+
+    const message = await buildWorkspaceInstructionsContextMessage(
+      runtime({ workspaceRoots: [ROOT_A, ROOT_B] }),
+      reader
+    );
+    const text = message?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
+
+    expect(text).toContain('### repo-a/AGENTS.md');
+    expect(text).toContain('### repo-b/AGENTS.md');
+    expect(text).not.toContain('(id ');
+  });
+
   it('omits a present-but-unreadable instructions file from context (no fabricated absence)', async () => {
     // Binary/oversized/EACCES all surface as a non-ENOENT reader throw — the
     // file EXISTS but cannot be read, so it must be omitted (logged), not
