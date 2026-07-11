@@ -5,12 +5,17 @@ import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/ut
 import { afterEach, describe, expect, it } from 'vitest';
 import { __resetUserCommandWarningsForTests } from '../../assistant-server/user-slash-commands-loader';
 import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
-import { createNodeFsScanDeps, listUserSlashCommands } from '../../ipc-user-commands-handlers';
+import {
+  __resetUserCommandsHandlerWarningsForTests,
+  createNodeFsScanDeps,
+  listUserSlashCommands,
+} from '../../ipc-user-commands-handlers';
 
 let tempRoot: string | undefined;
 
 afterEach(() => {
   __resetUserCommandWarningsForTests();
+  __resetUserCommandsHandlerWarningsForTests();
   if (tempRoot) {
     rmSync(tempRoot, { force: true, recursive: true });
     tempRoot = undefined;
@@ -57,8 +62,25 @@ describe('listUserSlashCommands', () => {
     symlinkSync(outside, path.join(workspace, '.brainstrike', 'commands'), 'dir');
 
     expect(
-      createNodeFsScanDeps().listDir(path.join(workspace, '.brainstrike', 'commands'))
+      createNodeFsScanDeps().listDir(path.join(workspace, '.brainstrike', 'commands'), workspace)
     ).toBeNull();
+  });
+
+  it('does not follow symlinked command-directory parents outside the workspace', () => {
+    tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
+    for (const commandsParent of ['.brainstrike', '.claude']) {
+      const suffix = commandsParent.slice(1);
+      const workspace = path.join(tempRoot, `workspace-${suffix}`);
+      const outside = path.join(tempRoot, `outside-${suffix}`);
+      mkdirSync(workspace);
+      mkdirSync(path.join(outside, 'commands'), { recursive: true });
+      writeFileSync(path.join(outside, 'commands', 'leaked.md'), 'Outside workspace');
+      symlinkSync(outside, path.join(workspace, commandsParent), 'dir');
+
+      expect(
+        createNodeFsScanDeps().listDir(path.join(workspace, commandsParent, 'commands'), workspace)
+      ).toBeNull();
+    }
   });
 
   it('resolves DB roots (DB roots.id + path) and returns commands + roots', async () => {

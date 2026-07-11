@@ -1336,8 +1336,9 @@ the main process; web has no `window.userCommands` bridge and the hook returns
   also `statSync`-gates so main never blocking-reads a giant file), and a
   `MAX_USER_COMMANDS` (500) count cap ignores the rest with a warn — never a
   silent truncation or a hard error that kills the whole scan. The real-disk
-  adapter refuses symlinked command directories before enumeration, so a
-  workspace command tree cannot escape its mounted root.
+  adapter canonicalizes both the mounted root and each candidate directory,
+  rejects candidates outside that boundary, and enumerates only the validated
+  canonical path, so a workspace command tree cannot escape its mounted root.
 - **Frontmatter:** hand-rolled `---\nkey: value\n---` parser
   (`parseUserCommandFile` in packages/assistant-contract — NO YAML dep) for
   `name`/`description` only; unknown keys ignored, and Claude Code multiline-YAML

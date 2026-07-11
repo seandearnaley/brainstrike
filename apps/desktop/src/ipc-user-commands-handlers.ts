@@ -13,8 +13,9 @@
  * the failure is logged).
  */
 
-import { lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
+import path from 'node:path';
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
@@ -31,6 +32,10 @@ import {
 const logger = createLogger('UserSlashCommands');
 const warnedSymlinkCommandDirectories = new Set<string>();
 
+export function __resetUserCommandsHandlerWarningsForTests(): void {
+  warnedSymlinkCommandDirectories.clear();
+}
+
 export interface UserCommandsListDeps {
   /** Injected fs surface (real disk in production, in-memory in tests). */
   readonly fs: UserSlashCommandScanDeps;
@@ -43,16 +48,23 @@ export interface UserCommandsListDeps {
 /** Real-disk fs deps: a directory read yields entries; a missing path yields null. */
 export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
   return {
-    listDir: (absDir) => {
+    listDir: (absDir, containmentRoot) => {
       try {
-        if (lstatSync(absDir).isSymbolicLink()) {
+        const canonicalRoot = realpathSync(containmentRoot);
+        const canonicalDirectory = realpathSync(absDir);
+        const relative = path.relative(canonicalRoot, canonicalDirectory);
+        if (
+          relative === '..' ||
+          relative.startsWith(`..${path.sep}`) ||
+          path.isAbsolute(relative)
+        ) {
           if (!warnedSymlinkCommandDirectories.has(absDir)) {
             warnedSymlinkCommandDirectories.add(absDir);
             logger.warn('Skipping symlinked slash command directory');
           }
           return null;
         }
-        return readdirSync(absDir, { withFileTypes: true }).map((entry) => ({
+        return readdirSync(canonicalDirectory, { withFileTypes: true }).map((entry) => ({
           isDirectory: entry.isDirectory(),
           isFile: entry.isFile(),
           name: entry.name,

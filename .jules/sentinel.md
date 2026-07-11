@@ -32,4 +32,4 @@
 ## 2026-07-11 - Workspace command discovery must not follow directory symlinks
 **Vulnerability:** The desktop slash-command filesystem adapter enumerated a symlinked `.brainstrike/commands` directory, allowing project command discovery to traverse outside the mounted workspace root.
 **Learning:** Skipping symlink entries during recursive traversal does not protect the scan root itself because `readdirSync` follows a symlink passed as the directory path.
-**Prevention:** Refuse symlinked command directories before enumeration and preserve this at the real filesystem adapter boundary.
+**Prevention:** Canonicalize the mounted root and candidate command directory, enforce containment, and enumerate only the validated canonical path at the real filesystem adapter boundary.

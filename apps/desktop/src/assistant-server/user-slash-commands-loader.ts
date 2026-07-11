@@ -61,7 +61,10 @@ export type UserSlashCommandReadResult =
 
 export interface UserSlashCommandScanDeps {
   /** List a directory's immediate entries; `null` when it is missing/unreadable. */
-  readonly listDir: (absDir: string) => readonly UserSlashCommandDirEntry[] | null;
+  readonly listDir: (
+    absDir: string,
+    containmentRoot: string
+  ) => readonly UserSlashCommandDirEntry[] | null;
   /** Read a file's UTF-8 content, or a typed failure (`unreadable`/`oversized`). */
   readonly readFile: (absFile: string) => UserSlashCommandReadResult;
 }
@@ -138,6 +141,7 @@ function joinPath(base: string, segments: readonly string[]): string {
 }
 
 interface ScanSource {
+  readonly containmentRoot: string;
   /** Owning root id for project-scoped tiers; undefined for global tiers. */
   readonly sourceRootId?: string;
 }
@@ -168,6 +172,7 @@ function collectMarkdownFiles(
   baseDir: string,
   deps: UserSlashCommandScanDeps,
   budget: TraversalBudget,
+  containmentRoot: string,
   relativeSegments: readonly string[] = []
 ): { readonly absPath: string; readonly relativePath: string }[] {
   if (budget.remaining <= 0) {
@@ -175,7 +180,7 @@ function collectMarkdownFiles(
     return [];
   }
   const dirPath = relativeSegments.length > 0 ? joinPath(baseDir, relativeSegments) : baseDir;
-  const entries = deps.listDir(dirPath);
+  const entries = deps.listDir(dirPath, containmentRoot);
   if (!entries) {
     return [];
   }
@@ -196,7 +201,12 @@ function collectMarkdownFiles(
         }
         continue;
       }
-      files.push(...collectMarkdownFiles(baseDir, deps, budget, [...relativeSegments, entry.name]));
+      files.push(
+        ...collectMarkdownFiles(baseDir, deps, budget, containmentRoot, [
+          ...relativeSegments,
+          entry.name,
+        ])
+      );
       continue;
     }
     if (entry.isFile && MD_EXTENSION.test(entry.name)) {
@@ -302,7 +312,7 @@ function ingestDirectory(
   // duplicate-heavy tree may yield fewer than the cap — the honest tradeoff for
   // never walking an unbounded tree (the truncation is warned either way).
   const budget: TraversalBudget = { remaining, truncated: false };
-  const files = collectMarkdownFiles(baseDir, deps, budget);
+  const files = collectMarkdownFiles(baseDir, deps, budget, source.containmentRoot);
   if (budget.truncated) {
     warnCountCapReached();
   }
@@ -351,31 +361,34 @@ export function scanUserSlashCommands(
 ): UserSlashCommandDescriptor[] {
   const seen = new Map<string, string | undefined>();
   const ordered: UserSlashCommandDescriptor[] = [];
+  const globalSource = { containmentRoot: input.homeDir };
+  const ingestGlobal = (subpath: readonly string[]) =>
+    ingestDirectory(joinPath(input.homeDir, subpath), globalSource, deps, seen, ordered);
 
   // Tier 1: <root>/.brainstrike/commands (mounted order).
   for (const root of input.roots) {
     ingestDirectory(
       joinPath(root.absPath, COMMANDS_SUBPATHS.brainstrike),
-      { sourceRootId: root.id },
+      { containmentRoot: root.absPath, sourceRootId: root.id },
       deps,
       seen,
       ordered
     );
   }
   // Tier 2: ~/.brainstrike/commands.
-  ingestDirectory(joinPath(input.homeDir, COMMANDS_SUBPATHS.brainstrike), {}, deps, seen, ordered);
+  ingestGlobal(COMMANDS_SUBPATHS.brainstrike);
   // Tier 3: <root>/.claude/commands (mounted order).
   for (const root of input.roots) {
     ingestDirectory(
       joinPath(root.absPath, COMMANDS_SUBPATHS.claude),
-      { sourceRootId: root.id },
+      { containmentRoot: root.absPath, sourceRootId: root.id },
       deps,
       seen,
       ordered
     );
   }
   // Tier 4: ~/.claude/commands.
-  ingestDirectory(joinPath(input.homeDir, COMMANDS_SUBPATHS.claude), {}, deps, seen, ordered);
+  ingestGlobal(COMMANDS_SUBPATHS.claude);
 
   return ordered;
 }
