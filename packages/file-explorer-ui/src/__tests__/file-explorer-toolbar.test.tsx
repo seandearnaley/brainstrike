@@ -86,15 +86,28 @@ describe('FileExplorerToolbar', () => {
 
   it('uses a stable 48px centered toolbar and an accented reduced-motion-safe primary action', () => {
     renderWithProviders(<FileExplorerToolbar {...getProps()} />);
-    expect(screen.getByTestId('file-explorer-toolbar')).toHaveClass(
+    const toolbar = screen.getByTestId('file-explorer-toolbar');
+
+    expect(toolbar.parentElement).toHaveClass(
+      '@container/explorer-toolbar',
       'h-12',
-      'grid',
-      'gap-0',
-      'px-0',
-      '@[96px]:gap-0.5',
-      '@[96px]:px-0.5',
-      '@[128px]:gap-1.5',
-      '@[128px]:px-2'
+      'overflow-hidden',
+      'border-b'
+    );
+    expect(toolbar).toHaveClass('h-full', 'grid', 'gap-0');
+    expect(toolbar).not.toHaveClass('@[96px]/explorer-toolbar:gap-0.5');
+    const [leftSlot, , rightSlot] = Array.from(toolbar.children);
+    expect(leftSlot).toHaveClass('@container/explorer-selection');
+    expect(rightSlot).toHaveClass('@container/explorer-bulk');
+    expect(leftSlot?.firstElementChild).toHaveClass(
+      'pl-1',
+      '@[96px]/explorer-toolbar:pl-1.5',
+      '@[128px]/explorer-toolbar:pl-3'
+    );
+    expect(rightSlot?.firstElementChild).toHaveClass(
+      'pr-1',
+      '@[96px]/explorer-toolbar:pr-1.5',
+      '@[128px]/explorer-toolbar:pr-3'
     );
     expect(
       screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })
@@ -103,8 +116,8 @@ describe('FileExplorerToolbar', () => {
       'bg-primary/10',
       'motion-reduce:transition-none',
       'size-6',
-      '@[96px]:size-7',
-      '@[128px]:size-8'
+      '@[96px]/explorer-toolbar:size-7',
+      '@[128px]/explorer-toolbar:size-8'
     );
     expect(
       screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })

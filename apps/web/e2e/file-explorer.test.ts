@@ -172,6 +172,24 @@ test.describe('File Explorer', () => {
         );
       }
 
+      const edgeGutters = await toolbar.evaluate((element) => {
+        const selectionSettings = element.querySelector('button[aria-label^="Selection settings"]');
+        const bulkSelection = element.querySelector('button[aria-label="Select All"]');
+        if (!(selectionSettings && bulkSelection)) {
+          throw new Error('Expected both edge controls in the Explorer toolbar');
+        }
+        const toolbarRect = element.getBoundingClientRect();
+        const selectionRect = selectionSettings.getBoundingClientRect();
+        const bulkRect = bulkSelection.getBoundingClientRect();
+        return {
+          left: selectionRect.left - toolbarRect.left,
+          right: toolbarRect.right - bulkRect.right,
+        };
+      });
+      expect(edgeGutters.left).toBeGreaterThanOrEqual(11.5);
+      expect(edgeGutters.right).toBeGreaterThanOrEqual(11.5);
+      expect(Math.abs(edgeGutters.left - edgeGutters.right)).toBeLessThanOrEqual(1);
+
       const addFolderCenterDelta = await toolbar
         .getByRole('button', { name: 'Add Folder to Workspace' })
         .evaluate((button, toolbarTestId) => {
