@@ -89,32 +89,16 @@ const PROMPT_ITEM_COLUMNS = `
   updated_at AS "updatedAt"
 `;
 
-// Re-selects PROMPT_ITEM_COLUMNS output columns from a CTE (aliases already applied).
-const PROMPT_ITEM_RESULT_COLUMNS = `
-  id,
-  kind,
-  title,
-  content,
-  description,
-  tags,
-  "isFavorite",
-  "archivedAt",
-  "sourceUrl",
-  rating,
-  "modelKey",
-  "modelSettings",
-  revision,
-  "useCount",
-  "lastUsedAt",
-  "lastUsedAction",
-  "embeddingProfileId",
-  "embeddingRevision",
-  "embeddingError",
-  "embeddingUpdatedAt",
-  "hasEmbedding",
-  "createdAt",
-  "updatedAt"
-`;
+// Re-selects PROMPT_ITEM_COLUMNS output columns from a CTE. Derived (not
+// hand-maintained) so the list can never drift from PROMPT_ITEM_COLUMNS: each
+// entry re-selects its output alias (quoted `AS "alias"` when present,
+// otherwise the bare column name).
+const PROMPT_ITEM_RESULT_COLUMNS = PROMPT_ITEM_COLUMNS.split(',')
+  .map((entry) => {
+    const trimmed = entry.trim();
+    return /\sAS\s+("[^"]+")$/i.exec(trimmed)?.[1] ?? trimmed;
+  })
+  .join(', ');
 
 function promptItemColumnsFor(alias: string): string {
   return `
