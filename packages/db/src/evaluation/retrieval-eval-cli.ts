@@ -1,13 +1,15 @@
 // Keep stdout machine-readable for CI consumers.
 process.env['LOG_LEVEL'] = 'silent';
 
-const { runRetrievalEvaluation, serializeRetrievalEvaluationReport } = await import(
-  './retrieval-eval-runner.js'
+const { runRetrievalEvaluation } = await import('./retrieval-eval-runner.js');
+const { runLexicalEvaluation } = await import('./lexical-eval-runner.js');
+
+const vectorReport = await runRetrievalEvaluation();
+const lexicalReport = await runLexicalEvaluation();
+process.stdout.write(
+  `${JSON.stringify({ lexical: lexicalReport, vector: vectorReport }, null, 2)}\n`
 );
 
-const report = await runRetrievalEvaluation();
-process.stdout.write(`${serializeRetrievalEvaluationReport(report)}\n`);
-
-if (!report.passed) {
+if (!(vectorReport.passed && lexicalReport.passed)) {
   process.exitCode = 1;
 }

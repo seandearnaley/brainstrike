@@ -103,7 +103,7 @@ export interface HybridSearchOptions {
 export interface HybridSearchResult {
   /** The matched chunk */
   chunk: FileChunk;
-  /** FTS rank score (if found by FTS) */
+  /** FTS rank score (if found by FTS): negated BM25, higher = better, unbounded */
   ftsRank?: number;
   /** Headline snippet from FTS (if available) */
   headline?: string;

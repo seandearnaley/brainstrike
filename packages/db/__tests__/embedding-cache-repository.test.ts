@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
@@ -39,7 +40,7 @@ describe('createEmbeddingCacheRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { pg_trgm: pgTrgm, vector },
+      extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
     });
     const migrationResult = await runMigrations(client);
     if (!migrationResult.success) {
