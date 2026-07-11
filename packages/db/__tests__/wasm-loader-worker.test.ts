@@ -103,6 +103,25 @@ describe('wasmLoader browser worker host', () => {
     });
   });
 
+  it('relaxes durability only for ephemeral web E2E data dirs', async () => {
+    // Every Playwright session mints a throwaway `idb://web-e2e-<uuid>` store
+    // that is discarded when the context closes, so strict per-statement
+    // syncToFs buys nothing there — it only turns fresh-DB bootstrap
+    // (initdb + full migration suite) into a ~53s stall that times out the
+    // functional E2E readiness budget. Real stores keep strict durability.
+    const { wasmLoader } = await import('../src/wasm-loader');
+
+    await wasmLoader.createPGliteClient('idb://web-e2e-123e4567-e89b-12d3-a456-426614174000');
+
+    expect(pgliteWorkerCreate).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        dataDir: 'idb://web-e2e-123e4567-e89b-12d3-a456-426614174000',
+        relaxedDurability: true,
+      })
+    );
+  });
+
   it('creates worker-owned PGlite for browser OPFS AHP paths', async () => {
     const { wasmLoader } = await import('../src/wasm-loader');
 

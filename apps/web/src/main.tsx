@@ -1,5 +1,9 @@
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
-import { DbProvider, getDefaultBrowserPGliteDataDir } from '@brainstrike/db';
+import {
+  DbProvider,
+  EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX,
+  getDefaultBrowserPGliteDataDir,
+} from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
@@ -63,7 +67,10 @@ const E2E_DB_PATH_SESSION_KEY = 'brainstrike.e2e.dbPath.v1';
 // `web-pg18` path is unnecessary here. Note the trade-off: because the base name
 // doesn't end in `-pg<N>`, `reclaimLegacyBrowserPGliteStorage` will NOT sweep
 // abandoned `web-e2e-*` stores; they're reclaimed only by factory-reset enumeration.
-const E2E_DB_PATH_PREFIX = 'idb://web-e2e-';
+// The prefix is owned by @brainstrike/db: the PGlite worker loader relaxes
+// durability for exactly these throwaway stores (they die with the Playwright
+// context), keeping strict durability on the real `web-pg18` path.
+const E2E_DB_PATH_PREFIX = EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX;
 
 function createE2eDbPath(): string {
   if (typeof window.crypto?.randomUUID !== 'function') {
