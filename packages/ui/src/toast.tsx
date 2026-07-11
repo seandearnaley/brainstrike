@@ -85,7 +85,9 @@ const ToastClose = ({
 }) => (
   <ToastPrimitives.Close
     className={cn(
-      'absolute top-2 right-2 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 group-hover:opacity-100 group-[.destructive]:text-red-300 focus-visible:group-[.destructive]:ring-red-400 focus-visible:group-[.destructive]:ring-offset-red-600 hover:group-[.destructive]:text-red-50',
+      // Always visible (brightening on hover/focus): a hover-only close reads
+      // as "cannot be dismissed", especially on sticky/error toasts.
+      'absolute top-2 right-2 rounded-md p-1 text-foreground/50 opacity-70 transition-opacity hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 group-hover:opacity-100 group-[.destructive]:text-red-300 focus-visible:group-[.destructive]:ring-red-400 focus-visible:group-[.destructive]:ring-offset-red-600 hover:group-[.destructive]:text-red-50',
       className
     )}
     ref={ref}

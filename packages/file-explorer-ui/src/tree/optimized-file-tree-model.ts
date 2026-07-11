@@ -78,6 +78,13 @@ interface DirectorySelectionMutationInput {
 
 interface DirectorySelectionMutation {
   action: DirectorySelectionMutationAction;
+  /**
+   * True when the selection cap constrained this mutation: either no slot was
+   * left at all ('none') or only part of the folder fit ('add' with fewer
+   * paths than remain unselected). Callers surface this — decision D3 is
+   * partial-fill WITH feedback, never a silent truncation.
+   */
+  limitTruncated: boolean;
   paths: string[];
 }
 
@@ -739,6 +746,7 @@ export function resolveDirectorySelectionMutation({
   if (allFilePaths.length === 0) {
     return {
       action: 'none',
+      limitTruncated: false,
       paths: EMPTY_SELECTION_PATHS,
     };
   }
@@ -746,6 +754,7 @@ export function resolveDirectorySelectionMutation({
   if (selectedCount === directoryTotalFiles) {
     return {
       action: 'remove',
+      limitTruncated: false,
       paths: allFilePaths,
     };
   }
@@ -754,30 +763,35 @@ export function resolveDirectorySelectionMutation({
   if (availableSlots === 0) {
     return {
       action: 'none',
+      limitTruncated: true,
       paths: EMPTY_SELECTION_PATHS,
     };
   }
 
   const pathsToSelect: string[] = [];
+  let sawUnselectedBeyondBudget = false;
   for (const path of allFilePaths) {
     if (isPathSelectedInFolder(selectedFilePaths, folderId, path)) {
       continue;
     }
-    pathsToSelect.push(path);
     if (pathsToSelect.length >= availableSlots) {
+      sawUnselectedBeyondBudget = true;
       break;
     }
+    pathsToSelect.push(path);
   }
 
   if (pathsToSelect.length === 0) {
     return {
       action: 'none',
+      limitTruncated: false,
       paths: EMPTY_SELECTION_PATHS,
     };
   }
 
   return {
     action: 'add',
+    limitTruncated: sawUnselectedBeyondBudget,
     paths: pathsToSelect,
   };
 }
