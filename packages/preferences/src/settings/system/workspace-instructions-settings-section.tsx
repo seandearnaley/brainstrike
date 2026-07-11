@@ -168,7 +168,23 @@ export function WorkspaceInstructionsSettingsSection() {
         </div>
 
         <fieldset className="space-y-3 border-0 p-0" disabled={!masterEnabled}>
-          <legend className="font-medium text-sm">Detected files</legend>
+          <div className="flex items-center justify-between gap-4">
+            <legend className="font-medium text-sm">Detected files</legend>
+            {/* The scan runs on mount; mounting/unmounting a workspace root while
+                this panel stays open leaves the list stale, so offer a manual
+                rescan (bridge is desktop-only — omitted on web). */}
+            {getContextFilesBridge() ? (
+              <Button
+                data-testid="context-files-rescan"
+                disabled={!masterEnabled}
+                onClick={() => runScan()}
+                size="sm"
+                variant="outline"
+              >
+                Rescan
+              </Button>
+            ) : null}
+          </div>
           {scanError ? (
             <div
               className="space-y-2 rounded-md border border-destructive/50 p-3"

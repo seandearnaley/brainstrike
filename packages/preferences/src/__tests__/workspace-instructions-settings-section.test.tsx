@@ -112,6 +112,69 @@ describe('WorkspaceInstructionsSettingsSection', () => {
     });
   });
 
+  it('renders a present-but-unreadable file as an Unavailable row with the failure detail', async () => {
+    // The last unpinned hop: a scan that returns a per-root status:'error' entry
+    // must surface as the "Unavailable" badge + the destructive error detail in
+    // the actual settings UI (not the whole-scan rejection banner).
+    stubBridge([
+      {
+        approxTokens: null,
+        displayName: 'repo-broken',
+        error: 'exceeds the 2 MB read cap',
+        fileName: null,
+        oversized: false,
+        path: null,
+        rootId: 'root-broken',
+        sizeBytes: null,
+        status: 'error',
+      },
+    ]);
+    render(<WorkspaceInstructionsSettingsSection />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('context-files-root-root-broken')).not.toBeNull();
+    });
+    const row = screen.getByTestId('context-files-root-root-broken');
+    expect(row.textContent).toContain('Unavailable');
+    expect(row.textContent).toContain('exceeds the 2 MB read cap');
+    // An error row is NOT the whole-scan rejection banner, and offers no opt-in.
+    expect(screen.queryByTestId('context-files-scan-error')).toBeNull();
+    expect(screen.queryByTestId('context-files-optin-root-broken')).toBeNull();
+  });
+
+  it('rescans on demand so a mid-session root change can be refreshed', async () => {
+    const scan = vi
+      .fn<() => Promise<WorkspaceContextFileStatus[]>>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          approxTokens: 300,
+          displayName: 'repo-late',
+          fileName: 'AGENTS.md',
+          oversized: false,
+          path: 'AGENTS.md',
+          rootId: 'root-late',
+          sizeBytes: 1200,
+          status: 'fits',
+        },
+      ]);
+    Object.defineProperty(window, 'contextFiles', {
+      configurable: true,
+      value: { scan },
+    });
+    render(<WorkspaceInstructionsSettingsSection />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('context-files-no-roots')).not.toBeNull();
+    });
+    fireEvent.click(screen.getByTestId('context-files-rescan'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('context-files-root-root-late')).not.toBeNull();
+    });
+    expect(scan).toHaveBeenCalledTimes(2);
+  });
+
   it('shows an empty state when no roots have a context file', async () => {
     stubBridge([]);
     render(<WorkspaceInstructionsSettingsSection />);

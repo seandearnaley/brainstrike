@@ -1150,6 +1150,17 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
   IPC failure) renders a DISTINCT, logged error state with a Retry button — NEVER
   the empty "no folders" state (which would falsely claim the workspace is empty).
 
+- **Trust posture (accepted risk — conscious ruling):** injection is
+  default-ON with NO per-root trust gate, unlike the Tool-Lifecycle Hooks
+  feature (SHA-256 per-root approval). A mounted repo's instructions file
+  becomes a high-authority `system` message automatically on mount — accepted
+  because (a) content injection is already ungated here (`referenced-files-context.ts`),
+  so this is not a new class of exposure, only default-on + automatic; and
+  (b) the permission engine defaults mutation tools to `ask`, so injected text
+  cannot silently drive edits/exec. The master toggle (and per-root oversized
+  opt-in) are the user's off-switches. A future per-root acknowledgment of
+  newly-detected files is a possible hardening, not a v1 requirement.
+
 - **Deferred**: Mastra skills adoption (on-demand `createSkill()` per-root
   instructions — the architecturally better long-term fit, blocked on verifying
   its auto-added `skill`/`skill_search`/`skill_read` tools flow through the
