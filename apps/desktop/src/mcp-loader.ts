@@ -579,16 +579,64 @@ export function getDefaultMcpConfigTemplate(): string {
   return DEFAULT_MCP_CONFIG_TEMPLATE;
 }
 
-export function decryptIfEncrypted(value: string): string {
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function decodeEncryptedValue(value: string, context: string): Buffer {
+  const encrypted = Buffer.from(value, 'base64');
+  if (encrypted.byteLength === 0 || encrypted.toString('base64') !== value) {
+    throw new Error(`${context}: ciphertext must be non-empty canonical base64`);
+  }
+  return encrypted;
+}
+
+export async function decryptIfEncrypted(
+  value: string,
+  context = 'MCP encrypted value'
+): Promise<string> {
+  const encrypted = decodeEncryptedValue(value, context);
+
+  if (
+    typeof safeStorage?.isAsyncEncryptionAvailable !== 'function' ||
+    typeof safeStorage.decryptStringAsync !== 'function'
+  ) {
+    throw new Error(`${context}: asynchronous safeStorage API is unavailable`);
+  }
+
+  let encryptionAvailable: boolean;
   try {
-    const buf = Buffer.from(value, 'base64');
-    if (safeStorage && typeof safeStorage.decryptString === 'function') {
-      return safeStorage.decryptString(buf);
+    encryptionAvailable = await safeStorage.isAsyncEncryptionAvailable();
+  } catch (error) {
+    throw new Error(`${context}: failed to check safeStorage availability: ${errorMessage(error)}`);
+  }
+
+  if (!encryptionAvailable) {
+    throw new Error(`${context}: safeStorage encryption is unavailable`);
+  }
+
+  if (typeof safeStorage.getSelectedStorageBackend === 'function') {
+    let selectedBackend: ReturnType<typeof safeStorage.getSelectedStorageBackend>;
+    try {
+      selectedBackend = safeStorage.getSelectedStorageBackend();
+    } catch (error) {
+      throw new Error(`${context}: failed to inspect safeStorage backend: ${errorMessage(error)}`);
     }
-    // Test/dev fallback: treat as plain base64
-    return buf.toString('utf-8');
-  } catch {
-    return value; // fallback to raw if not decryptable
+    if (selectedBackend === 'basic_text') {
+      throw new Error(`${context}: safeStorage backend basic_text is insecure`);
+    }
+  }
+
+  try {
+    const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(encrypted);
+    if (shouldReEncrypt) {
+      logger.warn('MCP secret should be re-encrypted with the current safeStorage key', {
+        context,
+      });
+    }
+    return result;
+  } catch (error) {
+    throw new Error(`${context}: ${errorMessage(error)}`);
   }
 }
 
@@ -596,7 +644,10 @@ export function decryptIfEncrypted(value: string): string {
  * Decrypt encrypted values in a key-value record.
  * Keys ending with 'Encrypted' are decrypted and stored without the suffix.
  */
-function applyDecryption(record?: Record<string, string>): Record<string, string> | undefined {
+async function applyDecryption(
+  record: Record<string, string> | undefined,
+  contextForKey: (key: string) => string
+): Promise<Record<string, string> | undefined> {
   if (!record) {
     return record;
   }
@@ -604,7 +655,7 @@ function applyDecryption(record?: Record<string, string>): Record<string, string
   for (const [k, v] of Object.entries(record)) {
     if (k.endsWith('Encrypted')) {
       const target = k.slice(0, -'Encrypted'.length);
-      out[target] = decryptIfEncrypted(v);
+      out[target] = await decryptIfEncrypted(v, contextForKey(target));
     } else if (!(k in out)) {
       out[k] = v;
     }
@@ -612,11 +663,28 @@ function applyDecryption(record?: Record<string, string>): Record<string, string
   return out;
 }
 
-export const applyDecryptionToHeaders = applyDecryption;
-export const applyDecryptionToEnv = applyDecryption;
+export function applyDecryptionToHeaders(
+  headers?: Record<string, string>,
+  serverName?: string
+): Promise<Record<string, string> | undefined> {
+  return applyDecryption(headers, (key) =>
+    serverName ? `MCP server "${serverName}" header "${key}"` : `MCP header "${key}"`
+  );
+}
 
-function processSseServer(s: Extract<McpServer, { transport: 'sse' }>): McpServer {
-  const headers = applyDecryptionToHeaders(s.headers);
+export function applyDecryptionToEnv(
+  env?: Record<string, string>,
+  serverName?: string
+): Promise<Record<string, string> | undefined> {
+  return applyDecryption(env, (key) =>
+    serverName
+      ? `MCP server "${serverName}" environment variable "${key}"`
+      : `MCP environment variable "${key}"`
+  );
+}
+
+async function processSseServer(s: Extract<McpServer, { transport: 'sse' }>): Promise<McpServer> {
+  const headers = await applyDecryptionToHeaders(s.headers, s.name);
   if (headers !== undefined) {
     return { ...s, headers };
   }
@@ -624,8 +692,10 @@ function processSseServer(s: Extract<McpServer, { transport: 'sse' }>): McpServe
   return rest;
 }
 
-function processStdioServer(s: Extract<McpServer, { transport: 'stdio' }>): McpServer {
-  const env = applyDecryptionToEnv(s.env);
+async function processStdioServer(
+  s: Extract<McpServer, { transport: 'stdio' }>
+): Promise<McpServer> {
+  const env = await applyDecryptionToEnv(s.env, s.name);
   if (env !== undefined) {
     return { ...s, env };
   }
@@ -633,16 +703,18 @@ function processStdioServer(s: Extract<McpServer, { transport: 'stdio' }>): McpS
   return rest;
 }
 
-export function withDecryptedSecrets(cfg: McpConfig): McpConfig {
-  const servers: McpServer[] = cfg.servers.map((s: McpServer) => {
-    if (s.transport === 'sse') {
-      return processSseServer(s);
-    }
-    if (s.transport === 'stdio') {
-      return processStdioServer(s);
-    }
-    return s;
-  });
+export async function withDecryptedSecrets(cfg: McpConfig): Promise<McpConfig> {
+  const servers = await Promise.all(
+    cfg.servers.map(async (s: McpServer): Promise<McpServer> => {
+      if (s.transport === 'sse') {
+        return processSseServer(s);
+      }
+      if (s.transport === 'stdio') {
+        return processStdioServer(s);
+      }
+      return s;
+    })
+  );
   return { servers };
 }
 
@@ -651,7 +723,7 @@ export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
   try {
     const text = await fsp.readFile(p, 'utf-8');
     const cfg = parseMcpConfig(text);
-    const dec = withDecryptedSecrets(cfg);
+    const dec = await withDecryptedSecrets(cfg);
     return { config: dec, exists: true, loadedAt: Date.now(), path: p, servers: dec.servers };
   } catch (error) {
     const code = (error as { code?: unknown }).code;
