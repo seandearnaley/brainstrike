@@ -1160,7 +1160,7 @@ describe('OptimizedFileTree selection states', () => {
     );
   });
 
-  it('clears agent-selected relative descendants when toggling an absolute workspace root', async () => {
+  it('preserves agent-selected relative descendants when clicking an indeterminate unloaded root without a recursive selector (decision D1: mixed never clears)', async () => {
     const rootPath = '/Users/test/project-clear-root';
     const relativeSelectionKey = encodeFileSelection(rootPath, '/src/index.ts');
     const partiallyLoadedTree: IFileNode[] = [
@@ -1214,7 +1214,12 @@ describe('OptimizedFileTree selection states', () => {
       await Promise.resolve();
     });
 
-    expect(readyStore.getState().selectedFilePaths).toEqual(new Set());
+    // Without an onSelectFolderRecursively handler the completion click is a
+    // diagnosable no-op (warn-logged) — it must never silently clear the
+    // agent's selection. Clearing goes through a CHECKED folder or per-file
+    // unchecks. Relative-key descendant matching for the remove sweep stays
+    // pinned in optimized-file-tree-model.test.ts.
+    expect(readyStore.getState().selectedFilePaths).toEqual(new Set([relativeSelectionKey]));
   });
 
   it('marks hydrated absolute file rows checked from agent-selected relative descendants', async () => {
