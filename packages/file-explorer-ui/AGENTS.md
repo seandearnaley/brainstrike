@@ -97,6 +97,7 @@ export default function Explorer() {
 * File-tree virtualization is owned by shared **TreeTable** primitives (`packages/ui/src/tree-table/*`), not a package-local virtual-list hook. `OptimizedFileTree` adapts explorer rows onto TreeTable (`windowingStrategy="virtual"`).
 * Keep `ROW_HEIGHT` consistent across trees; changing row height requires changes in TreeTable consumers and tests.
 * Prefer adapting feature surfaces to the TreeTable API over duplicating tree render / virtualization logic here (root AGENTS.md TREEGRID CONVERGENCE CONTRACT).
+* `TreeTableViewport` owns both scroll axes and is the virtualizer scroll element. Explorer adapters must stay layout-only (`overflow-hidden`) so the native horizontal scrollbar remains at the panel bottom and the semantic sticky header stays bound to the actual scrollport.
 * For large DOMs, prefer CSS containment (`contain`, `content-visibility`) and GPU-friendly transforms when profiling says it helps. (Use judiciously—don’t paper over logic bugs.) ([GitHub][2])
 
 ### 3) File content loading

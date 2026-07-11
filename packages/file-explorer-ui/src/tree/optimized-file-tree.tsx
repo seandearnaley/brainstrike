@@ -1119,11 +1119,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
               handleRowContextMenu. An unclaimed right-click leaves the target
               null and ActionContextMenu suppresses the empty menu. */}
           <div
-            className="relative h-full min-h-0 flex-1 overflow-y-auto"
+            className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden"
             data-testid="file-tree-scroll-container"
             onContextMenuCapture={() => setContextMenuTarget(null)}
           >
-            <div className="relative h-full" data-testid="file-tree">
+            <div className="relative h-full min-h-0 min-w-0" data-testid="file-tree">
               {/*
               selectionMode="single" + selectedId={null} is intentional: we use the
               tree's keyboard-driven `onSelect` callback as a one-shot "activate this
@@ -1141,7 +1141,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             */}
               <TreeTable
                 ariaLabel="File tree"
-                className="file-tree h-full min-h-0 flex-1"
+                className="file-tree"
                 columns={columns}
                 expandedIds={renderedExpandedDirectoryPaths}
                 maxHeight="none"

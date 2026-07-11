@@ -55,6 +55,7 @@ interface PreviewTableTestOverrides {
   isGroupPartiallySelected?: (group: GroupedData<TableRowData>) => boolean;
   pagination?: { startIndex: number; endIndex: number };
   previewSelections?: Set<string>;
+  scrollAreaClassName?: string;
   toggleGroupCollapse?: (groupKey: string | number) => void;
   visibleFilesOnPage?: TableRowData[];
 }
@@ -78,6 +79,7 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
     onToggleSelection: vi.fn(),
     pagination: overrides.pagination ?? { endIndex: 20, startIndex: 0 },
     previewSelections: overrides.previewSelections ?? new Set<string>(),
+    scrollAreaClassName: overrides.scrollAreaClassName,
     sortDirection: 'asc' as const,
     sortField: 'path' as const,
     toggleGroupCollapse: overrides.toggleGroupCollapse ?? vi.fn(),
@@ -128,6 +130,7 @@ function renderUngroupedPreviewTable(overrides: Partial<PreviewTableTestOverride
     onToggleSelection: vi.fn(),
     pagination: overrides.pagination ?? { endIndex: 20, startIndex: 0 },
     previewSelections: overrides.previewSelections ?? new Set<string>(),
+    scrollAreaClassName: overrides.scrollAreaClassName,
     sortDirection: 'asc' as const,
     sortField: 'path' as const,
     toggleGroupCollapse: overrides.toggleGroupCollapse ?? vi.fn(),
@@ -998,6 +1001,25 @@ describe('PreviewTable file path display', () => {
 });
 
 describe('PreviewTable ungrouped mode', () => {
+  it('leaves scrolling to the shared TreeTable scrollport', () => {
+    renderUngroupedPreviewTable();
+
+    const layoutWrapper = screen.getByTestId('preview-table');
+    expect(layoutWrapper).toHaveClass('flex', 'min-h-0', 'min-w-0', 'flex-1', 'overflow-hidden');
+    expect(layoutWrapper).not.toHaveClass('overflow-auto');
+  });
+
+  it('keeps floating-action clearance inside the shared scrollport', () => {
+    renderUngroupedPreviewTable({ scrollAreaClassName: 'pb-20' });
+
+    const layoutWrapper = screen.getByTestId('preview-table');
+    const scrollport = screen.getByRole('treegrid', {
+      name: 'Context explorer table',
+    }).parentElement;
+    expect(layoutWrapper).not.toHaveClass('pb-20');
+    expect(scrollport).toHaveClass('pb-20');
+  });
+
   it('renders ungrouped rows through the shared treegrid surface', () => {
     renderUngroupedPreviewTable();
 

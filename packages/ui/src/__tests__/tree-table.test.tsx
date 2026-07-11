@@ -1659,23 +1659,36 @@ describe('TreeTable', () => {
   });
 
   describe('styling', () => {
-    it('keeps root and viewport wrappers constrained for resizable side panels', () => {
+    it('uses one full-height scrollport for table overflow, virtualization, and sticky headers', () => {
       const { container } = render(
         <TreeTable
           columns={testColumns}
           expandedIds={new Set()}
           nodes={[createTestNode('1', 'Test')]}
           onToggleExpand={() => {}}
+          viewportClassName="pb-20"
         />
       );
 
       const root = container.firstElementChild;
-      expect(root).toHaveClass('min-w-0');
-      expect(root).toHaveClass('h-full');
+      expect(root).toHaveClass('h-full', 'min-h-0', 'min-w-0');
 
-      const viewport = root?.firstElementChild;
-      expect(viewport).toHaveClass('min-w-0');
-      expect(viewport).toHaveStyle({ height: '100%' });
+      const scrollport = root?.firstElementChild;
+      const treegrid = screen.getByRole('treegrid');
+      expect(scrollport).toHaveClass(
+        'relative',
+        'min-h-0',
+        'min-w-0',
+        'flex-1',
+        'overflow-auto',
+        'pb-20'
+      );
+      expect(scrollport).toHaveStyle({ maxHeight: '600px' });
+      expect(treegrid.parentElement).toBe(scrollport);
+
+      const header = treegrid.querySelector('thead');
+      expect(header).toHaveClass('sticky', 'top-0', 'z-10', 'bg-background');
+      expect(header?.closest('.overflow-auto')).toBe(scrollport);
     });
 
     it('applies className to container', () => {

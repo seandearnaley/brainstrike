@@ -362,7 +362,7 @@ function resolvePaginationTotalItems(isPagedWindowing: boolean, rowCount: number
 
 interface TreeTableViewportProps {
   children: React.ReactNode;
-  className: string;
+  className?: string | undefined;
   maxHeight: string;
   parentRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -374,7 +374,11 @@ function TreeTableViewport({
   children,
 }: TreeTableViewportProps): React.ReactElement {
   return (
-    <div className={cn('min-w-0', className)} ref={parentRef} style={{ height: '100%', maxHeight }}>
+    <div
+      className={cn('relative min-h-0 min-w-0 flex-1 overflow-auto', className)}
+      ref={parentRef}
+      style={{ maxHeight }}
+    >
       {children}
     </div>
   );
@@ -590,6 +594,7 @@ export function TreeTable<T>({
   onSortChange,
   loadingNodeIds = DEFAULT_LOADING_NODE_IDS,
   className,
+  viewportClassName,
   rowClassName,
   emptyState,
   ariaLabel = 'Tree table',
@@ -1142,11 +1147,7 @@ export function TreeTable<T>({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <TreeTableViewport
-        className="min-w-0 overflow-auto"
-        maxHeight={maxHeight}
-        parentRef={parentRef}
-      >
+      <TreeTableViewport className={viewportClassName} maxHeight={maxHeight} parentRef={parentRef}>
         <Table
           aria-colcount={columns.length}
           aria-label={ariaLabel}
@@ -1155,6 +1156,7 @@ export function TreeTable<T>({
           className={className}
           onKeyDown={keyboard.onKeyDown}
           role={tableAriaRole}
+          scrollContainer={false}
           tabIndex={0}
         >
           <TreeTableColgroup columns={columns} getResolvedWidth={columnSizing.getWidth} />

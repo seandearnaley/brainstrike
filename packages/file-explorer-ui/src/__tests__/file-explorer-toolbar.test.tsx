@@ -38,6 +38,24 @@ describe('FileExplorerToolbar', () => {
     expect(screen.getByText('0 of 10 selected')).toBeInTheDocument();
   });
 
+  it('orders selection status left, Add Folder centered, and bulk selection right', () => {
+    renderWithProviders(<FileExplorerToolbar {...getProps()} />);
+
+    const toolbar = screen.getByTestId('file-explorer-toolbar');
+    const [leftSlot, centerSlot, rightSlot] = Array.from(toolbar.children);
+    const selectionStatus = screen.getByText('0 of 10 selected');
+    const addFolderButton = screen.getByRole('button', {
+      name: FileExplorerStrings.addFolderToWorkspace,
+    });
+    const bulkSelectionButton = screen.getByRole('button', { name: 'Select all files' });
+
+    expect(leftSlot).toContainElement(selectionStatus);
+    expect(leftSlot).toHaveClass('justify-start');
+    expect(centerSlot).toBe(addFolderButton);
+    expect(rightSlot).toContainElement(bulkSelectionButton);
+    expect(rightSlot).toHaveClass('justify-end');
+  });
+
   it('preserves the data-testid that desktop E2E depends on', () => {
     renderWithProviders(<FileExplorerToolbar {...getProps()} />);
     expect(screen.getByTestId('select-root-button')).toBeInTheDocument();

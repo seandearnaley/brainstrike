@@ -77,7 +77,21 @@ describe('OptimizedFileTree', () => {
 
     const container = screen.getByTestId('file-tree-scroll-container');
     expect(container).toBeInTheDocument();
-    expect(container).toHaveClass('h-full', 'relative', 'flex-1', 'min-h-0', 'overflow-y-auto');
+    expect(container).toHaveClass(
+      'h-full',
+      'relative',
+      'flex-1',
+      'min-h-0',
+      'min-w-0',
+      'overflow-hidden'
+    );
+    expect(container).not.toHaveClass('overflow-y-auto');
+
+    const treegrid = screen.getByRole('treegrid', { name: 'File tree' });
+    expect(treegrid).toHaveClass('file-tree');
+    expect(treegrid).not.toHaveClass('h-full');
+    expect(treegrid).not.toHaveClass('min-h-0');
+    expect(treegrid).not.toHaveClass('flex-1');
   });
 
   it('renders file tree with correct role and label', async () => {

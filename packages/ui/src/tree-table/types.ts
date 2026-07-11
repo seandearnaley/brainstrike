@@ -242,7 +242,7 @@ export interface TreeTableProps<T> {
   autoWindowingContext?: TreeTableAutoWindowingContext;
 
   // Styling
-  /** Additional CSS class for the container */
+  /** Additional CSS class for the semantic table element. */
   className?: string;
   /**
    * Controlled map of column id → pixel width.
@@ -365,6 +365,8 @@ export interface TreeTableProps<T> {
   // Sorting
   /** Current sort state */
   sortState?: SortState;
+  /** Additional CSS class for the sole scroll viewport. */
+  viewportClassName?: string | undefined;
   /** Windowing strategy for row rendering */
   windowingStrategy?: TreeTableWindowingStrategy;
 }

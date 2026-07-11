@@ -26,8 +26,8 @@ const FileExplorerToolbar = React.memo(
         className="@container/explorer-toolbar grid h-12 w-full min-w-0 max-w-full shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center @[128px]:gap-1.5 @[96px]:gap-0.5 gap-0 overflow-hidden border-b @[128px]:px-2 @[96px]:px-0.5 px-0"
         data-testid="file-explorer-toolbar"
       >
-        <div className="@container/explorer-bulk flex min-w-0 items-center justify-end">
-          {bulkSelectionControl}
+        <div className="@container/explorer-selection flex min-w-0 items-center justify-start">
+          {selectionStatusControl}
         </div>
         <Button
           aria-label={FileExplorerStrings.addFolderToWorkspace}
@@ -41,8 +41,8 @@ const FileExplorerToolbar = React.memo(
           <Folder className="@[460px]:mr-2 size-4" />
           <span className="@[460px]:inline hidden">{FileExplorerStrings.addFolderToWorkspace}</span>
         </Button>
-        <div className="@container/explorer-selection flex min-w-0 items-center justify-start">
-          {selectionStatusControl}
+        <div className="@container/explorer-bulk flex min-w-0 items-center justify-end">
+          {bulkSelectionControl}
         </div>
       </div>
     );
