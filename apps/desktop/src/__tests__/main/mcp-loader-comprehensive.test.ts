@@ -149,7 +149,20 @@ describe('mcp-loader comprehensive tests', () => {
       expect(result.servers).toHaveLength(2);
     });
 
-    it('should filter out invalid servers', () => {
+    it('should reject duplicate server names at the duplicate entry path', () => {
+      const json = JSON.stringify({
+        servers: [
+          { command: 'first', name: 'duplicate', transport: 'stdio' },
+          { name: 'duplicate', transport: 'sse', url: 'https://example.com/sse' },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.1\.name: duplicate server name/u
+      );
+    });
+
+    it('should reject the whole config when any server is invalid and report its path', () => {
       const json = JSON.stringify({
         servers: [
           { command: 'cmd', name: 'valid', transport: 'stdio' },
@@ -159,9 +172,9 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       });
 
-      const result = parseMcpConfig(json);
-      expect(result.servers).toHaveLength(1);
-      expect(result.servers[0].name).toBe('valid');
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.1\.transport.*servers\.2\.command.*servers\.3\.url/u
+      );
     });
 
     it('should throw for invalid JSON', () => {
@@ -170,7 +183,7 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should throw when servers is not an array', () => {
       const json = JSON.stringify({ servers: 'not-an-array' });
-      expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: servers must be array');
+      expect(() => parseMcpConfig(json)).toThrow(/invalid_mcp_config:.*servers:/u);
     });
 
     it('should allow an empty servers array for template-only configs', () => {
@@ -184,12 +197,14 @@ describe('mcp-loader comprehensive tests', () => {
         servers: [{ transport: 'stdio' }, { name: 'missing-url', transport: 'sse' }],
       });
 
-      expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: no valid servers');
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.command.*servers\.0\.name.*servers\.1\.url/u
+      );
     });
 
     it('should throw when servers field is missing', () => {
       const json = JSON.stringify({ other: 'field' });
-      expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: servers must be array');
+      expect(() => parseMcpConfig(json)).toThrow(/invalid_mcp_config:.*servers:/u);
     });
 
     it('should handle stdio server without optional fields', () => {
@@ -218,7 +233,7 @@ describe('mcp-loader comprehensive tests', () => {
       });
     });
 
-    it('should filter non-string args in stdio server', () => {
+    it('should reject non-string stdio args with their array path', () => {
       const json = JSON.stringify({
         servers: [
           {
@@ -230,8 +245,61 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       });
 
-      const result = parseMcpConfig(json);
-      expect(result.servers[0].args).toEqual(['valid', 'another']);
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.args\.1.*servers\.0\.args\.2/u
+      );
+    });
+
+    it('should reject invalid environment and header values with their record paths', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { PORT: 3000 },
+            name: 'local',
+            transport: 'stdio',
+          },
+          {
+            headers: { Authorization: ['Bearer token'] },
+            name: 'remote',
+            transport: 'sse',
+            url: 'https://example.com/sse',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.env\.PORT.*servers\.1\.headers\.Authorization/u
+      );
+    });
+
+    it('should reject invalid and non-HTTP remote URLs with their server paths', () => {
+      const invalidUrl = JSON.stringify({
+        servers: [{ name: 'invalid', transport: 'sse', url: 'not a url' }],
+      });
+      const unsupportedProtocol = JSON.stringify({
+        servers: [{ name: 'file', transport: 'sse', url: 'file:///tmp/mcp.sock' }],
+      });
+
+      expect(() => parseMcpConfig(invalidUrl)).toThrow(/invalid_mcp_config:.*servers\.0\.url/u);
+      expect(() => parseMcpConfig(unsupportedProtocol)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.url/u
+      );
+    });
+
+    it('should reject unknown server keys instead of silently dropping misspelled settings', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            comand: 'node',
+            command: 'node',
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(/invalid_mcp_config:.*servers\.0:.*comand/u);
     });
 
     it('should parse JSON with comments', () => {
@@ -353,7 +421,7 @@ describe('mcp-loader comprehensive tests', () => {
       }`;
 
       expect(() => parseMcpConfig(unterminatedBlockComment)).toThrow(
-        'invalid_mcp_config: unterminated block comment'
+        /invalid_mcp_config: UnexpectedEndOfComment at line 3, column 11/u
       );
     });
 
@@ -372,7 +440,7 @@ describe('mcp-loader comprehensive tests', () => {
       }`;
 
       expect(() => parseMcpConfig(unterminatedString)).toThrow(
-        'invalid_mcp_config: unterminated string'
+        /invalid_mcp_config: UnexpectedEndOfString at line 8, column 28/u
       );
     });
   });

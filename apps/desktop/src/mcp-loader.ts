@@ -3,25 +3,66 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, safeStorage } from 'electron';
-export type McpServer =
-  | {
-      transport: 'stdio';
-      name: string;
-      command: string;
-      args?: string[];
-      env?: Record<string, string>;
-      enabledTools?: string[];
+import {
+  getLocation,
+  type ParseError,
+  parse as parseJsonc,
+  printParseErrorCode,
+} from 'jsonc-parser';
+import { z } from 'zod';
+
+const NonEmptyStringSchema = z
+  .string()
+  .min(1, 'must not be empty')
+  .refine((value) => value.trim().length > 0, 'must not be blank');
+const StringRecordSchema = z.record(z.string(), z.string());
+
+const StdioServerSchema = z.strictObject({
+  args: z.array(z.string()).optional(),
+  command: NonEmptyStringSchema,
+  enabledTools: z.array(z.string()).optional(),
+  env: StringRecordSchema.optional(),
+  name: NonEmptyStringSchema,
+  transport: z.literal('stdio'),
+});
+
+const SseServerSchema = z.strictObject({
+  enabledTools: z.array(z.string()).optional(),
+  headers: StringRecordSchema.optional(),
+  name: NonEmptyStringSchema,
+  transport: z.literal('sse'),
+  url: z.url().refine((value) => {
+    try {
+      const protocol = new URL(value).protocol;
+      return protocol === 'http:' || protocol === 'https:';
+    } catch {
+      return false;
     }
-  | {
-      transport: 'sse';
-      name: string;
-      url: string;
-      headers?: Record<string, string>;
-      enabledTools?: string[];
-    };
-export interface McpConfig {
-  servers: McpServer[];
-}
+  }, 'must use the HTTP or HTTPS protocol'),
+});
+
+const McpServerSchema = z.discriminatedUnion('transport', [StdioServerSchema, SseServerSchema]);
+const McpConfigSchema = z
+  .strictObject({
+    servers: z.array(McpServerSchema),
+  })
+  .superRefine((config, context) => {
+    const serverNames = new Set<string>();
+    for (const [index, server] of config.servers.entries()) {
+      if (serverNames.has(server.name)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'duplicate server name',
+          path: ['servers', index, 'name'],
+        });
+        continue;
+      }
+      serverNames.add(server.name);
+    }
+  });
+
+export type McpServer = z.infer<typeof McpServerSchema>;
+export type McpConfig = z.infer<typeof McpConfigSchema>;
 
 const logger = createLogger('DesktopMcpLoader');
 
@@ -50,308 +91,47 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
 }
 `;
 
-type CommentStripMode = 'normal' | 'string' | 'line-comment' | 'block-comment';
-
-interface CommentStripState {
-  escaped: boolean;
-  mode: CommentStripMode;
-}
-
-function handleLineComment(char: string, output: string[], state: CommentStripState): void {
-  if (char !== '\n') {
-    return;
-  }
-  state.mode = 'normal';
-  output.push(char);
-}
-
-function handleBlockComment(
-  char: string,
-  next: string | undefined,
-  output: string[],
-  state: CommentStripState
-): number {
-  if (char === '*' && next === '/') {
-    state.mode = 'normal';
-    return 1;
-  }
-
-  if (char === '\n') {
-    output.push(char);
-  }
-
-  return 0;
-}
-
-function handleString(char: string, output: string[], state: CommentStripState): void {
-  output.push(char);
-  if (state.escaped) {
-    state.escaped = false;
-    return;
-  }
-
-  if (char === '\\') {
-    state.escaped = true;
-    return;
-  }
-
-  if (char === '"') {
-    state.mode = 'normal';
-  }
-}
-
-function handleNormal(
-  char: string,
-  next: string | undefined,
-  output: string[],
-  state: CommentStripState
-): number {
-  if (char === '"') {
-    state.mode = 'string';
-    output.push(char);
-    return 0;
-  }
-
-  if (char === '/' && next === '/') {
-    state.mode = 'line-comment';
-    return 1;
-  }
-
-  if (char === '/' && next === '*') {
-    state.mode = 'block-comment';
-    return 1;
-  }
-
-  output.push(char);
-  return 0;
-}
-
-function stripJsonComments(text: string): string {
-  // Keep JSONC preprocessing local and dependency-free in desktop main.
-  // Supported syntax mirrors our MCP template/editor needs: comments + trailing commas.
-  // If this expands beyond MCP config editing, prefer a dedicated JSONC parser dependency.
-  const output: string[] = [];
-  const state: CommentStripState = { escaped: false, mode: 'normal' };
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === undefined) {
-      continue;
-    }
-    const next = text[index + 1];
-
-    if (state.mode === 'line-comment') {
-      handleLineComment(char, output, state);
-      continue;
-    }
-
-    if (state.mode === 'block-comment') {
-      index += handleBlockComment(char, next, output, state);
-      continue;
-    }
-
-    if (state.mode === 'string') {
-      handleString(char, output, state);
-      continue;
-    }
-
-    index += handleNormal(char, next, output, state);
-  }
-
-  if (state.mode === 'block-comment') {
-    throw new Error('invalid_mcp_config: unterminated block comment');
-  }
-  if (state.mode === 'string') {
-    throw new Error('invalid_mcp_config: unterminated string');
-  }
-
-  return output.join('');
-}
-
-function isJsonWhitespace(char: string | undefined): boolean {
-  return char === ' ' || char === '\n' || char === '\r' || char === '\t';
-}
-
-function findNextNonWhitespaceCharacter(text: string, startIndex: number): string | undefined {
-  for (let index = startIndex; index < text.length; index += 1) {
-    const char = text[index];
-    if (!isJsonWhitespace(char)) {
-      return char;
-    }
-  }
-  return;
-}
-
-interface TrailingCommaStripState {
-  escaped: boolean;
-  inString: boolean;
-}
-
-function consumeStringCharacter(
-  char: string,
-  output: string[],
-  state: TrailingCommaStripState
-): void {
-  output.push(char);
-  if (state.escaped) {
-    state.escaped = false;
-    return;
-  }
-  if (char === '\\') {
-    state.escaped = true;
-    return;
-  }
-  if (char === '"') {
-    state.inString = false;
-  }
-}
-
-function isTrailingCommaToken(text: string, commaIndex: number): boolean {
-  const nextNonWhitespace = findNextNonWhitespaceCharacter(text, commaIndex + 1);
-  return nextNonWhitespace === '}' || nextNonWhitespace === ']';
-}
-
-function stripTrailingCommas(text: string): string {
-  const output: string[] = [];
-  const state: TrailingCommaStripState = {
-    escaped: false,
-    inString: false,
+function getLineAndColumn(text: string, offset: number): { column: number; line: number } {
+  const lines = text.slice(0, offset).split(/\r\n|\r|\n/u);
+  return {
+    column: (lines.at(-1)?.length ?? 0) + 1,
+    line: lines.length,
   };
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === undefined) {
-      continue;
-    }
-
-    if (state.inString) {
-      consumeStringCharacter(char, output, state);
-      continue;
-    }
-
-    if (char === '"') {
-      state.inString = true;
-      output.push(char);
-      continue;
-    }
-
-    if (char === ',' && isTrailingCommaToken(text, index)) {
-      continue;
-    }
-
-    output.push(char);
-  }
-
-  return output.join('');
 }
 
-function parseStdioServer(s: unknown): McpServer | null {
-  if (!s || typeof s !== 'object' || !('transport' in s)) {
-    return null;
-  }
-  const server = s as Record<string, unknown>;
-
-  if (
-    server['transport'] !== 'stdio' ||
-    typeof server['name'] !== 'string' ||
-    typeof server['command'] !== 'string'
-  ) {
-    return null;
-  }
-
-  const result: McpServer = {
-    command: server['command'] as string,
-    name: server['name'] as string,
-    transport: 'stdio',
-  };
-
-  if (Array.isArray(server['args'])) {
-    result.args = (server['args'] as unknown[]).filter((x): x is string => typeof x === 'string');
-  }
-  if (server['env'] && typeof server['env'] === 'object') {
-    result.env = server['env'] as Record<string, string>;
-  }
-  if (Array.isArray(server['enabledTools'])) {
-    result.enabledTools = (server['enabledTools'] as unknown[]).filter(
-      (value): value is string => typeof value === 'string'
-    );
-  }
-
-  return result;
+function formatJsoncError(text: string, error: ParseError): string {
+  const { column, line } = getLineAndColumn(text, error.offset);
+  const path = getLocation(text, error.offset).path.join('.');
+  const location = path ? ` (${path})` : '';
+  return `${printParseErrorCode(error.error)} at line ${line}, column ${column}${location}`;
 }
 
-function parseSseServer(s: unknown): McpServer | null {
-  if (!s || typeof s !== 'object' || !('transport' in s)) {
-    return null;
-  }
-  const server = s as Record<string, unknown>;
-
-  if (
-    server['transport'] !== 'sse' ||
-    typeof server['name'] !== 'string' ||
-    typeof server['url'] !== 'string'
-  ) {
-    return null;
-  }
-
-  const result: McpServer = {
-    name: server['name'] as string,
-    transport: 'sse',
-    url: server['url'] as string,
-  };
-
-  if (server['headers'] && typeof server['headers'] === 'object') {
-    result.headers = server['headers'] as Record<string, string>;
-  }
-  if (Array.isArray(server['enabledTools'])) {
-    result.enabledTools = (server['enabledTools'] as unknown[]).filter(
-      (value): value is string => typeof value === 'string'
-    );
-  }
-
-  return result;
+function formatValidationIssue(issue: z.ZodIssue): string {
+  const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
+  return `${path}: ${issue.message}`;
 }
 
 export function parseMcpConfig(text: string): McpConfig {
-  const jsoncText = stripJsonComments(text);
-  const normalizedJson = stripTrailingCommas(jsoncText);
-  let raw: unknown;
-  try {
-    raw = JSON.parse(normalizedJson);
-  } catch (error) {
-    const parseMessage = error instanceof Error ? error.message : 'invalid JSON';
-    throw new Error(`invalid_mcp_config: ${parseMessage}`);
-  }
-  if (
-    !raw ||
-    typeof raw !== 'object' ||
-    !('servers' in raw) ||
-    !Array.isArray((raw as { servers: unknown }).servers)
-  ) {
-    throw new Error('invalid_mcp_config: servers must be array');
+  const parseErrors: ParseError[] = [];
+  const raw = parseJsonc(text, parseErrors, {
+    allowTrailingComma: true,
+    disallowComments: false,
+  }) as unknown;
+
+  if (parseErrors.length > 0) {
+    throw new Error(
+      `invalid_mcp_config: ${parseErrors.map((error) => formatJsoncError(text, error)).join('; ')}`
+    );
   }
 
-  const servers: McpServer[] = [];
-  const rawServers = (raw as { servers: unknown[] }).servers;
-
-  for (const s of rawServers) {
-    const stdioServer = parseStdioServer(s);
-    if (stdioServer) {
-      servers.push(stdioServer);
-      continue;
-    }
-
-    const sseServer = parseSseServer(s);
-    if (sseServer) {
-      servers.push(sseServer);
-    }
+  const parsed = McpConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
+    );
   }
 
-  if (rawServers.length > 0 && servers.length === 0) {
-    throw new Error('invalid_mcp_config: no valid servers');
-  }
-
-  return { servers };
+  return parsed.data;
 }
 
 export interface LoadedMcpConfig {

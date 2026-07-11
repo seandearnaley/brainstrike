@@ -189,6 +189,9 @@ importers:
       electron-store:
         specifier: ^11.0.2
         version: 11.0.2
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
       lucide-react:
         specifier: ^1.23.0
         version: 1.23.0(react@19.2.7)
