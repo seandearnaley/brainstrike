@@ -8,6 +8,7 @@
 
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -31,7 +32,7 @@ const CHUNK_LEGACY = '00000000-0000-0000-0000-0000000000c3';
 let db: PGlite;
 
 beforeAll(async () => {
-  db = new PGlite({ extensions: { pg_trgm: pgTrgm, vector } });
+  db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
   const migrationResult = await runMigrations(db);
   if (!migrationResult.success) {
     throw new Error(`Migrations failed: ${migrationResult.error}`);

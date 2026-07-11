@@ -28,6 +28,7 @@ import {
   assertTextContentsHaveNoNullBytes,
 } from '../../text-content-invariants.js';
 import {
+  BM25_CONTENT_INDEX_NAME,
   computeOverfetchLimit,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
@@ -531,7 +532,6 @@ export class DrizzleFileChunkRepository {
       selectionSnapshotId,
       queryMode = 'websearch',
       language = 'english',
-      rankNormalization = 0,
       includeEmbedding = false,
       includeHeadline = true,
     } = options;
@@ -563,12 +563,18 @@ export class DrizzleFileChunkRepository {
       ? sql`ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
       : sql``;
+    // Ranked by BM25 (pg_textsearch, migration 053): matching stays
+    // tsvector-based below, so query-mode semantics are unchanged; only the
+    // ORDERING comes from BM25. The `, id` tiebreaks keep ordering
+    // deterministic — BM25 produces exact score ties for rows with identical
+    // term statistics.
+    const bm25Rank = sql`(-(content <@> to_bm25query(${trimmedQuery}, ${BM25_CONTENT_INDEX_NAME})))::float8`;
     let baseQuery = sql`
       SELECT
         ${sql.raw(ftsColumns)},
-        ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) as fts_rank,
+        ${bm25Rank} as fts_rank,
         ${headlineColumn}
-        ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) DESC) as position
+        ROW_NUMBER() OVER (ORDER BY ${bm25Rank} DESC, id) as position
       FROM file_chunks
       WHERE content_tsvector IS NOT NULL
         AND content_tsvector @@ ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})
@@ -611,7 +617,7 @@ export class DrizzleFileChunkRepository {
     }
 
     baseQuery = sql`${baseQuery}
-      ORDER BY fts_rank DESC
+      ORDER BY fts_rank DESC, id
       LIMIT ${limit}
     `;
 

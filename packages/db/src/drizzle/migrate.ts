@@ -42,6 +42,7 @@ import { migration049JobQueueMetrics } from '../migrations/049-job-queue-metrics
 import { migration050AssistantTaskLists } from '../migrations/050-assistant-task-lists.js';
 import { migration051PromptLibrary } from '../migrations/051-prompt-library.js';
 import { migration052AssistantEditCheckpoints } from '../migrations/052-assistant-edit-checkpoints.js';
+import { migration053Bm25ContentIndex } from '../migrations/053-bm25-content-index.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -186,6 +187,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-050-assistant-task-lists', migration050AssistantTaskLists),
   customMigration('custom-051-prompt-library', migration051PromptLibrary),
   customMigration('custom-052-assistant-edit-checkpoints', migration052AssistantEditCheckpoints),
+  customMigration('custom-053-bm25-content-index', migration053Bm25ContentIndex),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
