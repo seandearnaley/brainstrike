@@ -4,7 +4,7 @@ import type {
   AssistantEditCheckpointRecord,
 } from '@brainstrike/assistant-contract';
 import { isRevertibleCaptureStatus } from '@brainstrike/assistant-contract';
-import { createContext, type ReactNode, useContext, useMemo } from 'react';
+import { createContext, type ReactNode, use, useMemo } from 'react';
 
 /**
  * The four agent mutation tools whose tool cards can carry a Revert control. Kept
@@ -61,7 +61,7 @@ export function useCheckpointForToolCall(toolCallId: string): {
   entry: AssistantEditCheckpointRecord;
   revert: (options?: { force?: boolean }) => Promise<AssistantCheckpointRevertResult>;
 } | null {
-  const context = useContext(EditCheckpointContext);
+  const context = use(EditCheckpointContext);
   if (!context) {
     return null;
   }
@@ -107,6 +107,15 @@ function isLaterApply(a: AssistantEditCheckpointRecord, b: AssistantEditCheckpoi
  *
  * Returns `null` when this message owns no run (no revertible edits, or it is
  * not any run's last leg) — capability gating, so the control renders nothing.
+ *
+ * Deliberate absent-until-terminal semantics for suspended runs: this reads only
+ * committed journal `entries`, and an edit is journaled INSIDE the tool's
+ * `execute` (see EDIT CHECKPOINT JOURNAL). A run suspended for approval, plan
+ * submission, or askUser has not run its mutation tools yet, so it has no
+ * entries and no footer — and a run mid-stream shows the footer only once its
+ * anchor (last-applied leg) lands. The footer is therefore absent until the run
+ * reaches its terminal edit, by design: we never offer "Revert all" for edits
+ * that have not happened.
  */
 export function selectTurnRevertScope(
   messageToolCallIds: readonly string[],
@@ -162,7 +171,7 @@ export function useCheckpointTurnRevert(toolCallIds: readonly string[]): {
   revertibleCount: number;
   revert: (options?: { force?: boolean }) => Promise<readonly AssistantCheckpointRevertRunResult[]>;
 } | null {
-  const context = useContext(EditCheckpointContext);
+  const context = use(EditCheckpointContext);
   const idsKey = toolCallIds.join('\n');
   return useMemo(() => {
     if (!context) {

@@ -223,11 +223,22 @@ describe('useCheckpointTurnRevert', () => {
 
   it('reverts each distinct run sequentially (newest first) and reports the run-scoped count', async () => {
     const order: string[] = [];
+    // Gate the FIRST (newest) run's promise so it stays pending. A sequential
+    // loop MUST await it before invoking the second run; `Promise.all(map(...))`
+    // would call both synchronously. Asserting the second run has NOT fired while
+    // the first is unresolved is what actually pins sequentiality — a mutation
+    // back to a parallel implementation fails this, not just the final order.
+    let resolveFirst: (() => void) | undefined;
+    const firstGate = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
     const revertRun = vi.fn((runId: string) => {
       order.push(runId);
-      return Promise.resolve(
-        runResult(runId, [{ entry: makeEntry({ id: 'e1', toolCallId: 'call-a' }), ok: true }])
-      );
+      const result = runResult(runId, [
+        { entry: makeEntry({ id: 'e1', toolCallId: 'call-a' }), ok: true },
+      ]);
+      // run-2 is the newest run (reverted first) — hold its promise open.
+      return runId === 'run-2' ? firstGate.then(() => result) : Promise.resolve(result);
     });
     const value = contextValue(
       [
@@ -252,7 +263,17 @@ describe('useCheckpointTurnRevert', () => {
 
     expect(result.current?.revertibleCount).toBe(2);
 
-    await result.current?.revert({ force: true });
+    const revertPromise = result.current?.revert({ force: true });
+    // Flush microtasks: a sequential loop is now parked awaiting run-2's gate, so
+    // run-1 must NOT have been called yet. A parallel impl would already show both.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toEqual(['run-2']);
+    expect(revertRun).toHaveBeenCalledTimes(1);
+
+    resolveFirst?.();
+    await revertPromise;
+
     expect(revertRun).toHaveBeenCalledWith('run-1', { force: true });
     expect(revertRun).toHaveBeenCalledWith('run-2', { force: true });
     expect(revertRun).toHaveBeenCalledTimes(2);

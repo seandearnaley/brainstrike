@@ -6,24 +6,23 @@ import { type ReactElement, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
 import { useCheckpointTurnRevert } from './edit-checkpoint-context';
+import { isToolCallPart } from './tool-activity';
 
 const logger = createLogger('CheckpointTurnRevert');
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 /**
- * Collect the tool-call ids of one assistant turn, in render order. Mirrors
- * `tool-activity.ts`: a part is a tool call when its discriminant `type` is
- * `'tool-call'`. Non-mutation tools simply have no journal entry, so the entry
- * lookup — not a tool-name filter here — decides what is revertible. Works for
- * live and reloaded turns alike (hydrated parts carry the same discriminant).
+ * Collect the tool-call ids of one assistant turn, in render order. Reuses
+ * `tool-activity.ts`'s `isToolCallPart` so the "a part is a tool call"
+ * discriminant lives in exactly one place. This collects EVERY tool-call id
+ * (not only mutations): non-mutation tools simply have no journal entry, so the
+ * entry lookup in `selectTurnRevertScope` — not a tool-name filter here —
+ * decides what is revertible. Works for live and reloaded turns alike (hydrated
+ * parts carry the same discriminant).
  */
 export function collectMutationToolCallIds(parts: readonly unknown[]): string[] {
   const ids: string[] = [];
   for (const part of parts) {
-    if (isRecord(part) && part['type'] === 'tool-call' && typeof part['toolCallId'] === 'string') {
+    if (isToolCallPart(part) && typeof part['toolCallId'] === 'string') {
       ids.push(part['toolCallId']);
     }
   }
