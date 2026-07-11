@@ -28,7 +28,10 @@ function makeDeps(fs: MemoryFs): UserSlashCommandScanDeps {
         name: entry.name,
       }));
     },
-    readFile: (absFile) => fs.files[absFile] ?? null,
+    readFile: (absFile) =>
+      absFile in fs.files
+        ? { content: fs.files[absFile] as string, ok: true }
+        : { ok: false, reason: 'unreadable' },
   };
 }
 
@@ -217,6 +220,62 @@ describe('scanUserSlashCommands', () => {
     expect(
       records.some(
         (record) => record.level === 'warn' && record.message?.toLowerCase().includes('oversized')
+      )
+    ).toBe(true);
+  });
+
+  it('reports a reader-rejected oversized file as a warn (never a "Failed to read" error)', () => {
+    // The real-disk reader pre-rejects a file over the byte ceiling WITHOUT
+    // reading it, returning {ok:false, reason:'oversized'}. The loader must log
+    // that as an oversized WARN, not misattribute it to an I/O error.
+    const deps: UserSlashCommandScanDeps = {
+      listDir: (absDir) =>
+        absDir === `${HOME}/.brainstrike/commands`
+          ? [{ isDirectory: false, isFile: true, name: 'huge.md' }]
+          : null,
+      readFile: () => ({ ok: false, reason: 'oversized' }),
+    };
+
+    const { records, stop } = captureLogs();
+    let commands: ReturnType<typeof scanUserSlashCommands>;
+    try {
+      commands = scanUserSlashCommands({ homeDir: HOME, roots: [] }, deps);
+    } finally {
+      stop();
+    }
+
+    expect(commands).toEqual([]);
+    expect(
+      records.some(
+        (record) => record.level === 'warn' && record.message?.toLowerCase().includes('oversized')
+      )
+    ).toBe(true);
+    expect(
+      records.some(
+        (record) => record.level === 'error' && record.message?.includes('Failed to read')
+      )
+    ).toBe(false);
+  });
+
+  it('reports a genuinely unreadable file as a "Failed to read" error', () => {
+    const deps: UserSlashCommandScanDeps = {
+      listDir: (absDir) =>
+        absDir === `${HOME}/.brainstrike/commands`
+          ? [{ isDirectory: false, isFile: true, name: 'gone.md' }]
+          : null,
+      readFile: () => ({ ok: false, reason: 'unreadable' }),
+    };
+
+    const { records, stop } = captureLogs();
+    try {
+      expect(scanUserSlashCommands({ homeDir: HOME, roots: [] }, deps)).toEqual([]);
+    } finally {
+      stop();
+    }
+
+    expect(
+      records.some(
+        (record) => record.level === 'error' && record.message?.includes('Failed to read')
       )
     ).toBe(true);
   });

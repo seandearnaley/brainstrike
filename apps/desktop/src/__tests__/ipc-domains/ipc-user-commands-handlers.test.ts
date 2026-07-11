@@ -30,7 +30,10 @@ function fsWith(files: Record<string, string>, dirs: Record<string, string[]>) {
         name,
       }));
     },
-    readFile: (absFile: string) => files[absFile] ?? null,
+    readFile: (absFile: string) =>
+      absFile in files
+        ? ({ content: files[absFile] as string, ok: true } as const)
+        : ({ ok: false, reason: 'unreadable' } as const),
   };
 }
 
@@ -81,5 +84,33 @@ describe('listUserSlashCommands', () => {
     expect(
       records.some((record) => record.level === 'error' && record.scope === 'UserSlashCommands')
     ).toBe(true);
+  });
+
+  it('drops a root whose DB path is null (no filesystem-root scan, not reported)', async () => {
+    const db = dbReturning([
+      { displayName: 'Resolved', id: 'db-root-1', path: '/proj' },
+      { displayName: 'Unresolved', id: 'db-root-2', path: null },
+    ]);
+    // A file planted at the filesystem-root scan path the null root would join to
+    // (`/.brainstrike/commands`) must NOT be scanned.
+    const fs = fsWith(
+      {
+        '/.brainstrike/commands/leaked.md': 'Should never load',
+        '/proj/.brainstrike/commands/review.md': 'Review $ARGUMENTS',
+      },
+      {
+        '/.brainstrike/commands': ['leaked.md'],
+        '/proj/.brainstrike/commands': ['review.md'],
+      }
+    );
+
+    const result = await listUserSlashCommands({
+      fs,
+      getDatabase: async () => db,
+      homedir: () => HOME,
+    });
+
+    expect(result.roots).toEqual([{ displayName: 'Resolved', id: 'db-root-1' }]);
+    expect(result.commands.map((command) => command.id)).toEqual(['review']);
   });
 });

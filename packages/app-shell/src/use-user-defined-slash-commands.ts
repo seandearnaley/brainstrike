@@ -129,16 +129,25 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
+  // Monotonic generation guard (mirrors the workspace-search store): EVERY
+  // reload trigger — mount, roots change, and the visibilitychange refresh that
+  // DISCARDS this cleanup — bumps the generation, so only the LATEST load may
+  // apply. A slow older response can never clobber fresher state
+  // (last-requested-wins, not last-resolved-wins), and the cleanup's bump drops
+  // any resolution that lands after unmount / dep change.
+  const generationRef = useRef(0);
+
   const reload = useCallback(() => {
     if (!bridge) {
       return () => {
         // no-op cleanup when the desktop bridge is absent (web)
       };
     }
-    let cancelled = false;
+    generationRef.current += 1;
+    const generation = generationRef.current;
     bridge()
       .then((result) => {
-        if (!cancelled) {
+        if (generation === generationRef.current) {
           setList(result);
         }
       })
@@ -146,7 +155,7 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
         logger.error('Failed to load user-defined slash commands', { error });
       });
     return () => {
-      cancelled = true;
+      generationRef.current += 1;
     };
   }, [bridge]);
 

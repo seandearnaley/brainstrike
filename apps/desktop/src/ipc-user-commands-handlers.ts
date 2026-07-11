@@ -18,7 +18,7 @@ import { homedir } from 'node:os';
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
-  MAX_USER_COMMAND_FILE_CHARS,
+  MAX_USER_COMMAND_FILE_BYTES,
   scanUserSlashCommands,
   type UserSlashCommandScanDeps,
   type UserSlashCommandScanRoot,
@@ -57,14 +57,17 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
       try {
         // Bound the read BEFORE pulling untrusted bytes into the main process:
         // a giant file would block main and (unbounded) balloon renderer memory
-        // over IPC. Oversized files are skipped (the loader re-checks length and
-        // emits the visible warn); never a blocking multi-hundred-MB read.
-        if (statSync(absFile).size > MAX_USER_COMMAND_FILE_CHARS) {
-          return null;
+        // over IPC. The bound is a BYTE ceiling (MAX_USER_COMMAND_FILE_BYTES =
+        // 4× the char cap), so a multi-byte file under the character cap is
+        // never falsely rejected; a file above it is DEFINITIVELY oversized and
+        // reported as such (honest reason — the loader logs a warn, not a
+        // spurious "Failed to read"), never a blocking multi-hundred-MB read.
+        if (statSync(absFile).size > MAX_USER_COMMAND_FILE_BYTES) {
+          return { ok: false, reason: 'oversized' };
         }
-        return readFileSync(absFile, 'utf8');
+        return { content: readFileSync(absFile, 'utf8'), ok: true };
       } catch {
-        return null;
+        return { ok: false, reason: 'unreadable' };
       }
     },
   };
@@ -87,11 +90,18 @@ async function resolveScanRoots(
   }
   try {
     const roots = await loadWorkspaceRootsFromDatabase(database);
-    return roots.map((root) => ({
-      absPath: root.path ?? '',
-      displayName: root.displayName ?? '',
-      id: root.rootId,
-    }));
+    // A root whose DB `path` is null (unresolved) has no usable scan directory:
+    // `absPath: ''` would join to `/.brainstrike/commands` — an absolute path
+    // off the real filesystem root — and bind any commands found there to that
+    // root. Filter such roots out so an unresolved root is neither scanned nor
+    // reported (never a filesystem-root scan).
+    return roots
+      .filter((root): root is typeof root & { path: string } => Boolean(root.path))
+      .map((root) => ({
+        absPath: root.path,
+        displayName: root.displayName ?? '',
+        id: root.rootId,
+      }));
   } catch (error) {
     logger.error('Failed to load workspace roots; only global slash commands will load.', {
       error,

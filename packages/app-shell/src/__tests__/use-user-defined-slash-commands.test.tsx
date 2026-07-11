@@ -195,6 +195,42 @@ describe('useUserDefinedSlashCommands', () => {
     expect(useAssistantComposerCommandStore.getState().commandsByThreadId).toEqual({});
   });
 
+  it('R4: a stale in-flight reload never clobbers a newer one (generation guard)', async () => {
+    const deferreds: ((result: UserSlashCommandsListResult) => void)[] = [];
+    const list = vi.fn(
+      () =>
+        new Promise<UserSlashCommandsListResult>((resolve) => {
+          deferreds.push(resolve);
+        })
+    );
+    asMutableWindow().userCommands = { list };
+
+    const { result } = renderHook(() => useUserDefinedSlashCommands(THREAD));
+    // Mount kicked off the first load (generation 1) — still pending.
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+
+    // A visibilitychange refresh kicks off a second load (generation 2). Its
+    // cleanup closure is intentionally discarded — only the generation guard
+    // protects it.
+    act(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+
+    // Resolve the NEWER load first, then the STALE one last (the classic
+    // last-resolved-wins clobber). The stale generation-1 result must be dropped.
+    await act(async () => {
+      deferreds[1]?.({ commands: [{ id: 'new', label: 'new', template: 'n' }], roots: [] });
+    });
+    await act(async () => {
+      deferreds[0]?.({ commands: [{ id: 'old', label: 'old', template: 'o' }], roots: [] });
+    });
+
+    await waitFor(() => expect(result.current).toHaveLength(1));
+    expect(result.current[0]?.id).toBe('new');
+  });
+
   it('F1/placeholder: with no live args, $ARGUMENTS stays a visible placeholder in the composer', async () => {
     setBridge({
       commands: [{ id: 'review', label: 'Review', template: 'Review this: $ARGUMENTS' }],

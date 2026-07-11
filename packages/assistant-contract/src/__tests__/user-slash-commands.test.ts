@@ -155,6 +155,22 @@ describe('expandUserCommandTemplate', () => {
     ).toBe('Review @src/foo.ts please');
   });
 
+  it('leaves a template @path with an UNFILLED placeholder as raw text (no bogus directive)', () => {
+    // `@src/$1` invoked with no args must NOT serialize `:file[$1]{name=r1::src/$1}`
+    // (a directive pointing at a bogus literal-$1 path); leave the raw @path so
+    // the user can fill it in and the @ popover binds it.
+    expect(
+      expandUserCommandTemplate({ argString: '', mentionRootId: 'r1', template: 'Open @src/$1' })
+    ).toBe('Open @src/$1');
+    expect(
+      expandUserCommandTemplate({
+        argString: '',
+        mentionRootId: 'r1',
+        template: 'See @docs/$ARGUMENTS.md',
+      })
+    ).toBe('See @docs/$ARGUMENTS.md');
+  });
+
   it('SECURITY: never executes or expands shell !`command` syntax — it stays inert text', () => {
     const template = 'Before !`rm -rf /` after $ARGUMENTS';
     const out = expandUserCommandTemplate({ argString: 'x', mentionRootId: 'root-1', template });

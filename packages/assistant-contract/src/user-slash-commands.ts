@@ -212,6 +212,16 @@ function substituteArgsInText(
 }
 
 /**
+ * True when `text` still carries an UNFILLED `$ARGUMENTS` / `$<digits>` token
+ * after argument substitution — i.e. a placeholder the user never provided a
+ * value for. A fresh (non-global) regex avoids the shared `ARG_TOKEN`'s stateful
+ * `lastIndex`.
+ */
+function hasUnfilledArgPlaceholder(text: string): boolean {
+  return /\$ARGUMENTS\b|\$\d+/.test(text);
+}
+
+/**
  * Expand a command template with the user's arguments in ONE deterministic,
  * renderer-safe pass (NO filesystem, NO shell):
  *
@@ -257,11 +267,24 @@ export function expandUserCommandTemplate(input: {
     ) => {
       if (mentionPath !== undefined) {
         const resolvedPath = substituteArgsInText(mentionPath, trimmedArgs, positional);
-        if (!mentionRootId) {
+        // Leave the raw `@path` text (never serialize a directive) when the
+        // root is unbound OR the path still holds an UNFILLED placeholder (e.g.
+        // `@src/$1` invoked with no args). Baking a literal `$1`/`$ARGUMENTS`
+        // into a `:file[…]{name=…}` directive would point it at a bogus path
+        // `src/$1` that fails to resolve; leaving the raw text lets the user
+        // fill it in (the `@` popover then binds it) — no fabricated directive.
+        if (!mentionRootId || hasUnfilledArgPlaceholder(resolvedPath)) {
           return `${lead ?? ''}@${resolvedPath}`;
         }
         const directive = serializeFileMentionDirective({
           id: encodeFileMentionId(mentionRootId, resolvedPath),
+          // NOTE: the label is `basename(resolvedPath)` inserted raw; the
+          // directive grammar's label is `[^\]]+` (see DIRECTIVE_RE), so a
+          // basename containing `]` truncates the label at parse time. The id
+          // side percent-encodes `{`/`}`/`%`, but label chars are NOT escaped.
+          // This fails CLOSED (the mention is skipped, never mis-injected to a
+          // wrong file) and `]` in a basename is rare — accepted contract
+          // limitation, shared with the `@file` mention pipeline.
           label: basename(resolvedPath),
         });
         return `${lead ?? ''}${directive}`;

@@ -47,11 +47,23 @@ export interface UserSlashCommandDirEntry {
   readonly name: string;
 }
 
+/**
+ * The outcome of reading one candidate command file. `oversized` is DISTINCT
+ * from `unreadable` so the loader can log the HONEST reason: a real-disk reader
+ * that pre-bounds a giant file reports `oversized` (a warn), never masquerading
+ * as `unreadable` (an error "Failed to read"). Files under the reader's coarse
+ * byte ceiling come back as `ok` and the loader applies the authoritative
+ * character-cap check ({@link MAX_USER_COMMAND_FILE_CHARS}).
+ */
+export type UserSlashCommandReadResult =
+  | { readonly ok: true; readonly content: string }
+  | { readonly ok: false; readonly reason: 'unreadable' | 'oversized' };
+
 export interface UserSlashCommandScanDeps {
   /** List a directory's immediate entries; `null` when it is missing/unreadable. */
   readonly listDir: (absDir: string) => readonly UserSlashCommandDirEntry[] | null;
-  /** Read a file's UTF-8 content; `null` when it is missing/unreadable. */
-  readonly readFile: (absFile: string) => string | null;
+  /** Read a file's UTF-8 content, or a typed failure (`unreadable`/`oversized`). */
+  readonly readFile: (absFile: string) => UserSlashCommandReadResult;
 }
 
 export interface UserSlashCommandScanInput {
@@ -70,6 +82,19 @@ const MD_EXTENSION = /\.(md|markdown|mdown|mkd)$/i;
  * warn-once, never silently truncated.
  */
 export const MAX_USER_COMMAND_FILE_CHARS = 64_000;
+
+/**
+ * Coarse BYTE ceiling for the real-disk reader's pre-read stat guard. Set to
+ * 4× the CHARACTER cap: the maximum UTF-8 byte length of a string of
+ * {@link MAX_USER_COMMAND_FILE_CHARS} UTF-16 code units is ≤ 3 bytes/unit, so a
+ * file at/under the character cap can NEVER exceed this byte ceiling (fixes the
+ * earlier bytes-vs-chars false positive, where a multi-byte file under the char
+ * cap was wrongly skipped). A file ABOVE this ceiling is DEFINITIVELY over the
+ * character cap, so the reader reports it `oversized` without pulling its bytes
+ * into the main process; everything under the ceiling is read and the loader
+ * applies the authoritative character-cap check.
+ */
+export const MAX_USER_COMMAND_FILE_BYTES = MAX_USER_COMMAND_FILE_CHARS * 4;
 
 /** Hard cap on the number of discovered commands per scan (abuse/DoS bound). */
 export const MAX_USER_COMMANDS = 500;
@@ -147,24 +172,40 @@ function warnCrossRootCollision(
  * `template`), or `null` when it is unreadable, oversized (F3), malformed, or an
  * empty template — each skipped with the appropriate visible log, never silently.
  */
+/** Warn ONCE per path that a command file is skipped for exceeding the size cap. */
+function warnOversized(absPath: string, chars: number | null): void {
+  if (warnedOversizedPaths.has(absPath)) {
+    return;
+  }
+  warnedOversizedPaths.add(absPath);
+  logger.warn('Skipping oversized slash command file', {
+    cap: MAX_USER_COMMAND_FILE_CHARS,
+    // `chars` is null when the real-disk reader rejected the file by BYTE size
+    // (over MAX_USER_COMMAND_FILE_BYTES) without reading it into memory.
+    chars,
+    path: absPath,
+  });
+}
+
 function readCommandBody(
   file: { readonly absPath: string },
   deps: UserSlashCommandScanDeps
 ): { name?: string; description?: string; template: string } | null {
-  const content = deps.readFile(file.absPath);
-  if (content === null) {
-    logger.error('Failed to read slash command file', { path: file.absPath });
+  const read = deps.readFile(file.absPath);
+  if (!read.ok) {
+    // Honest reason discrimination (F3 / review): a definitively-oversized file
+    // pre-rejected by the reader is a WARN ("oversized"), never an ERROR
+    // ("Failed to read") that misattributes the skip to an I/O failure.
+    if (read.reason === 'oversized') {
+      warnOversized(file.absPath, null);
+    } else {
+      logger.error('Failed to read slash command file', { path: file.absPath });
+    }
     return null;
   }
+  const content = read.content;
   if (content.length > MAX_USER_COMMAND_FILE_CHARS) {
-    if (!warnedOversizedPaths.has(file.absPath)) {
-      warnedOversizedPaths.add(file.absPath);
-      logger.warn('Skipping oversized slash command file', {
-        cap: MAX_USER_COMMAND_FILE_CHARS,
-        chars: content.length,
-        path: file.absPath,
-      });
-    }
+    warnOversized(file.absPath, content.length);
     return null;
   }
   const parsed = parseUserCommandFile(content);
