@@ -1,9 +1,11 @@
 export { createClipboardService } from './clipboard';
 export { isAbsolutePath, toRelativePath } from './paths';
 export {
+  type ActionMenuItemDescriptor,
   type ActionRegistry,
   type CreateActionRegistryOptions,
   createActionRegistry,
+  type GroupedActionMenuDescriptors,
   type GroupedActions,
 } from './registry';
 export { createTestActionRegistry } from './testing';

@@ -1,7 +1,7 @@
 # Context Action System — Design
 
 **Date:** 2026-06-09
-**Status:** Approved
+**Status:** Implemented; extended 2026-07-10
 **Scope decisions (user-approved):**
 - Architecture ambition: action registry + context menus (command palette / keybindings designed-for but NOT built).
 - v1 surfaces: file explorer tree (left nav) + collection browser (refactor its existing one-off menu).
@@ -213,7 +213,47 @@ construction itself is strict: a malformed/absent bridge yields an absent capabi
 ## Follow-ups (explicitly deferred)
 
 - Migrate `markdown-text.tsx` `useCopyToClipboard` onto `ClipboardService`.
-- "Open in Default App" action.
-- Target kinds + menus for workspace file tabs, CodeSurface selection, assistant
-  messages.
-- cmdk command palette and keybinding registry consuming the same registry.
+- Assistant message-body actions. Message selection deliberately keeps the native
+  context menu until a separate, selection-aware target is designed.
+- A native Electron context-menu adapter consuming `descriptorsFor`; action
+  execution remains renderer-owned. A persistent application/File menu also
+  needs explicit focused-target ownership.
+- Touch/pen long-press target claiming (the current synchronous protocol is
+  desktop mouse/trackpad-first).
+
+## 2026-07-10 extension
+
+The second adoption pass completed the formerly deferred file and assistant
+surfaces without introducing editor mutations:
+
+- `workspace-file-tab` and `file-viewer` targets reuse the global file actions.
+  Viewer targets capture exact selection text at `contextmenu` time and preserve
+  CodeMirror `{from,to}` coordinates for future explain/edit/add-to-context
+  actions. Markdown selection is accepted only when both range endpoints belong
+  to the preview root.
+- File-tab menus add Close, Close Others, Close Tabs to the Right, and Close All.
+  Bulk operations are atomic, revalidate stale invocation targets, and do not
+  replace a selected pinned app while changing background file tabs.
+- `assistant-thread` and `assistant-thread-tab` targets carry `{resourceId,id,title}`.
+  Copy Thread Title/ID are global; tab close operations and row Open/Rename…/
+  Customize…/Details/Delete… actions are local projections of their owning state.
+  Delete only opens the existing confirmation UI.
+- Semantic shortcut metadata and `registry.descriptorsFor(...)` provide a strict,
+  serializable presentation seam for a future Electron native context-menu
+  adapter. Duplicate action ids fail at construction/invocation rather than
+  producing ambiguous dispatch.
+
+The interaction details were checked against current primary documentation:
+
+- [Radix Context Menu](https://www.radix-ui.com/primitives/docs/components/context-menu)
+  for `onSelect`, focus, disabled items, and pointer anchoring.
+- [WAI-ARIA Menu and Menubar Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/menubar/)
+  and [Tabs Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/) for menu/tab
+  roles, focus, and closable-tab expectations.
+- [MDN `contextmenu`](https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event),
+  [Selection](https://developer.mozilla.org/en-US/docs/Web/API/Selection), and
+  [Clipboard `writeText`](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/writeText)
+  for event-time selection and secure clipboard semantics.
+- [Electron context menus](https://www.electronjs.org/docs/latest/tutorial/context-menu)
+  and [Menu API](https://www.electronjs.org/docs/latest/api/menu) for the future
+  native descriptor/renderer-executor boundary.

@@ -155,4 +155,87 @@ describe('createActionRegistry', () => {
     const groups = registry.actionsFor(fileTarget, [local, primary]);
     expect(groups.map((group) => group.group)).toEqual(['primary', 'tree', 'copy']);
   });
+
+  it('projects serializable menu descriptors without renderer functions or icon components', () => {
+    const action = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      icon: () => null,
+      id: 'file.copy-name',
+      isEnabled: () => false,
+      label: (target) => `Copy ${target.name}`,
+      run: async () => ok,
+      shortcut: { key: 'C', modifiers: ['primary', 'shift'] as const },
+    });
+    const registry = createActionRegistry({
+      actions: [action],
+      capabilities: new Set(),
+      services: {},
+    });
+
+    const descriptors = registry.descriptorsFor(fileTarget);
+
+    expect(descriptors).toEqual([
+      {
+        actions: [
+          {
+            enabled: false,
+            group: 'copy',
+            id: 'file.copy-name',
+            label: 'Copy notes.md',
+            shortcut: { key: 'C', modifiers: ['primary', 'shift'] },
+          },
+        ],
+        group: 'copy',
+      },
+    ]);
+    expect(JSON.parse(JSON.stringify(descriptors))).toEqual(descriptors);
+  });
+
+  it('rejects duplicate global action ids at registry construction', () => {
+    const first = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      id: 'file.duplicate',
+      label: 'First',
+      run: async () => ok,
+    });
+    const second = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'inspect',
+      id: 'file.duplicate',
+      label: 'Second',
+      run: async () => ok,
+    });
+
+    expect(() =>
+      createActionRegistry({ actions: [first, second], capabilities: new Set(), services: {} })
+    ).toThrowError('Duplicate context action id: file.duplicate');
+  });
+
+  it('rejects a local action id that collides with a global action', () => {
+    const global = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      id: 'file.copy-name',
+      label: 'Global',
+      run: async () => ok,
+    });
+    const local = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'primary',
+      id: 'file.copy-name',
+      label: 'Local',
+      run: async () => ok,
+    });
+    const registry = createActionRegistry({
+      actions: [global],
+      capabilities: new Set(),
+      services: {},
+    });
+
+    expect(() => registry.actionsFor(fileTarget, [local])).toThrowError(
+      'Duplicate context action id: file.copy-name'
+    );
+  });
 });
