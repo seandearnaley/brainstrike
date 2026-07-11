@@ -490,6 +490,21 @@ function summarizeLoadedChildSelection(args: {
       continue;
     }
 
+    // A child directory contributing NOTHING selectable to the visible
+    // universe (zero visible files, nothing selected under it, fully loaded)
+    // must not drag the parent's summary — e.g. a directory the active view
+    // filter emptied while its raw contents remain on disk (spike B5).
+    if (child.type === 'directory') {
+      const childMetadata = directoryTraversalContext.getDirectoryMetadata(child);
+      if (
+        childMetadata.directoryTotalFiles === 0 &&
+        !childMetadata.hasIncompleteDescendants &&
+        (selectedDirectoryCounts.get(child.path) ?? 0) === 0
+      ) {
+        continue;
+      }
+    }
+
     consideredChildren += 1;
     const childState = computeLoadedChildCheckboxState(
       child,
@@ -1057,7 +1072,8 @@ export function buildRowsFromNormalizedTree(
   normalizedTree: NormalizedFileTreeState,
   options: BuildFileTreeRowsOptions,
   getDirectoryTotalFiles: (path: string) => number,
-  allowedPaths: Set<string> | null
+  allowedPaths: Set<string> | null,
+  getHasIncompleteDescendants?: (path: string) => boolean
 ): TreeNode<FileTreeRowData>[] {
   const rows: TreeNode<FileTreeRowData>[] = [];
   const stack: StackEntry[] = [];
@@ -1093,7 +1109,8 @@ export function buildRowsFromNormalizedTree(
       normalizedTree,
       options,
       getDirectoryTotalFiles,
-      allowedPaths
+      allowedPaths,
+      getHasIncompleteDescendants
     );
     rows.push({
       data: rowData,
@@ -1120,7 +1137,8 @@ function createNormalizedRowData(
   normalizedTree: NormalizedFileTreeState,
   options: BuildFileTreeRowsOptions,
   getDirectoryTotalFiles: (path: string) => number,
-  allowedPaths: Set<string> | null
+  allowedPaths: Set<string> | null,
+  getHasIncompleteDescendants?: (path: string) => boolean
 ): FileTreeRowData {
   const hasUnloadedChildren =
     entry.node.type === 'directory'
@@ -1138,7 +1156,8 @@ function createNormalizedRowData(
     hasUnloadedChildren,
     immediateChildren,
     entry.node.type === 'directory'
-      ? hasNormalizedIncompleteDescendants(normalizedTree, entry.node.path)
+      ? (getHasIncompleteDescendants?.(entry.node.path) ??
+          hasNormalizedIncompleteDescendants(normalizedTree, entry.node.path))
       : false
   );
 }

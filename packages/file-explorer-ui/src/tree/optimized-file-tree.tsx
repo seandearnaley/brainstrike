@@ -14,7 +14,7 @@ import {
 } from '@brainstrike/ui';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { createLogger } from '@brainstrike/utils/logger';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 import {
   File as FileIcon,
   Folder,
@@ -40,7 +40,11 @@ import {
   useFileExplorerStoreSelector,
 } from '../shell/file-explorer-provider';
 import { measureFileTreeOperation, recordFileTreeTelemetry } from '../utils/file-tree-telemetry';
-import { hasNormalizedIncompleteDescendants } from '../utils/normalized-file-tree';
+import {
+  buildVisibleDirectoryAggregates,
+  hasNormalizedIncompleteDescendants,
+  type VisibleDirectoryAggregates,
+} from '../utils/normalized-file-tree';
 import { getSelectionCount } from '../utils/selection-projection';
 import {
   useOptionalFileTreeContext,
@@ -132,24 +136,92 @@ function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIco
 }
 
 /**
+ * A click on a FILE checkbox. Adding a single file at the cap is a genuine
+ * no-op — the checkbox is disabled with a tooltip; the guard here is its
+ * keyboard backstop. (Directory clicks are never cap-blocked: deselect must
+ * always work, and adds partial-fill with a toast — decision D3.)
+ */
+function runFileSelectionClick(args: {
+  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  folderId: string;
+  maxSelectionCount: number;
+  nodePath: string;
+  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  selectedCount: number;
+  selectionMode: FileExplorerState['selectionModel']['mode'];
+  selectionState: NodeSelectionState;
+  toggleSelectedFile: (folderId: string, path: string) => void;
+}): void {
+  if (args.selectionState.wouldExceedLimit) {
+    logger.warn('selection click ignored: would exceed selection limit', {
+      maxSelectionCount: args.maxSelectionCount,
+      path: args.nodePath,
+      selectedCount: args.selectedCount,
+    });
+    return;
+  }
+  applyFileSelectionMutation({
+    addMultipleSelectedFiles: args.addMultipleSelectedFiles,
+    folderId: args.folderId,
+    nodePath: args.nodePath,
+    removeMultipleSelectedFiles: args.removeMultipleSelectedFiles,
+    selectionMode: args.selectionMode,
+    selectionState: args.selectionState,
+    toggleSelectedFile: args.toggleSelectedFile,
+  });
+}
+
+/**
+ * Normalized-path row build: when visible aggregates are active (a filter
+ * hides part of the tree), row denominators and completeness flags come from
+ * the visible universe; otherwise the raw O(1) maps apply.
+ */
+function buildNormalizedRowsResult(
+  normalizedTreeContext: NonNullable<ReturnType<typeof useOptionalFileTreeNormalizedContext>>,
+  options: BuildFileTreeRowsOptions,
+  filteredPathSet: Set<string> | null,
+  visibleAggregates: VisibleDirectoryAggregates | null
+): FileTreeRowsBuildResult {
+  return {
+    rows: buildRowsFromNormalizedTree(
+      normalizedTreeContext.normalizedTreeRef.current,
+      options,
+      visibleAggregates
+        ? (path) => visibleAggregates.fileCountByPath.get(path) ?? 0
+        : normalizedTreeContext.getDescendantFileCount,
+      filteredPathSet,
+      visibleAggregates
+        ? (path) => (visibleAggregates.incompleteDirCountByPath.get(path) ?? 0) > 0
+        : undefined
+    ),
+    source: 'normalized' satisfies FileTreeRowBuildSource,
+  };
+}
+
+/**
  * The add/deselect resolution for a click on a LOADED directory: resolve the
- * mutation against the cap, apply it, and surface any cap truncation
- * (decision D3: partial-fill is allowed but never silent).
+ * mutation against the cap OVER THE VISIBLE FILE SET, apply it, and surface
+ * any cap truncation (decision D3: partial-fill is allowed but never silent).
+ *
+ * Decision D2: `visibleFilePaths` is the (view+quick-filtered) universe the
+ * click SELECTS from; the totals and selected-count fed to the resolver come
+ * from that same universe so the resolved action matches what the checkbox
+ * shows. A resolved REMOVE applies `fullSweepSelectedPaths` instead — deselect
+ * always clears hidden residue too.
  */
 function runLoadedDirectorySelectionMutation(args: {
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
-  allFilePaths: string[];
-  directorySelectedCount: number;
-  directoryTotalFiles: number;
   folderId: string;
+  fullSweepSelectedPaths: string[];
   maxSelectionCount: number;
   nodePath: string;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   selectedCount: number;
   selectedFilePaths: Set<string>;
   showToast: (toast: { description: string; title: string }) => void;
+  visibleFilePaths: string[];
 }): void {
-  if (args.directoryTotalFiles === 0) {
+  if (args.visibleFilePaths.length === 0) {
     // No-silent-fallbacks: a loaded-but-empty (or fully filtered)
     // directory checkbox click must be diagnosable.
     logger.warn('selection click ignored: directory has no selectable files', {
@@ -158,15 +230,27 @@ function runLoadedDirectorySelectionMutation(args: {
     return;
   }
 
+  let visibleSelectedCount = 0;
+  for (const path of args.visibleFilePaths) {
+    if (isPathSelectedInFolder(args.selectedFilePaths, args.folderId, path)) {
+      visibleSelectedCount += 1;
+    }
+  }
+
   const selectionMutation = resolveDirectorySelectionMutation({
-    allFilePaths: args.allFilePaths,
+    allFilePaths: args.visibleFilePaths,
     currentSelectionSize: args.selectedCount,
-    directoryTotalFiles: args.directoryTotalFiles,
+    directoryTotalFiles: args.visibleFilePaths.length,
     folderId: args.folderId,
     maxSelectionCount: args.maxSelectionCount,
-    selectedCount: args.directorySelectedCount,
+    selectedCount: visibleSelectedCount,
     selectedFilePaths: args.selectedFilePaths,
   });
+
+  if (selectionMutation.action === 'remove') {
+    args.removeMultipleSelectedFiles(args.folderId, args.fullSweepSelectedPaths);
+    return;
+  }
 
   applyDirectorySelectionMutation({
     addMultipleSelectedFiles: args.addMultipleSelectedFiles,
@@ -533,6 +617,25 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       return pathSet;
     }, [normalizedTreeContext, fileTree]);
 
+    // Visible-universe aggregates (decision D2): when a view/quick filter
+    // hides part of the normalized tree, tri-state denominators, completeness
+    // flags, and folder-click selection must all come from the VISIBLE set.
+    // Null when no filter is active (the display tree covers the whole
+    // normalized tree) — raw O(1) maps apply then.
+    const visibleAggregates = useMemo<VisibleDirectoryAggregates | null>(() => {
+      if (!(normalizedTreeContext && filteredPathSet)) {
+        return null;
+      }
+      if (filteredPathSet.size >= normalizedTreeContext.normalizedTreeRef.current.nodeByPath.size) {
+        return null;
+      }
+      return buildVisibleDirectoryAggregates(
+        normalizedTreeContext.normalizedTreeRef.current,
+        filteredPathSet
+      );
+      // normalizedTreeContext.version invalidates when the ref's tree mutates.
+    }, [filteredPathSet, normalizedTreeContext, normalizedTreeContext?.version]);
+
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.
     const treeRowsBuild = useMemo(() => {
@@ -547,15 +650,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         };
 
         if (normalizedTreeContext) {
-          return {
-            rows: buildRowsFromNormalizedTree(
-              normalizedTreeContext.normalizedTreeRef.current,
-              options,
-              normalizedTreeContext.getDescendantFileCount,
-              filteredPathSet
-            ),
-            source: 'normalized' satisfies FileTreeRowBuildSource,
-          };
+          return buildNormalizedRowsResult(
+            normalizedTreeContext,
+            options,
+            filteredPathSet,
+            visibleAggregates
+          );
         }
 
         // When worker-flattened nodes are available, use them to avoid main-thread DFS
@@ -598,6 +698,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       filteredPathSet,
       normalizedTreeContext,
       normalizedTreeContext?.version,
+      visibleAggregates,
     ]);
     const treeRows = treeRowsBuild.rows;
 
@@ -781,11 +882,15 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
           if (normalizedTreeContext) {
             return {
-              directoryTotalFiles: normalizedTreeContext.getDescendantFileCount(node.path),
-              hasIncompleteDescendants: hasNormalizedIncompleteDescendants(
-                normalizedTreeContext.normalizedTreeRef.current,
-                node.path
-              ),
+              directoryTotalFiles: visibleAggregates
+                ? (visibleAggregates.fileCountByPath.get(node.path) ?? 0)
+                : normalizedTreeContext.getDescendantFileCount(node.path),
+              hasIncompleteDescendants: visibleAggregates
+                ? (visibleAggregates.incompleteDirCountByPath.get(node.path) ?? 0) > 0
+                : hasNormalizedIncompleteDescendants(
+                    normalizedTreeContext.normalizedTreeRef.current,
+                    node.path
+                  ),
               hasUnloadedDirectoryChildren: hasNormalizedUnloadedDirectoryChildren(
                 normalizedTreeContext.normalizedTreeRef.current,
                 node.path,
@@ -808,7 +913,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           };
         },
       }),
-      [filteredPathSet, normalizedTreeContext]
+      [filteredPathSet, normalizedTreeContext, visibleAggregates]
     );
 
     const getNodeSelectionState = useCallback(
@@ -852,23 +957,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         const selectionState = getNodeSelectionState(rowData);
 
         if (node.type !== 'directory') {
-          // Adding a single file at the cap is a genuine no-op — the checkbox
-          // is disabled with a tooltip; this guard is its keyboard backstop.
-          // Directory clicks are NEVER blocked here: a deselect must always
-          // work, and an add partial-fills to the cap with a toast (D3).
-          if (selectionState.wouldExceedLimit) {
-            logger.warn('selection click ignored: would exceed selection limit', {
-              maxSelectionCount,
-              path: node.path,
-              selectedCount,
-            });
-            return;
-          }
-          applyFileSelectionMutation({
+          runFileSelectionClick({
             addMultipleSelectedFiles,
             folderId,
+            maxSelectionCount,
             nodePath: node.path,
             removeMultipleSelectedFiles,
+            selectedCount,
             selectionMode: selectionModel.mode,
             selectionState,
             toggleSelectedFile,
@@ -901,20 +996,29 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
 
+        // Decision D2: the click's selectable universe is the VISIBLE set.
+        // The fallback (web) path's directoryNode already comes from the
+        // filtered display tree; the normalized (desktop) path enumerates the
+        // raw tree, so restrict it to the visible paths when a filter is on.
+        const rawFilePaths = normalizedTreeContext
+          ? normalizedTreeContext.getDescendantFilePaths(node.path)
+          : fileExplorer.getAllFilePathsInDirectory(directoryNode);
+        const visibleFilePaths =
+          normalizedTreeContext && filteredPathSet && visibleAggregates
+            ? rawFilePaths.filter((path) => filteredPathSet.has(path))
+            : rawFilePaths;
+
         runLoadedDirectorySelectionMutation({
           addMultipleSelectedFiles,
-          allFilePaths: normalizedTreeContext
-            ? normalizedTreeContext.getDescendantFilePaths(node.path)
-            : fileExplorer.getAllFilePathsInDirectory(directoryNode),
-          directorySelectedCount: selectedDirectoryCounts.get(node.path) ?? 0,
-          directoryTotalFiles: rowData.directoryTotalFiles,
           folderId,
+          fullSweepSelectedPaths: selectedDescendantPaths,
           maxSelectionCount,
           nodePath: node.path,
           removeMultipleSelectedFiles,
           selectedCount,
           selectedFilePaths,
           showToast,
+          visibleFilePaths,
         });
       },
       [
@@ -923,7 +1027,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         toggleSelectedFile,
         onSelectFolderRecursively,
         selectedFilePaths,
-        selectedDirectoryCounts,
         removeMultipleSelectedFiles,
         maxSelectionCount,
         addMultipleSelectedFiles,
@@ -932,6 +1035,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         isLoadingForSelection,
         selectionModel.mode,
         showToast,
+        filteredPathSet,
+        visibleAggregates,
       ]
     );
     const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);

@@ -43,6 +43,7 @@ const mockSetFilters = vi.fn((includes: string[], excludes: string[]) => {
 const mockSetUseRegex = vi.fn((value: boolean) => {
   mockStoreState.useRegex = value;
 });
+const mockClearDisabledFilters = vi.fn();
 const mockCreatePreset = vi.fn();
 const mockUpdatePreset = vi.fn();
 const mockDeletePreset = vi.fn();
@@ -58,6 +59,7 @@ const defaultMockViewFilterPresetsResult = () => ({
 });
 
 interface MockStoreState {
+  clearDisabledFilters: typeof mockClearDisabledFilters;
   currentFolderId: string | null;
   excludeFilters: string[];
   folderStates: Record<
@@ -84,6 +86,7 @@ interface MockStoreState {
 }
 
 const defaultMockStoreState = (): MockStoreState => ({
+  clearDisabledFilters: mockClearDisabledFilters,
   currentFolderId: 'mock-root',
   excludeFilters: ['node_modules'],
   folderStates: {
@@ -233,6 +236,8 @@ describe('ToolbarPresetSelector', () => {
       expect(mockSetViewFilterPresetId).toHaveBeenCalledWith('preset-2');
     });
     expect(mockSetFilters).toHaveBeenCalledWith(['*.md'], []);
+    // Spike B9: stale disable toggles must not survive a preset switch.
+    expect(mockClearDisabledFilters).toHaveBeenCalledTimes(1);
     expect(mockSetUseRegex).toHaveBeenCalledWith(false);
     expect(mockSetFilters.mock.invocationCallOrder[0]).toBeLessThan(
       mockSetViewFilterPresetId.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
