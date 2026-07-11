@@ -71,11 +71,17 @@ export function filterTreeByPatterns(
 
 /**
  * Quick-filter predicate for the RECURSIVE-SELECTION SCAN (not the display
- * tree). Unlike `applyQuickFilterToTree`, which prunes name-mismatched empty
- * directories, this keeps EVERY directory so the scan can traverse into it —
- * a matching file may live deeper in an as-yet-unloaded subtree. Only FILES
- * are name-filtered (mirrors the workspace filter's scan semantics, which also
- * keep all directories). Blank filter is a no-op (returns the same array).
+ * tree). Two rules, matching the display filter's directory semantics
+ * (`filterNodeByPatterns`):
+ *  - An EXCLUDE term matching a node's name drops it — for FILES **and
+ *    DIRECTORIES**. A directory whose name matches an exclude term (e.g.
+ *    `-node_modules`, `-dist`) is pruned so the scan never traverses into it,
+ *    exactly as the display filter removes the whole excluded subtree.
+ *  - A non-excluded DIRECTORY is always kept for traversal (a matching file
+ *    may live deeper in an as-yet-unloaded subtree), unlike the display filter
+ *    which additionally prunes name-mismatched empty dirs. FILES are then
+ *    include-filtered.
+ * Blank filter is a no-op (returns the same array).
  */
 export function filterSelectionScanNodesByQuickFilter(
   nodes: IFileNode[],
@@ -88,12 +94,14 @@ export function filterSelectionScanNodesByQuickFilter(
   const includesLower = includes.map((value: string) => value.toLowerCase());
   const excludesLower = excludes.map((value: string) => value.toLowerCase());
   return nodes.filter((node) => {
-    if (node.type === 'directory') {
-      return true;
-    }
     const nameText = node.name.toLowerCase();
+    // Exclusion applies to files AND directories (an excluded directory is
+    // never traversed) — checked FIRST, mirroring the display filter.
     if (excludesLower.some((pattern) => nameText.includes(pattern))) {
       return false;
+    }
+    if (node.type === 'directory') {
+      return true;
     }
     return (
       includesLower.length === 0 || includesLower.some((pattern) => nameText.includes(pattern))

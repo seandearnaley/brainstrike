@@ -63,4 +63,17 @@ describe('filterSelectionScanNodesByQuickFilter', () => {
     ).map((n: IFileNode) => n.name);
     expect(result).toEqual(['Keep.ts']);
   });
+
+  it('DROPS directories whose name matches an exclude term (never traverse them)', () => {
+    // Review fix: an exclude term matching a DIRECTORY name (e.g. -node_modules,
+    // -dist) must prune it, matching the display filter — else a recursive
+    // select would traverse an excluded unloaded dir and select hidden files.
+    const tree = [dir('src'), dir('node_modules'), dir('dist'), file('index.ts')];
+    const result = filterSelectionScanNodesByQuickFilter(tree, '-node_modules -dist').map(
+      (n: IFileNode) => n.name
+    );
+    expect(result).toEqual(['src', 'index.ts']);
+    expect(result).not.toContain('node_modules');
+    expect(result).not.toContain('dist');
+  });
 });
