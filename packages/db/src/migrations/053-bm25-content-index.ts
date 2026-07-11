@@ -21,6 +21,11 @@ import type { Migration } from './migration-runner';
  */
 
 export const migration053Bm25ContentIndex: Migration = {
+  // The extension is dropped here ONLY because 053 is its sole consumer today.
+  // If a later migration adds another pg_textsearch-dependent object, its down
+  // must not rely on this one dropping the extension — and this DROP EXTENSION
+  // (deliberately without CASCADE) will fail loudly rather than silently
+  // dropping that dependent object.
   down: `
     DROP INDEX IF EXISTS idx_file_chunks_content_bm25;
 

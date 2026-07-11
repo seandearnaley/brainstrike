@@ -1255,13 +1255,16 @@ describe('FileChunkRepository', () => {
 
     it('non-english match language still yields deterministic, sign-correct BM25 ordering', async () => {
       // ftsLanguage controls MATCHING only; BM25 ordering always uses the bm25
-      // index's own text_config ('english'). A stemming mismatch may collapse
-      // scores toward ties, but ranks must stay >= 0 (threshold direction) and
-      // ordering must stay deterministic via the `, id` tiebreak.
-      const first = await repository.fullTextSearch('database connection', {
+      // index's own text_config ('english'). The query term must be
+      // STEM-STABLE ('pool' is identical under 'simple' and 'english') because
+      // a 'simple'-config query lexeme never matches an english-stemmed
+      // tsvector lexeme ('database' vs 'databas' returns nothing — by design).
+      // Ranks must stay >= 0 (threshold direction) and ordering deterministic
+      // via the `, id` tiebreak even under the config mismatch.
+      const first = await repository.fullTextSearch('pool', {
         language: 'simple',
       });
-      const second = await repository.fullTextSearch('database connection', {
+      const second = await repository.fullTextSearch('pool', {
         language: 'simple',
       });
       expect(first.length).toBeGreaterThan(0);
@@ -1269,6 +1272,12 @@ describe('FileChunkRepository', () => {
         expect(result.rank).toBeGreaterThanOrEqual(0);
       }
       expect(first.map((r) => r.chunk.id)).toEqual(second.map((r) => r.chunk.id));
+
+      // And the mismatching-stem case is honestly empty, not erroring.
+      const stemMismatch = await repository.fullTextSearch('database connection', {
+        language: 'simple',
+      });
+      expect(stemMismatch).toEqual([]);
     });
 
     it('should handle queries with no matches', async () => {
