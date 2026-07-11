@@ -1,7 +1,10 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { ActionRegistryProvider } from '@brainstrike/ui';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
+import { assistantThreadActions } from '../assistant-thread-context-actions';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { ThreadsPanel } from '../threads-panel';
 
@@ -52,6 +55,16 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     selector(fileExplorerMocks),
   useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
 }));
+
+function renderThreadsPanel(): ReturnType<typeof createTestActionRegistry> {
+  const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
+  render(
+    <ActionRegistryProvider registry={actionRegistry.registry}>
+      <ThreadsPanel />
+    </ActionRegistryProvider>
+  );
+  return actionRegistry;
+}
 
 describe('ThreadsPanel', () => {
   beforeEach(() => {
@@ -165,7 +178,7 @@ describe('ThreadsPanel', () => {
     // resource id rather than the focused root path.
     fileExplorerMocks.rootDirectoryHandle = null;
 
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -180,7 +193,7 @@ describe('ThreadsPanel', () => {
     dbMocks.initializing = true;
     dbMocks.initializationStatus = 'initializing';
 
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     expect(screen.getByTestId('threads-loading-card')).toBeVisible();
     expect(screen.getByText('Loading threads...')).toBeVisible();
@@ -193,7 +206,7 @@ describe('ThreadsPanel', () => {
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'idle';
 
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     expect(screen.getByTestId('threads-loading-card')).toBeVisible();
     expect(screen.getByText('Loading threads...')).toBeVisible();
@@ -208,7 +221,7 @@ describe('ThreadsPanel', () => {
       dbMocks.initializing = false;
       dbMocks.initializationStatus = 'idle';
 
-      render(<ThreadsPanel />);
+      renderThreadsPanel();
 
       act(() => {
         vi.advanceTimersByTime(500);
@@ -227,7 +240,7 @@ describe('ThreadsPanel', () => {
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'ready';
 
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getByText('Assistant memory database unavailable')).toBeVisible();
@@ -239,7 +252,7 @@ describe('ThreadsPanel', () => {
     dbMocks.database = null;
     dbMocks.providerError = new Error('PGlite startup failed.');
 
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     expect(screen.getByTestId('threads-error-card')).toBeVisible();
     expect(screen.getByText('Assistant memory database failed')).toBeVisible();
@@ -248,7 +261,7 @@ describe('ThreadsPanel', () => {
   });
 
   it('lists workspace-scoped historical Mastra threads from PGlite', async () => {
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -268,7 +281,7 @@ describe('ThreadsPanel', () => {
   });
 
   it('renders curated thread identity without using the uuid as the primary row label', async () => {
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -286,9 +299,98 @@ describe('ThreadsPanel', () => {
     expect(within(secondThread).queryByText('thread-b')).not.toBeInTheDocument();
   });
 
+  it('uses the right-clicked row for copy and Open without selecting on menu open', async () => {
+    const { writtenTexts } = renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    const firstThreadTitle = screen.getByText('First thread');
+
+    fireEvent.contextMenu(firstThreadTitle);
+    expect(
+      useAssistantThreadStore.getState().selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-b');
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy Thread Title' }));
+    await waitFor(() => {
+      expect(writtenTexts).toEqual(['First thread']);
+    });
+
+    fireEvent.contextMenu(firstThreadTitle);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy Thread ID' }));
+    await waitFor(() => {
+      expect(writtenTexts).toEqual(['First thread', 'thread-a']);
+    });
+
+    fireEvent.contextMenu(firstThreadTitle);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Open' }));
+    expect(
+      useAssistantThreadStore.getState().selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-a');
+    expect(
+      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-a');
+  });
+
+  it('enters the existing rename flow and preserves the input native context menu', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    fireEvent.contextMenu(screen.getByText('Second thread'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename…' }));
+
+    const titleInput = screen.getByRole('textbox', { name: 'Thread title' });
+    expect(titleInput).toHaveValue('Second thread');
+    expect(mockDb.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+
+    fireEvent.contextMenu(titleInput);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('reuses customization, details, and delete-confirmation row flows', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    const secondThreadTitle = screen.getByText('Second thread');
+
+    fireEvent.contextMenu(secondThreadTitle);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Customize…' }));
+    expect(screen.getByRole('button', { name: 'Use Bug icon' })).toBeVisible();
+    expect(mockDb.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('SET metadata'),
+      expect.anything()
+    );
+
+    fireEvent.contextMenu(secondThreadTitle);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Show Details' }));
+    expect(screen.getByTestId('thread-expanded-details')).toBeVisible();
+
+    fireEvent.contextMenu(secondThreadTitle);
+    expect(await screen.findByRole('menuitem', { name: 'Hide Details' })).toBeVisible();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+
+    fireEvent.contextMenu(secondThreadTitle);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
+    expect(
+      screen.getByRole('button', { name: 'Confirm delete thread Second thread' })
+    ).toBeVisible();
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    expect(mockDb.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM mastra_threads'),
+      expect.anything()
+    );
+  });
+
   it('saves curated icon and color metadata through Mastra thread storage', async () => {
     const user = userEvent.setup();
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -320,7 +422,7 @@ describe('ThreadsPanel', () => {
 
   it('shows automatic expanded metadata and keeps diagnostics out of the primary row', async () => {
     const user = userEvent.setup();
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -358,7 +460,7 @@ describe('ThreadsPanel', () => {
       .spyOn(crypto, 'randomUUID')
       .mockReturnValue('00000000-0000-4000-8000-00000000000c');
     const threadId = 'thread-00000000-0000-4000-8000-00000000000c';
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -381,7 +483,7 @@ describe('ThreadsPanel', () => {
 
   it('renames a thread through Mastra thread storage', async () => {
     const user = userEvent.setup();
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -405,7 +507,7 @@ describe('ThreadsPanel', () => {
 
   it('keeps rename validation local to the row', async () => {
     const user = userEvent.setup();
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -422,7 +524,7 @@ describe('ThreadsPanel', () => {
 
   it('deletes a thread only after explicit confirmation', async () => {
     const user = userEvent.setup();
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -452,7 +554,7 @@ describe('ThreadsPanel', () => {
   it('keeps delete errors local to the row without collapsing the thread list', async () => {
     const user = userEvent.setup();
     dbMocks.deleteFailureThreadId = 'thread-b';
-    render(<ThreadsPanel />);
+    renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);

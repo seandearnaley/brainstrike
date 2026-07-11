@@ -1,10 +1,15 @@
 import {
+  type AnyContextAction,
+  defineContextAction,
+  type TargetOf,
+} from '@brainstrike/context-actions';
+import {
   useDbInitializationStatus,
   useDbInitializing,
   useDbProviderError,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { Button } from '@brainstrike/ui';
+import { ActionContextMenu, Button, useContextMenuTarget } from '@brainstrike/ui';
 import {
   Bug,
   Check,
@@ -35,6 +40,7 @@ import {
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
+import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
 
@@ -375,6 +381,106 @@ function ThreadRowItem({
   const isExpanded = expandedThreadIds.has(thread.id);
   const colorId = getThreadColorId(thread);
   const colorConfig = THREAD_COLOR_CONFIG[colorId];
+  const contextMenuController = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget } = contextMenuController;
+  const rowActions = useMemo<readonly AnyContextAction[]>(() => {
+    const isCurrentTarget = (target: TargetOf<'assistant-thread'>): boolean =>
+      target.id === thread.id && target.resourceId === thread.resourceId;
+    const staleTargetFailure = Promise.resolve({
+      error: 'Thread row is no longer available',
+      ok: false as const,
+    });
+
+    return [
+      defineContextAction({
+        appliesTo: ['assistant-thread'] as const,
+        group: 'primary',
+        icon: MessageSquare,
+        id: 'assistant-thread.open',
+        isEnabled: (target) => isCurrentTarget(target) && !isSelected,
+        label: 'Open',
+        run: (target) => {
+          if (!isCurrentTarget(target)) {
+            return staleTargetFailure;
+          }
+          onSelectThread(target.id);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['assistant-thread'] as const,
+        group: 'primary',
+        icon: Pencil,
+        id: 'assistant-thread.rename',
+        isEnabled: (target) => isCurrentTarget(target),
+        label: 'Rename…',
+        run: (target) => {
+          if (!isCurrentTarget(target)) {
+            return staleTargetFailure;
+          }
+          onRenameThreadStart();
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['assistant-thread'] as const,
+        group: 'primary',
+        icon: Palette,
+        id: 'assistant-thread.customize',
+        isEnabled: (target) => isCurrentTarget(target),
+        label: isCustomizing ? 'Close Customization' : 'Customize…',
+        run: (target) => {
+          if (!isCurrentTarget(target)) {
+            return staleTargetFailure;
+          }
+          onCustomizeThreadToggle();
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['assistant-thread'] as const,
+        group: 'inspect',
+        icon: isExpanded ? ChevronUp : ChevronDown,
+        id: 'assistant-thread.toggle-details',
+        isEnabled: (target) => isCurrentTarget(target),
+        label: isExpanded ? 'Hide Details' : 'Show Details',
+        run: (target) => {
+          if (!isCurrentTarget(target)) {
+            return staleTargetFailure;
+          }
+          onExpandedThreadToggle();
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['assistant-thread'] as const,
+        group: 'danger',
+        icon: Trash2,
+        id: 'assistant-thread.delete',
+        isEnabled: (target) => isCurrentTarget(target) && !isConfirmingDelete,
+        label: 'Delete…',
+        run: (target) => {
+          if (!isCurrentTarget(target)) {
+            return staleTargetFailure;
+          }
+          onDeleteThreadStart();
+          return Promise.resolve({ ok: true });
+        },
+      }),
+    ];
+  }, [
+    isConfirmingDelete,
+    isCustomizing,
+    isExpanded,
+    isSelected,
+    onCustomizeThreadToggle,
+    onDeleteThreadStart,
+    onExpandedThreadToggle,
+    onRenameThreadStart,
+    onSelectThread,
+    thread.id,
+    thread.resourceId,
+  ]);
   return (
     <div
       className={`relative w-full overflow-hidden rounded-lg border px-3 py-2 text-left transition-colors ${
@@ -400,27 +506,39 @@ function ThreadRowItem({
           thread={thread}
         />
       ) : (
-        <ThreadRowDisplay
-          customizing={isCustomizing}
-          deleteError={isConfirmingDelete ? deleteError : null}
-          deleting={deletingThreadId === thread.id}
-          expanded={isExpanded}
-          metadataError={isCustomizing ? metadataError : null}
-          metadataSaving={savingMetadataThreadId === thread.id}
-          onConfirmDeleteThread={onConfirmDeleteThread}
-          onCustomizeThreadToggle={onCustomizeThreadToggle}
-          onDeleteThreadCancel={onDeleteThreadCancel}
-          onDeleteThreadStart={onDeleteThreadStart}
-          onExpandedThreadToggle={onExpandedThreadToggle}
-          onMetadataError={onMetadataError}
-          onRenameThreadStart={onRenameThreadStart}
-          onSavingMetadataThreadIdChange={onSavingMetadataThreadIdChange}
-          onSelectThread={onSelectThread}
-          onUpdateThreadMetadata={onUpdateThreadMetadata}
-          pendingDelete={isConfirmingDelete}
-          selected={isSelected}
-          thread={thread}
-        />
+        <ActionContextMenu controller={contextMenuController} localActions={rowActions}>
+          {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: layout-neutral wrapper claims a resource-scoped thread context target */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: layout-neutral wrapper delegates all activation to the menu */}
+          <div
+            className="contents"
+            onContextMenu={() =>
+              setContextMenuTarget(assistantThreadToTarget(thread, 'assistant-thread'))
+            }
+            onContextMenuCapture={() => setContextMenuTarget(null)}
+          >
+            <ThreadRowDisplay
+              customizing={isCustomizing}
+              deleteError={isConfirmingDelete ? deleteError : null}
+              deleting={deletingThreadId === thread.id}
+              expanded={isExpanded}
+              metadataError={isCustomizing ? metadataError : null}
+              metadataSaving={savingMetadataThreadId === thread.id}
+              onConfirmDeleteThread={onConfirmDeleteThread}
+              onCustomizeThreadToggle={onCustomizeThreadToggle}
+              onDeleteThreadCancel={onDeleteThreadCancel}
+              onDeleteThreadStart={onDeleteThreadStart}
+              onExpandedThreadToggle={onExpandedThreadToggle}
+              onMetadataError={onMetadataError}
+              onRenameThreadStart={onRenameThreadStart}
+              onSavingMetadataThreadIdChange={onSavingMetadataThreadIdChange}
+              onSelectThread={onSelectThread}
+              onUpdateThreadMetadata={onUpdateThreadMetadata}
+              pendingDelete={isConfirmingDelete}
+              selected={isSelected}
+              thread={thread}
+            />
+          </div>
+        </ActionContextMenu>
       )}
     </div>
   );
