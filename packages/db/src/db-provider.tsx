@@ -16,9 +16,11 @@ import {
   useState,
 } from 'react';
 import type { TransactionStatement } from './atomic-transaction.js';
+import { maybeBootstrapBrowserFirstRunStore } from './browser-first-run-bootstrap.js';
 import {
   getDefaultBrowserPGliteDataDir,
   isBrowserPersistentPGliteDataDir,
+  isIndexedDbPGliteDataDir,
 } from './browser-pglite-storage.js';
 import {
   createDatabaseWorkScheduler,
@@ -35,7 +37,11 @@ import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
-import { type PGliteRuntimeClient, wasmLoader } from './wasm-loader.js';
+import {
+  type PGliteRuntimeClient,
+  runFirstRunBootstrapInWorker,
+  wasmLoader,
+} from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
@@ -591,6 +597,19 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const initializeDirectPGlite = useCallback(
     async (cancelled: { value: boolean }) => {
       logger.debug('Using direct PGlite connection');
+
+      // First-run fast bootstrap: a not-yet-existing browser idb:// store is
+      // created greenfield from an in-memory migrated dump (strict flush)
+      // instead of paying strict per-statement durability through initdb +
+      // every migration (~53s → a few seconds). Existing stores skip in one
+      // cheap probe; failures propagate to the visible init error state.
+      if (isIndexedDbPGliteDataDir(resolvedPath) && typeof Worker !== 'undefined') {
+        const bootstrapResult = await maybeBootstrapBrowserFirstRunStore(resolvedPath, {
+          bootstrapStore: (dataDir) => runFirstRunBootstrapInWorker(dataDir),
+          deleteStore: (dataDir) => wasmLoader.deleteIndexedDB(dataDir),
+        });
+        logger.info('First-run PGlite bootstrap check', { ...bootstrapResult, resolvedPath });
+      }
 
       const db = await wasmLoader.createPGliteClient(resolvedPath);
       connectionRef.current = { dataDir: resolvedPath, db, kind: 'direct' };

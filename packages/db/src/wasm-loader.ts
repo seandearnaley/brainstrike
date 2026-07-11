@@ -3,6 +3,7 @@ import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
 import type { LiveNamespace } from '@electric-sql/pglite/live';
 import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/worker';
+import type { FirstRunBootstrapResultMessage } from './browser-first-run-bootstrap-worker.js';
 import {
   IDB_DB_NAME_PREFIX,
   isBrowserPersistentPGliteDataDir,
@@ -509,6 +510,86 @@ class WasmLoader {
 }
 
 export const wasmLoader = WasmLoader.getInstance();
+
+/**
+ * Wall-clock ceiling for one first-run bootstrap worker run. Generous — a cold
+ * worker fetches + compiles the PGlite WASM twice and runs the full migration
+ * suite — but finite, so a wedged worker fails LOUDLY into the DB init error
+ * state instead of hanging startup forever.
+ */
+export const FIRST_RUN_BOOTSTRAP_WORKER_TIMEOUT_MS = 300_000;
+
+function isFirstRunBootstrapResultMessage(data: unknown): data is FirstRunBootstrapResultMessage {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as { type?: unknown }).type === 'result' &&
+    typeof (data as { ok?: unknown }).ok === 'boolean'
+  );
+}
+
+/**
+ * Runs the first-run fast bootstrap pipeline (see
+ * browser-first-run-bootstrap-pipeline.ts) for `dataDir` inside a DEDICATED
+ * plain worker — no PGliteWorker, no leader election, no RPC layer — keeping
+ * the initdb + migration WASM work off the main thread. Resolves once the
+ * worker reports the strict flush completed; rejects (and terminates the
+ * worker) on failure or timeout.
+ */
+export function runFirstRunBootstrapInWorker(
+  dataDir: string,
+  timeoutMs = FIRST_RUN_BOOTSTRAP_WORKER_TIMEOUT_MS
+): Promise<void> {
+  const workerInstance = new Worker(
+    new URL('./browser-first-run-bootstrap-worker-entry.ts', import.meta.url),
+    { type: 'module' }
+  );
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const settle = (outcome: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      workerInstance.terminate();
+      outcome();
+    };
+    const timer = setTimeout(() => {
+      settle(() =>
+        reject(
+          new Error(
+            `First-run PGlite bootstrap worker timed out after ${timeoutMs}ms for ${dataDir}`
+          )
+        )
+      );
+    }, timeoutMs);
+    workerInstance.addEventListener('message', (event: MessageEvent) => {
+      const data: unknown = event.data;
+      if (!isFirstRunBootstrapResultMessage(data)) {
+        settle(() =>
+          reject(new Error('First-run PGlite bootstrap worker sent a malformed result message'))
+        );
+        return;
+      }
+      if (data.ok) {
+        settle(resolve);
+        return;
+      }
+      settle(() => reject(new Error(`First-run PGlite bootstrap worker failed: ${data.error}`)));
+    });
+    workerInstance.addEventListener('error', (event: ErrorEvent) => {
+      settle(() =>
+        reject(
+          new Error(
+            `First-run PGlite bootstrap worker crashed: ${event.message || 'unknown error'}`
+          )
+        )
+      );
+    });
+    workerInstance.postMessage({ dataDir, type: 'run' });
+  });
+}
 
 // Reset module-level extension caches during HMR so stale promise references
 // from the previous module instance don't leak into the replacement.
