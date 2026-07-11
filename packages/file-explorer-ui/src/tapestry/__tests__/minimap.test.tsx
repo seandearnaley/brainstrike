@@ -229,6 +229,52 @@ describe('Minimap', () => {
     expect(onRequestFileContent).toHaveBeenCalledWith('file-1');
   });
 
+  it.each([
+    'touch',
+    'pen',
+  ] as const)('requests idle file content from a %s tap even when the tap does not focus the document', (pointerType) => {
+    const onRequestFileContent = vi.fn();
+    render(
+      <TooltipProvider>
+        <Minimap
+          file={{ ...createFile(), content: [], contentStatus: 'idle' }}
+          getGlobalIndex={() => 1}
+          isSelected={false}
+          onRequestFileContent={onRequestFileContent}
+          onToggleRange={vi.fn()}
+          onToggleSelection={vi.fn()}
+          scale={2}
+          smartStart={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    const track = screen.getByTestId('tapestry-track');
+    const background = screen.getByRole('button', { name: /loading file content for app\.tsx/i });
+    Object.defineProperty(track, 'getBoundingClientRect', {
+      value: () => createRect({ height: 120 }),
+    });
+
+    fireEvent.pointerDown(background, {
+      button: 0,
+      clientX: 40,
+      clientY: 142,
+      pointerId: 9,
+      pointerType,
+    });
+    fireEvent.pointerUp(background, {
+      button: 0,
+      clientX: 40,
+      clientY: 142,
+      pointerId: 9,
+      pointerType,
+    });
+    fireEvent.click(background, { clientX: 40, clientY: 142 });
+
+    expect(onRequestFileContent).toHaveBeenCalledTimes(1);
+    expect(onRequestFileContent).toHaveBeenCalledWith('file-1');
+  });
+
   it('does not request file content again while a preview is already loading', () => {
     const file = {
       ...createFile(),

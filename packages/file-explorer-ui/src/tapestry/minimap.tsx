@@ -975,13 +975,14 @@ export const Minimap = memo(
     const pinLensAtLine = useCallback(
       (lineIndex: number, pointer?: { clientX: number; clientY: number }) => {
         if (!(isContentReady && onCreateRange)) {
-          return;
+          return false;
         }
         setLensDismissed(false);
         onPinnedLensChange?.(file.id);
         lensPinnedRef.current = true;
         setLensPinned(true);
         positionLensAtLine(lineIndex, pointer);
+        return true;
       },
       [file.id, isContentReady, onCreateRange, onPinnedLensChange, positionLensAtLine]
     );
@@ -1108,11 +1109,14 @@ export const Minimap = memo(
         if (suppressNextBackgroundClickRef.current) {
           return;
         }
-        pinLensAtLine(resolvePointerLine(event.clientY), {
+        const didPinLens = pinLensAtLine(resolvePointerLine(event.clientY), {
           clientX: event.clientX,
           clientY: event.clientY,
         });
-        suppressNextBackgroundClickRef.current = true;
+        if (!didPinLens) {
+          handlePreviewHover();
+        }
+        suppressNextBackgroundClickRef.current = didPinLens;
         return;
       }
       const pending = pendingCreateRef.current;
@@ -1125,11 +1129,10 @@ export const Minimap = memo(
       } catch {
         // Pointer capture may already be released.
       }
-      pinLensAtLine(resolvePointerLine(event.clientY), {
+      suppressNextBackgroundClickRef.current = pinLensAtLine(resolvePointerLine(event.clientY), {
         clientX: event.clientX,
         clientY: event.clientY,
       });
-      suppressNextBackgroundClickRef.current = true;
     };
 
     const handleBackgroundPointerCancel = () => {
