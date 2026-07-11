@@ -205,6 +205,150 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-a');
   });
 
+  it('closes other thread tabs atomically without touching durable history or draft runtime', () => {
+    const otherResourceId = '/tmp/workspace-b';
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: {
+        [otherResourceId]: 'other-thread',
+        [workspaceId]: 'thread-c',
+      },
+      draftRuntimeByThreadId: {
+        'thread-a': { model: 'gpt-5.2', provider: 'openai' },
+      },
+      openThreadIdsByResourceId: {
+        [otherResourceId]: ['other-thread'],
+        [workspaceId]: ['thread-a', 'thread-b', 'thread-c'],
+      },
+      selectedThreadByResourceId: {
+        [otherResourceId]: 'other-thread',
+        [workspaceId]: 'thread-c',
+      },
+      threadIdsByResourceId: {
+        [otherResourceId]: ['other-thread'],
+        [workspaceId]: ['thread-a', 'thread-b', 'thread-c'],
+      },
+      threadsByResourceId: {
+        [workspaceId]: [
+          makeThread('thread-a', '2026-04-22T11:00:00Z'),
+          makeThread('thread-b', '2026-04-22T10:00:00Z'),
+          makeThread('thread-c', '2026-04-22T09:00:00Z'),
+        ],
+      },
+    });
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadStore.subscribe(listener);
+
+    try {
+      useAssistantThreadStore.getState().closeOtherThreadTabs(workspaceId, 'thread-b');
+    } finally {
+      unsubscribe();
+    }
+
+    const state = useAssistantThreadStore.getState();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-b']);
+    expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-b');
+    expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
+    expect(state.threadIdsByResourceId[workspaceId]).toEqual(['thread-a', 'thread-b', 'thread-c']);
+    expect(state.draftRuntimeByThreadId['thread-a']).toEqual({
+      model: 'gpt-5.2',
+      provider: 'openai',
+    });
+    expect(state.openThreadIdsByResourceId[otherResourceId]).toEqual(['other-thread']);
+    expect(state.activeThreadIdByResourceId[otherResourceId]).toBe('other-thread');
+  });
+
+  it('closes thread tabs to the right in one transition and activates the retained target', () => {
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-c' },
+      openThreadIdsByResourceId: {
+        [workspaceId]: ['thread-a', 'thread-b', 'thread-c'],
+      },
+      selectedThreadByResourceId: { [workspaceId]: 'thread-c' },
+    });
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadStore.subscribe(listener);
+
+    try {
+      useAssistantThreadStore.getState().closeThreadTabsToRight(workspaceId, 'thread-b');
+    } finally {
+      unsubscribe();
+    }
+
+    const state = useAssistantThreadStore.getState();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-a', 'thread-b']);
+    expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-b');
+    expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
+  });
+
+  it('preserves a retained active thread when closing tabs to the right', () => {
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-a' },
+      openThreadIdsByResourceId: {
+        [workspaceId]: ['thread-a', 'thread-b', 'thread-c'],
+      },
+      selectedThreadByResourceId: { [workspaceId]: 'thread-a' },
+    });
+
+    useAssistantThreadStore.getState().closeThreadTabsToRight(workspaceId, 'thread-b');
+
+    const state = useAssistantThreadStore.getState();
+    expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-a', 'thread-b']);
+    expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-a');
+    expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-a');
+  });
+
+  it('does not publish a transition for a missing bulk-close target or a last-tab no-op', () => {
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-b' },
+      openThreadIdsByResourceId: { [workspaceId]: ['thread-a', 'thread-b'] },
+      selectedThreadByResourceId: { [workspaceId]: 'thread-b' },
+    });
+    const before = useAssistantThreadStore.getState();
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadStore.subscribe(listener);
+
+    try {
+      useAssistantThreadStore.getState().closeOtherThreadTabs(workspaceId, 'missing');
+      useAssistantThreadStore.getState().closeThreadTabsToRight(workspaceId, 'thread-b');
+    } finally {
+      unsubscribe();
+    }
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(useAssistantThreadStore.getState().openThreadIdsByResourceId).toEqual(
+      before.openThreadIdsByResourceId
+    );
+    expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toEqual(
+      before.activeThreadIdByResourceId
+    );
+  });
+
+  it('closes all thread tabs atomically while preserving durable threads', () => {
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-b' },
+      openThreadIdsByResourceId: { [workspaceId]: ['thread-a', 'thread-b'] },
+      selectedThreadByResourceId: { [workspaceId]: 'thread-b' },
+      threadIdsByResourceId: { [workspaceId]: ['thread-a', 'thread-b'] },
+    });
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadStore.subscribe(listener);
+
+    try {
+      useAssistantThreadStore.getState().closeAllThreadTabs(workspaceId);
+    } finally {
+      unsubscribe();
+    }
+
+    const state = useAssistantThreadStore.getState();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(state.openThreadIdsByResourceId[workspaceId]).toEqual([]);
+    expect(state.activeThreadIdByResourceId[workspaceId]).toBeUndefined();
+    expect(state.selectedThreadByResourceId[workspaceId]).toBeUndefined();
+    expect(state.threadIdsByResourceId[workspaceId]).toEqual(['thread-a', 'thread-b']);
+  });
+
   it('deletes a durable thread and reconciles open tab state', async () => {
     const repository = createRepository();
 

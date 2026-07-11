@@ -1,19 +1,28 @@
 import {
+  type AnyContextAction,
+  defineContextAction,
+  type TargetOf,
+} from '@brainstrike/context-actions';
+import {
   useDbInitializationStatus,
   useDbInitializing,
   useDbProviderError,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { Button } from '@brainstrike/ui';
+import { ActionContextMenu, Button, useContextMenuTarget } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
 import type { ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
+import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
+
+const logger = createLogger('AssistantThreadTabsWorkspace');
 
 interface TabScrollState {
   readonly canScrollBack: boolean;
@@ -63,7 +72,10 @@ export function AssistantThreadTabsWorkspace({
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const openThreadTab = useAssistantThreadStore((state) => state.openThreadTab);
+  const closeAllThreadTabs = useAssistantThreadStore((state) => state.closeAllThreadTabs);
+  const closeOtherThreadTabs = useAssistantThreadStore((state) => state.closeOtherThreadTabs);
   const closeThreadTab = useAssistantThreadStore((state) => state.closeThreadTab);
+  const closeThreadTabsToRight = useAssistantThreadStore((state) => state.closeThreadTabsToRight);
 
   const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
   const threads = threadsByResourceId[resourceId] ?? [];
@@ -75,6 +87,105 @@ export function AssistantThreadTabsWorkspace({
   const activeThreadId = activeThreadIdByResourceId[resourceId];
   const tabScrollRef = useRef<HTMLDivElement | null>(null);
   const [tabScrollState, setTabScrollState] = useState<TabScrollState>(EMPTY_TAB_SCROLL_STATE);
+  const contextMenuController = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget } = contextMenuController;
+
+  const handleThreadTabContextMenu = useCallback(
+    (threadId: string): void => {
+      const thread = threadById.get(threadId);
+      if (!thread) {
+        logger.error('Could not resolve assistant thread tab context target', {
+          resourceId,
+          threadId,
+        });
+        setContextMenuTarget(null);
+        return;
+      }
+      setContextMenuTarget(assistantThreadToTarget(thread, 'assistant-thread-tab'));
+    },
+    [resourceId, setContextMenuTarget, threadById]
+  );
+
+  const threadTabActions = useMemo<readonly AnyContextAction[]>(() => {
+    function isOpen(target: TargetOf<'assistant-thread-tab'>): boolean {
+      return (
+        useAssistantThreadStore
+          .getState()
+          .openThreadIdsByResourceId[target.resourceId]?.includes(target.id) ?? false
+      );
+    }
+
+    return [
+      defineContextAction({
+        appliesTo: ['assistant-thread-tab'] as const,
+        group: 'primary',
+        icon: X,
+        id: 'assistant-thread-tab.close',
+        isEnabled: (target) => isOpen(target),
+        label: 'Close',
+        run: (target) => {
+          if (!isOpen(target)) {
+            return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
+          }
+          closeThreadTab(target.resourceId, target.id);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['assistant-thread-tab'] as const,
+        group: 'primary',
+        id: 'assistant-thread-tab.close-others',
+        isEnabled: (target) =>
+          isOpen(target) && (openThreadIdsByResourceId[target.resourceId]?.length ?? 0) > 1,
+        label: 'Close Others',
+        run: (target) => {
+          if (!isOpen(target)) {
+            return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
+          }
+          closeOtherThreadTabs(target.resourceId, target.id);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['assistant-thread-tab'] as const,
+        group: 'primary',
+        id: 'assistant-thread-tab.close-right',
+        isEnabled: (target) => {
+          const currentOpenThreadIds = openThreadIdsByResourceId[target.resourceId] ?? [];
+          const targetIndex = currentOpenThreadIds.indexOf(target.id);
+          return targetIndex >= 0 && targetIndex < currentOpenThreadIds.length - 1;
+        },
+        label: 'Close Tabs to the Right',
+        run: (target) => {
+          if (!isOpen(target)) {
+            return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
+          }
+          closeThreadTabsToRight(target.resourceId, target.id);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['assistant-thread-tab'] as const,
+        group: 'primary',
+        id: 'assistant-thread-tab.close-all',
+        isEnabled: (target) => isOpen(target),
+        label: 'Close All Tabs',
+        run: (target) => {
+          if (!isOpen(target)) {
+            return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
+          }
+          closeAllThreadTabs(target.resourceId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+    ];
+  }, [
+    closeAllThreadTabs,
+    closeOtherThreadTabs,
+    closeThreadTab,
+    closeThreadTabsToRight,
+    openThreadIdsByResourceId,
+  ]);
 
   const updateTabScrollState = useCallback((): void => {
     const scrollNode = tabScrollRef.current;
@@ -229,52 +340,58 @@ export function AssistantThreadTabsWorkspace({
         >
           <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
-        <div
-          aria-label="Open assistant threads"
-          className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden pb-1 [scrollbar-gutter:stable]"
-          data-testid="assistant-thread-tab-scroll"
-          onScroll={updateTabScrollState}
-          onWheel={handleTabWheel}
-          ref={tabScrollRef}
-          role="tablist"
-        >
-          <div className="flex min-w-max items-start gap-1">
-            {openThreadIds.map((threadId) => {
-              const thread = threadById.get(threadId);
-              const title = thread?.title ?? threadId;
-              const isActive = threadId === activeThreadId;
-              return (
-                <div
-                  className={`group flex h-8 min-w-36 max-w-64 items-center rounded-t-lg border border-b-0 px-2.5 text-sm transition-colors ${
-                    isActive
-                      ? 'border-border bg-background text-foreground shadow-sm'
-                      : 'border-transparent bg-muted/35 text-muted-foreground hover:border-border/70 hover:bg-background/60 hover:text-foreground'
-                  }`}
-                  key={threadId}
-                >
-                  <button
-                    aria-selected={isActive}
-                    className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
-                    onClick={() => openThreadTab(resourceId, threadId)}
-                    role="tab"
-                    type="button"
+        <ActionContextMenu controller={contextMenuController} localActions={threadTabActions}>
+          <div
+            aria-label="Open assistant threads"
+            className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden pb-1 [scrollbar-gutter:stable]"
+            data-testid="assistant-thread-tab-scroll"
+            onContextMenuCapture={() => setContextMenuTarget(null)}
+            onScroll={updateTabScrollState}
+            onWheel={handleTabWheel}
+            ref={tabScrollRef}
+            role="tablist"
+          >
+            <div className="flex min-w-max items-start gap-1">
+              {openThreadIds.map((threadId) => {
+                const thread = threadById.get(threadId);
+                const title = thread?.title ?? threadId;
+                const isActive = threadId === activeThreadId;
+                return (
+                  // biome-ignore lint/a11y/noNoninteractiveElementInteractions: composite tab shell claims context-menu identity for its focusable controls
+                  // biome-ignore lint/a11y/noStaticElementInteractions: composite tab shell claims context-menu identity for its focusable controls
+                  <div
+                    className={`group flex h-8 min-w-36 max-w-64 items-center rounded-t-lg border border-b-0 px-2.5 text-sm transition-colors ${
+                      isActive
+                        ? 'border-border bg-background text-foreground shadow-sm'
+                        : 'border-transparent bg-muted/35 text-muted-foreground hover:border-border/70 hover:bg-background/60 hover:text-foreground'
+                    }`}
+                    key={threadId}
+                    onContextMenu={() => handleThreadTabContextMenu(threadId)}
                   >
-                    <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{title}</span>
-                  </button>
-                  <button
-                    aria-label={`Close thread ${title}`}
-                    className="ml-2 rounded p-1 text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-                    onClick={() => closeThreadTab(resourceId, threadId)}
-                    type="button"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              );
-            })}
+                    <button
+                      aria-selected={isActive}
+                      className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
+                      onClick={() => openThreadTab(resourceId, threadId)}
+                      role="tab"
+                      type="button"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{title}</span>
+                    </button>
+                    <button
+                      aria-label={`Close thread ${title}`}
+                      className="ml-2 rounded p-1 text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                      onClick={() => closeThreadTab(resourceId, threadId)}
+                      type="button"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </ActionContextMenu>
         <Button
           aria-label="Scroll assistant tabs right"
           className="h-8 w-8 shrink-0 rounded-full border border-border/70 bg-background/80 p-0 shadow-sm disabled:opacity-35"

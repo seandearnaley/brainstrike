@@ -20,7 +20,10 @@ type AssistantThreadLoadState =
 
 interface AssistantThreadState {
   activeThreadIdByResourceId: Record<string, string>;
+  closeAllThreadTabs: (resourceId: string) => void;
+  closeOtherThreadTabs: (resourceId: string, threadId: string) => void;
   closeThreadTab: (resourceId: string, threadId: string) => void;
+  closeThreadTabsToRight: (resourceId: string, threadId: string) => void;
   createThread: (
     repository: AssistantThreadRepository,
     resourceId: string,
@@ -184,6 +187,51 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
   persist(
     (set, get) => ({
       activeThreadIdByResourceId: {},
+      closeAllThreadTabs: (resourceId: string) => {
+        const state = get();
+        const openThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
+        const hasActiveThread = resourceId in state.activeThreadIdByResourceId;
+        const hasSelectedThread = resourceId in state.selectedThreadByResourceId;
+        if (openThreadIds.length === 0 && !(hasActiveThread || hasSelectedThread)) {
+          return;
+        }
+        set({
+          activeThreadIdByResourceId: omitRecordKey(state.activeThreadIdByResourceId, resourceId),
+          openThreadIdsByResourceId: {
+            ...state.openThreadIdsByResourceId,
+            [resourceId]: [],
+          },
+          selectedThreadByResourceId: omitRecordKey(state.selectedThreadByResourceId, resourceId),
+        });
+      },
+      closeOtherThreadTabs: (resourceId: string, threadId: string) => {
+        const state = get();
+        const openThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
+        if (!openThreadIds.includes(threadId)) {
+          return;
+        }
+        if (
+          openThreadIds.length === 1 &&
+          state.activeThreadIdByResourceId[resourceId] === threadId &&
+          state.selectedThreadByResourceId[resourceId] === threadId
+        ) {
+          return;
+        }
+        set({
+          activeThreadIdByResourceId: {
+            ...state.activeThreadIdByResourceId,
+            [resourceId]: threadId,
+          },
+          openThreadIdsByResourceId: {
+            ...state.openThreadIdsByResourceId,
+            [resourceId]: [threadId],
+          },
+          selectedThreadByResourceId: {
+            ...state.selectedThreadByResourceId,
+            [resourceId]: threadId,
+          },
+        });
+      },
       closeThreadTab: (resourceId: string, threadId: string) => {
         set((state) => {
           const currentOpenThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
@@ -211,6 +259,41 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
                 }
               : omitRecordKey(state.selectedThreadByResourceId, resourceId),
           };
+        });
+      },
+      closeThreadTabsToRight: (resourceId: string, threadId: string) => {
+        const state = get();
+        const openThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
+        const targetIndex = openThreadIds.indexOf(threadId);
+        if (targetIndex === -1) {
+          return;
+        }
+        const remainingThreadIds = openThreadIds.slice(0, targetIndex + 1);
+        const currentActiveThreadId = state.activeThreadIdByResourceId[resourceId];
+        const nextActiveThreadId =
+          currentActiveThreadId && remainingThreadIds.includes(currentActiveThreadId)
+            ? currentActiveThreadId
+            : threadId;
+        if (
+          remainingThreadIds.length === openThreadIds.length &&
+          currentActiveThreadId === nextActiveThreadId &&
+          state.selectedThreadByResourceId[resourceId] === nextActiveThreadId
+        ) {
+          return;
+        }
+        set({
+          activeThreadIdByResourceId: {
+            ...state.activeThreadIdByResourceId,
+            [resourceId]: nextActiveThreadId,
+          },
+          openThreadIdsByResourceId: {
+            ...state.openThreadIdsByResourceId,
+            [resourceId]: remainingThreadIds,
+          },
+          selectedThreadByResourceId: {
+            ...state.selectedThreadByResourceId,
+            [resourceId]: nextActiveThreadId,
+          },
         });
       },
       createThread: async (

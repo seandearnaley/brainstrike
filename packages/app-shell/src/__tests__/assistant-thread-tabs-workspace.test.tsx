@@ -1,7 +1,10 @@
+import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
+import { assistantThreadActions } from '../assistant-thread-context-actions';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace';
 
@@ -48,6 +51,16 @@ vi.mock('../assistant-ui-panel-wrapper', () => ({
     memoryThreadId?: string;
   }) => <div data-testid="assistant-thread-wrapper">{memoryThreadId}</div>,
 }));
+
+function renderWorkspace(): ReturnType<typeof createTestActionRegistry> {
+  const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
+  render(
+    <ActionRegistryProvider registry={actionRegistry.registry}>
+      <AssistantThreadTabsWorkspace initialProviders={['openai']} />
+    </ActionRegistryProvider>
+  );
+  return actionRegistry;
+}
 
 describe('AssistantThreadTabsWorkspace', () => {
   beforeEach(() => {
@@ -106,7 +119,7 @@ describe('AssistantThreadTabsWorkspace', () => {
   });
 
   it('force-mounts one assistant wrapper per open thread tab', async () => {
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
@@ -130,7 +143,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     const uuidSpy = vi
       .spyOn(crypto, 'randomUUID')
       .mockReturnValue('00000000-0000-4000-8000-00000000000e');
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
@@ -154,7 +167,7 @@ describe('AssistantThreadTabsWorkspace', () => {
   });
 
   it('keeps the new-thread action outside the scrollable tablist', async () => {
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
@@ -182,7 +195,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     // Multi-root: assistant memory is workspace-global; zero roots is fine and
     // the "open a workspace first" gate is gone.
     fileExplorerMocks.rootDirectoryHandle = null;
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
@@ -192,7 +205,7 @@ describe('AssistantThreadTabsWorkspace', () => {
   });
 
   it('shows the load-error state without mounting assistant tabs', () => {
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
     act(() => {
       useAssistantThreadStore.setState({
         loadStateByResourceId: {
@@ -217,7 +230,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     dbMocks.initializing = true;
     dbMocks.initializationStatus = 'initializing';
 
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     expect(screen.getByText('Loading')).toBeInTheDocument();
     expect(screen.getByText('Loading PGlite-backed threads.')).toBeInTheDocument();
@@ -230,7 +243,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'idle';
 
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     expect(screen.getByText('Loading')).toBeInTheDocument();
     expect(screen.getByText('Loading PGlite-backed threads.')).toBeInTheDocument();
@@ -245,7 +258,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       dbMocks.initializing = false;
       dbMocks.initializationStatus = 'idle';
 
-      render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+      renderWorkspace();
 
       act(() => {
         vi.advanceTimersByTime(500);
@@ -264,7 +277,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'ready';
 
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByText('Memory database unavailable')).toBeInTheDocument();
@@ -280,7 +293,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     dbMocks.database = null;
     dbMocks.providerError = new Error('PGlite startup failed.');
 
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     expect(screen.getByText('Memory database failed')).toBeInTheDocument();
     expect(screen.getByText('PGlite startup failed.')).toBeInTheDocument();
@@ -288,7 +301,7 @@ describe('AssistantThreadTabsWorkspace', () => {
   });
 
   it('updates scroll affordances and scrolls the tab list from arrow buttons', async () => {
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
@@ -321,7 +334,7 @@ describe('AssistantThreadTabsWorkspace', () => {
   });
 
   it('scrolls the tab lane when vertical wheel input lands over the tabs', async () => {
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
@@ -338,9 +351,97 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(tabScroll.scrollLeft).toBe(96);
   });
 
+  it('uses the right-clicked inactive tab for copy and atomic Close Others actions', async () => {
+    const { writtenTexts } = renderWorkspace();
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const inactiveTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
+
+    fireEvent.contextMenu(inactiveTab);
+    expect(
+      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-b');
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy Thread Title' }));
+    await waitFor(() => {
+      expect(writtenTexts).toEqual(['Purchasing app search log']);
+    });
+
+    fireEvent.contextMenu(inactiveTab);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
+
+    expect(
+      useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toEqual(['thread-a']);
+    expect(
+      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-a');
+    expect(
+      useAssistantThreadStore.getState().selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-a');
+    expect(
+      useAssistantThreadStore.getState().threadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toEqual(['thread-a', 'thread-b']);
+    expect(mockDb.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM mastra_threads'),
+      expect.anything()
+    );
+  });
+
+  it('closes tabs to the right from the claimed tab and disables the no-op action', async () => {
+    threadRows.push({
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      id: 'thread-c',
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'Release checklist',
+      updatedAt: new Date('2026-04-22T09:00:00Z'),
+    });
+    renderWorkspace();
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+    act(() => {
+      const store = useAssistantThreadStore.getState();
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-c');
+    });
+    const middleTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+
+    fireEvent.contextMenu(middleTab);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' }));
+
+    expect(
+      useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toEqual(['thread-a', 'thread-b']);
+    expect(
+      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-b');
+
+    fireEvent.contextMenu(middleTab);
+    expect(
+      await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' })
+    ).toHaveAttribute('data-disabled');
+  });
+
+  it('does not claim assistant message content as a thread-tab context target', async () => {
+    renderWorkspace();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('assistant-thread-wrapper')).toBeVisible();
+    });
+    fireEvent.contextMenu(screen.getByTestId('assistant-thread-wrapper'));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   it('closes tabs without deleting durable thread history', async () => {
     const user = userEvent.setup();
-    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();

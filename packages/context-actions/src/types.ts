@@ -15,6 +15,13 @@ export interface FileContextIdentity {
   rootFolderId: string;
 }
 
+export interface AssistantThreadContextIdentity {
+  readonly id: string;
+  /** Stable assistant-memory owner; thread operations are always resource-scoped. */
+  readonly resourceId: string;
+  readonly title: string;
+}
+
 export type ContextTarget =
   | (FileContextIdentity & {
       entryType: 'file' | 'directory';
@@ -31,8 +38,8 @@ export type ContextTarget =
       tabId: string;
       viewMode: 'preview' | 'source';
     })
-  | { id: string; kind: 'assistant-thread'; title: string }
-  | { id: string; kind: 'assistant-thread-tab'; title: string }
+  | (AssistantThreadContextIdentity & { kind: 'assistant-thread' })
+  | (AssistantThreadContextIdentity & { kind: 'assistant-thread-tab' })
   | { kind: 'collection'; id: string; name: string }
   | { kind: 'collection-file'; id: string; name: string; path: string | null }
   | { kind: 'chunk'; id: string; content: string }

@@ -105,5 +105,16 @@ describe('createAppActionRegistry', () => {
     const flatIds = grouped.flatMap((group) => group.actions.map((action) => action.id));
     expect(flatIds).toContain('collection.copy-id');
     expect(flatIds).toContain('collection.copy-content');
+
+    const threadGroups = registry.actionsFor({
+      id: 'thread-a',
+      kind: 'assistant-thread',
+      resourceId: 'workspace-memory',
+      title: 'Evidence review',
+    });
+    expect(threadGroups.flatMap((group) => group.actions.map((action) => action.id))).toEqual([
+      'assistant-thread.copy-title',
+      'assistant-thread.copy-id',
+    ]);
   });
 });
