@@ -99,6 +99,29 @@ describe('listUserSlashCommands', () => {
     });
   });
 
+  it('does not read through a parent swapped between canonicalization and open', () => {
+    tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
+    const workspace = path.join(tempRoot, 'workspace');
+    const commands = path.join(workspace, '.brainstrike', 'commands');
+    const parkedCommands = path.join(tempRoot, 'parked-commands');
+    const outside = path.join(tempRoot, 'outside');
+    mkdirSync(commands, { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(path.join(commands, 'review.md'), 'Inside workspace');
+    writeFileSync(path.join(outside, 'review.md'), 'Outside workspace');
+
+    const deps = createNodeFsScanDeps(() => {
+      renameSync(commands, parkedCommands);
+      symlinkSync(outside, commands, 'dir');
+    });
+    expect(deps.listDir(commands, workspace)).not.toBeNull();
+
+    expect(deps.readFile(path.join(commands, 'review.md'))).toEqual({
+      ok: false,
+      reason: 'unreadable',
+    });
+  });
+
   it('pins the canonical root across recursive directory reads', () => {
     tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
     const workspace = path.join(tempRoot, 'workspace');

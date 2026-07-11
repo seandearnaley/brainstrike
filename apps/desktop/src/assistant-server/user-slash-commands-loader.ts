@@ -357,9 +357,7 @@ export function scanUserSlashCommands(
 ): UserSlashCommandDescriptor[] {
   const seen = new Map<string, string | undefined>();
   const ordered: UserSlashCommandDescriptor[] = [];
-  const globalSource = { containmentRoot: input.homeDir };
-  const ingestGlobal = (subpath: readonly string[]) =>
-    ingestDirectory(joinPath(input.homeDir, subpath), globalSource, deps, seen, ordered);
+  const global = { containmentRoot: input.homeDir };
 
   // Tier 1: <root>/.brainstrike/commands (mounted order).
   for (const root of input.roots) {
@@ -372,7 +370,13 @@ export function scanUserSlashCommands(
     );
   }
   // Tier 2: ~/.brainstrike/commands.
-  ingestGlobal(COMMANDS_SUBPATHS.brainstrike);
+  ingestDirectory(
+    joinPath(input.homeDir, COMMANDS_SUBPATHS.brainstrike),
+    global,
+    deps,
+    seen,
+    ordered
+  );
   // Tier 3: <root>/.claude/commands (mounted order).
   for (const root of input.roots) {
     ingestDirectory(
@@ -384,7 +388,7 @@ export function scanUserSlashCommands(
     );
   }
   // Tier 4: ~/.claude/commands.
-  ingestGlobal(COMMANDS_SUBPATHS.claude);
+  ingestDirectory(joinPath(input.homeDir, COMMANDS_SUBPATHS.claude), global, deps, seen, ordered);
 
   return ordered;
 }

@@ -41,9 +41,9 @@ export interface UserCommandsListDeps {
 }
 
 /** Real-disk fs deps: a directory read yields entries; a missing path yields null. */
-export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
-  const roots = new Map<string, string>();
-  const directories = new Map<string, string>();
+export function createNodeFsScanDeps(beforeOpen?: () => void): UserSlashCommandScanDeps {
+  const roots = new Map<string, string>(),
+    directories = new Map<string, string>();
   return {
     listDir: (absDir, containmentRoot) => {
       try {
@@ -83,9 +83,15 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
         // never falsely rejected; a file above it is DEFINITIVELY oversized and
         // reported as such (honest reason — the loader logs a warn, not a
         // spurious "Failed to read"), never a blocking multi-hundred-MB read.
+        const expectedFile = fs.statSync(canonicalFile);
+        beforeOpen?.();
         const fd = fs.openSync(canonicalFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
         try {
-          if (fs.fstatSync(fd).size > MAX_USER_COMMAND_FILE_BYTES) {
+          const openedFile = fs.fstatSync(fd);
+          if (openedFile.dev !== expectedFile.dev || openedFile.ino !== expectedFile.ino) {
+            return { ok: false, reason: 'unreadable' };
+          }
+          if (openedFile.size > MAX_USER_COMMAND_FILE_BYTES) {
             return { ok: false, reason: 'oversized' };
           }
           return { content: fs.readFileSync(fd, 'utf8'), ok: true };
