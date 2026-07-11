@@ -22,6 +22,10 @@ vi.mock('@electric-sql/pglite-pgvector', () => ({
   vector: { name: 'vector-extension' },
 }));
 
+vi.mock('@electric-sql/pglite-pg_textsearch', () => ({
+  pg_textsearch: { name: 'pg-textsearch-extension' },
+}));
+
 import {
   type FirstRunBootstrapResultMessage,
   firstRunBootstrapWorkerPGliteFactories,
@@ -185,6 +189,7 @@ describe('firstRunBootstrapWorkerPGliteFactories', () => {
 
     expect(pgliteConstructor).toHaveBeenCalledWith({
       extensions: {
+        pg_textsearch: { name: 'pg-textsearch-extension' },
         pg_trgm: { name: 'pg-trgm-extension' },
         vector: { name: 'vector-extension' },
       },
@@ -199,6 +204,7 @@ describe('firstRunBootstrapWorkerPGliteFactories', () => {
     expect(pgliteConstructor).toHaveBeenCalledWith({
       dataDir: 'idb://web-pg18',
       extensions: {
+        pg_textsearch: { name: 'pg-textsearch-extension' },
         pg_trgm: { name: 'pg-trgm-extension' },
         vector: { name: 'vector-extension' },
       },

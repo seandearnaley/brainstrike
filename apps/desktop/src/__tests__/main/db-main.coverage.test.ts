@@ -60,6 +60,7 @@ vi.mock('electron', () => ({
 
 function mockSuccessfulDatabaseModules(options?: {
   liveModule?: unknown;
+  pgTextsearchModule?: unknown;
   pgTrgmModule?: unknown;
   vectorModule?: unknown;
 }): { PGliteMock: ReturnType<typeof vi.fn> } {
@@ -87,6 +88,10 @@ function mockSuccessfulDatabaseModules(options?: {
     '@electric-sql/pglite/contrib/pg_trgm',
     () => options?.pgTrgmModule ?? { pg_trgm: 'pg_trgm' }
   );
+  vi.doMock(
+    '@electric-sql/pglite-pg_textsearch',
+    () => options?.pgTextsearchModule ?? { pg_textsearch: 'pg_textsearch' }
+  );
 
   return { PGliteMock };
 }
@@ -99,6 +104,7 @@ describe('db-main coverage helpers', () => {
     vi.doUnmock('@electric-sql/pglite-pgvector');
     vi.doUnmock('@electric-sql/pglite/live');
     vi.doUnmock('@electric-sql/pglite/contrib/pg_trgm');
+    vi.doUnmock('@electric-sql/pglite-pg_textsearch');
     installUtilityProcessParentPort();
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.mkdirSync.mockReset();
@@ -136,9 +142,10 @@ describe('db-main coverage helpers', () => {
     expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
   });
 
-  it('loads pgvector, live, and pg_trgm extensions from default exports', async () => {
+  it('loads pgvector, live, pg_trgm, and pg_textsearch extensions from default exports', async () => {
     const { PGliteMock } = mockSuccessfulDatabaseModules({
       liveModule: { default: 'live-default', live: undefined },
+      pgTextsearchModule: { default: 'pg_textsearch-default', pg_textsearch: undefined },
       pgTrgmModule: { default: 'pg_trgm-default', pg_trgm: undefined },
       vectorModule: { default: 'vector-default', vector: undefined },
     });
@@ -150,6 +157,7 @@ describe('db-main coverage helpers', () => {
       dataDir: expect.stringContaining('pgdata'),
       extensions: {
         live: 'live-default',
+        pg_textsearch: 'pg_textsearch-default',
         pg_trgm: 'pg_trgm-default',
         vector: 'vector-default',
       },
@@ -172,6 +180,17 @@ describe('db-main coverage helpers', () => {
 
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
     await expect(initializeMainDatabase()).rejects.toThrow(/pg_trgm extension is required/i);
+
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
+  });
+
+  it('fails fast when pg_textsearch extension cannot be loaded', async () => {
+    mockSuccessfulDatabaseModules({ pgTextsearchModule: {} });
+
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(/pg_textsearch extension is required/i);
 
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');

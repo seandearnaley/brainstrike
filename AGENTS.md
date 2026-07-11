@@ -1100,6 +1100,7 @@ extension control file" error on that path only:
 
 - `vector` (pgvector, from `@electric-sql/pglite-pgvector`)
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
+- `pg_textsearch` (BM25 index AM, from `@electric-sql/pglite-pg_textsearch` — wired ahead of the planned BM25 lexical arm for hybrid search; no migration consumes it yet. Spike proof: `packages/db/__tests__/search-bm25-textsearch-spike.test.ts` — full migration suite passes with it loaded, a bm25 index builds on `file_chunks.content`, and on the IDF-discriminating corpus BM25 ranked the relevant chunk 1/12 where ts_rank ranked it 12/12)
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
 Construction sites (keep in sync when adding extensions or new sites):

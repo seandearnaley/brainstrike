@@ -7,6 +7,7 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "0.5.4",
+    "@electric-sql/pglite-pg_textsearch": "0.0.6",
     "@electric-sql/pglite-pgvector": "0.0.5",
     "drizzle-orm": "0.45.2"
   },

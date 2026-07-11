@@ -2,6 +2,7 @@ import type { PGliteOptions } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { worker } from '@electric-sql/pglite/worker';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 
 type BrainstrikePGliteWorkerInitOptions = Pick<PGliteOptions, 'dataDir' | 'relaxedDurability'>;
@@ -30,7 +31,7 @@ void worker({
     const workerOptions = parseWorkerInitOptions(options);
     // PGlite engine extensions run here; client-side extensions are installed by PGliteWorker.
     const pgliteOptions: PGliteOptions = {
-      extensions: { pg_trgm: pgTrgm, vector },
+      extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
     };
     if (workerOptions.dataDir !== undefined) {
       pgliteOptions.dataDir = workerOptions.dataDir;

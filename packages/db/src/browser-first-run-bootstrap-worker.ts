@@ -1,6 +1,7 @@
 import { createLogger } from '@brainstrike/utils';
 import { PGlite, type PGliteOptions } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import {
   type FirstRunBootstrapDb,
@@ -53,10 +54,10 @@ function parseRunMessage(data: unknown): FirstRunBootstrapRunMessage {
 
 async function createReadyPGlite(options: PGliteOptions): Promise<FirstRunBootstrapDb> {
   // Same engine-extension set as every other PGlite construction site
-  // (PGLITE EXTENSION INVARIANT) — the migrations CREATE EXTENSION both.
+  // (PGLITE EXTENSION INVARIANT) — the migrations CREATE EXTENSION these.
   const db = new PGlite({
     ...options,
-    extensions: { pg_trgm: pgTrgm, vector },
+    extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
   });
   await db.waitReady;
   return db;

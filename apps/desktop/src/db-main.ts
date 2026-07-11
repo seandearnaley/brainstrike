@@ -58,6 +58,7 @@ interface ErrorDetails {
 interface ExtensionModuleShape {
   default?: unknown;
   live?: unknown;
+  pg_textsearch?: unknown;
   pg_trgm?: unknown;
   vector?: unknown;
 }
@@ -67,7 +68,10 @@ interface GitProfileContext {
   workspaceSeed: string;
 }
 
-function extractExtensionExport(module: unknown, field: 'vector' | 'live' | 'pg_trgm'): unknown {
+function extractExtensionExport(
+  module: unknown,
+  field: 'vector' | 'live' | 'pg_trgm' | 'pg_textsearch'
+): unknown {
   if (module && typeof module === 'object') {
     const record = module as ExtensionModuleShape;
     if (record[field]) {
@@ -253,6 +257,24 @@ async function loadPgTrgmExtension(): Promise<unknown> {
   }
 }
 
+async function loadPgTextsearchExtension(): Promise<unknown> {
+  try {
+    const textsearchModule = await import('@electric-sql/pglite-pg_textsearch');
+    const pgTextsearch = extractExtensionExport(textsearchModule, 'pg_textsearch');
+    if (!pgTextsearch) {
+      throw new Error('pg_textsearch export missing from module');
+    }
+    logger.debug('pg_textsearch extension loaded successfully (ESM)');
+    return pgTextsearch;
+  } catch (error) {
+    const details = getErrorDetails(error);
+    logger.error('pg_textsearch extension failed to load.', details);
+    throw new Error(
+      `pg_textsearch extension is required and failed to load via ESM import. (${details.message})`
+    );
+  }
+}
+
 // Dynamic imports for ESM packages
 const getPGlite = async () => {
   const { PGlite } = await import('@electric-sql/pglite');
@@ -260,7 +282,8 @@ const getPGlite = async () => {
   const vector = await loadPgVectorExtension();
   const live = await loadPgLiveExtension();
   const pgTrgm = await loadPgTrgmExtension();
-  return { live, migrate, PGlite, pgTrgm, vector };
+  const pgTextsearch = await loadPgTextsearchExtension();
+  return { live, migrate, PGlite, pgTextsearch, pgTrgm, vector };
 };
 
 // Database instance for main process
@@ -377,18 +400,27 @@ async function createVectorDatabase(
   dataDir: string,
   vector: unknown,
   live: unknown,
-  pgTrgm: unknown
+  pgTrgm: unknown,
+  pgTextsearch: unknown
 ) {
   // biome-ignore lint/suspicious/noExplicitAny: PGlite ctor type not available at compile time
   const Ctor: any = PGliteCtor as any;
   // biome-ignore lint/suspicious/noExplicitAny: PGlite instance type not available at compile time
   const instance: any = new Ctor({
     dataDir,
-    // pg_trgm has no runtime pg_extension check below (unlike vector): migration 038
-    // runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and fails loudly if the module
-    // isn't loaded here. The vector check predates the migration-based approach.
-    // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time
-    extensions: { live: live as any, pg_trgm: pgTrgm as any, vector: vector as any },
+    // pg_trgm / pg_textsearch have no runtime pg_extension check below (unlike
+    // vector): their CREATE EXTENSION migrations fail loudly if the module isn't
+    // loaded here. The vector check predates the migration-based approach.
+    extensions: {
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
+      live: live as any,
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
+      pg_textsearch: pgTextsearch as any,
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
+      pg_trgm: pgTrgm as any,
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
+      vector: vector as any,
+    },
   });
 
   try {
@@ -1312,7 +1344,8 @@ async function initializeMainDatabaseInternal(
         dataDir,
         loadedPGlite.vector,
         loadedPGlite.live,
-        loadedPGlite.pgTrgm
+        loadedPGlite.pgTrgm,
+        loadedPGlite.pgTextsearch
       );
       logger.debug('Database initialized with pgvector extension at:', dataDir);
 
