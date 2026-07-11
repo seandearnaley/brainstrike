@@ -486,6 +486,13 @@ export function createDeferredDimensionIndexBuilder(options: {
   // build can't turn polled reads into a connection-blocking retry storm.
   const completed = new Set<number>();
   const failureCounts = new Map<number, number>();
+  // Builds SERIALIZE across dimensions. maintenance_work_mem is session-global
+  // on PGlite's single connection: with concurrent per-dimension builds, build
+  // A's finally-RESET could land between build B's SET and B's CREATE INDEX,
+  // silently running B at the 64MB default (the slow spilling build this
+  // tuning exists to avoid). The connection can only execute one CREATE INDEX
+  // at a time anyway, so chaining costs nothing.
+  let buildChain: Promise<void> = Promise.resolve();
   return {
     schedule(dimension: number): void {
       if (
@@ -495,7 +502,10 @@ export function createDeferredDimensionIndexBuilder(options: {
       ) {
         return;
       }
+      const previousBuild = buildChain;
       const build = (async () => {
+        // Never rejects: every build settles through its own catch below.
+        await previousBuild;
         try {
           // Yield the single connection to the scheduling flow's own follow-up
           // queries before dispatching the long CREATE INDEX.
@@ -512,6 +522,7 @@ export function createDeferredDimensionIndexBuilder(options: {
           pending.delete(dimension);
         }
       })();
+      buildChain = build;
       pending.set(dimension, build);
     },
     async whenSettled(): Promise<void> {

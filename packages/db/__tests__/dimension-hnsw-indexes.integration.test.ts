@@ -617,6 +617,53 @@ describe('createDeferredDimensionIndexBuilder dispatch deferral', () => {
     }
   });
 
+  it('serializes concurrent dimension builds so tuning statements never interleave', async () => {
+    // maintenance_work_mem is session-global on PGlite's single connection:
+    // if two large-dimension builds interleaved, build A's finally-RESET could
+    // land between build B's SET and B's CREATE INDEX, silently running B at
+    // the 64MB default. Builds must chain: SET/CREATE/RESET stay contiguous.
+    vi.useFakeTimers();
+    try {
+      const statements: string[] = [];
+      const fakeDb = {
+        exec: async (sql: string): Promise<void> => {
+          statements.push(sql.replace(/\s+/g, ' ').trim());
+        },
+        query: async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
+          if (sql.includes('COUNT(*)') && sql.includes('embedding IS NOT NULL')) {
+            return { rows: [{ count: '100000' } as T] };
+          }
+          return { rows: [] };
+        },
+      };
+      const builder = createDeferredDimensionIndexBuilder({
+        getDb: () => fakeDb,
+        onError: () => {
+          throw new Error('Index build must not fail in this test.');
+        },
+      });
+
+      builder.schedule(1024);
+      builder.schedule(2048);
+      // Each chained build waits its own start delay after the previous
+      // build completes, so advance the timers once per build.
+      await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS);
+      await builder.whenSettled();
+
+      expect(statements).toEqual([
+        `SET maintenance_work_mem = '${resolveIndexBuildMaintenanceWorkMemMb(100_000, 1024)}MB'`,
+        expect.stringContaining('idx_file_chunks_emb_hnsw_1024'),
+        'RESET maintenance_work_mem',
+        `SET maintenance_work_mem = '${resolveIndexBuildMaintenanceWorkMemMb(100_000, 2048)}MB'`,
+        expect.stringContaining('idx_file_chunks_emb_hnsw_2048'),
+        'RESET maintenance_work_mem',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('whenSettled awaits builds that are still inside the start delay', async () => {
     vi.useFakeTimers();
     try {
