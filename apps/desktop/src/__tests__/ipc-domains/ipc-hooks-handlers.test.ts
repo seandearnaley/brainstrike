@@ -107,6 +107,47 @@ describe('getProjectHooksForReview', () => {
     expect(result.content).toBeUndefined();
   });
 
+  it('refuses a symlinked-out hooks file WITHOUT reading the target bytes', () => {
+    // The containment check MUST run BEFORE any read: a `.brainstrike/hooks.json`
+    // that symlinks OUT of its root would otherwise let main read (and return)
+    // an arbitrary/large file's bytes before the later check refuses it.
+    let readCount = 0;
+    const result = getProjectHooksForReview('r1', '/abs/root', {
+      readFile: () => {
+        readCount += 1;
+        throw new Error('the escaped target must never be read');
+      },
+      realpath: (p) => (p === '/abs/root/.brainstrike/hooks.json' ? '/etc/passwd' : p),
+      resolveDbRoot: resolveTo('db-root', '/abs/root'),
+    });
+    expect(result.error).toMatch(/outside the workspace root/);
+    expect(result.exists).toBe(false);
+    expect(result.content).toBeUndefined();
+    expect(readCount).toBe(0);
+  });
+
+  it('reads the VALIDATED realpath, never the requested path (swap-to-symlink race)', () => {
+    // Containment is checked on the resolved path; the read MUST target that
+    // same resolved path, or a symlink swapped in between check and read would
+    // still disclose escaped bytes.
+    const content = '{"PreToolUse":[]}';
+    const readTargets: string[] = [];
+    const result = getProjectHooksForReview('r1', '/abs/root', {
+      readFile: (p) => {
+        readTargets.push(p);
+        return Buffer.from(content, 'utf8');
+      },
+      realpath: (p) =>
+        p === '/abs/root/.brainstrike/hooks.json' ? '/abs/root/.brainstrike/hooks.real.json' : p,
+      resolveDbRoot: resolveTo('db-root', '/abs/root'),
+    });
+    expect(result.exists).toBe(true);
+    expect(result.content).toBe(content);
+    expect(readTargets).toEqual(['/abs/root/.brainstrike/hooks.real.json']);
+    // The reported path stays the canonical hooks location (display contract).
+    expect(result.path).toBe('/abs/root/.brainstrike/hooks.json');
+  });
+
   it('surfaces a parseError for malformed JSON but still returns content + hash', () => {
     const content = '{ not json';
     const result = getProjectHooksForReview('r1', '/abs/root', {

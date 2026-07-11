@@ -154,17 +154,18 @@ export function getProjectHooksForReview(
   }
 
   const path = getProjectHooksPath(dbRoot.path);
-  let bytes: Buffer;
-  try {
-    bytes = read(path);
-  } catch {
+
+  // Refuse a hooks file that symlinks OUT of its root BEFORE any read
+  // (info-disclosure guard, mirrors the asset-protocol containment precedent): a
+  // symlink target could be an arbitrary/large file, so main must never load its
+  // bytes and only afterward decide to refuse them. A missing file (or broken
+  // symlink) realpaths to null → treated as "does not exist".
+  const realRoot = safeRealpath(dbRoot.path, realpath) ?? resolve(dbRoot.path);
+  const realHooks = safeRealpath(path, realpath);
+  if (realHooks === null) {
     return { dbRootId: dbRoot.id, exists: false, path, rootId };
   }
-
-  // Refuse a hooks file that symlinks OUT of its root (info-disclosure guard).
-  const realHooks = safeRealpath(path, realpath);
-  const realRoot = safeRealpath(dbRoot.path, realpath) ?? resolve(dbRoot.path);
-  if (realHooks === null || !isContained(realHooks, realRoot)) {
+  if (!isContained(realHooks, realRoot)) {
     return {
       dbRootId: dbRoot.id,
       error: 'hooks file resolves outside the workspace root',
@@ -172,6 +173,18 @@ export function getProjectHooksForReview(
       path,
       rootId,
     };
+  }
+
+  // Read the VALIDATED realpath, never the requested path (matches the
+  // asset-protocol precedent, which fetches the resolved path): reading `path`
+  // after validating `realHooks` would leave a swap-to-symlink race where the
+  // read follows a link created between the check and the read. A read failure
+  // here (permissions, TOCTOU unlink) is "does not exist".
+  let bytes: Buffer;
+  try {
+    bytes = read(realHooks);
+  } catch {
+    return { dbRootId: dbRoot.id, exists: false, path, rootId };
   }
 
   // Hash the RAW bytes (byte-identical to the server trust hash), then decode

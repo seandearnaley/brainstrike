@@ -274,6 +274,10 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
 
   // Then each root, in input order. Trust + parse from ONE read: hash the bytes,
   // compare to the approval, and parse those SAME bytes only when trusted.
+  // KNOWN ASYMMETRY: unlike the review IPC (`getProjectHooksForReview`), this
+  // read is NOT containment-checked — a hooks.json symlinking outside the root
+  // is read and hashed here before failing the trust compare (an escaping file
+  // can never be approved, so the bytes go nowhere, but they ARE loaded).
   for (const root of input.roots) {
     const filePath = getProjectHooksPath(root.absPath);
     const bytes = readFileBytesOrNull(filePath);
