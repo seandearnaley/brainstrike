@@ -263,6 +263,8 @@ interface RangeItemProps {
   lineScale: number;
   onClaimContextTarget: (range: TapestryRange) => void;
   onMoveRange?: MinimapProps['onMoveRange'];
+  onRangeTogglePointerEnd: (rangeId: string) => void;
+  onRangeToggleTouchStart: (rangeId: string) => void;
   onToggleRange: MinimapProps['onToggleRange'];
   range: TapestryRange;
 }
@@ -375,6 +377,8 @@ interface EditableRangeSurfaceProps extends Omit<React.ComponentPropsWithRef<'di
   isEditable: boolean;
   label: string;
   onMoveRange?: MinimapProps['onMoveRange'];
+  onRangeTogglePointerEnd: (rangeId: string) => void;
+  onRangeToggleTouchStart: (rangeId: string) => void;
   onToggleRange: MinimapProps['onToggleRange'];
   range: TapestryRange;
 }
@@ -388,6 +392,8 @@ const EditableRangeSurface = ({
   isEditable,
   label,
   onMoveRange,
+  onRangeTogglePointerEnd,
+  onRangeToggleTouchStart,
   onToggleRange,
   range,
   ref,
@@ -448,9 +454,21 @@ const EditableRangeSurface = ({
             event.stopPropagation();
           }
         }}
+        onPointerCancel={(event) => {
+          if (event.pointerType && event.pointerType !== 'mouse') {
+            onRangeTogglePointerEnd(range.id);
+          }
+        }}
         onPointerDown={(event) => {
-          if (!(event.pointerType && event.pointerType !== 'mouse')) {
-            event.stopPropagation();
+          if (event.pointerType && event.pointerType !== 'mouse') {
+            onRangeToggleTouchStart(range.id);
+            return;
+          }
+          event.stopPropagation();
+        }}
+        onPointerUp={(event) => {
+          if (event.pointerType && event.pointerType !== 'mouse') {
+            onRangeTogglePointerEnd(range.id);
           }
         }}
         style={{ borderColor: range.color }}
@@ -481,6 +499,8 @@ const RangeItem = memo(
     lineScale,
     onClaimContextTarget,
     onMoveRange,
+    onRangeTogglePointerEnd,
+    onRangeToggleTouchStart,
     onToggleRange,
     range,
   }: RangeItemProps) => {
@@ -541,6 +561,8 @@ const RangeItem = memo(
         isEditable={isEditable}
         label={label}
         onMoveRange={onMoveRange}
+        onRangeTogglePointerEnd={onRangeTogglePointerEnd}
+        onRangeToggleTouchStart={onRangeToggleTouchStart}
         onToggleRange={onToggleRange}
         range={range}
         style={style}
@@ -698,6 +720,8 @@ export const Minimap = memo(
       pointerId: number;
     } | null>(null);
     const suppressNextBackgroundClickRef = useRef(false);
+    const pendingRangeToggleLongPressRef = useRef<string | null>(null);
+    const suppressNextRangeToggleClickRef = useRef<string | null>(null);
     const pendingLensPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
     const isContentReady = file.contentStatus === 'ready';
     const hasLensPosition = lensPosition !== null;
@@ -877,6 +901,17 @@ export const Minimap = memo(
         window.removeEventListener('resize', handleGeometryChange);
       };
     }, [hasLensPosition, lensEnabled, lensPinned]);
+
+    useEffect(() => {
+      if (!(hasLensPosition && lensPinned) || pinnedLensOwnedElsewhere) {
+        return;
+      }
+      const handleViewportResize = () => {
+        setLensPosition((current) => (current ? { ...current } : current));
+      };
+      window.addEventListener('resize', handleViewportResize);
+      return () => window.removeEventListener('resize', handleViewportResize);
+    }, [hasLensPosition, lensPinned, pinnedLensOwnedElsewhere]);
 
     useEffect(() => {
       if (!(isDragging && hasLensPosition && lensEnabled) || lensPinned) {
@@ -1162,14 +1197,34 @@ export const Minimap = memo(
 
     const handleRangeContextTarget = useCallback(
       (range: TapestryRange) => {
-        if (lensPinnedRef.current) {
-          menuShouldRestoreOverviewFocusRef.current = true;
-          onPinnedLensChange?.(null);
-        }
         setContextMenuTarget(toTapestryRangeTarget(file, range));
-        clearLens(false);
       },
-      [clearLens, file, onPinnedLensChange, setContextMenuTarget]
+      [file, setContextMenuTarget]
+    );
+
+    const handleRangeToggleTouchStart = useCallback((rangeId: string) => {
+      suppressNextRangeToggleClickRef.current = null;
+      pendingRangeToggleLongPressRef.current = rangeId;
+    }, []);
+
+    const handleRangeTogglePointerEnd = useCallback((rangeId: string) => {
+      if (pendingRangeToggleLongPressRef.current === rangeId) {
+        pendingRangeToggleLongPressRef.current = null;
+      }
+    }, []);
+
+    const handleRenderedRangeToggle = useCallback(
+      (fileId: string, rangeId: string) => {
+        if (pendingRangeToggleLongPressRef.current === rangeId) {
+          pendingRangeToggleLongPressRef.current = null;
+        }
+        if (suppressNextRangeToggleClickRef.current === rangeId) {
+          suppressNextRangeToggleClickRef.current = null;
+          return;
+        }
+        onToggleRange(fileId, rangeId);
+      },
+      [onToggleRange]
     );
 
     const handleStart = useCallback(
@@ -1264,6 +1319,10 @@ export const Minimap = memo(
           onActionStart={handleContextActionStart}
           onOpenChange={(open) => {
             if (open) {
+              if (pendingRangeToggleLongPressRef.current) {
+                suppressNextRangeToggleClickRef.current = pendingRangeToggleLongPressRef.current;
+                pendingRangeToggleLongPressRef.current = null;
+              }
               if (nativeActivationRef.current) {
                 suppressNextBackgroundClickRef.current = true;
               }
@@ -1272,9 +1331,13 @@ export const Minimap = memo(
                 onPinnedLensChange?.(null);
               }
               clearLens(false);
-            } else if (menuShouldRestoreOverviewFocusRef.current) {
-              menuShouldRestoreOverviewFocusRef.current = false;
-              containerRef.current?.focus();
+            } else {
+              pendingRangeToggleLongPressRef.current = null;
+              suppressNextRangeToggleClickRef.current = null;
+              if (menuShouldRestoreOverviewFocusRef.current) {
+                menuShouldRestoreOverviewFocusRef.current = false;
+                containerRef.current?.focus();
+              }
             }
           }}
         >
@@ -1375,7 +1438,9 @@ export const Minimap = memo(
                 lineScale={lineScale}
                 {...(onMoveRange ? { onMoveRange } : {})}
                 onClaimContextTarget={handleRangeContextTarget}
-                onToggleRange={onToggleRange}
+                onRangeTogglePointerEnd={handleRangeTogglePointerEnd}
+                onRangeToggleTouchStart={handleRangeToggleTouchStart}
+                onToggleRange={handleRenderedRangeToggle}
                 range={range}
               />
             ))}

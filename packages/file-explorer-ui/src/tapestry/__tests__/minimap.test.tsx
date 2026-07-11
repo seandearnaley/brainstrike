@@ -947,6 +947,126 @@ describe('Minimap', () => {
     expect(onCreateRange).toHaveBeenCalledWith(file.id, 5001);
   });
 
+  it('reclamps a pinned precision selector when the viewport becomes narrower', () => {
+    const originalWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 1000,
+      writable: true,
+    });
+
+    try {
+      render(
+        <TooltipProvider>
+          <Minimap
+            file={{ ...createFile(), selections: [] }}
+            getGlobalIndex={() => 0}
+            isSelected={false}
+            onCreateRange={vi.fn()}
+            onToggleRange={vi.fn()}
+            onToggleSelection={vi.fn()}
+            scale={2}
+            smartStart={vi.fn()}
+          />
+        </TooltipProvider>
+      );
+
+      const track = screen.getByTestId('tapestry-track');
+      const background = screen.getByRole('button', {
+        name: /whole file selected — inspect or create range in app\.tsx/i,
+      });
+      Object.defineProperty(track, 'getBoundingClientRect', {
+        value: () => createRect({ height: 120 }),
+      });
+      fireEvent.pointerDown(background, {
+        button: 0,
+        clientX: 900,
+        clientY: 160,
+        pointerId: 7,
+        pointerType: 'mouse',
+      });
+      fireEvent.pointerUp(background, {
+        button: 0,
+        clientX: 900,
+        clientY: 160,
+        pointerId: 7,
+        pointerType: 'mouse',
+      });
+
+      const lens = screen.getByRole('dialog', {
+        name: /precision line selector for app\.tsx/i,
+      });
+      expect(lens).toHaveStyle({ left: '576px' });
+
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        value: 500,
+        writable: true,
+      });
+      fireEvent.resize(window);
+
+      expect(lens).toHaveStyle({ left: '184px' });
+    } finally {
+      if (originalWidth) {
+        Object.defineProperty(window, 'innerWidth', originalWidth);
+      }
+    }
+  });
+
+  it('keeps a pinned selector open when a touch range tap only preclaims context', () => {
+    const onPinnedLensChange = vi.fn();
+    render(
+      <TooltipProvider>
+        <Minimap
+          file={createFile()}
+          getGlobalIndex={() => 1}
+          isSelected={false}
+          onCreateRange={vi.fn()}
+          onPinnedLensChange={onPinnedLensChange}
+          onToggleRange={vi.fn()}
+          onToggleSelection={vi.fn()}
+          scale={2}
+          smartStart={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    const track = screen.getByTestId('tapestry-track');
+    const background = screen.getByRole('button', { name: /inspect or create range in app\.tsx/i });
+    Object.defineProperty(track, 'getBoundingClientRect', {
+      value: () => createRect({ height: 120 }),
+    });
+    fireEvent.pointerDown(background, {
+      button: 0,
+      clientX: 80,
+      clientY: 202,
+      pointerId: 7,
+      pointerType: 'mouse',
+    });
+    fireEvent.pointerUp(background, {
+      button: 0,
+      clientX: 80,
+      clientY: 202,
+      pointerId: 7,
+      pointerType: 'mouse',
+    });
+    expect(
+      screen.getByRole('dialog', { name: /precision line selector for app\.tsx/i })
+    ).toBeVisible();
+    onPinnedLensChange.mockClear();
+
+    const range = screen.getByRole('slider', {
+      name: /selection lines 3 to 6 in app\.tsx/i,
+    });
+    fireEvent.pointerDown(range, { button: 0, pointerId: 8, pointerType: 'touch' });
+    fireEvent.pointerUp(range, { button: 0, pointerId: 8, pointerType: 'touch' });
+
+    expect(onPinnedLensChange).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('dialog', { name: /precision line selector for app\.tsx/i })
+    ).toBeVisible();
+  });
+
   it('opens the precision selector from a touch tap', () => {
     render(
       <TooltipProvider>
@@ -1568,6 +1688,79 @@ describe('Minimap', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('does not toggle a range behind its Radix touch long-press menu', () => {
+    vi.useFakeTimers();
+    try {
+      const onToggleRange = vi.fn();
+      render(
+        <TooltipProvider>
+          <Minimap
+            file={createFile()}
+            getGlobalIndex={() => 1}
+            isSelected={false}
+            onToggleRange={onToggleRange}
+            onToggleSelection={vi.fn()}
+            scale={2}
+            smartStart={vi.fn()}
+          />
+        </TooltipProvider>
+      );
+
+      const toggle = screen.getByRole('button', { name: /deactivate range/i });
+      fireEvent.pointerDown(toggle, {
+        button: 0,
+        pointerId: 9,
+        pointerType: 'touch',
+      });
+      act(() => vi.advanceTimersByTime(700));
+
+      expect(screen.getByRole('menuitem', { name: /exclude clip/i })).toBeVisible();
+
+      fireEvent.pointerUp(toggle, {
+        button: 0,
+        pointerId: 9,
+        pointerType: 'touch',
+      });
+      fireEvent.click(toggle);
+
+      expect(onToggleRange).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still toggles a range after a short touch tap', () => {
+    const onToggleRange = vi.fn();
+    render(
+      <TooltipProvider>
+        <Minimap
+          file={createFile()}
+          getGlobalIndex={() => 1}
+          isSelected={false}
+          onToggleRange={onToggleRange}
+          onToggleSelection={vi.fn()}
+          scale={2}
+          smartStart={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    const toggle = screen.getByRole('button', { name: /deactivate range/i });
+    fireEvent.pointerDown(toggle, {
+      button: 0,
+      pointerId: 9,
+      pointerType: 'touch',
+    });
+    fireEvent.pointerUp(toggle, {
+      button: 0,
+      pointerId: 9,
+      pointerType: 'touch',
+    });
+    fireEvent.click(toggle);
+
+    expect(onToggleRange).toHaveBeenCalledWith('file-1', 'range-1');
   });
 
   it('uses mixed-ownership wording and disables document creation on occupied lines', () => {
