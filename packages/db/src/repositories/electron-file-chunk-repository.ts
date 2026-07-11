@@ -19,11 +19,13 @@ import {
   createUpdateBuilder,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
+  type FilteredVectorSearchRoute,
   hnswSearchTuningStatements,
   MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
   resolveEmbeddingDimensions,
+  resolveFilteredVectorSearchRoute,
   type UpdateBuilder,
   validateEmbeddingDimensions,
 } from './_shared.js';
@@ -58,6 +60,17 @@ interface FileChunkRow {
 interface FileChunkSearchRow extends FileChunkRow {
   rank: string;
   similarity: string;
+}
+
+/** Scoping filters of a similarity search, reusable across the search SQL and
+ * the bounded selectivity counts (which need their own parameter numbering). */
+interface SearchScope {
+  chunkType?: string | undefined;
+  embeddingSetId: string;
+  filePaths?: string[] | undefined;
+  fileRecordId?: string | undefined;
+  rootIds?: readonly string[] | undefined;
+  selectionSnapshotId?: string | undefined;
 }
 
 // Type for stats query rows
@@ -446,44 +459,53 @@ export class ElectronFileChunkRepository {
     }
     const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
-    const { similarityExpr, orderExpr, dimension } = await this.resolveDistanceConfig(
+    const { distance, dimension } = await this.resolveDistanceConfig(
       embeddingSetId,
       queryEmbedding
     );
 
-    const vectorParam = `[${queryEmbedding.join(',')}]`;
-    const params: unknown[] = [vectorParam];
-    let paramIndex = 2;
-    // `vector_dims(embedding) = N` is required (with the halfvec column cast in
-    // orderExpr) for the planner to use the partial half-precision HNSW index;
-    // without it the search seq-scans and the HNSW tuning is inert (#1141).
-    const whereParts = ['embedding IS NOT NULL', `vector_dims(embedding) = ${dimension}`];
-
-    paramIndex = this.appendFilterClause(
-      whereParts,
-      params,
-      paramIndex,
+    const scope: SearchScope = {
+      chunkType,
+      embeddingSetId,
+      filePaths: normalizedFilePaths,
       fileRecordId,
-      'file_record_id'
-    );
-    paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
-    paramIndex = this.appendSelectionFilters(
-      whereParts,
-      params,
-      paramIndex,
-      normalizedFilePaths,
-      normalizedSnapshotId
-    );
-    if (rootIds !== undefined) {
-      whereParts.push(
-        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
-      );
-      params.push(Array.from(rootIds));
-      paramIndex += 1;
+      rootIds,
+      selectionSnapshotId: normalizedSnapshotId,
+    };
+    // Search params start at $2 ($1 is the query vector).
+    const searchScope = this.buildScopeFilters(2, scope);
+
+    // Narrowed searches (any filter beyond embedding_set_id) route adaptively:
+    // the partial halfvec HNSW index collapses on selective filters (39.5%
+    // recall@10 at 100k chunks with a ~10% filter — see _shared.ts), so bounded
+    // selectivity counts pick between the tuned ANN path and an exact
+    // full-precision scan of the filtered subset. Un-narrowed whole-set
+    // searches (the dominant, fast query) skip the counts entirely.
+    let route: FilteredVectorSearchRoute = 'ann';
+    if (searchScope.narrowed) {
+      route = await this.resolveNarrowedSearchRoute(scope);
+      if (route === 'empty') {
+        return [];
+      }
     }
-    whereParts.push(`embedding_set_id = $${paramIndex}`);
-    params.push(embeddingSetId);
-    paramIndex += 1;
+
+    const { similarityExpr, orderExpr } = this.buildDistanceExpressions(
+      distance,
+      dimension,
+      route === 'exact' ? 'exact' : 'halfvec'
+    );
+
+    const vectorParam = `[${queryEmbedding.join(',')}]`;
+    // `vector_dims(embedding) = N` is required (with the halfvec column cast in
+    // orderExpr) for the planner to use the partial half-precision HNSW index
+    // (#1141); on the exact route it guards the fixed-dimension `$1::vector(N)`
+    // operator against rows of other dimensions.
+    const whereParts = [
+      'embedding IS NOT NULL',
+      `vector_dims(embedding) = ${dimension}`,
+      ...searchScope.clauses,
+    ];
+    const params: unknown[] = [vectorParam, ...searchScope.values];
 
     // Capped via computeOverfetchLimit so a 2,000 limit can't pull 20,000 rows.
     const overfetchLimit = computeOverfetchLimit(limit);
@@ -496,15 +518,18 @@ export class ElectronFileChunkRepository {
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY ${orderExpr}
-      LIMIT $${paramIndex}`;
-    // Run the ANN tuning and the search in ONE transaction so `SET LOCAL` applies
-    // to the SELECT (autocommit `SET LOCAL` is a silent no-op). Iterative scans +
-    // a wider ef_search keep heavily filtered searches from under-returning.
-    const result = await this.runVectorSearchInTransaction(
-      searchSql,
-      [...params, overfetchLimit],
-      efSearch
-    );
+      LIMIT $${params.length + 1}`;
+    // ANN route: run the HNSW tuning and the search in ONE transaction so
+    // `SET LOCAL` applies to the SELECT (autocommit `SET LOCAL` is a silent
+    // no-op). Iterative scans + a wider ef_search keep heavily filtered
+    // searches from under-returning.
+    // Exact route: the full-precision order expression cannot match the
+    // halfvec expression index, so the planner exact-scans the filtered
+    // subset — no tuning (or transaction) needed.
+    const result =
+      route === 'exact'
+        ? await this.db.query(searchSql, [...params, overfetchLimit])
+        : await this.runVectorSearchInTransaction(searchSql, [...params, overfetchLimit], efSearch);
 
     const filtered = (result.rows as unknown as FileChunkSearchRow[]).filter((row) => {
       const similarity = Number(row.similarity);
@@ -958,10 +983,102 @@ export class ElectronFileChunkRepository {
     return nextIndex;
   }
 
+  /**
+   * Materialize a search's scoping filters starting at `startIndex` ($1 is the
+   * query vector in the search SQL, so it passes 2; the selectivity counts have
+   * no vector parameter and pass 1). `narrowed` is true when any filter beyond
+   * the mandatory `embedding_set_id` is present — only narrowed searches run
+   * the adaptive-routing counts.
+   */
+  private buildScopeFilters(
+    startIndex: number,
+    scope: SearchScope
+  ): { clauses: string[]; narrowed: boolean; values: unknown[] } {
+    const clauses: string[] = [];
+    const values: unknown[] = [];
+    let paramIndex = startIndex;
+    paramIndex = this.appendFilterClause(
+      clauses,
+      values,
+      paramIndex,
+      scope.fileRecordId,
+      'file_record_id'
+    );
+    paramIndex = this.appendFilterClause(
+      clauses,
+      values,
+      paramIndex,
+      scope.chunkType,
+      'chunk_type'
+    );
+    paramIndex = this.appendSelectionFilters(
+      clauses,
+      values,
+      paramIndex,
+      scope.filePaths,
+      scope.selectionSnapshotId
+    );
+    // Scope to workspace roots via a subquery (not a JOIN) so the main
+    // file_chunks predicate still matches the partial HNSW index.
+    if (scope.rootIds !== undefined) {
+      clauses.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      values.push(Array.from(scope.rootIds));
+      paramIndex += 1;
+    }
+    const narrowed = clauses.length > 0;
+    clauses.push(`embedding_set_id = $${paramIndex}`);
+    values.push(scope.embeddingSetId);
+    return { clauses, narrowed, values };
+  }
+
+  /**
+   * Route a NARROWED similarity search (exact filtered scan vs ANN) from two
+   * bounded selectivity counts. See `resolveFilteredVectorSearchRoute` in
+   * `_shared.ts` for the decision rule and the measured recall collapse it fixes.
+   */
+  private async resolveNarrowedSearchRoute(scope: SearchScope): Promise<FilteredVectorSearchRoute> {
+    const countScope = this.buildScopeFilters(1, scope);
+    return await resolveFilteredVectorSearchRoute(
+      (cap) =>
+        this.runBoundedCount(
+          ['embedding IS NOT NULL', ...countScope.clauses],
+          countScope.values,
+          cap
+        ),
+      (cap) =>
+        this.runBoundedCount(
+          ['embedding IS NOT NULL', 'embedding_set_id = $1'],
+          [scope.embeddingSetId],
+          cap
+        )
+    );
+  }
+
+  /**
+   * Count matching rows, stopping the scan once `cap` rows are seen. Cheap
+   * predicates only — the callers deliberately omit `vector_dims(embedding)`
+   * (it would detoast every candidate's vector just to route the query).
+   */
+  private async runBoundedCount(
+    whereParts: string[],
+    values: unknown[],
+    cap: number
+  ): Promise<number> {
+    const boundedCap = Math.max(1, Math.floor(cap));
+    const result = await this.db.query(
+      `SELECT COUNT(*)::int AS c FROM (SELECT 1 FROM file_chunks WHERE ${whereParts.join(' AND ')} LIMIT ${boundedCap}) t`,
+      values
+    );
+    const row = result.rows[0] as { c?: number | string } | undefined;
+    return Number(row?.c ?? 0);
+  }
+
   private async resolveDistanceConfig(
     embeddingSetId: string,
     queryEmbedding: number[]
-  ): Promise<{ similarityExpr: string; orderExpr: string; dimension: number }> {
+  ): Promise<{ distance: 'cosine' | 'l2' | 'ip'; dimension: number }> {
     const setRes = await this.db.query(
       'SELECT distance, dimensions FROM embedding_sets WHERE id = $1',
       [embeddingSetId]
@@ -985,31 +1102,37 @@ export class ElectronFileChunkRepository {
     }
 
     const distance = (setRow.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
-    const expressions = this.buildDistanceExpressions(distance, expectedDimension);
-    return { ...expressions, dimension: expectedDimension };
+    return { dimension: expectedDimension, distance };
   }
 
   /**
    * Build distance expressions for similarity search.
-   * CRITICAL (#1141): the embedding column is cast to `halfvec(dimension)` to match
-   * the half-precision partial HNSW index `(embedding::halfvec(N)) … WHERE
-   * vector_dims(embedding) = N`. Without this cast (and the `vector_dims` predicate
-   * added by the caller) the planner cannot use the dimension index and the search
-   * seq-scans — which also makes the `SET LOCAL hnsw.*` tuning inert. Mirrors the
-   * PGlite-direct `FileChunkRepository`. Both the ANN ranking (orderExpr) AND the
-   * returned similarity score are computed in fp16; the quantization error (~3 sig
-   * digits) is negligible for thresholding/display and keeps the score monotonic with
-   * the halfvec rank.
+   * CRITICAL (#1141, 'halfvec' precision — the ANN route): the embedding column is
+   * cast to `halfvec(dimension)` to match the half-precision partial HNSW index
+   * `(embedding::halfvec(N)) … WHERE vector_dims(embedding) = N`. Without this cast
+   * (and the `vector_dims` predicate added by the caller) the planner cannot use the
+   * dimension index and the search seq-scans — which also makes the `SET LOCAL
+   * hnsw.*` tuning inert. Mirrors the PGlite-direct `FileChunkRepository`. Both the
+   * ANN ranking (orderExpr) AND the returned similarity score are computed in fp16;
+   * the quantization error (~3 sig digits) is negligible for thresholding/display and
+   * keeps the score monotonic with the halfvec rank.
+   * 'exact' precision (the selective-filter route) is the mirror-image guarantee:
+   * full-precision `embedding <=> $1::vector(N)` CANNOT match that index expression,
+   * so the planner must exact-scan the filtered subset — 100% recall by
+   * construction, with fp32 similarity scores.
    */
   private buildDistanceExpressions(
     distance: 'cosine' | 'l2' | 'ip',
-    dimension: number
+    dimension: number,
+    precision: 'exact' | 'halfvec' = 'halfvec'
   ): {
     similarityExpr: string;
     orderExpr: string;
   } {
-    const embeddingCast = `(embedding::halfvec(${dimension}))`;
-    const paramCast = `$1::halfvec(${dimension})`;
+    const embeddingCast =
+      precision === 'exact' ? 'embedding' : `(embedding::halfvec(${dimension}))`;
+    const paramCast =
+      precision === 'exact' ? `$1::vector(${dimension})` : `$1::halfvec(${dimension})`;
 
     if (distance === 'l2') {
       return {
