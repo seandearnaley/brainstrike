@@ -298,16 +298,27 @@ describe('wasmLoader.deleteIndexedDB', () => {
     g.window = { indexedDB: { deleteDatabase } };
   }
 
-  it("blockedBehavior 'resolve' settles a BLOCKED delete so callers can fail loudly", async () => {
-    // The first-run bootstrap recovery path relies on this: it re-probes after
-    // the delete and throws its "close other tabs" error — without settling it
-    // would hang DB initialization forever on a tab we don't control.
+  it("blockedBehavior 'resolve' settles a BLOCKED delete reporting blocked: true", async () => {
+    // The first-run bootstrap recovery path relies on this: it throws its
+    // "close other tabs" error directly on the reported block — without
+    // settling it would hang DB initialization forever on a tab we don't
+    // control, and without the report a follow-up open probe would queue
+    // behind the pending delete and hang anyway.
     installBlockedDeleteDatabaseSpy();
 
     const mod = await import('../src/wasm-loader');
     await expect(
       mod.wasmLoader.deleteIndexedDB('idb://web-pg18', { blockedBehavior: 'resolve' })
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ blocked: true });
+  });
+
+  it('reports blocked: false when the delete completes', async () => {
+    installDeleteDatabaseSpy();
+
+    const mod = await import('../src/wasm-loader');
+    await expect(
+      mod.wasmLoader.deleteIndexedDB('idb://web-pg18', { blockedBehavior: 'resolve' })
+    ).resolves.toEqual({ blocked: false });
   });
 
   it("default blockedBehavior 'wait-for-close' keeps waiting on a BLOCKED delete", async () => {

@@ -123,13 +123,16 @@ function createStubHarness(
   });
   const deleteStore = vi.fn(async (dataDir: string) => {
     await deleteIdbDatabase(firstRunBootstrapIdbDatabaseName(dataDir));
+    return { blocked: false };
   });
   return {
     bootstrapStore,
     deleteStore,
     deps: {
       bootstrapStore: bootstrapStore as unknown as (dataDir: string) => Promise<void>,
-      deleteStore: deleteStore as unknown as (dataDir: string) => Promise<void>,
+      deleteStore: deleteStore as unknown as (
+        dataDir: string
+      ) => Promise<{ readonly blocked: boolean }>,
     },
   };
 }
@@ -235,20 +238,50 @@ describe('maybeBootstrapBrowserFirstRunStore', () => {
     expect(localStorage.getItem(firstRunBootstrapMarkerKey(DATA_DIR))).toBeNull();
   });
 
-  it('fails loudly when the partial store cannot be deleted', async () => {
+  it('fails loudly WITHOUT re-probing when the partial-store delete reports blocked', async () => {
+    await createIdbDatabase(IDB_NAME);
+    localStorage.setItem(firstRunBootstrapMarkerKey(DATA_DIR), '2026-07-10T00:00:00.000Z');
+    const harness = createStubHarness();
+    // A blocked delete leaves the request pending in the connection queue: on
+    // enumeration-less engines a follow-up open probe would queue behind it
+    // and hang, so recovery must throw on the reported block WITHOUT another
+    // existence probe. Count probes: exactly one (the initial in-lock check),
+    // none after deleteStore reports blocked.
+    const probeSpy = vi.fn(idbFactory.databases.bind(idbFactory));
+    installGlobal('indexedDB', {
+      databases: probeSpy,
+      deleteDatabase: idbFactory.deleteDatabase.bind(idbFactory),
+      open: idbFactory.open.bind(idbFactory),
+    });
+    const deps: FirstRunBootstrapDependencies = {
+      bootstrapStore: harness.deps.bootstrapStore,
+      deleteStore: vi.fn(async () => ({ blocked: true })),
+    };
+
+    await expect(maybeBootstrapBrowserFirstRunStore(DATA_DIR, deps)).rejects.toThrow(
+      /deletion is blocked/
+    );
+    expect(probeSpy).toHaveBeenCalledTimes(1);
+    expect(harness.bootstrapStore).not.toHaveBeenCalled();
+    // Marker intentionally survives so the next launch retries recovery.
+    expect(localStorage.getItem(firstRunBootstrapMarkerKey(DATA_DIR))).not.toBeNull();
+  });
+
+  it('fails loudly when an unblocked delete still leaves the store behind', async () => {
     await createIdbDatabase(IDB_NAME);
     localStorage.setItem(firstRunBootstrapMarkerKey(DATA_DIR), '2026-07-10T00:00:00.000Z');
     const harness = createStubHarness();
     const deps: FirstRunBootstrapDependencies = {
       bootstrapStore: harness.deps.bootstrapStore,
-      deleteStore: vi.fn(async () => undefined), // resolves without deleting (blocked)
+      // Claims completion but deleted nothing — the defensive re-probe (safe
+      // once no delete is pending) must catch it.
+      deleteStore: vi.fn(async () => ({ blocked: false })),
     };
 
     await expect(maybeBootstrapBrowserFirstRunStore(DATA_DIR, deps)).rejects.toThrow(
-      /Cannot reclaim the partial first-run PGlite store/
+      /deletion did not complete/
     );
     expect(harness.bootstrapStore).not.toHaveBeenCalled();
-    // Marker intentionally survives so the next launch retries recovery.
     expect(localStorage.getItem(firstRunBootstrapMarkerKey(DATA_DIR))).not.toBeNull();
   });
 

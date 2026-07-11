@@ -607,9 +607,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         const bootstrapResult = await maybeBootstrapBrowserFirstRunStore(resolvedPath, {
           bootstrapStore: (dataDir) => runFirstRunBootstrapInWorker(dataDir),
           // 'resolve' on BLOCKED (another tab still holds the torn store): the
-          // recovery path re-probes and throws its loud "close other tabs"
-          // error instead of hanging DB init on the factory-reset default of
-          // waiting for the holding connection to close.
+          // delete settles reporting `blocked: true` and the recovery path
+          // throws its loud "close other tabs" error directly — instead of
+          // hanging DB init on the factory-reset default of waiting for the
+          // holding connection to close.
           deleteStore: (dataDir) =>
             wasmLoader.deleteIndexedDB(dataDir, { blockedBehavior: 'resolve' }),
         });
