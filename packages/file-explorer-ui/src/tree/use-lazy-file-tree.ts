@@ -1171,8 +1171,15 @@ export function useLazyFileTree(
       if (updates.length === 0) {
         return;
       }
+      // Parent-first ordering for BOTH sinks. The normalized apply sorts
+      // internally, but the worker's applyDirectoryChildrenUpdate silently
+      // drops a patch whose parent it has not indexed yet — the scan happens
+      // to record parents before children today, but that is an incidental
+      // property of its traversal, not a contract; sort here so the two
+      // sinks can never drift.
+      const orderedUpdates = [...updates].sort((a, b) => a.path.length - b.path.length);
       const indexedChildren: IFileNode[] = [];
-      for (const update of updates) {
+      for (const update of orderedUpdates) {
         for (const child of update.children) {
           if (child.handle) {
             handleMapRef.current.set(child.path, child.handle);
@@ -1181,14 +1188,14 @@ export function useLazyFileTree(
         }
       }
       if (portRef.current) {
-        for (const update of updates) {
+        for (const update of orderedUpdates) {
           portRef.current.updateTree(update.path, toWorkerFileNodes([...update.children]));
         }
       }
       const nextTree = commitNormalizedTree((currentTree) =>
         applyNormalizedDirectoryChildrenUpdates(
           currentTree,
-          updates.map((update) => ({ children: [...update.children], path: update.path }))
+          orderedUpdates.map((update) => ({ children: [...update.children], path: update.path }))
         )
       );
       setState((s) => ({ ...s, fileTree: nextTree }));

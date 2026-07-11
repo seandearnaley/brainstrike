@@ -299,6 +299,7 @@ export function useRecursiveFolderSelect(
 
       try {
         const result = await querySelectableFiles({
+          collectDirectoryUpdates: Boolean(onDirectoriesLoaded),
           fileSystemAdapter: validation.fileSystemAdapter,
           roots: [currentNode],
           ...(internalFilterTreeFn ? { filterTreeFn: internalFilterTreeFn } : {}),

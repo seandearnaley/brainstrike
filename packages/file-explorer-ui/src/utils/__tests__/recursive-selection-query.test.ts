@@ -624,6 +624,7 @@ describe('recursive-selection-query directory hydration updates', () => {
     });
 
     const result = await querySelectableFiles({
+      collectDirectoryUpdates: true,
       excludeFilters: [],
       fileSystemAdapter: adapter,
       // Workspace filter drops markdown — the SELECTION must respect it, but
@@ -665,6 +666,7 @@ describe('recursive-selection-query directory hydration updates', () => {
     });
 
     const result = await querySelectableFiles({
+      collectDirectoryUpdates: true,
       excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
@@ -673,6 +675,31 @@ describe('recursive-selection-query directory hydration updates', () => {
     });
 
     expect(result.filePaths).toEqual(['/root/lib/x.ts']);
+    expect(result.directoryUpdates).toEqual([]);
+  });
+
+  it('does not retain directory updates unless collection is opted in (select-all memory guard)', async () => {
+    const adapter = createMockAdapter({
+      '/root/sub': [createFileNode({ depth: 2, name: 'b.ts', path: '/root/sub/b.ts' })],
+    });
+    const root = createDirectoryNode({
+      children: [
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'sub', path: '/root/sub' }),
+      ],
+      loadState: 'loaded',
+      name: 'root',
+      path: '/root',
+    });
+
+    const result = await querySelectableFiles({
+      excludeFilters: [],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      roots: [root],
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual(['/root/sub/b.ts']);
     expect(result.directoryUpdates).toEqual([]);
   });
 });

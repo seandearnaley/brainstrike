@@ -46,6 +46,13 @@ export interface RecursiveSelectionQueryMetrics extends RecursiveSelectionQueryP
 
 export interface RecursiveSelectionQueryOptions {
   abortSignal?: AbortSignal;
+  /**
+   * Opt-in: retain the raw listing of every adapter-read directory in
+   * `directoryUpdates` for tree hydration. OFF by default — select-all scans
+   * never consume them, and retaining every listing on the largest scans is
+   * avoidable memory pressure.
+   */
+  collectDirectoryUpdates?: boolean;
   concurrency?: number;
   excludeFilters: string[];
   fileSystemAdapter: FileSystemAdapter;
@@ -84,6 +91,7 @@ export interface RecursiveSelectionQueryResult {
 }
 
 interface MutableQueryState {
+  collectDirectoryUpdates: boolean;
   currentPath: string | null;
   directoriesCompleted: number;
   directoriesDiscovered: number;
@@ -305,9 +313,11 @@ function buildEmptyResult(
 
 function initializeQueryState(
   initialRoots: IFileNode[],
-  matcher: PathFilterMatcher
+  matcher: PathFilterMatcher,
+  collectDirectoryUpdates: boolean
 ): MutableQueryState {
   return {
+    collectDirectoryUpdates,
     currentPath: null,
     directoriesCompleted: 0,
     directoriesDiscovered: initialRoots.filter(
@@ -572,7 +582,11 @@ async function drainThroughputScanQueue(args: {
       fileSystemAdapter,
       filterTreeFn,
       nextDirectoryIndex,
-      recordDirectoryUpdate: (update) => state.directoryUpdates.push(update),
+      recordDirectoryUpdate: (update) => {
+        if (state.collectDirectoryUpdates) {
+          state.directoryUpdates.push(update);
+        }
+      },
       scanAbortController,
       unloadedDirectories,
     });
@@ -816,6 +830,7 @@ export async function querySelectableFiles(
 ): Promise<RecursiveSelectionQueryResult> {
   const {
     abortSignal,
+    collectDirectoryUpdates = false,
     concurrency = DEFAULT_SCAN_CONCURRENCY,
     excludeFilters,
     fileSystemAdapter,
@@ -842,7 +857,7 @@ export async function querySelectableFiles(
     limit <= LOW_LIMIT_SCAN_THRESHOLD ? 'early-stop' : 'throughput';
   const effectiveConcurrency = Math.min(MAX_SCAN_CONCURRENCY, Math.max(1, concurrency));
   const initialRoots = applyOptionalFilter(roots, filterTreeFn);
-  const state = initializeQueryState(initialRoots, matcher);
+  const state = initializeQueryState(initialRoots, matcher, collectDirectoryUpdates);
   const directoryTraversalState: DirectoryTraversalState = {
     maxDirectories,
     queuedDirectoryPaths: new Set(
