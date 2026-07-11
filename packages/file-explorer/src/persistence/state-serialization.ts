@@ -7,7 +7,11 @@ import type {
   SerializedState,
   StoredRootDescriptor,
 } from '@brainstrike/types';
-import { createEmptySelectionModel } from '@brainstrike/types';
+import {
+  createEmptySelectionModel,
+  DEFAULT_MAX_SELECTION_COUNT,
+  LEGACY_DEFAULT_MAX_SELECTION_COUNT,
+} from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('Persistence');
@@ -413,10 +417,22 @@ export function mergeState(
   // generous persisted value and writing it through to every folder snapshot
   // so the copies can never diverge again (setMaxSelectionCount maintains the
   // same invariant going forward — this is idempotent on healthy profiles).
-  const healedMaxSelectionCount = Object.values(mergedState.folderStates).reduce(
+  // PERSISTED values only: mergedState.folderStates also contains the current
+  // session's folder states, whose caps are seeded from the CURRENT default —
+  // letting those into the max would silently override a user's deliberately
+  // lower persisted setting whenever the shipped default rises.
+  const mostGenerousPersistedCount = Object.values(persistedSerialized.folderStates ?? {}).reduce(
     (maxSoFar, folderState) => Math.max(maxSoFar, coerceNumber(folderState.maxSelectionCount, 0)),
     coerceNumber(persistedSerialized.maxSelectionCount, current.maxSelectionCount)
   );
+  // Legacy-default heal: the pre-2026-07 default (10) was always persisted, so
+  // a profile carrying exactly 10 everywhere is overwhelmingly a never-touched
+  // default, not a choice — adopt the current default (a deliberate 10 can be
+  // re-lowered once in settings). Every other value is a real user setting.
+  const healedMaxSelectionCount =
+    mostGenerousPersistedCount === LEGACY_DEFAULT_MAX_SELECTION_COUNT
+      ? DEFAULT_MAX_SELECTION_COUNT
+      : mostGenerousPersistedCount;
   mergedState.maxSelectionCount = healedMaxSelectionCount;
   for (const key of Object.keys(mergedState.folderStates)) {
     mergedState.folderStates[key] = {

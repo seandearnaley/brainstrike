@@ -472,7 +472,15 @@ export const MAX_FOLDER_STATES = 20;
 export const DEFAULT_FOLDER_SUMMARY_THRESHOLD = 5;
 
 /** Default allowed number of file selections */
-export const DEFAULT_MAX_SELECTION_COUNT = 10;
+export const DEFAULT_MAX_SELECTION_COUNT = 1000;
+
+/**
+ * The pre-2026-07 default cap. It was always persisted, so a stored 10 is
+ * indistinguishable from a deliberate choice; profile loading heals it to the
+ * current default (see state-serialization.ts) because 10 caused constant
+ * silent truncation. Any other persisted value is preserved verbatim.
+ */
+export const LEGACY_DEFAULT_MAX_SELECTION_COUNT = 10;
 
 /** Default token budget for reports/token meter */
 export const DEFAULT_TOKEN_BUDGET = 100_000;

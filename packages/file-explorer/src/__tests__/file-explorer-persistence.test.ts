@@ -1,5 +1,9 @@
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
-import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
+import {
+  createEmptySelectionModel,
+  DEFAULT_MAX_SELECTION_COUNT,
+  DEFAULT_STATE,
+} from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FILE_EXPLORER_STORAGE_VERSION } from '../persistence/persistence-constants';
 
@@ -431,6 +435,67 @@ describe('file-explorer-persistence', () => {
       expect(result.maxSelectionCount).toBe(100);
       expect(result.folderStates['stale-root']?.maxSelectionCount).toBe(100);
       expect(result.folderStates['configured-root']?.maxSelectionCount).toBe(100);
+    });
+
+    it('heals the legacy default cap (10) up to the current default on load', () => {
+      // The pre-2026-07 default was 10 — an always-persisted value, so a
+      // profile carrying 10 everywhere is indistinguishable from an opt-in.
+      // 10 was hostile enough (constant silent truncation) that we adopt the
+      // new default for those profiles; a deliberate 10 can be re-lowered in
+      // settings once. Any OTHER persisted value is a real user choice and is
+      // preserved verbatim (below).
+      const serializedFolder = {
+        excludeFilters: [] as string[],
+        expandedDirectoryPaths: [] as string[],
+        folderSummaryThreshold: 10,
+        includeFilters: [] as string[],
+        includeProjectTree: true,
+        lastAccessed: Date.now(),
+        lastActiveTab: 'files',
+        selectedFilePaths: [] as string[],
+        tokenBudget: 1000,
+        useRegex: false,
+      };
+      const basePersisted: SerializedState = {
+        currentFolderId: 'root-a',
+        excludeFilters: [],
+        expandedDirectoryPaths: [],
+        folderAccessOrder: ['root-a'],
+        folderStates: {
+          'root-a': { ...serializedFolder, maxSelectionCount: 10 },
+        },
+        folderSummaryThreshold: 20,
+        includeFilters: [],
+        includeProjectTree: true,
+        lastActiveTab: 'files',
+        maxSelectionCount: 10,
+        selectedFilePaths: [],
+        useRegex: false,
+      };
+
+      const healed = mergeFn(basePersisted, initialCurrentState);
+      expect(healed.maxSelectionCount).toBe(DEFAULT_MAX_SELECTION_COUNT);
+      expect(healed.folderStates['root-a']?.maxSelectionCount).toBe(DEFAULT_MAX_SELECTION_COUNT);
+
+      const lowered = mergeFn(
+        {
+          ...basePersisted,
+          folderStates: { 'root-a': { ...serializedFolder, maxSelectionCount: 5 } },
+          maxSelectionCount: 5,
+        },
+        initialCurrentState
+      );
+      expect(lowered.maxSelectionCount).toBe(5);
+
+      const raised = mergeFn(
+        {
+          ...basePersisted,
+          folderStates: { 'root-a': { ...serializedFolder, maxSelectionCount: 200 } },
+          maxSelectionCount: 200,
+        },
+        initialCurrentState
+      );
+      expect(raised.maxSelectionCount).toBe(200);
     });
 
     it('should merge persisted SerializedState into current FileExplorerState, converting arrays to Sets', () => {

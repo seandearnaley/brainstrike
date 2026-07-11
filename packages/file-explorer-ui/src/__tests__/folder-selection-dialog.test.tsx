@@ -3,6 +3,7 @@ import {
   createDirectoryNode,
   makeRenderWithProviders,
 } from '@brainstrike/test-utils';
+import { DEFAULT_MAX_SELECTION_COUNT } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';
 import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -42,14 +43,16 @@ describe('FolderSelectionDialog', () => {
   it('shows limited selection message when slots are insufficient', () => {
     // Note: The new context system starts with empty selection by default
     // This test checks if the dialog correctly calculates available slots
+    // against the DEFAULT cap, so the folder must exceed it.
+    const fileCount = DEFAULT_MAX_SELECTION_COUNT + 500;
     const node = createDirectoryNode({ name: 'root', path: '/root' });
     act(() => {
       renderWithProviders(
         <FolderSelectionDialog
-          fileCount={150}
+          fileCount={fileCount}
           node={node}
           onConfirm={vi.fn()}
-          onOpenChange={vi.fn()} // Exceed default max of 100
+          onOpenChange={vi.fn()}
           onToggleFileSelection={vi.fn()}
           open={true}
         />
@@ -57,9 +60,18 @@ describe('FolderSelectionDialog', () => {
     });
 
     expect(
-      screen.getByText(/Only 10 out of 150 files.*first 10 files will be selected/i)
+      screen.getByText(
+        new RegExp(
+          `Only ${DEFAULT_MAX_SELECTION_COUNT} out of ${fileCount} files.*first ${DEFAULT_MAX_SELECTION_COUNT} files will be selected`,
+          'i'
+        )
+      )
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Select 10 Files/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: new RegExp(`Select ${DEFAULT_MAX_SELECTION_COUNT} Files`, 'i'),
+      })
+    ).toBeInTheDocument();
   });
 
   it('selects files and closes dialog on confirm', async () => {

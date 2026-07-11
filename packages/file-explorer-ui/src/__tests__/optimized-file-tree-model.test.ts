@@ -97,7 +97,7 @@ describe('optimized file tree model mutations', () => {
         selectedCount: 0,
         selectedFilePaths: new Set<string>(),
       })
-    ).toEqual({ action: 'none', paths: [] });
+    ).toEqual({ action: 'none', limitTruncated: false, paths: [] });
 
     expect(
       resolveDirectorySelectionMutation({
@@ -112,8 +112,10 @@ describe('optimized file tree model mutations', () => {
           encodeFileSelection('root', '/src/b.ts'),
         ]),
       })
-    ).toEqual({ action: 'remove', paths: ['/src/a.ts', '/src/b.ts'] });
+    ).toEqual({ action: 'remove', limitTruncated: false, paths: ['/src/a.ts', '/src/b.ts'] });
 
+    // Zero slots left: blocked entirely BY THE LIMIT — callers must be able
+    // to tell this apart from "nothing to select" to surface honest feedback.
     expect(
       resolveDirectorySelectionMutation({
         allFilePaths: ['/src/a.ts'],
@@ -124,7 +126,7 @@ describe('optimized file tree model mutations', () => {
         selectedCount: 0,
         selectedFilePaths: new Set<string>(),
       })
-    ).toEqual({ action: 'none', paths: [] });
+    ).toEqual({ action: 'none', limitTruncated: true, paths: [] });
 
     expect(
       resolveDirectorySelectionMutation({
@@ -136,7 +138,21 @@ describe('optimized file tree model mutations', () => {
         selectedCount: 1,
         selectedFilePaths: new Set([encodeFileSelection('root', '/src/a.ts')]),
       })
-    ).toEqual({ action: 'add', paths: ['/src/b.ts', '/src/c.ts'] });
+    ).toEqual({ action: 'add', limitTruncated: false, paths: ['/src/b.ts', '/src/c.ts'] });
+
+    // Partial fill: only one slot left for two unselected files (decision D3:
+    // fill to the cap rather than reject, and report the truncation).
+    expect(
+      resolveDirectorySelectionMutation({
+        allFilePaths: ['/src/a.ts', '/src/b.ts', '/src/c.ts'],
+        currentSelectionSize: 1,
+        directoryTotalFiles: 3,
+        folderId: 'root',
+        maxSelectionCount: 2,
+        selectedCount: 1,
+        selectedFilePaths: new Set([encodeFileSelection('root', '/src/a.ts')]),
+      })
+    ).toEqual({ action: 'add', limitTruncated: true, paths: ['/src/b.ts'] });
   });
 
   it('dispatches directory and file selection mutations without extra store calls', () => {
@@ -147,7 +163,7 @@ describe('optimized file tree model mutations', () => {
     applyDirectorySelectionMutation({
       addMultipleSelectedFiles,
       folderId: 'root',
-      mutation: { action: 'remove', paths: ['/src/a.ts'] },
+      mutation: { action: 'remove', limitTruncated: false, paths: ['/src/a.ts'] },
       removeMultipleSelectedFiles,
     });
     expect(removeMultipleSelectedFiles).toHaveBeenCalledWith('root', ['/src/a.ts']);
@@ -155,7 +171,7 @@ describe('optimized file tree model mutations', () => {
     applyDirectorySelectionMutation({
       addMultipleSelectedFiles,
       folderId: 'root',
-      mutation: { action: 'add', paths: ['/src/b.ts'] },
+      mutation: { action: 'add', limitTruncated: false, paths: ['/src/b.ts'] },
       removeMultipleSelectedFiles,
     });
     expect(addMultipleSelectedFiles).toHaveBeenCalledWith('root', ['/src/b.ts']);
@@ -163,7 +179,7 @@ describe('optimized file tree model mutations', () => {
     applyDirectorySelectionMutation({
       addMultipleSelectedFiles,
       folderId: 'root',
-      mutation: { action: 'none', paths: [] },
+      mutation: { action: 'none', limitTruncated: false, paths: [] },
       removeMultipleSelectedFiles,
     });
     expect(addMultipleSelectedFiles).toHaveBeenCalledTimes(1);

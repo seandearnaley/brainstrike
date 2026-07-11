@@ -132,6 +132,63 @@ function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIco
 }
 
 /**
+ * The add/deselect resolution for a click on a LOADED directory: resolve the
+ * mutation against the cap, apply it, and surface any cap truncation
+ * (decision D3: partial-fill is allowed but never silent).
+ */
+function runLoadedDirectorySelectionMutation(args: {
+  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  allFilePaths: string[];
+  directorySelectedCount: number;
+  directoryTotalFiles: number;
+  folderId: string;
+  maxSelectionCount: number;
+  nodePath: string;
+  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  selectedCount: number;
+  selectedFilePaths: Set<string>;
+  showToast: (toast: { description: string; title: string }) => void;
+}): void {
+  if (args.directoryTotalFiles === 0) {
+    // No-silent-fallbacks: a loaded-but-empty (or fully filtered)
+    // directory checkbox click must be diagnosable.
+    logger.warn('selection click ignored: directory has no selectable files', {
+      path: args.nodePath,
+    });
+    return;
+  }
+
+  const selectionMutation = resolveDirectorySelectionMutation({
+    allFilePaths: args.allFilePaths,
+    currentSelectionSize: args.selectedCount,
+    directoryTotalFiles: args.directoryTotalFiles,
+    folderId: args.folderId,
+    maxSelectionCount: args.maxSelectionCount,
+    selectedCount: args.directorySelectedCount,
+    selectedFilePaths: args.selectedFilePaths,
+  });
+
+  applyDirectorySelectionMutation({
+    addMultipleSelectedFiles: args.addMultipleSelectedFiles,
+    folderId: args.folderId,
+    mutation: selectionMutation,
+    removeMultipleSelectedFiles: args.removeMultipleSelectedFiles,
+  });
+
+  if (selectionMutation.limitTruncated) {
+    args.showToast({
+      description:
+        selectionMutation.action === 'add'
+          ? `Selected ${selectionMutation.paths.length} more file${
+              selectionMutation.paths.length === 1 ? '' : 's'
+            } before hitting the limit. Deselect some files or raise the limit to select the rest.`
+          : 'Deselect some files or raise the limit to select this folder.',
+      title: `Selection limit reached (${args.maxSelectionCount})`,
+    });
+  }
+}
+
+/**
  * Performance telemetry counters for the file tree.
  * Exposed for tests and browser devtools inspection.
  */
@@ -261,7 +318,7 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
         title={
           rowData.isLoadingForSelection
             ? 'Loading folder contents...'
-            : selectionState.wouldExceedLimit
+            : fileNode.type === 'file' && selectionState.wouldExceedLimit
               ? `Cannot select more than ${maxSelectionCount} files`
               : undefined
         }
@@ -275,13 +332,19 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
           // No DOM id: the same path renders in multiple tree surfaces
           // (panel + preview/dialog) and across roots, so a path-derived id
           // produces duplicate-id documents; aria-label carries the name.
+          //
+          // Disable rules (decision D3): the cap disables only FILE adds (a
+          // single-file add at the cap is a true no-op). Directory checkboxes
+          // never disable for the cap — deselect must always work and adds
+          // partial-fill with a toast. During a recursive scan EVERY checkbox
+          // disables (clicks are ignored; the affordance must not lie).
           <LightweightCheckbox
             aria-label={`Select ${fileNode.name}`}
             checked={selectionState.checkboxState}
             className="h-4 w-4"
             disabled={
-              selectionState.wouldExceedLimit ||
-              (isDirectorySelectionLocked && fileNode.type === 'directory')
+              isDirectorySelectionLocked ||
+              (fileNode.type === 'file' && selectionState.wouldExceedLimit)
             }
             onCheckedChange={() => onSelectionChange(rowData)}
           />
@@ -787,16 +850,20 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
         const node = rowData.fileNode;
         const selectionState = getNodeSelectionState(rowData);
-        if (selectionState.wouldExceedLimit) {
-          logger.warn('selection click ignored: would exceed selection limit', {
-            maxSelectionCount,
-            path: node.path,
-            selectedCount,
-          });
-          return;
-        }
 
         if (node.type !== 'directory') {
+          // Adding a single file at the cap is a genuine no-op — the checkbox
+          // is disabled with a tooltip; this guard is its keyboard backstop.
+          // Directory clicks are NEVER blocked here: a deselect must always
+          // work, and an add partial-fills to the cap with a toast (D3).
+          if (selectionState.wouldExceedLimit) {
+            logger.warn('selection click ignored: would exceed selection limit', {
+              maxSelectionCount,
+              path: node.path,
+              selectedCount,
+            });
+            return;
+          }
           applyFileSelectionMutation({
             addMultipleSelectedFiles,
             folderId,
@@ -834,37 +901,20 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
 
-        const directoryTotalFiles = rowData.directoryTotalFiles;
-        if (directoryTotalFiles === 0) {
-          // No-silent-fallbacks: a loaded-but-empty (or fully filtered)
-          // directory checkbox click must be diagnosable.
-          logger.warn('selection click ignored: directory has no selectable files', {
-            path: node.path,
-          });
-          return;
-        }
-
-        const directorySelectedCount = selectedDirectoryCounts.get(node.path) ?? 0;
-
-        const allFilePaths = normalizedTreeContext
-          ? normalizedTreeContext.getDescendantFilePaths(node.path)
-          : fileExplorer.getAllFilePathsInDirectory(directoryNode);
-
-        const selectionMutation = resolveDirectorySelectionMutation({
-          allFilePaths,
-          currentSelectionSize: selectedCount,
-          directoryTotalFiles,
+        runLoadedDirectorySelectionMutation({
+          addMultipleSelectedFiles,
+          allFilePaths: normalizedTreeContext
+            ? normalizedTreeContext.getDescendantFilePaths(node.path)
+            : fileExplorer.getAllFilePathsInDirectory(directoryNode),
+          directorySelectedCount: selectedDirectoryCounts.get(node.path) ?? 0,
+          directoryTotalFiles: rowData.directoryTotalFiles,
           folderId,
           maxSelectionCount,
-          selectedCount: directorySelectedCount,
-          selectedFilePaths,
-        });
-
-        applyDirectorySelectionMutation({
-          addMultipleSelectedFiles,
-          folderId,
-          mutation: selectionMutation,
+          nodePath: node.path,
           removeMultipleSelectedFiles,
+          selectedCount,
+          selectedFilePaths,
+          showToast,
         });
       },
       [
@@ -881,6 +931,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         selectedCount,
         isLoadingForSelection,
         selectionModel.mode,
+        showToast,
       ]
     );
     const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);

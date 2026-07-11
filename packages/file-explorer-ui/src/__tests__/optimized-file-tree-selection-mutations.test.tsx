@@ -2,8 +2,26 @@ import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection, memoizedFileExplorer } from '@brainstrike/utils';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OptimizedFileTree from '../tree/optimized-file-tree';
+
+const showToastMock = vi.fn();
+
+vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-hooks')>();
+  return {
+    ...actual,
+    useToastManager: () => ({
+      handleBrowserCompatibilityError: vi.fn(),
+      handleDirectorySelectError: vi.fn(),
+      handlePartialRefreshError: vi.fn(),
+      handleRefreshError: vi.fn(),
+      showToast: showToastMock,
+      toast: vi.fn(),
+    }),
+  };
+});
+
 import {
   type FileExplorerStore,
   mockFileTree,
@@ -12,6 +30,118 @@ import {
 import { FileExplorerTestWrapper } from './test-helpers';
 
 describe('OptimizedFileTree selection mutations and telemetry', () => {
+  beforeEach(() => {
+    showToastMock.mockClear();
+  });
+
+  it('partial-fills a folder selection up to the limit and toasts, instead of disabling the checkbox', async () => {
+    // Decision D3 (docs/explorer-tristate-spike-2026-07-11.md §5): a folder
+    // whose full selection would exceed the cap stays clickable, fills the
+    // remaining slots, and reports the truncation — the cap must never
+    // present a dead/disabled folder checkbox.
+    const loadedTree: IFileNode[] = [
+      {
+        children: ['file1.txt', 'file2.txt', 'file3.txt', 'file4.txt'].map((name) => ({
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
+          isVisible: true,
+          name,
+          path: `/src/${name}`,
+          rootFolderId: 'root',
+          selectionState: 'unchecked' as const,
+          type: 'file' as const,
+        })),
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        loadState: 'loaded',
+        name: 'src',
+        path: '/src',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={loadedTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(2);
+      readyStore.getState().toggleSelectedFile('root', '/src/file1.txt');
+      await Promise.resolve();
+    });
+
+    const directoryCheckbox = screen.getByLabelText('Select src');
+    expect(directoryCheckbox).not.toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(directoryCheckbox);
+    });
+
+    expect(Array.from(readyStore.getState().selectedFilePaths)).toHaveLength(2);
+    expect(showToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Selection limit reached (2)' })
+    );
+  });
+
+  it('disables file checkboxes while a recursive selection is loading', async () => {
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={mockFileTree}
+          folderId="root"
+          isLoadingForSelection={true}
+          loadingFiles={new Set()}
+          loadingPathForSelection="/src"
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Neutralize any cap carry-over from sibling tests (the wrapper store is
+    // shared) so the assertion isolates the scan lock, not wouldExceedLimit.
+    await act(async () => {
+      fileExplorerStore?.getState().clearSelectedFiles();
+      fileExplorerStore?.getState().setMaxSelectionCount(100);
+      await Promise.resolve();
+    });
+
+    // Clicks are ignored while the scan runs (handleNodeSelection early-
+    // returns), so the affordance must not lie: file checkboxes disable too,
+    // not only directories.
+    expect(screen.getByLabelText('Select test.txt')).toBeDisabled();
+  });
+
   it('does not recompute directory file counts on file-selection rerenders', async () => {
     const getFolderFileCountSpy = vi.spyOn(memoizedFileExplorer, 'getFolderFileCount');
     try {

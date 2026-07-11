@@ -67,10 +67,11 @@ function notifyBlockedSelectionResult(
   showToast: ShowToast
 ): SelectionResult {
   if (validationResult.success) {
+    // Informational, not an error: nothing failed, the cap was reached. The
+    // destructive (red) variant overstated it and read as a broken state.
     showToast({
       description: 'Deselect some files or raise the limit to select this folder.',
       title: `Selection limit reached (${maxSelectionCount})`,
-      variant: 'destructive',
     });
   }
   return validationResult;

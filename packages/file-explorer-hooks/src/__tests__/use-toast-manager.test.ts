@@ -5,7 +5,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { renderHook } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useToastManager } from '../use-toast-manager';
+import { DEFAULT_TOAST_DURATION_MS, useToastManager } from '../use-toast-manager';
 
 // Logger mock type for test purposes - uses generic Mock for variadic logging functions
 type LogFn = Mock<(...args: unknown[]) => void>;
@@ -93,10 +93,13 @@ describe('useToastManager', () => {
 
       result.current.showToast(toastParams);
 
-      expect(mockToast).toHaveBeenCalledWith(toastParams);
+      expect(mockToast).toHaveBeenCalledWith({
+        ...toastParams,
+        duration: DEFAULT_TOAST_DURATION_MS,
+      });
     });
 
-    it('calls toast with destructive variant', () => {
+    it('calls toast with destructive variant and keeps it sticky by default', () => {
       const { result } = setup();
       const toastParams = {
         description: 'This is an error toast',
@@ -106,7 +109,12 @@ describe('useToastManager', () => {
 
       result.current.showToast(toastParams);
 
-      expect(mockToast).toHaveBeenCalledWith(toastParams);
+      // Errors must not vanish while the user glances away — no auto-dismiss
+      // unless the caller passes an explicit duration.
+      expect(mockToast).toHaveBeenCalledWith({
+        ...toastParams,
+        duration: 0,
+      });
     });
 
     it('applies default variant when missing', () => {
@@ -122,6 +130,35 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         ...toastParams,
+        duration: DEFAULT_TOAST_DURATION_MS,
+        variant: 'default',
+      });
+    });
+
+    it('honors an explicit duration, including 0 for a sticky toast', () => {
+      const { result } = setup();
+
+      result.current.showToast({
+        description: 'Long-running warning',
+        duration: 0,
+        title: 'Sticky',
+      });
+      expect(mockToast).toHaveBeenCalledWith({
+        description: 'Long-running warning',
+        duration: 0,
+        title: 'Sticky',
+        variant: 'default',
+      });
+
+      result.current.showToast({
+        description: 'Quick note',
+        duration: 2000,
+        title: 'Fast',
+      });
+      expect(mockToast).toHaveBeenLastCalledWith({
+        description: 'Quick note',
+        duration: 2000,
+        title: 'Fast',
         variant: 'default',
       });
     });
@@ -136,6 +173,7 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         description: 'Partial refresh failed',
+        duration: 0,
         title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
@@ -151,6 +189,7 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         description: error.message,
+        duration: 0,
         title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
@@ -164,6 +203,7 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         description: FileExplorerStrings.error.refreshFailed,
+        duration: 0,
         title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
@@ -179,6 +219,7 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         description: reason,
+        duration: 0,
         title: FileExplorerStrings.error.browserCompatibility,
         variant: 'destructive',
       });
@@ -198,6 +239,7 @@ describe('useToastManager', () => {
       );
       expect(mockToast).toHaveBeenCalledWith({
         description: FileExplorerStrings.error.rootDirectoryFailed,
+        duration: 0,
         title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
