@@ -35,6 +35,8 @@ export type ContextTarget =
       kind: 'file-viewer';
       /** Exact, event-time selection snapshot; null means the selection is collapsed. */
       selectionText: string | null;
+      /** CodeMirror coordinates from the same event snapshot; null for preview/file-level clicks. */
+      sourceRange: { readonly from: number; readonly to: number } | null;
       tabId: string;
       viewMode: 'preview' | 'source';
     })

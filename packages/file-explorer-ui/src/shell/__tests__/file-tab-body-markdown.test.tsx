@@ -1,4 +1,8 @@
-import { createTestActionRegistry } from '@brainstrike/context-actions';
+import {
+  createTestActionRegistry,
+  defineContextAction,
+  type TargetOf,
+} from '@brainstrike/context-actions';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,6 +35,8 @@ const {
   codeSurfaceProps: { current: null as MockCodeSurfaceProps | null },
   contextSelections: {
     code: null as string | null,
+    codeFrom: 0,
+    codeTo: 0,
     markdown: null as string | null,
   },
   markdownState: { shouldThrow: false },
@@ -52,9 +58,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
           data-testid="file-code-surface"
           onContextMenu={() =>
             props.onContextMenuSelection?.({
-              from: 0,
+              from: contextSelections.codeFrom,
               text: contextSelections.code,
-              to: contextSelections.code?.length ?? 0,
+              to: contextSelections.codeTo,
             })
           }
         />
@@ -97,9 +103,23 @@ const capabilities = {
   resolveImageSrc: vi.fn(),
 };
 
+const capturedViewerTargets: TargetOf<'file-viewer'>[] = [];
+const captureViewerTargetAction = defineContextAction({
+  appliesTo: ['file-viewer'] as const,
+  group: 'inspect',
+  id: 'test.capture-viewer-target',
+  label: 'Capture Viewer Target',
+  run: (target) => {
+    capturedViewerTargets.push(target);
+    return Promise.resolve({ ok: true });
+  },
+});
+
 function renderBody(compositeKey: string, content = '# Hello', withCapabilities = true) {
   const { path } = decodeFileSelection(compositeKey);
-  const { registry, writtenTexts } = createTestActionRegistry({ actions: fileEntryActions });
+  const { registry, writtenTexts } = createTestActionRegistry({
+    actions: [...fileEntryActions, captureViewerTargetAction],
+  });
   const body = (
     <FileTabBody
       content={content}
@@ -157,7 +177,10 @@ describe('FileTabBody markdown integration', () => {
     markdownSurfaceProps.current = null;
     codeSurfaceProps.current = null;
     contextSelections.code = null;
+    contextSelections.codeFrom = 0;
+    contextSelections.codeTo = 0;
     contextSelections.markdown = null;
+    capturedViewerTargets.length = 0;
     // clearAllMocks clears calls but not implementations — re-arm the defaults so a
     // per-test mockResolvedValue (e.g. {ok:false}) never leaks into the next test.
     capabilities.openExternalLink.mockResolvedValue({ ok: true });
@@ -208,6 +231,8 @@ describe('FileTabBody markdown integration', () => {
     it('copies the CodeMirror event-time snapshot even if selection changes while the menu is open', async () => {
       useEditorViewStateStore.getState().setMode(TS_KEY, 'source');
       contextSelections.code = 'const x';
+      contextSelections.codeFrom = 0;
+      contextSelections.codeTo = 7;
       const { writtenTexts } = renderBody(TS_KEY, 'const x = 1;');
 
       fireEvent.contextMenu(screen.getByTestId('file-code-surface'));
@@ -218,6 +243,23 @@ describe('FileTabBody markdown integration', () => {
       await waitFor(() => {
         expect(writtenTexts).toEqual(['const x']);
       });
+    });
+
+    it('preserves the CodeMirror source range from the same event-time snapshot', async () => {
+      useEditorViewStateStore.getState().setMode(TS_KEY, 'source');
+      contextSelections.code = 'x = 1';
+      contextSelections.codeFrom = 6;
+      contextSelections.codeTo = 11;
+      renderBody(TS_KEY, 'const x = 1;');
+
+      fireEvent.contextMenu(screen.getByTestId('file-code-surface'));
+      const captureItem = await screen.findByRole('menuitem', { name: 'Capture Viewer Target' });
+      contextSelections.codeFrom = 0;
+      contextSelections.codeTo = 5;
+      fireEvent.click(captureItem);
+
+      expect(capturedViewerTargets).toHaveLength(1);
+      expect(capturedViewerTargets[0]?.sourceRange).toEqual({ from: 6, to: 11 });
     });
 
     it('copies an exact Markdown DOM selection snapshot', async () => {

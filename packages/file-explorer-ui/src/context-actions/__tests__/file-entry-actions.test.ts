@@ -26,6 +26,7 @@ const viewerTarget: ContextTarget = {
   relativePath: 'docs/notes.md',
   rootFolderId: 'root-id',
   selectionText: '  selected\ntext  ',
+  sourceRange: { from: 4, to: 21 },
   tabId: 'root-id|@|/root/docs/notes.md',
   viewMode: 'source',
 };

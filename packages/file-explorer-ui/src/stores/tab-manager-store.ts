@@ -179,6 +179,9 @@ export const useTabManagerStore = create<TabManagerStore>()(
         // contract to Zustand's synchronous-set internals. Reading first, then setting,
         // makes the contract entirely explicit.
         const state = get();
+        if (!state.tabs.some((tab) => tab.id === tabId)) {
+          return state.activeTabId;
+        }
         const newTabs = state.tabs.filter((t) => t.id !== tabId);
         let nextActive = state.activeTabId;
         if (state.activeTabId === tabId) {

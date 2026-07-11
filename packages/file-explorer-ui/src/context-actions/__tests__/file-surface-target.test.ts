@@ -26,6 +26,7 @@ describe('file surface targets', () => {
     expect(
       fileViewerToTarget(tab, '/Users/dev/project', {
         selectionText: '\n  ',
+        sourceRange: { from: 4, to: 7 },
         viewMode: 'source',
       })
     ).toEqual({
@@ -35,6 +36,7 @@ describe('file surface targets', () => {
       relativePath: 'src/index.ts',
       rootFolderId: rootId,
       selectionText: '\n  ',
+      sourceRange: { from: 4, to: 7 },
       tabId: compositeKey,
       viewMode: 'source',
     });

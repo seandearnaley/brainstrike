@@ -37,7 +37,7 @@ export function fileTabToTarget(
 export function fileViewerToTarget(
   tab: FileSurfaceTab,
   rootPath: string | null,
-  context: Pick<TargetOf<'file-viewer'>, 'selectionText' | 'viewMode'>
+  context: Pick<TargetOf<'file-viewer'>, 'selectionText' | 'sourceRange' | 'viewMode'>
 ): TargetOf<'file-viewer'> | null {
   const tabTarget = fileTabToTarget(tab, rootPath);
   if (!tabTarget) {
@@ -48,6 +48,7 @@ export function fileViewerToTarget(
     ...identity,
     kind: 'file-viewer',
     selectionText: context.selectionText,
+    sourceRange: context.sourceRange,
     viewMode: context.viewMode,
   };
 }

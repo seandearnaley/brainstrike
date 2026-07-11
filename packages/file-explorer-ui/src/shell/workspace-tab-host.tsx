@@ -433,39 +433,49 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     [cycleFileTab]
   );
 
-  // Explicit Close-All handler: route the workspace selection back to Context Explorer
-  // at the call site instead of relying on the dead-selection effect to detect the
-  // orphaned tabId on the next render. The effect still serves as a safety net for
-  // silent-eviction and external-close paths, but making the bulk-close path explicit
-  // keeps the behavior obvious and robust against future changes that might suppress
-  // the effect.
-  const handleCloseAllFileTabs = useCallback(() => {
-    clearTabs();
-    handleSelectApp(CONTEXT_EXPLORER_APP_ID);
-  }, [clearTabs, handleSelectApp]);
-
-  const handleCloseOtherFileTabs = useCallback(
-    (tabId: string): void => {
-      const nextActiveTabId = closeOtherTabs(tabId);
+  const reconcileSelectionAfterBulkClose = useCallback(
+    (nextActiveTabId: string | null): void => {
+      const currentSelection = useWorkspaceTabSelectionStore.getState().selection;
+      if (currentSelection.kind === 'app') {
+        return;
+      }
+      const selectedTabStillExists = useTabManagerStore
+        .getState()
+        .tabs.some((tab) => tab.id === currentSelection.tabId);
+      if (selectedTabStillExists) {
+        return;
+      }
       if (nextActiveTabId === null) {
         handleSelectApp(CONTEXT_EXPLORER_APP_ID);
         return;
       }
       selectFile(nextActiveTabId);
     },
-    [closeOtherTabs, handleSelectApp, selectFile]
+    [handleSelectApp, selectFile]
+  );
+
+  // File-tab bulk operations never replace a pinned app selection. When a file
+  // selection is removed, reconcile it immediately instead of waiting for the
+  // dead-selection safety effect on the next render.
+  const handleCloseAllFileTabs = useCallback(() => {
+    clearTabs();
+    reconcileSelectionAfterBulkClose(null);
+  }, [clearTabs, reconcileSelectionAfterBulkClose]);
+
+  const handleCloseOtherFileTabs = useCallback(
+    (tabId: string): void => {
+      const nextActiveTabId = closeOtherTabs(tabId);
+      reconcileSelectionAfterBulkClose(nextActiveTabId);
+    },
+    [closeOtherTabs, reconcileSelectionAfterBulkClose]
   );
 
   const handleCloseFileTabsToRight = useCallback(
     (tabId: string): void => {
       const nextActiveTabId = closeTabsToRight(tabId);
-      if (nextActiveTabId === null) {
-        handleSelectApp(CONTEXT_EXPLORER_APP_ID);
-        return;
-      }
-      selectFile(nextActiveTabId);
+      reconcileSelectionAfterBulkClose(nextActiveTabId);
     },
-    [closeTabsToRight, handleSelectApp, selectFile]
+    [closeTabsToRight, reconcileSelectionAfterBulkClose]
   );
 
   return (
@@ -549,15 +559,28 @@ function WorkspaceTabStrip({
     },
     [rootDescriptors, setContextMenuTarget]
   );
-  const localActions = useMemo<readonly AnyContextAction[]>(
-    () => [
+  const localActions = useMemo<readonly AnyContextAction[]>(() => {
+    const currentTabs = (): readonly FileTab[] => useTabManagerStore.getState().tabs;
+    const currentTargetIndex = (tabId: string): number =>
+      currentTabs().findIndex((tab) => tab.id === tabId);
+    const isCurrentTab = (tabId: string): boolean => currentTargetIndex(tabId) >= 0;
+    const staleTargetFailure = Promise.resolve({
+      error: 'File tab is no longer open',
+      ok: false as const,
+    });
+
+    return [
       defineContextAction({
         appliesTo: ['workspace-file-tab'] as const,
         group: 'primary',
         icon: X,
         id: 'workspace-file-tab.close',
+        isEnabled: (target) => isCurrentTab(target.tabId),
         label: 'Close',
         run: (target) => {
+          if (!isCurrentTab(target.tabId)) {
+            return staleTargetFailure;
+          }
           onCloseFileTab(target.tabId);
           return Promise.resolve({ ok: true });
         },
@@ -566,9 +589,15 @@ function WorkspaceTabStrip({
         appliesTo: ['workspace-file-tab'] as const,
         group: 'primary',
         id: 'workspace-file-tab.close-others',
-        isEnabled: (target) => tabs.length > 1 && tabs.some((tab) => tab.id === target.tabId),
+        isEnabled: (target) => isCurrentTab(target.tabId) && currentTabs().length > 1,
         label: 'Close Others',
         run: (target) => {
+          if (!isCurrentTab(target.tabId)) {
+            return staleTargetFailure;
+          }
+          if (currentTabs().length <= 1) {
+            return Promise.resolve({ error: 'No other file tabs remain open', ok: false });
+          }
           onCloseOtherFileTabs(target.tabId);
           return Promise.resolve({ ok: true });
         },
@@ -578,11 +607,18 @@ function WorkspaceTabStrip({
         group: 'primary',
         id: 'workspace-file-tab.close-right',
         isEnabled: (target) => {
-          const targetIndex = tabs.findIndex((tab) => tab.id === target.tabId);
-          return targetIndex >= 0 && targetIndex < tabs.length - 1;
+          const targetIndex = currentTargetIndex(target.tabId);
+          return targetIndex >= 0 && targetIndex < currentTabs().length - 1;
         },
         label: 'Close Tabs to the Right',
         run: (target) => {
+          const targetIndex = currentTargetIndex(target.tabId);
+          if (targetIndex === -1) {
+            return staleTargetFailure;
+          }
+          if (targetIndex === currentTabs().length - 1) {
+            return Promise.resolve({ error: 'No file tabs remain to the right', ok: false });
+          }
           onCloseFileTabsToRight(target.tabId);
           return Promise.resolve({ ok: true });
         },
@@ -591,15 +627,18 @@ function WorkspaceTabStrip({
         appliesTo: ['workspace-file-tab'] as const,
         group: 'primary',
         id: 'workspace-file-tab.close-all',
+        isEnabled: (target) => isCurrentTab(target.tabId),
         label: 'Close All Tabs',
-        run: () => {
+        run: (target) => {
+          if (!isCurrentTab(target.tabId)) {
+            return staleTargetFailure;
+          }
           onCloseAllFileTabs();
           return Promise.resolve({ ok: true });
         },
       }),
-    ],
-    [onCloseAllFileTabs, onCloseFileTab, onCloseFileTabsToRight, onCloseOtherFileTabs, tabs]
-  );
+    ];
+  }, [onCloseAllFileTabs, onCloseFileTab, onCloseFileTabsToRight, onCloseOtherFileTabs, tabs]);
 
   return (
     <ActionContextMenu controller={contextMenuController} localActions={localActions}>
@@ -996,9 +1035,13 @@ function FileTabBody({
   );
 
   const claimViewerContext = useCallback(
-    (selectionText: string | null): void => {
+    (
+      selectionText: string | null,
+      sourceRange: { readonly from: number; readonly to: number } | null
+    ): void => {
       const target = fileViewerToTarget(tab, rootPath, {
         selectionText,
+        sourceRange,
         viewMode: effectiveMode,
       });
       if (!target) {
@@ -1015,14 +1058,14 @@ function FileTabBody({
 
   const handleCodeContextMenuSelection = useCallback(
     (selection: CodeSurfaceContextMenuSelection): void => {
-      claimViewerContext(selection.text);
+      claimViewerContext(selection.text, { from: selection.from, to: selection.to });
     },
     [claimViewerContext]
   );
 
   const handleMarkdownContextMenuSelection = useCallback(
     (selection: MarkdownSurfaceContextMenuSelection): void => {
-      claimViewerContext(selection.text);
+      claimViewerContext(selection.text, null);
     },
     [claimViewerContext]
   );
@@ -1032,7 +1075,7 @@ function FileTabBody({
     // Header/loading-state right-clicks still get file-level actions, but must
     // never reuse a selection from an earlier invocation.
     if (contextMenuTargetRef.current === null) {
-      claimViewerContext(null);
+      claimViewerContext(null, null);
     }
   }, [claimViewerContext, contextMenuTargetRef]);
 

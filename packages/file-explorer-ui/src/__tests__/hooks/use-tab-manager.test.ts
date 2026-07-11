@@ -301,6 +301,26 @@ describe('useTabManager', () => {
       expect(successor).toBe(before.activeTabId);
       expect(localStorageMock.setItem).not.toHaveBeenCalled();
     });
+
+    it('does not publish or persist a close transition for a missing tab', () => {
+      openFourTabs();
+      localStorageMock.setItem.mockClear();
+      const listener = vi.fn();
+      const unsubscribe = useTabManagerStore.subscribe(listener);
+
+      let successor: string | null = null;
+      try {
+        act(() => {
+          successor = useTabManagerStore.getState().closeTab('missing');
+        });
+      } finally {
+        unsubscribe();
+      }
+
+      expect(successor).toBe('file-d');
+      expect(listener).not.toHaveBeenCalled();
+      expect(localStorageMock.setItem).not.toHaveBeenCalled();
+    });
   });
 
   describe('setActiveTab', () => {
