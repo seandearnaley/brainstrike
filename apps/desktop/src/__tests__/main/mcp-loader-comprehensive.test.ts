@@ -162,6 +162,22 @@ describe('mcp-loader comprehensive tests', () => {
       );
     });
 
+    it('should reject the reserved __proto__ server name', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            name: '__proto__',
+            transport: 'stdio',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.name: reserved server name/u
+      );
+    });
+
     it('should reject duplicate properties in a server object with source context', () => {
       const json = `{
   "servers": [

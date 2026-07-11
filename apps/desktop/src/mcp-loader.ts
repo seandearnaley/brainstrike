@@ -18,6 +18,10 @@ const NonEmptyStringSchema = z
   .string()
   .min(1, 'must not be empty')
   .refine((value) => value.trim().length > 0, 'must not be blank');
+const ServerNameSchema = NonEmptyStringSchema.refine(
+  (value) => value !== '__proto__',
+  'reserved server name'
+);
 const SpawnStringSchema = z
   .string()
   .refine((value) => !value.includes('\0'), 'invalid spawn string');
@@ -93,14 +97,14 @@ const StdioServerSchema = z.strictObject({
   command: NonEmptySpawnStringSchema,
   enabledTools: z.array(z.string()).optional(),
   env: EnvironmentSchema.optional(),
-  name: NonEmptyStringSchema,
+  name: ServerNameSchema,
   transport: z.literal('stdio'),
 });
 
 const SseServerSchema = z.strictObject({
   enabledTools: z.array(z.string()).optional(),
   headers: HeadersSchema.optional(),
-  name: NonEmptyStringSchema,
+  name: ServerNameSchema,
   transport: z.literal('sse'),
   url: HttpUrlSchema,
 });
