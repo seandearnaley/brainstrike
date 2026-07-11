@@ -175,11 +175,14 @@ export function getProjectHooksForReview(
     };
   }
 
-  // Containment verified: reading can only touch a file within the workspace
-  // root. A read failure here (permissions, TOCTOU unlink) is "does not exist".
+  // Read the VALIDATED realpath, never the requested path (matches the
+  // asset-protocol precedent, which fetches the resolved path): reading `path`
+  // after validating `realHooks` would leave a swap-to-symlink race where the
+  // read follows a link created between the check and the read. A read failure
+  // here (permissions, TOCTOU unlink) is "does not exist".
   let bytes: Buffer;
   try {
-    bytes = read(path);
+    bytes = read(realHooks);
   } catch {
     return { dbRootId: dbRoot.id, exists: false, path, rootId };
   }
