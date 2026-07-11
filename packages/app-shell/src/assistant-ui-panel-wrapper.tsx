@@ -108,6 +108,7 @@ import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useFileMentions } from './use-file-mentions';
+import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
 
 export interface AssistantUiPanelWrapperProps {
@@ -807,46 +808,10 @@ export function AssistantUiPanelWrapper({
   // closed): a stale grant must never leak, and a brief scope-resolution window
   // is the safe direction.
   const hookApprovalsByRootId = useHookTrustStore(hookTrustSelectors.approvalsByRootId);
-  const [mountedTrustRootIds, setMountedTrustRootIds] = useState<ReadonlySet<string> | null>(null);
-  useEffect(() => {
-    if (localChatTransport !== 'data-stream') {
-      setMountedTrustRootIds(null);
-      return;
-    }
-    const bridge = (
-      window as Window & {
-        hooks?: {
-          resolveTrustedRootIds?: (
-            paths: readonly string[]
-          ) => Promise<ReadonlyArray<{ dbRootId: string; path: string }>>;
-        };
-      }
-    ).hooks;
-    if (!bridge?.resolveTrustedRootIds) {
-      // Cannot resolve DB ids → cannot scope → attest nothing (fail closed).
-      setMountedTrustRootIds(new Set());
-      return;
-    }
-    const paths = Object.values(rootDescriptors ?? {})
-      .map((descriptor) => descriptor.path)
-      .filter((path): path is string => typeof path === 'string' && path.length > 0);
-    let ignore = false;
-    bridge
-      .resolveTrustedRootIds(paths)
-      .then((entries) => {
-        if (!ignore) {
-          setMountedTrustRootIds(new Set(entries.map((entry) => entry.dbRootId)));
-        }
-      })
-      .catch(() => {
-        if (!ignore) {
-          setMountedTrustRootIds(new Set());
-        }
-      });
-    return () => {
-      ignore = true;
-    };
-  }, [localChatTransport, rootDescriptors]);
+  const mountedTrustRootIds = useHookTrustScope({
+    enabled: localChatTransport === 'data-stream',
+    rootDescriptors,
+  });
   const hookTrustRequest = useMemo(() => {
     if (localChatTransport !== 'data-stream') {
       return;

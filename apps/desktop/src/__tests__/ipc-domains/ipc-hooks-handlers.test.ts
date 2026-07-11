@@ -107,6 +107,25 @@ describe('getProjectHooksForReview', () => {
     expect(result.content).toBeUndefined();
   });
 
+  it('refuses a symlinked-out hooks file WITHOUT reading the target bytes', () => {
+    // The containment check MUST run BEFORE any read: a `.brainstrike/hooks.json`
+    // that symlinks OUT of its root would otherwise let main read (and return)
+    // an arbitrary/large file's bytes before the later check refuses it.
+    let readCount = 0;
+    const result = getProjectHooksForReview('r1', '/abs/root', {
+      readFile: () => {
+        readCount += 1;
+        throw new Error('the escaped target must never be read');
+      },
+      realpath: (p) => (p === '/abs/root/.brainstrike/hooks.json' ? '/etc/passwd' : p),
+      resolveDbRoot: resolveTo('db-root', '/abs/root'),
+    });
+    expect(result.error).toMatch(/outside the workspace root/);
+    expect(result.exists).toBe(false);
+    expect(result.content).toBeUndefined();
+    expect(readCount).toBe(0);
+  });
+
   it('surfaces a parseError for malformed JSON but still returns content + hash', () => {
     const content = '{ not json';
     const result = getProjectHooksForReview('r1', '/abs/root', {

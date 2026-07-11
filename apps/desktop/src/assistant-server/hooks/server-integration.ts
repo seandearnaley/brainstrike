@@ -246,6 +246,12 @@ export async function* withStopHook(
       }
       yield chunk;
     }
+  } catch (error) {
+    // A throw from the source (before any error `message-finish` was reached) is
+    // a FAILED turn: record it so the finally-path Stop hook reports `error`, not
+    // the default `complete`. Rethrow so the caller still sees the failure.
+    sawError = true;
+    throw error;
   } finally {
     await runStopOnce();
   }

@@ -317,6 +317,40 @@ describe('withStopHook', () => {
     expect(stopPayload.stop_reason).toBe('error');
   });
 
+  it('passes stop_reason "error" when the source stream throws before an error finish', async () => {
+    // A throw from the model stream (no terminal error `message-finish` reached)
+    // is a FAILED turn: the finally-path Stop hook must report `error`, not the
+    // default `complete`.
+    const marker = join(tmpRoot, 'stop-throw.json');
+    const config = JSON.stringify({
+      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield { type: 'text-delta', value: 'partial' };
+      throw new Error('provider stream exploded');
+    }
+
+    const controller = new AbortController();
+    await expect(async () => {
+      for await (const _chunk of withStopHook(source(), manager, controller.signal, logger)) {
+        // drain until the throw propagates
+      }
+    }).rejects.toThrow('provider stream exploded');
+
+    const stopPayload = JSON.parse(readFileSync(marker, 'utf8')) as { stop_reason: string };
+    expect(stopPayload.stop_reason).toBe('error');
+  });
+
   it('yields the finish chunk even when the Stop runner throws (allow-on-fault)', async () => {
     // A runner-layer throw at the Stop boundary must NOT eat the finish chunk:
     // the phase degrades to a lost notice, never a lost finish.
