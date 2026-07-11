@@ -52,28 +52,20 @@ import {
   useState,
 } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
-import {
-  ClearDatabaseDialog,
-  CollectionBrowserView,
-  ExportDropdown,
-  ImportProgressBar,
-  SearchCollectionSelector,
-  SettingsPanel,
-} from './components';
-import {
-  createImportCompletionHandler,
-  useAvailableModels,
-  useAvailableProviders,
-  useCollectionDialogs,
-  useDatabaseErrorBoundary,
-  useExportHandlers,
-  useImportSettings,
-} from './hooks';
-import {
-  SemanticSearchProvider,
-  useSemanticSearch,
-  useSemanticSearchExecutor,
-} from './semantic-search';
+import { ClearDatabaseDialog } from './components/clear-database-dialog';
+import { CollectionBrowserView } from './components/collection-browser-view';
+import { ExportDropdown } from './components/export-dropdown';
+import { ImportProgressBar } from './components/import-progress-bar';
+import { SearchCollectionSelector } from './components/search-collection-selector';
+import { SettingsPanel } from './components/settings-panel';
+import { SemanticSearchProvider, useSemanticSearch } from './contexts/semantic-search-context';
+import { useAvailableModels, useAvailableProviders } from './hooks/use-available-models';
+import { useCollectionDialogs } from './hooks/use-collection-dialogs';
+import { useDatabaseErrorBoundary } from './hooks/use-database-error-boundary';
+import { useExportHandlers } from './hooks/use-export-handlers';
+import { createImportCompletionHandler } from './hooks/use-import-completion';
+import { useImportSettings } from './hooks/use-import-settings';
+import { useSemanticSearchExecutor } from './hooks/use-semantic-search-executor';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 import { useDatabaseDemoData } from './use-database-demo-data';
