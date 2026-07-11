@@ -69,6 +69,46 @@ export function filterTreeByPatterns(
     .filter(Boolean) as IFileNode[];
 }
 
+/**
+ * Quick-filter predicate for the RECURSIVE-SELECTION SCAN (not the display
+ * tree). Two rules, matching the display filter's directory semantics
+ * (`filterNodeByPatterns`):
+ *  - An EXCLUDE term matching a node's name drops it — for FILES **and
+ *    DIRECTORIES**. A directory whose name matches an exclude term (e.g.
+ *    `-node_modules`, `-dist`) is pruned so the scan never traverses into it,
+ *    exactly as the display filter removes the whole excluded subtree.
+ *  - A non-excluded DIRECTORY is always kept for traversal (a matching file
+ *    may live deeper in an as-yet-unloaded subtree), unlike the display filter
+ *    which additionally prunes name-mismatched empty dirs. FILES are then
+ *    include-filtered.
+ * Blank filter is a no-op (returns the same array).
+ */
+export function filterSelectionScanNodesByQuickFilter(
+  nodes: IFileNode[],
+  quickFilter: string
+): IFileNode[] {
+  if (!quickFilter.trim()) {
+    return nodes;
+  }
+  const { includes, excludes } = parseFilterString(quickFilter);
+  const includesLower = includes.map((value: string) => value.toLowerCase());
+  const excludesLower = excludes.map((value: string) => value.toLowerCase());
+  return nodes.filter((node) => {
+    const nameText = node.name.toLowerCase();
+    // Exclusion applies to files AND directories (an excluded directory is
+    // never traversed) — checked FIRST, mirroring the display filter.
+    if (excludesLower.some((pattern) => nameText.includes(pattern))) {
+      return false;
+    }
+    if (node.type === 'directory') {
+      return true;
+    }
+    return (
+      includesLower.length === 0 || includesLower.some((pattern) => nameText.includes(pattern))
+    );
+  });
+}
+
 /** Collect the visible FILE paths of a (filtered) tree. */
 export function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
   for (const node of nodes) {

@@ -58,6 +58,7 @@ describe('query-selection-manifest', () => {
         folderId: 'folder-1',
         includeFilters: ['**/*.ts'],
         kind: 'recursive-folder',
+        quickFilter: '',
         rootPath: '/src',
         useRegex: false,
       })
@@ -83,6 +84,27 @@ describe('query-selection-manifest', () => {
     });
 
     expect(first).toBe(second);
+  });
+
+  it('folds the quick filter into the fingerprint so manifests are not cross-reused', () => {
+    const base = {
+      excludeFilters: [],
+      folderId: 'folder-1',
+      includeFilters: [],
+      kind: 'recursive-folder' as const,
+      rootPath: '/src',
+      useRegex: false,
+    };
+    const withFoo = buildQuerySelectionFingerprint({ ...base, quickFilter: 'foo' });
+    const withBar = buildQuerySelectionFingerprint({ ...base, quickFilter: 'bar' });
+    const withFooAgain = buildQuerySelectionFingerprint({ ...base, quickFilter: 'foo' });
+    const withNone = buildQuerySelectionFingerprint(base);
+
+    expect(withFoo).not.toBe(withBar);
+    expect(withFoo).toBe(withFooAgain);
+    // Absent quick filter is stable and distinct from an active one.
+    expect(withNone).not.toBe(withFoo);
+    expect(withNone).toBe(buildQuerySelectionFingerprint({ ...base, quickFilter: '' }));
   });
 
   it('builds a normalized manifest with sorted unique paths and directory counts', () => {

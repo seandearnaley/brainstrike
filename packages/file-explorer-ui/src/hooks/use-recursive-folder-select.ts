@@ -17,6 +17,7 @@ import {
 } from '../shell/file-explorer-provider';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { createQuerySelectionSnapshot } from '../utils/query-selection-snapshot';
+import { filterSelectionScanNodesByQuickFilter } from '../utils/quick-filter-tree';
 import {
   querySelectableFiles,
   type RecursiveSelectionDirectoryUpdate,
@@ -223,18 +224,39 @@ export function useRecursiveFolderSelect(
     (state) => state.currentFolderId,
     null
   );
+  // The active quick filter (search box) — the display tree already respects
+  // it, so an unloaded-subtree scan must too, or a folder click would select
+  // files the search box has hidden.
+  const quickFilter = useOptionalFileExplorerStoreSelector((state) => state.quickFilter, '');
   const { applyFileFilters } = useFileFilters();
 
   const internalFilterTreeFn = useMemo(() => {
-    if (filterTreeFn) {
-      return filterTreeFn;
+    // Compose the quick-filter scan predicate ON TOP of the base filter (a
+    // caller-provided filterTreeFn, or the workspace filters). It keeps all
+    // directories for traversal and name-filters files.
+    const base =
+      filterTreeFn ??
+      (store
+        ? (tree: IFileNode[]) => applyFileFilters(tree, includeFilters, excludeFilters, useRegex)
+        : undefined);
+    if (!base) {
+      return quickFilter.trim()
+        ? (tree: IFileNode[]) => filterSelectionScanNodesByQuickFilter(tree, quickFilter)
+        : undefined;
     }
-    if (store) {
-      return (tree: IFileNode[]) =>
-        applyFileFilters(tree, includeFilters, excludeFilters, useRegex);
+    if (!quickFilter.trim()) {
+      return base;
     }
-    return;
-  }, [applyFileFilters, excludeFilters, filterTreeFn, includeFilters, store, useRegex]);
+    return (tree: IFileNode[]) => filterSelectionScanNodesByQuickFilter(base(tree), quickFilter);
+  }, [
+    applyFileFilters,
+    excludeFilters,
+    filterTreeFn,
+    includeFilters,
+    quickFilter,
+    store,
+    useRegex,
+  ]);
 
   const [state, setState] = useState<RecursiveFolderSelectState>(RESET_STATE);
   const isStartingRef = useRef(false);
@@ -358,6 +380,7 @@ export function useRecursiveFolderSelect(
             folderId,
             includeFilters,
             kind: 'recursive-folder',
+            quickFilter,
             rootPath: node.path,
             useRegex,
           });
@@ -419,6 +442,7 @@ export function useRecursiveFolderSelect(
       internalFilterTreeFn,
       onDirectoriesLoaded,
       onError,
+      quickFilter,
       setQuerySelection,
       showToast,
       storageAdapter,
