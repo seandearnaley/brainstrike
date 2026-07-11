@@ -18,10 +18,24 @@ const NonEmptyStringSchema = z
   .string()
   .min(1, 'must not be empty')
   .refine((value) => value.trim().length > 0, 'must not be blank');
+const SpawnStringSchema = z
+  .string()
+  .refine((value) => !value.includes('\0'), 'invalid spawn string');
+const NonEmptySpawnStringSchema = NonEmptyStringSchema.refine(
+  (value) => !value.includes('\0'),
+  'invalid spawn string'
+);
+const HttpUrlSchema = z.url({ protocol: /^https?$/u }).refine((value) => {
+  if (!URL.canParse(value)) {
+    return true;
+  }
+  const url = new URL(value);
+  return url.username.length === 0 && url.password.length === 0;
+}, 'must not include credentials');
 const StringRecordSchema = z.record(z.string(), z.string());
 const EnvironmentSchema = StringRecordSchema.superRefine((environment, context) => {
   for (const [name, value] of Object.entries(environment)) {
-    if (name.includes('\0') || name.includes('=')) {
+    if (name.length === 0 || name.includes('\0') || name.includes('=')) {
       context.addIssue({
         code: 'custom',
         message: 'invalid environment variable name',
@@ -38,6 +52,7 @@ const EnvironmentSchema = StringRecordSchema.superRefine((environment, context) 
   }
 });
 const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
+  const normalizedNames = new Set<string>();
   for (const [name, value] of Object.entries(headers)) {
     try {
       new Headers([[name, '']]);
@@ -48,6 +63,17 @@ const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
         path: [name],
       });
       continue;
+    }
+
+    const normalizedName = name.toLowerCase();
+    if (normalizedNames.has(normalizedName)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'duplicate HTTP header name',
+        path: [name],
+      });
+    } else {
+      normalizedNames.add(normalizedName);
     }
 
     try {
@@ -63,8 +89,8 @@ const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
 });
 
 const StdioServerSchema = z.strictObject({
-  args: z.array(z.string()).optional(),
-  command: NonEmptyStringSchema,
+  args: z.array(SpawnStringSchema).optional(),
+  command: NonEmptySpawnStringSchema,
   enabledTools: z.array(z.string()).optional(),
   env: EnvironmentSchema.optional(),
   name: NonEmptyStringSchema,
@@ -76,7 +102,7 @@ const SseServerSchema = z.strictObject({
   headers: HeadersSchema.optional(),
   name: NonEmptyStringSchema,
   transport: z.literal('sse'),
-  url: z.url({ protocol: /^https?$/u }),
+  url: HttpUrlSchema,
 });
 
 const McpServerSchema = z.discriminatedUnion('transport', [StdioServerSchema, SseServerSchema]);

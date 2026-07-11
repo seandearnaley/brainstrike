@@ -293,6 +293,34 @@ describe('mcp-loader comprehensive tests', () => {
       );
     });
 
+    it.each([
+      {
+        expectedPath: 'servers.0.command',
+        server: { command: 'node\0malformed' },
+      },
+      {
+        expectedPath: 'servers.0.args.1',
+        server: { args: ['valid', 'malformed\0argument'], command: 'node' },
+      },
+    ])('should reject NUL in stdio spawn input at $expectedPath', ({ expectedPath, server }) => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            ...server,
+            name: 'test',
+            transport: 'stdio',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        new RegExp(
+          `invalid_mcp_config:.*${expectedPath.replaceAll('.', '\\.')}: invalid spawn string`,
+          'u'
+        )
+      );
+    });
+
     it('should reject invalid environment and header values with their record paths', () => {
       const json = JSON.stringify({
         servers: [
@@ -317,6 +345,16 @@ describe('mcp-loader comprehensive tests', () => {
     });
 
     it('should reject stdio environment entries that Node cannot pass to spawn', () => {
+      const emptyName = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { '': 'value' },
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
       const invalidName = JSON.stringify({
         servers: [
           {
@@ -348,6 +386,9 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       });
 
+      expect(() => parseMcpConfig(emptyName)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.env\.: invalid environment variable name/u
+      );
       expect(() => parseMcpConfig(invalidName)).toThrow(
         /invalid_mcp_config:.*servers\.0\.env\.BAD=KEY: invalid environment variable name/u
       );
@@ -371,6 +412,23 @@ describe('mcp-loader comprehensive tests', () => {
 
       expect(() => parseMcpConfig(json)).toThrow(
         /invalid_mcp_config:.*servers\.0\.headers\.Invalid Header: invalid HTTP header name/u
+      );
+    });
+
+    it('should reject case-insensitive duplicate HTTP header names', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            headers: { Authorization: 'first', authorization: 'second' },
+            name: 'remote',
+            transport: 'sse',
+            url: 'https://example.com/mcp',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.headers\.authorization: duplicate HTTP header name/u
       );
     });
 
@@ -405,6 +463,19 @@ describe('mcp-loader comprehensive tests', () => {
       expect(() => parseMcpConfig(invalidUrl)).toThrow(/invalid_mcp_config:.*servers\.0\.url/u);
       expect(() => parseMcpConfig(unsupportedProtocol)).toThrow(
         /invalid_mcp_config:.*servers\.0\.url/u
+      );
+    });
+
+    it.each([
+      'https://user@example.com/mcp',
+      'https://user:password@example.com/mcp',
+    ])('should reject credentials in a remote URL: %s', (url) => {
+      const json = JSON.stringify({
+        servers: [{ name: 'remote', transport: 'sse', url }],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.url: must not include credentials/u
       );
     });
 
@@ -771,6 +842,26 @@ describe('mcp-loader comprehensive tests', () => {
       );
     });
 
+    it('should reject case-insensitive duplicate HTTP header names created by decryption', async () => {
+      const config: McpConfig = {
+        servers: [
+          {
+            headers: {
+              Authorization: 'first',
+              authorizationEncrypted: Buffer.from('second').toString('base64'),
+            },
+            name: 'test',
+            transport: 'sse',
+            url: 'http://example.com',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*headers\.authorization: duplicate HTTP header name/u
+      );
+    });
+
     it('should reject a decrypted header name that becomes __proto__', async () => {
       const headers = Object.create(null) as Record<string, string>;
       headers.__proto__Encrypted = Buffer.from('value').toString('base64');
@@ -806,6 +897,25 @@ describe('mcp-loader comprehensive tests', () => {
 
       await expect(withDecryptedSecrets(config)).rejects.toThrow(
         /invalid_mcp_config:.*forbidden property "__proto__"/u
+      );
+    });
+
+    it('should reject a decrypted stdio environment name that becomes empty', async () => {
+      const config: McpConfig = {
+        servers: [
+          {
+            command: 'node',
+            env: {
+              Encrypted: Buffer.from('value').toString('base64'),
+            },
+            name: 'test',
+            transport: 'stdio',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*env\.: invalid environment variable name/u
       );
     });
 
