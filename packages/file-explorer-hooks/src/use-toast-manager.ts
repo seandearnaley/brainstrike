@@ -27,10 +27,12 @@ import { useCallback } from 'react';
 const logger = createLogger('ToastManager');
 
 /**
- * Default auto-dismiss for file-explorer toasts. Without a duration the ui
- * toast never schedules dismissal, so every notice sat on screen until the
- * user found the close button. Pass `duration: 0` for a deliberate sticky
- * toast.
+ * Default auto-dismiss for INFORMATIONAL file-explorer toasts. Without a
+ * duration the ui toast never schedules dismissal, so every notice sat on
+ * screen until the user found the close button. Destructive (error) toasts
+ * deliberately keep no default duration — a failure must not vanish while
+ * the user glances away; the always-visible close button dismisses them.
+ * Pass an explicit `duration` to override either way (0 = sticky).
  */
 export const DEFAULT_TOAST_DURATION_MS = 6000;
 
@@ -52,7 +54,7 @@ export const useToastManager = () => {
       description,
       variant = 'default',
       action,
-      duration = DEFAULT_TOAST_DURATION_MS,
+      duration,
     }: {
       title: string;
       description: string;
@@ -60,6 +62,10 @@ export const useToastManager = () => {
       action?: ToastActionElement;
       duration?: number;
     }) => {
+      // Informational toasts auto-dismiss; errors stay until dismissed
+      // (explicit duration always wins, 0 = sticky).
+      const resolvedDuration =
+        duration ?? (variant === 'destructive' ? 0 : DEFAULT_TOAST_DURATION_MS);
       // Define local type for toast options, consistent with useToast's expectations
       interface ResolvedToastOptions {
         action?: ToastActionElement;
@@ -71,7 +77,7 @@ export const useToastManager = () => {
 
       const toastOptions: ResolvedToastOptions = {
         description,
-        duration,
+        duration: resolvedDuration,
         title,
         variant,
       };

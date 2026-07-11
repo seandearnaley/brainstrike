@@ -99,7 +99,7 @@ describe('useToastManager', () => {
       });
     });
 
-    it('calls toast with destructive variant', () => {
+    it('calls toast with destructive variant and keeps it sticky by default', () => {
       const { result } = setup();
       const toastParams = {
         description: 'This is an error toast',
@@ -109,9 +109,11 @@ describe('useToastManager', () => {
 
       result.current.showToast(toastParams);
 
+      // Errors must not vanish while the user glances away — no auto-dismiss
+      // unless the caller passes an explicit duration.
       expect(mockToast).toHaveBeenCalledWith({
         ...toastParams,
-        duration: DEFAULT_TOAST_DURATION_MS,
+        duration: 0,
       });
     });
 
@@ -171,7 +173,7 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         description: 'Partial refresh failed',
-        duration: DEFAULT_TOAST_DURATION_MS,
+        duration: 0,
         title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
@@ -187,7 +189,7 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         description: error.message,
-        duration: DEFAULT_TOAST_DURATION_MS,
+        duration: 0,
         title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
@@ -201,7 +203,7 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         description: FileExplorerStrings.error.refreshFailed,
-        duration: DEFAULT_TOAST_DURATION_MS,
+        duration: 0,
         title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
@@ -217,7 +219,7 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         description: reason,
-        duration: DEFAULT_TOAST_DURATION_MS,
+        duration: 0,
         title: FileExplorerStrings.error.browserCompatibility,
         variant: 'destructive',
       });
@@ -237,7 +239,7 @@ describe('useToastManager', () => {
       );
       expect(mockToast).toHaveBeenCalledWith({
         description: FileExplorerStrings.error.rootDirectoryFailed,
-        duration: DEFAULT_TOAST_DURATION_MS,
+        duration: 0,
         title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
