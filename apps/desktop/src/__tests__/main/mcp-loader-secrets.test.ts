@@ -124,4 +124,31 @@ describe('MCP encrypted configuration values', () => {
     );
     expect(safeStorageMocks.decryptString).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['empty', ''],
+    ['malformed', '!!!!'],
+  ])('rejects %s encrypted values before safeStorage decryption', async (_label, encrypted) => {
+    safeStorageMocks.isAsyncEncryptionAvailable.mockResolvedValue(true);
+    safeStorageMocks.decryptStringAsync.mockResolvedValue({
+      result: '',
+      shouldReEncrypt: false,
+    });
+
+    await expect(
+      withDecryptedSecrets({
+        servers: [
+          {
+            command: 'node',
+            env: { API_KEYEncrypted: encrypted },
+            name: 'local-tools',
+            transport: 'stdio',
+          },
+        ],
+      })
+    ).rejects.toThrow(
+      'MCP server "local-tools" environment variable "API_KEY": ciphertext must be non-empty canonical base64'
+    );
+    expect(safeStorageMocks.decryptStringAsync).not.toHaveBeenCalled();
+  });
 });

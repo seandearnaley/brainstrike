@@ -583,10 +583,20 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function decodeEncryptedValue(value: string, context: string): Buffer {
+  const encrypted = Buffer.from(value, 'base64');
+  if (encrypted.byteLength === 0 || encrypted.toString('base64') !== value) {
+    throw new Error(`${context}: ciphertext must be non-empty canonical base64`);
+  }
+  return encrypted;
+}
+
 export async function decryptIfEncrypted(
   value: string,
   context = 'MCP encrypted value'
 ): Promise<string> {
+  const encrypted = decodeEncryptedValue(value, context);
+
   if (
     typeof safeStorage?.isAsyncEncryptionAvailable !== 'function' ||
     typeof safeStorage.decryptStringAsync !== 'function'
@@ -618,7 +628,6 @@ export async function decryptIfEncrypted(
   }
 
   try {
-    const encrypted = Buffer.from(value, 'base64');
     const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(encrypted);
     if (shouldReEncrypt) {
       logger.warn('MCP secret should be re-encrypted with the current safeStorage key', {
