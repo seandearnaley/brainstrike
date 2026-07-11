@@ -1,6 +1,7 @@
 import { defineConfig } from 'tsup';
 
 const assistantContractExternal = /^@brainstrike\/assistant-contract(?:\/.*)?$/;
+const modelContextProtocolSdkExternal = /^@modelcontextprotocol\/sdk(?:\/.*)?$/;
 
 export default defineConfig((_options) => ({
   // Keep previous outputs available across rebuilds because multiple app prebuilds
@@ -18,6 +19,7 @@ export default defineConfig((_options) => ({
     entry: [
       'src/index.ts',
       'src/client.ts',
+      'src/mcp-client.ts',
       'src/local-llm.ts',
       'src/browser-safe.ts',
       'src/tool-metadata.ts',
@@ -33,6 +35,7 @@ export default defineConfig((_options) => ({
   entry: [
     'src/index.ts',
     'src/client.ts',
+    'src/mcp-client.ts',
     'src/local-llm.ts',
     'src/browser-safe.ts',
     'src/tool-metadata.ts',
@@ -46,6 +49,7 @@ export default defineConfig((_options) => ({
   ],
   external: [
     assistantContractExternal,
+    modelContextProtocolSdkExternal,
     '@brainstrike/assistant-contract',
     '@brainstrike/types',
     '@electric-sql/pglite',

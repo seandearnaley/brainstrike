@@ -1,0 +1,786 @@
+import { createServer, type IncomingMessage, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import {
+  ExplicitHttpMcpClient,
+  type ExplicitHttpMcpFetch,
+  type ExplicitHttpMcpTransport,
+} from '../mcp/explicit-http-client';
+
+interface RecordedRequest {
+  body?: unknown;
+  headers: IncomingMessage['headers'];
+  method: string;
+  pathname: string;
+}
+
+interface RunningServer {
+  close: () => Promise<void>;
+  url: URL;
+}
+
+interface ExpiringStatefulServer extends RunningServer {
+  expireSession: (onExpiredRequest?: () => void) => void;
+}
+
+const cleanupTasks: Array<() => Promise<void>> = [];
+
+afterEach(async () => {
+  const tasks = cleanupTasks.splice(0).reverse();
+  for (const cleanup of tasks) {
+    await cleanup();
+  }
+});
+
+function createEchoServer(): McpServer {
+  const server = new McpServer({ name: 'explicit-http-test-server', version: '1.0.0' });
+
+  server.registerTool(
+    'echo',
+    {
+      description: 'Echo a value',
+      inputSchema: { value: z.string() },
+      outputSchema: { echoed: z.string() },
+    },
+    async ({ value }) => ({
+      content: [{ text: value, type: 'text' }],
+      structuredContent: { echoed: value },
+    })
+  );
+  server.registerTool('fail', { description: 'Return a tool error' }, async () => ({
+    content: [{ text: 'intentional failure', type: 'text' }],
+    isError: true,
+  }));
+
+  return server;
+}
+
+async function listen(server: Server, pathname: string): Promise<RunningServer> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+
+  const address = server.address() as AddressInfo;
+  const url = new URL(pathname, `http://127.0.0.1:${address.port}`);
+  const close = async (): Promise<void> => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  };
+  cleanupTasks.push(close);
+
+  return { close, url };
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+}
+
+function requestMethod(body: unknown): string | undefined {
+  if (!(body && typeof body === 'object' && 'method' in body)) {
+    return;
+  }
+  return typeof body.method === 'string' ? body.method : undefined;
+}
+
+async function startStreamableServer(options: {
+  failInitializations?: number;
+  failToolRequests?: number;
+  pathname: string;
+  requests: RecordedRequest[];
+}): Promise<RunningServer> {
+  let failInitializations = options.failInitializations ?? 0;
+  let failToolRequests = options.failToolRequests ?? 0;
+  const transports = new Set<StreamableHTTPServerTransport>();
+  const mcpServers = new Set<McpServer>();
+
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    if (request.method === 'GET') {
+      options.requests.push({
+        headers: request.headers,
+        method: 'GET',
+        pathname: url.pathname,
+      });
+      response.writeHead(405).end();
+      return;
+    }
+    if (request.method !== 'POST') {
+      response.writeHead(405).end();
+      return;
+    }
+
+    const body = await readJsonBody(request);
+    options.requests.push({
+      body,
+      headers: request.headers,
+      method: 'POST',
+      pathname: url.pathname,
+    });
+    if (requestMethod(body) === 'initialize' && failInitializations > 0) {
+      failInitializations -= 1;
+      response.writeHead(404).end('not found');
+      return;
+    }
+    if (requestMethod(body)?.startsWith('tools/') && failToolRequests > 0) {
+      failToolRequests -= 1;
+      response.writeHead(404).end('not found');
+      return;
+    }
+
+    const transport = new StreamableHTTPServerTransport({
+      enableJsonResponse: true,
+      sessionIdGenerator: undefined,
+    });
+    const mcpServer = createEchoServer();
+    transports.add(transport);
+    mcpServers.add(mcpServer);
+    try {
+      await mcpServer.connect(transport);
+      await transport.handleRequest(request, response, body);
+    } catch (error) {
+      if (!response.headersSent) {
+        response.writeHead(500).end(error instanceof Error ? error.message : String(error));
+      }
+    }
+  });
+
+  const running = await listen(server, options.pathname);
+  cleanupTasks.push(async () => {
+    await Promise.allSettled([
+      ...Array.from(mcpServers, (mcpServer) => mcpServer.close()),
+      ...Array.from(transports, (transport) => transport.close()),
+    ]);
+  });
+  return running;
+}
+
+async function startSseServer(options: {
+  pathname: string;
+  requests: RecordedRequest[];
+}): Promise<RunningServer> {
+  let transport: SSEServerTransport | undefined;
+  let mcpServer: McpServer | undefined;
+
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    options.requests.push({
+      headers: request.headers,
+      method: request.method ?? 'UNKNOWN',
+      pathname: url.pathname,
+    });
+
+    if (request.method === 'GET' && url.pathname === options.pathname) {
+      transport = new SSEServerTransport('/messages', response);
+      mcpServer = createEchoServer();
+      await mcpServer.connect(transport);
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/messages' && transport) {
+      const body = await readJsonBody(request);
+      options.requests.at(-1)!.body = body;
+      await transport.handlePostMessage(request, response, body);
+      return;
+    }
+    response.writeHead(404).end();
+  });
+
+  const running = await listen(server, options.pathname);
+  cleanupTasks.push(async () => {
+    await Promise.allSettled([mcpServer?.close(), transport?.close()].filter(Boolean));
+  });
+  return running;
+}
+
+async function startStatefulStreamableServer(options: {
+  deleteStatus?: number;
+  pathname: string;
+  requests: RecordedRequest[];
+}): Promise<RunningServer> {
+  const transport = new StreamableHTTPServerTransport({
+    enableJsonResponse: true,
+    sessionIdGenerator: () => 'explicit-http-test-session',
+  });
+  const mcpServer = createEchoServer();
+  await mcpServer.connect(transport);
+
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    const body = request.method === 'POST' ? await readJsonBody(request) : undefined;
+    options.requests.push({
+      body,
+      headers: request.headers,
+      method: request.method ?? 'UNKNOWN',
+      pathname: url.pathname,
+    });
+
+    if (request.method === 'GET') {
+      response.writeHead(405).end();
+      return;
+    }
+    if (request.method === 'DELETE' && options.deleteStatus) {
+      response.writeHead(options.deleteStatus).end('termination failed');
+      return;
+    }
+    await transport.handleRequest(request, response, body);
+  });
+
+  const running = await listen(server, options.pathname);
+  cleanupTasks.push(async () => {
+    await Promise.allSettled([mcpServer.close(), transport.close()]);
+  });
+  return running;
+}
+
+async function startExpiringStatefulServer(options: {
+  connectionClosedToolCalls?: number;
+  pathname: string;
+  requests: RecordedRequest[];
+}): Promise<ExpiringStatefulServer> {
+  let connectionClosedToolCalls = options.connectionClosedToolCalls ?? 0;
+  let expired = false;
+  let onExpiredRequest: (() => void) | undefined;
+  let sessionGeneration = 0;
+  let validSession: string | undefined;
+
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    const body = request.method === 'POST' ? await readJsonBody(request) : undefined;
+    options.requests.push({
+      body,
+      headers: request.headers,
+      method: request.method ?? 'UNKNOWN',
+      pathname: url.pathname,
+    });
+
+    if (request.method === 'GET') {
+      response.writeHead(405).end();
+      return;
+    }
+    if (request.method !== 'POST') {
+      response.writeHead(405).end();
+      return;
+    }
+
+    const method = requestMethod(body);
+    const requestId =
+      body && typeof body === 'object' && 'id' in body ? (body.id as number | string) : undefined;
+    if (method === 'initialize') {
+      if (request.headers['mcp-session-id']) {
+        response.writeHead(400).end('initialize must not carry a prior session');
+        return;
+      }
+      sessionGeneration += 1;
+      validSession = `explicit-http-session-${sessionGeneration}`;
+      expired = false;
+      response
+        .writeHead(200, {
+          'content-type': 'application/json',
+          'mcp-session-id': validSession,
+        })
+        .end(
+          JSON.stringify({
+            id: requestId,
+            jsonrpc: '2.0',
+            result: {
+              capabilities: { tools: {} },
+              protocolVersion: '2025-11-25',
+              serverInfo: { name: 'expiring-session-server', version: '1.0.0' },
+            },
+          })
+        );
+      return;
+    }
+
+    if (request.headers['mcp-session-id'] !== validSession || expired) {
+      onExpiredRequest?.();
+      response.writeHead(404).end('no valid session');
+      return;
+    }
+    if (method === 'notifications/initialized') {
+      response.writeHead(202).end();
+      return;
+    }
+    if (method === 'tools/list') {
+      response
+        .writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ id: requestId, jsonrpc: '2.0', result: { tools: [] } }));
+      return;
+    }
+    if (method === 'tools/call') {
+      if (connectionClosedToolCalls > 0) {
+        connectionClosedToolCalls -= 1;
+        response.writeHead(200, { 'content-type': 'application/json' }).end(
+          JSON.stringify({
+            error: { code: ErrorCode.ConnectionClosed, message: 'Connection closed' },
+            id: requestId,
+            jsonrpc: '2.0',
+          })
+        );
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          id: requestId,
+          jsonrpc: '2.0',
+          result: { content: [{ text: 'unexpected replay', type: 'text' }] },
+        })
+      );
+      return;
+    }
+    response.writeHead(400).end('unexpected MCP request');
+  });
+
+  const running = await listen(server, options.pathname);
+  return {
+    ...running,
+    expireSession: (callback) => {
+      expired = true;
+      onExpiredRequest = callback;
+    },
+  };
+}
+
+function trackClient(options: {
+  headers?: Readonly<Record<string, string>>;
+  name: string;
+  transport: ExplicitHttpMcpTransport;
+  url: URL;
+}): ExplicitHttpMcpClient {
+  const client = new ExplicitHttpMcpClient(options);
+  cleanupTasks.push(() => client.close());
+  return client;
+}
+
+describe('ExplicitHttpMcpClient integration', () => {
+  it.each([
+    'file:///tmp/mcp.sock',
+    'ftp://example.test/mcp',
+  ])('rejects the non-HTTP remote URL %s', (url) => {
+    expect(
+      () =>
+        new ExplicitHttpMcpClient({
+          name: 'invalid-url-canary',
+          transport: 'streamable-http',
+          url,
+        })
+    ).toThrow('MCP HTTP URL must use http: or https:');
+  });
+
+  it('rejects embedded URL credentials before making a request', () => {
+    expect(
+      () =>
+        new ExplicitHttpMcpClient({
+          name: 'credential-url-canary',
+          transport: 'sse',
+          url: 'https://user:password@example.test/mcp',
+        })
+    ).toThrow('MCP HTTP URL must not include credentials');
+  });
+
+  it.each([
+    'Accept',
+    'content-TYPE',
+    'MCP-Session-Id',
+    'mcp-PROTOCOL-version',
+    'Last-Event-ID',
+  ])('rejects the protocol-owned configured header %s before requesting', (header) => {
+    let fetchCalled = false;
+    expect(
+      () =>
+        new ExplicitHttpMcpClient({
+          fetch: async () => {
+            fetchCalled = true;
+            return new Response(null, { status: 500 });
+          },
+          headers: { [header]: 'caller-controlled-value' },
+          name: 'protocol-header-canary',
+          transport: 'streamable-http',
+          url: 'https://example.test/mcp',
+        })
+    ).toThrow(`Configured MCP header "${header}" is protocol-owned`);
+    expect(fetchCalled).toBe(false);
+  });
+
+  it('uses Streamable HTTP at a misleading /sse path without transport inference', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({ pathname: '/sse', requests });
+    const client = trackClient({
+      headers: {
+        Authorization: 'Bearer streamable-canary',
+        'X-Brainstrike-Test': 'alpha, beta',
+      },
+      name: 'streamable-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+
+    const listed = await client.listTools();
+    const called = await client.callTool({ arguments: { value: 'hello' }, name: 'echo' });
+    const failed = await client.callTool({ name: 'fail' });
+
+    expect(listed.tools.map((tool) => tool.name)).toEqual(['echo', 'fail']);
+    expect(called).toMatchObject({
+      content: [{ text: 'hello', type: 'text' }],
+      structuredContent: { echoed: 'hello' },
+    });
+    expect(failed).toMatchObject({
+      content: [{ text: 'intentional failure', type: 'text' }],
+      isError: true,
+    });
+    expect(requests[0]).toMatchObject({
+      body: {
+        method: 'initialize',
+        params: {
+          capabilities: { extensions: { 'io.modelcontextprotocol/ui': {} } },
+        },
+      },
+      method: 'POST',
+      pathname: '/sse',
+    });
+    expect(requests[0]?.headers['mcp-session-id']).toBeUndefined();
+    expect(requests[0]?.headers['mcp-protocol-version']).toBeUndefined();
+    expect(requests[0]?.headers['last-event-id']).toBeUndefined();
+    expect(
+      requests
+        .filter((request) => request.method === 'POST')
+        .every(
+          (request) =>
+            request.headers.authorization === 'Bearer streamable-canary' &&
+            request.headers['x-brainstrike-test'] === 'alpha, beta'
+        )
+    ).toBe(true);
+  });
+
+  it('does not fall back to legacy SSE when Streamable HTTP initialization returns 404', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = createServer(async (request, response) => {
+      const body = request.method === 'POST' ? await readJsonBody(request) : undefined;
+      requests.push({
+        body,
+        headers: request.headers,
+        method: request.method ?? 'UNKNOWN',
+        pathname: new URL(request.url ?? '/', 'http://localhost').pathname,
+      });
+      response.writeHead(request.method === 'POST' ? 404 : 500).end();
+    });
+    const running = await listen(server, '/mcp');
+    const client = trackClient({
+      name: 'no-fallback-canary',
+      transport: 'streamable-http',
+      url: running.url,
+    });
+
+    await expect(client.connect()).rejects.toThrow(/Streamable HTTP error/);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ body: { method: 'initialize' }, method: 'POST' });
+  });
+
+  it('uses legacy SSE explicitly even when its URL looks like a Streamable HTTP endpoint', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startSseServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      headers: { 'X-Brainstrike-Test': 'legacy-sse' },
+      name: 'sse-canary',
+      transport: 'sse',
+      url: server.url,
+    });
+
+    const listed = await client.listTools();
+    const called = await client.callTool({ arguments: { value: 'legacy' }, name: 'echo' });
+
+    expect(listed.tools.map((tool) => tool.name)).toEqual(['echo', 'fail']);
+    expect(called).toMatchObject({ structuredContent: { echoed: 'legacy' } });
+    expect(requests[0]).toMatchObject({ method: 'GET', pathname: '/mcp' });
+    expect(requests[0]?.headers['x-brainstrike-test']).toBe('legacy-sse');
+    expect(
+      requests
+        .filter((request) => request.method === 'POST')
+        .every((request) => request.headers['x-brainstrike-test'] === 'legacy-sse')
+    ).toBe(true);
+  });
+
+  it('retries a failed initial connection with a fresh transport and deduplicates lazy connects', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({
+      failInitializations: 1,
+      pathname: '/mcp',
+      requests,
+    });
+    const client = trackClient({
+      name: 'connection-lifecycle-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+
+    await expect(client.connect()).rejects.toThrow(/Streamable HTTP error/);
+    const [first, second] = await Promise.all([client.listTools(), client.listTools()]);
+
+    expect(first.tools).toHaveLength(2);
+    expect(second.tools).toHaveLength(2);
+    expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
+      2
+    );
+  });
+
+  it('forwards cancellation and makes close terminal and idempotent', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      name: 'close-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    await client.connect();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(client.listTools({ signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    await client.close();
+    await client.close();
+    await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
+  });
+
+  it('shares one close operation and promptly aborts a connection still initializing', async () => {
+    let initializeSignal: AbortSignal | undefined;
+    let markFetchStarted: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve;
+    });
+    const client = new ExplicitHttpMcpClient({
+      fetch: async (_url, init) => {
+        initializeSignal = init?.signal ?? undefined;
+        markFetchStarted?.();
+        return new Promise<Response>((_resolve, reject) => {
+          initializeSignal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('initialization aborted', 'AbortError')),
+            { once: true }
+          );
+        });
+      },
+      name: 'hung-initialize-close-canary',
+      transport: 'streamable-http',
+      url: 'https://example.test/mcp',
+    });
+
+    const connecting = client.connect();
+    void connecting.catch(() => undefined);
+    await fetchStarted;
+    const firstClose = client.close();
+    const secondClose = client.close();
+
+    expect(secondClose).toBe(firstClose);
+    await expect(
+      Promise.race([
+        firstClose.then(() => 'closed'),
+        new Promise<string>((resolve) => setTimeout(() => resolve('timed-out'), 200)),
+      ])
+    ).resolves.toBe('closed');
+    expect(initializeSignal?.aborted).toBe(true);
+    await expect(connecting).rejects.toThrow();
+  });
+
+  it('terminates a stateful Streamable HTTP session before closing locally', async () => {
+    const requests: RecordedRequest[] = [];
+    const signals: AbortSignal[] = [];
+    const trackedFetch: ExplicitHttpMcpFetch = async (url, init) => {
+      if (init?.signal) {
+        signals.push(init.signal);
+      }
+      return fetch(url, init);
+    };
+    const server = await startStatefulStreamableServer({ pathname: '/mcp', requests });
+    const client = new ExplicitHttpMcpClient({
+      fetch: trackedFetch,
+      name: 'session-close-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+
+    await client.connect();
+    await client.close();
+
+    expect(requests.at(-1)).toMatchObject({ method: 'DELETE', pathname: '/mcp' });
+    expect(signals.some((signal) => signal.aborted)).toBe(true);
+  });
+
+  it('still closes locally and surfaces the error when session termination fails', async () => {
+    const requests: RecordedRequest[] = [];
+    const signals: AbortSignal[] = [];
+    const trackedFetch: ExplicitHttpMcpFetch = async (url, init) => {
+      if (init?.signal) {
+        signals.push(init.signal);
+      }
+      return fetch(url, init);
+    };
+    const server = await startStatefulStreamableServer({
+      deleteStatus: 500,
+      pathname: '/mcp',
+      requests,
+    });
+    const client = new ExplicitHttpMcpClient({
+      fetch: trackedFetch,
+      name: 'session-close-failure-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+
+    await client.connect();
+    await expect(client.close()).rejects.toThrow(/Failed to terminate session/);
+
+    expect(requests.at(-1)).toMatchObject({ method: 'DELETE', pathname: '/mcp' });
+    expect(signals.some((signal) => signal.aborted)).toBe(true);
+    await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
+  });
+
+  it('bounds a hung session DELETE, aborts its fetch, and still closes locally', async () => {
+    const requests: RecordedRequest[] = [];
+    let deleteSignal: AbortSignal | undefined;
+    const server = await startStatefulStreamableServer({ pathname: '/mcp', requests });
+    const client = new ExplicitHttpMcpClient({
+      fetch: async (url, init) => {
+        if (init?.method === 'DELETE') {
+          deleteSignal = init.signal ?? undefined;
+          return new Promise<Response>(() => undefined);
+        }
+        return fetch(url, init);
+      },
+      name: 'hung-session-delete-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    await client.connect();
+
+    const firstClose = client.close();
+    const secondClose = client.close();
+    expect(secondClose).toBe(firstClose);
+    const outcome = await Promise.race([
+      firstClose.then(
+        () => 'resolved' as const,
+        (error: unknown) => error
+      ),
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 1000)),
+    ]);
+
+    expect(outcome).toBeInstanceOf(Error);
+    expect((outcome as Error).message).toMatch(/session termination timed out/i);
+    expect(deleteSignal?.aborted).toBe(true);
+    await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
+  });
+
+  it('reinitializes once on the same transport after an established session expires', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      name: 'expired-session-reinitialize-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    await client.connect();
+    server.expireSession();
+
+    await expect(client.listTools()).resolves.toMatchObject({ tools: [] });
+
+    const initializeRequests = requests.filter(
+      (request) => requestMethod(request.body) === 'initialize'
+    );
+    expect(initializeRequests).toHaveLength(2);
+    expect(initializeRequests[0]?.headers['mcp-session-id']).toBeUndefined();
+    expect(initializeRequests[1]?.headers['mcp-session-id']).toBeUndefined();
+    expect(requests.filter((request) => requestMethod(request.body) === 'tools/list')).toHaveLength(
+      2
+    );
+  });
+
+  it('does not reinterpret a stateless operation 404 as an expired session', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startStreamableServer({
+      failToolRequests: 2,
+      pathname: '/mcp',
+      requests,
+    });
+    const client = trackClient({
+      name: 'stateless-operation-404-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    await client.connect();
+
+    await expect(client.listTools()).rejects.toThrow(/Streamable HTTP error/);
+    expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
+      1
+    );
+    expect(requests.filter((request) => requestMethod(request.body) === 'tools/list')).toHaveLength(
+      1
+    );
+  });
+
+  it('surfaces ConnectionClosed without replaying a potentially mutating tool call', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startExpiringStatefulServer({
+      connectionClosedToolCalls: 1,
+      pathname: '/mcp',
+      requests,
+    });
+    const client = trackClient({
+      name: 'connection-closed-no-replay-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    await client.connect();
+
+    await expect(client.callTool({ name: 'mutating-tool' })).rejects.toMatchObject({
+      code: ErrorCode.ConnectionClosed,
+      message: 'MCP error -32000: Connection closed',
+    });
+    expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
+      1
+    );
+    expect(requests.filter((request) => requestMethod(request.body) === 'tools/call')).toHaveLength(
+      1
+    );
+  });
+
+  it('does not reinitialize a reconnectable failure after the caller is aborted', async () => {
+    const requests: RecordedRequest[] = [];
+    const server = await startExpiringStatefulServer({ pathname: '/mcp', requests });
+    const client = trackClient({
+      name: 'aborted-session-reinitialize-canary',
+      transport: 'streamable-http',
+      url: server.url,
+    });
+    await client.connect();
+    const controller = new AbortController();
+    server.expireSession(() => controller.abort());
+
+    await expect(client.listTools({ signal: controller.signal })).rejects.toThrow();
+    expect(requests.filter((request) => requestMethod(request.body) === 'initialize')).toHaveLength(
+      1
+    );
+  });
+});
