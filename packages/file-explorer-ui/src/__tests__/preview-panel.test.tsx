@@ -141,6 +141,20 @@ describe('PreviewPanel', () => {
     });
   });
 
+  describe('View chrome', () => {
+    it('replaces the table toolbar with the spatial dock in Tapestry view', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      expect(screen.getByTestId('preview-view-toolbar')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Tapestry View' }));
+
+      expect(screen.queryByTestId('preview-view-toolbar')).toBeNull();
+      expect(screen.getByTestId('tapestry-command-dock')).toBeInTheDocument();
+      expect(screen.getByRole('slider', { name: 'Gallery scale' })).toBeInTheDocument();
+    });
+  });
+
   describe('Context Actions', () => {
     it('renders context actions and wires callbacks', async () => {
       const user = userEvent.setup();

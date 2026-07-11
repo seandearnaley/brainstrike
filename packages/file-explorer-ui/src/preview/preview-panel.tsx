@@ -41,7 +41,11 @@ import {
   type TableRowData,
 } from '../utils/grouping-configs';
 import { buildGroupedPageSections, getVisibleFilesOnPage } from '../utils/preview-pagination';
-import { syncTapestryRanges } from '../utils/tapestry-range-sync';
+import {
+  clearUserOwnedTapestryRanges,
+  reconcileUserOwnedTapestryRanges,
+  syncTapestryRanges,
+} from '../utils/tapestry-range-sync';
 import { getTokenUsageMetrics } from '../utils/token-usage-metrics';
 import { useWorkspaceContextCurationStore } from '../workspace-context-curation-store';
 import { tapestryLineRangeToToolRange } from '../workspace-context-line-ranges';
@@ -210,9 +214,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setPageSize,
     setSortDirection,
     setSortField,
+    setTapestryScale,
     setFooterMode,
     sortDirection,
     sortField,
+    tapestryScale,
     footerMode,
   } = usePreviewPanelPreferences({
     activeTab: 'table',
@@ -751,33 +757,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     );
   }, [isTapestryActive, tapestryRangesByKey]);
 
-  const totalLinesSelected = useMemo(() => {
-    // Skip computation when Tapestry tab is not active
-    if (!isTapestryActive) {
-      return 0;
-    }
-    return Object.values(tapestryRangesByKey).reduce(
-      (acc, ranges) =>
-        acc +
-        ranges
-          .filter((range) => range.isActive)
-          .reduce((sum, range) => sum + (range.endLine - range.startLine), 0),
-      0
-    );
-  }, [isTapestryActive, tapestryRangesByKey]);
-
   const handleTapestryRangesChange = useCallback((fileId: string, ranges: TapestryRange[]) => {
-    setTapestryRangesByKey((prev) => ({ ...prev, [fileId]: ranges }));
+    setTapestryRangesByKey((prev) => reconcileUserOwnedTapestryRanges(prev, fileId, ranges));
   }, []);
 
   const handleResetTapestryRanges = useCallback((fileIds: string[]) => {
-    setTapestryRangesByKey((prev) => {
-      const next = { ...prev };
-      for (const fileId of fileIds) {
-        delete next[fileId];
-      }
-      return next;
-    });
+    setTapestryRangesByKey((prev) => clearUserOwnedTapestryRanges(prev, fileIds));
   }, []);
 
   // Keep export payload synchronized with the latest range edits and tree toggle state.
@@ -885,6 +870,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [columnVisibility, deselectAll, setColumnVisibility]
   );
 
+  const handleGroupingChange = useCallback(
+    (value: string) => {
+      setGroupingConfig(value);
+      setCollapsedGroups(new Set());
+    },
+    [setCollapsedGroups, setGroupingConfig]
+  );
+
   // Reset to first page when grouping changes
   const prevGroupingConfigRef = useRef(groupingConfig);
   // biome-ignore lint/plugin: Reset pagination when grouping config changes
@@ -970,10 +963,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           </TabsList>
         </div>
 
-        <TooltipProvider delayDuration={400}>
-          <PreviewViewToolbar
-            additionalControls={
-              activeTab === 'table' ? (
+        {activeTab === 'table' ? (
+          <TooltipProvider delayDuration={400}>
+            <PreviewViewToolbar
+              additionalControls={
                 <>
                   {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
                     <Tooltip>
@@ -998,22 +991,19 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                     onColumnVisibilityChange={setColumnVisibility}
                   />
                 </>
-              ) : null
-            }
-            canCollapseExpandGroups={groupingConfig !== 'none' && groupedData.length > 1}
-            groupingConfig={groupingConfig}
-            onCollapseAllGroups={() =>
-              setCollapsedGroups(new Set(groupedData.map((group) => String(group.groupKey))))
-            }
-            onExpandAllGroups={() => setCollapsedGroups(new Set())}
-            onGroupingChange={(value) => {
-              setGroupingConfig(value);
-              setCollapsedGroups(new Set());
-            }}
-            onSelectionControlsToggle={handleSelectionControlsToggle}
-            selectionControlsEnabled={selectionControlsEnabled}
-          />
-        </TooltipProvider>
+              }
+              canCollapseExpandGroups={groupingConfig !== 'none' && groupedData.length > 1}
+              groupingConfig={groupingConfig}
+              onCollapseAllGroups={() =>
+                setCollapsedGroups(new Set(groupedData.map((group) => String(group.groupKey))))
+              }
+              onExpandAllGroups={() => setCollapsedGroups(new Set())}
+              onGroupingChange={handleGroupingChange}
+              onSelectionControlsToggle={handleSelectionControlsToggle}
+              selectionControlsEnabled={selectionControlsEnabled}
+            />
+          </TooltipProvider>
+        ) : null}
 
         <TabsContent
           className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
@@ -1106,10 +1096,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               isGroupPartiallySelected={isGroupPartiallySelected}
               onDeselectAll={deselectAll}
               onGroupDeselectAll={handleGroupDeselectAll}
+              onGroupingChange={handleGroupingChange}
               onGroupSelectAll={handleGroupSelectAll}
               onRangesChange={handleTapestryRangesChange}
               onResetRanges={handleResetTapestryRanges}
+              onScaleChange={setTapestryScale}
               onSelectAllOnPage={selectAllOnPage}
+              onSelectionControlsToggle={handleSelectionControlsToggle}
               onToggleGroupCollapse={toggleGroupCollapse}
               onToggleSelection={toggleItemSelection}
               pagination={{
@@ -1121,9 +1114,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                 ...paginationInfo,
               }}
               previewSelections={previewSelections}
+              scale={tapestryScale}
               showSelectionControls={selectionControlsEnabled}
               totalFiles={flattenedData.length}
-              totalLinesSelected={totalLinesSelected}
               ungroupedFiles={tapestryUngroupedFiles}
               visibleFilesOnPage={tapestryVisibleFilesOnPage}
               {...(onRequestFileContent ? { onRequestFileContent } : {})}
