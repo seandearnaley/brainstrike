@@ -16,6 +16,7 @@ import {
 type VectorExtension = Extension;
 type LiveExtension = Extension;
 type TrgmExtension = Extension;
+type TextsearchExtension = Extension;
 const WORKER_STARTUP_DISPOSED_MESSAGE =
   'PGlite worker client startup was disposed before completion';
 
@@ -44,6 +45,7 @@ interface PendingBrowserWorkerStartup {
 let cachedVectorPromise: Promise<VectorExtension> | null = null;
 let cachedLivePromise: Promise<LiveExtension> | null = null;
 let cachedTrgmPromise: Promise<TrgmExtension> | null = null;
+let cachedTextsearchPromise: Promise<TextsearchExtension> | null = null;
 
 async function loadVectorExtension(): Promise<VectorExtension> {
   if (!cachedVectorPromise) {
@@ -95,6 +97,22 @@ async function loadTrgmExtension(): Promise<TrgmExtension> {
   return cachedTrgmPromise;
 }
 
+async function loadTextsearchExtension(): Promise<TextsearchExtension> {
+  if (!cachedTextsearchPromise) {
+    cachedTextsearchPromise = (async () => {
+      try {
+        const { pg_textsearch: pgTextsearch } = await import('@electric-sql/pglite-pg_textsearch');
+        return pgTextsearch;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`pg_textsearch extension is required and failed to load: ${message}`);
+      }
+    })();
+  }
+
+  return cachedTextsearchPromise;
+}
+
 function isWorkerStartupDisposedError(error: unknown): boolean {
   return error instanceof Error && error.message === WORKER_STARTUP_DISPOSED_MESSAGE;
 }
@@ -133,7 +151,12 @@ class WasmLoader {
     try {
       // Just preload extensions - actual WASM loading happens when creating the real DB
       // This avoids creating a wasteful temporary database
-      await Promise.all([loadVectorExtension(), loadLiveExtension(), loadTrgmExtension()]);
+      await Promise.all([
+        loadVectorExtension(),
+        loadLiveExtension(),
+        loadTrgmExtension(),
+        loadTextsearchExtension(),
+      ]);
       this.isLoaded = true;
       logger.debug('Extensions preloaded successfully');
     } catch (error) {
@@ -146,10 +169,11 @@ class WasmLoader {
     await this.ensureWasmLoaded();
 
     // Load vector extension asynchronously
-    const [vector, live, pgTrgm] = await Promise.all([
+    const [vector, live, pgTrgm, pgTextsearch] = await Promise.all([
       loadVectorExtension(),
       loadLiveExtension(),
       loadTrgmExtension(),
+      loadTextsearchExtension(),
     ]);
 
     // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
@@ -175,9 +199,9 @@ class WasmLoader {
     const db = normalizedDataDir
       ? new PGlite({
           dataDir: normalizedDataDir,
-          extensions: { live, pg_trgm: pgTrgm, vector },
+          extensions: { live, pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
         })
-      : new PGlite({ extensions: { live, pg_trgm: pgTrgm, vector } });
+      : new PGlite({ extensions: { live, pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
 
     // Cache persisted databases only (not memory://)
     if (isIndexedDbPGliteDataDir(normalizedDataDir)) {
@@ -638,6 +662,7 @@ function resetExtensionCaches(): void {
   cachedVectorPromise = null;
   cachedLivePromise = null;
   cachedTrgmPromise = null;
+  cachedTextsearchPromise = null;
 }
 
 /**

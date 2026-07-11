@@ -76,9 +76,10 @@ export default defineConfig({
     exclude: [
       ...getHeavyRuntimeOptimizeDepsExclude(),
       '@electric-sql/pglite',
-      // Split pgvector package ships its WASM/tar via import.meta.url; prebundling
-      // into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
+      // Split pgvector/pg_textsearch packages ship their WASM/tar via import.meta.url;
+      // prebundling into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
       '@electric-sql/pglite-pgvector',
+      '@electric-sql/pglite-pg_textsearch',
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',

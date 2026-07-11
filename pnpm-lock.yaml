@@ -174,6 +174,9 @@ importers:
       '@electric-sql/pglite':
         specifier: 0.5.4
         version: 0.5.4
+      '@electric-sql/pglite-pg_textsearch':
+        specifier: 0.0.6
+        version: 0.0.6(@electric-sql/pglite@0.5.4)
       '@electric-sql/pglite-pgvector':
         specifier: 0.0.5
         version: 0.0.5(@electric-sql/pglite@0.5.4)
@@ -1003,6 +1006,9 @@ importers:
       '@electric-sql/pglite':
         specifier: 0.5.4
         version: 0.5.4
+      '@electric-sql/pglite-pg_textsearch':
+        specifier: 0.0.6
+        version: 0.0.6(@electric-sql/pglite@0.5.4)
       '@electric-sql/pglite-pgvector':
         specifier: 0.0.5
         version: 0.0.5(@electric-sql/pglite@0.5.4)
@@ -3312,6 +3318,11 @@ packages:
   '@edge-runtime/vm@3.2.0':
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
+
+  '@electric-sql/pglite-pg_textsearch@0.0.6':
+    resolution: {integrity: sha512-n5lTjivQn/ZvVFdMoW3Rn9u30S0LeAh/sOmjKptnF0nsTa1zIZxa0mAuynzIKrMoUQ0wOFHyB3mj1lIK2UWHUA==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.4
 
   '@electric-sql/pglite-pgvector@0.0.5':
     resolution: {integrity: sha512-KEPAkD/3FN6WlDM6XPi2Ko1Xk0ecjOU9OfzCoclVkiRoEVNRYwKo1iO+tlkelMgp07SszmSC4JdSBueH2p7uOQ==}
@@ -14461,6 +14472,10 @@ snapshots:
   '@edge-runtime/vm@3.2.0':
     dependencies:
       '@edge-runtime/primitives': 4.1.0
+
+  '@electric-sql/pglite-pg_textsearch@0.0.6(@electric-sql/pglite@0.5.4)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.4
 
   '@electric-sql/pglite-pgvector@0.0.5(@electric-sql/pglite@0.5.4)':
     dependencies:
