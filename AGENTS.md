@@ -573,9 +573,20 @@ warn-and-continue, `0` = ok. Per-hook timeout → **SIGKILL**.
 - `UserPromptSubmit`/`Stop` run in `apps/desktop/src/assistant-server.ts`
   (`initializeAgentStream`). A UserPromptSubmit block short-circuits the turn with
   a visible message + `run.failed` and NEVER invokes the model; additionalContext
-  prepends a `system` message. **Stop is NOTIFY-ONLY in v1** (surface the block
-  reason as a `hook.notice`; NO auto-continue). SessionStart/SessionEnd/
-  Notification are implemented but UNWIRED in v1.
+  prepends a `system` message. The blocked branch returns an `ok:true` stream but
+  carries `terminalStatus:'failed'` (+ `terminalError`) on `AgentStreamSuccess`, so
+  `streamAssistantPostResponse` persists the `thread_runs` row as `failed` — never
+  the default `completed`, which would contradict the visible `run.failed`.
+  **Stop is NOTIFY-ONLY in v1** (surface the block reason as a `hook.notice`; NO
+  auto-continue). The terminal Stop hook (`withStopHook`) MUST run BEFORE the
+  `message-finish` chunk is yielded, not only in its `finally`: the live
+  data-stream consumer stops pulling the source the instant the mapper emits
+  `finish`, so a `hook.notice`/`hook.blocked` queued AFTER the finish reaches
+  neither the live renderer nor persistence. Running Stop at the finish boundary
+  lets the observer drain those queued run events (the mapper defers them past an
+  open text part and flushes at the boundary); `finally` still fires Stop for
+  streams that end without a finish chunk (bare return / throw / abort).
+  SessionStart/SessionEnd/Notification are implemented but UNWIRED in v1.
 
 **Timeout invariant (honest ceiling — no summed guarantee).** There is NO
 enforced `pre + tool + post` sum ceiling. What IS enforced:
@@ -583,18 +594,29 @@ enforced `pre + tool + post` sum ceiling. What IS enforced:
   resolveToolTimeoutMs()`; every hook is SIGKILLed at its own timeout (default
   10_000ms). Chain: `per-hook (<60s) < BRAINSTRIKE_TOOL_TIMEOUT_MS (60_000) <
   BRAINSTRIKE_STREAM_INACTIVITY_MS (120_000)`.
-- **In-stream phases** (`PreToolUse`/`PostToolUse`/`Stop`): bounded by the
-  per-hook SIGKILL + the stream inactivity watchdog (120s) as the backstop — NOT
-  by an aggregate cap.
-- **Pre-stream `UserPromptSubmit`** runs BEFORE the model is invoked, so the
-  watchdog cannot bound it. It therefore has its OWN aggregate bound
-  (`resolveToolTimeoutMs()`, 60s) enforced on BOTH ends: `loadHooksConfig`
-  disables the phase fail-LOUD (a `HookConfigError`) when the combined declared
-  timeout reaches the ceiling, and at runtime `runHooksForEvent`
-  (`aggregateTimeoutMs`) caps the whole phase's wall-clock — the in-flight hook
-  is SIGKILLed at the remaining budget and the rest are skipped with a loud
-  warning (timeout == warn-and-continue; hooks proceed, never silently stall
-  turn start). Over-budget config never silently truncates.
+- **Watchdog-covered in-stream phases** (`PreToolUse`/`PostToolUse`): bounded by
+  the per-hook SIGKILL + the stream inactivity watchdog (120s) as the backstop —
+  NOT by an aggregate cap. These run WHILE an `iterator.next()` is pending, so the
+  watchdog timer is armed and covers them.
+- **Boundary phases the watchdog CANNOT reach** (`UserPromptSubmit` + `Stop`):
+  both gate a user-visible boundary with the watchdog disarmed, so each carries
+  its OWN aggregate bound (`resolveToolTimeoutMs()`, 60s), applied at runtime by
+  `runHooksForEvent` (`aggregateTimeoutMs`, threaded via the manager's
+  `aggregateTimeoutMs` ctx): the in-flight hook is SIGKILLed at the remaining
+  budget and the rest are skipped with a loud warning (timeout ==
+  warn-and-continue; hooks proceed, never silently stall turn start / finish
+  delivery).
+  - `UserPromptSubmit` runs BEFORE the model is invoked; it ALSO enforces the
+    bound on the config-load end: `loadHooksConfig` disables the phase fail-LOUD
+    (a `HookConfigError`) when the combined declared timeout reaches the ceiling.
+    Over-budget config never silently truncates.
+  - `Stop` runs in FRONT of the `message-finish` yield (the watchdog is applied
+    UPSTREAM of the `withStopHook` seam and its timer is disarmed while Stop
+    awaits), so an unbounded chain of Stop hooks would delay finish delivery, the
+    Stop notices, HTTP stream close, and the `thread_runs` status write. The
+    runtime aggregate cap is its only bound — the watchdog does NOT cover it.
+    (v1 has no config-load check for the Stop combined timeout; the runtime cap
+    is authoritative.)
 
 **Malformed config = disable-with-visible-error (NOT throw-at-load).**
 `loadHooksConfig` returns `{hooks, errors, sources}`; a malformed/untrusted file

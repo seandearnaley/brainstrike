@@ -19,7 +19,8 @@ const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() };
 
 function makeManager(
   load: Partial<HooksConfigLoadResult>,
-  events: HookRunEventInput[]
+  events: HookRunEventInput[],
+  aggregateTimeoutMs = 60_000
 ): HookManager {
   const full: HooksConfigLoadResult = {
     errors: load.errors ?? [],
@@ -27,11 +28,11 @@ function makeManager(
     sources: load.sources ?? [],
   };
   return new HookManager(full, {
+    aggregateTimeoutMs,
     emitRunEvent: (event) => events.push(event),
     logger,
     primaryCwd: tmpRoot,
     sessionId: 'session-1',
-    userPromptSubmitAggregateMs: 60_000,
   });
 }
 
@@ -130,5 +131,30 @@ describe('HookManager', () => {
     const result = await manager.runStop('complete');
     expect(result.allowed).toBe(true);
     expect(result.results).toHaveLength(1);
+  });
+
+  it('bounds the Stop phase to the aggregate budget (finish delivery cannot stall)', async () => {
+    // Stop runs in FRONT of the message-finish yield with the watchdog disarmed,
+    // so an unbounded chain of slow Stop hooks would delay finish delivery. Two
+    // 3s hooks with a 300ms aggregate must abandon the in-flight hook at the
+    // budget, skip the rest, and surface a loud warning (warn-and-continue).
+    const events: HookRunEventInput[] = [];
+    const manager = makeManager(
+      { hooks: { Stop: [makeHook('sleep 3'), makeHook('sleep 3')] } },
+      events,
+      300
+    );
+
+    const started = Date.now();
+    const result = await manager.runStop('complete');
+    const elapsed = Date.now() - started;
+
+    expect(result.allowed).toBe(true);
+    expect(elapsed).toBeLessThan(2000);
+    expect(result.results).toHaveLength(1);
+    expect(result.warnings.some((w) => /aggregate/i.test(w))).toBe(true);
+    expect(events.some((e) => e.kind === 'hook.notice' && /aggregate/i.test(e.detail ?? ''))).toBe(
+      true
+    );
   });
 });

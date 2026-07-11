@@ -30,18 +30,22 @@ export interface HookRunEventInput {
 }
 
 export interface HookManagerContext {
+  /**
+   * Wall-clock ceiling for a whole bounded hook phase, applied to BOTH the
+   * PRE-STREAM `UserPromptSubmit` gate (runs before the model is invoked, so the
+   * stream inactivity watchdog cannot bound it) AND the terminal `Stop` phase
+   * (runs at the finish boundary in FRONT of the `message-finish` chunk, so an
+   * unbounded chain of Stop hooks would delay finish delivery — the watchdog is
+   * upstream of the Stop seam and its timer is disarmed while Stop awaits).
+   * The other in-stream phases (PreToolUse/PostToolUse) stay uncapped here.
+   */
+  readonly aggregateTimeoutMs: number;
   readonly emitRunEvent?: (event: HookRunEventInput) => void;
   readonly logger: HookLogger;
   /** cwd for non-tool events (UserPromptSubmit/Stop/Session). */
   readonly primaryCwd: string;
   /** = memory.threadId ?? runId ?? 'no-session'. */
   readonly sessionId: string;
-  /**
-   * Wall-clock ceiling for the whole PRE-STREAM `UserPromptSubmit` phase — that
-   * gate runs before the model is invoked, so the stream inactivity watchdog
-   * cannot bound it. In-stream phases are left uncapped here.
-   */
-  readonly userPromptSubmitAggregateMs: number;
 }
 
 function matchesTool(hook: LoadedHook, toolName: string): boolean {
@@ -166,7 +170,7 @@ export class HookManager {
         user_message: userMessage,
       }),
       {
-        aggregateTimeoutMs: this.ctx.userPromptSubmitAggregateMs,
+        aggregateTimeoutMs: this.ctx.aggregateTimeoutMs,
         blocking: true,
         logger: this.ctx.logger,
       }
@@ -188,7 +192,11 @@ export class HookManager {
         stop_reason: stopReason,
         ...(assistantMessage === undefined ? {} : { assistant_message: assistantMessage }),
       }),
-      { blocking: true, logger: this.ctx.logger }
+      {
+        aggregateTimeoutMs: this.ctx.aggregateTimeoutMs,
+        blocking: true,
+        logger: this.ctx.logger,
+      }
     );
     this.surfaceOutcome('Stop', result);
     return result;

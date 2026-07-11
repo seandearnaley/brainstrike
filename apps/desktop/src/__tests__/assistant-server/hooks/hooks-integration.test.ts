@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHookRunner } from '../../../assistant-server/hooks/hook-runner-impl';
-import type { HookRunEventInput } from '../../../assistant-server/hooks/manager';
+import type { HookManager, HookRunEventInput } from '../../../assistant-server/hooks/manager';
 import {
   buildHookManager,
   deriveLastUserText,
@@ -191,12 +191,109 @@ describe('withStopHook', () => {
 
     const controller = new AbortController();
     const seen: StreamChunk[] = [];
-    for await (const chunk of withStopHook(source(), manager, controller.signal)) {
+    for await (const chunk of withStopHook(source(), manager, controller.signal, logger)) {
       seen.push(chunk);
     }
 
     expect(seen.some((c) => c.type === 'text-delta')).toBe(true);
     const stopPayload = JSON.parse(readFileSync(marker, 'utf8')) as { stop_reason: string };
     expect(stopPayload.stop_reason).toBe('complete');
+  });
+
+  it('runs Stop exactly once when the stream carries a message-finish chunk', async () => {
+    // The Stop hook APPENDS a line: the once-guard must keep the finish-boundary
+    // run and the `finally` run from both firing (a regression that double-fires
+    // spawns the subprocess twice → two marker lines).
+    const marker = join(tmpRoot, 'runs.txt');
+    const config = JSON.stringify({
+      Stop: [{ command: `echo run >> "${marker}"`, type: 'command' }],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield { type: 'text-delta', value: 'hi' };
+      yield {
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      };
+    }
+
+    const controller = new AbortController();
+    for await (const _chunk of withStopHook(source(), manager, controller.signal, logger)) {
+      // drain
+    }
+
+    const lines = readFileSync(marker, 'utf8').trim().split('\n');
+    expect(lines).toHaveLength(1);
+  });
+
+  it('passes stop_reason "error" when the finish chunk is an error finish', async () => {
+    const marker = join(tmpRoot, 'stop-error.json');
+    const config = JSON.stringify({
+      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield {
+        finishReason: 'error',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
+      };
+    }
+
+    const controller = new AbortController();
+    for await (const _chunk of withStopHook(source(), manager, controller.signal, logger)) {
+      // drain
+    }
+
+    const stopPayload = JSON.parse(readFileSync(marker, 'utf8')) as { stop_reason: string };
+    expect(stopPayload.stop_reason).toBe('error');
+  });
+
+  it('yields the finish chunk even when the Stop runner throws (allow-on-fault)', async () => {
+    // A runner-layer throw at the Stop boundary must NOT eat the finish chunk:
+    // the phase degrades to a lost notice, never a lost finish.
+    const throwingManager = {
+      runStop: vi.fn().mockRejectedValue(new Error('runner boom')),
+    } as unknown as HookManager;
+
+    const finish: StreamChunk = {
+      finishReason: 'stop',
+      path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 1, promptTokens: 1 },
+    };
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield finish;
+    }
+
+    const controller = new AbortController();
+    const seen: StreamChunk[] = [];
+    for await (const chunk of withStopHook(source(), throwingManager, controller.signal, logger)) {
+      seen.push(chunk);
+    }
+
+    expect(seen.some((c) => c.type === 'message-finish')).toBe(true);
+    expect(logger.error).toHaveBeenCalledWith('Stop hook phase failed', expect.anything());
   });
 });

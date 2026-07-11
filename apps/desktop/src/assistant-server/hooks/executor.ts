@@ -204,11 +204,15 @@ function executeHook(
 export interface RunHooksOptions {
   /**
    * Wall-clock ceiling for the WHOLE phase, enforced across all of the phase's
-   * hooks. Set for the PRE-STREAM `UserPromptSubmit` gate (which runs before the
-   * model is invoked and is therefore NOT covered by the stream inactivity
-   * watchdog), so a chain of slow hooks cannot stall turn start unboundedly.
-   * Undefined for in-stream phases (PreToolUse/PostToolUse/Stop), which rely on
-   * the per-hook SIGKILL + the stream inactivity watchdog instead.
+   * hooks. Set for the two phases that gate a user-visible boundary the stream
+   * inactivity watchdog cannot reach: the PRE-STREAM `UserPromptSubmit` gate
+   * (runs before the model is invoked) and the terminal `Stop` phase (runs in
+   * FRONT of the `message-finish` yield — the watchdog is applied UPSTREAM of the
+   * Stop seam and its timer is disarmed while Stop awaits). Without this cap an
+   * unbounded chain of slow hooks would stall turn start / finish delivery. The
+   * remaining in-stream phases (PreToolUse/PostToolUse) run WHILE the watchdog is
+   * armed, so they rely on the per-hook SIGKILL + the watchdog instead and leave
+   * this undefined.
    */
   readonly aggregateTimeoutMs?: number;
   readonly blocking: boolean;
