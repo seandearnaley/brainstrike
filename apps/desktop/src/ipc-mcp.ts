@@ -31,6 +31,33 @@ const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
 export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated;
+export const MCP_CONFIG_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated;
+
+interface McpConfigStatus {
+  error?: string;
+  exists: boolean;
+  loadedAt?: number;
+  path: string;
+  servers?: Array<{ name: string; transport: McpServer['transport'] }>;
+}
+
+function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
+  const status: McpConfigStatus = {
+    exists: config.exists,
+    path: config.path,
+  };
+  if (config.error !== undefined) {
+    status.error = config.error;
+  }
+  if (config.loadedAt !== undefined) {
+    status.loadedAt = config.loadedAt;
+  }
+  const servers = config.servers ?? config.config?.servers;
+  if (servers !== undefined) {
+    status.servers = servers.map(({ name, transport }) => ({ name, transport }));
+  }
+  return status;
+}
 
 function normalizeUrl(url: string | undefined): string {
   return (url ?? '').trim().replace(/\/+$/u, '');
@@ -55,6 +82,7 @@ function isPlaceholderServer(server: McpServer): boolean {
  */
 function handleConfigChange(cfg: LoadedMcpConfig): void {
   last = cfg;
+  notifyMcpConfigUpdated(cfg);
   mcpToolRegistry.clear();
   notifyMcpToolsUpdated();
   if (cfg.error) {
@@ -72,6 +100,16 @@ function handleConfigChange(cfg: LoadedMcpConfig): void {
     });
   } else {
     void disposeClients();
+  }
+}
+
+function notifyMcpConfigUpdated(config: LoadedMcpConfig): void {
+  const payload = toMcpConfigStatus(config);
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue;
+    }
+    window.webContents.send(MCP_CONFIG_UPDATED_EVENT, payload);
   }
 }
 
@@ -145,7 +183,7 @@ export function registerMcpIpcHandlers(): () => void {
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGet,
-    async (): Promise<LoadedMcpConfig> => {
+    async (): Promise<McpConfigStatus> => {
       last = await loadMcpConfig();
       // Initialize MCP clients if config is valid
       if (last.config) {
@@ -153,7 +191,7 @@ export function registerMcpIpcHandlers(): () => void {
       } else {
         await disposeClients();
       }
-      return last;
+      return toMcpConfigStatus(last);
     }
   );
 

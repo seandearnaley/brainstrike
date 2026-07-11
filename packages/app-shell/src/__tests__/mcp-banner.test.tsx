@@ -15,6 +15,7 @@ type McpTools = Record<string, never[]>;
 type McpWindow = Window & {
   mcp?: {
     getConfig?: () => Promise<McpConfigResult>;
+    onConfigUpdated?: (callback: (config: McpConfig) => void) => (() => void) | undefined;
     onToolsUpdated?: (callback: (tools: McpTools) => void) => (() => void) | undefined;
   };
 };
@@ -87,39 +88,79 @@ describe('McpBanner', () => {
     expect(screen.queryByText('loaded')).not.toBeInTheDocument();
   });
 
-  it('refetches config on tool updates, replaces loaded state with errors, and unsubscribes', async () => {
+  it('applies config updates without refetching on tool updates and unsubscribes', async () => {
     const unsubscribe = vi.fn();
-    let notifyToolsUpdated: ((tools: McpTools) => void) | undefined;
-    const getConfig = vi
-      .fn<() => Promise<McpConfigResult>>()
-      .mockResolvedValueOnce({
-        exists: true,
-        path: '/Users/example/.brainstrike/mcp.json',
-        servers: [{ name: 'local', transport: 'stdio' }],
-      })
-      .mockResolvedValueOnce({
-        error: 'invalid_mcp_config: malformed server',
-        exists: true,
-        path: '/Users/example/.brainstrike/mcp.json',
-      });
-    const onToolsUpdated = vi.fn((callback: (tools: McpTools) => void) => {
-      notifyToolsUpdated = callback;
+    let notifyConfigUpdated: ((config: McpConfig) => void) | undefined;
+    const getConfig = vi.fn<() => Promise<McpConfigResult>>().mockResolvedValue({
+      exists: true,
+      path: '/Users/example/.brainstrike/mcp.json',
+      servers: [{ name: 'local', transport: 'stdio' }],
+    });
+    const onConfigUpdated = vi.fn((callback: (config: McpConfig) => void) => {
+      notifyConfigUpdated = callback;
       return unsubscribe;
     });
-    setMcpApi({ getConfig, onToolsUpdated });
+    const onToolsUpdated = vi.fn();
+    setMcpApi({ getConfig, onConfigUpdated, onToolsUpdated });
 
     const { unmount } = render(<McpBanner />);
 
     expect(await screen.findByText('loaded')).toBeInTheDocument();
-    expect(onToolsUpdated).toHaveBeenCalledTimes(1);
+    expect(onConfigUpdated).toHaveBeenCalledTimes(1);
+    expect(onToolsUpdated).not.toHaveBeenCalled();
 
-    act(() => notifyToolsUpdated?.({}));
+    act(() =>
+      notifyConfigUpdated?.({
+        error: 'invalid_mcp_config: malformed server',
+        exists: true,
+        path: '/Users/example/.brainstrike/mcp.json',
+      })
+    );
 
     expect(await screen.findByText('invalid_mcp_config: malformed server')).toBeInTheDocument();
     expect(screen.queryByText('loaded')).not.toBeInTheDocument();
-    expect(getConfig).toHaveBeenCalledTimes(2);
+    expect(getConfig).toHaveBeenCalledTimes(1);
 
     unmount();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a stale initial read overwrite a newer config event', async () => {
+    let notifyConfigUpdated: ((config: McpConfig) => void) | undefined;
+    let resolveInitial: ((config: McpConfig) => void) | undefined;
+    const getConfig = vi.fn(
+      () =>
+        new Promise<McpConfig>((resolve) => {
+          resolveInitial = resolve;
+        })
+    );
+    const onConfigUpdated = vi.fn((callback: (config: McpConfig) => void) => {
+      notifyConfigUpdated = callback;
+      return () => undefined;
+    });
+    setMcpApi({ getConfig, onConfigUpdated });
+
+    render(<McpBanner />);
+    await waitFor(() => expect(onConfigUpdated).toHaveBeenCalledTimes(1));
+
+    act(() =>
+      notifyConfigUpdated?.({
+        error: 'invalid_mcp_config: watcher failure',
+        exists: true,
+        path: '/Users/example/.brainstrike/mcp.json',
+      })
+    );
+    expect(await screen.findByText('invalid_mcp_config: watcher failure')).toBeInTheDocument();
+
+    await act(async () =>
+      resolveInitial?.({
+        exists: true,
+        path: '/Users/example/.brainstrike/mcp.json',
+        servers: [{ name: 'stale', transport: 'stdio' }],
+      })
+    );
+
+    expect(screen.getByText('invalid_mcp_config: watcher failure')).toBeInTheDocument();
+    expect(screen.queryByText('loaded')).not.toBeInTheDocument();
   });
 });

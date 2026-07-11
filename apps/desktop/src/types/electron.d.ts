@@ -263,6 +263,15 @@ declare global {
       >;
       selectPath: () => Promise<string | null>;
       createSampleConfig: () => Promise<{ success: boolean; path: string; error?: string }>;
+      onConfigUpdated: (
+        callback: (config: {
+          path: string;
+          exists: boolean;
+          servers?: { name: string; transport: 'stdio' | 'sse' }[];
+          loadedAt?: number;
+          error?: string;
+        }) => void
+      ) => () => void;
       // Tool management
       listTools: () => Promise<{
         [serverName: string]: Array<{

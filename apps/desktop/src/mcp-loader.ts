@@ -19,6 +19,24 @@ const NonEmptyStringSchema = z
   .min(1, 'must not be empty')
   .refine((value) => value.trim().length > 0, 'must not be blank');
 const StringRecordSchema = z.record(z.string(), z.string());
+const EnvironmentSchema = StringRecordSchema.superRefine((environment, context) => {
+  for (const [name, value] of Object.entries(environment)) {
+    if (name.includes('\0') || name.includes('=')) {
+      context.addIssue({
+        code: 'custom',
+        message: 'invalid environment variable name',
+        path: [name],
+      });
+    }
+    if (value.includes('\0')) {
+      context.addIssue({
+        code: 'custom',
+        message: 'invalid environment variable value',
+        path: [name],
+      });
+    }
+  }
+});
 const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
   for (const [name, value] of Object.entries(headers)) {
     try {
@@ -48,7 +66,7 @@ const StdioServerSchema = z.strictObject({
   args: z.array(z.string()).optional(),
   command: NonEmptyStringSchema,
   enabledTools: z.array(z.string()).optional(),
-  env: StringRecordSchema.optional(),
+  env: EnvironmentSchema.optional(),
   name: NonEmptyStringSchema,
   transport: z.literal('stdio'),
 });
@@ -590,7 +608,13 @@ async function processStdioServer(
   const env = await applyDecryptionToEnv(s.env, s.name);
   if (env !== undefined) {
     assertNoForbiddenDecryptedProperty(env, 'env');
-    return { ...s, env };
+    const parsed = StdioServerSchema.safeParse({ ...s, env });
+    if (!parsed.success) {
+      throw new Error(
+        `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
+      );
+    }
+    return parsed.data;
   }
   const { env: _, ...rest } = s;
   return rest;

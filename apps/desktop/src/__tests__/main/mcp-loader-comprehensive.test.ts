@@ -316,6 +316,47 @@ describe('mcp-loader comprehensive tests', () => {
       );
     });
 
+    it('should reject stdio environment entries that Node cannot pass to spawn', () => {
+      const invalidName = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { 'BAD=KEY': 'value' },
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
+      const nullName = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { 'BAD\0KEY': 'value' },
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
+      const nullValue = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { TOKEN: 'before\0after' },
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(invalidName)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.env\.BAD=KEY: invalid environment variable name/u
+      );
+      expect(() => parseMcpConfig(nullName)).toThrow(/invalid environment variable name/u);
+      expect(() => parseMcpConfig(nullValue)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.env\.TOKEN: invalid environment variable value/u
+      );
+    });
+
     it('should reject header names that the WHATWG Headers runtime rejects', () => {
       const json = JSON.stringify({
         servers: [
@@ -765,6 +806,25 @@ describe('mcp-loader comprehensive tests', () => {
 
       await expect(withDecryptedSecrets(config)).rejects.toThrow(
         /invalid_mcp_config:.*forbidden property "__proto__"/u
+      );
+    });
+
+    it('should reject a decrypted stdio environment value containing NUL', async () => {
+      const config: McpConfig = {
+        servers: [
+          {
+            command: 'node',
+            env: {
+              TOKENEncrypted: Buffer.from('before\0after').toString('base64'),
+            },
+            name: 'test',
+            transport: 'stdio',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*env\.TOKEN: invalid environment variable value/u
       );
     });
 

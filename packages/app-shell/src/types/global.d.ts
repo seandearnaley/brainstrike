@@ -38,6 +38,14 @@ declare global {
           }
         | undefined
       >;
+      onConfigUpdated?: (
+        callback: (config: {
+          error?: string;
+          path: string;
+          exists: boolean;
+          servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+        }) => void
+      ) => (() => void) | undefined;
       watch?: () => Promise<{ watching: boolean }>;
       unwatch?: () => Promise<{ watching: false }>;
       listTools?: () => Promise<

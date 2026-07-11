@@ -81,8 +81,12 @@ export function McpBanner() {
     }
 
     void run();
-    const unsubscribe = window.mcp?.onToolsUpdated?.(() => {
-      void run();
+    const unsubscribe = window.mcp?.onConfigUpdated?.((config) => {
+      if (!mounted) {
+        return;
+      }
+      latestRequest = null;
+      dispatch(actionFromConfig(config));
     });
 
     return () => {
