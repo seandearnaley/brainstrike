@@ -9,7 +9,6 @@ import {
   ActionContextMenu,
   Button,
   CodeSurface,
-  type CodeSurfaceContextMenuSelection,
   cn,
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +20,6 @@ import {
   useIdeFileEditor,
   useToast,
 } from '@brainstrike/ui';
-import type { MarkdownSurfaceContextMenuSelection } from '@brainstrike/ui/markdown-surface';
 import { resolveRelativePath } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -46,7 +44,8 @@ import {
   useState,
 } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { fileTabToTarget, fileViewerToTarget } from '../context-actions/file-surface-target';
+import { fileTabToTarget } from '../context-actions/file-surface-target';
+import { useFileViewerContextMenu } from '../context-actions/use-file-viewer-context-menu';
 import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
 import { type FileTab, useTabManager } from '../hooks/use-tab-manager';
 import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
@@ -997,9 +996,6 @@ function FileTabBody({
   const capabilities = useMarkdownPreviewCapabilities();
   const { toast } = useToast();
   const ideEditor = useIdeFileEditor();
-  const contextMenuController = useContextMenuTarget();
-  const { setTarget: setContextMenuTarget, targetRef: contextMenuTargetRef } =
-    contextMenuController;
 
   // A line-targeted open (search match) forces source for THIS open only; the
   // user's persisted preference is untouched. Captured once on mount (FileTabBody
@@ -1034,50 +1030,13 @@ function FileTabBody({
     [setScrollTop, tab.compositeKey]
   );
 
-  const claimViewerContext = useCallback(
-    (
-      selectionText: string | null,
-      sourceRange: { readonly from: number; readonly to: number } | null
-    ): void => {
-      const target = fileViewerToTarget(tab, rootPath, {
-        selectionText,
-        sourceRange,
-        viewMode: effectiveMode,
-      });
-      if (!target) {
-        logger.error('Could not resolve file viewer context target', {
-          compositeKey: tab.compositeKey,
-        });
-        setContextMenuTarget(null);
-        return;
-      }
-      setContextMenuTarget(target);
-    },
-    [effectiveMode, rootPath, setContextMenuTarget, tab]
-  );
-
-  const handleCodeContextMenuSelection = useCallback(
-    (selection: CodeSurfaceContextMenuSelection): void => {
-      claimViewerContext(selection.text, { from: selection.from, to: selection.to });
-    },
-    [claimViewerContext]
-  );
-
-  const handleMarkdownContextMenuSelection = useCallback(
-    (selection: MarkdownSurfaceContextMenuSelection): void => {
-      claimViewerContext(selection.text, null);
-    },
-    [claimViewerContext]
-  );
-
-  const handleViewerContextMenu = useCallback((): void => {
-    // CodeSurface/MarkdownSurface claim an exact semantic selection first.
-    // Header/loading-state right-clicks still get file-level actions, but must
-    // never reuse a selection from an earlier invocation.
-    if (contextMenuTargetRef.current === null) {
-      claimViewerContext(null, null);
-    }
-  }, [claimViewerContext, contextMenuTargetRef]);
+  const {
+    controller: contextMenuController,
+    handleCodeContextMenuSelection,
+    handleMarkdownContextMenuSelection,
+    handleViewerContextMenu,
+    resetContextMenuTarget,
+  } = useFileViewerContextMenu({ rootPath, tab, viewMode: effectiveMode });
 
   const resolveImage = useCallback(
     async (src: string): Promise<string> => {
@@ -1291,7 +1250,7 @@ function FileTabBody({
       <div
         className="flex h-full flex-col"
         onContextMenu={handleViewerContextMenu}
-        onContextMenuCapture={() => setContextMenuTarget(null)}
+        onContextMenuCapture={resetContextMenuTarget}
       >
         <FileTabHeader
           directory={directory}
