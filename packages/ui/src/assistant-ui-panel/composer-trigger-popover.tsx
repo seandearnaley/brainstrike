@@ -59,6 +59,7 @@ export const ComposerTriggerPopover = ({
               index={index}
               item={item}
               key={item.id}
+              title={item.description}
             >
               <Icon className="size-4 shrink-0 text-muted-foreground" />
               <span className="bs-composer-trigger-item-label">{item.label}</span>

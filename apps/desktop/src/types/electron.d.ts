@@ -1,3 +1,4 @@
+import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
@@ -379,6 +380,15 @@ declare global {
       onWorkspaceContextTapestryUpdate: (
         callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
       ) => (() => void) | undefined;
+    };
+    /**
+     * Desktop-only user-defined slash command discovery bridge. Absent on web
+     * (no preload) — consumers MUST capability-check `window.userCommands`. The
+     * composer's "/" menu calls `list` to load prompt-template commands scanned
+     * from `.brainstrike/commands` + `.claude/commands`.
+     */
+    userCommands?: {
+      list: () => Promise<UserSlashCommandsListResult>;
     };
   }
 }

@@ -20,7 +20,8 @@ export type DesktopIpcDomain =
   | 'shell'
   | 'storage'
   | 'terminal'
-  | 'tools';
+  | 'tools'
+  | 'userCommands';
 
 export type DesktopIpcChannelKind = 'event' | 'invoke';
 

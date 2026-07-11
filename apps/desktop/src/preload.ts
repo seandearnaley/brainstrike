@@ -85,6 +85,7 @@ const GIT_PULL_CHANNEL = 'git:pull' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
+const USER_COMMANDS_LIST_CHANNEL = 'user-commands:list' as const;
 const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
 const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
 const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
@@ -1119,6 +1120,17 @@ if (shouldExposeBridge('hooks')) {
 if (shouldExposeBridge('contextFiles')) {
   contextBridge.exposeInMainWorld('contextFiles', {
     scan: () => ipcRenderer.invoke(CONTEXT_FILES_SCAN_CHANNEL),
+  });
+}
+
+// User-defined slash command discovery bridge (desktop-only). Capability-gated:
+// the composer's "/" menu calls `list` to load prompt-template commands scanned
+// from `.brainstrike/commands` + `.claude/commands`. Web never constructs this
+// bridge (no preload), so consumers must capability-check `window.userCommands`
+// rather than `isElectron()`.
+if (shouldExposeBridge('userCommands')) {
+  contextBridge.exposeInMainWorld('userCommands', {
+    list: () => ipcRenderer.invoke(USER_COMMANDS_LIST_CHANNEL),
   });
 }
 

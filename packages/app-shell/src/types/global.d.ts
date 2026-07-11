@@ -1,6 +1,7 @@
 import type {
   AssistantCheckpointRevertResult,
   AssistantCheckpointRevertRunResult,
+  UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
 import type {
   AssistantSelectionUpdatePayload,
@@ -92,6 +93,14 @@ declare global {
       onWorkspaceContextTapestryUpdate?: (
         callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
       ) => (() => void) | undefined;
+    };
+    /**
+     * Desktop-only user-defined slash command discovery bridge. Absent on web
+     * (no preload) — capability-check `window.userCommands` rather than
+     * `isElectron()`.
+     */
+    userCommands?: {
+      list?: () => Promise<UserSlashCommandsListResult>;
     };
   }
 }

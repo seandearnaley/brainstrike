@@ -3,14 +3,19 @@ import { usePGliteDatabase } from '@brainstrike/db';
 import { useToast } from '@brainstrike/ui';
 import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import {
   buildAppActionRegistryParts,
   buildAppCommandContext,
   createAppCommandRegistry,
 } from './command-registry';
-import { runSlashCommand, selectSlashCommandSource } from './slash-command-source';
+import {
+  mergeSlashCommands,
+  runSlashCommand,
+  selectSlashCommandSource,
+} from './slash-command-source';
 import { useGlobalCommandHandlers } from './use-global-command-handlers';
+import { useUserDefinedSlashCommands } from './use-user-defined-slash-commands';
 
 const logger = createLogger('AssistantSlashCommands');
 
@@ -32,8 +37,14 @@ const logger = createLogger('AssistantSlashCommands');
  * targetless (the composer has no captured right-click target), so the registry
  * is built with `target: null` and only globals + targetless feature commands
  * appear.
+ *
+ * Concatenated with `useUserDefinedSlashCommands` (desktop-only prompt-template
+ * commands scanned from `.brainstrike/commands` / `.claude/commands`): app
+ * commands first (run-and-toast), then user commands (expand-into-composer).
+ * `threadId` is the active assistant thread, threaded to user commands so their
+ * `execute` can read the live composer draft and write the expansion back.
  */
-export function useAssistantSlashCommands(): readonly SlashCommand[] {
+export function useAssistantSlashCommands(threadId: string | undefined): readonly SlashCommand[] {
   const db = usePGliteDatabase();
   const { toast } = useToast();
   const handlers = useGlobalCommandHandlers(db);
@@ -65,7 +76,7 @@ export function useAssistantSlashCommands(): readonly SlashCommand[] {
 
   // Map to the presentational SlashCommand shape, pre-binding execute. Derived
   // during render — no setState-in-effect.
-  return useMemo<readonly SlashCommand[]>(
+  const appCommands = useMemo<readonly SlashCommand[]>(
     () =>
       availableCommands.map((command) => ({
         id: command.id,
@@ -76,5 +87,19 @@ export function useAssistantSlashCommands(): readonly SlashCommand[] {
         },
       })),
     [availableCommands, runCommand]
+  );
+
+  const userCommands = useUserDefinedSlashCommands(threadId);
+
+  // App-lifetime warn-once set for app-vs-user id collisions (F4).
+  const warnedCollisionIds = useRef<Set<string>>(new Set());
+
+  return useMemo<readonly SlashCommand[]>(
+    () =>
+      mergeSlashCommands(appCommands, userCommands, {
+        logger,
+        warnedCollisionIds: warnedCollisionIds.current,
+      }),
+    [appCommands, userCommands]
   );
 }
