@@ -69,6 +69,38 @@ export function filterTreeByPatterns(
     .filter(Boolean) as IFileNode[];
 }
 
+/**
+ * Quick-filter predicate for the RECURSIVE-SELECTION SCAN (not the display
+ * tree). Unlike `applyQuickFilterToTree`, which prunes name-mismatched empty
+ * directories, this keeps EVERY directory so the scan can traverse into it —
+ * a matching file may live deeper in an as-yet-unloaded subtree. Only FILES
+ * are name-filtered (mirrors the workspace filter's scan semantics, which also
+ * keep all directories). Blank filter is a no-op (returns the same array).
+ */
+export function filterSelectionScanNodesByQuickFilter(
+  nodes: IFileNode[],
+  quickFilter: string
+): IFileNode[] {
+  if (!quickFilter.trim()) {
+    return nodes;
+  }
+  const { includes, excludes } = parseFilterString(quickFilter);
+  const includesLower = includes.map((value: string) => value.toLowerCase());
+  const excludesLower = excludes.map((value: string) => value.toLowerCase());
+  return nodes.filter((node) => {
+    if (node.type === 'directory') {
+      return true;
+    }
+    const nameText = node.name.toLowerCase();
+    if (excludesLower.some((pattern) => nameText.includes(pattern))) {
+      return false;
+    }
+    return (
+      includesLower.length === 0 || includesLower.some((pattern) => nameText.includes(pattern))
+    );
+  });
+}
+
 /** Collect the visible FILE paths of a (filtered) tree. */
 export function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
   for (const node of nodes) {
