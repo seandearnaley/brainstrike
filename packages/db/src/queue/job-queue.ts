@@ -1198,32 +1198,22 @@ export class JobQueue {
   async cancelMany(queue: string, reason?: string): Promise<number> {
     const updatedAt = new Date().toISOString();
 
-    // Get jobs to cancel for telemetry
-    const toCancel = await this.db.query<JobRow>(
-      `SELECT * FROM job_queue WHERE queue = $1 AND state IN ('queued', 'running')`,
-      [queue]
-    );
-
-    if (toCancel.rows.length === 0) {
-      return 0;
-    }
-
-    const res = await this.db.query<{ count: string }>(
-      `WITH del AS (
-        UPDATE job_queue SET state = 'canceled', leased_until = NULL, updated_at = $1
-        WHERE queue = $2 AND state IN ('queued', 'running')
-        RETURNING 1
-      ) SELECT COUNT(*)::text as count FROM del`,
+    // Single-statement cancel: telemetry is emitted from the RETURNING rows, so
+    // the reported set is exactly what this statement transitioned (no window
+    // between a telemetry snapshot read and the cancel write).
+    const res = await this.db.query<JobRow>(
+      `UPDATE job_queue SET state = 'canceled', leased_until = NULL, updated_at = $1
+       WHERE queue = $2 AND state IN ('queued', 'running')
+       RETURNING *`,
       [updatedAt, queue]
     );
 
-    const count = Number(res.rows[0]?.count ?? 0);
+    const count = res.rows.length;
 
     if (count > 0) {
       logger.info('Jobs canceled in bulk', { count, queue, reason });
 
-      // Emit telemetry for each canceled job
-      for (const row of toCancel.rows) {
+      for (const row of res.rows) {
         const job = fromRow(row);
         emitQueueTelemetry({
           adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
