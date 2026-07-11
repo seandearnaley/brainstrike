@@ -40,6 +40,7 @@ import {
   useFileExplorerStoreSelector,
 } from '../shell/file-explorer-provider';
 import { measureFileTreeOperation, recordFileTreeTelemetry } from '../utils/file-tree-telemetry';
+import { hasNormalizedIncompleteDescendants } from '../utils/normalized-file-tree';
 import { getSelectionCount } from '../utils/selection-projection';
 import {
   useOptionalFileTreeContext,
@@ -707,6 +708,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           if (node.type !== 'directory') {
             return {
               directoryTotalFiles: 0,
+              hasIncompleteDescendants: false,
               hasUnloadedDirectoryChildren: false,
               immediateChildren: [],
             };
@@ -715,6 +717,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           if (normalizedTreeContext) {
             return {
               directoryTotalFiles: normalizedTreeContext.getDescendantFileCount(node.path),
+              hasIncompleteDescendants: hasNormalizedIncompleteDescendants(
+                normalizedTreeContext.normalizedTreeRef.current,
+                node.path
+              ),
               hasUnloadedDirectoryChildren: hasNormalizedUnloadedDirectoryChildren(
                 normalizedTreeContext.normalizedTreeRef.current,
                 node.path,
@@ -728,8 +734,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             };
           }
 
+          const folderFileCount = fileExplorer.getFolderFileCount(node);
           return {
-            directoryTotalFiles: fileExplorer.getFolderFileCount(node).count,
+            directoryTotalFiles: folderFileCount.count,
+            hasIncompleteDescendants: !folderFileCount.isComplete,
             hasUnloadedDirectoryChildren: hasUnloadedDirectoryChildren(node),
             immediateChildren: node.children ?? [],
           };

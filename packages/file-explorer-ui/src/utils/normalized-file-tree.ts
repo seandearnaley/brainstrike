@@ -6,6 +6,14 @@ export interface NormalizedFileTreeNode extends Omit<IFileNode, 'children'> {}
 export interface NormalizedFileTreeState {
   childPathsByPath: Map<string, string[]>;
   descendantFileCountByPath: Map<string, number>;
+  /**
+   * Per directory: how many directories in its subtree (itself included) have
+   * loadState !== 'loaded'. Zero means descendantFileCountByPath is exhaustive
+   * for that path; non-zero means the count understates the true total, so
+   * consumers (tri-state derivation) must not treat count equality as
+   * "everything selected".
+   */
+  incompleteDirCountByPath: Map<string, number>;
   nodeByPath: Map<string, NormalizedFileTreeNode>;
   parentPathByPath: Map<string, string | null>;
   rootPaths: string[];
@@ -32,6 +40,7 @@ function createBaseState(): NormalizedFileTreeState {
   return {
     childPathsByPath: new Map(),
     descendantFileCountByPath: new Map(),
+    incompleteDirCountByPath: new Map(),
     nodeByPath: new Map(),
     parentPathByPath: new Map(),
     rootPaths: [],
@@ -56,6 +65,35 @@ function addFileNodeToState(
   state.parentPathByPath.set(node.path, parentPath);
   state.childPathsByPath.delete(node.path);
   state.descendantFileCountByPath.set(node.path, 0);
+  state.incompleteDirCountByPath.set(node.path, 0);
+}
+
+function selfIncompleteDirCount(node: NormalizedFileTreeNode): number {
+  return node.type === 'directory' && node.loadState !== 'loaded' ? 1 : 0;
+}
+
+function sumSubtreeAggregatesFromChildren(
+  state: NormalizedFileTreeState,
+  directoryPath: string,
+  childPaths: readonly string[]
+): { descendantFileCount: number; incompleteDirCount: number } {
+  const directoryNode = state.nodeByPath.get(directoryPath);
+  let descendantFileCount = 0;
+  let incompleteDirCount = directoryNode ? selfIncompleteDirCount(directoryNode) : 0;
+  for (const childPath of childPaths) {
+    const childNode = state.nodeByPath.get(childPath);
+    if (!childNode) {
+      continue;
+    }
+    if (childNode.type === 'file') {
+      descendantFileCount += 1;
+      continue;
+    }
+    descendantFileCount += state.descendantFileCountByPath.get(childPath) ?? 0;
+    incompleteDirCount +=
+      state.incompleteDirCountByPath.get(childPath) ?? selfIncompleteDirCount(childNode);
+  }
+  return { descendantFileCount, incompleteDirCount };
 }
 
 function finalizeDirectoryNode(
@@ -63,18 +101,15 @@ function finalizeDirectoryNode(
   node: IFileNode & { type: 'directory' }
 ): void {
   const childPaths = (node.children ?? []).map((child) => child.path);
-  let descendantFileCount = 0;
-  for (const childPath of childPaths) {
-    const childNode = state.nodeByPath.get(childPath);
-    if (!childNode) {
-      continue;
-    }
-    descendantFileCount +=
-      childNode.type === 'file' ? 1 : (state.descendantFileCountByPath.get(childPath) ?? 0);
-  }
+  const { descendantFileCount, incompleteDirCount } = sumSubtreeAggregatesFromChildren(
+    state,
+    node.path,
+    childPaths
+  );
 
   state.childPathsByPath.set(node.path, childPaths);
   state.descendantFileCountByPath.set(node.path, descendantFileCount);
+  state.incompleteDirCountByPath.set(node.path, incompleteDirCount);
 }
 
 function isDirectoryNode(node: IFileNode): node is IFileNode & { type: 'directory' } {
@@ -324,6 +359,7 @@ function removeSubtree(state: NormalizedFileTreeState, path: string): void {
     state.childPathsByPath.delete(subtreePath);
     state.parentPathByPath.delete(subtreePath);
     state.descendantFileCountByPath.delete(subtreePath);
+    state.incompleteDirCountByPath.delete(subtreePath);
   }
 }
 
@@ -341,16 +377,13 @@ function recomputeDescendantFileCountsFrom(
       continue;
     }
 
-    let descendantFileCount = 0;
-    for (const childPath of state.childPathsByPath.get(currentPath) ?? []) {
-      const childNode = state.nodeByPath.get(childPath);
-      if (!childNode) {
-        continue;
-      }
-      descendantFileCount +=
-        childNode.type === 'file' ? 1 : (state.descendantFileCountByPath.get(childPath) ?? 0);
-    }
+    const { descendantFileCount, incompleteDirCount } = sumSubtreeAggregatesFromChildren(
+      state,
+      currentPath,
+      state.childPathsByPath.get(currentPath) ?? []
+    );
     state.descendantFileCountByPath.set(currentPath, descendantFileCount);
+    state.incompleteDirCountByPath.set(currentPath, incompleteDirCount);
     currentPath = state.parentPathByPath.get(currentPath) ?? null;
   }
 }
@@ -361,6 +394,7 @@ function cloneState(state: NormalizedFileTreeState): NormalizedFileTreeState {
       Array.from(state.childPathsByPath.entries(), ([path, childPaths]) => [path, [...childPaths]])
     ),
     descendantFileCountByPath: new Map(state.descendantFileCountByPath),
+    incompleteDirCountByPath: new Map(state.incompleteDirCountByPath),
     nodeByPath: new Map(state.nodeByPath),
     parentPathByPath: new Map(state.parentPathByPath),
     rootPaths: [...state.rootPaths],
@@ -442,6 +476,39 @@ export function applyNormalizedDirectoryChildrenUpdates(
   return changed ? nextState : state;
 }
 
+/**
+ * Recompute only incompleteDirCountByPath along the ancestor chain from
+ * startPath. Used when a node's loadState flips without a children update —
+ * descendant file counts are unaffected, so the shared count map stays intact.
+ */
+function recomputeIncompleteDirCountsFrom(
+  state: NormalizedFileTreeState,
+  startPath: string | null
+): void {
+  const visitedPaths = new Set<string>();
+  let currentPath = startPath;
+  while (currentPath && !visitedPaths.has(currentPath)) {
+    visitedPaths.add(currentPath);
+    const node = state.nodeByPath.get(currentPath);
+    if (node?.type !== 'directory') {
+      currentPath = state.parentPathByPath.get(currentPath) ?? null;
+      continue;
+    }
+
+    let incompleteDirCount = selfIncompleteDirCount(node);
+    for (const childPath of state.childPathsByPath.get(currentPath) ?? []) {
+      const childNode = state.nodeByPath.get(childPath);
+      if (childNode?.type !== 'directory') {
+        continue;
+      }
+      incompleteDirCount +=
+        state.incompleteDirCountByPath.get(childPath) ?? selfIncompleteDirCount(childNode);
+    }
+    state.incompleteDirCountByPath.set(currentPath, incompleteDirCount);
+    currentPath = state.parentPathByPath.get(currentPath) ?? null;
+  }
+}
+
 export function setNormalizedNodeLoadState(
   state: NormalizedFileTreeState,
   path: string,
@@ -467,13 +534,32 @@ export function setNormalizedNodeLoadState(
       loadState,
     });
   }
-  return {
+  const nextState: NormalizedFileTreeState = {
     childPathsByPath: state.childPathsByPath,
     descendantFileCountByPath: state.descendantFileCountByPath,
+    incompleteDirCountByPath: new Map(state.incompleteDirCountByPath),
     nodeByPath: nextNodeByPath,
     parentPathByPath: state.parentPathByPath,
     rootPaths: state.rootPaths,
   };
+  recomputeIncompleteDirCountsFrom(nextState, path);
+  return nextState;
+}
+
+/**
+ * True when the directory at `path` (or any directory below it) has not
+ * finished loading — i.e. descendant file counts for it are NOT exhaustive.
+ * Files and unknown paths report false.
+ */
+export function hasNormalizedIncompleteDescendants(
+  state: NormalizedFileTreeState,
+  path: string
+): boolean {
+  const node = state.nodeByPath.get(path);
+  if (node?.type !== 'directory') {
+    return false;
+  }
+  return (state.incompleteDirCountByPath.get(path) ?? selfIncompleteDirCount(node)) > 0;
 }
 
 export function getNormalizedNode(

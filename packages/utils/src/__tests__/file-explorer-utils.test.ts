@@ -63,6 +63,83 @@ describe('file-explorer-utils', () => {
     });
   });
 
+  it('getFolderFileCount marks an unloaded directory incomplete', () => {
+    const unloaded = {
+      ...createDirectoryNode({ name: 'lazy', path: '/root/lazy' }),
+      loadState: 'unloaded' as const,
+    };
+    expect(fileExplorer.getFolderFileCount(unloaded).isComplete).toBe(false);
+  });
+
+  it('getFolderFileCount marks a loaded directory with an unloaded child incomplete', () => {
+    const parent = {
+      ...createDirectoryNode({
+        children: [
+          createFileNode({ name: 'a.ts', path: '/root/a.ts' }),
+          {
+            ...createDirectoryNode({ name: 'lazy', path: '/root/lazy' }),
+            loadState: 'unloaded' as const,
+          },
+        ],
+        name: 'root',
+        path: '/root',
+      }),
+      loadState: 'loaded' as const,
+    };
+    expect(fileExplorer.getFolderFileCount(parent)).toEqual({ count: 1, isComplete: false });
+  });
+
+  it('getFolderFileCount propagates incompleteness from deep unloaded descendants', () => {
+    const root = {
+      ...createDirectoryNode({
+        children: [
+          {
+            ...createDirectoryNode({
+              children: [
+                createFileNode({ name: 'b.ts', path: '/root/sub/b.ts' }),
+                {
+                  ...createDirectoryNode({ name: 'lazy', path: '/root/sub/lazy' }),
+                  loadState: 'unloaded' as const,
+                },
+              ],
+              name: 'sub',
+              path: '/root/sub',
+            }),
+            loadState: 'loaded' as const,
+          },
+        ],
+        name: 'root',
+        path: '/root',
+      }),
+      loadState: 'loaded' as const,
+    };
+    const result = fileExplorer.getFolderFileCount(root);
+    expect(result.count).toBe(1);
+    expect(result.isComplete).toBe(false);
+  });
+
+  it('getFolderFileCount reports a fully loaded subtree complete', () => {
+    const root = {
+      ...createDirectoryNode({
+        children: [
+          createFileNode({ name: 'a.ts', path: '/root/a.ts' }),
+          {
+            ...createDirectoryNode({
+              children: [createFileNode({ name: 'b.ts', path: '/root/sub/b.ts' })],
+              name: 'sub',
+              path: '/root/sub',
+            }),
+            loadState: 'loaded' as const,
+          },
+        ],
+        name: 'root',
+        path: '/root',
+      }),
+      loadState: 'loaded' as const,
+    };
+    expect(fileExplorer.getFolderFileCount(root)).toEqual({ count: 2, isComplete: true });
+  });
+
   it('memoizes file explorer results by node identity', () => {
     const tree = buildSampleTree();
 

@@ -38,7 +38,10 @@ function createDirectory(path: string, children?: IFileNode[]): IFileNode {
     type: 'directory',
   };
   if (children) {
+    // Children provided = a materialized directory; production stamps those
+    // 'loaded'. Omitting children models an unloaded directory (no loadState).
     node.children = children;
+    node.loadState = 'loaded';
   }
   return node;
 }
