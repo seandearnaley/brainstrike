@@ -40,10 +40,20 @@ const revealAction = defineContextAction({
   run: () => Promise.resolve({ ok: true }),
 });
 
-function Harness({ localActions = [] }: { localActions?: readonly AnyContextAction[] }) {
+function Harness({
+  localActions = [],
+  onOpenChange,
+}: {
+  localActions?: readonly AnyContextAction[];
+  onOpenChange?: (open: boolean) => void;
+}) {
   const controller = useContextMenuTarget();
   return (
-    <ActionContextMenu controller={controller} localActions={localActions}>
+    <ActionContextMenu
+      controller={controller}
+      localActions={localActions}
+      onOpenChange={onOpenChange}
+    >
       <div onContextMenuCapture={() => controller.setTarget(null)} role="treegrid">
         {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: test harness exercising right-click target claiming */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: test harness exercising right-click target claiming */}
@@ -73,6 +83,7 @@ function renderHarness(
     actions?: readonly AnyContextAction[];
     capabilities?: readonly CapabilityKey[];
     localActions?: readonly AnyContextAction[];
+    onOpenChange?: (open: boolean) => void;
   } = {}
 ) {
   const { registry, writtenTexts } = createTestActionRegistry({
@@ -81,7 +92,10 @@ function renderHarness(
   });
   render(
     <ActionRegistryProvider registry={registry}>
-      <Harness {...(options.localActions ? { localActions: options.localActions } : {})} />
+      <Harness
+        {...(options.localActions ? { localActions: options.localActions } : {})}
+        {...(options.onOpenChange ? { onOpenChange: options.onOpenChange } : {})}
+      />
     </ActionRegistryProvider>
   );
   return { writtenTexts };
@@ -138,6 +152,17 @@ describe('ActionContextMenu', () => {
     fireEvent.contextMenu(screen.getByTestId('row-a'), { clientX: 10, clientY: 10 });
     expect(await screen.findByRole('menuitem', { name: 'Copy Name' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Reveal in Finder' })).toBeInTheDocument();
+  });
+
+  it('reports open-state transitions to the owning surface', async () => {
+    const onOpenChange = vi.fn();
+    renderHarness({ onOpenChange });
+
+    await openMenuOnRow();
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
   it('hides capability-gated actions when the capability is missing', async () => {

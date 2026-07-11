@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { TapestryFileBase } from '../../tapestry/tapestry-adapter';
 import type { FileTapestry, TapestryRange } from '../../tapestry/types';
 import type { TapestryRangeMap } from '../context-selected-token-summary';
-import { syncTapestryRanges } from '../tapestry-range-sync';
+import {
+  clearUserOwnedTapestryRanges,
+  reconcileUserOwnedTapestryRanges,
+  syncTapestryRanges,
+} from '../tapestry-range-sync';
 
 const KEY = 'root-1::src/a.ts';
 
@@ -158,5 +162,65 @@ describe('syncTapestryRanges — ready-content behavior', () => {
       totals: first.totals,
     });
     expect(second.next[KEY]).toEqual([searchRange]);
+  });
+});
+
+describe('clearUserOwnedTapestryRanges', () => {
+  it('clears manual ranges while retaining managed Search ranges and untouched files', () => {
+    const searchRange = makeRange({
+      endLine: 8,
+      id: 'search-range',
+      origin: 'search',
+      startLine: 1,
+    });
+    const manualRange = makeRange({ endLine: 5, id: 'manual-range', startLine: 2 });
+    const untouchedRange = makeRange({ endLine: 4, id: 'untouched-range', startLine: 0 });
+    const prev: TapestryRangeMap = {
+      manualOnly: [manualRange],
+      mixed: [searchRange, manualRange],
+      untouched: [untouchedRange],
+    };
+
+    const result = clearUserOwnedTapestryRanges(prev, ['mixed', 'manualOnly']);
+
+    expect(result).toEqual({
+      mixed: [searchRange],
+      untouched: [untouchedRange],
+    });
+    expect(result['mixed']?.[0]).toBe(searchRange);
+    expect(result['untouched']).toBe(prev['untouched']);
+    expect(Object.hasOwn(result, 'manualOnly')).toBe(false);
+  });
+});
+
+describe('reconcileUserOwnedTapestryRanges', () => {
+  it('applies a stale manual proposal without dropping or resurrecting newer Search ranges', () => {
+    const latestSearchRange = makeRange({
+      endLine: 12,
+      id: 'search-latest',
+      origin: 'search',
+      startLine: 9,
+    });
+    const staleSearchRange = makeRange({
+      endLine: 4,
+      id: 'search-stale',
+      origin: 'search',
+      startLine: 1,
+    });
+    const updatedManualRange = makeRange({
+      endLine: 8,
+      id: 'manual',
+      startLine: 5,
+      userModified: true,
+    });
+    const prev: TapestryRangeMap = { [KEY]: [latestSearchRange] };
+
+    const result = reconcileUserOwnedTapestryRanges(prev, KEY, [
+      staleSearchRange,
+      updatedManualRange,
+    ]);
+
+    expect(result[KEY]).toEqual([latestSearchRange, updatedManualRange]);
+    expect(result[KEY]).not.toContain(staleSearchRange);
   });
 });

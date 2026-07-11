@@ -1619,15 +1619,24 @@ consumer (report generator, `listWorkspaceContext`, token meters).
   selected file as an implicit whole-file state (soft tint, "Whole file"
   label, no drag handles); the first drag or a Search chunk check creates
   explicit ranges.
-- **Reset means clear.** `TapestryControls`' "Reset ranges" button →
-  `TapestryView`'s `onResetRanges` → `preview-panel.tsx`'s
-  `handleResetTapestryRanges` deletes each visible file's range-map entry
-  (never re-seeds a default), including `userModified` ranges — an explicit,
-  undoable user action (re-drag to recreate).
+- **Reset means clear manual clips.** `TapestryControls`' "Clear manual clips"
+  action → `TapestryView`'s `onResetRanges` → `preview-panel.tsx`'s
+  `handleResetTapestryRanges` removes every visible file's user-owned ranges
+  (including `userModified`) but preserves the latest `origin:'search'`
+  ranges. A file with no remaining ranges returns to implicit whole-file
+  context; Search remains the sole owner of its derived clips.
 - **`origin:'search'` is one-way derived.** Workspace Search's chunk-selection
   set drives it (see WORKSPACE SEARCH's bridge invariant above); hand-edit
   machinery never writes or reads it, and any `userModified` ranges on the
   same file survive every search mutation untouched.
+- **Spatial precision and context actions.** The overview is deliberately
+  bounded for large files; the pointer-following code lens and click-pinned
+  precision selector resolve exact lines against ready content. Only one
+  pinned selector may own the gallery at a time. Tapestry right-click actions
+  use immutable `tapestry-document` / `tapestry-range` targets projected by
+  the shared `ActionContextMenu`; range color, include/exclude, exact-create,
+  and clear actions are surface-local registry actions with explicit
+  `ActionOutcome` failures. Never reintroduce hand-rolled Radix menus here.
 - **Four deliberate default-user behavior changes (spec-approved; do not "fix"
   back):** (a) `report-generator.ts` framing flips from a whole-file
   `<selection>` wrapper to bare `<file>` for untouched files (content

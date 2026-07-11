@@ -1,6 +1,7 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { DEFAULT_TAPESTRY_SCALE, MAX_TAPESTRY_SCALE, MIN_TAPESTRY_SCALE } from '../tapestry/utils';
 import type { TableRowData } from '../utils/grouping-configs';
 import { GROUPING_CONFIGS } from '../utils/grouping-configs';
 import {
@@ -48,6 +49,7 @@ interface StoredPreferences {
   pageSize?: number;
   sortDirection?: 'asc' | 'desc';
   sortField?: keyof TableRowData;
+  tapestryScale?: number;
 }
 
 interface PreviewPanelPreferences {
@@ -59,6 +61,7 @@ interface PreviewPanelPreferences {
   pageSize: number;
   sortDirection: 'asc' | 'desc';
   sortField: keyof TableRowData;
+  tapestryScale: number;
 }
 
 interface PreviewPanelPreferencesDefaults {
@@ -166,6 +169,21 @@ function sanitizePageSize(value: StoredPreferences['pageSize']): StoredPreferenc
   return;
 }
 
+function sanitizeTapestryScale(
+  value: StoredPreferences['tapestryScale']
+): StoredPreferences['tapestryScale'] {
+  if (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= MIN_TAPESTRY_SCALE &&
+    value <= MAX_TAPESTRY_SCALE
+  ) {
+    return value;
+  }
+  return;
+}
+
 function sanitizeFooterMode(
   value: StoredPreferences['footerMode']
 ): StoredPreferences['footerMode'] {
@@ -218,6 +236,10 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
   if (pageSize !== undefined) {
     sanitized.pageSize = pageSize;
   }
+  const tapestryScale = sanitizeTapestryScale(stored.tapestryScale);
+  if (tapestryScale !== undefined) {
+    sanitized.tapestryScale = tapestryScale;
+  }
   const footerMode = sanitizeFooterMode(stored.footerMode);
   const footerHeight = sanitizeFooterHeight(stored.footerHeight);
   if (footerHeight !== undefined) {
@@ -245,6 +267,7 @@ interface PreviewPanelPreferencesSetters {
   setPageSize: Dispatch<SetStateAction<number>>;
   setSortDirection: Dispatch<SetStateAction<'asc' | 'desc'>>;
   setSortField: Dispatch<SetStateAction<keyof TableRowData>>;
+  setTapestryScale: Dispatch<SetStateAction<number>>;
 }
 
 export function usePreviewPanelPreferences(
@@ -285,6 +308,9 @@ export function usePreviewPanelPreferences(
   const [footerMode, setFooterMode] = useState<PreviewFooterMode>(() =>
     getStoredValue(storedPreferences, 'footerMode', defaults.footerMode)
   );
+  const [tapestryScale, setTapestryScale] = useState<number>(() =>
+    getStoredValue(storedPreferences, 'tapestryScale', DEFAULT_TAPESTRY_SCALE)
+  );
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -298,6 +324,7 @@ export function usePreviewPanelPreferences(
           pageSize,
           sortDirection,
           sortField,
+          tapestryScale,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
@@ -324,6 +351,7 @@ export function usePreviewPanelPreferences(
     activeTab,
     pageSize,
     footerMode,
+    tapestryScale,
   ]);
 
   return {
@@ -341,7 +369,9 @@ export function usePreviewPanelPreferences(
     setPageSize,
     setSortDirection,
     setSortField,
+    setTapestryScale,
     sortDirection,
     sortField,
+    tapestryScale,
   };
 }

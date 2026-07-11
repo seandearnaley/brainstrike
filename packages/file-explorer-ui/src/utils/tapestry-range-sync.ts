@@ -37,6 +37,58 @@ function clampRangesToTotal(
   return { changed, ranges: nextRanges };
 }
 
+export function clearUserOwnedTapestryRanges(
+  prev: TapestryRangeMap,
+  fileIds: readonly string[]
+): TapestryRangeMap {
+  let next: TapestryRangeMap | undefined;
+
+  for (const fileId of fileIds) {
+    const ranges = prev[fileId];
+    if (!ranges) {
+      continue;
+    }
+
+    const managedRanges = ranges.filter((range) => range.origin === 'search');
+    if (managedRanges.length === ranges.length) {
+      continue;
+    }
+
+    next ??= { ...prev };
+    if (managedRanges.length === 0) {
+      delete next[fileId];
+    } else {
+      next[fileId] = managedRanges;
+    }
+  }
+
+  return next ?? prev;
+}
+
+/**
+ * Applies a Tapestry-authored manual range proposal without trusting its
+ * potentially stale snapshot of Search-managed ranges. Search remains the
+ * sole owner of derived ranges; the interaction layer owns only manual ones.
+ */
+export function reconcileUserOwnedTapestryRanges(
+  prev: TapestryRangeMap,
+  fileId: string,
+  proposedRanges: readonly TapestryRange[]
+): TapestryRangeMap {
+  const managedRanges = (prev[fileId] ?? []).filter((range) => range.origin === 'search');
+  const manualRanges = proposedRanges.filter((range) => range.origin !== 'search');
+  const nextRanges = [...managedRanges, ...manualRanges];
+  const next = { ...prev };
+
+  if (nextRanges.length === 0) {
+    delete next[fileId];
+    return next;
+  }
+
+  next[fileId] = nextRanges;
+  return next;
+}
+
 export function syncTapestryRanges(args: {
   prev: TapestryRangeMap;
   bases: Map<string, ReturnType<typeof buildTapestryFileBase>>;

@@ -84,6 +84,7 @@ describe('usePreviewPanelPreferences', () => {
         pageSize: 100,
         sortDirection: 'desc',
         sortField: 'tokens',
+        tapestryScale: 7,
       })
     );
 
@@ -95,12 +96,14 @@ describe('usePreviewPanelPreferences', () => {
     expect(result.current.pageSize).toBe(100);
     expect(result.current.sortDirection).toBe('desc');
     expect(result.current.sortField).toBe('tokens');
+    expect(result.current.tapestryScale).toBe(7);
 
     act(() => {
       result.current.setActiveTab('table');
       result.current.setCollapsedGroups(new Set(['group-b']));
       result.current.setGroupingConfig('rootFolder');
       result.current.setPageSize(250);
+      result.current.setTapestryScale(2);
     });
 
     await act(async () => {
@@ -114,7 +117,34 @@ describe('usePreviewPanelPreferences', () => {
       pageSize: 250,
       sortDirection: 'desc',
       sortField: 'tokens',
+      tapestryScale: 2,
     });
+  });
+
+  it('rejects an out-of-range stored Tapestry scale', () => {
+    localStorage.setItem(
+      'previewPanelPreferences.v1',
+      JSON.stringify({
+        tapestryScale: 99,
+      })
+    );
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.tapestryScale).toBe(4);
+  });
+
+  it('rejects a fractional stored Tapestry scale', () => {
+    localStorage.setItem(
+      'previewPanelPreferences.v1',
+      JSON.stringify({
+        tapestryScale: 3.5,
+      })
+    );
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.tapestryScale).toBe(4);
   });
 
   it('tolerates a stale useTapestryRangesForContextOutput field in a persisted blob (no migration mechanism, field silently ignored)', async () => {

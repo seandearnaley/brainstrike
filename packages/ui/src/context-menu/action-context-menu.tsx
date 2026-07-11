@@ -93,9 +93,17 @@ export interface ActionContextMenuProps {
    */
   controller: ContextMenuTargetController;
   localActions?: readonly AnyContextAction[];
+  onActionStart?: ((actionId: string, target: ContextTarget) => void) | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
 }
 
-export function ActionContextMenu({ controller, localActions, children }: ActionContextMenuProps) {
+export function ActionContextMenu({
+  controller,
+  localActions,
+  onActionStart,
+  onOpenChange,
+  children,
+}: ActionContextMenuProps) {
   const registry = useActionRegistry();
   const { target, targetRef } = controller;
   const groups = target ? registry.actionsFor(target, localActions) : [];
@@ -137,12 +145,13 @@ export function ActionContextMenu({ controller, localActions, children }: Action
         });
       };
       try {
+        onActionStart?.(action.id, currentTarget);
         void action.run(currentTarget, registry.services).then(onOutcome).catch(onUnexpected);
       } catch (error) {
         onUnexpected(error);
       }
     },
-    [registry.services]
+    [onActionStart, registry.services]
   );
 
   const handleWrapperContextMenu = useCallback(
@@ -167,7 +176,7 @@ export function ActionContextMenu({ controller, localActions, children }: Action
   // capture-reset + row-claim protocol never runs on touch — the menu can open
   // against a stale (or null) target there.
   return (
-    <ContextMenu modal={false}>
+    <ContextMenu modal={false} {...(onOpenChange ? { onOpenChange } : {})}>
       <ContextMenuTrigger asChild>
         {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: layout-neutral trigger wrapper; the handler only vetoes Radix's open for unclaimed right-clicks */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: see above — `display: contents` wrapper, not an interactive control */}

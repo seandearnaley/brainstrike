@@ -1,6 +1,13 @@
 import { TAPESTRY_COLOR_HEX, TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generateColor, generateMockFiles, generateStructure } from '../utils';
+import {
+  buildTapestryStructureSegments,
+  generateColor,
+  generateMockFiles,
+  generateStructure,
+  getTapestryGalleryMetrics,
+  getTapestryRenderMetrics,
+} from '../utils';
 
 const stubRandomUUIDs = () => {
   let counter = 0;
@@ -30,6 +37,53 @@ afterEach(() => {
 });
 
 describe('tapestry utils', () => {
+  it('bounds very large document overviews while preserving line mapping', () => {
+    const metrics = getTapestryRenderMetrics(10_000, 4);
+
+    expect(metrics.totalHeight).toBe(640);
+    expect(metrics.lineScale).toBeCloseTo(0.064);
+  });
+
+  it('maps the gallery scale to coordinated card width, line density, and zoom', () => {
+    expect(getTapestryGalleryMetrics(0)).toEqual({
+      cardMinWidth: 112,
+      gap: 8,
+      lineDensity: 1,
+      zoomPercent: 50,
+    });
+    expect(getTapestryGalleryMetrics(4)).toEqual({
+      cardMinWidth: 184,
+      gap: 12,
+      lineDensity: 4,
+      zoomPercent: 100,
+    });
+    expect(getTapestryGalleryMetrics(8)).toEqual({
+      cardMinWidth: 256,
+      gap: 16,
+      lineDensity: 7,
+      zoomPercent: 150,
+    });
+  });
+
+  it('summarizes large structures into a bounded set of ordered segments', () => {
+    const structure = Array.from({ length: 10_000 }, (_, index) => ({
+      indent: index % 4,
+      isEmpty: index % 11 === 0,
+      width: (index % 90) + 10,
+    }));
+
+    const segments = buildTapestryStructureSegments(structure);
+
+    expect(segments.length).toBeLessThanOrEqual(320);
+    expect(segments[0]).toMatchObject({ startLine: 0 });
+    expect(segments.at(-1)?.endLine).toBe(10_000);
+    expect(
+      segments.every((segment, index) =>
+        index === 0 ? true : segment.startLine >= (segments[index - 1]?.endLine ?? 0)
+      )
+    ).toBe(true);
+  });
+
   it('generates structure with empty lines when randomness is high', () => {
     stubRandom(0.95);
 

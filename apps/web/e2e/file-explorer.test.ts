@@ -205,9 +205,9 @@ test.describe('File Explorer', () => {
       await expect(page.getByText(/current directory/i)).toHaveCount(0);
     });
 
-    test('uses the same preview toolbar pattern across table and tapestry views', async ({
-      page,
-    }) => {
+    test('uses the table toolbar and a compact spatial dock for tapestry', {
+      tag: '@web-smoke',
+    }, async ({ page }) => {
       await explorer.selectRoot();
 
       await explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' }).click({
@@ -229,13 +229,17 @@ test.describe('File Explorer', () => {
       ).toBeVisible();
 
       await page.getByRole('tab', { name: 'Tapestry View' }).click();
+      await expect(previewToolbar).toHaveCount(0);
+
+      const tapestryDock = page.getByTestId('tapestry-command-dock');
+      await expect(tapestryDock).toBeVisible();
+      await expect(tapestryDock.getByRole('slider', { name: 'Gallery scale' })).toBeVisible();
+      await expect(tapestryDock.getByRole('button', { name: 'Toggle code lens' })).toBeVisible();
+      await tapestryDock.getByRole('button', { name: 'View options' }).click();
       await expect(
-        previewToolbar.getByRole('button', { name: 'Toggle multi-select' })
+        page.getByRole('menuitemcheckbox', { name: 'File selection controls' })
       ).toBeVisible();
-      await expect(previewToolbar.getByRole('button', { name: 'Group by' })).toBeVisible();
-      await expect(
-        previewToolbar.getByRole('button', { name: 'Select visible columns' })
-      ).toHaveCount(0);
+      await expect(page.getByRole('menuitemradio', { name: 'By Directory' })).toBeVisible();
       await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
     });
 
