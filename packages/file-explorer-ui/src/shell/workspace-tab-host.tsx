@@ -638,7 +638,7 @@ function WorkspaceTabStrip({
         },
       }),
     ];
-  }, [onCloseAllFileTabs, onCloseFileTab, onCloseFileTabsToRight, onCloseOtherFileTabs, tabs]);
+  }, [onCloseAllFileTabs, onCloseFileTab, onCloseFileTabsToRight, onCloseOtherFileTabs]);
 
   return (
     <ActionContextMenu controller={contextMenuController} localActions={localActions}>
