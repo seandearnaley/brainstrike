@@ -41,10 +41,16 @@ test.describe('Embedding Worker Telemetry @stateful @web-db-startup', { tag: '@s
 
     const triggerBox = await requireBoundingBox(indexingTrigger);
     const rightSlotBox = await requireBoundingBox(statusBarRight);
-    expect(Math.abs(triggerBox.width - 192)).toBeLessThanOrEqual(1);
+    expect(Math.abs(triggerBox.width - 224)).toBeLessThanOrEqual(1);
+    expect(Math.abs(triggerBox.height - 28)).toBeLessThanOrEqual(1);
     expect(
       Math.abs(triggerBox.x + triggerBox.width - (rightSlotBox.x + rightSlotBox.width))
     ).toBeLessThanOrEqual(1);
+    await expect(indexingTrigger).toHaveJSProperty('scrollHeight', 28);
+    await expect(indexingStatusItem.getByText('Workspace Index', { exact: true })).toHaveCSS(
+      'white-space',
+      'nowrap'
+    );
 
     await indexingTrigger.click();
 
@@ -64,14 +70,27 @@ test.describe('Embedding Worker Telemetry @stateful @web-db-startup', { tag: '@s
     await expect(indexingPopover.getByText('Worker state', { exact: true })).toBeVisible();
 
     await page.keyboard.press('Escape');
+    await page.setViewportSize({ height: 720, width: 800 });
+
+    const mediumTriggerBox = await requireBoundingBox(indexingTrigger);
+    expect(Math.abs(mediumTriggerBox.width - 224)).toBeLessThanOrEqual(1);
+    await expect(indexingStatusItem.getByText('Workspace Index', { exact: true })).toBeVisible();
+
     await page.setViewportSize({ height: 720, width: 320 });
 
     const compactLeftSlotBox = await requireBoundingBox(page.getByTestId('status-bar-left'));
     const compactRightSlotBox = await requireBoundingBox(page.getByTestId('status-bar-right'));
     const compactTriggerBox = await requireBoundingBox(indexingTrigger);
+    const compactDatabaseBox = await requireBoundingBox(
+      page.locator('[data-testid^="status-bar-db-"]').first()
+    );
     expect(compactLeftSlotBox.x + compactLeftSlotBox.width).toBeLessThanOrEqual(
       compactRightSlotBox.x + 1
     );
-    expect(compactTriggerBox.width).toBeLessThanOrEqual(41);
+    expect(compactDatabaseBox.x + compactDatabaseBox.width).toBeLessThanOrEqual(
+      compactLeftSlotBox.x + compactLeftSlotBox.width + 1
+    );
+    expect(compactTriggerBox.width).toBeLessThanOrEqual(29);
+    await expect(indexingStatusItem.getByText('Workspace Index', { exact: true })).toBeHidden();
   });
 });

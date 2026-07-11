@@ -2,7 +2,7 @@
 
 exports[`StatusBarItem > Snapshots > renders connected status 1`] = `
 <span
-  class="flex items-center gap-1 text-green-600"
+  class="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1.5 leading-none text-emerald-700 dark:text-emerald-300"
   data-testid="db-status"
 >
   <svg
@@ -31,7 +31,9 @@ exports[`StatusBarItem > Snapshots > renders connected status 1`] = `
       d="M3 12A9 3 0 0 0 21 12"
     />
   </svg>
-  <span>
+  <span
+    class="min-w-0 flex-1 truncate whitespace-nowrap"
+  >
     Storage: IPC
   </span>
 </span>
@@ -39,7 +41,7 @@ exports[`StatusBarItem > Snapshots > renders connected status 1`] = `
 
 exports[`StatusBarItem > Snapshots > renders disconnected status 1`] = `
 <span
-  class="flex items-center gap-1 text-red-600"
+  class="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1.5 leading-none text-red-700 dark:text-red-300"
   data-testid="db-status"
 >
   <svg
@@ -68,7 +70,9 @@ exports[`StatusBarItem > Snapshots > renders disconnected status 1`] = `
       d="M3 12A9 3 0 0 0 21 12"
     />
   </svg>
-  <span>
+  <span
+    class="min-w-0 flex-1 truncate whitespace-nowrap"
+  >
     Storage: Error
   </span>
 </span>
@@ -76,7 +80,7 @@ exports[`StatusBarItem > Snapshots > renders disconnected status 1`] = `
 
 exports[`StatusBarItem > Snapshots > renders loading status 1`] = `
 <span
-  class="flex items-center gap-1 text-muted-foreground"
+  class="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1.5 leading-none text-muted-foreground"
   data-testid="db-status"
 >
   <svg
@@ -105,10 +109,14 @@ exports[`StatusBarItem > Snapshots > renders loading status 1`] = `
       d="M3 12A9 3 0 0 0 21 12"
     />
   </svg>
-  <span>
+  <span
+    class="min-w-0 flex-1 truncate whitespace-nowrap"
+  >
     Storage:
   </span>
-  <span>
+  <span
+    class="shrink-0 whitespace-nowrap tabular-nums"
+  >
     Connecting...
   </span>
 </span>

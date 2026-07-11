@@ -29,17 +29,20 @@ describe('StatusBarItem', () => {
 
   it('applies connected status styling', () => {
     render(<StatusBarItem label="Connected" status="connected" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-green-600');
+    expect(screen.getByTestId('test-item')).toHaveClass(
+      'text-emerald-700',
+      'dark:text-emerald-300'
+    );
   });
 
   it('applies disconnected status styling', () => {
     render(<StatusBarItem label="Disconnected" status="disconnected" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-red-600');
+    expect(screen.getByTestId('test-item')).toHaveClass('text-red-700', 'dark:text-red-300');
   });
 
   it('applies warning status styling', () => {
     render(<StatusBarItem label="Warning" status="warning" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-yellow-600');
+    expect(screen.getByTestId('test-item')).toHaveClass('text-amber-700', 'dark:text-amber-300');
   });
 
   it('animates only the loading icon and respects reduced motion', () => {
@@ -52,7 +55,33 @@ describe('StatusBarItem', () => {
 
   it('defaults to connected status when not specified', () => {
     render(<StatusBarItem label="Default" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-green-600');
+    expect(screen.getByTestId('test-item')).toHaveClass(
+      'text-emerald-700',
+      'dark:text-emerald-300'
+    );
+  });
+
+  it('keeps compact labels and values on one truncatable line', () => {
+    render(<StatusBarItem label="Workspace Storage" testId="test-item" value="Connecting..." />);
+
+    expect(screen.getByTestId('test-item')).toHaveClass(
+      'h-full',
+      'min-w-0',
+      'overflow-hidden',
+      'whitespace-nowrap',
+      'leading-none'
+    );
+    expect(screen.getByText('Workspace Storage')).toHaveClass(
+      'min-w-0',
+      'flex-1',
+      'truncate',
+      'whitespace-nowrap'
+    );
+    expect(screen.getByText('Connecting...')).toHaveClass(
+      'shrink-0',
+      'whitespace-nowrap',
+      'tabular-nums'
+    );
   });
 
   it('applies custom className', () => {

@@ -28,29 +28,29 @@ export function StatusBar({
   return (
     <footer
       className={cn(
-        'grid h-6 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-2',
-        'border-border border-t bg-muted/50',
-        'text-muted-foreground text-xs',
+        'grid h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-1.5',
+        'border-border/80 border-t bg-muted/70',
+        'text-[11px] text-muted-foreground leading-none',
         className
       )}
       data-testid={testId}
     >
       <div
-        className="col-start-1 flex w-full min-w-0 items-center gap-2 justify-self-start overflow-hidden"
+        className="col-start-1 flex h-full w-full min-w-0 items-center gap-1 justify-self-start overflow-hidden whitespace-nowrap"
         data-testid={`${testId}-left`}
       >
         {leftContent}
       </div>
       {centerContent && (
         <div
-          className="col-start-2 flex min-w-0 items-center gap-2 justify-self-center"
+          className="col-start-2 flex h-full min-w-0 items-center gap-1 justify-self-center overflow-hidden whitespace-nowrap"
           data-testid={`${testId}-center`}
         >
           {centerContent}
         </div>
       )}
       <div
-        className="col-start-3 flex w-full min-w-0 items-center justify-end gap-2 justify-self-end overflow-hidden"
+        className="col-start-3 flex h-full w-full min-w-0 items-center justify-end gap-1 justify-self-end overflow-hidden whitespace-nowrap"
         data-testid={`${testId}-right`}
       >
         {rightContent}

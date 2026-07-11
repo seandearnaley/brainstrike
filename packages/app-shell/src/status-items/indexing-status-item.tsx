@@ -26,7 +26,6 @@ import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { CirclePause, Database, Loader2, TriangleAlert } from 'lucide-react';
 import { useId } from 'react';
 
-const STATUS_VALUE_WIDTH_CLASS = 'md:w-20';
 const EMPTY_METRIC_VALUE = '—';
 
 const selectCollectionSyncStatus = (
@@ -466,18 +465,21 @@ export function IndexingStatusItem() {
       <PopoverTrigger asChild>
         <button
           aria-label={`Workspace Index status: ${displayStatus.value}. Open indexing activity`}
-          className="flex h-6 w-10 shrink-0 cursor-pointer items-center rounded px-1.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset md:w-48"
+          className="flex h-7 w-7 shrink-0 cursor-pointer items-center overflow-hidden whitespace-nowrap rounded-sm px-1.5 text-left transition-[background-color,color] duration-150 hover:bg-accent/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset md:w-56 md:px-2"
           data-testid="indexing-status-trigger"
           type="button"
         >
           <span
-            className={`flex w-full items-center gap-1.5 ${displayStatus.toneClassName}`}
+            aria-hidden="true"
+            className={`flex w-full min-w-0 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap md:justify-start ${displayStatus.toneClassName}`}
             data-testid="indexing-status-item"
           >
             <StatusIcon displayStatus={displayStatus} />
-            <span className="sr-only min-w-0 flex-1 truncate md:not-sr-only">Workspace Index</span>
+            <span className="hidden min-w-0 flex-1 truncate whitespace-nowrap md:block">
+              Workspace Index
+            </span>
             <span
-              className={`sr-only shrink-0 truncate text-right font-medium tabular-nums md:not-sr-only ${STATUS_VALUE_WIDTH_CLASS}`}
+              className="hidden w-20 shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-right font-medium tabular-nums md:block"
               data-testid="indexing-status-value"
             >
               {displayStatus.value}
