@@ -1100,7 +1100,7 @@ extension control file" error on that path only:
 
 - `vector` (pgvector, from `@electric-sql/pglite-pgvector`)
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
-- `pg_textsearch` (BM25 index AM, from `@electric-sql/pglite-pg_textsearch` — wired ahead of the planned BM25 lexical arm for hybrid search; no migration consumes it yet. Spike proof: `packages/db/__tests__/search-bm25-textsearch-spike.test.ts` — full migration suite passes with it loaded, a bm25 index builds on `file_chunks.content`, and on the IDF-discriminating corpus BM25 ranked the relevant chunk 1/12 where ts_rank ranked it 12/12)
+- `pg_textsearch` (BM25 index AM, from `@electric-sql/pglite-pg_textsearch` — CONSUMED by migration 053 (`idx_file_chunks_content_bm25`), which powers the BM25 lexical arm of hybrid search; the ranking expression references the index BY NAME via `to_bm25query`, so a construction site missing this module breaks BOTH the migration and every fullTextSearch call. Proofs: `search-bm25-textsearch-spike.test.ts` (BM25 1/12 vs ts_rank 12/12 on the IDF-discriminating corpus) + `search-bm25-empirical-gate.test.ts` (production-shape filtered plan, websearch fuzz, post-build index maintenance, default_limit ordering, 511 ms index build at 50k chunks))
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
 Construction sites (keep in sync when adding extensions or new sites):
@@ -1196,7 +1196,14 @@ reopen, strict post-ready writes, torn-store recovery),
 The assistant's search verbs, in the order the default instructions present them:
 1. `brainstrike.grepSearch` — FIRST for exact strings, identifiers, error messages. Two-phase: trigram-indexed ILIKE/regex-literal prefilter (`FileChunkRepository.findGrepCandidates`) + authoritative JS line matcher (`GrepSearchService` in packages/db/src/search/). Regex patterns with no extractable ≥3-char literal fall back to a bounded scan surfaced via `scanLimited` (never silent). Desktop-only wiring in apps/desktop/src/assistant-server/grep-search-tool.ts. Progressive disclosure: default `outputMode: 'files'` returns per-path match counts (cheap survey); `outputMode: 'content'` returns line matches with context; both support `offset` paging.
 2. `brainstrike.queryEmbeddingSpace` — semantic search when exact wording is unknown.
-3. Hybrid FTS+vector RRF fusion (`HybridSearchService`) backs UI search paths.
+3. Hybrid FTS+vector RRF fusion (`HybridSearchService`) backs UI search paths. The
+   lexical arm is MATCH-PRESERVING BM25 (migration 053): matching stays tsvector
+   (`content_tsvector @@ tsqueryFunc(...)`, so plain/websearch/phrase semantics are
+   unchanged) while ORDERING is `-(content <@> to_bm25query(q, 'idx_file_chunks_content_bm25'))`
+   — negated so `FTSSearchResult.rank`/`ftsRank` stay higher-is-better (unbounded,
+   corpus-dependent; ts_rank-era fixed thresholds do not transfer). `, id` tiebreaks
+   keep ordering deterministic (BM25 ties are common). `rankNormalization` is inert.
+   RRF fuses rank POSITIONS, so the fusion layer is unchanged.
 
 Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIVE_TOOL_RESULT_TOKEN_BUDGET` 2750, guard `MAX_TOOL_RESULT_TOKENS` 3000 in packages/agent/src/stream/tool-output-limits.ts) and enforced deterministically on serialized chars at 4 chars/token (mirrors `countTokensHeuristic`). Native tools self-bound their result lists via `fitItemsToCharBudget` and return SUCCESSFUL partial results with `truncated: true`, totals, and an actionable `hint` (offset/filters) built INSIDE the budget-fitted candidate — never a size error. The transport guard (`boundToolOutputForModel`) is a backstop: oversized collection-shaped outputs (matches/entries/results/items/files/chunks/rows) are structurally trimmed to fit with the same truncated+hint contract; only opaque non-collection outputs (e.g. MCP strings) still produce the `tool_result_too_large` error+preview, reported in ~tokens. Do not reintroduce hard size failures for native tools. `listWorkspaceContext` is concise by default (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 

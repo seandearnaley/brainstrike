@@ -286,7 +286,7 @@ export interface SemanticSearchResult {
   fileRecordId: string;
   /** File size in bytes */
   fileSize?: number;
-  /** Full-text search rank score (if available) */
+  /** Full-text search rank score (if available): negated BM25, higher = better, unbounded */
   ftsRank?: number;
   /** Headline snippet with highlighted matches from FTS */
   headline?: string;

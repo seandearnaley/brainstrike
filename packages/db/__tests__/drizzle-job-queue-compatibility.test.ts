@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
@@ -9,7 +10,7 @@ describe('Drizzle schema JobQueue compatibility', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = new PGlite({ extensions: { pg_trgm: pgTrgm, vector } });
+    db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
     const result = await runMigrations(db);
     expect(result.success).toBe(true);
   });
