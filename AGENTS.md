@@ -674,7 +674,12 @@ server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
   `window.hooks.resolveTrustedRootIds(mountedPaths)` (same main DB-id seam) and
   attests NOTHING until resolved / if the resolver is absent (fail closed). A
   disconnected root's grant is therefore never presented to the server → its hooks
-  fail closed even though the DB row stays `status='live'`.
+  fail closed even though the DB row stays `status='live'`. NOTE: the
+  disconnect-severs property is RENDERER-ENFORCED (via this attestation scoping) —
+  the server keys off ALL `status='live'` DB rows and nothing sets a row non-live
+  on disconnect. This is sound under the app's same-process trust model plus the
+  server's authoritative disk re-hash: a renderer that skips scoping can at most
+  re-run byte-identical already-approved hooks, never new content.
 - The store bumped to v2: pre-v2 adapter-keyed approvals are DROPPED at migration
   (unremappable without DB access → re-approval is the safe direction; mirrors the
   permission-policy v2 security bump). Factory reset clears the store unchanged.

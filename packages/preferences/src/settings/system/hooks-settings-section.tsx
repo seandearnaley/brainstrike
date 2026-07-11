@@ -4,8 +4,9 @@
  * Lists the global hooks config path and each mounted root's project-hook
  * status (trusted / untrusted / changed / parse-error), with Approve (pinned to
  * the file's current SHA-256) and Revoke actions. The renderer only ATTESTS
- * approvals; the assistant server re-hashes disk on every request. Full editing
- * of `hooks.json` is a follow-up (view + approve only in v1).
+ * approvals; the assistant server re-hashes disk on every request. Approval is
+ * SHA-256-only in v1 — the panel does not yet render the file's contents; an
+ * in-panel content view and full `hooks.json` editing are documented follow-ups.
  */
 
 import {
@@ -17,8 +18,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useState } from 'react';
 import { hookTrustSelectors, useHookTrustStore } from '../../stores/hook-trust-store';
+
+const logger = createLogger('HooksSettings');
 
 export interface HookReviewRoot {
   readonly absPath: string;
@@ -155,6 +159,12 @@ export function HooksSettingsSection({
           }
         })
         .catch((error: unknown) => {
+          // A wedged/broken bridge is hard to debug from the "Unavailable" badge
+          // alone — log the transport failure alongside the honest UI surfacing.
+          logger.warn('Failed to read project hooks for review', {
+            error: error instanceof Error ? error.message : String(error),
+            rootId: root.rootId,
+          });
           if (!ignore) {
             setReviews((prev) => ({
               ...prev,
