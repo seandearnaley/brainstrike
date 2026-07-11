@@ -20,13 +20,13 @@ import {
   toTapestryDocumentTarget,
   toTapestryRangeTarget,
 } from './tapestry-context-actions';
-import {
-  getTapestryLensLineExcerpt,
-  TapestryLens,
-  type TapestryLensPosition,
-} from './tapestry-lens';
+import { TapestryLens, type TapestryLensPosition } from './tapestry-lens';
 import type { FileTapestry, InteractionMode, TapestryRange } from './types';
-import { buildTapestryStructureSegments, getTapestryRenderMetrics } from './utils';
+import {
+  buildTapestryStructureSegments,
+  getTapestryLensLineExcerpt,
+  getTapestryRenderMetrics,
+} from './utils';
 
 interface MinimapProps {
   activePinnedLensFileId?: string | null;

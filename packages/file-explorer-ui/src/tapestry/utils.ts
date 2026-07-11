@@ -67,6 +67,12 @@ const COMMENTS = [
 // first 8 names are the auto-assign palette; `gray` (the de-emphasis color) is
 // intentionally excluded from automatic assignment.
 const COLORS = TAPESTRY_COLOR_NAMES.slice(0, 8).map((name) => TAPESTRY_COLOR_HEX[name]);
+const MAX_ACCESSIBLE_LINE_EXCERPT = 80;
+
+export const getTapestryLensLineExcerpt = (line: string): string => {
+  const normalized = line.trim().replace(/\s+/g, ' ');
+  return (normalized || 'Empty line').slice(0, MAX_ACCESSIBLE_LINE_EXCERPT);
+};
 
 const getRandomItem = <T>(items: readonly T[]): T => {
   if (items.length === 0) {

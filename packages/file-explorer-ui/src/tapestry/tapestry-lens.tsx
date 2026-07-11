@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { FileTapestry } from './types';
+import { getTapestryLensLineExcerpt } from './utils';
 
 export interface TapestryLensPosition {
   clientX: number;
@@ -29,7 +30,6 @@ const ROVING_LENS_HEIGHT = 232;
 const PINNED_LENS_HEIGHT = 248;
 const LENS_POINTER_GAP = 20;
 const LENS_VIEWPORT_GUTTER = 12;
-const MAX_ACCESSIBLE_LINE_EXCERPT = 80;
 const LENS_LAYOUT = {
   pinned: { height: PINNED_LENS_HEIGHT, lineCount: PINNED_LINE_COUNT },
   roving: { height: ROVING_LENS_HEIGHT, lineCount: ROVING_LINE_COUNT },
@@ -37,11 +37,6 @@ const LENS_LAYOUT = {
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
-
-export const getTapestryLensLineExcerpt = (line: string): string => {
-  const normalized = line.trim().replace(/\s+/g, ' ');
-  return (normalized || 'Empty line').slice(0, MAX_ACCESSIBLE_LINE_EXCERPT);
-};
 
 const getLensLineActionLabel = (line: string, lineIndex: number, isSelectable: boolean): string => {
   const excerpt = getTapestryLensLineExcerpt(line);
