@@ -622,7 +622,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // flags, and folder-click selection must all come from the VISIBLE set.
     // Null when no filter is active (the display tree covers the whole
     // normalized tree) — raw O(1) maps apply then.
+    const normalizedTreeVersion = normalizedTreeContext?.version;
     const visibleAggregates = useMemo<VisibleDirectoryAggregates | null>(() => {
+      // The normalized tree lives in a mutable ref; `normalizedTreeVersion` is
+      // its only change signal, so reading it here is what keys recomputation.
+      void normalizedTreeVersion;
       if (!(normalizedTreeContext && filteredPathSet)) {
         return null;
       }
@@ -633,8 +637,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         normalizedTreeContext.normalizedTreeRef.current,
         filteredPathSet
       );
-      // normalizedTreeContext.version invalidates when the ref's tree mutates.
-    }, [filteredPathSet, normalizedTreeContext, normalizedTreeContext?.version]);
+    }, [filteredPathSet, normalizedTreeContext, normalizedTreeVersion]);
 
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.

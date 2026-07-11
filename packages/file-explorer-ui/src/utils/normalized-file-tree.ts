@@ -690,7 +690,7 @@ export function buildVisibleDirectoryAggregates(
     }
     // Ensure every visible directory has an entry (0 = known-empty visible).
     if (!fileCountByPath.has(path)) {
-      fileCountByPath.set(path, fileCountByPath.get(path) ?? 0);
+      fileCountByPath.set(path, 0);
     }
     if (node.loadState !== 'loaded') {
       incompleteDirCountByPath.set(path, (incompleteDirCountByPath.get(path) ?? 0) + 1);
