@@ -114,3 +114,7 @@
 ## 2026-07-09 - Chunk language detection scans final extension
 **Learning:** `packages/file-import/src/embedding-context.ts` detects a file's language during text-splitter chunking decisions. The old `filePath.split('.').pop()` plus per-call language map allocation measured 5299.36ms over 100k representative paths x 40 rounds on Node 24.16.0; `lastIndexOf('.')` plus one suffix slice and a hoisted map measured 235.67ms with identical checksum.
 **Action:** Keep chunk language detection on final-dot scanning and a module-scope language map instead of splitting the full path or rebuilding the map per file.
+
+## 2026-07-11 - Workspace symbol ranking compiles matchers once
+**Learning:** `apps/desktop/src/assistant-server/find-workspace-symbol.ts` ranks every matching line in a workspace-symbol search. Recompiling up to three query-specific regular expressions per matching line measured 267.38ms over 100k representative lines x 40 rounds on Node 24.16.0; compiling the three matchers once per search measured 96.15ms with identical ranking checksums.
+**Action:** Keep workspace-symbol declaration matchers query-scoped and lazily compiled on the first matching line; do not move regular-expression construction back into per-line scoring.
