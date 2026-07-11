@@ -272,6 +272,9 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
             className="h-4 w-4 animate-spin text-blue-500"
           />
         ) : (
+          // No DOM id: the same path renders in multiple tree surfaces
+          // (panel + preview/dialog) and across roots, so a path-derived id
+          // produces duplicate-id documents; aria-label carries the name.
           <LightweightCheckbox
             aria-label={`Select ${fileNode.name}`}
             checked={selectionState.checkboxState}
@@ -280,7 +283,6 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
               selectionState.wouldExceedLimit ||
               (isDirectorySelectionLocked && fileNode.type === 'directory')
             }
-            id={fileNode.path}
             onCheckedChange={() => onSelectionChange(rowData)}
           />
         )}
@@ -816,7 +818,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           selectionModel,
         });
 
-        if (selectionState.checkboxState !== false && selectedDescendantPaths.length > 0) {
+        // Mixed-parent click policy (decision D1, docs/explorer-tristate-spike
+        // -2026-07-11.md §5): only a fully CHECKED folder deselects on click.
+        // An indeterminate folder click COMPLETES the selection — the native-
+        // checkbox and file-picker idiom — by falling through to the add path
+        // (or the recursive selector when the subtree still needs loading).
+        // The mutation resolver still deselects when nothing remains to add.
+        if (selectionState.checkboxState === true && selectedDescendantPaths.length > 0) {
           removeMultipleSelectedFiles(folderId, selectedDescendantPaths);
           return;
         }
