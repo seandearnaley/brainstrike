@@ -66,29 +66,57 @@ interface RankedRow {
 
 describe('pg_textsearch BM25 spike (PGlite 0.5.4 / PG18)', () => {
   let db: PGlite;
+  let migrationResult: Awaited<ReturnType<typeof runMigrations>>;
 
+  // ALL shared setup lives here so each `it` is self-contained and the suite
+  // survives `vitest -t <name>` filtering / order shuffling: migrations,
+  // CREATE EXTENSION, corpus seed, and the bm25 index build.
   beforeAll(async () => {
     db = new PGlite({
       extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
     });
+    migrationResult = await runMigrations(db, { enableVector: true });
+    if (!migrationResult.success) {
+      throw new Error(`migrations failed: ${migrationResult.error}`);
+    }
+    await db.exec('CREATE EXTENSION IF NOT EXISTS pg_textsearch');
+
+    const now = new Date().toISOString();
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, created_at, updated_at)
+       VALUES ('spike-file', 'spike.md', '/spike.md', 1, $1, $1)`,
+      [now]
+    );
+    const insertChunk = async (id: string, index: number, content: string): Promise<void> => {
+      await db.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, created_at, updated_at)
+         VALUES ($1, 'spike-file', $2, $3, $4, $5, $5)`,
+        [id, index, content, `hash-${id}`, now]
+      );
+    };
+    await insertChunk(RARE_DOC_ID, 0, RARE_DOC);
+    for (let i = 0; i < NOISE_DOC_COUNT; i++) {
+      await insertChunk(`chunk-noise-${i}`, i + 1, buildNoiseDoc(i));
+    }
+
+    // The migrated table already carries the STORED generated tsvector column
+    // (migration 034) and its GIN index; the bm25 index must coexist with both.
+    await db.exec(
+      `CREATE INDEX file_chunks_bm25_spike_idx ON file_chunks
+         USING bm25 (content) WITH (text_config='english')`
+    );
   }, SPIKE_TIMEOUT_MS);
 
   afterAll(async () => {
     await db.close();
   });
 
-  it(
-    'runs the FULL migration suite with pg_textsearch present in the engine set',
-    async () => {
-      const result = await runMigrations(db, { enableVector: true });
-      expect(result.success).toBe(true);
-      expect(result.error).toBeUndefined();
-    },
-    SPIKE_TIMEOUT_MS
-  );
+  it('runs the FULL migration suite with pg_textsearch present in the engine set', () => {
+    expect(migrationResult.success).toBe(true);
+    expect(migrationResult.error).toBeUndefined();
+  });
 
   it('creates the pg_textsearch extension alongside vector and pg_trgm', async () => {
-    await db.exec('CREATE EXTENSION IF NOT EXISTS pg_textsearch');
     const result = await db.query<{ extname: string }>(
       "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'pg_trgm', 'pg_textsearch') ORDER BY extname"
     );
@@ -103,35 +131,8 @@ describe('pg_textsearch BM25 spike (PGlite 0.5.4 / PG18)', () => {
   });
 
   it(
-    'builds a bm25 index on the REAL migrated file_chunks.content and serves <@> queries',
+    'the bm25 index on the REAL migrated file_chunks.content serves <@> queries',
     async () => {
-      const now = new Date().toISOString();
-      await db.query(
-        `INSERT INTO file_records (id, name, path, size, created_at, updated_at)
-         VALUES ('spike-file', 'spike.md', '/spike.md', 1, $1, $1)`,
-        [now]
-      );
-
-      const insertChunk = async (id: string, index: number, content: string): Promise<void> => {
-        await db.query(
-          `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, created_at, updated_at)
-           VALUES ($1, 'spike-file', $2, $3, $4, $5, $5)`,
-          [id, index, content, `hash-${id}`, now]
-        );
-      };
-
-      await insertChunk(RARE_DOC_ID, 0, RARE_DOC);
-      for (let i = 0; i < NOISE_DOC_COUNT; i++) {
-        await insertChunk(`chunk-noise-${i}`, i + 1, buildNoiseDoc(i));
-      }
-
-      // The migrated table already carries the STORED generated tsvector column
-      // (migration 034) and its GIN index; the bm25 index must coexist with both.
-      await db.exec(
-        `CREATE INDEX file_chunks_bm25_spike_idx ON file_chunks
-           USING bm25 (content) WITH (text_config='english')`
-      );
-
       const result = await db.query<RankedRow>(
         `SELECT id, (content <@> to_bm25query($1, 'file_chunks_bm25_spike_idx'))::float8 AS score
          FROM file_chunks
@@ -189,7 +190,6 @@ describe('pg_textsearch BM25 spike (PGlite 0.5.4 / PG18)', () => {
       expect(tsRankPosition).toBeGreaterThan(1);
 
       // Surface the numbers in the test output for the spike write-up.
-      // eslint-disable-next-line no-console
       console.info(
         `[bm25-spike] rare-doc rank — BM25: ${bm25Position}/12, ts_rank: ${tsRankPosition}/12`
       );
