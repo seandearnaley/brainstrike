@@ -126,16 +126,17 @@ function formatJsoncError(text: string, error: ParseError): string {
   return `${printParseErrorCode(error.error)} at line ${line}, column ${column}${location}`;
 }
 
-interface DuplicateProperty {
+interface PropertyIssue {
   key: string;
+  kind: 'duplicate' | 'forbidden';
   offset: number;
   path: (number | string)[];
 }
 
-function collectDuplicateProperties(node: JsoncNode, duplicates: DuplicateProperty[]): void {
+function collectPropertyIssues(node: JsoncNode, issues: PropertyIssue[]): void {
   if (node.type === 'array') {
     for (const child of node.children ?? []) {
-      collectDuplicateProperties(child, duplicates);
+      collectPropertyIssues(child, issues);
     }
     return;
   }
@@ -151,9 +152,19 @@ function collectDuplicateProperties(node: JsoncNode, duplicates: DuplicateProper
       continue;
     }
 
-    if (propertyNames.has(keyNode.value)) {
-      duplicates.push({
+    if (keyNode.value === '__proto__') {
+      issues.push({
         key: keyNode.value,
+        kind: 'forbidden',
+        offset: keyNode.offset,
+        path: getNodePath(keyNode),
+      });
+    }
+
+    if (propertyNames.has(keyNode.value)) {
+      issues.push({
+        key: keyNode.value,
+        kind: 'duplicate',
         offset: keyNode.offset,
         path: getNodePath(keyNode),
       });
@@ -162,19 +173,29 @@ function collectDuplicateProperties(node: JsoncNode, duplicates: DuplicateProper
     }
 
     if (valueNode) {
-      collectDuplicateProperties(valueNode, duplicates);
+      collectPropertyIssues(valueNode, issues);
     }
   }
 }
 
-function formatDuplicateProperty(text: string, duplicate: DuplicateProperty): string {
-  const { column, line } = getLineAndColumn(text, duplicate.offset);
-  return `duplicate property ${JSON.stringify(duplicate.key)} at line ${line}, column ${column} (${duplicate.path.join('.')})`;
+function formatPropertyIssue(text: string, issue: PropertyIssue): string {
+  const { column, line } = getLineAndColumn(text, issue.offset);
+  return `${issue.kind} property ${JSON.stringify(issue.key)} at line ${line}, column ${column} (${issue.path.join('.')})`;
 }
 
 function formatValidationIssue(issue: z.ZodIssue): string {
   const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
   return `${path}: ${issue.message}`;
+}
+
+function validateMcpConfig(value: unknown): McpConfig {
+  const parsed = McpConfigSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(
+      `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
+    );
+  }
+  return parsed.data;
 }
 
 export function parseMcpConfig(text: string): McpConfig {
@@ -194,25 +215,17 @@ export function parseMcpConfig(text: string): McpConfig {
     throw new Error('invalid_mcp_config: configuration document is empty');
   }
 
-  const duplicateProperties: DuplicateProperty[] = [];
-  collectDuplicateProperties(root, duplicateProperties);
-  if (duplicateProperties.length > 0) {
+  const propertyIssues: PropertyIssue[] = [];
+  collectPropertyIssues(root, propertyIssues);
+  if (propertyIssues.length > 0) {
     throw new Error(
-      `invalid_mcp_config: ${duplicateProperties
-        .map((duplicate) => formatDuplicateProperty(text, duplicate))
+      `invalid_mcp_config: ${propertyIssues
+        .map((issue) => formatPropertyIssue(text, issue))
         .join('; ')}`
     );
   }
 
-  const raw = getNodeValue(root) as unknown;
-  const parsed = McpConfigSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(
-      `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
-    );
-  }
-
-  return parsed.data;
+  return validateMcpConfig(getNodeValue(root));
 }
 
 export interface LoadedMcpConfig {
@@ -512,12 +525,12 @@ async function applyDecryption(
   if (!record) {
     return record;
   }
-  const out: Record<string, string> = {};
+  const out = Object.create(null) as Record<string, string>;
   for (const [k, v] of Object.entries(record)) {
     if (k.endsWith('Encrypted')) {
       const target = k.slice(0, -'Encrypted'.length);
       out[target] = await decryptIfEncrypted(v, contextForKey(target));
-    } else if (!(k in out)) {
+    } else if (!Object.hasOwn(out, k)) {
       out[k] = v;
     }
   }
@@ -544,10 +557,28 @@ export function applyDecryptionToEnv(
   );
 }
 
+function assertNoForbiddenDecryptedProperty(
+  record: Record<string, string>,
+  path: 'env' | 'headers'
+): void {
+  if (Object.hasOwn(record, '__proto__')) {
+    throw new Error(
+      `invalid_mcp_config: ${path}.__proto__: forbidden property "__proto__" after decryption`
+    );
+  }
+}
+
 async function processSseServer(s: Extract<McpServer, { transport: 'sse' }>): Promise<McpServer> {
   const headers = await applyDecryptionToHeaders(s.headers, s.name);
   if (headers !== undefined) {
-    return { ...s, headers };
+    assertNoForbiddenDecryptedProperty(headers, 'headers');
+    const parsed = SseServerSchema.safeParse({ ...s, headers });
+    if (!parsed.success) {
+      throw new Error(
+        `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
+      );
+    }
+    return parsed.data;
   }
   const { headers: _, ...rest } = s;
   return rest;
@@ -558,6 +589,7 @@ async function processStdioServer(
 ): Promise<McpServer> {
   const env = await applyDecryptionToEnv(s.env, s.name);
   if (env !== undefined) {
+    assertNoForbiddenDecryptedProperty(env, 'env');
     return { ...s, env };
   }
   const { env: _, ...rest } = s;

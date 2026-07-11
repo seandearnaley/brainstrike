@@ -16,6 +16,12 @@ type McpAction =
   | { type: 'SUCCESS'; status: McpStatus }
   | { type: 'ERROR'; error: string };
 
+interface McpConfigResult {
+  error?: string;
+  exists: boolean;
+  servers?: McpStatus['servers'];
+}
+
 const initialMcpState: McpState = { error: null, status: null };
 
 function mcpReducer(state: McpState, action: McpAction): McpState {
@@ -25,10 +31,28 @@ function mcpReducer(state: McpState, action: McpAction): McpState {
     case 'SUCCESS':
       return { error: null, status: action.status };
     case 'ERROR':
-      return { error: action.error, status: state.status };
+      return { error: action.error, status: null };
     default:
       return state;
   }
+}
+
+function actionFromConfig(result: McpConfigResult | undefined): McpAction {
+  if (!result) {
+    return { type: 'RESET' };
+  }
+
+  if (result.error !== undefined) {
+    return { error: result.error, type: 'ERROR' };
+  }
+
+  return {
+    status: {
+      exists: Boolean(result.exists),
+      servers: result.servers ?? [],
+    },
+    type: 'SUCCESS',
+  };
 }
 
 export function McpBanner() {
@@ -36,32 +60,20 @@ export function McpBanner() {
 
   useEffect(() => {
     let mounted = true;
-
-    async function fetchMcpConfig() {
-      const res = await window.mcp?.getConfig?.();
-      if (!mounted) {
-        return;
-      }
-
-      if (!res) {
-        dispatch({ type: 'RESET' });
-        return;
-      }
-
-      dispatch({
-        status: {
-          exists: Boolean(res.exists),
-          servers: (res.servers ?? []) as McpStatus['servers'],
-        },
-        type: 'SUCCESS',
-      });
-    }
+    let latestRequest: object | null = null;
 
     async function run() {
+      const currentRequest = {};
+      latestRequest = currentRequest;
       try {
-        await fetchMcpConfig();
+        const res = await window.mcp?.getConfig?.();
+        if (!mounted || currentRequest !== latestRequest) {
+          return;
+        }
+
+        dispatch(actionFromConfig(res));
       } catch (e) {
-        if (!mounted) {
+        if (!mounted || currentRequest !== latestRequest) {
           return;
         }
         dispatch({ error: e instanceof Error ? e.message : String(e), type: 'ERROR' });
@@ -69,12 +81,17 @@ export function McpBanner() {
     }
 
     void run();
+    const unsubscribe = window.mcp?.onToolsUpdated?.(() => {
+      void run();
+    });
+
     return () => {
       mounted = false;
+      unsubscribe?.();
     };
   }, []);
 
-  if (!(status || error)) {
+  if (status === null && error === null) {
     return null;
   }
 
@@ -84,17 +101,21 @@ export function McpBanner() {
   return (
     <div className="flex items-center gap-2 text-[11px]">
       <span className="opacity-70">MCP:</span>
-      {exists ? (
-        <Badge variant="secondary">loaded</Badge>
+      {error === null ? (
+        exists ? (
+          <Badge variant="secondary">loaded</Badge>
+        ) : (
+          <Badge variant="destructive">missing</Badge>
+        )
       ) : (
-        <Badge variant="destructive">missing</Badge>
+        <Badge variant="destructive">error</Badge>
       )}
-      {servers.length > 0 && (
+      {error === null && servers.length > 0 && (
         <span className="opacity-70">
           {servers.length} server{servers.length > 1 ? 's' : ''}
         </span>
       )}
-      {error && <span className="text-destructive">{error}</span>}
+      {error !== null && <span className="text-destructive">{error}</span>}
     </div>
   );
 }

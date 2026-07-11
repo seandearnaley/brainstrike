@@ -382,6 +382,29 @@ describe('mcp-loader comprehensive tests', () => {
       expect(() => parseMcpConfig(json)).toThrow(/invalid_mcp_config:.*servers\.0:.*comand/u);
     });
 
+    it.each([
+      {
+        json: '{"__proto__":{"polluted":true},"servers":[]}',
+        path: '__proto__',
+      },
+      {
+        json: `{"servers":[{"__proto__":{"polluted":true},"command":"node","name":"local","transport":"stdio"}]}`,
+        path: 'servers.0.__proto__',
+      },
+      {
+        json: `{"servers":[{"command":"node","env":{"__proto__":"secret"},"name":"local","transport":"stdio"}]}`,
+        path: 'servers.0.env.__proto__',
+      },
+      {
+        json: `{"servers":[{"headers":{"__proto__":"secret"},"name":"remote","transport":"sse","url":"https://example.com/mcp"}]}`,
+        path: 'servers.0.headers.__proto__',
+      },
+    ])('should reject a __proto__ property at $path', ({ json, path }) => {
+      expect(() => parseMcpConfig(json)).toThrow(
+        new RegExp(`invalid_mcp_config:.*forbidden property "__proto__".*\\(${path}\\)`, 'u')
+      );
+    });
+
     it('should parse JSON with comments', () => {
       const jsonWithComments = `{
         // comment
@@ -505,7 +528,7 @@ describe('mcp-loader comprehensive tests', () => {
       );
     });
 
-    it('should throw when string is unterminated during JSONC stripping', () => {
+    it('should throw when a string is unterminated during JSONC parsing', () => {
       const unterminatedString = `{
         "servers": [
           {
@@ -608,6 +631,21 @@ describe('mcp-loader comprehensive tests', () => {
       const result = await applyDecryptionToHeaders(headers);
       expect(result?.Authorization).toBe('new');
     });
+
+    it('should preserve own keys inherited by ordinary object prototypes', async () => {
+      const headers = Object.assign(Object.create(null) as Record<string, string>, {
+        constructor: 'constructor-value',
+        toString: 'to-string-value',
+      });
+
+      const result = await applyDecryptionToHeaders(headers);
+
+      expect(Object.fromEntries(Object.entries(result ?? {}))).toEqual({
+        constructor: 'constructor-value',
+        toString: 'to-string-value',
+      });
+      expect(Object.getPrototypeOf(result)).toBeNull();
+    });
   });
 
   describe('applyDecryptionToEnv', () => {
@@ -657,6 +695,77 @@ describe('mcp-loader comprehensive tests', () => {
         transport: 'sse',
         url: 'http://example.com',
       });
+    });
+
+    it.each([
+      {
+        expectedError: 'invalid HTTP header name',
+        headers: {
+          Encrypted: Buffer.from('value').toString('base64'),
+        },
+      },
+      {
+        expectedError: 'invalid HTTP header value',
+        headers: {
+          AuthorizationEncrypted: Buffer.from('Bearer token\r\nInjected: true').toString('base64'),
+        },
+      },
+    ])('should reject decrypted SSE headers with $expectedError', async ({
+      expectedError,
+      headers,
+    }) => {
+      const config: McpConfig = {
+        servers: [
+          {
+            headers,
+            name: 'test',
+            transport: 'sse',
+            url: 'http://example.com',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        new RegExp(`invalid_mcp_config:.*${expectedError}`, 'u')
+      );
+    });
+
+    it('should reject a decrypted header name that becomes __proto__', async () => {
+      const headers = Object.create(null) as Record<string, string>;
+      headers.__proto__Encrypted = Buffer.from('value').toString('base64');
+      const config: McpConfig = {
+        servers: [
+          {
+            headers,
+            name: 'test',
+            transport: 'sse',
+            url: 'http://example.com',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*forbidden property "__proto__"/u
+      );
+    });
+
+    it('should reject a decrypted env name that becomes __proto__', async () => {
+      const env = Object.create(null) as Record<string, string>;
+      env.__proto__Encrypted = Buffer.from('value').toString('base64');
+      const config: McpConfig = {
+        servers: [
+          {
+            command: 'node',
+            env,
+            name: 'test',
+            transport: 'stdio',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*forbidden property "__proto__"/u
+      );
     });
 
     it('should decrypt stdio server env', async () => {

@@ -31,6 +31,7 @@ declare global {
     mcp?: {
       getConfig?: () => Promise<
         | {
+            error?: string;
             path: string;
             exists: boolean;
             servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
