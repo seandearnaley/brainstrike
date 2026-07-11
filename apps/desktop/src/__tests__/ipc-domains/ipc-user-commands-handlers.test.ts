@@ -83,6 +83,27 @@ describe('listUserSlashCommands', () => {
     }
   });
 
+  it('does not read through a command directory swapped after validation', () => {
+    tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
+    const workspace = path.join(tempRoot, 'workspace');
+    const commands = path.join(workspace, '.brainstrike', 'commands');
+    const outside = path.join(tempRoot, 'outside');
+    mkdirSync(commands, { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(path.join(commands, 'review.md'), 'Inside workspace');
+    writeFileSync(path.join(outside, 'review.md'), 'Outside workspace');
+
+    const deps = createNodeFsScanDeps();
+    expect(deps.listDir(commands, workspace)?.map((entry) => entry.name)).toEqual(['review.md']);
+    rmSync(commands, { recursive: true });
+    symlinkSync(outside, commands, 'dir');
+
+    expect(deps.readFile(path.join(commands, 'review.md'))).toEqual({
+      ok: false,
+      reason: 'unreadable',
+    });
+  });
+
   it('resolves DB roots (DB roots.id + path) and returns commands + roots', async () => {
     const db = dbReturning([{ displayName: 'Proj', id: 'db-root-1', path: '/proj' }]);
     const fs = fsWith(

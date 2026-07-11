@@ -201,12 +201,8 @@ function collectMarkdownFiles(
         }
         continue;
       }
-      files.push(
-        ...collectMarkdownFiles(baseDir, deps, budget, containmentRoot, [
-          ...relativeSegments,
-          entry.name,
-        ])
-      );
+      const childSegments = [...relativeSegments, entry.name];
+      files.push(...collectMarkdownFiles(baseDir, deps, budget, containmentRoot, childSegments));
       continue;
     }
     if (entry.isFile && MD_EXTENSION.test(entry.name)) {

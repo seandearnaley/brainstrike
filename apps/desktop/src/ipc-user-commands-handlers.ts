@@ -32,9 +32,8 @@ import {
 const logger = createLogger('UserSlashCommands');
 const warnedSymlinkCommandDirectories = new Set<string>();
 
-export function __resetUserCommandsHandlerWarningsForTests(): void {
+export const __resetUserCommandsHandlerWarningsForTests = () =>
   warnedSymlinkCommandDirectories.clear();
-}
 
 export interface UserCommandsListDeps {
   /** Injected fs surface (real disk in production, in-memory in tests). */
@@ -47,6 +46,7 @@ export interface UserCommandsListDeps {
 
 /** Real-disk fs deps: a directory read yields entries; a missing path yields null. */
 export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
+  const validatedDirectories = new Set<string>();
   return {
     listDir: (absDir, containmentRoot) => {
       try {
@@ -64,6 +64,7 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
           }
           return null;
         }
+        validatedDirectories.add(canonicalDirectory);
         return readdirSync(canonicalDirectory, { withFileTypes: true }).map((entry) => ({
           isDirectory: entry.isDirectory(),
           isFile: entry.isFile(),
@@ -75,6 +76,10 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
     },
     readFile: (absFile) => {
       try {
+        const canonicalFile = realpathSync(absFile);
+        if (!validatedDirectories.has(path.dirname(canonicalFile))) {
+          return { ok: false, reason: 'unreadable' };
+        }
         // Bound the read BEFORE pulling untrusted bytes into the main process:
         // a giant file would block main and (unbounded) balloon renderer memory
         // over IPC. The bound is a BYTE ceiling (MAX_USER_COMMAND_FILE_BYTES =
@@ -82,10 +87,10 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
         // never falsely rejected; a file above it is DEFINITIVELY oversized and
         // reported as such (honest reason — the loader logs a warn, not a
         // spurious "Failed to read"), never a blocking multi-hundred-MB read.
-        if (statSync(absFile).size > MAX_USER_COMMAND_FILE_BYTES) {
+        if (statSync(canonicalFile).size > MAX_USER_COMMAND_FILE_BYTES) {
           return { ok: false, reason: 'oversized' };
         }
-        return { content: readFileSync(absFile, 'utf8'), ok: true };
+        return { content: readFileSync(canonicalFile, 'utf8'), ok: true };
       } catch {
         return { ok: false, reason: 'unreadable' };
       }

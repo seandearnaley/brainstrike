@@ -1338,7 +1338,9 @@ the main process; web has no `window.userCommands` bridge and the hook returns
   silent truncation or a hard error that kills the whole scan. The real-disk
   adapter canonicalizes both the mounted root and each candidate directory,
   rejects candidates outside that boundary, and enumerates only the validated
-  canonical path, so a workspace command tree cannot escape its mounted root.
+  canonical path. Deferred file reads also require a canonical parent validated
+  by that scan, so a workspace command tree cannot escape its mounted root even
+  if a directory is swapped between enumeration and reading.
 - **Frontmatter:** hand-rolled `---\nkey: value\n---` parser
   (`parseUserCommandFile` in packages/assistant-contract — NO YAML dep) for
   `name`/`description` only; unknown keys ignored, and Claude Code multiline-YAML
