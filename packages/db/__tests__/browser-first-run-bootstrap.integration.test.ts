@@ -24,6 +24,7 @@
 
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -39,7 +40,7 @@ import { PGVECTOR_EXTENSION_PRESENCE_QUERY } from '../src/migrations/bootstrap.j
 
 const BOOTSTRAP_TIMEOUT_MS = 180_000;
 
-const ENGINE_EXTENSIONS = { pg_trgm: pgTrgm, vector };
+const ENGINE_EXTENSIONS = { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector };
 
 let idbFactory: IDBFactory;
 const globalDescriptors = new Map<string, PropertyDescriptor | undefined>();
