@@ -1,8 +1,8 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import type { ReactElement } from 'react';
+import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
 import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
-import { McpBanner } from './mcp-banner';
 
 export interface AssistantChatPanelProps {
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
@@ -13,15 +13,9 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="assistant-chat-card">
-      <div className="flex flex-shrink-0 flex-col space-y-1.5 px-4 py-3">
-        <h3 className="font-semibold text-sm leading-none tracking-tight">Assistant</h3>
-        <p className="text-muted-foreground text-xs">
-          Chat with the Brainstrike assistant while working anywhere in the app.
-        </p>
-      </div>
       <div className="flex min-h-0 flex-1 flex-col p-0">
         {status.state === 'loading' && (
-          <div className="p-4 text-xs opacity-70">Checking assistant availability…</div>
+          <AssistantPanelLoadingState label="Checking assistant availability…" />
         )}
         {status.state === 'error' && (
           <div className="p-4">
@@ -44,14 +38,7 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
           </div>
         )}
         {status.state === 'enabled' && (
-          <>
-            <div className="px-4 pb-2">
-              <McpBanner />
-            </div>
-            <AssistantUiPanelWrapperLazy
-              {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-            />
-          </>
+          <AssistantUiPanelWrapperLazy {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
         )}
       </div>
     </div>

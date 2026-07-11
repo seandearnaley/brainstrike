@@ -33,6 +33,13 @@ describe('EmbeddingActionsDropdown', () => {
       expect(screen.getByRole('button', { name: 'Backfill' })).toBeInTheDocument();
     });
 
+    it('can collapse its primary label at a narrow parent container without losing its name', () => {
+      renderDropdown({ collapseLabelAtNarrowWidth: true });
+
+      expect(screen.getByRole('button', { name: 'Backfill' })).toBeInTheDocument();
+      expect(screen.getByTestId('embedding-action-label')).toHaveClass('hidden', '@[480px]:inline');
+    });
+
     it('calls onBackfill when clicked', async () => {
       const user = userEvent.setup();
       const onBackfill = vi.fn().mockResolvedValue(undefined);

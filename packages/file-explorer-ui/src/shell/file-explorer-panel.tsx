@@ -48,6 +48,7 @@ import { FilterStatus } from '../file-explorer-status-components';
 import { useRuleMaterialization } from '../hooks/use-rule-materialization';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
 import { RestorationStatus } from '../restoration-status';
+import { formatCompactSelectionCount } from '../selection-count-format';
 import { SelectionCounter } from '../selection-counter';
 import { SelectionModeBadge } from '../selection-mode-badge';
 import { SelectionRulesEditor } from '../selection-rules-editor';
@@ -887,12 +888,60 @@ const FileExplorerPanelInner = React.memo(() => {
 
   return (
     <FileExplorerErrorBoundary>
-      <div className="grid h-full grid-rows-[auto_1fr_auto]">
+      <div className="grid h-full min-w-0 grid-rows-[auto_1fr] overflow-hidden">
         {/* Fixed Header - Toolbar and filter controls */}
-        <div className="shrink-0">
+        <div className="min-w-0 shrink-0">
           <FileExplorerToolbar
+            bulkSelectionControl={
+              <ActionButtons
+                addMultipleSelectedFiles={addMultipleSelectedFiles}
+                addMultipleSelectedFilesChunked={addMultipleSelectedFilesChunked}
+                cancelSelectAll={cancelSelectAll}
+                currentFolderId={
+                  getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId
+                }
+                displayedFiles={displayedFileList}
+                encodeFileSelection={encodeFileSelection}
+                filteredTree={quickFilteredTree ?? []}
+                hasActiveQuickFilter={deferredQuickFilter.trim().length > 0}
+                hasFilesInTree={selectAllWiring.hasFilesInTree}
+                isLoadingForSelectAll={isLoadingForSelectAll}
+                maxSelectionCount={maxSelectionCount}
+                quickFilterSelectAllOverride={selectAllWiring.quickFilterSelectAllOverride}
+                selectAllRecursively={selectAllWiring.selectAll}
+                selectedFiles={selectedFilesList}
+                setSelectedFiles={setSelectedFilesFromList}
+                visibleFilePaths={visibleFilePaths}
+              />
+            }
             isLoading={isLoading}
             onDirectorySelect={handleToolbarDirectorySelect}
+            selectionStatusControl={
+              <div
+                className="flex min-w-0 items-center @[128px]:gap-1.5 gap-0.5"
+                data-testid="selection-status-controls"
+              >
+                <SelectionModeBadge
+                  compactValue={{
+                    accessibleLabel: `${selectedCount} of ${maxSelectionCount} files selected.`,
+                    label: formatCompactSelectionCount(selectedCount),
+                  }}
+                  maxSelectionCount={maxSelectionCount}
+                  onMaxSelectionCountChange={handleMaxSelectionCountChange}
+                  onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
+                  rulesEditorAvailable={true}
+                  show={!!rootDirectoryHandle}
+                  triggerVariant="icon"
+                />
+                <div className="@[72px]:block hidden" data-testid="selection-counter-control">
+                  <SelectionCounter
+                    compact
+                    maxSelectionCount={maxSelectionCount}
+                    selectedCount={selectedCount}
+                  />
+                </div>
+              </div>
+            }
           />
           {/* Filter section: Collapsible view filters + Quick filter input */}
           {rootDirectoryHandle && (
@@ -1031,49 +1080,6 @@ const FileExplorerPanelInner = React.memo(() => {
                 treeError={error}
               />
             </Suspense>
-          </div>
-        </div>
-
-        {/* Fixed Footer - Action buttons */}
-        <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent">
-          {/* Action buttons row */}
-          <div className="@container/footer flex flex-wrap items-center justify-between gap-2 @[360px]:px-4 px-2 @[360px]:py-3 py-2">
-            <ActionButtons
-              addMultipleSelectedFiles={addMultipleSelectedFiles}
-              addMultipleSelectedFilesChunked={addMultipleSelectedFilesChunked}
-              cancelSelectAll={cancelSelectAll}
-              currentFolderId={
-                getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId
-              }
-              displayedFiles={displayedFileList}
-              encodeFileSelection={encodeFileSelection}
-              filteredTree={quickFilteredTree ?? []}
-              hasActiveQuickFilter={deferredQuickFilter.trim().length > 0}
-              hasFilesInTree={selectAllWiring.hasFilesInTree}
-              isLoadingForSelectAll={isLoadingForSelectAll}
-              maxSelectionCount={maxSelectionCount}
-              quickFilterSelectAllOverride={selectAllWiring.quickFilterSelectAllOverride}
-              selectAllRecursively={selectAllWiring.selectAll}
-              selectedFiles={selectedFilesList}
-              setSelectedFiles={setSelectedFilesFromList}
-              visibleFilePaths={visibleFilePaths}
-            />
-            {/* Selection controls - mode toggle and count */}
-            <div className="flex min-w-0 items-center gap-1.5">
-              <SelectionModeBadge
-                maxSelectionCount={maxSelectionCount}
-                onMaxSelectionCountChange={handleMaxSelectionCountChange}
-                onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
-                rulesEditorAvailable={true}
-                show={!!rootDirectoryHandle}
-                triggerVariant="icon"
-              />
-              <SelectionCounter
-                compact
-                maxSelectionCount={maxSelectionCount}
-                selectedCount={selectedCount}
-              />
-            </div>
           </div>
         </div>
 

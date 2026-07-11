@@ -253,6 +253,17 @@ describe('IdeLayout', () => {
     );
   });
 
+  it('keeps all panel chrome on the same 48px header rhythm', () => {
+    renderDefaultLayout();
+
+    expect(screen.getByTestId('left-panel-header')).toHaveClass('h-12', 'shrink-0');
+    expect(screen.getByTestId('right-panel-header')).toHaveClass('h-12', 'shrink-0');
+    expect(screen.getByTestId('console-panel-header')).toHaveClass('h-12', 'shrink-0');
+    expect(screen.getByLabelText('Resize Explorer panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Resize Tools panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Resize File Editor panel')).toBeInTheDocument();
+  });
+
   it('exposes the registered file editor opener through layout context', () => {
     const openFile = vi.fn();
 

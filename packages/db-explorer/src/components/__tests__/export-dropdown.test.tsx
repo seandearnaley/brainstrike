@@ -67,6 +67,13 @@ describe('ExportDropdown', () => {
     expect(screen.getByText('Export')).toBeInTheDocument();
   });
 
+  it('can collapse its trigger label at a narrow parent container without losing its name', () => {
+    render(<ExportDropdown {...createProps()} collapseLabelAtNarrowWidth />);
+
+    expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
+    expect(screen.getByText('Export')).toHaveClass('hidden', '@[420px]:inline');
+  });
+
   it('renders the Export Data label', () => {
     render(<ExportDropdown {...createProps()} />);
     expect(screen.getByText('Export Data')).toBeInTheDocument();

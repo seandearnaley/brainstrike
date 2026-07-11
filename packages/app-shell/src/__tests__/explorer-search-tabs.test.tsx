@@ -33,6 +33,7 @@ describe('ExplorerSearchTabs', () => {
 
     const explorerTab = screen.getByRole('tab', { name: 'Explorer' });
     const searchTab = screen.getByRole('tab', { name: 'Search' });
+    expect(screen.getByTestId('explorer-search-tab-strip')).toHaveClass('h-12');
     expect(explorerTab).toHaveAttribute('aria-selected', 'true');
     expect(searchTab).toHaveAttribute('aria-selected', 'false');
 

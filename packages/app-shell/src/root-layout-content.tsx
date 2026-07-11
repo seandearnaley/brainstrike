@@ -245,6 +245,11 @@ const EXPLORER_RIGHT_PANEL_CHROME = {
   title: 'Explorer',
 } as const;
 
+const CONTEXT_EXPLORER_PANEL_CONSTRAINTS = {
+  mainContentMinSize: '20%',
+  rightPanelMinSize: '80px',
+} as const;
+
 function ContextExplorerSurface({
   contextExplorerPanelContent,
   contextExplorerPageContent,
@@ -284,6 +289,7 @@ function ContextExplorerSurface({
       <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
           <IdeLayout
+            panelConstraints={CONTEXT_EXPLORER_PANEL_CONSTRAINTS}
             panelIdPrefix="context-explorer"
             rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
             rightPanelContent={resolvedPanelContent}

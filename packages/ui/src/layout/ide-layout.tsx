@@ -1311,7 +1311,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                 panelRef={leftPanelRef}
               >
                 <div className="flex h-full flex-col overflow-hidden [contain:layout_paint_style]">
-                  <div className="flex items-center justify-between border-border border-b bg-muted/30 px-2 py-2">
+                  <div
+                    className="flex h-12 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                    data-testid="left-panel-header"
+                  >
                     <div className="flex items-center gap-2">
                       <LeftPanelIcon className="h-4 w-4" />
                       <span className="font-medium text-sm">{resolvedLeftPanelChrome.title}</span>
@@ -1334,8 +1337,9 @@ export const IdeLayout = React.memo(function IdeLayout({
                 </div>
               </Panel>
               <Separator
+                aria-label={`Resize ${resolvedLeftPanelChrome.title} panel`}
                 className={cn(
-                  'z-10 w-1',
+                  'z-10 w-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   showLeftPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
                 )}
                 onPointerDown={handleSeparatorPointerDown}
@@ -1382,8 +1386,9 @@ export const IdeLayout = React.memo(function IdeLayout({
               {hasConsole && (
                 <>
                   <Separator
+                    aria-label="Resize File Editor panel"
                     className={cn(
-                      'z-10 h-1',
+                      'z-10 h-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       showConsole ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
                     )}
                     onPointerDown={handleSeparatorPointerDown}
@@ -1405,7 +1410,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                     panelRef={consolePanelRef}
                   >
                     <div className="flex h-full flex-col [contain:layout_paint_style]">
-                      <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+                      <div
+                        className="flex h-12 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                        data-testid="console-panel-header"
+                      >
                         <div className="flex items-center gap-2">
                           <Terminal className="h-4 w-4" />
                           <span className="font-medium text-sm">File Editor</span>
@@ -1435,8 +1443,9 @@ export const IdeLayout = React.memo(function IdeLayout({
           {hasTools && (
             <>
               <Separator
+                aria-label={`Resize ${resolvedRightPanelChrome.title} panel`}
                 className={cn(
-                  'z-10 w-1',
+                  'z-10 w-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   showRightPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
                 )}
                 onPointerDown={handleSeparatorPointerDown}
@@ -1458,7 +1467,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                 panelRef={rightPanelRef}
               >
                 <div className="flex h-full flex-col [contain:layout_paint_style]">
-                  <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+                  <div
+                    className="flex h-12 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                    data-testid="right-panel-header"
+                  >
                     <div className="flex items-center gap-2">
                       <RightPanelIcon className="h-4 w-4" />
                       <span className="font-medium text-sm">{resolvedRightPanelChrome.title}</span>

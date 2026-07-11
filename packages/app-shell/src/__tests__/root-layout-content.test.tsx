@@ -41,6 +41,10 @@ vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
 }));
 
 const mockHandlers = {
+  ideLayoutProps: [] as Array<{
+    panelConstraints: { mainContentMinSize?: string; rightPanelMinSize?: string } | undefined;
+    panelIdPrefix: string | undefined;
+  }>,
   onNavigationClick: (_path: string) => {},
   panelLayoutChanges: [] as Array<(state: PanelLayoutState) => void>,
   promptManagerSuspended: false,
@@ -69,19 +73,26 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       leftPanelContent,
       rightPanelContent,
       consoleContent,
+      panelConstraints,
+      panelIdPrefix,
     }: {
       children: React.ReactNode;
       leftPanelContent?: React.ReactNode;
       rightPanelContent?: React.ReactNode;
       consoleContent?: React.ReactNode;
-    }) => (
-      <div data-testid="ide-layout">
-        {leftPanelContent}
-        {children}
-        {rightPanelContent}
-        {consoleContent && <div data-testid="ide-console-content">{consoleContent}</div>}
-      </div>
-    ),
+      panelConstraints?: { mainContentMinSize?: string; rightPanelMinSize?: string };
+      panelIdPrefix?: string;
+    }) => {
+      mockHandlers.ideLayoutProps.push({ panelConstraints, panelIdPrefix });
+      return (
+        <div data-testid="ide-layout">
+          {leftPanelContent}
+          {children}
+          {rightPanelContent}
+          {consoleContent && <div data-testid="ide-console-content">{consoleContent}</div>}
+        </div>
+      );
+    },
     PanelLayoutProvider: ({
       children,
       onChange,
@@ -181,6 +192,7 @@ vi.mock('../database-panel', () => ({
 describe('RootLayoutContent', () => {
   beforeEach(() => {
     mockHandlers.onNavigationClick = vi.fn();
+    mockHandlers.ideLayoutProps = [];
     mockHandlers.panelLayoutChanges = [];
     mockHandlers.promptManagerSuspended = false;
     usePanelLayoutStore.setState({
@@ -247,6 +259,10 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
     expect(screen.getByTestId('file-explorer-panel')).toBeInTheDocument();
+    expect(
+      mockHandlers.ideLayoutProps.find(({ panelIdPrefix }) => panelIdPrefix === 'context-explorer')
+        ?.panelConstraints
+    ).toEqual({ mainContentMinSize: '20%', rightPanelMinSize: '80px' });
     // The south/console panel is gone — file tabs now live inside the editor area
     // (the workspace tab host is rendered via contextExplorerPageContent in real apps).
     expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();

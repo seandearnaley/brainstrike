@@ -20,6 +20,8 @@ export interface EmbeddingActionsDropdownProps {
   backfillProgress: BackfillProgress;
   /** Additional className */
   className?: string;
+  /** Collapse the primary label when a parent inline-size container is narrow. */
+  collapseLabelAtNarrowWidth?: boolean;
   /** Coverage stats for tooltip */
   coverage: { total: number; withSet: number };
   /** Whether backfill is disabled */
@@ -121,6 +123,7 @@ export function EmbeddingActionsDropdown({
   disabled = false,
   disabledReason,
   className,
+  collapseLabelAtNarrowWidth = false,
 }: EmbeddingActionsDropdownProps) {
   const isBackfillDisabled = disabled || !hasDb || backfilling || startingWorker;
   const isRetryDisabled = !hasDb || failedCount === 0;
@@ -167,14 +170,21 @@ export function EmbeddingActionsDropdown({
   const backfillButton = (
     <Button
       aria-label={buttonText}
-      className="h-8 rounded-r-none border-r-0 px-3 text-xs"
+      className={`h-8 rounded-r-none border-r-0 text-xs ${
+        collapseLabelAtNarrowWidth ? '@[480px]:min-w-[8.25rem] @[480px]:px-3 px-2' : 'px-3'
+      }`}
       disabled={isBackfillDisabled}
       onClick={() => invokeAsyncAction(onBackfill)}
       size="sm"
       variant="outline"
     >
-      <Play className="mr-1.5 h-3 w-3" />
-      {buttonText}
+      <Play className={`h-3 w-3 ${collapseLabelAtNarrowWidth ? '@[480px]:mr-1.5' : 'mr-1.5'}`} />
+      <span
+        className={collapseLabelAtNarrowWidth ? '@[480px]:inline hidden' : undefined}
+        data-testid="embedding-action-label"
+      >
+        {buttonText}
+      </span>
     </Button>
   );
 

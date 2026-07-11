@@ -13,8 +13,10 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 function getProps(overrides: Partial<React.ComponentProps<typeof FileExplorerToolbar>> = {}) {
   return {
+    bulkSelectionControl: <button type="button">Select all files</button>,
     isLoading: false,
     onDirectorySelect: vi.fn().mockResolvedValue(undefined),
+    selectionStatusControl: <output>0 of 10 selected</output>,
     ...overrides,
   };
 }
@@ -24,7 +26,7 @@ describe('FileExplorerToolbar', () => {
     vi.clearAllMocks();
   });
 
-  it('renders a single "Add Folder to Workspace" action button', () => {
+  it('renders one Add Folder action alongside the selection controls', () => {
     renderWithProviders(<FileExplorerToolbar {...getProps()} />);
     expect(
       screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })
@@ -32,6 +34,8 @@ describe('FileExplorerToolbar', () => {
     // Multi-root: the label no longer flips between "Select Root" and "Add Folder".
     expect(screen.queryByText('Select Root')).not.toBeInTheDocument();
     expect(screen.queryByText('Add Folder')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select all files' })).toBeInTheDocument();
+    expect(screen.getByText('0 of 10 selected')).toBeInTheDocument();
   });
 
   it('preserves the data-testid that desktop E2E depends on', () => {
@@ -59,12 +63,33 @@ describe('FileExplorerToolbar', () => {
   it('does not render the focused-root folder badge (removed for multi-root)', () => {
     renderWithProviders(<FileExplorerToolbar {...getProps()} />);
     const toolbar = screen.getByTestId('file-explorer-toolbar');
-    // Exactly one interactive control: the Add Folder action. No badge alongside it.
-    expect(toolbar.querySelectorAll('button')).toHaveLength(1);
+    expect(toolbar).not.toHaveTextContent(/focused root/i);
   });
 
-  it('centers the action within the toolbar', () => {
+  it('uses a stable 48px centered toolbar and an accented reduced-motion-safe primary action', () => {
     renderWithProviders(<FileExplorerToolbar {...getProps()} />);
-    expect(screen.getByTestId('file-explorer-toolbar')).toHaveClass('justify-center');
+    expect(screen.getByTestId('file-explorer-toolbar')).toHaveClass(
+      'h-12',
+      'grid',
+      'gap-0',
+      'px-0',
+      '@[96px]:gap-0.5',
+      '@[96px]:px-0.5',
+      '@[128px]:gap-1.5',
+      '@[128px]:px-2'
+    );
+    expect(
+      screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })
+    ).toHaveClass(
+      'border-primary/40',
+      'bg-primary/10',
+      'motion-reduce:transition-none',
+      'size-6',
+      '@[96px]:size-7',
+      '@[128px]:size-8'
+    );
+    expect(
+      screen.getByRole('button', { name: FileExplorerStrings.addFolderToWorkspace })
+    ).toHaveAttribute('data-size', 'icon-xs');
   });
 });

@@ -1,4 +1,5 @@
 import { type ComponentType, memo, useEffect, useState } from 'react';
+import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import type { AssistantThreadTabsWorkspaceProps } from './assistant-thread-tabs-workspace';
 import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
 
@@ -68,7 +69,7 @@ export const AssistantUiPanelWrapperLazy = memo(function AssistantUiPanelWrapper
   }
 
   if (!LoadedComponent) {
-    return <div className="p-4 text-xs opacity-70">Loading assistant…</div>;
+    return <AssistantPanelLoadingState label="Loading assistant…" />;
   }
 
   return <LoadedComponent {...props} />;

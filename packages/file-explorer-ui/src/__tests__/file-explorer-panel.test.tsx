@@ -2,8 +2,9 @@ import type { PendingRestoreState } from '@brainstrike/file-explorer-hooks';
 import { type DirectoryHandle, MockFileSystemAdapter } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { FileExplorerState } from '@brainstrike/types';
-import { act, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { FileExplorerPanel } from '../shell/file-explorer-panel';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
@@ -25,17 +26,23 @@ var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
 // Mock UI components that are imported relatively within the panel
 vi.mock('../shell/file-explorer-toolbar', () => ({
   FileExplorerToolbar: ({
+    bulkSelectionControl,
     onDirectorySelect,
     isLoading,
+    selectionStatusControl,
   }: {
+    bulkSelectionControl?: ReactNode;
     onDirectorySelect: () => void;
     isLoading: boolean;
+    selectionStatusControl?: ReactNode;
   }) => (
     <div data-testid="toolbar">
       Toolbar
       <button disabled={isLoading} onClick={onDirectorySelect} type="button">
         Select Directory
       </button>
+      {bulkSelectionControl}
+      {selectionStatusControl}
     </div>
   ),
 }));
@@ -322,9 +329,19 @@ describe('FileExplorerPanel', () => {
   it('renders toolbar, sidebar and action buttons', async () => {
     renderWithProviders(<FileExplorerPanel />);
 
-    expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
+    const toolbar = await screen.findByTestId('toolbar');
     expect(await screen.findByTestId('sidebar')).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: /select all/i })).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: /select all/i })).toBeInTheDocument();
+    expect(within(toolbar).getByTestId('selection-count')).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: /Selection settings/ })).toBeInTheDocument();
+    expect(within(toolbar).getByTestId('selection-status-controls')).toHaveClass(
+      'gap-0.5',
+      '@[128px]:gap-1.5'
+    );
+    expect(within(toolbar).getByTestId('selection-counter-control')).toHaveClass(
+      'hidden',
+      '@[72px]:block'
+    );
   });
 
   it('rehydrates the persisted folder state when the restored root matches the current folder id', () => {

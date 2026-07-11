@@ -204,6 +204,27 @@ describe('SelectionModeBadge', () => {
       expect(screen.queryByTestId('selection-mode-badge')).not.toBeInTheDocument();
     });
 
+    it('uses a selected-count value as the ultra-compact settings trigger', () => {
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge
+            compactValue={{
+              accessibleLabel: '1234 of 8000 files selected.',
+              label: '1.2K',
+            }}
+            triggerVariant="icon"
+          />
+        </FileExplorerTestWrapper>
+      );
+
+      expect(
+        screen.getByRole('button', {
+          name: 'Selection settings. 1234 of 8000 files selected.',
+        })
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('selection-compact-count')).toHaveTextContent('1.2K');
+    });
+
     it('shows max selection controls inside the settings popover', async () => {
       const onMaxSelectionCountChange = vi.fn();
 

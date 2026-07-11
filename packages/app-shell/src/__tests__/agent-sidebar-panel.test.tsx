@@ -30,6 +30,7 @@ describe('AgentSidebarPanel', () => {
       'Database',
       'Prompts',
     ]);
+    expect(screen.getByRole('tablist', { name: 'Library tabs' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Prompts' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Threads' })).toHaveAttribute('data-state', 'active');
     expect(screen.getByText('Threads content')).toBeVisible();
