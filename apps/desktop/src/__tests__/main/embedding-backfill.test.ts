@@ -479,6 +479,22 @@ describe('embedding-backfill', () => {
           queryOrder.push('drop-index');
           return { rows: [] };
         }
+        if (sql.includes('FROM file_chunks WHERE embedding IS NOT NULL')) {
+          // Benchmark-scale row count so the rebuild engages the
+          // maintenance_work_mem tuning path around the CREATE INDEX.
+          queryOrder.push('estimate-embedded-rows');
+          return { rows: [{ count: '200000' }] };
+        }
+        // Order matters: 'RESET maintenance_work_mem' contains the substring
+        // 'SET maintenance_work_mem'.
+        if (sql.includes('RESET maintenance_work_mem')) {
+          queryOrder.push('reset-index-memory');
+          return { rows: [] };
+        }
+        if (sql.includes('SET maintenance_work_mem')) {
+          queryOrder.push('tune-index-memory');
+          return { rows: [] };
+        }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
           queryOrder.push('pending');
           pendingCountCalls += 1;
@@ -558,13 +574,23 @@ describe('embedding-backfill', () => {
       'final-counts',
       'vacuum-chunks',
       'vacuum-jobs',
+      'estimate-embedded-rows',
+      'tune-index-memory',
       'rebuild-index',
+      'reset-index-memory',
       'resume-index',
     ]);
-    expect(maintenanceDb.maintenance.exec).toHaveBeenCalledWith(
+    // maintenance_work_mem is session-local: the SET/RESET around the build
+    // MUST ride the same maintenance channel as the CREATE INDEX, or a future
+    // dedicated maintenance connection would silently run the build untuned.
+    const maintenanceStatements = vi
+      .mocked(maintenanceDb.maintenance.exec)
+      .mock.calls.map(([sql]) => String(sql).replace(/\s+/g, ' ').trim());
+    expect(maintenanceStatements).toEqual([
+      expect.stringContaining("SET maintenance_work_mem = '"),
       expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
-      undefined
-    );
+      'RESET maintenance_work_mem',
+    ]);
   });
 
   it('can leave dimension HNSW rebuild suspended after a background indexing drain', async () => {
