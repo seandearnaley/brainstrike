@@ -182,6 +182,7 @@ export function SearchIndexingSettingsSection() {
     queueProgress: state.queueProgress,
     scanSummary: state.scanSummary,
     state: state.state,
+    unindexableFileCount: state.unindexableFileCount,
   }));
 
   const [collections, setCollections] = useState<CollectionOption[]>([]);

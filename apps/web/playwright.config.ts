@@ -39,7 +39,11 @@ export default defineConfig({
   // Parallel execution based on environment
   fullyParallel: config.fullyParallel,
 
-  globalSetup: './e2e/global-setup.ts',
+  // NOTE: deliberately no globalSetup. The old one auto-redirected BASE_URL to
+  // any vite-looking server found on nearby ports, silently running the suite
+  // against a live dev server instead of the built preview below — the exact
+  // nondeterminism the webServer contract exists to prevent. Target another
+  // server explicitly with BASE_URL when needed.
 
   // Global timeout based on environment
   globalTimeout: config.globalTimeout,

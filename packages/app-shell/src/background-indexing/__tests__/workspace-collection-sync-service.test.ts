@@ -1771,6 +1771,66 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('counts content-gate exclusions alongside policy exclusions in the scan summary', async () => {
+    // One directory excluded by the entry policy during the tree walk, plus one
+    // file whose CONTENT the import gate refuses (null bytes behind a text
+    // extension). Both must appear in excludedEntries — the full-scan path used
+    // to overwrite the content-gate count with only the tree-walk count.
+    readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
+      options?.onEntrySkipped?.({
+        entryType: 'directory',
+        reason: 'entry-policy',
+        relativePath: 'coverage',
+      });
+      return [
+        {
+          handle: { path: `${ROOT_PATH}/${FILE_PATH}`, platform: 'electron' },
+          name: 'index.ts',
+          path: '/workspace/root/src/index.ts',
+          rootFolderId: ROOT_PATH,
+          type: 'file',
+        },
+        {
+          handle: { path: `${ROOT_PATH}/docs/binary-content.md`, platform: 'electron' },
+          name: 'binary-content.md',
+          path: `${ROOT_PATH}/docs/binary-content.md`,
+          rootFolderId: ROOT_PATH,
+          type: 'file',
+        },
+      ];
+    });
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async (requests: Array<{ compositeKey: string }>) =>
+          Object.fromEntries(
+            requests.map((request) => [
+              request.compositeKey,
+              request.compositeKey.includes('binary-content.md')
+                ? 'looks like markdown but contains a null\0byte'
+                : 'export const value = 1;',
+            ])
+          )
+        ),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scanSummary: expect.objectContaining({
+          excludedEntries: 2,
+        }),
+      })
+    );
+  });
+
   it('propagates scan and content-processing progress through the status reporter', async () => {
     readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
       options?.updateProgress?.();

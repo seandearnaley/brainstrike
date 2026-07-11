@@ -23,7 +23,7 @@ async function clickUntilVisible(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
+test.describe('Complete File Explorer Workflow', () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
       'README.md': null,

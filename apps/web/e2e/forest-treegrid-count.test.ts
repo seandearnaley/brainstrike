@@ -30,7 +30,7 @@ const tree: FileTree = {
   },
 };
 
-test.describe('Forest treegrid-count invariant', { tag: ['@smoke', '@web-smoke'] }, () => {
+test.describe('Forest treegrid-count invariant', { tag: '@web-smoke' }, () => {
   test('renders exactly one file tree for a single root (no duplicate)', async ({ page }) => {
     const explorer = await bootstrapFileExplorer(page, { tree });
 

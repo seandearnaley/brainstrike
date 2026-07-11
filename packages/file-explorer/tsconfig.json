@@ -5,6 +5,7 @@
     "outDir": "dist",
     "composite": true,
     "declaration": true,
+    "emitDeclarationOnly": true,
     "paths": {
       "@brainstrike/utils/*": [
         "../utils/dist/*.d.ts"

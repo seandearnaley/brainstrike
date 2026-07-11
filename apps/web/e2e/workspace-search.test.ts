@@ -21,7 +21,7 @@ import { ensureRightPanelVisible, waitForContextExplorerPage } from './utils/lay
  * is not ready" — or ready without an index — "no workspace index is
  * available"; both render the error banner).
  */
-test.describe('Workspace search', { tag: '@smoke' }, () => {
+test.describe('Workspace search', () => {
   test('Explorer|Search tab strip mounts, the search panel loads, and a query reaches an honest terminal state', {
     tag: '@web-smoke',
   }, async ({ page }) => {

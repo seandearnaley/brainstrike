@@ -76,6 +76,12 @@ export interface WorkspaceCollectionSyncStatusData {
   queueProgress: WorkspaceCollectionSyncQueueProgress | null;
   scanSummary: WorkspaceCollectionSyncScanSummary | null;
   state: WorkspaceCollectionSyncState;
+  /**
+   * Files the idle coverage audit verified can never be indexed (their content
+   * fails the import gate: null bytes, binary behind a text extension,
+   * unreadable). Null until an audit has run; refreshed by each audit.
+   */
+  unindexableFileCount: number | null;
 }
 
 export type WorkspaceCollectionSyncStatusPatch = Partial<WorkspaceCollectionSyncStatusData>;
@@ -105,6 +111,7 @@ const DEFAULT_STATE: WorkspaceCollectionSyncStatusData = {
   queueProgress: null,
   scanSummary: null,
   state: 'disabled',
+  unindexableFileCount: null,
 };
 
 export const useWorkspaceCollectionSyncStatusStore = create<WorkspaceCollectionSyncStatusStore>()(

@@ -48,10 +48,6 @@ export const getBaseUrl = (port = DEFAULT_PORT) => `http://localhost:${port}`;
 export const getWebBaseUrl = (port = DEFAULT_WEB_PORT) => `http://localhost:${port}`;
 export const getDesktopBaseUrl = (port = DEFAULT_DESKTOP_PORT) => `http://localhost:${port}`;
 
-// Generate array of ports to check
-export const getPortsToCheck = () =>
-  Array.from({ length: PORT_RANGE.end - PORT_RANGE.start + 1 }, (_, i) => PORT_RANGE.start + i);
-
 // Web and Desktop specific port checkers
 export const getWebPortsToCheck = () =>
   Array.from(

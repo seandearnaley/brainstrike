@@ -20,7 +20,7 @@ interface ResponseJsonDiagnostic {
 
 test(
   'diagnose boot-time JSON parsing failures',
-  { tag: ['@smoke', '@web-smoke'] },
+  { tag: '@web-smoke' },
   async ({ page }, testInfo) => {
     const consoleErrors: string[] = [];
 

@@ -60,7 +60,7 @@ async function getMaxSelectionCount(page: Page): Promise<string> {
 }
 
 test.describe('File Explorer', () => {
-  test.describe('core experience', { tag: '@smoke' }, () => {
+  test.describe('core experience', () => {
     let explorer: FileExplorerPage;
 
     const defaultTree: FileTree = {
@@ -200,8 +200,17 @@ test.describe('File Explorer', () => {
       const previewToolbar = page.getByTestId('preview-view-toolbar');
       await expect(previewToolbar).toBeVisible();
 
-      // Enable the checkbox column, then group by directory.
-      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+      // Ensure the checkbox column is ON, then group by directory. Selection
+      // controls are enabled by default (resolveColumnVisibility pins
+      // checkbox: true), so a blind toggle click would turn them OFF and the
+      // group heading checkbox this test exists to cover would never render.
+      const multiSelectToggle = previewToolbar.getByRole('button', {
+        name: 'Toggle multi-select',
+      });
+      if ((await multiSelectToggle.getAttribute('aria-pressed')) !== 'true') {
+        await multiSelectToggle.click();
+      }
+      await expect(multiSelectToggle).toHaveAttribute('aria-pressed', 'true');
       await previewToolbar.getByRole('button', { name: 'Group by' }).click();
       await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
 
@@ -374,7 +383,7 @@ test.describe('File Explorer', () => {
     });
   });
 
-  test.describe('filtering', { tag: '@smoke' }, () => {
+  test.describe('filtering', () => {
     async function openViewFilters(page: Page): Promise<void> {
       const viewFiltersToggle = page.getByRole('button', { name: /view filters/i });
       await expect(viewFiltersToggle).toBeVisible({ timeout: 10_000 });

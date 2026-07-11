@@ -41,11 +41,16 @@ describe('workspace collection sync status helpers', () => {
           excludedEntries: 3,
           unchangedFiles: 8,
         },
+        unindexableFileCount: 2,
       })
     ).toEqual([
       {
         label: 'Scan',
         value: '10 eligible • 8 unchanged • 2 to update • 3 excluded entries',
+      },
+      {
+        label: 'Coverage',
+        value: '2 files skipped — content cannot be indexed (binary or unreadable)',
       },
       {
         label: 'Import files',
@@ -97,8 +102,40 @@ describe('workspace collection sync status helpers', () => {
           totalQueued: 0,
         },
         scanSummary: null,
+        unindexableFileCount: 0,
       })
     ).toEqual([]);
+  });
+
+  it('omits the coverage row when the unindexable count is unknown', () => {
+    expect(
+      getWorkspaceCollectionSyncMetricRows({
+        chunkingProgress: null,
+        embeddingProgress: null,
+        importProgress: null,
+        queueProgress: null,
+        scanSummary: null,
+        unindexableFileCount: null,
+      })
+    ).toEqual([]);
+  });
+
+  it('uses singular phrasing for one unindexable file', () => {
+    expect(
+      getWorkspaceCollectionSyncMetricRows({
+        chunkingProgress: null,
+        embeddingProgress: null,
+        importProgress: null,
+        queueProgress: null,
+        scanSummary: null,
+        unindexableFileCount: 1,
+      })
+    ).toEqual([
+      {
+        label: 'Coverage',
+        value: '1 file skipped — content cannot be indexed (binary or unreadable)',
+      },
+    ]);
   });
 
   it('returns the right current-activity label for each sync state', () => {

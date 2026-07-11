@@ -4,7 +4,7 @@ import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
-test.describe('Quick Filter and Tree Expansion', { tag: '@smoke' }, () => {
+test.describe('Quick Filter and Tree Expansion', () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
       'README.md': null,

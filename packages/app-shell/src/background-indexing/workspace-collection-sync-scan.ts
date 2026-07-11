@@ -709,7 +709,10 @@ async function collectPreparedFullChanges(args: {
       }),
       prepared: {
         ...prepared,
-        excludedEntries,
+        // Tree-walk (entry-policy) exclusions PLUS the content-gate refusals
+        // counted inside collectPreparedChangesInBatches — replacing instead of
+        // summing silently dropped the content-gate count from the summary.
+        excludedEntries: excludedEntries + prepared.excludedEntries,
       },
     };
   } finally {
@@ -790,7 +793,8 @@ async function collectPreparedScopedChanges(args: {
       }),
       prepared: {
         ...prepared,
-        excludedEntries,
+        // Same summing contract as the full-scan path above.
+        excludedEntries: excludedEntries + prepared.excludedEntries,
       },
     };
   } finally {

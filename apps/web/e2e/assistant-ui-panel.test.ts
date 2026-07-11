@@ -84,9 +84,15 @@ async function readWebE2eDbPath(page: Page): Promise<string> {
   });
 }
 
+// Assistant threads persist under the workspace-global resource id (see
+// WORKSPACE_MEMORY_RESOURCE_ID in packages/app-shell/src/assistant-memory-resource.ts —
+// not exported from the package barrel, hence the literal), not the focused
+// root name, since #1214 made threads workspace-global.
+const WORKSPACE_MEMORY_RESOURCE_ID = 'brainstrike:workspace';
+
 async function readFirstAssistantThreadMetadata(
   page: Page,
-  resourceId = ASSISTANT_UI_PANEL_ROOT_NAME
+  resourceId = WORKSPACE_MEMORY_RESOURCE_ID
 ): Promise<unknown> {
   return await page.evaluate(async (targetResourceId) => {
     const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
@@ -415,8 +421,16 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await page.locator('#assistant-input').fill('echo hidden tool details');
     await page.getByRole('button', { name: 'Send' }).click();
 
-    // Tool calls render directly in the thread even when the model also emits
-    // collapsed reasoning; tool details stay hidden until explicitly expanded.
+    // Since #1237/#1240 a turn's tool cards live inside a per-turn Activity
+    // group that auto-collapses when the turn finishes (the card stays in the
+    // DOM but hidden). Deterministically wait out the auto-collapse, then
+    // expand the group — the per-card details below must STILL be collapsed
+    // until explicitly expanded (the behavior this test exists to pin).
+    const activitySummary = viewport.getByTestId('assistant-activity-summary');
+    await expect(activitySummary).toBeVisible({ timeout: 10_000 });
+    await expect(activitySummary).toHaveAttribute('aria-expanded', 'false', { timeout: 10_000 });
+    await activitySummary.click();
+
     const toolCard = viewport.getByTestId('tool-fallback');
     await expect(toolCard).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('local-reasoning-part')).toHaveCount(0);

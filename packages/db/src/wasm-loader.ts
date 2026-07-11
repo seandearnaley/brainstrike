@@ -6,6 +6,7 @@ import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/wor
 import {
   IDB_DB_NAME_PREFIX,
   isBrowserPersistentPGliteDataDir,
+  isEphemeralWebE2eDataDir,
   isIndexedDbPGliteDataDir,
   isOpfsAhpPGliteDataDir,
   reclaimLegacyBrowserPGliteStorage,
@@ -283,7 +284,11 @@ class WasmLoader {
           // Brainstrike treats browser PGlite as the source of truth, not a cache.
           // PGlite's relaxed durability mode makes syncToFs fire-and-forget, so a
           // confirmed local write can still be lost on immediate reload or close.
-          relaxedDurability: false,
+          // The ONE exception: per-session throwaway web E2E stores
+          // (idb://web-e2e-<uuid>) are discarded with the Playwright context, so
+          // strict durability buys nothing there and turns fresh-DB bootstrap
+          // into a ~50s stall that times out the E2E readiness budget.
+          relaxedDurability: isEphemeralWebE2eDataDir(dataDir),
         };
         const workerClientPromise = PGliteWorker.create(worker, options);
         void workerClientPromise
