@@ -451,9 +451,21 @@ class WasmLoader {
    * This is necessary for factory reset to fully wipe corrupted database state.
    *
    * @param dataDir - The PGlite dataDir path (e.g., 'idb://app')
-   * @returns Promise that resolves when deletion completes
+   * @param options - `blockedBehavior` controls what a BLOCKED deletion does
+   *   (another connection still holds the database open):
+   *   - `'wait-for-close'` (default, factory reset): keep waiting — the delete
+   *     completes once the other connections close, which reset's teardown
+   *     guarantees is imminent.
+   *   - `'resolve'` (first-run bootstrap recovery): settle immediately so the
+   *     caller can re-probe and FAIL LOUDLY ("close other tabs") instead of
+   *     hanging DB initialization forever on a tab we don't control.
+   * @returns Promise that resolves when deletion completes (or, under
+   *   `'resolve'`, when it is confirmed blocked)
    */
-  async deleteIndexedDB(dataDir: string): Promise<void> {
+  async deleteIndexedDB(
+    dataDir: string,
+    options: { readonly blockedBehavior?: DeleteIndexedDbBlockedBehavior } = {}
+  ): Promise<void> {
     if (typeof window === 'undefined' || !window.indexedDB) {
       throw new Error('IndexedDB is not available in this environment');
     }
@@ -475,16 +487,23 @@ class WasmLoader {
     // 0.5.1; see IDB_DB_NAME_PREFIX). Deleting only the bare name silently no-ops
     // against a real PGlite store, so target the prefixed name; also delete the
     // bare name as a harmless no-op safety net for any non-pglite/legacy store.
+    const blockedBehavior = options.blockedBehavior ?? 'wait-for-close';
     const dbNames = [`${IDB_DB_NAME_PREFIX}${bareName}`, bareName];
-    await Promise.all(dbNames.map((dbName) => this.deleteOneIndexedDb(dbName)));
+    await Promise.all(dbNames.map((dbName) => this.deleteOneIndexedDb(dbName, blockedBehavior)));
   }
 
   /**
-   * Delete a single IndexedDB database by its exact name. Resolves on success or
-   * when blocked (the delete completes once other connections close); rejects only
-   * on a genuine deletion error. Deleting an absent database fires `onsuccess`.
+   * Delete a single IndexedDB database by its exact name. Resolves on success
+   * (deleting an absent database fires `onsuccess`) and rejects on a genuine
+   * deletion error. A BLOCKED delete either keeps waiting for the holding
+   * connections to close (`'wait-for-close'`) or settles immediately
+   * (`'resolve'`) so the caller can react — the queued delete still completes
+   * later once the connections close either way.
    */
-  private deleteOneIndexedDb(dbName: string): Promise<void> {
+  private deleteOneIndexedDb(
+    dbName: string,
+    blockedBehavior: DeleteIndexedDbBlockedBehavior
+  ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const request = window.indexedDB.deleteDatabase(dbName);
 
@@ -505,14 +524,20 @@ class WasmLoader {
 
       request.onblocked = () => {
         logger.warn('IndexedDB deletion blocked', {
+          blockedBehavior,
           dbName,
           message: 'Close all tabs/connections.',
         });
-        // Don't reject - the database will be deleted when connections close
+        // Never reject — the queued delete completes when connections close.
+        if (blockedBehavior === 'resolve') {
+          resolve();
+        }
       };
     });
   }
 }
+
+export type DeleteIndexedDbBlockedBehavior = 'wait-for-close' | 'resolve';
 
 export const wasmLoader = WasmLoader.getInstance();
 
@@ -525,12 +550,17 @@ export const wasmLoader = WasmLoader.getInstance();
 export const FIRST_RUN_BOOTSTRAP_WORKER_TIMEOUT_MS = 300_000;
 
 function isFirstRunBootstrapResultMessage(data: unknown): data is FirstRunBootstrapResultMessage {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    (data as { type?: unknown }).type === 'result' &&
-    typeof (data as { ok?: unknown }).ok === 'boolean'
-  );
+  if (typeof data !== 'object' || data === null || (data as { type?: unknown }).type !== 'result') {
+    return false;
+  }
+  const ok = (data as { ok?: unknown }).ok;
+  if (ok === true) {
+    return true;
+  }
+  // A failure result must carry its error detail — an `ok:false` without a
+  // string `error` is malformed and routes through the malformed-message
+  // rejection instead of surfacing "failed: undefined".
+  return ok === false && typeof (data as { error?: unknown }).error === 'string';
 }
 
 /**

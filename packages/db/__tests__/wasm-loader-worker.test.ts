@@ -398,6 +398,17 @@ describe('runFirstRunBootstrapInWorker', () => {
     await expect(run).rejects.toThrow('malformed result message');
   });
 
+  it('treats a failure result without an error string as malformed', async () => {
+    // Guards against surfacing "worker failed: undefined" — a failed result
+    // must carry its error detail or it routes through the malformed path.
+    const { runFirstRunBootstrapInWorker } = await import('../src/wasm-loader');
+
+    const run = runFirstRunBootstrapInWorker('idb://web-pg18');
+    workerInstances[0]?.emit('message', { data: { ok: false, type: 'result' } });
+
+    await expect(run).rejects.toThrow('malformed result message');
+  });
+
   it('rejects and terminates on a worker crash', async () => {
     const { runFirstRunBootstrapInWorker } = await import('../src/wasm-loader');
 
