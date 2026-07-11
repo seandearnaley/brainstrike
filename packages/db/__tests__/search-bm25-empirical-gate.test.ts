@@ -75,6 +75,7 @@ interface GateRow {
 
 describe('BM25 empirical gate (production query shape at scale)', () => {
   let db: PGlite;
+  let indexBuildMs = -1;
 
   beforeAll(async () => {
     db = new PGlite({
@@ -122,28 +123,27 @@ describe('BM25 empirical gate (production query shape at scale)', () => {
       FROM generate_series(0, ${TOTAL_CHUNKS - 1}) AS s
     `);
     await db.exec('ANALYZE file_chunks; ANALYZE file_records');
+
+    // Timed index build lives in setup so every `it` is self-contained under
+    // `vitest -t` filtering; test (f) asserts the recorded duration.
+    const buildStartedAt = performance.now();
+    await db.exec(
+      `CREATE INDEX ${BM25_INDEX} ON file_chunks USING bm25 (content) WITH (text_config='english')`
+    );
+    indexBuildMs = Math.round(performance.now() - buildStartedAt);
   }, GATE_TIMEOUT_MS);
 
   afterAll(async () => {
     await db.close();
   });
 
-  it(
-    `(f) builds the bm25 index on ${TOTAL_CHUNKS} chunks within the inline budget`,
-    async () => {
-      const startedAt = performance.now();
-      await db.exec(
-        `CREATE INDEX ${BM25_INDEX} ON file_chunks USING bm25 (content) WITH (text_config='english')`
-      );
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      // eslint-disable-next-line no-console
-      console.info(
-        `[bm25-gate] index build: ${elapsedMs}ms for ${TOTAL_CHUNKS} chunks (budget ${INLINE_BUILD_BUDGET_MS}ms)`
-      );
-      expect(elapsedMs).toBeLessThan(INLINE_BUILD_BUDGET_MS);
-    },
-    GATE_TIMEOUT_MS
-  );
+  it(`(f) built the bm25 index on ${TOTAL_CHUNKS} chunks within the inline budget`, () => {
+    console.info(
+      `[bm25-gate] index build: ${indexBuildMs}ms for ${TOTAL_CHUNKS} chunks (budget ${INLINE_BUILD_BUDGET_MS}ms)`
+    );
+    expect(indexBuildMs).toBeGreaterThanOrEqual(0);
+    expect(indexBuildMs).toBeLessThan(INLINE_BUILD_BUDGET_MS);
+  });
 
   it(
     '(a) evaluates <@> as a plain expression under the exact production shape',
@@ -199,7 +199,6 @@ describe('BM25 empirical gate (production query shape at scale)', () => {
         `EXPLAIN (FORMAT TEXT) ${PRODUCTION_SHAPE_SQL}`,
         ['english', 'scheduler pipeline', [...ROOT_IDS], 50]
       );
-      // eslint-disable-next-line no-console
       console.info(
         `[bm25-gate] filtered-plan query: ${elapsedMs}ms over ${TOTAL_CHUNKS} chunks (~25k matches)\n` +
           plan.rows.map((r) => `[bm25-gate]   ${Object.values(r)[0]}`).join('\n')
@@ -235,7 +234,6 @@ describe('BM25 empirical gate (production query shape at scale)', () => {
           });
         }
       }
-      // eslint-disable-next-line no-console
       console.info(`[bm25-gate] fuzz: ${inputs.length - failures.length}/${inputs.length} ok`);
       expect(failures).toEqual([]);
     },
@@ -316,7 +314,6 @@ describe('BM25 empirical gate (production query shape at scale)', () => {
       });
       const cappedIds = capped.rows.map((r) => r.id);
       const uncappedIds = uncapped.rows.map((r) => r.id);
-      // eslint-disable-next-line no-console
       console.info(
         `[bm25-gate] default_limit probe: capped==uncapped top-20 ordering: ${
           JSON.stringify(cappedIds) === JSON.stringify(uncappedIds)
@@ -341,7 +338,6 @@ describe('BM25 empirical gate (production query shape at scale)', () => {
       for (const row of result.rows) {
         expect(row.fts_rank).toBeGreaterThanOrEqual(0);
       }
-      // eslint-disable-next-line no-console
       console.info(
         `[bm25-gate] ubiquitous-term rank range: ${result.rows.at(-1)?.fts_rank} .. ${result.rows[0]?.fts_rank}`
       );
