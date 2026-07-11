@@ -45,9 +45,7 @@ test.describe('Theme Switching', () => {
     await waitForAppLoad(page, { waitForDatabase: false });
   });
 
-  test('should switch themes via settings page and persist across navigation', {
-    tag: '@smoke',
-  }, async ({ page }) => {
+  test('should switch themes via settings page and persist across navigation', async ({ page }) => {
     // Navigate to Settings page
     await activateSidebarNavigation(page, 'Settings');
     await waitForSettingsPage(page);
@@ -100,7 +98,7 @@ test.describe('Theme Switching', () => {
     await expect(htmlElement).not.toHaveClass(/dark/);
   });
 
-  test('should toggle theme via navigation button', { tag: '@smoke' }, async ({ page }) => {
+  test('should toggle theme via navigation button', async ({ page }) => {
     // First, set a known theme state via settings to avoid system theme ambiguity
     await activateSidebarNavigation(page, 'Settings');
     await waitForSettingsPage(page);

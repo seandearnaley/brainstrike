@@ -10,7 +10,7 @@ async function requireBoundingBox(locator: Locator) {
   return box;
 }
 
-test.describe('Embedding Worker Telemetry @stateful @web-db-startup', { tag: '@smoke' }, () => {
+test.describe('Embedding Worker Telemetry @stateful @web-db-startup', () => {
   /**
    * Indexing activity is now exposed through the app-shell status bar instead
    * of a Database-tab footer. This keeps queue/status visibility stable while

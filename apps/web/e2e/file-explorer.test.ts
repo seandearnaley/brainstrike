@@ -60,7 +60,7 @@ async function getMaxSelectionCount(page: Page): Promise<string> {
 }
 
 test.describe('File Explorer', () => {
-  test.describe('core experience', { tag: '@smoke' }, () => {
+  test.describe('core experience', () => {
     let explorer: FileExplorerPage;
 
     const defaultTree: FileTree = {
@@ -383,7 +383,7 @@ test.describe('File Explorer', () => {
     });
   });
 
-  test.describe('filtering', { tag: '@smoke' }, () => {
+  test.describe('filtering', () => {
     async function openViewFilters(page: Page): Promise<void> {
       const viewFiltersToggle = page.getByRole('button', { name: /view filters/i });
       await expect(viewFiltersToggle).toBeVisible({ timeout: 10_000 });

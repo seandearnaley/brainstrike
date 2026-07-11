@@ -19,7 +19,7 @@ import {
   waitForSettingsPage,
 } from './utils/layout-helpers';
 
-test.describe('Application Layout', { tag: '@smoke' }, () => {
+test.describe('Application Layout', () => {
   test('should render the main layout correctly', { tag: '@web-smoke' }, async ({ page }) => {
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
