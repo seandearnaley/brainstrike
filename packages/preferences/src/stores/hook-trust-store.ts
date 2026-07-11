@@ -7,8 +7,17 @@
  *
  * The renderer only ATTESTS these approvals over the wire (`HookTrustRequest`);
  * the desktop server independently re-hashes disk and runs a root's hooks only
- * when the disk hash matches the approved hash for that `rootId`. Keyed by
- * durable `rootId`, never raw path (multi-root discipline).
+ * when the disk hash matches the approved hash for that `rootId`.
+ *
+ * Keyed by the DB `roots.id` — the STABLE root identity that survives a
+ * remove→re-add (the DB row persists and is path-matched by `reconcileRoots`),
+ * NOT the ephemeral adapter uuid minted afresh on every `fs:addRoot`. The
+ * server keys the same way (its roots come from the DB `roots` table), so the
+ * panel, the attestation, and the server all agree by construction. The panel
+ * learns each mounted root's DB id from the review IPC (main owns the DB), and
+ * the attestation is SCOPED to currently-mounted roots (`buildHookTrustRequest`)
+ * so a disconnected root's grant is never presented to the server — closing the
+ * stale-grant / irrevocable-trust hole.
  */
 
 import type { HookTrustApproval, HookTrustRequest } from '@brainstrike/assistant-contract';
@@ -38,7 +47,12 @@ interface HookTrustActions {
 export type HookTrustStore = HookTrustData & HookTrustActions;
 
 const STORE_NAME = 'hook-trust.v1' as const;
-const STORE_VERSION = 1 as const;
+// v2: trust is keyed by the DB `roots.id` (stable across remove/re-add), not the
+// ephemeral adapter uuid used in v1. A pre-v2 slice cannot be safely remapped
+// (the renderer has no DB access at migrate time), so it is DROPPED — re-approval
+// is the fail-closed direction. Mirrors the permission-policy v2 security bump.
+const STORE_VERSION = 2 as const;
+const FIRST_DB_KEYED_VERSION = 2 as const;
 
 interface ElectronStorageBridge {
   readonly getItem: (key: string) => Promise<string | null>;
@@ -117,7 +131,13 @@ export const useHookTrustStore = create<HookTrustStore>()(
         }),
     }),
     {
-      migrate: (persistedState) => {
+      migrate: (persistedState, version) => {
+        // Pre-v2 approvals were keyed by the ephemeral adapter id and are
+        // unremappable to the DB roots.id the server now matches on — drop them
+        // (fail closed; the user re-approves once, the safe direction).
+        if (version < FIRST_DB_KEYED_VERSION) {
+          return defaultData();
+        }
         if (!(persistedState && typeof persistedState === 'object')) {
           return defaultData();
         }
@@ -156,14 +176,33 @@ export const hookTrustSelectors = {
   approvalsByRootId: (store: HookTrustStore): ApprovalsByRootId => store.approvalsByRootId,
 };
 
+export interface BuildHookTrustRequestOptions {
+  /**
+   * DB `roots.id`s for the CURRENTLY-MOUNTED workspace roots. When provided, the
+   * attestation is scoped to these ids only, so a disconnected root's grant is
+   * never presented to the server (it fails closed). Omit only where scoping is
+   * not applicable (tests / callers with no mounted context).
+   */
+  readonly mountedRootIds?: ReadonlySet<string>;
+}
+
 /**
  * Build the SERIALIZABLE wire snapshot from a store snapshot. The pure mapping
- * lives here so it can be unit-tested without zustand.
+ * lives here so it can be unit-tested without zustand. When `mountedRootIds` is
+ * supplied, only approvals for those (DB-keyed) roots are attested.
  */
-export function buildHookTrustRequest(store: HookTrustData): HookTrustRequest {
-  const approvals: HookTrustApproval[] = Object.entries(store.approvalsByRootId).map(
-    ([rootId, record]) => ({ approvedAt: record.approvedAt, rootId, sha256: record.sha256 })
-  );
+export function buildHookTrustRequest(
+  store: HookTrustData,
+  options: BuildHookTrustRequestOptions = {}
+): HookTrustRequest {
+  const { mountedRootIds } = options;
+  const approvals: HookTrustApproval[] = [];
+  for (const [rootId, record] of Object.entries(store.approvalsByRootId)) {
+    if (mountedRootIds && !mountedRootIds.has(rootId)) {
+      continue;
+    }
+    approvals.push({ approvedAt: record.approvedAt, rootId, sha256: record.sha256 });
+  }
   return { approvals };
 }
 

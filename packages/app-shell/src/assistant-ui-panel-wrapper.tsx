@@ -799,13 +799,63 @@ export function AssistantUiPanelWrapper({
   // so the wire snapshot stays in sync; the server independently re-hashes disk.
   // Scoped to the desktop data-stream transport (web has no hook runner). The
   // renderer never runs hooks — it only ATTESTS approved hashes.
+  //
+  // The store is keyed by DB `roots.id`; the attestation is SCOPED to the
+  // currently-mounted roots' DB ids (resolved in main from the mounted paths) so
+  // a DISCONNECTED root's grant is never presented to the server. Until the scope
+  // resolves — or if the resolver bridge is absent — we attest NOTHING (fail
+  // closed): a stale grant must never leak, and a brief scope-resolution window
+  // is the safe direction.
   const hookApprovalsByRootId = useHookTrustStore(hookTrustSelectors.approvalsByRootId);
+  const [mountedTrustRootIds, setMountedTrustRootIds] = useState<ReadonlySet<string> | null>(null);
+  useEffect(() => {
+    if (localChatTransport !== 'data-stream') {
+      setMountedTrustRootIds(null);
+      return;
+    }
+    const bridge = (
+      window as Window & {
+        hooks?: {
+          resolveTrustedRootIds?: (
+            paths: readonly string[]
+          ) => Promise<ReadonlyArray<{ dbRootId: string; path: string }>>;
+        };
+      }
+    ).hooks;
+    if (!bridge?.resolveTrustedRootIds) {
+      // Cannot resolve DB ids → cannot scope → attest nothing (fail closed).
+      setMountedTrustRootIds(new Set());
+      return;
+    }
+    const paths = Object.values(rootDescriptors ?? {})
+      .map((descriptor) => descriptor.path)
+      .filter((path): path is string => typeof path === 'string' && path.length > 0);
+    let ignore = false;
+    bridge
+      .resolveTrustedRootIds(paths)
+      .then((entries) => {
+        if (!ignore) {
+          setMountedTrustRootIds(new Set(entries.map((entry) => entry.dbRootId)));
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setMountedTrustRootIds(new Set());
+        }
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [localChatTransport, rootDescriptors]);
   const hookTrustRequest = useMemo(() => {
     if (localChatTransport !== 'data-stream') {
       return;
     }
-    return buildHookTrustRequest({ approvalsByRootId: hookApprovalsByRootId });
-  }, [localChatTransport, hookApprovalsByRootId]);
+    return buildHookTrustRequest(
+      { approvalsByRootId: hookApprovalsByRootId },
+      { mountedRootIds: mountedTrustRootIds ?? new Set<string>() }
+    );
+  }, [localChatTransport, hookApprovalsByRootId, mountedTrustRootIds]);
 
   // Plan mode (OPT-IN, persisted). Desktop-hosted-first: only the data-stream
   // transport reaches the assistant server that enforces the plan-mode tool gate

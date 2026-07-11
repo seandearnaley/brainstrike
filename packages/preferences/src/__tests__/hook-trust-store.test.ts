@@ -53,16 +53,43 @@ describe('hook-trust-store', () => {
     expect(byRoot.get('r2')).toBe('hash-2');
   });
 
+  it('attests only approvals whose DB root id is currently mounted (scoping)', () => {
+    useHookTrustStore.getState().approveRoot('db-1', 'hash-1');
+    useHookTrustStore.getState().approveRoot('db-2', 'hash-2');
+    // db-2 is disconnected (not in the mounted set) → its grant must NOT be
+    // attested to the server, so its hooks fail closed on the next turn.
+    const request = buildHookTrustRequest(useHookTrustStore.getState(), {
+      mountedRootIds: new Set(['db-1']),
+    });
+    expect(request.approvals).toHaveLength(1);
+    expect(request.approvals[0]?.rootId).toBe('db-1');
+  });
+
+  it('attests nothing when the mounted set is empty (fail closed while unresolved)', () => {
+    useHookTrustStore.getState().approveRoot('db-1', 'hash-1');
+    const request = buildHookTrustRequest(useHookTrustStore.getState(), {
+      mountedRootIds: new Set(),
+    });
+    expect(request.approvals).toEqual([]);
+  });
+
   it('migrates garbage persisted state to defaults', () => {
     const migrate = storeWithPersist.persist.getOptions().migrate;
     expect(migrate).toBeDefined();
     expect(migrate?.(null, 0)).toEqual({ approvalsByRootId: {} });
     expect(migrate?.('nonsense', 0)).toEqual({ approvalsByRootId: {} });
+    // v2 re-keys trust by DB roots.id. Any pre-v2 slice was keyed by the
+    // ephemeral adapter id and cannot be safely remapped, so it is DROPPED
+    // (fail closed — re-approval is the safe direction).
     expect(migrate?.({ approvalsByRootId: { r1: { approvedAt: 5, sha256: 'h' } } }, 1)).toEqual({
-      approvalsByRootId: { r1: { approvedAt: 5, sha256: 'h' } },
+      approvalsByRootId: {},
     });
-    // Malformed entries are dropped.
-    expect(migrate?.({ approvalsByRootId: { bad: { sha256: 123 } } }, 1)).toEqual({
+    // A v2+ slice is honored verbatim (sanitized).
+    expect(migrate?.({ approvalsByRootId: { db1: { approvedAt: 5, sha256: 'h' } } }, 2)).toEqual({
+      approvalsByRootId: { db1: { approvedAt: 5, sha256: 'h' } },
+    });
+    // Malformed entries in a v2+ slice are dropped.
+    expect(migrate?.({ approvalsByRootId: { bad: { sha256: 123 } } }, 2)).toEqual({
       approvalsByRootId: {},
     });
   });
