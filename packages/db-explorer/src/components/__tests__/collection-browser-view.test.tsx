@@ -1027,6 +1027,34 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('table-pagination')).toHaveTextContent('1:50:120:3');
   });
 
+  it('keeps source pagination inside the resizable main browser panel', () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        pagination={{
+          currentPage: 1,
+          onPageChange: vi.fn(),
+          onPageSizeChange: vi.fn(),
+          pageSize: 50,
+          totalRecords: 120,
+        }}
+        records={TEST_RECORDS}
+      />
+    );
+
+    const mainPanel = screen.getByTestId('panel-main');
+    expect(mainPanel).toContainElement(screen.getByTestId('table-pagination'));
+    expect(mainPanel.firstElementChild).toHaveClass(
+      'flex',
+      'h-full',
+      'min-h-0',
+      'min-w-0',
+      'flex-col'
+    );
+  });
+
   it('renders source pagination without an extra padded wrapper', () => {
     render(
       <CollectionBrowserView

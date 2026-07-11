@@ -337,6 +337,34 @@ describe('TablePagination', () => {
         expect(screen.getByText('/6')).toBeInTheDocument();
       });
 
+      // Extremely narrow panels progressively reduce to previous/current/next.
+      act(() => {
+        emitResize(200);
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole('combobox', { name: 'Items per page' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('spinbutton', { name: 'Page number' })).not.toBeInTheDocument();
+        expect(screen.getByText('2/6')).toHaveAccessibleName('Page 2 of 6');
+      });
+
+      // Micro mode should persist inside the 20px hysteresis band (<=320px).
+      act(() => {
+        emitResize(310);
+      });
+      await waitFor(() => {
+        expect(screen.getByText('2/6')).toBeInTheDocument();
+      });
+
+      // Crossing beyond hysteresis transitions micro -> mini.
+      act(() => {
+        emitResize(321);
+      });
+      await waitFor(() => {
+        expect(screen.getByRole('combobox', { name: 'Items per page' })).toBeInTheDocument();
+        expect(screen.getByRole('spinbutton', { name: 'Page number' })).toBeInTheDocument();
+        expect(screen.getByText('/6')).toBeInTheDocument();
+      });
+
       // Mini mode should persist inside the 20px hysteresis band (<=520px).
       act(() => {
         emitResize(510);
