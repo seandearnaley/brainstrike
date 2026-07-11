@@ -1,5 +1,9 @@
 export * from './assistant-run-timeline';
 export * from './assistant-ui-panel';
+export {
+  CheckpointTurnRevert,
+  CheckpointTurnRevertControl,
+} from './checkpoint-turn-revert';
 export type { OmMeterState } from './context-usage-meter';
 export {
   resetContextUsageStore,
@@ -10,7 +14,10 @@ export {
   type EditCheckpointContextValue,
   EditCheckpointProvider,
   REVERTIBLE_MUTATION_TOOL_NAMES,
+  selectTurnRevertScope,
+  type TurnRevertScope,
   useCheckpointForToolCall,
+  useCheckpointTurnRevert,
 } from './edit-checkpoint-context';
 export type { FileMention } from './file-mentions';
 export { hasDesktopLlmHost } from './local-runtime-adapter';

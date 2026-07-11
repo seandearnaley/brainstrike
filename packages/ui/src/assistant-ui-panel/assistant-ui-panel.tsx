@@ -70,6 +70,7 @@ import {
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
+import { CheckpointTurnRevert } from './checkpoint-turn-revert';
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, useComposerDraftCommand } from './composer-draft-command';
 import { ComposerInputWithTriggers } from './composer-input';
@@ -1555,6 +1556,9 @@ const AssistantMessage = () => {
           }}
         />
         <AssistantMessageError />
+        {/* Turn-level "Revert all edits" footer — renders only on desktop turns
+            that made ≥1 still-revertible file edit; null everywhere else. */}
+        <CheckpointTurnRevert />
       </div>
 
       <AssistantActionBar />

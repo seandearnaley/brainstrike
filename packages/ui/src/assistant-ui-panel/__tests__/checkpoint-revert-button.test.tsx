@@ -72,7 +72,12 @@ function contextValue(
   entry: AssistantEditCheckpointRecord,
   revertEntry: EditCheckpointContextValue['revertEntry']
 ): EditCheckpointContextValue {
-  return { entriesByToolCallId: new Map([[TOOL_CALL_ID, entry]]), revertEntry };
+  return {
+    entries: [entry],
+    entriesByToolCallId: new Map([[TOOL_CALL_ID, entry]]),
+    revertEntry,
+    revertRun: vi.fn(),
+  };
 }
 
 describe('CheckpointRevertButton', () => {

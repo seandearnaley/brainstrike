@@ -61,7 +61,12 @@ describe('assistant UI panel architecture', () => {
     // Bumped 1786 → 1787 for the hydration-replay fix: RunLifecycleNotificationBridge
     // now also receives `threadKey` so a thread switch re-seeds its "seen"
     // sets instead of treating the new thread's history as new activity.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1787);
+    // Bumped 1787 → 1792 for the turn-level "Revert all edits" footer:
+    // AssistantMessage mounts <CheckpointTurnRevert /> (its own module,
+    // checkpoint-turn-revert.tsx) after AssistantMessageError. The control's
+    // phase machine, part-scanning, and per-run revert wiring all live in that
+    // module; this file only imports + renders it.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1792);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
@@ -91,6 +96,20 @@ describe('assistant UI panel architecture', () => {
 
     expect(readSource('assistant-ui-panel/assistant-message-error.tsx')).toContain(
       'ErrorPrimitive.Message'
+    );
+  });
+
+  it('mounts the turn-level revert footer as an owned module on assistant messages', () => {
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    expect(source).toContain("from './checkpoint-turn-revert'");
+
+    const assistantMessageStart = source.indexOf('const AssistantMessage =');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
+    const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
+    expect(assistantMessageSource).toContain('<CheckpointTurnRevert />');
+
+    expect(readSource('assistant-ui-panel/checkpoint-turn-revert.tsx')).toContain(
+      'export function CheckpointTurnRevert'
     );
   });
 
