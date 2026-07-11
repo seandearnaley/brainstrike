@@ -544,6 +544,21 @@ function buildCheckboxStateMap<T>(
 }
 
 /**
+ * Resolve the effective Space handler: a consumer-provided one wins; otherwise
+ * the internal pluggable-checkbox handler when that visual path is active.
+ */
+function resolveCheckboxSpaceHandler(
+  consumerHandler: ((nodeId: string) => boolean) | undefined,
+  pluggablePathActive: boolean,
+  pluggableHandler: (nodeId: string) => boolean
+): ((nodeId: string) => boolean) | undefined {
+  if (consumerHandler !== undefined) {
+    return consumerHandler;
+  }
+  return pluggablePathActive ? pluggableHandler : undefined;
+}
+
+/**
  * TreeTable - A virtualized hierarchical table component.
  *
  * Features:
@@ -570,21 +585,6 @@ function buildCheckboxStateMap<T>(
  * />
  * ```
  */
-/**
- * Resolve the effective Space handler: a consumer-provided one wins; otherwise
- * the internal pluggable-checkbox handler when that visual path is active.
- */
-function resolveCheckboxSpaceHandler(
-  consumerHandler: ((nodeId: string) => boolean) | undefined,
-  pluggablePathActive: boolean,
-  pluggableHandler: (nodeId: string) => boolean
-): ((nodeId: string) => boolean) | undefined {
-  if (consumerHandler !== undefined) {
-    return consumerHandler;
-  }
-  return pluggablePathActive ? pluggableHandler : undefined;
-}
-
 export function TreeTable<T>({
   nodes,
   columns,
