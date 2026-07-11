@@ -247,7 +247,7 @@ const EXPLORER_RIGHT_PANEL_CHROME = {
 
 const CONTEXT_EXPLORER_PANEL_CONSTRAINTS = {
   mainContentMinSize: '20%',
-  rightPanelMinSize: '80px',
+  rightPanelMinSize: '180px',
 } as const;
 
 function ContextExplorerSurface({

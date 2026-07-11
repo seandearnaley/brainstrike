@@ -122,7 +122,7 @@ test.describe('File Explorer', () => {
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
       await page.mouse.down();
       // Moving the right-panel's handle to the right makes the right panel narrower
-      await page.mouse.move(panelGroupRight - 50, handleBox.y + handleBox.height / 2, {
+      await page.mouse.move(panelGroupRight - 180, handleBox.y + handleBox.height / 2, {
         steps: 20,
       });
       await page.mouse.up();
@@ -133,13 +133,14 @@ test.describe('File Explorer', () => {
         (element) => element.getBoundingClientRect().width
       );
       expect(narrowedWidth).toBeLessThanOrEqual(initialWidth);
-      expect(narrowedWidth).toBeGreaterThanOrEqual(79);
-      expect(narrowedWidth).toBeLessThanOrEqual(81);
+      expect(narrowedWidth).toBeGreaterThanOrEqual(179);
+      expect(narrowedWidth).toBeLessThanOrEqual(181);
 
       const toolbar = page.getByTestId('file-explorer-toolbar');
       await expect(toolbar.getByRole('button', { name: /^Selection settings/ })).toBeVisible();
-      await expect(toolbar.getByTestId('selection-compact-count')).toBeVisible();
-      await expect(toolbar.getByTestId('selection-count')).not.toBeVisible();
+      await expect(toolbar.getByTestId('selection-counter-control')).toBeVisible();
+      await expect(toolbar.getByTestId('selection-count')).toBeVisible();
+      await expect(toolbar.getByTestId('selection-compact-count')).not.toBeVisible();
       await expect(toolbar.getByRole('button', { name: 'Select All' })).toBeVisible();
       await expect(toolbar.getByTestId('bulk-action-full-label')).not.toBeVisible();
 
@@ -451,12 +452,12 @@ test.describe('File Explorer', () => {
       await largeExplorer.selectRoot();
       await setMaxSelectionCount(page, 8000);
       await largeExplorer.selectAllButton.click();
-      await expect(
-        page.getByRole('button', {
-          name: /1000 of 8000 files selected/,
-        })
-      ).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByTestId('selection-compact-count')).toHaveText('1K');
+      await expect(page.getByTestId('selection-settings-button')).toHaveAccessibleName(
+        /1000 of 8000 files selected/,
+        { timeout: 20_000 }
+      );
+      await expect(page.getByTestId('selection-counter-control')).toBeVisible();
+      await expect(page.getByTestId('selection-count')).toHaveText('1K');
 
       await page.getByTestId('hide-threads-panel').click();
       await expect(page.getByTestId('show-threads-panel')).toBeVisible();
@@ -475,7 +476,7 @@ test.describe('File Explorer', () => {
       }
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
       await page.mouse.down();
-      await page.mouse.move(panelGroupRight - 50, handleBox.y + handleBox.height / 2, {
+      await page.mouse.move(panelGroupRight - 180, handleBox.y + handleBox.height / 2, {
         steps: 20,
       });
       await page.mouse.up();

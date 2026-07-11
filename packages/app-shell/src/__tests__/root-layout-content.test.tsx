@@ -262,7 +262,7 @@ describe('RootLayoutContent', () => {
     expect(
       mockHandlers.ideLayoutProps.find(({ panelIdPrefix }) => panelIdPrefix === 'context-explorer')
         ?.panelConstraints
-    ).toEqual({ mainContentMinSize: '20%', rightPanelMinSize: '80px' });
+    ).toEqual({ mainContentMinSize: '20%', rightPanelMinSize: '180px' });
     // The south/console panel is gone — file tabs now live inside the editor area
     // (the workspace tab host is rendered via contextExplorerPageContent in real apps).
     expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();
