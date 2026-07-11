@@ -1,4 +1,9 @@
-import type { ActionOutcome, AnyContextAction, ContextTarget } from '@brainstrike/context-actions';
+import type {
+  ActionOutcome,
+  ActionShortcut,
+  AnyContextAction,
+  ContextTarget,
+} from '@brainstrike/context-actions';
 import { createLogger } from '@brainstrike/utils';
 import {
   Fragment,
@@ -9,6 +14,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { isMacPlatform } from '../command-palette/platform-accelerator';
 import { toast } from '../use-toast';
 import { useActionRegistry } from './action-registry-provider';
 import {
@@ -16,10 +22,37 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuTrigger,
 } from './context-menu';
 
 const logger = createLogger('ContextActions');
+
+function formatShortcut(shortcut: ActionShortcut): string {
+  const key = shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key;
+  if (isMacPlatform()) {
+    const modifiers = shortcut.modifiers.map((modifier) => {
+      if (modifier === 'primary') {
+        return '⌘';
+      }
+      if (modifier === 'shift') {
+        return '⇧';
+      }
+      return '⌥';
+    });
+    return `${modifiers.join('')}${key}`;
+  }
+  const modifiers = shortcut.modifiers.map((modifier) => {
+    if (modifier === 'primary') {
+      return 'Ctrl';
+    }
+    if (modifier === 'shift') {
+      return 'Shift';
+    }
+    return 'Alt';
+  });
+  return [...modifiers, key].join('+');
+}
 
 export interface ContextMenuTargetController {
   setTarget: (target: ContextTarget | null) => void;
@@ -164,6 +197,9 @@ export function ActionContextMenu({ controller, localActions, children }: Action
                     >
                       {Icon ? <Icon className="mr-2 h-4 w-4" /> : null}
                       {label}
+                      {action.shortcut ? (
+                        <ContextMenuShortcut>{formatShortcut(action.shortcut)}</ContextMenuShortcut>
+                      ) : null}
                     </ContextMenuItem>
                   );
                 })}

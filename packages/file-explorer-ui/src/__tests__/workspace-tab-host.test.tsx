@@ -1,5 +1,5 @@
 import { INACCESSIBLE_CONTENT_PREFIX, type TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutGrid } from 'lucide-react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -58,6 +58,24 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
     })),
   };
 });
+
+const DEMO_APP: WorkspaceApp = {
+  icon: LayoutGrid,
+  id: 'demo-app',
+  label: 'Demo App',
+  render: () => <div data-testid="demo-app-body">Demo body</div>,
+};
+
+async function openThreeTabsWithDemoAppSelected(): Promise<void> {
+  const tabModule = await import('../hooks/use-tab-manager');
+  vi.mocked(tabModule.useTabManager).mockRestore();
+  __resetTabManagerStoreForTests();
+  const store = useTabManagerStore.getState();
+  store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
+  store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
+  store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
+  useWorkspaceTabSelectionStore.getState().selectApp(DEMO_APP.id);
+}
 
 describe('WorkspaceTabHost', () => {
   let useTabFileRestoration: typeof import('@brainstrike/file-explorer-hooks').useTabFileRestoration;
@@ -743,6 +761,154 @@ describe('WorkspaceTabHost', () => {
     expect(closeAll).toHaveAttribute('aria-disabled', 'true');
   });
 
+  it('right-clicking an inactive file tab can close it without activating it', async () => {
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.mocked(tabModule.useTabManager).mockRestore();
+    __resetTabManagerStoreForTests();
+    const store = useTabManagerStore.getState();
+    store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
+    store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
+    store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/c.ts');
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close' }));
+
+    await waitFor(() => {
+      expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual([
+        'folderA|@|src/a.ts',
+        'folderA|@|src/c.ts',
+      ]);
+    });
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      kind: 'file',
+      tabId: 'folderA|@|src/c.ts',
+    });
+  });
+
+  it('right-click Close Others uses the clicked tab as the atomic retained target', async () => {
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.mocked(tabModule.useTabManager).mockRestore();
+    __resetTabManagerStoreForTests();
+    const store = useTabManagerStore.getState();
+    store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
+    store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
+    store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/c.ts');
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
+
+    await waitFor(() => {
+      expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual([
+        'folderA|@|src/b.ts',
+      ]);
+    });
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      kind: 'file',
+      tabId: 'folderA|@|src/b.ts',
+    });
+  });
+
+  it('keeps a pinned app selected when Close Others changes background file tabs', async () => {
+    await openThreeTabsWithDemoAppSelected();
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost extraApps={[DEMO_APP]} />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
+
+    expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual(['folderA|@|src/b.ts']);
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      appId: DEMO_APP.id,
+      kind: 'app',
+    });
+  });
+
+  it('keeps a pinned app selected when closing background file tabs to the right', async () => {
+    await openThreeTabsWithDemoAppSelected();
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost extraApps={[DEMO_APP]} />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' }));
+
+    expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual([
+      'folderA|@|src/a.ts',
+      'folderA|@|src/b.ts',
+    ]);
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      appId: DEMO_APP.id,
+      kind: 'app',
+    });
+  });
+
+  it('keeps a pinned app selected when closing all background file tabs', async () => {
+    await openThreeTabsWithDemoAppSelected();
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost extraApps={[DEMO_APP]} />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All Tabs' }));
+
+    expect(useTabManagerStore.getState().tabs).toEqual([]);
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      appId: DEMO_APP.id,
+      kind: 'app',
+    });
+  });
+
+  it('disables file-tab actions when their claimed target becomes stale', async () => {
+    await openThreeTabsWithDemoAppSelected();
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost extraApps={[DEMO_APP]} />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    const close = await screen.findByRole('menuitem', { name: 'Close' });
+    act(() => {
+      useTabManagerStore.getState().closeTab('folderA|@|src/b.ts');
+    });
+
+    await waitFor(() => {
+      expect(close).toHaveAttribute('data-disabled');
+    });
+  });
+
+  it('does not invent a context menu for pinned workspace app tabs', async () => {
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /context explorer/i }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   it('registers openFileInTab and loads newly opened file content once', async () => {
     let registeredOpenFile: ((compositeKey: string) => void) | undefined;
     const registerOpenFileInTab = vi.fn((callback: (compositeKey: string) => void) => {
@@ -986,16 +1152,9 @@ describe('WorkspaceTabHost', () => {
   });
 
   it('accepts an extensible apps list — additional pinned apps render in tab order', async () => {
-    const customApp: WorkspaceApp = {
-      icon: LayoutGrid,
-      id: 'demo-app',
-      label: 'Demo App',
-      render: () => <div data-testid="demo-app-body">Demo body</div>,
-    };
-
     render(
       <FileExplorerTestWrapper>
-        <WorkspaceTabHost extraApps={[customApp]} />
+        <WorkspaceTabHost extraApps={[DEMO_APP]} />
       </FileExplorerTestWrapper>
     );
 

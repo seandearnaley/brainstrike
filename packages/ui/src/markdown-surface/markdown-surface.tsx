@@ -23,6 +23,10 @@ export interface MarkdownSurfaceProps {
   /** Accessible label for the scrollable region. */
   readonly ariaLabel?: string;
   readonly initialScrollTop?: number;
+  /** Synchronous, surface-bounded DOM selection snapshot taken on `contextmenu`. */
+  readonly onContextMenuSelection?:
+    | ((selection: MarkdownSurfaceContextMenuSelection) => void)
+    | undefined;
   /** Non-anchor link clicks (http, mailto, relative paths) — the host decides. */
   readonly onOpenLink: (href: string) => void;
   readonly onScrollTopChange?: (scrollTop: number) => void;
@@ -32,6 +36,11 @@ export interface MarkdownSurfaceProps {
   /** Set when the host truncated the document (mirrors CodeSurface's contract). */
   readonly truncated?: boolean;
   readonly value: string;
+}
+
+export interface MarkdownSurfaceContextMenuSelection {
+  /** Exact selected text; null for collapsed, empty, or cross-surface selections. */
+  readonly text: string | null;
 }
 
 const REMARK_PLUGINS = [remarkGfm, remarkMath];
@@ -60,6 +69,7 @@ function extractFencedCode(children: ReactNode): FencedCode | null {
 export function MarkdownSurface({
   ariaLabel,
   initialScrollTop,
+  onContextMenuSelection,
   onOpenLink,
   onScrollTopChange,
   resolveImageSrc,
@@ -87,6 +97,28 @@ export function MarkdownSurface({
       onScrollTopChange?.(containerRef.current.scrollTop);
     }
   }, [onScrollTopChange]);
+
+  const handleContextMenu = useCallback(() => {
+    if (!onContextMenuSelection) {
+      return;
+    }
+    const container = containerRef.current;
+    const selection = typeof window === 'undefined' ? null : window.getSelection();
+    if (
+      !(container && selection) ||
+      selection.rangeCount === 0 ||
+      selection.isCollapsed ||
+      !selection.anchorNode ||
+      !selection.focusNode ||
+      !container.contains(selection.anchorNode) ||
+      !container.contains(selection.focusNode)
+    ) {
+      onContextMenuSelection({ text: null });
+      return;
+    }
+    const text = selection.toString();
+    onContextMenuSelection({ text: text.length > 0 ? text : null });
+  }, [onContextMenuSelection]);
 
   const handleLinkClick = useCallback(
     (href: string) => {
@@ -145,10 +177,12 @@ export function MarkdownSurface({
   );
 
   return (
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: read-only document surface exposes a standard context menu without changing its region semantics
     <section
       aria-label={ariaLabel}
       className="h-full overflow-auto"
       data-testid={testId}
+      onContextMenu={handleContextMenu}
       onScroll={handleScroll}
       ref={containerRef}
     >

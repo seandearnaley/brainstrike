@@ -1624,8 +1624,9 @@ Layers:
   registry (capabilities from the bridges that exist) and mounts the provider
   in root-layout-content.tsx. Feature actions are imported via subpath exports
   (@brainstrike/db-explorer/context-actions,
-  @brainstrike/file-explorer-ui/context-actions) to preserve code-splitting —
-  do NOT import the feature-package root barrels from always-mounted code.
+  @brainstrike/file-explorer-ui/context-actions) to preserve code-splitting;
+  assistant thread copy actions are app-shell-owned. Do NOT import feature-package
+  root barrels from always-mounted code.
 - Desktop bridge: window.platform (preload) → 'shell' IPC domain →
   apps/desktop/src/ipc-shell.ts (validates absolute paths, catches shell throws).
 - Desktop clipboard: window.clipboard.writeText (preload) → 'clipboard' IPC
@@ -1642,6 +1643,9 @@ Rules:
   (createLogger('ContextActions')). Thrown/rejected runs are caught by the menu
   and surfaced as "Action failed unexpectedly". No silent fallbacks: a
   present-but-broken bridge reports failure, never degrades quietly.
+- Action ids are globally unique for an invocation. Registry construction rejects
+  duplicate global ids, and `actionsFor` rejects global/local collisions instead
+  of letting renderer order choose an ambiguous executor.
 - Adding an action: define it with defineContextAction in the owning feature
   package, add it to that package's exported action array, cover run/gating in
   unit tests.
@@ -1650,6 +1654,30 @@ Rules:
   controller.setTarget, reset it with onContextMenuCapture on the container,
   wrap with ActionContextMenu. Surface-local actions (closures over surface
   stores) go through the localActions prop, not the global registry.
+- Targets are immutable invocation snapshots, not live DOM/store lookups. Claim
+  them synchronously during the `contextmenu` event. File viewer targets preserve
+  exact text (including whitespace) plus the CodeMirror `{from,to}` range from
+  the same event; Markdown selection must be bounded to its preview root. A
+  durable file `RootId` is identity, commonly a UUID — resolve its descriptor
+  path before building relative/absolute paths and never treat the id as a path.
+- Context triggers must stop before native editable/selection surfaces. Thread
+  row menus wrap only the non-editing display (rename inputs keep the native
+  edit menu), thread-tab menus wrap only the tab lane (assistant message content
+  keeps its native selection menu), and pinned workspace app tabs are not file
+  targets.
+- Multi-tab actions execute atomically in the owning Zustand store. Preserve a
+  selected pinned app while mutating background file tabs; assistant bulk closes
+  update open/active/selected maps together and never mutate durable thread
+  history or per-thread draft runtime. Revalidate targets at execution so a menu
+  opened against a tab that later closes becomes disabled/fails explicitly.
+- `shortcut` is semantic presentation metadata (`primary` maps to Cmd/Ctrl), not
+  keyboard ownership. `registry.descriptorsFor(...)` is the serializable boundary
+  for a future native context-menu adapter: main may receive descriptors and
+  return the chosen action id, but the target and executor stay renderer-owned.
+  Never serialize action functions or React icons over IPC. A persistent Electron
+  application/File menu additionally requires explicit focused-target ownership.
+- Destructive thread actions are staged: row `Delete…` enters the existing inline
+  confirmation flow and never deletes durable history directly from a menu run.
 - Adding a capability: extend CapabilityKey, construct it in
   createAppActionRegistry only when the backing bridge is fully formed
   (malformed bridges log an error and stay absent).

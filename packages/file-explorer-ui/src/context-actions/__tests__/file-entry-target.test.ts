@@ -44,6 +44,36 @@ describe('fileNodeToTarget', () => {
     });
   });
 
+  it('resolves a storage-v5 RootId through the explicit desktop root path', () => {
+    const target = fileNodeToTarget(
+      {
+        ...baseNode,
+        path: '/Users/dev/project/docs/notes.md',
+        rootFolderId: '6d15f31b-cc44-46f7-8eb1-01a1f7b086d8',
+        type: 'file',
+      },
+      '/Users/dev/project'
+    );
+    expect(target).toMatchObject({
+      absolutePath: '/Users/dev/project/docs/notes.md',
+      relativePath: 'docs/notes.md',
+      rootFolderId: '6d15f31b-cc44-46f7-8eb1-01a1f7b086d8',
+    });
+  });
+
+  it('does not guess a relative path when an absolute node has only a UUID RootId', () => {
+    const target = fileNodeToTarget({
+      ...baseNode,
+      path: '/Users/dev/project/docs/notes.md',
+      rootFolderId: '6d15f31b-cc44-46f7-8eb1-01a1f7b086d8',
+      type: 'file',
+    });
+    expect(target).toMatchObject({
+      absolutePath: '/Users/dev/project/docs/notes.md',
+      relativePath: null,
+    });
+  });
+
   it('maps directories', () => {
     const target = fileNodeToTarget({
       ...baseNode,

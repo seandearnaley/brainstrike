@@ -25,6 +25,11 @@ export interface CodeSurfaceSelection {
   readonly to: number;
 }
 
+export interface CodeSurfaceContextMenuSelection extends CodeSurfaceSelection {
+  /** Exact editor text at invocation time; null when the selection is collapsed. */
+  readonly text: string | null;
+}
+
 export interface CodeSurfaceProps {
   readonly ariaLabel?: string | undefined;
   readonly className?: string | undefined;
@@ -49,6 +54,10 @@ export interface CodeSurfaceProps {
   readonly language?: string | undefined;
   readonly lineWrapping?: boolean | undefined;
   readonly onChange?: ((value: string) => void) | undefined;
+  /** Synchronous semantic selection snapshot taken from EditorView on `contextmenu`. */
+  readonly onContextMenuSelection?:
+    | ((selection: CodeSurfaceContextMenuSelection) => void)
+    | undefined;
   readonly onScrollTopChange?: ((scrollTop: number) => void) | undefined;
   readonly onSelectionChange?: ((selection: CodeSurfaceSelection) => void) | undefined;
   readonly path?: string | undefined;
@@ -59,6 +68,9 @@ export interface CodeSurfaceProps {
 
 interface CodeSurfaceCallbacks {
   readonly onChange: ((value: string) => void) | undefined;
+  readonly onContextMenuSelection:
+    | ((selection: CodeSurfaceContextMenuSelection) => void)
+    | undefined;
   readonly onScrollTopChange: ((scrollTop: number) => void) | undefined;
   readonly onSelectionChange: ((selection: CodeSurfaceSelection) => void) | undefined;
 }
@@ -133,6 +145,7 @@ export function CodeSurface({
   language,
   lineWrapping = false,
   onChange,
+  onContextMenuSelection,
   onScrollTopChange,
   onSelectionChange,
   path,
@@ -148,6 +161,7 @@ export function CodeSurface({
   const contentAttributesCompartmentRef = useRef(new Compartment());
   const callbacksRef = useRef<CodeSurfaceCallbacks>({
     onChange,
+    onContextMenuSelection,
     onScrollTopChange,
     onSelectionChange,
   });
@@ -169,10 +183,11 @@ export function CodeSurface({
   useEffect(() => {
     callbacksRef.current = {
       onChange,
+      onContextMenuSelection,
       onScrollTopChange,
       onSelectionChange,
     };
-  }, [onChange, onScrollTopChange, onSelectionChange]);
+  }, [onChange, onContextMenuSelection, onScrollTopChange, onSelectionChange]);
 
   useEffect(() => {
     // EditorView is intentionally created once; prop updates are handled by sync effects below.
@@ -210,6 +225,22 @@ export function CodeSurface({
                 to: range.to,
               });
             }
+          }),
+          EditorView.domEventHandlers({
+            contextmenu: (_event, editorView) => {
+              const range = editorView.state.selection.main;
+              callbacksRef.current.onContextMenuSelection?.({
+                from: range.from,
+                text:
+                  range.from === range.to
+                    ? null
+                    : editorView.state.doc.sliceString(range.from, range.to),
+                to: range.to,
+              });
+              // Claiming context is observational. Radix/the browser still owns
+              // whether the event opens a menu, so do not prevent it here.
+              return false;
+            },
           }),
         ],
       }),

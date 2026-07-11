@@ -1,9 +1,12 @@
+import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
 import {
   INACCESSIBLE_CONTENT_PREFIX,
   type TabFileStatus,
   useTabFileRestoration,
 } from '@brainstrike/file-explorer-hooks';
+import type { FileExplorerState } from '@brainstrike/types';
 import {
+  ActionContextMenu,
   Button,
   CodeSurface,
   cn,
@@ -13,6 +16,7 @@ import {
   DropdownMenuTrigger,
   isMarkdownPath,
   type OpenFileInTab,
+  useContextMenuTarget,
   useIdeFileEditor,
   useToast,
 } from '@brainstrike/ui';
@@ -40,14 +44,18 @@ import {
   useState,
 } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { fileTabToTarget } from '../context-actions/file-surface-target';
 import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
+import { useFileViewerContextMenu } from '../hooks/use-file-viewer-context-menu';
 import { type FileTab, useTabManager } from '../hooks/use-tab-manager';
 import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
+import { useTabManagerStore } from '../stores/tab-manager-store';
 import {
   useWorkspaceTabSelectionStore,
   type WorkspaceTabSelection,
 } from '../stores/workspace-tab-selection-store';
 import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
+import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { FileTabHeader } from './file-tab-header';
 import { MarkdownPreviewErrorBoundary } from './markdown-preview-error-boundary';
 import { useFileExplorer } from './use-file-explorer-context';
@@ -101,8 +109,11 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   }, [extraApps]);
 
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
+  const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
+  const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
   const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
     useFileExplorer();
+  const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
   const selectApp = useWorkspaceTabSelectionStore((s) => s.selectApp);
@@ -421,16 +432,50 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     [cycleFileTab]
   );
 
-  // Explicit Close-All handler: route the workspace selection back to Context Explorer
-  // at the call site instead of relying on the dead-selection effect to detect the
-  // orphaned tabId on the next render. The effect still serves as a safety net for
-  // silent-eviction and external-close paths, but making the bulk-close path explicit
-  // keeps the behavior obvious and robust against future changes that might suppress
-  // the effect.
+  const reconcileSelectionAfterBulkClose = useCallback(
+    (nextActiveTabId: string | null): void => {
+      const currentSelection = useWorkspaceTabSelectionStore.getState().selection;
+      if (currentSelection.kind === 'app') {
+        return;
+      }
+      const selectedTabStillExists = useTabManagerStore
+        .getState()
+        .tabs.some((tab) => tab.id === currentSelection.tabId);
+      if (selectedTabStillExists) {
+        return;
+      }
+      if (nextActiveTabId === null) {
+        handleSelectApp(CONTEXT_EXPLORER_APP_ID);
+        return;
+      }
+      selectFile(nextActiveTabId);
+    },
+    [handleSelectApp, selectFile]
+  );
+
+  // File-tab bulk operations never replace a pinned app selection. When a file
+  // selection is removed, reconcile it immediately instead of waiting for the
+  // dead-selection safety effect on the next render.
   const handleCloseAllFileTabs = useCallback(() => {
     clearTabs();
-    handleSelectApp(CONTEXT_EXPLORER_APP_ID);
-  }, [clearTabs, handleSelectApp]);
+    reconcileSelectionAfterBulkClose(null);
+  }, [clearTabs, reconcileSelectionAfterBulkClose]);
+
+  const handleCloseOtherFileTabs = useCallback(
+    (tabId: string): void => {
+      const nextActiveTabId = closeOtherTabs(tabId);
+      reconcileSelectionAfterBulkClose(nextActiveTabId);
+    },
+    [closeOtherTabs, reconcileSelectionAfterBulkClose]
+  );
+
+  const handleCloseFileTabsToRight = useCallback(
+    (tabId: string): void => {
+      const nextActiveTabId = closeTabsToRight(tabId);
+      reconcileSelectionAfterBulkClose(nextActiveTabId);
+    },
+    [closeTabsToRight, reconcileSelectionAfterBulkClose]
+  );
 
   return (
     <div className={cn('flex h-full flex-col bg-background', className)}>
@@ -440,8 +485,11 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         loadingFiles={loadingFiles}
         onCloseAllFileTabs={handleCloseAllFileTabs}
         onCloseFileTab={handleCloseFileTab}
+        onCloseFileTabsToRight={handleCloseFileTabsToRight}
+        onCloseOtherFileTabs={handleCloseOtherFileTabs}
         onSelectApp={handleSelectApp}
         onSelectFileTab={handleSelectFileTab}
+        rootDescriptors={rootDescriptors}
         selection={selection}
         tabStatuses={tabStatuses}
         tabs={tabs}
@@ -452,6 +500,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
           fileContents={fileContents}
           isRestoring={isRestoring}
           loadingFiles={loadingFiles}
+          rootDescriptors={rootDescriptors}
           selection={selection}
           tabStatuses={tabStatuses}
           tabs={tabs}
@@ -470,8 +519,11 @@ interface WorkspaceTabStripProps {
   /** Clear all file tabs at once. Surfaced via the overflow menu next to the tab strip. */
   readonly onCloseAllFileTabs: () => void;
   readonly onCloseFileTab: (tabId: string) => void;
+  readonly onCloseFileTabsToRight: (tabId: string) => void;
+  readonly onCloseOtherFileTabs: (tabId: string) => void;
   readonly onSelectApp: (appId: string) => void;
   readonly onSelectFileTab: (tabId: string) => void | Promise<void>;
+  readonly rootDescriptors: FileExplorerState['rootDescriptors'];
   readonly selection: WorkspaceTabSelection;
   readonly tabStatuses: Map<string, TabFileStatus>;
   readonly tabs: FileTab[];
@@ -486,52 +538,154 @@ function WorkspaceTabStrip({
   tabStatuses,
   onSelectFileTab,
   onCloseFileTab,
+  onCloseFileTabsToRight,
+  onCloseOtherFileTabs,
   onCloseAllFileTabs,
   getTabStatusMessage,
+  rootDescriptors,
 }: WorkspaceTabStripProps) {
+  const contextMenuController = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget } = contextMenuController;
+  const handleFileTabContextMenu = useCallback(
+    (tab: FileTab): void => {
+      const target = fileTabToTarget(tab, getTabRootPath(tab, rootDescriptors));
+      if (!target) {
+        logger.error('Could not resolve workspace file tab context target', {
+          compositeKey: tab.compositeKey,
+        });
+      }
+      setContextMenuTarget(target);
+    },
+    [rootDescriptors, setContextMenuTarget]
+  );
+  const localActions = useMemo<readonly AnyContextAction[]>(() => {
+    const currentTabs = (): readonly FileTab[] => useTabManagerStore.getState().tabs;
+    const currentTargetIndex = (tabId: string): number =>
+      currentTabs().findIndex((tab) => tab.id === tabId);
+    const isCurrentTab = (tabId: string): boolean => currentTargetIndex(tabId) >= 0;
+    const staleTargetFailure = Promise.resolve({
+      error: 'File tab is no longer open',
+      ok: false as const,
+    });
+
+    return [
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        icon: X,
+        id: 'workspace-file-tab.close',
+        isEnabled: (target) => isCurrentTab(target.tabId),
+        label: 'Close',
+        run: (target) => {
+          if (!isCurrentTab(target.tabId)) {
+            return staleTargetFailure;
+          }
+          onCloseFileTab(target.tabId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        id: 'workspace-file-tab.close-others',
+        isEnabled: (target) => isCurrentTab(target.tabId) && currentTabs().length > 1,
+        label: 'Close Others',
+        run: (target) => {
+          if (!isCurrentTab(target.tabId)) {
+            return staleTargetFailure;
+          }
+          if (currentTabs().length <= 1) {
+            return Promise.resolve({ error: 'No other file tabs remain open', ok: false });
+          }
+          onCloseOtherFileTabs(target.tabId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        id: 'workspace-file-tab.close-right',
+        isEnabled: (target) => {
+          const targetIndex = currentTargetIndex(target.tabId);
+          return targetIndex >= 0 && targetIndex < currentTabs().length - 1;
+        },
+        label: 'Close Tabs to the Right',
+        run: (target) => {
+          const targetIndex = currentTargetIndex(target.tabId);
+          if (targetIndex === -1) {
+            return staleTargetFailure;
+          }
+          if (targetIndex === currentTabs().length - 1) {
+            return Promise.resolve({ error: 'No file tabs remain to the right', ok: false });
+          }
+          onCloseFileTabsToRight(target.tabId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        id: 'workspace-file-tab.close-all',
+        isEnabled: (target) => isCurrentTab(target.tabId),
+        label: 'Close All Tabs',
+        run: (target) => {
+          if (!isCurrentTab(target.tabId)) {
+            return staleTargetFailure;
+          }
+          onCloseAllFileTabs();
+          return Promise.resolve({ ok: true });
+        },
+      }),
+    ];
+  }, [onCloseAllFileTabs, onCloseFileTab, onCloseFileTabsToRight, onCloseOtherFileTabs]);
+
   return (
-    <div
-      className="flex flex-shrink-0 items-stretch border-border border-b bg-muted/30"
-      role="tablist"
-    >
-      <div className="flex flex-shrink-0 items-stretch border-border border-r">
-        {apps.map((app) => {
-          const isActive = selection.kind === 'app' && selection.appId === app.id;
-          return (
-            <AppTabButton
-              app={app}
-              isActive={isActive}
-              key={app.id}
-              onSelect={() => onSelectApp(app.id)}
-            />
-          );
-        })}
+    <ActionContextMenu controller={contextMenuController} localActions={localActions}>
+      <div
+        className="flex flex-shrink-0 items-stretch border-border border-b bg-muted/30"
+        onContextMenuCapture={() => setContextMenuTarget(null)}
+        role="tablist"
+      >
+        <div className="flex flex-shrink-0 items-stretch border-border border-r">
+          {apps.map((app) => {
+            const isActive = selection.kind === 'app' && selection.appId === app.id;
+            return (
+              <AppTabButton
+                app={app}
+                isActive={isActive}
+                key={app.id}
+                onSelect={() => onSelectApp(app.id)}
+              />
+            );
+          })}
+        </div>
+        <div className="scrollbar-thin flex min-w-0 flex-1 items-stretch overflow-x-auto">
+          {tabs.map((tab) => {
+            const isActive = selection.kind === 'file' && selection.tabId === tab.id;
+            const status = tabStatuses.get(tab.compositeKey);
+            const isLoading = loadingFiles.has(tab.compositeKey);
+            const statusMessage = getTabStatusMessage(tab.compositeKey);
+            // FileTabButton receives the parent handlers verbatim and dispatches them with
+            // its own tab.id internally — no per-render arrow-closure recreation, so the
+            // memo wrap on FileTabButton bails on shallow-equal props.
+            return (
+              <FileTabButton
+                isActive={isActive}
+                isLoading={isLoading}
+                key={tab.id}
+                onClose={onCloseFileTab}
+                onContextMenu={handleFileTabContextMenu}
+                onSelect={onSelectFileTab}
+                status={status}
+                statusMessage={statusMessage}
+                tab={tab}
+              />
+            );
+          })}
+        </div>
+        <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
       </div>
-      <div className="scrollbar-thin flex min-w-0 flex-1 items-stretch overflow-x-auto">
-        {tabs.map((tab) => {
-          const isActive = selection.kind === 'file' && selection.tabId === tab.id;
-          const status = tabStatuses.get(tab.compositeKey);
-          const isLoading = loadingFiles.has(tab.compositeKey);
-          const statusMessage = getTabStatusMessage(tab.compositeKey);
-          // FileTabButton receives the parent handlers verbatim and dispatches them with
-          // its own tab.id internally — no per-render arrow-closure recreation, so the
-          // memo wrap on FileTabButton bails on shallow-equal props.
-          return (
-            <FileTabButton
-              isActive={isActive}
-              isLoading={isLoading}
-              key={tab.id}
-              onClose={onCloseFileTab}
-              onSelect={onSelectFileTab}
-              status={status}
-              statusMessage={statusMessage}
-              tab={tab}
-            />
-          );
-        })}
-      </div>
-      <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
-    </div>
+    </ActionContextMenu>
   );
 }
 
@@ -611,6 +765,7 @@ interface FileTabButtonProps {
    * effective.
    */
   readonly onClose: (tabId: string) => void;
+  readonly onContextMenu: (tab: FileTab) => void;
   readonly onSelect: (tabId: string) => void | Promise<void>;
   readonly status: TabFileStatus | undefined;
   readonly statusMessage: string | null;
@@ -631,6 +786,7 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
   statusMessage,
   onSelect,
   onClose,
+  onContextMenu,
 }) {
   const fileName = getFileName(tab.path);
   const tabButtonId = `workspace-file-tab-${tab.id}`;
@@ -645,12 +801,18 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
     },
     [onClose, tab.id]
   );
+  const handleContextMenu = useCallback(() => {
+    onContextMenu(tab);
+  }, [onContextMenu, tab]);
   return (
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: composite tab wrapper claims context-menu identity for its focusable tab button
+    // biome-ignore lint/a11y/noStaticElementInteractions: composite tab wrapper claims context-menu identity for its focusable tab button
     <div
       className={cn(
         'flex flex-shrink-0 items-center border-transparent border-r border-b-2',
         isActive ? 'border-b-primary bg-background' : 'bg-muted/30 hover:bg-muted'
       )}
+      onContextMenu={handleContextMenu}
     >
       <button
         aria-controls={panelId}
@@ -707,6 +869,7 @@ interface WorkspaceBodyProps {
   readonly fileContents: { [key: string]: string };
   readonly isRestoring: boolean;
   readonly loadingFiles: Set<string>;
+  readonly rootDescriptors: FileExplorerState['rootDescriptors'];
   readonly selection: WorkspaceTabSelection;
   readonly tabStatuses: Map<string, TabFileStatus>;
   readonly tabs: FileTab[];
@@ -727,6 +890,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   tabs,
   fileContents,
   loadingFiles,
+  rootDescriptors,
   tabStatuses,
   isRestoring,
 }) {
@@ -774,6 +938,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   const status = tabStatuses.get(tab.compositeKey);
   const isLoading = loadingFiles.has(tab.compositeKey);
   const content = fileContents[tab.compositeKey];
+  const rootPath = getTabRootPath(tab, rootDescriptors);
   return (
     <div
       aria-labelledby={`workspace-file-tab-${tab.id}`}
@@ -786,6 +951,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
         isLoading={isLoading}
         isRestoring={isRestoring}
         key={tab.compositeKey}
+        rootPath={rootPath}
         status={status}
         tab={tab}
       />
@@ -797,11 +963,19 @@ interface FileTabBodyProps {
   readonly content: string | undefined;
   readonly isLoading: boolean;
   readonly isRestoring: boolean;
+  readonly rootPath?: string | null;
   readonly status: TabFileStatus | undefined;
   readonly tab: FileTab;
 }
 
-function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBodyProps) {
+function FileTabBody({
+  tab,
+  content,
+  isLoading,
+  isRestoring,
+  rootPath = null,
+  status,
+}: FileTabBodyProps) {
   const path = useMemo(() => {
     try {
       return decodeFileSelection(tab.compositeKey).path;
@@ -855,6 +1029,14 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     },
     [setScrollTop, tab.compositeKey]
   );
+
+  const {
+    controller: contextMenuController,
+    handleCodeContextMenuSelection,
+    handleMarkdownContextMenuSelection,
+    handleViewerContextMenu,
+    resetContextMenuTarget,
+  } = useFileViewerContextMenu({ rootPath, tab, viewMode: effectiveMode });
 
   const resolveImage = useCallback(
     async (src: string): Promise<string> => {
@@ -1031,6 +1213,7 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
             <MarkdownSurfaceLazy
               ariaLabel={`Markdown preview for ${path}`}
               initialScrollTop={getScrollTop(`preview:${tab.compositeKey}`)}
+              onContextMenuSelection={handleMarkdownContextMenuSelection}
               onOpenLink={handleOpenLink}
               onScrollTopChange={handlePreviewScrollTopChange}
               resolveImageSrc={resolveImage}
@@ -1047,6 +1230,7 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
           initialScrollTop={getScrollTop(tab.compositeKey)}
           initialSelection={target?.selection}
           key={tab.compositeKey}
+          onContextMenuSelection={handleCodeContextMenuSelection}
           onScrollTopChange={handleScrollTopChange}
           path={path}
           testId="file-code-surface"
@@ -1060,16 +1244,24 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
   const directory = path.slice(0, Math.max(0, path.length - fileName.length - 1));
 
   return (
-    <div className="flex h-full flex-col">
-      <FileTabHeader
-        directory={directory}
-        fileName={fileName}
-        mode={effectiveMode}
-        onModeChange={handleModeChange}
-        showModeToggle={isMarkdown}
-      />
-      <div className="min-h-0 flex-1">{body}</div>
-    </div>
+    <ActionContextMenu controller={contextMenuController}>
+      {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: read-only file viewer exposes a context menu while preserving tabpanel/editor semantics */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: contextmenu is an auxiliary action; keyboard invocation is owned by the focused CodeMirror/preview content */}
+      <div
+        className="flex h-full flex-col"
+        onContextMenu={handleViewerContextMenu}
+        onContextMenuCapture={resetContextMenuTarget}
+      >
+        <FileTabHeader
+          directory={directory}
+          fileName={fileName}
+          mode={effectiveMode}
+          onModeChange={handleModeChange}
+          showModeToggle={isMarkdown}
+        />
+        <div className="min-h-0 flex-1">{body}</div>
+      </div>
+    </ActionContextMenu>
   );
 }
 
@@ -1096,6 +1288,18 @@ function MissingAppFallback() {
 function getFileName(path: string): string {
   const last = path.split('/').pop();
   return last && last.length > 0 ? last : path;
+}
+
+function getTabRootPath(
+  tab: FileTab,
+  rootDescriptors: FileExplorerState['rootDescriptors']
+): string | null {
+  try {
+    const { folderId } = decodeFileSelection(tab.compositeKey);
+    return rootDescriptors[folderId]?.path ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

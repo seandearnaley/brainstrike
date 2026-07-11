@@ -1,5 +1,5 @@
 import { EditorView } from '@codemirror/view';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodeSurface } from '../code-surface';
 
@@ -230,5 +230,41 @@ describe('CodeSurface', () => {
     );
     expect(onSelectionChange).not.toHaveBeenCalled();
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('snapshots the semantic CodeMirror selection during the contextmenu event', async () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      }
+    );
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    const onContextMenuSelection = vi.fn();
+
+    render(
+      <CodeSurface
+        initialSelection={{ endLine: 1, startLine: 1 }}
+        onContextMenuSelection={onContextMenuSelection}
+        path="src/example.ts"
+        testId="context-selection-preview"
+        value={'alpha\nbeta'}
+      />
+    );
+
+    const surface = await screen.findByTestId('context-selection-preview');
+    for (const animationFrame of animationFrames) {
+      animationFrame(performance.now());
+    }
+    const content = surface.querySelector('.cm-content');
+    expect(content).not.toBeNull();
+    fireEvent.contextMenu(content as Element);
+
+    expect(onContextMenuSelection).toHaveBeenCalledWith({
+      from: 0,
+      text: 'alpha',
+      to: 5,
+    });
   });
 });
