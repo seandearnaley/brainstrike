@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
+import { buildHookTrustRequest } from '@brainstrike/preferences/stores/hook-trust-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHookRunner } from '../../../assistant-server/hooks/hook-runner-impl';
 import type { HookManager, HookRunEventInput } from '../../../assistant-server/hooks/manager';
@@ -166,6 +167,52 @@ describe('buildHookManager (roots + trust + config)', () => {
     });
     manager.reportConfigErrors();
     expect(events.some((e) => e.kind === 'hook.notice' && e.status === 'failed')).toBe(true);
+  });
+});
+
+// KILL CHAIN severing proof (renderer attestation-scoping ⇒ server execution).
+// This crosses the boundary: the renderer's `buildHookTrustRequest` (DB-id keyed,
+// scoped to mounted roots) feeds the server's `buildHookManager`. It proves that
+// disconnecting a root (mounted set no longer contains its DB id) SEVERS hook
+// execution server-side — the fail-open the review flagged, now closed.
+describe('attestation scoping severs execution on disconnect (kill chain)', () => {
+  it('runs an approved root while mounted, then stops running it once unmounted', () => {
+    const config = JSON.stringify({
+      PreToolUse: [{ command: `echo '{"reason":"blocked"}'; exit 2`, type: 'command' }],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    // The DB root id the SERVER resolves the root under (stable across re-add).
+    const runtimeData = runtimeWithRoot('db-1', tmpRoot);
+    // The renderer's persisted grant, keyed by that SAME DB id.
+    const store = {
+      approvalsByRootId: { 'db-1': { approvedAt: 1, sha256: sha256OfFile(file) } },
+    };
+
+    // Mounted: attestation carries db-1 → server trusts + loads the hooks.
+    const mountedRequest = buildHookTrustRequest(store, {
+      mountedRootIds: new Set(['db-1']),
+    });
+    const trusted = buildHookManager({
+      hookTrustRequest: mountedRequest,
+      logger,
+      runtimeData,
+      sessionId: 's1',
+    });
+    expect(trusted.hasHooks()).toBe(true);
+
+    // Disconnected: mounted set no longer contains db-1 → attestation is empty →
+    // the server finds no approval for the (still DB-live) root → hooks DON'T run.
+    const disconnectedRequest = buildHookTrustRequest(store, {
+      mountedRootIds: new Set(),
+    });
+    expect(disconnectedRequest.approvals).toEqual([]);
+    const severed = buildHookManager({
+      hookTrustRequest: disconnectedRequest,
+      logger,
+      runtimeData,
+      sessionId: 's1',
+    });
+    expect(severed.hasHooks()).toBe(false);
   });
 });
 

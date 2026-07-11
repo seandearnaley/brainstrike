@@ -83,6 +83,7 @@ const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
 const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
+const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
 const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
 const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
@@ -1102,6 +1103,11 @@ if (shouldExposeBridge('hooks')) {
   contextBridge.exposeInMainWorld('hooks', {
     getProjectHooksForReview: (rootId: string, absPath: string) =>
       ipcRenderer.invoke(HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL, rootId, absPath),
+    // Maps mounted-root absolute paths → their DB `roots.id` so the assistant
+    // wrapper can SCOPE the hook-trust attestation to currently-mounted roots
+    // (a disconnected root's grant is never presented to the server).
+    resolveTrustedRootIds: (absPaths: readonly string[]) =>
+      ipcRenderer.invoke(HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL, absPaths),
   });
 }
 

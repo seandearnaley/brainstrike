@@ -66,6 +66,7 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   hooks: {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
+    resolveTrustedRootIds: 'hooks:resolve-trusted-root-ids',
   },
   mcp: {
     configCreateSample: 'mcp:config:createSample',

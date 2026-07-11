@@ -4,8 +4,9 @@
  * Lists the global hooks config path and each mounted root's project-hook
  * status (trusted / untrusted / changed / parse-error), with Approve (pinned to
  * the file's current SHA-256) and Revoke actions. The renderer only ATTESTS
- * approvals; the assistant server re-hashes disk on every request. Full editing
- * of `hooks.json` is a follow-up (view + approve only in v1).
+ * approvals; the assistant server re-hashes disk on every request. Approval is
+ * SHA-256-only in v1 — the panel does not yet render the file's contents; an
+ * in-panel content view and full `hooks.json` editing are documented follow-ups.
  */
 
 import {
@@ -17,8 +18,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useState } from 'react';
 import { hookTrustSelectors, useHookTrustStore } from '../../stores/hook-trust-store';
+
+const logger = createLogger('HooksSettings');
 
 export interface HookReviewRoot {
   readonly absPath: string;
@@ -28,6 +32,13 @@ export interface HookReviewRoot {
 
 interface ProjectHooksReview {
   readonly content?: string;
+  /**
+   * The DB `roots.id` main resolved for this root's path. The trust store is
+   * keyed by THIS id (stable across remove/re-add), not the ephemeral adapter
+   * id the panel fetches by. Absent when the path resolves to no mounted DB root
+   * (then the row cannot be trusted/approved — fail closed).
+   */
+  readonly dbRootId?: string;
   readonly error?: string;
   readonly exists: boolean;
   readonly parseError?: string;
@@ -58,14 +69,23 @@ export interface HooksSettingsSectionProps {
   readonly roots?: readonly HookReviewRoot[];
 }
 
-type RootStatus = 'no-file' | 'untrusted' | 'trusted' | 'changed' | 'parse-error' | 'error';
+type RootStatus =
+  | 'checking'
+  | 'no-file'
+  | 'untrusted'
+  | 'trusted'
+  | 'changed'
+  | 'parse-error'
+  | 'error';
 
 function resolveStatus(
   review: ProjectHooksReview | undefined,
   approvedSha256: string | undefined
 ): RootStatus {
   if (!review) {
-    return 'untrusted';
+    // Fetch still in flight: never render the security-meaningful "Untrusted"
+    // badge as a placeholder — show a neutral checking state instead.
+    return 'checking';
   }
   if (review.error) {
     return 'error';
@@ -84,6 +104,7 @@ function resolveStatus(
 
 const STATUS_LABEL: Record<RootStatus, string> = {
   changed: 'Changed — re-approve',
+  checking: 'Checking…',
   error: 'Unavailable',
   'no-file': 'No hooks file',
   'parse-error': 'Config error',
@@ -93,6 +114,7 @@ const STATUS_LABEL: Record<RootStatus, string> = {
 
 const STATUS_VARIANT: Record<RootStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   changed: 'destructive',
+  checking: 'outline',
   error: 'outline',
   'no-file': 'outline',
   'parse-error': 'destructive',
@@ -112,29 +134,50 @@ export function HooksSettingsSection({
   const [reviews, setReviews] = useState<Record<string, ProjectHooksReview>>({});
 
   // Fetch each root's on-disk review (content + hash) from the desktop bridge.
-  // Canonical data-fetch-in-effect: an `ignore` flag drops a stale response if
-  // the roots change (or the panel unmounts) before the fetch resolves.
+  // Canonical data-fetch-in-effect: an `ignore` flag drops stale responses if the
+  // roots change (or the panel unmounts) before a fetch resolves. Each root
+  // SETTLES INDEPENDENTLY (per-row `setReviews` merge, not one `Promise.all`), so
+  // a single slow/hung root never starves the others' status; a row with no
+  // review yet renders a neutral "Checking…" state, never a placeholder
+  // "Untrusted". A per-root transport failure is converted to a structured
+  // `error` review so that ONE row renders "Unavailable".
   useEffect(() => {
     const bridge = getHooksBridge();
     if (!bridge) {
       return;
     }
     let ignore = false;
-    Promise.all(
-      roots.map(async (root) => {
-        const review = await bridge.getProjectHooksForReview(root.rootId, root.absPath);
-        return [root.rootId, review] as const;
-      })
-    )
-      .then((entries) => {
-        if (!ignore) {
-          setReviews(Object.fromEntries(entries));
-        }
-      })
-      .catch(() => {
-        // Bridge failures leave the prior reviews in place; the row shows
-        // "Unavailable" via the resolveStatus 'error' branch on next fetch.
-      });
+    // No synchronous reset: rows render by iterating `roots`, so a removed
+    // root's stale review is simply never shown (and adapter ids are fresh per
+    // mount, so an id never recurs with a stale entry).
+    for (const root of roots) {
+      bridge
+        .getProjectHooksForReview(root.rootId, root.absPath)
+        .then((review) => {
+          if (!ignore) {
+            setReviews((prev) => ({ ...prev, [root.rootId]: review }));
+          }
+        })
+        .catch((error: unknown) => {
+          // A wedged/broken bridge is hard to debug from the "Unavailable" badge
+          // alone — log the transport failure alongside the honest UI surfacing.
+          logger.warn('Failed to read project hooks for review', {
+            error: error instanceof Error ? error.message : String(error),
+            rootId: root.rootId,
+          });
+          if (!ignore) {
+            setReviews((prev) => ({
+              ...prev,
+              [root.rootId]: {
+                error: error instanceof Error ? error.message : 'Failed to read project hooks',
+                exists: false,
+                path: `${root.absPath}/.brainstrike/hooks.json`,
+                rootId: root.rootId,
+              },
+            }));
+          }
+        });
+    }
     return () => {
       ignore = true;
     };
@@ -159,10 +202,18 @@ export function HooksSettingsSection({
           <ul className="space-y-3">
             {roots.map((root) => {
               const review = reviews[root.rootId];
-              const approved = approvalsByRootId[root.rootId];
+              // Trust is keyed by the DB root id (resolved by main), NOT the
+              // adapter id this row is fetched under — the two diverge after a
+              // remove→re-add, and keying by the adapter id is the fail-open the
+              // security spine must never allow.
+              const dbRootId = review?.dbRootId;
+              const approved = dbRootId ? approvalsByRootId[dbRootId] : undefined;
               const status = resolveStatus(review, approved?.sha256);
               const canApprove =
-                review?.exists === true && !review.parseError && Boolean(review.sha256);
+                review?.exists === true &&
+                !review.parseError &&
+                Boolean(review.sha256) &&
+                Boolean(dbRootId);
               return (
                 <li
                   className="flex items-center justify-between gap-4 rounded-md border p-3"
@@ -183,7 +234,11 @@ export function HooksSettingsSection({
                     {status === 'trusted' ? (
                       <Button
                         data-testid={`hooks-revoke-${root.rootId}`}
-                        onClick={() => revokeRoot(root.rootId)}
+                        onClick={() => {
+                          if (dbRootId) {
+                            revokeRoot(dbRootId);
+                          }
+                        }}
                         size="sm"
                         variant="outline"
                       >
@@ -194,8 +249,8 @@ export function HooksSettingsSection({
                         data-testid={`hooks-approve-${root.rootId}`}
                         disabled={!canApprove}
                         onClick={() => {
-                          if (review?.sha256) {
-                            approveRoot(root.rootId, review.sha256);
+                          if (review?.sha256 && dbRootId) {
+                            approveRoot(dbRootId, review.sha256);
                           }
                         }}
                         size="sm"

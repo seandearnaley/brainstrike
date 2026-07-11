@@ -5,6 +5,23 @@ const setToolsEnabledMock = vi.hoisted(() => vi.fn());
 const resetToolsMock = vi.hoisted(() => vi.fn());
 const createToolsSettingsCategoryMock = vi.hoisted(() => vi.fn());
 const createTokenCountingSettingsCategoryMock = vi.hoisted(() => vi.fn());
+const createHooksSettingsCategoryMock = vi.hoisted(() => vi.fn());
+
+interface FileExplorerMockState {
+  activeRootIds: string[];
+  devInlineFixtureEnabled: boolean;
+  rootDescriptors: Record<string, { displayName: string; path: string; rootId: string }>;
+  setDevInlineFixtureEnabled: () => void;
+}
+
+const fileExplorerMockState = vi.hoisted((): { current: FileExplorerMockState } => ({
+  current: {
+    activeRootIds: [],
+    devInlineFixtureEnabled: true,
+    rootDescriptors: {},
+    setDevInlineFixtureEnabled: () => {},
+  },
+}));
 
 interface CapturedToolsOperations {
   createSampleConfig: () => Promise<{ error?: string; path: string; success: boolean }>;
@@ -78,11 +95,8 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({
-      devInlineFixtureEnabled: true,
-      setDevInlineFixtureEnabled: vi.fn(),
-    }),
+  useFileExplorerStoreSelector: (selector: (state: FileExplorerMockState) => unknown) =>
+    selector(fileExplorerMockState.current),
 }));
 
 vi.mock('@brainstrike/preferences/settings/models/model-runtime-services', () => ({
@@ -130,11 +144,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     id: 'factory-reset',
     title: 'Factory Reset',
   })),
-  createHooksSettingsCategory: () => ({
+  createHooksSettingsCategory: createHooksSettingsCategoryMock.mockImplementation(() => ({
     content: <div data-testid="hooks-category" />,
     id: 'hooks',
     title: 'Hooks',
-  }),
+  })),
   createLocalRuntimeSettingsCategory: () => ({
     content: <div data-testid="local-runtime-category" />,
     id: 'local-runtime',
@@ -227,6 +241,12 @@ describe('desktop SettingsPageContent tool operations', () => {
   beforeEach(() => {
     capturedOperations = null;
     vi.clearAllMocks();
+    fileExplorerMockState.current = {
+      activeRootIds: [],
+      devInlineFixtureEnabled: true,
+      rootDescriptors: {},
+      setDevInlineFixtureEnabled: () => {},
+    };
 
     const desktopWindow = getDesktopWindow();
     desktopWindow.mcp = {
@@ -355,5 +375,41 @@ describe('desktop SettingsPageContent tool operations', () => {
     await expect(capturedOperations.setMcpConfigPath?.('/tmp/bad.json')).rejects.toThrow(
       'Failed to set MCP config path'
     );
+  });
+
+  it('threads the live mounted workspace roots into the Hooks settings category', async () => {
+    fileExplorerMockState.current = {
+      activeRootIds: ['root-b', 'root-a'],
+      devInlineFixtureEnabled: true,
+      rootDescriptors: {
+        'root-a': { displayName: 'Workspace A', path: '/ws/a', rootId: 'root-a' },
+        'root-b': { displayName: 'Workspace B', path: '/ws/b', rootId: 'root-b' },
+      },
+      setDevInlineFixtureEnabled: () => {},
+    };
+
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+
+    render(<SettingsPageContent />);
+
+    // Roots follow activeRootIds order (sidebar order), keyed by durable rootId.
+    expect(createHooksSettingsCategoryMock).toHaveBeenCalledWith({
+      roots: [
+        { absPath: '/ws/b', displayName: 'Workspace B', rootId: 'root-b' },
+        { absPath: '/ws/a', displayName: 'Workspace A', rootId: 'root-a' },
+      ],
+    });
+  });
+
+  it('passes an empty roots list to the Hooks category when nothing is mounted', async () => {
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+
+    render(<SettingsPageContent />);
+
+    expect(createHooksSettingsCategoryMock).toHaveBeenCalledWith({ roots: [] });
   });
 });
