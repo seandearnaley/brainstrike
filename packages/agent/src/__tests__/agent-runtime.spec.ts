@@ -185,25 +185,45 @@ describe('agent-runtime edge cases', () => {
       await runtime.dispose();
     }, 10_000);
 
-    it('skips invalid SSE URLs gracefully', async () => {
+    it('creates an MCP client for an explicitly selected Streamable HTTP server', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
         mcpConfig: {
           servers: [
             {
-              name: 'invalid-sse',
-              transport: 'sse',
-              url: 'not a valid url',
+              headers: { Authorization: 'Bearer token' },
+              name: 'streamable-server',
+              transport: 'streamable-http',
+              url: 'https://example.com/mcp',
             },
           ],
         },
+        mcpTimeoutMs: 10,
         runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
-      // Should still create runtime, just without that server
-      expect(runtime).toBeDefined();
+      expect(runtime.mcpClient).toBeDefined();
       await runtime.dispose();
+    });
+
+    it('rejects invalid SSE URLs instead of silently skipping the server', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      await expect(
+        createMastraAgentRuntime({
+          mcpConfig: {
+            servers: [
+              {
+                name: 'invalid-sse',
+                transport: 'sse',
+                url: 'not a valid url',
+              },
+            ],
+          },
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        })
+      ).rejects.toThrow();
     });
 
     it('handles MCP config with no servers', async () => {
@@ -220,29 +240,28 @@ describe('agent-runtime edge cases', () => {
       await runtime.dispose();
     });
 
-    it('handles MCP config with null server entries', async () => {
+    it('rejects MCP config with null server entries', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
-      const runtime = await createMastraAgentRuntime({
-        mcpConfig: {
-          servers: [
-            null as unknown as {
-              name: string;
-              transport: 'stdio';
-              command: string;
-            },
-            {
-              command: 'echo',
-              name: 'valid-server',
-              transport: 'stdio',
-            },
-          ],
-        },
-        runtime: { apiKey: 'test-key', provider: 'openai' },
-      });
-
-      expect(runtime.mcpClient).toBeDefined();
-      await runtime.dispose();
+      await expect(
+        createMastraAgentRuntime({
+          mcpConfig: {
+            servers: [
+              null as unknown as {
+                name: string;
+                transport: 'stdio';
+                command: string;
+              },
+              {
+                command: 'echo',
+                name: 'valid-server',
+                transport: 'stdio',
+              },
+            ],
+          },
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        })
+      ).rejects.toThrow();
     });
 
     it('handles stdio server without args', async () => {

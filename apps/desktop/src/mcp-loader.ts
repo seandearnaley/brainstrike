@@ -101,15 +101,26 @@ const StdioServerSchema = z.strictObject({
   transport: z.literal('stdio'),
 });
 
-const SseServerSchema = z.strictObject({
+const HttpServerSchema = z.strictObject({
   enabledTools: z.array(z.string()).optional(),
   headers: HeadersSchema.optional(),
   name: ServerNameSchema,
-  transport: z.literal('sse'),
   url: HttpUrlSchema,
 });
 
-const McpServerSchema = z.discriminatedUnion('transport', [StdioServerSchema, SseServerSchema]);
+const StreamableHttpServerSchema = HttpServerSchema.extend({
+  transport: z.literal('streamable-http'),
+});
+
+const SseServerSchema = HttpServerSchema.extend({
+  transport: z.literal('sse'),
+});
+
+const McpServerSchema = z.discriminatedUnion('transport', [
+  StdioServerSchema,
+  StreamableHttpServerSchema,
+  SseServerSchema,
+]);
 const McpConfigSchema = z
   .strictObject({
     servers: z.array(McpServerSchema),
@@ -146,10 +157,20 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
     //   "args": ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path/to/workspace"]
     // },
 
-    // Example: Remote SSE server
+    // Example: Remote Streamable HTTP server
+    // {
+    //   "transport": "streamable-http",
+    //   "name": "remote-api",
+    //   "url": "https://your-host.example.com/mcp",
+    //   "headers": {
+    //     "Authorization": "Bearer YOUR_TOKEN"
+    //   }
+    // },
+
+    // Example: Legacy remote SSE server
     // {
     //   "transport": "sse",
-    //   "name": "remote-api",
+    //   "name": "legacy-remote-api",
     //   "url": "https://your-host.example.com/mcp/sse",
     //   "headers": {
     //     "Authorization": "Bearer YOUR_TOKEN"
@@ -616,11 +637,14 @@ function assertNoForbiddenDecryptedProperty(
   }
 }
 
-async function processSseServer(s: Extract<McpServer, { transport: 'sse' }>): Promise<McpServer> {
+async function processHttpServer(
+  s: Extract<McpServer, { transport: 'sse' | 'streamable-http' }>
+): Promise<McpServer> {
   const headers = await applyDecryptionToHeaders(s.headers, s.name);
   if (headers !== undefined) {
     assertNoForbiddenDecryptedProperty(headers, 'headers');
-    const parsed = SseServerSchema.safeParse({ ...s, headers });
+    const schema = s.transport === 'streamable-http' ? StreamableHttpServerSchema : SseServerSchema;
+    const parsed = schema.safeParse({ ...s, headers });
     if (!parsed.success) {
       throw new Error(
         `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
@@ -630,6 +654,19 @@ async function processSseServer(s: Extract<McpServer, { transport: 'sse' }>): Pr
   }
   const { headers: _, ...rest } = s;
   return rest;
+}
+
+function unsupportedTransport(server: unknown): never {
+  const details =
+    typeof server === 'object' && server !== null
+      ? (server as { name?: unknown; transport?: unknown })
+      : {};
+  const name = typeof details.name === 'string' ? details.name : '<unknown>';
+  const transport =
+    typeof details.transport === 'string' ? details.transport : String(details.transport);
+  throw new Error(
+    `invalid_mcp_config: MCP server "${name}" has unsupported transport "${transport}"`
+  );
 }
 
 async function processStdioServer(
@@ -653,13 +690,13 @@ async function processStdioServer(
 export async function withDecryptedSecrets(cfg: McpConfig): Promise<McpConfig> {
   const servers = await Promise.all(
     cfg.servers.map(async (s: McpServer): Promise<McpServer> => {
-      if (s.transport === 'sse') {
-        return processSseServer(s);
+      if (s.transport === 'sse' || s.transport === 'streamable-http') {
+        return processHttpServer(s);
       }
       if (s.transport === 'stdio') {
         return processStdioServer(s);
       }
-      return s;
+      return unsupportedTransport(s);
     })
   );
   return { servers };

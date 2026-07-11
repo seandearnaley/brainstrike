@@ -538,8 +538,9 @@ function McpHelpCard() {
       <CardContent className="space-y-2 p-4">
         <div className="font-medium text-sm">Help</div>
         <div className="text-muted-foreground text-xs">
-          Use `stdio` for local commands and `sse` for remote endpoints. Comments are supported in
-          this file. Keep placeholder values replaced before enabling servers.
+          Use `streamable-http` for new remote endpoints, `stdio` for local commands, and `sse` only
+          for legacy HTTP+SSE servers. Comments are supported in this file. Keep placeholder values
+          replaced before enabling servers.
         </div>
         <pre className="overflow-x-auto rounded-md border bg-muted/30 p-3 text-[11px]">
           {`// stdio example
@@ -550,10 +551,17 @@ function McpHelpCard() {
   "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
 }
 
-// sse example
+// Streamable HTTP example (recommended)
+{
+  "transport": "streamable-http",
+  "name": "remote-api",
+  "url": "https://your-host.example.com/mcp"
+}
+
+// Legacy SSE example
 {
   "transport": "sse",
-  "name": "remote-api",
+  "name": "legacy-remote-api",
   "url": "https://your-host.example.com/mcp/sse"
 }`}
         </pre>

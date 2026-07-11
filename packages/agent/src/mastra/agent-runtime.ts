@@ -15,7 +15,6 @@ import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
 import { TokenLimiter } from '@mastra/core/processors';
 import type { MastraCompositeStore } from '@mastra/core/storage';
-import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
@@ -58,6 +57,12 @@ import {
 } from './error-processors';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
+import {
+  createMcpRuntimeClient,
+  MCP_PROGRESS_STREAM_PART_TYPE,
+  type McpRuntimeClient,
+  mapMcpProgressStreamPart,
+} from './mcp-runtime-client';
 import { collectCombinedTools } from './mcp-tool-loader';
 import {
   filterToolsByPermissionWithMetadata,
@@ -143,7 +148,7 @@ export interface MastraAgentRuntime {
    */
   delegationToolPersonas: ReadonlyMap<string, string>;
   dispose: () => Promise<void>;
-  mcpClient?: MCPClient;
+  mcpClient?: McpRuntimeClient;
   /** Persona id → definition for the registered delegation tools (delegation caps). */
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   resilienceConfig: AssistantResilienceConfig;
@@ -151,62 +156,6 @@ export interface MastraAgentRuntime {
 }
 
 const logger = createLogger('MastraAgent');
-
-function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['servers'] {
-  if (!(config && Array.isArray(config.servers))) {
-    return {};
-  }
-
-  const map: Record<string, MCPClientOptions['servers'][string]> = {};
-
-  const buildStdio = (
-    command: string,
-    args?: string[] | undefined,
-    env?: Record<string, string> | undefined
-  ): { command: string; args?: string[]; env?: Record<string, string> } => {
-    const entry: { command: string; args?: string[]; env?: Record<string, string> } = { command };
-    if (Array.isArray(args) && args.length > 0) {
-      entry.args = args;
-    }
-    if (env && Object.keys(env).length > 0) {
-      entry.env = env;
-    }
-    return entry;
-  };
-
-  const buildSse = (
-    urlString: string,
-    headers?: Record<string, string> | undefined
-  ): MCPClientOptions['servers'][string] | undefined => {
-    try {
-      const entry: MCPClientOptions['servers'][string] = { url: new URL(urlString) };
-      if (headers && Object.keys(headers).length > 0) {
-        entry.requestInit = { headers };
-      }
-      return entry;
-    } catch {
-      return;
-    }
-  };
-
-  for (const server of config.servers) {
-    if (!server?.name) {
-      continue;
-    }
-    if (server.transport === 'stdio') {
-      map[server.name] = buildStdio(server.command, server.args, server.env);
-      continue;
-    }
-    if (server.transport === 'sse') {
-      const entry = buildSse(server.url, server.headers);
-      if (entry) {
-        map[server.name] = entry;
-      }
-    }
-  }
-
-  return map;
-}
 
 function instantiateLanguageModel(
   provider: string,
@@ -484,18 +433,18 @@ export async function createMastraAgentRuntime(
   }
   const { runtime: sanitizedRuntime, provider: normalizedProvider, apiKey } = runtimeResolution;
 
-  const servers = toMastraServerMap(mcpConfig ?? sanitizedRuntime.mcpConfig);
-  const hasServers = Object.keys(servers).length > 0;
-  const mcpClient = hasServers
-    ? // Timestamp is kept for easier chronological debugging; UUID provides uniqueness.
-      new MCPClient({ id: `mcp-client-${Date.now()}-${generateUUID()}`, servers })
-    : undefined;
+  const resolvedMcpConfig = mcpConfig ?? sanitizedRuntime.mcpConfig;
+  // Timestamp is kept for easier chronological debugging; UUID provides uniqueness.
+  const mcpClient = createMcpRuntimeClient({
+    config: resolvedMcpConfig,
+    id: `mcp-client-${Date.now()}-${generateUUID()}`,
+  });
 
   const toolNameMap = new Map<string, string>();
   const sanitizedLocalTools = sanitizeTools(localTools, toolNameMap);
   const combinedTools = await collectCombinedTools({
     mcpClient,
-    mcpConfig: mcpConfig ?? sanitizedRuntime.mcpConfig,
+    mcpConfig: resolvedMcpConfig,
     sanitizedLocalTools,
     timeoutOverrideMs: mcpTimeoutMs,
     toolNameMap,
@@ -1496,6 +1445,10 @@ function processMastraStreamPart(
       // dropped rather than mis-attributed.
       const shellOutput = mapShellOutputStreamPart(part);
       return { chunks: shellOutput ? [shellOutput] : [], finished: false };
+    }
+    case MCP_PROGRESS_STREAM_PART_TYPE: {
+      const progress = mapMcpProgressStreamPart(part);
+      return { chunks: progress ? [progress] : [], finished: false };
     }
     default:
       return { chunks: [], finished: false };

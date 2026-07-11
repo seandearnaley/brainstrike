@@ -315,6 +315,56 @@ When changing this flow, update this doc.
 
 ---
 
+## MCP TRANSPORT SELECTION (CRITICAL)
+
+Every MCP server chooses its transport explicitly. The authoritative config
+discriminator is one of `stdio`, `streamable-http`, or legacy `sse`; it is never
+omitted, inferred from a URL path, or changed after a failed connection.
+
+Remote transport rules:
+- `streamable-http` is the modern MCP transport and normally targets one `/mcp`
+  endpoint. It constructs only the official SDK's
+  `StreamableHTTPClientTransport`.
+- `sse` is the deprecated HTTP+SSE compatibility transport. It constructs only
+  `SSEClientTransport`, even when its URL ends in `/mcp`.
+- There is NO automatic Streamable HTTP → SSE fallback. The MCP specification
+  describes that fallback as an OPTIONAL compatibility strategy for ambiguous
+  URLs; Brainstrike removes the ambiguity by requiring the user to select the
+  transport. A 400/404/405 initialization failure therefore remains visible.
+- Both HTTP variants share strict HTTP(S)-URL, no-embedded-credentials, header,
+  secret-decryption, cancellation, progress, and lifecycle behavior.
+
+Ownership and flow:
+1. Config — `apps/desktop/src/mcp-loader.ts` is the strict JSONC/Zod desktop
+   boundary; `packages/agent/src/mcp/config.ts` is the serializable agent
+   contract. Public renderer status exposes only server name + transport.
+2. Official client — `packages/agent/src/mcp/explicit-http-client.ts`, exported
+   only from `@brainstrike/agent/mcp-client`, owns the SDK 1.29 HTTP transports,
+   lazy/concurrency-safe connection, header composition, request forwarding,
+   session termination, and idempotent close. Keep the SDK package external in
+   the agent build; do not pull this edge into browser-safe/root exports.
+3. Desktop — `apps/desktop/src/mcp/http-client.ts` adapts that shared client to
+   the desktop `McpClient` discovery/call contract. `sse-client.ts` is only a
+   compatibility factory delegating to the canonical adapter; no bespoke SSE
+   framing, endpoint rewriting, or environment-selected call path remains.
+4. Agent runtime — `packages/agent/src/mastra/mcp-runtime-client.ts` partitions
+   servers. Mastra `MCPClient` handles `stdio` ONLY; explicit HTTP clients are
+   converted into Mastra tools and combined through the existing pipeline:
+   discovery → namespace/sanitize → output bound → guard → hooks → permission.
+   Remote progress uses the distinct transient
+   `brainstrike.mcp-progress.chunk` `writer.custom` part and maps back to a
+   `tool-event`; progress-channel failure is warning-only and never replaces a
+   completed tool result or the remote tool's primary error.
+
+Primary references:
+- https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
+- https://github.com/modelcontextprotocol/typescript-sdk/blob/v1.x/docs/client.md
+
+When changing this flow, update this section and the focused agent + desktop
+real-protocol integration tests.
+
+---
+
 ## ASSISTANT RESILIENCE (CRITICAL)
 
 The assistant tool→stream chain must never freeze the thread. The renderer safety

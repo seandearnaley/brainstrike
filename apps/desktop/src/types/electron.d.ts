@@ -242,7 +242,7 @@ declare global {
       getConfig: () => Promise<{
         path: string;
         exists: boolean;
-        servers?: { name: string; transport: 'stdio' | 'sse' }[];
+        servers?: { name: string; transport: 'sse' | 'stdio' | 'streamable-http' }[];
         loadedAt?: number;
         error?: string;
       }>;
@@ -267,7 +267,7 @@ declare global {
         callback: (config: {
           path: string;
           exists: boolean;
-          servers?: { name: string; transport: 'stdio' | 'sse' }[];
+          servers?: { name: string; transport: 'sse' | 'stdio' | 'streamable-http' }[];
           loadedAt?: number;
           error?: string;
         }) => void

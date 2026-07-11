@@ -15,6 +15,7 @@
  * produced by the in-repo `LocalLanguageModel`.
  */
 import { spawn } from 'node:child_process';
+import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { ReadableStream } from 'node:stream/web';
 import type {
   LanguageModelV2,
@@ -29,6 +30,8 @@ import {
 } from '@brainstrike/assistant-contract';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
 import { createTool } from '@mastra/core/tools';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { AgentHookRunner, HookToolGateResult } from '../tools/hook-runner';
@@ -122,6 +125,114 @@ function createScriptedToolCallModel(args: {
   };
 }
 
+interface RunningStreamableMcpServer {
+  close: () => Promise<void>;
+  executions: string[];
+  url: string;
+}
+
+async function readMcpRequestBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+}
+
+async function listenForMcp(server: Server): Promise<string> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!(address && typeof address === 'object')) {
+    throw new Error('Expected an assigned MCP test port');
+  }
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function startStreamableMcpServer(): Promise<RunningStreamableMcpServer> {
+  const executions: string[] = [];
+  const activeServers = new Set<McpServer>();
+  const activeTransports = new Set<StreamableHTTPServerTransport>();
+  const httpServer = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+    if (request.method === 'GET' && url.pathname === '/sse') {
+      response.writeHead(405).end();
+      return;
+    }
+    if (request.method !== 'POST' || url.pathname !== '/sse') {
+      response.writeHead(404).end();
+      return;
+    }
+
+    const body = await readMcpRequestBody(request);
+    const mcpServer = new McpServer({ name: 'live-runtime-fixture', version: '1.0.0' });
+    mcpServer.registerTool(
+      'echo',
+      {
+        description: 'Echo a value through a real remote MCP server.',
+        inputSchema: { value: z.string() },
+        outputSchema: { echoed: z.string() },
+      },
+      async ({ value }, extra) => {
+        executions.push(value);
+        if (extra._meta?.progressToken !== undefined) {
+          await extra.sendNotification({
+            method: 'notifications/progress',
+            params: {
+              message: 'echoing remotely',
+              progress: 1,
+              progressToken: extra._meta.progressToken,
+              total: 1,
+            },
+          });
+        }
+        return {
+          content: [{ text: value, type: 'text' }],
+          structuredContent: { echoed: value },
+        };
+      }
+    );
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    activeServers.add(mcpServer);
+    activeTransports.add(transport);
+    try {
+      await mcpServer.connect(transport);
+      await transport.handleRequest(request, response, body);
+    } finally {
+      await Promise.allSettled([transport.close(), mcpServer.close()]);
+      activeTransports.delete(transport);
+      activeServers.delete(mcpServer);
+    }
+  });
+  const origin = await listenForMcp(httpServer);
+
+  return {
+    async close(): Promise<void> {
+      await Promise.allSettled([
+        ...Array.from(activeTransports, (transport) => transport.close()),
+        ...Array.from(activeServers, (server) => server.close()),
+      ]);
+      httpServer.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    },
+    executions,
+    url: `${origin}/sse`,
+  };
+}
+
 describe('mastra real tool execution (real @mastra/core/agent)', () => {
   beforeEach(() => {
     modelHolder.current = undefined;
@@ -173,6 +284,70 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     // And the tool result flowed back through to a terminal run-event + answer.
     expect(runEventKinds).toContain('tool.completed');
     expect(finalText).toContain('21C in Paris');
+  });
+
+  it('discovers and executes a real Streamable HTTP MCP tool through the real agent loop', async () => {
+    const server = await startStreamableMcpServer();
+    modelHolder.current = createScriptedToolCallModel({
+      finalText: 'The remote server echoed hello.',
+      input: JSON.stringify({ value: 'hello' }),
+      toolCallId: 'call-remote-1',
+      toolName: 'remote_echo',
+    });
+
+    const chunks: StreamChunk[] = [];
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-remote', parts: [{ text: 'echo remotely', type: 'text' }], role: 'user' }],
+        {
+          mcpConfig: {
+            servers: [
+              {
+                name: 'remote',
+                transport: 'streamable-http',
+                url: server.url,
+              },
+            ],
+          },
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        }
+      );
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+    } finally {
+      await server.close();
+    }
+
+    expect(server.executions).toEqual(['hello']);
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        name: 'remote.echo',
+        payload: expect.objectContaining({ note: 'echoing remotely', percent: 100 }),
+        status: 'progress',
+        type: 'tool-event',
+      })
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        name: 'remote.echo',
+        payload: expect.objectContaining({ output: { echoed: 'hello' } }),
+        status: 'success',
+        type: 'tool-event',
+      })
+    );
+    expect(
+      chunks.some((chunk) => chunk.type === 'run-event' && chunk.event.kind === 'tool.completed')
+    ).toBe(true);
+    expect(
+      chunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+            chunk.type === 'text-delta'
+        )
+        .map((chunk) => chunk.value)
+        .join('')
+    ).toContain('remote server echoed hello');
   });
 
   // Live-loop proof for the SHAPE of brainstrike.executeCommand (an execute-risk

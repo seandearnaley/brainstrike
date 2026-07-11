@@ -996,6 +996,30 @@ describe('UnifiedToolsSettings', () => {
       expect(screen.getByTestId('mcp-config-path-input')).toHaveValue('/tmp/mcp.config.json');
     });
 
+    it('recommends Streamable HTTP for new remote MCP servers and labels SSE as legacy', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      expect(
+        await screen.findByText(/use `streamable-http` for new remote endpoints/iu)
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Streamable HTTP example \(recommended\)/u)).toBeInTheDocument();
+      expect(screen.getByText(/Legacy SSE example/u)).toBeInTheDocument();
+      expect(
+        screen.getByText(/"url": "https:\/\/your-host\.example\.com\/mcp"/u)
+      ).toBeInTheDocument();
+    });
+
     it('saves MCP config editor content', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({

@@ -680,7 +680,7 @@ contextBridge.exposeInMainWorld('mcp', {
       exists: boolean;
       loadedAt?: number;
       path: string;
-      servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+      servers?: Array<{ name: string; transport: 'sse' | 'stdio' | 'streamable-http' }>;
     }) => void
   ) => {
     const listener = (
@@ -690,7 +690,7 @@ contextBridge.exposeInMainWorld('mcp', {
         exists: boolean;
         loadedAt?: number;
         path: string;
-        servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+        servers?: Array<{ name: string; transport: 'sse' | 'stdio' | 'streamable-http' }>;
       }
     ) => callback(config);
     ipcRenderer.on(MCP_CONFIG_UPDATED_EVENT, listener);
