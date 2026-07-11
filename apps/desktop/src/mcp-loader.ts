@@ -5,8 +5,11 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { app, safeStorage } from 'electron';
 import {
   getLocation,
+  getNodePath,
+  getNodeValue,
+  type Node as JsoncNode,
   type ParseError,
-  parse as parseJsonc,
+  parseTree,
   printParseErrorCode,
 } from 'jsonc-parser';
 import { z } from 'zod';
@@ -16,6 +19,30 @@ const NonEmptyStringSchema = z
   .min(1, 'must not be empty')
   .refine((value) => value.trim().length > 0, 'must not be blank');
 const StringRecordSchema = z.record(z.string(), z.string());
+const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
+  for (const [name, value] of Object.entries(headers)) {
+    try {
+      new Headers([[name, '']]);
+    } catch {
+      context.addIssue({
+        code: 'custom',
+        message: 'invalid HTTP header name',
+        path: [name],
+      });
+      continue;
+    }
+
+    try {
+      new Headers([[name, value]]);
+    } catch {
+      context.addIssue({
+        code: 'custom',
+        message: 'invalid HTTP header value',
+        path: [name],
+      });
+    }
+  }
+});
 
 const StdioServerSchema = z.strictObject({
   args: z.array(z.string()).optional(),
@@ -28,17 +55,10 @@ const StdioServerSchema = z.strictObject({
 
 const SseServerSchema = z.strictObject({
   enabledTools: z.array(z.string()).optional(),
-  headers: StringRecordSchema.optional(),
+  headers: HeadersSchema.optional(),
   name: NonEmptyStringSchema,
   transport: z.literal('sse'),
-  url: z.url().refine((value) => {
-    try {
-      const protocol = new URL(value).protocol;
-      return protocol === 'http:' || protocol === 'https:';
-    } catch {
-      return false;
-    }
-  }, 'must use the HTTP or HTTPS protocol'),
+  url: z.url({ protocol: /^https?$/u }),
 });
 
 const McpServerSchema = z.discriminatedUnion('transport', [StdioServerSchema, SseServerSchema]);
@@ -106,6 +126,52 @@ function formatJsoncError(text: string, error: ParseError): string {
   return `${printParseErrorCode(error.error)} at line ${line}, column ${column}${location}`;
 }
 
+interface DuplicateProperty {
+  key: string;
+  offset: number;
+  path: (number | string)[];
+}
+
+function collectDuplicateProperties(node: JsoncNode, duplicates: DuplicateProperty[]): void {
+  if (node.type === 'array') {
+    for (const child of node.children ?? []) {
+      collectDuplicateProperties(child, duplicates);
+    }
+    return;
+  }
+
+  if (node.type !== 'object') {
+    return;
+  }
+
+  const propertyNames = new Set<string>();
+  for (const propertyNode of node.children ?? []) {
+    const [keyNode, valueNode] = propertyNode.children ?? [];
+    if (keyNode?.type !== 'string' || typeof keyNode.value !== 'string') {
+      continue;
+    }
+
+    if (propertyNames.has(keyNode.value)) {
+      duplicates.push({
+        key: keyNode.value,
+        offset: keyNode.offset,
+        path: getNodePath(keyNode),
+      });
+    } else {
+      propertyNames.add(keyNode.value);
+    }
+
+    if (valueNode) {
+      collectDuplicateProperties(valueNode, duplicates);
+    }
+  }
+}
+
+function formatDuplicateProperty(text: string, duplicate: DuplicateProperty): string {
+  const { column, line } = getLineAndColumn(text, duplicate.offset);
+  return `duplicate property ${JSON.stringify(duplicate.key)} at line ${line}, column ${column} (${duplicate.path.join('.')})`;
+}
+
 function formatValidationIssue(issue: z.ZodIssue): string {
   const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
   return `${path}: ${issue.message}`;
@@ -113,10 +179,10 @@ function formatValidationIssue(issue: z.ZodIssue): string {
 
 export function parseMcpConfig(text: string): McpConfig {
   const parseErrors: ParseError[] = [];
-  const raw = parseJsonc(text, parseErrors, {
+  const root = parseTree(text, parseErrors, {
     allowTrailingComma: true,
     disallowComments: false,
-  }) as unknown;
+  });
 
   if (parseErrors.length > 0) {
     throw new Error(
@@ -124,6 +190,21 @@ export function parseMcpConfig(text: string): McpConfig {
     );
   }
 
+  if (!root) {
+    throw new Error('invalid_mcp_config: configuration document is empty');
+  }
+
+  const duplicateProperties: DuplicateProperty[] = [];
+  collectDuplicateProperties(root, duplicateProperties);
+  if (duplicateProperties.length > 0) {
+    throw new Error(
+      `invalid_mcp_config: ${duplicateProperties
+        .map((duplicate) => formatDuplicateProperty(text, duplicate))
+        .join('; ')}`
+    );
+  }
+
+  const raw = getNodeValue(root) as unknown;
   const parsed = McpConfigSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error(

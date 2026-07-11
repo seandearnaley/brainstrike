@@ -162,6 +162,49 @@ describe('mcp-loader comprehensive tests', () => {
       );
     });
 
+    it('should reject duplicate properties in a server object with source context', () => {
+      const json = `{
+  "servers": [
+    {
+      "transport": "stdio",
+      "name": "first",
+      "name": "second",
+      "command": "node"
+    }
+  ]
+}`;
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config: duplicate property "name" at line 6, column 7 \(servers\.0\.name\)/u
+      );
+    });
+
+    it.each([
+      ['headers', 'sse', '"url": "https://example.com/mcp",'],
+      ['env', 'stdio', '"command": "node",'],
+    ] as const)('should reject duplicate properties in a nested %s object with source context', (recordName, transport, requiredProperty) => {
+      const json = `{
+  "servers": [
+    {
+      "transport": "${transport}",
+      "name": "duplicate-nested",
+      ${requiredProperty}
+      "${recordName}": {
+        "TOKEN": "first",
+        "TOKEN": "second"
+      }
+    }
+  ]
+}`;
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        new RegExp(
+          `invalid_mcp_config: duplicate property "TOKEN" at line 9, column 9 \\(servers\\.0\\.${recordName}\\.TOKEN\\)`,
+          'u'
+        )
+      );
+    });
+
     it('should reject the whole config when any server is invalid and report its path', () => {
       const json = JSON.stringify({
         servers: [
@@ -270,6 +313,43 @@ describe('mcp-loader comprehensive tests', () => {
 
       expect(() => parseMcpConfig(json)).toThrow(
         /invalid_mcp_config:.*servers\.0\.env\.PORT.*servers\.1\.headers\.Authorization/u
+      );
+    });
+
+    it('should reject header names that the WHATWG Headers runtime rejects', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            headers: { 'Invalid Header': 'value' },
+            name: 'remote',
+            transport: 'sse',
+            url: 'https://example.com/mcp',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.headers\.Invalid Header: invalid HTTP header name/u
+      );
+    });
+
+    it('should reject carriage-return and line-feed header values at their record paths', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            headers: {
+              'X-Carriage-Return': 'first\rsecond',
+              'X-Line-Feed': 'first\nsecond',
+            },
+            name: 'remote',
+            transport: 'sse',
+            url: 'http://localhost:3000/mcp',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.headers\.X-Carriage-Return: invalid HTTP header value.*servers\.0\.headers\.X-Line-Feed: invalid HTTP header value/u
       );
     });
 
@@ -440,7 +520,7 @@ describe('mcp-loader comprehensive tests', () => {
       }`;
 
       expect(() => parseMcpConfig(unterminatedString)).toThrow(
-        /invalid_mcp_config: UnexpectedEndOfString at line 8, column 28/u
+        /invalid_mcp_config: UnexpectedEndOfString at line 8, column 28 \(servers\.0\.headers\.X-Example\)/u
       );
     });
   });
