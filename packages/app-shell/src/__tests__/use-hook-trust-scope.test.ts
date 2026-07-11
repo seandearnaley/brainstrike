@@ -89,6 +89,54 @@ describe('useHookTrustScope', () => {
     expect([...(result.current ?? [])]).toEqual([]);
   });
 
+  // CODEX P1 (c3562885424): the fail-closed must happen IN RENDER, not in an
+  // effect. The render TRIGGERED BY the descriptor change is the one whose
+  // returned scope the wrapper spreads into the POST body — an effect-set state
+  // update lands one render too late, so a send prepared in that render would
+  // still attest the disconnected root. Capture every render's return value and
+  // assert the VERY FIRST render after the change already returns empty.
+  test('fails closed in the render triggered by the descriptor change (before any effect)', async () => {
+    let resolveFirst: ((entries: readonly ResolveEntry[]) => void) | undefined;
+    const first = new Promise<readonly ResolveEntry[]>((res) => {
+      resolveFirst = res;
+    });
+    const pendingForever = new Promise<readonly ResolveEntry[]>(() => {
+      /* never resolves */
+    });
+    let call = 0;
+    setResolver(() => {
+      call += 1;
+      return call === 1 ? first : pendingForever;
+    });
+
+    const renders: Array<ReadonlySet<string> | null> = [];
+    const { rerender } = renderHook(
+      (props: { descriptors: Descriptors }) => {
+        const scope = useHookTrustScope({ enabled: true, rootDescriptors: props.descriptors });
+        renders.push(scope);
+        return scope;
+      },
+      { initialProps: { descriptors: ROOTS_A } }
+    );
+
+    await act(async () => {
+      resolveFirst?.([{ dbRootId: 'db-a', path: '/a' }]);
+      await first;
+    });
+    expect([...(renders.at(-1) ?? [])]).toEqual(['db-a']);
+
+    const rendersBeforeChange = renders.length;
+    act(() => {
+      rerender({ descriptors: ROOTS_B });
+    });
+
+    // The FIRST render caused by the change (before any effect flush) must
+    // already return an empty scope — this is the value the send would attest.
+    const firstRenderAfterChange = renders[rendersBeforeChange];
+    expect(firstRenderAfterChange).not.toBeNull();
+    expect([...(firstRenderAfterChange ?? [])]).toEqual([]);
+  });
+
   // FINDING 3: a transient resolver rejection warns and retries ONCE (bounded).
   test('warns and retries once after a resolver rejection', async () => {
     setLogLevel(LogLevel.WARN);
