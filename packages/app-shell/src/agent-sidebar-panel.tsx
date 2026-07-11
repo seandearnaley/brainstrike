@@ -139,10 +139,10 @@ export function AgentSidebarPanel({
       onValueChange={handleValueChange}
       value={activeTab}
     >
-      <div className="border-border border-b px-2 py-2">
+      <div className="flex h-12 shrink-0 items-center border-border border-b px-2">
         <TabsList
-          aria-label="Agent utility tabs"
-          className="grid w-full grid-cols-3"
+          aria-label="Library tabs"
+          className="grid h-8 w-full grid-cols-3"
           data-testid="agent-sidebar-tabs"
         >
           <TabsTrigger

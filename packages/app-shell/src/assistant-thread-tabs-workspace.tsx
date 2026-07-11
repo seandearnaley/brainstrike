@@ -16,6 +16,7 @@ import type { ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
+import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
@@ -285,7 +286,7 @@ export function AssistantThreadTabsWorkspace({
   }, [ensureResourceThreads, repository, resourceId]);
 
   if (!repository && databaseStartupLoading) {
-    return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
+    return <AssistantPanelLoadingState label="Loading PGlite-backed threads." />;
   }
 
   if (!repository && databaseError) {
@@ -319,7 +320,7 @@ export function AssistantThreadTabsWorkspace({
   }
 
   if (loadState?.status === 'loading' && openThreadIds.length === 0) {
-    return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
+    return <AssistantPanelLoadingState label="Loading PGlite-backed threads." />;
   }
 
   return (

@@ -20,7 +20,7 @@ const TABS = [
 ] as const;
 
 const TAB_BASE_CLASS =
-  'flex-1 border-transparent border-b-2 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'h-full flex-1 border-transparent border-b-2 px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring motion-reduce:transition-none';
 const TAB_ACTIVE_CLASS = 'border-primary font-medium text-foreground';
 const TAB_INACTIVE_CLASS = 'text-muted-foreground hover:text-foreground';
 
@@ -71,10 +71,11 @@ export function ExplorerSearchTabs(): ReactElement {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div
         aria-label="Explorer and search"
-        className="flex shrink-0 border-border border-b"
+        className="flex h-12 min-w-0 shrink-0 border-border border-b"
+        data-testid="explorer-search-tab-strip"
         role="tablist"
       >
         {TABS.map((tab) => {

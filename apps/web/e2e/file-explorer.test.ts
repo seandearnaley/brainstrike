@@ -96,7 +96,7 @@ test.describe('File Explorer', () => {
       await expect(page.getByText('0/10')).toBeVisible();
     });
 
-    test('keeps footer controls usable when the explorer panel is narrowed', async ({ page }) => {
+    test('keeps header controls usable when the explorer panel is narrowed', async ({ page }) => {
       await explorer.selectRoot();
       await page.getByTestId('hide-threads-panel').click();
       await expect(page.getByTestId('show-threads-panel')).toBeVisible();
@@ -111,11 +111,20 @@ test.describe('File Explorer', () => {
       if (!handleBox) {
         throw new Error('Resize handle not found');
       }
+      const panelGroupRight = await rightPanel.evaluate((element) => {
+        const group = element.closest('[data-group]');
+        if (!group) {
+          throw new Error('Explorer panel group is missing');
+        }
+        return group.getBoundingClientRect().right;
+      });
 
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
       await page.mouse.down();
       // Moving the right-panel's handle to the right makes the right panel narrower
-      await page.mouse.move(handleBox.x + 140, handleBox.y + handleBox.height / 2);
+      await page.mouse.move(panelGroupRight - 180, handleBox.y + handleBox.height / 2, {
+        steps: 20,
+      });
       await page.mouse.up();
 
       await page.waitForTimeout(300);
@@ -124,14 +133,61 @@ test.describe('File Explorer', () => {
         (element) => element.getBoundingClientRect().width
       );
       expect(narrowedWidth).toBeLessThanOrEqual(initialWidth);
-      expect(initialWidth - narrowedWidth).toBeGreaterThanOrEqual(40);
+      expect(narrowedWidth).toBeGreaterThanOrEqual(179);
+      expect(narrowedWidth).toBeLessThanOrEqual(181);
 
-      await expect(page.getByRole('button', { name: 'Selection settings' })).toBeVisible();
-      await expect(page.getByTestId('selection-count')).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible();
-      await expect(page.getByTestId('bulk-action-full-label')).not.toBeVisible();
+      const toolbar = page.getByTestId('file-explorer-toolbar');
+      await expect(toolbar.getByRole('button', { name: /^Selection settings/ })).toBeVisible();
+      await expect(toolbar.getByTestId('selection-counter-control')).toBeVisible();
+      await expect(toolbar.getByTestId('selection-count')).toBeVisible();
+      await expect(toolbar.getByTestId('selection-compact-count')).not.toBeVisible();
+      await expect(toolbar.getByRole('button', { name: 'Select All' })).toBeVisible();
+      await expect(toolbar.getByTestId('bulk-action-full-label')).not.toBeVisible();
 
-      await page.getByRole('button', { name: 'Selection settings' }).press('Enter');
+      const controlGeometry = await toolbar.getByRole('button').evaluateAll((buttons) =>
+        buttons.flatMap((button) => {
+          const rect = button.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 ? [{ left: rect.left, right: rect.right }] : [];
+        })
+      );
+      const toolbarGeometry = await toolbar.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          clientWidth: element.clientWidth,
+          left: rect.left,
+          right: rect.right,
+          scrollWidth: element.scrollWidth,
+        };
+      });
+      const sortedControls = [...controlGeometry].sort((a, b) => a.left - b.left);
+
+      expect(toolbarGeometry.scrollWidth).toBeLessThanOrEqual(toolbarGeometry.clientWidth + 1);
+      for (const control of sortedControls) {
+        expect(control.left).toBeGreaterThanOrEqual(toolbarGeometry.left - 0.5);
+        expect(control.right).toBeLessThanOrEqual(toolbarGeometry.right + 0.5);
+      }
+      for (let index = 1; index < sortedControls.length; index += 1) {
+        expect(sortedControls[index]?.left ?? 0).toBeGreaterThanOrEqual(
+          (sortedControls[index - 1]?.right ?? 0) - 0.5
+        );
+      }
+
+      const addFolderCenterDelta = await toolbar
+        .getByRole('button', { name: 'Add Folder to Workspace' })
+        .evaluate((button, toolbarTestId) => {
+          const toolbarElement = button.closest(`[data-testid="${toolbarTestId}"]`);
+          if (!toolbarElement) {
+            throw new Error('File explorer toolbar ancestor is missing');
+          }
+          const buttonRect = button.getBoundingClientRect();
+          const toolbarRect = toolbarElement.getBoundingClientRect();
+          return Math.abs(
+            buttonRect.left + buttonRect.width / 2 - (toolbarRect.left + toolbarRect.width / 2)
+          );
+        }, 'file-explorer-toolbar');
+      expect(addFolderCenterDelta).toBeLessThanOrEqual(1);
+
+      await page.getByRole('button', { name: /^Selection settings/ }).press('Enter');
       await expect(page.getByRole('button', { name: '5K' })).toBeVisible();
       await expect(page.getByRole('button', { name: '6K' })).toBeVisible();
       await expect(page.getByRole('button', { name: '8K' })).toBeVisible();
@@ -142,8 +198,8 @@ test.describe('File Explorer', () => {
     }) => {
       await explorer.selectRoot();
 
-      // Multi-root: the focused-root folder badge was removed (it implied a
-      // single active root). The toolbar holds only the Add Folder action.
+      // Multi-root: the focused-root folder badge was removed because it implied
+      // a single active root. The toolbar now holds workspace-wide actions only.
       const toolbar = page.getByTestId('file-explorer-toolbar');
       await expect(toolbar).not.toContainText('test-root');
       await expect(page.getByText(/current directory/i)).toHaveCount(0);
@@ -380,6 +436,78 @@ test.describe('File Explorer', () => {
       ]);
 
       expect(download.suggestedFilename()).toMatch(/context/i);
+    });
+  });
+
+  test.describe('high-count responsive header', () => {
+    test('contains a four-digit selection at the minimum Explorer width', async ({ page }) => {
+      const largeTree = Object.fromEntries(
+        Array.from({ length: 1000 }, (_, index) => [`file-${index}.txt`, null])
+      ) as FileTree;
+      const largeExplorer = await bootstrapFileExplorer(page, {
+        resetSettings: true,
+        tree: largeTree,
+      });
+
+      await largeExplorer.selectRoot();
+      await setMaxSelectionCount(page, 8000);
+      await largeExplorer.selectAllButton.click();
+      await expect(page.getByTestId('selection-settings-button')).toHaveAccessibleName(
+        /1000 of 8000 files selected/,
+        { timeout: 20_000 }
+      );
+      await expect(page.getByTestId('selection-counter-control')).toBeVisible();
+      await expect(page.getByTestId('selection-count')).toHaveText('1K');
+
+      await page.getByTestId('hide-threads-panel').click();
+      await expect(page.getByTestId('show-threads-panel')).toBeVisible();
+      const resizeHandle = getContextExplorerRightResizeHandle(page);
+      const handleBox = await resizeHandle.boundingBox();
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      const panelGroupRight = await rightPanel.evaluate((element) => {
+        const group = element.closest('[data-group]');
+        if (!group) {
+          throw new Error('Explorer panel group is missing');
+        }
+        return group.getBoundingClientRect().right;
+      });
+      if (!handleBox) {
+        throw new Error('Explorer resize geometry is unavailable');
+      }
+      await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(panelGroupRight - 180, handleBox.y + handleBox.height / 2, {
+        steps: 20,
+      });
+      await page.mouse.up();
+
+      await expect(rightPanel).toBeVisible();
+
+      const geometry = await page.getByTestId('file-explorer-toolbar').evaluate((element) => {
+        const toolbarRect = element.getBoundingClientRect();
+        const buttons = Array.from(element.querySelectorAll('button'))
+          .map((button) => button.getBoundingClientRect())
+          .filter((button) => button.width > 0 && button.height > 0)
+          .sort((left, right) => left.left - right.left);
+        return {
+          buttons: buttons.map((button) => ({ left: button.left, right: button.right })),
+          clientWidth: element.clientWidth,
+          left: toolbarRect.left,
+          right: toolbarRect.right,
+          scrollWidth: element.scrollWidth,
+        };
+      });
+
+      expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+      for (const button of geometry.buttons) {
+        expect(button.left).toBeGreaterThanOrEqual(geometry.left - 0.5);
+        expect(button.right).toBeLessThanOrEqual(geometry.right + 0.5);
+      }
+      for (let index = 1; index < geometry.buttons.length; index += 1) {
+        expect(geometry.buttons[index]?.left ?? 0).toBeGreaterThanOrEqual(
+          (geometry.buttons[index - 1]?.right ?? 0) - 0.5
+        );
+      }
     });
   });
 

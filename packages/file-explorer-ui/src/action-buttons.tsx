@@ -254,16 +254,17 @@ export const ActionButtons = React.memo(
     };
 
     return (
-      <div className="@container/buttons flex flex-wrap items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="inline-flex">
                 <Button
                   aria-label={actionLabel}
-                  className="flex h-8 min-w-0 items-center gap-1 @[260px]:px-3 px-2"
+                  className="flex @[128px]:size-8 @[96px]:size-7 size-6 @[180px]:w-auto min-w-0 items-center gap-1 p-0 @[180px]:px-2 @[260px]:px-3"
                   disabled={!(canSelectFiles || isLoadingForSelectAll)}
                   onClick={handleClick}
+                  size="icon-xs"
                   variant="outline"
                 >
                   <ActionIcon className="size-3.5" />

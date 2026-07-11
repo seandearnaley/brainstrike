@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/ui';
 import { Check, Files, Pencil, X } from 'lucide-react';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { formatCompactSelectionCount } from './selection-count-format';
 
 /**
  * Parses user input for selection count validation.
@@ -142,6 +143,10 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
     }
     return 'Click to edit maximum selection count';
   }, [isEditable]);
+  const accessibleLabel = `${selectedCount} of ${maxSelectionCount} files selected. ${tooltipLabel}`;
+  const visibleSelectedCount = compact
+    ? formatCompactSelectionCount(selectedCount)
+    : String(selectedCount);
 
   // Dynamic styling based on selection status
   const statusStyles = useMemo(() => {
@@ -156,8 +161,10 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
 
   const triggerButton = (
     <button
-      aria-label={tooltipLabel}
-      className={`flex @[300px]:h-9 h-8 items-center @[300px]:gap-1.5 gap-1 rounded-md border @[300px]:px-2.5 px-2 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${statusStyles} ${
+      aria-label={accessibleLabel}
+      className={`flex @[300px]:h-9 h-8 items-center @[300px]:gap-1.5 gap-1 rounded-md border @[300px]:px-2.5 ${
+        compact ? '@[72px]:px-1.5 @[96px]:px-2 px-1 @[72px]:text-sm text-xs' : 'px-2 text-sm'
+      } py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${statusStyles} ${
         isEditable ? 'cursor-pointer' : 'cursor-default'
       }`}
       disabled={!isEditable}
@@ -166,9 +173,14 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
     >
       {!compact && <Files className="@[300px]:mr-2 size-3.5 text-muted-foreground" />}
       <span className="font-medium tabular-nums">
-        <span data-testid="selection-count">{selectedCount}</span>
-        <span className="mx-0.5">/</span>
-        <span data-testid="selection-max">{maxSelectionCount}</span>
+        <span data-testid="selection-count">{visibleSelectedCount}</span>
+        <span
+          className={compact ? '@[96px]:inline hidden' : undefined}
+          data-testid="selection-count-suffix"
+        >
+          <span className="mx-0.5">/</span>
+          <span data-testid="selection-max">{maxSelectionCount}</span>
+        </span>
       </span>
       {isEditable && (
         <Pencil className="@[300px]:ml-2 @[300px]:inline hidden size-3 text-muted-foreground" />

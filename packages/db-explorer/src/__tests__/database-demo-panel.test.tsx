@@ -32,18 +32,19 @@ import { setActiveEmbeddingSetId } from '../vector-preferences';
 // Helper to wrap renders with TooltipProvider and the context-action registry
 // (CollectionBrowserView mounts the shared ActionContextMenu, whose
 // useActionRegistry throws without a provider).
-const renderWithProviders = (ui: React.ReactElement) =>
-  render(
-    <ActionRegistryProvider
-      registry={createTestActionRegistry({ actions: collectionActions }).registry}
-    >
-      <SearchEmbedderProvider>
-        <TooltipProvider>{ui}</TooltipProvider>
-      </SearchEmbedderProvider>
-    </ActionRegistryProvider>
-  );
+const withProviders = (ui: React.ReactElement) => (
+  <ActionRegistryProvider
+    registry={createTestActionRegistry({ actions: collectionActions }).registry}
+  >
+    <SearchEmbedderProvider>
+      <TooltipProvider>{ui}</TooltipProvider>
+    </SearchEmbedderProvider>
+  </ActionRegistryProvider>
+);
+const renderWithProviders = (ui: React.ReactElement) => render(withProviders(ui));
 
-const { ensureStartedMock } = vi.hoisted(() => ({
+const { dbProviderErrorMock, ensureStartedMock, useFileRecordRepositoryMock } = vi.hoisted(() => ({
+  dbProviderErrorMock: { current: null as Error | null },
   ensureStartedMock: vi.fn(async () => ({
     chunkBatch: vi.fn(),
     chunkFile: vi.fn(),
@@ -51,6 +52,7 @@ const { ensureStartedMock } = vi.hoisted(() => ({
     terminate: vi.fn(),
     transportKind: 'local-worker' as const,
   })),
+  useFileRecordRepositoryMock: vi.fn(),
 }));
 
 // Mock all external dependencies at the top level
@@ -172,10 +174,10 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     migrations: [],
     useClearAllData: () => vi.fn(() => Promise.resolve({ deletedChunks: 0, deletedFiles: 0 })),
-    useDbProviderError: () => null,
+    useDbProviderError: () => dbProviderErrorMock.current,
     useFactoryReset: () => null,
     useFileChunkRepository: () => mockChunkRepository,
-    useFileRecordRepository: () => mockRepository,
+    useFileRecordRepository: useFileRecordRepositoryMock,
     usePGliteDatabase: () => mockDatabase,
     usePGliteLiveQuery: (options: { query: string }) => {
       // Return stable object references based on query type. The active-collection
@@ -424,7 +426,9 @@ vi.mock('react-resizable-panels', () => {
         _ref: React.Ref<unknown>
       ) => <div data-testid={`panel-${id}`}>{children}</div>
     ),
-    Separator: () => <div data-testid="resize-handle" />,
+    Separator: (props: React.HTMLAttributes<HTMLHRElement>) => (
+      <hr data-testid="resize-handle" {...props} />
+    ),
   };
 });
 
@@ -438,7 +442,10 @@ describe('DatabaseDemoPanel', () => {
     __resetVectorStatusUIStoreForTests();
     resetEmbeddingQueueFactory();
     vi.clearAllMocks();
+    dbProviderErrorMock.current = null;
     ensureStartedMock.mockClear();
+    useFileRecordRepositoryMock.mockReset();
+    useFileRecordRepositoryMock.mockReturnValue(mockRepository);
     mockImportFiles.mockReset();
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
     useVectorStatusUIStore.getState().setSchemaVerified(true);
@@ -524,6 +531,49 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Basic Rendering', () => {
+    it('keeps a provider error detail visible when Error.message is empty', () => {
+      const emptyMessageError = new Error('placeholder');
+      emptyMessageError.message = '';
+      dbProviderErrorMock.current = emptyMessageError;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Database failed to initialize');
+      expect(screen.getByTestId('db-init-error')).toHaveTextContent('Error');
+    });
+
+    it('preserves one split-panel shell while the database repository initializes', async () => {
+      useFileRecordRepositoryMock.mockReturnValue(null);
+
+      const view = renderWithProviders(<DatabaseDemoPanel />);
+
+      const stablePanel = screen.getByTestId('database-demo-panel');
+      expect(stablePanel).toHaveAttribute('aria-busy', 'true');
+      expect(screen.getByTestId('database-panel-toolbar')).toHaveClass('h-12');
+      expect(screen.getByTestId('database-panel-toolbar')).toHaveClass(
+        '@container/database-toolbar'
+      );
+      expect(screen.getByTestId('database-panel-loading-label')).toHaveClass(
+        '@[360px]:inline',
+        'hidden'
+      );
+      expect(screen.getByTestId('database-panel-loading-settings')).toHaveClass(
+        '@[360px]:w-20',
+        'w-7'
+      );
+      expect(screen.getByTestId('database-panel-loading-top')).toHaveClass('flex-[38]');
+      expect(screen.getByTestId('database-panel-loading-body')).toBeInTheDocument();
+      expect(screen.getByTestId('database-panel-loading-actions')).toHaveClass('h-12');
+
+      useFileRecordRepositoryMock.mockReturnValue(mockRepository);
+      view.rerender(withProviders(<DatabaseDemoPanel />));
+
+      await waitFor(() => {
+        expect(stablePanel).toHaveAttribute('aria-busy', 'false');
+      });
+      expect(screen.getByTestId('database-demo-panel')).toBe(stablePanel);
+    });
+
     it('renders database demo panel', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
@@ -908,8 +958,10 @@ describe('DatabaseDemoPanel', () => {
       });
 
       const toolbar = screen.getByTestId('database-panel-toolbar');
+      expect(toolbar).toHaveClass('@container/database-toolbar', 'h-12');
       const newButton = within(toolbar).getByRole('button', { name: /^New$/ });
       expect(newButton).toBeInTheDocument();
+      expect(within(newButton).getByText('New')).toHaveClass('hidden', '@[360px]:inline');
 
       const toolbarButtons = within(toolbar).getAllByRole('button');
       expect(toolbarButtons[0]).toBe(newButton);
@@ -925,6 +977,7 @@ describe('DatabaseDemoPanel', () => {
       const toolbar = screen.getByTestId('database-panel-toolbar');
       const settingsButton = within(toolbar).getByRole('button', { name: /Import Settings/ });
       expect(settingsButton).toBeInTheDocument();
+      expect(within(settingsButton).getByText('Settings')).toHaveClass('hidden', '@[360px]:inline');
 
       const toolbarButtons = within(toolbar).getAllByRole('button');
       expect(toolbarButtons.at(-1)).toBe(settingsButton);
@@ -966,9 +1019,13 @@ describe('DatabaseDemoPanel', () => {
       });
 
       const footer = screen.getByTestId('database-panel-actions');
-      expect(within(footer).getByRole('button', { name: /^Export$/ })).toBeInTheDocument();
-      expect(within(footer).getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
-      expect(within(footer).getByTestId('mock-embedding-actions-dropdown')).toBeInTheDocument();
+      const footerRow = screen.getByTestId('database-panel-actions-row');
+      expect(footer).toHaveClass('@container/database-actions');
+      expect(footerRow).toHaveClass('h-12', 'justify-center');
+      expect(within(footerRow).getByRole('button', { name: /^Export$/ })).toBeInTheDocument();
+      expect(within(footerRow).getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      expect(within(footerRow).getByTestId('mock-embedding-actions-dropdown')).toBeInTheDocument();
+      expect(within(footerRow).getByText('Import')).toHaveClass('hidden', '@[420px]:inline');
 
       const toolbar = screen.getByTestId('database-panel-toolbar');
       expect(within(toolbar).queryByRole('button', { name: /^Export$/ })).not.toBeInTheDocument();
@@ -978,6 +1035,26 @@ describe('DatabaseDemoPanel', () => {
       expect(
         within(toolbar).queryByTestId('mock-embedding-actions-dropdown')
       ).not.toBeInTheDocument();
+    });
+
+    it('disables refresh rotation when reduced motion is requested', async () => {
+      mockRecordLiveQueryResult.loading = true;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      const refreshButton = await screen.findByRole('button', { name: 'Refresh' });
+      expect(refreshButton.querySelector('svg')).toHaveClass(
+        'animate-spin',
+        'motion-reduce:animate-none'
+      );
+    });
+
+    it('names the database split resize separator', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      expect(
+        await screen.findByRole('separator', { name: 'Resize database panels' })
+      ).toBeInTheDocument();
     });
   });
 
