@@ -115,11 +115,11 @@ function bootstrapStore(dataDir: string): Promise<void> {
   });
 }
 
-function deleteStore(dataDir: string): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
+function deleteStore(dataDir: string): Promise<{ readonly blocked: boolean }> {
+  return new Promise<{ readonly blocked: boolean }>((resolve, reject) => {
     const request = idbFactory.deleteDatabase(firstRunBootstrapIdbDatabaseName(dataDir));
-    request.onsuccess = () => resolve();
-    request.onblocked = () => resolve();
+    request.onsuccess = () => resolve({ blocked: false });
+    request.onblocked = () => resolve({ blocked: true });
     request.onerror = () => reject(request.error ?? new Error('deleteDatabase failed'));
   });
 }

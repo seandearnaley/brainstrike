@@ -1050,7 +1050,7 @@ extension control file" error on that path only:
 
 - `vector` (pgvector, from `@electric-sql/pglite-pgvector`)
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
-- `live` (client-side reactive queries — loaded everywhere EXCEPT `pglite-worker-entry.ts`, where the PGliteWorker client installs it)
+- `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
 Construction sites (keep in sync when adding extensions or new sites):
 - packages/db/src/wasm-loader.ts (cached loaders + HMR reset in `resetExtensionCaches`)

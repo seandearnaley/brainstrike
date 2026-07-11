@@ -61,8 +61,14 @@ export interface FirstRunBootstrapDependencies {
    * direct PGlite instances).
    */
   readonly bootstrapStore: (dataDir: string) => Promise<void>;
-  /** Deletes the (partial) IndexedDB store for `dataDir`. */
-  readonly deleteStore: (dataDir: string) => Promise<void>;
+  /**
+   * Deletes the (partial) IndexedDB store for `dataDir`. MUST report a
+   * BLOCKED deletion (another connection holds the store open) via
+   * `blocked: true` instead of waiting for the holder to close — recovery
+   * throws on it directly, because even a follow-up `indexedDB.open()`
+   * existence probe would queue behind the pending delete and hang.
+   */
+  readonly deleteStore: (dataDir: string) => Promise<{ readonly blocked: boolean }>;
 }
 
 export type FirstRunBootstrapSkipReason =
@@ -173,7 +179,18 @@ async function recoverPartialBootstrapStore(
     'Detected an incomplete first-run PGlite bootstrap; deleting the partial store and re-running greenfield',
     { dataDir, markerWrittenAt: markerValue }
   );
-  await deps.deleteStore(dataDir);
+  const { blocked } = await deps.deleteStore(dataDir);
+  if (blocked) {
+    // Throw on the reported block WITHOUT re-probing: on enumeration-less
+    // engines the fallback existence probe is an `indexedDB.open()`, which
+    // would queue behind the still-pending blocked delete and hang.
+    throw new Error(
+      `Cannot reclaim the partial first-run PGlite store ${idbName}: deletion is blocked ` +
+        '(another tab is holding it open). Close other tabs and reload.'
+    );
+  }
+  // The delete completed (nothing pending), so the existence probe is safe on
+  // every engine; a store that somehow survived still fails loudly here.
   if (await browserIndexedDbDatabaseExists(idbName)) {
     throw new Error(
       `Cannot reclaim the partial first-run PGlite store ${idbName}: deletion did not complete ` +

@@ -105,6 +105,30 @@ describe('DbProvider first-run bootstrap wiring', () => {
     expect(orderedCalls).toEqual(['bootstrap', 'worker-create']);
   });
 
+  it("wires the recovery deleteStore with blockedBehavior 'resolve' so it cannot hang init", async () => {
+    await act(async () => {
+      renderHook(() => useFileRecordRepository(), { wrapper: makeWrapper('idb://web-pg18') });
+    });
+
+    const deps = maybeBootstrap.mock.calls[0]?.[1] as {
+      deleteStore: (dataDir: string) => Promise<{ readonly blocked: boolean }>;
+    };
+    const { wasmLoader } = await import('../src/wasm-loader');
+    const deleteSpy = vi.spyOn(wasmLoader, 'deleteIndexedDB').mockResolvedValue({ blocked: false });
+    try {
+      await deps.deleteStore('idb://web-pg18');
+      // A BLOCKED delete must settle reporting `blocked: true` so torn-store
+      // recovery can throw its loud "close other tabs" error directly instead
+      // of waiting forever on a connection held by another tab (factory reset
+      // keeps the waiting default because its own teardown closes the holders).
+      expect(deleteSpy).toHaveBeenCalledExactlyOnceWith('idb://web-pg18', {
+        blockedBehavior: 'resolve',
+      });
+    } finally {
+      deleteSpy.mockRestore();
+    }
+  });
+
   it('skips the bootstrap check for non-idb data dirs', async () => {
     await act(async () => {
       renderHook(() => useFileRecordRepository(), { wrapper: makeWrapper('memory://unit') });

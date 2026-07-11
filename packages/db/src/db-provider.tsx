@@ -606,7 +606,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       if (isIndexedDbPGliteDataDir(resolvedPath) && typeof Worker !== 'undefined') {
         const bootstrapResult = await maybeBootstrapBrowserFirstRunStore(resolvedPath, {
           bootstrapStore: (dataDir) => runFirstRunBootstrapInWorker(dataDir),
-          deleteStore: (dataDir) => wasmLoader.deleteIndexedDB(dataDir),
+          // 'resolve' on BLOCKED (another tab still holds the torn store): the
+          // delete settles reporting `blocked: true` and the recovery path
+          // throws its loud "close other tabs" error directly — instead of
+          // hanging DB init on the factory-reset default of waiting for the
+          // holding connection to close.
+          deleteStore: (dataDir) =>
+            wasmLoader.deleteIndexedDB(dataDir, { blockedBehavior: 'resolve' }),
         });
         logger.info('First-run PGlite bootstrap check', { ...bootstrapResult, resolvedPath });
       }
