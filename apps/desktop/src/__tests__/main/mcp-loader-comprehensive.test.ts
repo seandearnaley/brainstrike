@@ -24,7 +24,8 @@ vi.mock('electron', () => ({
     getPath: vi.fn(() => '/mock/user/data'),
   },
   safeStorage: {
-    decryptString: vi.fn(),
+    decryptStringAsync: vi.fn(),
+    isAsyncEncryptionAvailable: vi.fn(),
   },
 }));
 
@@ -63,6 +64,11 @@ describe('mcp-loader comprehensive tests', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockedSafeStorage.isAsyncEncryptionAvailable.mockResolvedValue(true);
+    mockedSafeStorage.decryptStringAsync.mockImplementation(async (buf: Buffer) => ({
+      result: buf.toString('utf-8'),
+      shouldReEncrypt: false,
+    }));
     // Default behavior: custom path file does not exist
     mockedFsp.readFile.mockImplementation(async (path) => {
       if (path.toString().endsWith('mcp-custom-path.txt')) {
@@ -387,117 +393,102 @@ describe('mcp-loader comprehensive tests', () => {
   });
 
   describe('decryptIfEncrypted', () => {
-    it('should decrypt base64 encoded value with safeStorage', () => {
+    it('should decrypt base64 encoded value with safeStorage', async () => {
       const mockDecrypted = 'decrypted-value';
-      mockedSafeStorage.decryptString.mockReturnValue(mockDecrypted as never);
-
-      const encrypted = Buffer.from('test-value').toString('base64');
-      const result = decryptIfEncrypted(encrypted);
-
-      expect(result).toBe(mockDecrypted);
-      expect(safeStorage.decryptString).toHaveBeenCalled();
-    });
-
-    it('should fallback to base64 decode when safeStorage unavailable', () => {
-      // Temporarily disable decryptString
-      const s = safeStorage as unknown as { decryptString?: ((buf: Buffer) => string) | undefined };
-      const original = s.decryptString;
-      s.decryptString = undefined;
-
-      const value = 'test-value';
-      const encrypted = Buffer.from(value).toString('base64');
-      const result = decryptIfEncrypted(encrypted);
-
-      expect(result).toBe(value);
-
-      // Restore
-      s.decryptString = original;
-    });
-
-    it('should return original value if decryption fails', () => {
-      mockedSafeStorage.decryptString.mockImplementation(() => {
-        throw new Error('Decrypt failed');
+      mockedSafeStorage.decryptStringAsync.mockResolvedValue({
+        result: mockDecrypted,
+        shouldReEncrypt: false,
       });
 
-      const result = decryptIfEncrypted('not-base64');
-      expect(result).toBe('not-base64');
+      const encrypted = Buffer.from('test-value').toString('base64');
+      const result = await decryptIfEncrypted(encrypted);
+
+      expect(result).toBe(mockDecrypted);
+      expect(safeStorage.decryptStringAsync).toHaveBeenCalled();
+    });
+
+    it('should reject when safeStorage is unavailable', async () => {
+      mockedSafeStorage.isAsyncEncryptionAvailable.mockResolvedValue(false);
+      const encrypted = Buffer.from('test-value').toString('base64');
+
+      await expect(decryptIfEncrypted(encrypted)).rejects.toThrow(
+        'MCP encrypted value: safeStorage encryption is unavailable'
+      );
+      expect(safeStorage.decryptStringAsync).not.toHaveBeenCalled();
+    });
+
+    it('should reject if decryption fails', async () => {
+      mockedSafeStorage.decryptStringAsync.mockRejectedValue(new Error('Decrypt failed'));
+      const encrypted = Buffer.from('ciphertext').toString('base64');
+
+      await expect(decryptIfEncrypted(encrypted)).rejects.toThrow(
+        'MCP encrypted value: Decrypt failed'
+      );
     });
   });
 
   describe('applyDecryptionToHeaders', () => {
-    beforeEach(() => {
-      mockedSafeStorage.decryptString.mockImplementation((buf: Buffer) => buf.toString('utf-8'));
-    });
-
-    it('should decrypt encrypted headers', () => {
+    it('should decrypt encrypted headers', async () => {
       const headers = {
         AuthorizationEncrypted: Buffer.from('Bearer token').toString('base64'),
         'X-API-Key': 'plain-key',
       };
 
-      const result = applyDecryptionToHeaders(headers);
+      const result = await applyDecryptionToHeaders(headers);
       expect(result).toEqual({
         Authorization: 'Bearer token',
         'X-API-Key': 'plain-key',
       });
     });
 
-    it('should handle undefined headers', () => {
-      const result = applyDecryptionToHeaders(undefined);
+    it('should handle undefined headers', async () => {
+      const result = await applyDecryptionToHeaders(undefined);
       expect(result).toBeUndefined();
     });
 
-    it('should handle empty headers', () => {
-      const result = applyDecryptionToHeaders({});
+    it('should handle empty headers', async () => {
+      const result = await applyDecryptionToHeaders({});
       expect(result).toEqual({});
     });
 
-    it('should not override existing keys', () => {
+    it('should not override existing keys', async () => {
       const headers = {
         Authorization: 'existing',
         AuthorizationEncrypted: Buffer.from('new').toString('base64'),
       };
 
-      const result = applyDecryptionToHeaders(headers);
+      const result = await applyDecryptionToHeaders(headers);
       expect(result?.Authorization).toBe('new');
     });
   });
 
   describe('applyDecryptionToEnv', () => {
-    beforeEach(() => {
-      mockedSafeStorage.decryptString.mockImplementation((buf: Buffer) => buf.toString('utf-8'));
-    });
-
-    it('should decrypt encrypted env vars', () => {
+    it('should decrypt encrypted env vars', async () => {
       const env = {
         API_KEYEncrypted: Buffer.from('secret-key').toString('base64'),
         NODE_ENV: 'test',
       };
 
-      const result = applyDecryptionToEnv(env);
+      const result = await applyDecryptionToEnv(env);
       expect(result).toEqual({
         API_KEY: 'secret-key',
         NODE_ENV: 'test',
       });
     });
 
-    it('should handle undefined env', () => {
-      const result = applyDecryptionToEnv(undefined);
+    it('should handle undefined env', async () => {
+      const result = await applyDecryptionToEnv(undefined);
       expect(result).toBeUndefined();
     });
 
-    it('should handle empty env', () => {
-      const result = applyDecryptionToEnv({});
+    it('should handle empty env', async () => {
+      const result = await applyDecryptionToEnv({});
       expect(result).toEqual({});
     });
   });
 
   describe('withDecryptedSecrets', () => {
-    beforeEach(() => {
-      mockedSafeStorage.decryptString.mockImplementation((buf: Buffer) => buf.toString('utf-8'));
-    });
-
-    it('should decrypt SSE server headers', () => {
+    it('should decrypt SSE server headers', async () => {
       const config: McpConfig = {
         servers: [
           {
@@ -511,7 +502,7 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       };
 
-      const result = withDecryptedSecrets(config);
+      const result = await withDecryptedSecrets(config);
       expect(result.servers[0]).toMatchObject({
         headers: { Authorization: 'Bearer token' },
         name: 'test',
@@ -520,7 +511,7 @@ describe('mcp-loader comprehensive tests', () => {
       });
     });
 
-    it('should decrypt stdio server env', () => {
+    it('should decrypt stdio server env', async () => {
       const config: McpConfig = {
         servers: [
           {
@@ -534,7 +525,7 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       };
 
-      const result = withDecryptedSecrets(config);
+      const result = await withDecryptedSecrets(config);
       expect(result.servers[0]).toMatchObject({
         command: 'node',
         env: { API_KEY: 'secret' },
@@ -543,7 +534,7 @@ describe('mcp-loader comprehensive tests', () => {
       });
     });
 
-    it('should handle servers without secrets', () => {
+    it('should handle servers without secrets', async () => {
       const config: McpConfig = {
         servers: [
           { command: 'cmd', name: 'plain', transport: 'stdio' },
@@ -551,11 +542,11 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       };
 
-      const result = withDecryptedSecrets(config);
+      const result = await withDecryptedSecrets(config);
       expect(result).toEqual(config);
     });
 
-    it('should remove undefined headers after decryption', () => {
+    it('should remove undefined headers after decryption', async () => {
       const config: McpConfig = {
         servers: [
           {
@@ -567,11 +558,11 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       };
 
-      const result = withDecryptedSecrets(config);
+      const result = await withDecryptedSecrets(config);
       expect('headers' in result.servers[0]).toBe(false);
     });
 
-    it('should remove undefined env after decryption', () => {
+    it('should remove undefined env after decryption', async () => {
       const config: McpConfig = {
         servers: [
           {
@@ -583,7 +574,7 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       };
 
-      const result = withDecryptedSecrets(config);
+      const result = await withDecryptedSecrets(config);
       expect('env' in result.servers[0]).toBe(false);
     });
   });
