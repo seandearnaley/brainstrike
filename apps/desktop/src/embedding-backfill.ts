@@ -389,7 +389,14 @@ function normalizeSqlParams(params: unknown): unknown[] | undefined {
 }
 
 function requiresMaintenanceExec(sql: string): boolean {
-  return sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_');
+  // The maintenance_work_mem SET/RESET that createDimensionIndex issues around
+  // the build must ride the SAME channel as the CREATE INDEX: the setting is
+  // session-local, so if the maintenance route ever moves to a dedicated
+  // connection, split routing would silently leave the build untuned.
+  return (
+    sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_') ||
+    sql.includes('maintenance_work_mem')
+  );
 }
 
 function createDimensionIndexDbAdapter(db: EmbeddingBackfillDatabase) {

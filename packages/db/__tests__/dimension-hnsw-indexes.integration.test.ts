@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createDeferredDimensionIndexBuilder,
   createDimensionIndex,
+  DEFAULT_MAINTENANCE_WORK_MEM_MB,
   DIMENSION_INDEX_BUILD_START_DELAY_MS,
   dimensionIndexExists,
   dropDimensionIndex,
@@ -24,6 +25,8 @@ import {
   hnswParams,
   MAX_DIMENSION_INDEX_BUILD_ATTEMPTS,
   MAX_HNSW_DIMENSION,
+  MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB,
+  resolveIndexBuildMaintenanceWorkMemMb,
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,
 } from '../src/migrations/dimension-index-helpers';
@@ -314,6 +317,156 @@ describe('Dimension HNSW Index Query Plan', () => {
   });
 });
 
+describe('HNSW build maintenance_work_mem tuning', () => {
+  const COUNT_SQL_FRAGMENT = 'COUNT(*)';
+
+  function createCapturingDb(options: { embeddedRowCount: number; failCreateIndex?: boolean }): {
+    db: { exec(sql: string): Promise<void>; query<T>(sql: string): Promise<{ rows: T[] }> };
+    statements: string[];
+  } {
+    const statements: string[] = [];
+    return {
+      db: {
+        exec: async (sql: string): Promise<void> => {
+          statements.push(sql.replace(/\s+/g, ' ').trim());
+          if (options.failCreateIndex && sql.includes('CREATE INDEX')) {
+            throw new Error('simulated build failure');
+          }
+        },
+        query: async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
+          if (sql.includes(COUNT_SQL_FRAGMENT)) {
+            return { rows: [{ count: String(options.embeddedRowCount) } as T] };
+          }
+          return { rows: [] };
+        },
+      },
+      statements,
+    };
+  }
+
+  describe('resolveIndexBuildMaintenanceWorkMemMb sizing', () => {
+    it('returns the 64MB default for empty and small tables', () => {
+      expect(resolveIndexBuildMaintenanceWorkMemMb(0, 1024)).toBe(DEFAULT_MAINTENANCE_WORK_MEM_MB);
+      expect(resolveIndexBuildMaintenanceWorkMemMb(1000, 384)).toBe(
+        DEFAULT_MAINTENANCE_WORK_MEM_MB
+      );
+    });
+
+    it('sizes the benchmarked 100k x 1024-dim scenario above its ~260MB graph and below the cap', () => {
+      // 2026-07-11 benchmark: the measured halfvec HNSW graph was ~260MB; the
+      // 64MB default spilled to the slow disk build (2,496s vs 505s tuned).
+      const mb = resolveIndexBuildMaintenanceWorkMemMb(100_000, 1024);
+      expect(mb).toBeGreaterThan(260);
+      expect(mb).toBeLessThanOrEqual(MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB);
+    });
+
+    it('clamps huge estimates to the WASM-safe cap', () => {
+      // PGlite is 32-bit WASM: never promise more build memory than the
+      // address space can absorb, no matter how large the table grows.
+      expect(resolveIndexBuildMaintenanceWorkMemMb(2_000_000, 3072)).toBe(
+        MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB
+      );
+    });
+
+    it('treats invalid row counts as unknown and keeps the default', () => {
+      expect(resolveIndexBuildMaintenanceWorkMemMb(Number.NaN, 1024)).toBe(
+        DEFAULT_MAINTENANCE_WORK_MEM_MB
+      );
+      expect(resolveIndexBuildMaintenanceWorkMemMb(-5, 1024)).toBe(DEFAULT_MAINTENANCE_WORK_MEM_MB);
+    });
+  });
+
+  it('issues SET maintenance_work_mem before the build and RESET after for large tables', async () => {
+    const { db, statements } = createCapturingDb({ embeddedRowCount: 100_000 });
+
+    await createDimensionIndex(db, 1024, { ef: 64, m: 16 });
+
+    const expectedMb = resolveIndexBuildMaintenanceWorkMemMb(100_000, 1024);
+    expect(statements).toEqual([
+      `SET maintenance_work_mem = '${expectedMb}MB'`,
+      expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_1024'),
+      'RESET maintenance_work_mem',
+    ]);
+  });
+
+  it('skips the tuning statements when the estimated graph fits the 64MB default', async () => {
+    const { db, statements } = createCapturingDb({ embeddedRowCount: 100 });
+
+    await createDimensionIndex(db, 1024, { ef: 64, m: 16 });
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain('CREATE INDEX');
+  });
+
+  it('resets maintenance_work_mem even when the build fails', async () => {
+    const { db, statements } = createCapturingDb({
+      embeddedRowCount: 100_000,
+      failCreateIndex: true,
+    });
+
+    await expect(createDimensionIndex(db, 1024, { ef: 64, m: 16 })).rejects.toThrow(
+      'simulated build failure'
+    );
+    expect(statements.at(-1)).toBe('RESET maintenance_work_mem');
+  });
+
+  it('applies the tuned setting for the build only — no leak into subsequent queries (real PGlite)', async () => {
+    const vectorModule = await import('@electric-sql/pglite-pgvector');
+    const realDb = new PGlite({
+      dataDir: 'memory://',
+      extensions: { vector: vectorModule.vector },
+    });
+    try {
+      await realDb.query('CREATE EXTENSION IF NOT EXISTS vector');
+      await realDb.query(
+        'CREATE TABLE IF NOT EXISTS file_chunks (id TEXT PRIMARY KEY, embedding VECTOR)'
+      );
+
+      // Report a benchmark-scale row count so the tuning path engages while
+      // the real table stays small enough for a fast test build.
+      const executed: string[] = [];
+      const sizedDb = {
+        exec: async (sql: string): Promise<unknown> => {
+          executed.push(sql.replace(/\s+/g, ' ').trim());
+          return await realDb.exec(sql);
+        },
+        query: async <T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }> => {
+          if (sql.includes(COUNT_SQL_FRAGMENT) && sql.includes('file_chunks')) {
+            return { rows: [{ count: '100000' } as T] };
+          }
+          return (await realDb.query(sql, params as unknown[] | undefined)) as { rows: T[] };
+        },
+      };
+
+      const before = await realDb.query<{ maintenance_work_mem: string }>(
+        'SHOW maintenance_work_mem'
+      );
+      expect(before.rows[0]?.maintenance_work_mem).toBe(`${DEFAULT_MAINTENANCE_WORK_MEM_MB}MB`);
+
+      await createDimensionIndex(sizedDb, 1536, { ef: 64, m: 16 });
+
+      expect(await dimensionIndexExists(realDb, 1536)).toBe(true);
+      const expectedMb = resolveIndexBuildMaintenanceWorkMemMb(100_000, 1536);
+      const setIndex = executed.findIndex((sql) =>
+        sql.startsWith(`SET maintenance_work_mem = '${expectedMb}MB'`)
+      );
+      const createIndexPos = executed.findIndex((sql) => sql.includes('CREATE INDEX'));
+      const resetIndex = executed.indexOf('RESET maintenance_work_mem');
+      expect(setIndex).toBeGreaterThanOrEqual(0);
+      expect(setIndex).toBeLessThan(createIndexPos);
+      expect(resetIndex).toBeGreaterThan(createIndexPos);
+
+      // The tuned value must not leak into the session after the build.
+      const after = await realDb.query<{ maintenance_work_mem: string }>(
+        'SHOW maintenance_work_mem'
+      );
+      expect(after.rows[0]?.maintenance_work_mem).toBe(`${DEFAULT_MAINTENANCE_WORK_MEM_MB}MB`);
+    } finally {
+      await realDb.close();
+    }
+  });
+});
+
 describe('createDeferredDimensionIndexBuilder dispatch deferral', () => {
   it('does not dispatch the CREATE INDEX before the start delay elapses', async () => {
     vi.useFakeTimers();
@@ -336,7 +489,8 @@ describe('createDeferredDimensionIndexBuilder dispatch deferral', () => {
       // Flush microtasks WITHOUT advancing timers: on PGlite's single
       // connection, dispatching the CREATE INDEX in the same turn would queue
       // the caller's own follow-up queries (create set -> immediately search)
-      // behind a 5-30s build. The start delay gives that flow first access.
+      // behind a build that takes seconds on small tables and minutes at
+      // 100k-chunk scale. The start delay gives that flow first access.
       await Promise.resolve();
       await Promise.resolve();
       expect(statements).toHaveLength(0);
@@ -447,8 +601,9 @@ describe('createDeferredDimensionIndexBuilder dispatch deferral', () => {
       });
 
       // Read-path re-arms (getById) can fire on every status poll. A build
-      // that keeps failing must not become a sustained retry loop of 5-30s
-      // connection-blocking CREATE INDEX attempts.
+      // that keeps failing must not become a sustained retry loop of
+      // connection-blocking CREATE INDEX attempts (seconds on small tables,
+      // minutes at 100k-chunk scale).
       for (let attempt = 0; attempt < MAX_DIMENSION_INDEX_BUILD_ATTEMPTS + 3; attempt++) {
         builder.schedule(640);
         await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS);
@@ -457,6 +612,53 @@ describe('createDeferredDimensionIndexBuilder dispatch deferral', () => {
 
       expect(execCalls).toBe(MAX_DIMENSION_INDEX_BUILD_ATTEMPTS);
       expect(errors).toHaveLength(MAX_DIMENSION_INDEX_BUILD_ATTEMPTS);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('serializes concurrent dimension builds so tuning statements never interleave', async () => {
+    // maintenance_work_mem is session-global on PGlite's single connection:
+    // if two large-dimension builds interleaved, build A's finally-RESET could
+    // land between build B's SET and B's CREATE INDEX, silently running B at
+    // the 64MB default. Builds must chain: SET/CREATE/RESET stay contiguous.
+    vi.useFakeTimers();
+    try {
+      const statements: string[] = [];
+      const fakeDb = {
+        exec: async (sql: string): Promise<void> => {
+          statements.push(sql.replace(/\s+/g, ' ').trim());
+        },
+        query: async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
+          if (sql.includes('COUNT(*)') && sql.includes('embedding IS NOT NULL')) {
+            return { rows: [{ count: '100000' } as T] };
+          }
+          return { rows: [] };
+        },
+      };
+      const builder = createDeferredDimensionIndexBuilder({
+        getDb: () => fakeDb,
+        onError: () => {
+          throw new Error('Index build must not fail in this test.');
+        },
+      });
+
+      builder.schedule(1024);
+      builder.schedule(2048);
+      // Each chained build waits its own start delay after the previous
+      // build completes, so advance the timers once per build.
+      await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS);
+      await builder.whenSettled();
+
+      expect(statements).toEqual([
+        `SET maintenance_work_mem = '${resolveIndexBuildMaintenanceWorkMemMb(100_000, 1024)}MB'`,
+        expect.stringContaining('idx_file_chunks_emb_hnsw_1024'),
+        'RESET maintenance_work_mem',
+        `SET maintenance_work_mem = '${resolveIndexBuildMaintenanceWorkMemMb(100_000, 2048)}MB'`,
+        expect.stringContaining('idx_file_chunks_emb_hnsw_2048'),
+        'RESET maintenance_work_mem',
+      ]);
     } finally {
       vi.useRealTimers();
     }
