@@ -80,15 +80,21 @@ state (any collapsed subfolder), on both web and desktop, and it misrepresents t
 context-export set.
 
 **Smoking gun:** `getFolderFileCount` returns an `isComplete` flag intended to mark
-"subtree not fully loaded" — but (a) **no caller ever reads it**, and (b) **no branch
-ever produces `isComplete: false`** (file → true, `!node.children` → true, recursion
-ANDs trues). The completeness signal is both unconsumed and vacuously true.
+"subtree not fully loaded" — but (a) **no live/rendered caller reads it** (the only
+reader is the dead B10 path, `tree/use-file-tree-node-selection.ts:133`, which has no
+render site), and (b) **no branch ever produces `isComplete: false`** (file → true,
+`!node.children` → true, recursion ANDs trues). The completeness signal is
+effectively unconsumed and vacuously true.
 
-**Fix direction:** gate all three count-equality → checked short-circuits on
-subtree completeness — `!hasUnloadedDirectoryChildren` is already computed per row
-(`optimized-file-tree-model.ts:643`), and/or make `isComplete` real
-(`loadState !== 'loaded'` or missing `children` on a directory → false). Incomplete
-subtree + any selection → `indeterminate`, never `checked`.
+**Fix direction:** gate all three count-equality → checked short-circuits on a
+**deep (recursive) completeness signal** — make `isComplete` real
+(`loadState !== 'loaded'` anywhere in the subtree → false) and maintain an
+equivalent per-path incomplete count for the normalized tree. The existing
+`hasUnloadedDirectoryChildren` row flag is NOT sufficient on its own: it inspects
+immediate children only (`optimized-file-tree-model.ts:643`), so a loaded child
+directory with an unloaded grandchild leaves the parent flag false while the counts
+still undercount that subtree. Incomplete subtree + any selection →
+`indeterminate`, never `checked`.
 
 **Coverage gap:** `optimized-file-tree-selection.test.tsx` exercises fully-loaded
 trees or query mode only — no explicit-mode unloaded-sibling case. Write that failing
@@ -130,14 +136,20 @@ must never gate removals.
 the add path. The disabled state should key off "click would be a no-op", not
 "select-all would exceed".
 
-### B4 — Select-All / folder-select ignore the quick filter for unloaded subtrees · **Medium, confirmed**
+### B4 — Recursive folder-click selection ignores the quick filter for unloaded subtrees · **Medium, confirmed**
 
 The quick filter (search box) prunes only the display tree
 (`utils/quick-filter-tree.ts:84-117`). `querySelectableFiles` re-scans disk applying
-workspace filters only (`utils/recursive-selection-query.ts:246-254`), and the caller
-passes the quick-filtered tree as roots (`shell/file-explorer-panel.tsx:1050`) — so
-loaded portions respect the search box while unloaded directories are scanned
-unfiltered. One gesture, mixed policy within a single operation.
+workspace filters only (`utils/recursive-selection-query.ts:246-254`) — so for a
+folder-click that routes through the recursive scan, loaded portions respect the
+search box while unloaded directories are scanned unfiltered. One gesture, mixed
+policy within a single operation.
+
+Scope note: the toolbar **Select All** path is NOT affected — under an active quick
+filter `ActionButtons.handleSelectAll` returns early and selects the visible keys
+directly (forest override / fallback selection) without ever reaching
+`querySelectableFiles`. The bug is confined to recursive folder-click selection on
+unloaded subtrees.
 
 ### B5 — Folder whose every VISIBLE file is selected renders indeterminate · **Medium, confirmed architecture**
 
@@ -182,7 +194,7 @@ reintroduces a previously-toggled-off string silently arrives disabled.
 
 ### B10 — Dead divergent folder-selection path in the public API · **Low, confirmed**
 
-`hooks/use-file-tree-node-selection.ts:39-53` + `folder-selection-dialog.tsx:44`
+`tree/use-file-tree-node-selection.ts:39-53` + `folder-selection-dialog.tsx:44`
 collect from visible `node.children` (the *opposite* policy to B2) and are exported
 from `tree/index.ts` but unrendered by the live panel. Reconcile or remove.
 
