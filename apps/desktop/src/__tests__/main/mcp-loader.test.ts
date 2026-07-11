@@ -310,19 +310,28 @@ describe('mcp-loader', () => {
     const template = getDefaultMcpConfigTemplate();
     expect(template).toContain('"servers"');
     expect(template).toContain('BrainStrike MCP configuration');
+    expect(template).toContain('Example: Remote Streamable HTTP server');
+    expect(template).toContain('"transport": "streamable-http"');
+    expect(template).toContain('"url": "https://your-host.example.com/mcp"');
+    expect(template).toContain('Example: Legacy remote SSE server');
   });
 
-  it('leaves unknown transport entries unchanged in withDecryptedSecrets fallback', async () => {
+  it('rejects unknown transport entries in withDecryptedSecrets', async () => {
     const { withDecryptedSecrets } = await import('../../mcp-loader');
     const unknownServer = { name: 'unknown-server', transport: 'custom' } as unknown as {
-      transport: 'sse' | 'stdio';
+      transport: 'sse' | 'stdio' | 'streamable-http';
       name: string;
     };
 
-    const result = await withDecryptedSecrets({
-      servers: [unknownServer],
-    } as unknown as { servers: Array<{ transport: 'sse' | 'stdio'; name: string }> });
-
-    expect(result.servers[0]).toBe(unknownServer);
+    await expect(
+      withDecryptedSecrets({
+        servers: [unknownServer],
+      } as unknown as {
+        servers: Array<{
+          transport: 'sse' | 'stdio' | 'streamable-http';
+          name: string;
+        }>;
+      })
+    ).rejects.toThrow(/invalid_mcp_config:.*unknown-server.*custom/u);
   });
 });

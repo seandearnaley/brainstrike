@@ -3,7 +3,10 @@ import { useEffect, useReducer } from 'react';
 
 interface McpStatus {
   exists: boolean;
-  servers: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+  servers: Array<{
+    name: string;
+    transport: 'sse' | 'stdio' | 'streamable-http';
+  }>;
 }
 
 interface McpState {
@@ -55,6 +58,10 @@ function actionFromConfig(result: McpConfigResult | undefined): McpAction {
   };
 }
 
+function formatTransports(servers: McpStatus['servers']): string {
+  return [...new Set(servers.map((server) => server.transport))].join(', ');
+}
+
 export function McpBanner() {
   const [{ status, error }, dispatch] = useReducer(mcpReducer, initialMcpState);
 
@@ -101,6 +108,7 @@ export function McpBanner() {
 
   const exists = Boolean(status?.exists);
   const servers = status?.servers ?? [];
+  const transports = formatTransports(servers);
 
   return (
     <div className="flex items-center gap-2 text-[11px]">
@@ -115,9 +123,12 @@ export function McpBanner() {
         <Badge variant="destructive">error</Badge>
       )}
       {error === null && servers.length > 0 && (
-        <span className="opacity-70">
-          {servers.length} server{servers.length > 1 ? 's' : ''}
-        </span>
+        <>
+          <span className="opacity-70">
+            {servers.length} server{servers.length > 1 ? 's' : ''}
+          </span>
+          <span className="opacity-70">{transports}</span>
+        </>
       )}
       {error !== null && <span className="text-destructive">{error}</span>}
     </div>

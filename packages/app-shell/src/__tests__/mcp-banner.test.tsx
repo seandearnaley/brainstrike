@@ -6,7 +6,10 @@ interface McpConfig {
   error?: string;
   exists: boolean;
   path: string;
-  servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+  servers?: Array<{
+    name: string;
+    transport: 'sse' | 'stdio' | 'streamable-http';
+  }>;
 }
 
 type McpConfigResult = McpConfig | undefined;
@@ -47,6 +50,25 @@ describe('McpBanner', () => {
 
     expect(await screen.findByText('loaded')).toBeInTheDocument();
     expect(screen.getByText('1 server')).toBeInTheDocument();
+    expect(screen.getByText('stdio')).toBeInTheDocument();
+  });
+
+  it('shows each selected HTTP transport without rendering configuration secrets', async () => {
+    setMcpConfig(
+      Promise.resolve({
+        exists: true,
+        path: '/Users/example/.brainstrike/mcp.json',
+        servers: [
+          { name: 'primary', transport: 'streamable-http' },
+          { name: 'legacy', transport: 'sse' },
+        ],
+      })
+    );
+
+    render(<McpBanner />);
+
+    expect(await screen.findByText('streamable-http, sse')).toBeInTheDocument();
+    expect(screen.queryByText(/Authorization|Bearer/u)).not.toBeInTheDocument();
   });
 
   it('renders missing state without servers', async () => {

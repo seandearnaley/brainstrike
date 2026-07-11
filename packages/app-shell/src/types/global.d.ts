@@ -34,7 +34,10 @@ declare global {
             error?: string;
             path: string;
             exists: boolean;
-            servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+            servers?: Array<{
+              name: string;
+              transport: 'sse' | 'stdio' | 'streamable-http';
+            }>;
           }
         | undefined
       >;
@@ -43,7 +46,10 @@ declare global {
           error?: string;
           path: string;
           exists: boolean;
-          servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+          servers?: Array<{
+            name: string;
+            transport: 'sse' | 'stdio' | 'streamable-http';
+          }>;
         }) => void
       ) => (() => void) | undefined;
       watch?: () => Promise<{ watching: boolean }>;

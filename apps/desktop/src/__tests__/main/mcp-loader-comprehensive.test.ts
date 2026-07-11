@@ -137,6 +137,33 @@ describe('mcp-loader comprehensive tests', () => {
       });
     });
 
+    it('should parse Streamable HTTP explicitly without inferring from its URL path', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            headers: { Authorization: 'Bearer token' },
+            name: 'streamable-server',
+            transport: 'streamable-http',
+            url: 'https://api.example.com/sse',
+          },
+          {
+            name: 'legacy-sse-server',
+            transport: 'sse',
+            url: 'https://api.example.com/mcp',
+          },
+        ],
+      });
+
+      const result = parseMcpConfig(json);
+      expect(result.servers.map((server) => server.transport)).toEqual(['streamable-http', 'sse']);
+      expect(result.servers[0]).toMatchObject({
+        headers: { Authorization: 'Bearer token' },
+        name: 'streamable-server',
+        transport: 'streamable-http',
+        url: 'https://api.example.com/sse',
+      });
+    });
+
     it('should parse multiple servers', () => {
       const json = JSON.stringify({
         servers: [
@@ -483,6 +510,30 @@ describe('mcp-loader comprehensive tests', () => {
     });
 
     it.each([
+      'sse',
+      'streamable-http',
+    ] as const)('should apply the same URL and header validation to %s', (transport) => {
+      const invalidUrl = JSON.stringify({
+        servers: [{ name: 'invalid-url', transport, url: 'file:///tmp/mcp.sock' }],
+      });
+      const invalidHeader = JSON.stringify({
+        servers: [
+          {
+            headers: { 'Invalid Header': 'value' },
+            name: 'invalid-header',
+            transport,
+            url: 'https://example.com/mcp',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(invalidUrl)).toThrow(/invalid_mcp_config:.*servers\.0\.url/u);
+      expect(() => parseMcpConfig(invalidHeader)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.headers\.Invalid Header: invalid HTTP header name/u
+      );
+    });
+
+    it.each([
       'https://user@example.com/mcp',
       'https://user:password@example.com/mcp',
     ])('should reject credentials in a remote URL: %s', (url) => {
@@ -823,6 +874,53 @@ describe('mcp-loader comprehensive tests', () => {
         transport: 'sse',
         url: 'http://example.com',
       });
+    });
+
+    it('should decrypt Streamable HTTP server headers', async () => {
+      const config = {
+        servers: [
+          {
+            headers: {
+              AuthorizationEncrypted: Buffer.from('Bearer token').toString('base64'),
+            },
+            name: 'test',
+            transport: 'streamable-http',
+            url: 'http://example.com/mcp',
+          },
+        ],
+      } as McpConfig;
+
+      const result = await withDecryptedSecrets(config);
+      expect(result.servers[0]).toMatchObject({
+        headers: { Authorization: 'Bearer token' },
+        name: 'test',
+        transport: 'streamable-http',
+        url: 'http://example.com/mcp',
+      });
+    });
+
+    it.each([
+      'sse',
+      'streamable-http',
+    ] as const)('should reject invalid decrypted headers for %s', async (transport) => {
+      const config = {
+        servers: [
+          {
+            headers: {
+              AuthorizationEncrypted: Buffer.from('Bearer token\r\nInjected: true').toString(
+                'base64'
+              ),
+            },
+            name: 'test',
+            transport,
+            url: 'http://example.com/mcp',
+          },
+        ],
+      } as McpConfig;
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*invalid HTTP header value/u
+      );
     });
 
     it.each([

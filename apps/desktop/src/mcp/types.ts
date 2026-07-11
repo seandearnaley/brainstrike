@@ -5,18 +5,16 @@ export interface McpDiscoveredTool {
   inputSchema?: unknown;
 }
 
-export interface PendingEntry {
+export interface McpCallOptions {
   onProgress?: (payload: unknown, meta?: { id?: string }) => void;
-  reject: (e: unknown) => void;
-  resolve: (v: unknown) => void;
-  timer: NodeJS.Timeout;
+  signal?: AbortSignal;
 }
 
 export interface McpClient {
   callTool: (
     tool: string,
     params?: Record<string, unknown>,
-    opts?: { onProgress?: (payload: unknown, meta?: { id?: string }) => void }
+    opts?: McpCallOptions
   ) => Promise<unknown>;
   dispose: () => Promise<void> | void;
   listTools: () => Promise<Record<string, McpDiscoveredTool>>;
