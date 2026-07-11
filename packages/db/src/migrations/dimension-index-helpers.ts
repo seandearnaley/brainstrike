@@ -94,6 +94,84 @@ interface DimensionIndexDb {
   query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
 }
 
+/**
+ * PGlite's compiled-in default for maintenance_work_mem. Builds whose estimated
+ * HNSW graph fits inside the default skip the tuning statements entirely, so
+ * small-table builds (fresh DBs, migration 014) behave exactly as before.
+ */
+export const DEFAULT_MAINTENANCE_WORK_MEM_MB = 64;
+
+/**
+ * Ceiling for the per-build maintenance_work_mem raise. PGlite runs in 32-bit
+ * WASM, so the whole instance (shared_buffers + heap + build memory) must stay
+ * well under the address-space ceiling — 512MB keeps total usage under ~1GB
+ * headroom. 512MB is also the benchmarked value: at 100k chunks x 1024 dims the
+ * ~260MB halfvec HNSW graph spills past the 64MB default and the build takes
+ * 2,496s of fully-blocked single-connection DB; with 512MB it drops 5x to 505s
+ * (benchmarked 2026-07-11, no schema or recall change).
+ */
+export const MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB = 512;
+
+const HALFVEC_BYTES_PER_DIMENSION = 2;
+
+/**
+ * Per-row HNSW graph overhead beyond the raw halfvec payload: neighbor lists
+ * (m*2 links at layer 0 plus upper layers) and element struct/alignment.
+ * Calibrated against the 2026-07-11 benchmark: 100k x 1024-dim rows produced a
+ * ~260MB graph vs 204.8MB raw halfvec (~550B/row overhead).
+ */
+const HNSW_GRAPH_OVERHEAD_BYTES_PER_ROW = 600;
+
+/**
+ * Multiplier over the estimated graph bytes so the in-memory build phase never
+ * runs at the exact estimate (allocator overhead in WASM, estimate drift).
+ */
+const HNSW_BUILD_MEMORY_HEADROOM = 1.5;
+
+/**
+ * Size maintenance_work_mem for an HNSW build against the estimated graph:
+ * rows x (dims x 2 bytes for halfvec + per-row neighbor-list overhead), with
+ * headroom, clamped to [default, cap]. The pgvector build only spills to the
+ * slow disk-based path when the graph exceeds maintenance_work_mem, and the
+ * setting is a ceiling (not an upfront allocation), so a mild overestimate is
+ * free; the cap is what protects the 32-bit WASM address space.
+ */
+export function resolveIndexBuildMaintenanceWorkMemMb(rowCount: number, dimension: number): number {
+  if (!Number.isFinite(rowCount) || rowCount <= 0) {
+    return DEFAULT_MAINTENANCE_WORK_MEM_MB;
+  }
+  const estimatedGraphBytes =
+    rowCount * (dimension * HALFVEC_BYTES_PER_DIMENSION + HNSW_GRAPH_OVERHEAD_BYTES_PER_ROW);
+  const estimatedMb = Math.ceil((estimatedGraphBytes * HNSW_BUILD_MEMORY_HEADROOM) / (1024 * 1024));
+  return Math.min(
+    Math.max(estimatedMb, DEFAULT_MAINTENANCE_WORK_MEM_MB),
+    MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB
+  );
+}
+
+/**
+ * Best-effort row estimate for build-memory sizing. Counts every embedded row
+ * rather than filtering by vector_dims(): the NULL check avoids detoasting the
+ * vectors, and over-counting across dimensions only nudges the (capped) memory
+ * ceiling upward. A failed count degrades to the default setting with a
+ * visible warning — sizing must never block the build itself.
+ */
+async function estimateEmbeddedRowCount(db: Pick<DimensionIndexDb, 'query'>): Promise<number> {
+  try {
+    const result = await db.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM file_chunks WHERE embedding IS NOT NULL'
+    );
+    const count = Number(result.rows[0]?.count ?? 0);
+    return Number.isFinite(count) && count > 0 ? count : 0;
+  } catch (error) {
+    logger.warn(
+      'Failed to estimate embedded row count for HNSW build memory sizing; using default maintenance_work_mem',
+      { error: error instanceof Error ? error.message : String(error) }
+    );
+    return 0;
+  }
+}
+
 const DIMENSION_INDEX_SUSPENSIONS_TABLE = 'embedding_dimension_index_suspensions';
 
 /**
@@ -178,13 +256,47 @@ export async function createDimensionIndex(
     WHERE vector_dims(embedding) = ${dimension}
   `;
 
+  // A graph larger than maintenance_work_mem forces pgvector's slow disk-based
+  // build phase (benchmarked 5x slower at 100k chunks x 1024 dims — see
+  // MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB). Raise the setting for the build
+  // only; PGlite is one shared connection, so it MUST be reset afterwards or
+  // it leaks into every subsequent query's session.
+  const workMemMb = resolveIndexBuildMaintenanceWorkMemMb(
+    await estimateEmbeddedRowCount(db),
+    dimension
+  );
+  // Defense-in-depth before SQL interpolation, mirroring the checks above:
+  // the resolver clamps to [default, cap], so anything else is a bug.
+  if (
+    !Number.isInteger(workMemMb) ||
+    workMemMb < DEFAULT_MAINTENANCE_WORK_MEM_MB ||
+    workMemMb > MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB
+  ) {
+    throw new Error(`createDimensionIndex: Invalid maintenance_work_mem value: ${workMemMb}`);
+  }
+  const tuneBuildMemory = workMemMb > DEFAULT_MAINTENANCE_WORK_MEM_MB;
+
   try {
+    if (tuneBuildMemory) {
+      await db.exec(`SET maintenance_work_mem = '${workMemMb}MB'`);
+    }
     await db.exec(sqlStatement);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     // Ignore "already exists" errors for idempotency
     if (!msg.includes('already exists')) {
       throw new Error(`Failed to create HNSW index for ${dimension}D: ${msg}`);
+    }
+  } finally {
+    if (tuneBuildMemory) {
+      try {
+        await db.exec('RESET maintenance_work_mem');
+      } catch (resetError) {
+        logger.error('Failed to reset maintenance_work_mem after HNSW index build', {
+          dimension,
+          error: resetError instanceof Error ? resetError.message : String(resetError),
+        });
+      }
     }
   }
 }
@@ -321,18 +433,21 @@ export interface DeferredDimensionIndexBuilder {
  * Delay before a scheduled build dispatches its CREATE INDEX. PGlite runs on a
  * single connection, so dispatching in the same turn as `schedule()` would queue
  * the caller's own follow-up queries (create set → immediately search/open the
- * collection) behind a 5-30s index build. This window lets that flow — including
- * its IPC round trips on desktop — reach the connection first; the build is
- * idempotent, so the late start is free.
+ * collection) behind an index build that takes seconds on small tables and
+ * MINUTES at scale (measured 2026-07-11: ~8.5 min at 100k chunks x 1024 dims
+ * with the tuned maintenance_work_mem, ~42 min untuned at the 64MB default).
+ * This window lets that flow — including its IPC round trips on desktop —
+ * reach the connection first; the build is idempotent, so the late start is
+ * free.
  */
 export const DIMENSION_INDEX_BUILD_START_DELAY_MS = 250;
 
 /**
  * Per-session cap on build attempts per dimension. Read-path re-arms (getById)
  * fire on every status poll, so a persistently-failing build (HNSW OOM, driver
- * error) must not become a sustained loop of 5-30s connection-blocking
- * CREATE INDEX attempts. Transient failures still get retries below the cap; a
- * fresh session resets the count.
+ * error) must not become a sustained loop of connection-blocking CREATE INDEX
+ * attempts (seconds on small tables, minutes at 100k-chunk scale). Transient
+ * failures still get retries below the cap; a fresh session resets the count.
  */
 export const MAX_DIMENSION_INDEX_BUILD_ATTEMPTS = 3;
 
@@ -345,9 +460,11 @@ function delay(ms: number): Promise<void> {
 /**
  * Creates a deferred, deduplicated HNSW-index builder.
  *
- * A `CREATE INDEX ... USING hnsw` on a populated `file_chunks` table can take
- * 5-30s and, on PGlite's single connection, blocks every other query while it
- * runs. Awaiting it inline during embedding-set creation froze the foreground
+ * A `CREATE INDEX ... USING hnsw` on a populated `file_chunks` table takes
+ * seconds on small tables and minutes at scale (measured 2026-07-11: 505s at
+ * 100k chunks x 1024 dims with maintenance_work_mem tuned to 512MB, 2,496s at
+ * the 64MB default) and, on PGlite's single connection, blocks every other
+ * query while it runs. Awaiting it inline during embedding-set creation froze the foreground
  * flow. This builder decouples the build from the caller: embedding-set creation
  * returns immediately and search degrades gracefully to a sequential scan until
  * the index lands. The build is idempotent (`CREATE INDEX IF NOT EXISTS`), so a
