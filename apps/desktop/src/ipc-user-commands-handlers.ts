@@ -42,11 +42,13 @@ export interface UserCommandsListDeps {
 
 /** Real-disk fs deps: a directory read yields entries; a missing path yields null. */
 export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
-  const validatedDirectories = new Set<string>();
+  const roots = new Map<string, string>();
+  const directories = new Map<string, string>();
   return {
     listDir: (absDir, containmentRoot) => {
       try {
-        const canonicalRoot = fs.realpathSync(containmentRoot);
+        const canonicalRoot = roots.get(containmentRoot) ?? fs.realpathSync(containmentRoot);
+        roots.set(containmentRoot, canonicalRoot);
         const canonicalDirectory = fs.realpathSync(absDir);
         const relative = path.relative(canonicalRoot, canonicalDirectory);
         if (
@@ -57,7 +59,7 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
           logger.warn('Skipping symlinked slash command directory');
           return null;
         }
-        validatedDirectories.add(canonicalDirectory);
+        directories.set(path.normalize(absDir), canonicalDirectory);
         return fs.readdirSync(canonicalDirectory, { withFileTypes: true }).map((entry) => ({
           isDirectory: entry.isDirectory(),
           isFile: entry.isFile(),
@@ -70,7 +72,8 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
     readFile: (absFile) => {
       try {
         const canonicalFile = fs.realpathSync(absFile);
-        if (!validatedDirectories.has(path.dirname(canonicalFile))) {
+        const lexicalDirectory = path.normalize(path.dirname(absFile));
+        if (directories.get(lexicalDirectory) !== path.dirname(canonicalFile)) {
           return { ok: false, reason: 'unreadable' };
         }
         // Bound the read BEFORE pulling untrusted bytes into the main process:

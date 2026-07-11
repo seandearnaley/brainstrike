@@ -1337,11 +1337,10 @@ the main process; web has no `window.userCommands` bridge and the hook returns
   `MAX_USER_COMMANDS` (500) count cap ignores the rest with a warn — never a
   silent truncation or a hard error that kills the whole scan. The real-disk
   adapter canonicalizes both the mounted root and each candidate directory,
-  rejects candidates outside that boundary, and enumerates only the validated
-  canonical path. Deferred file reads also require a canonical parent validated
-  by that scan, then open the canonical file with no-follow and perform the size
-  check plus read on that same descriptor. A workspace command tree therefore
-  cannot escape its mounted root even if paths change between scan and read.
+  pins that root identity for the scan, rejects candidates outside it, and binds
+  each lexical directory to its own validated canonical directory. Deferred file
+  reads must match that binding, then open no-follow and perform the size check
+  plus read on the same descriptor, so roots cannot borrow one another's trust.
 - **Frontmatter:** hand-rolled `---\nkey: value\n---` parser
   (`parseUserCommandFile` in packages/assistant-contract — NO YAML dep) for
   `name`/`description` only; unknown keys ignored, and Claude Code multiline-YAML

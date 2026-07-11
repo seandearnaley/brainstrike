@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/utils';
@@ -94,6 +94,46 @@ describe('listUserSlashCommands', () => {
     symlinkSync(outside, commands, 'dir');
 
     expect(deps.readFile(path.join(commands, 'review.md'))).toEqual({
+      ok: false,
+      reason: 'unreadable',
+    });
+  });
+
+  it('pins the canonical root across recursive directory reads', () => {
+    tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
+    const workspace = path.join(tempRoot, 'workspace');
+    const parkedWorkspace = path.join(tempRoot, 'parked-workspace');
+    const commands = path.join(workspace, '.brainstrike', 'commands');
+    const outside = path.join(tempRoot, 'outside');
+    mkdirSync(path.join(commands, 'nested'), { recursive: true });
+    mkdirSync(path.join(outside, '.brainstrike', 'commands', 'nested'), { recursive: true });
+
+    const deps = createNodeFsScanDeps();
+    expect(deps.listDir(commands, workspace)).not.toBeNull();
+    renameSync(workspace, parkedWorkspace);
+    symlinkSync(outside, workspace, 'dir');
+
+    expect(deps.listDir(path.join(commands, 'nested'), workspace)).toBeNull();
+  });
+
+  it('does not reuse a validated directory from another workspace root', () => {
+    tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
+    const rootA = path.join(tempRoot, 'root-a');
+    const rootB = path.join(tempRoot, 'root-b');
+    const commandsA = path.join(rootA, '.brainstrike', 'commands');
+    const commandsB = path.join(rootB, '.brainstrike', 'commands');
+    mkdirSync(commandsA, { recursive: true });
+    mkdirSync(commandsB, { recursive: true });
+    writeFileSync(path.join(commandsA, 'review.md'), 'Root A');
+    writeFileSync(path.join(commandsB, 'review.md'), 'Root B');
+
+    const deps = createNodeFsScanDeps();
+    expect(deps.listDir(commandsA, rootA)).not.toBeNull();
+    expect(deps.listDir(commandsB, rootB)).not.toBeNull();
+    rmSync(commandsB, { recursive: true });
+    symlinkSync(commandsA, commandsB, 'dir');
+
+    expect(deps.readFile(path.join(commandsB, 'review.md'))).toEqual({
       ok: false,
       reason: 'unreadable',
     });
