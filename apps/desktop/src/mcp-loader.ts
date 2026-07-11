@@ -3,25 +3,134 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, safeStorage } from 'electron';
-export type McpServer =
-  | {
-      transport: 'stdio';
-      name: string;
-      command: string;
-      args?: string[];
-      env?: Record<string, string>;
-      enabledTools?: string[];
+import {
+  getLocation,
+  getNodePath,
+  getNodeValue,
+  type Node as JsoncNode,
+  type ParseError,
+  parseTree,
+  printParseErrorCode,
+} from 'jsonc-parser';
+import { z } from 'zod';
+
+const NonEmptyStringSchema = z
+  .string()
+  .min(1, 'must not be empty')
+  .refine((value) => value.trim().length > 0, 'must not be blank');
+const ServerNameSchema = NonEmptyStringSchema.refine(
+  (value) => value !== '__proto__',
+  'reserved server name'
+);
+const SpawnStringSchema = z
+  .string()
+  .refine((value) => !value.includes('\0'), 'invalid spawn string');
+const NonEmptySpawnStringSchema = NonEmptyStringSchema.refine(
+  (value) => !value.includes('\0'),
+  'invalid spawn string'
+);
+const HttpUrlSchema = z.url({ protocol: /^https?$/u }).refine((value) => {
+  if (!URL.canParse(value)) {
+    return true;
+  }
+  const url = new URL(value);
+  return url.username.length === 0 && url.password.length === 0;
+}, 'must not include credentials');
+const StringRecordSchema = z.record(z.string(), z.string());
+const EnvironmentSchema = StringRecordSchema.superRefine((environment, context) => {
+  for (const [name, value] of Object.entries(environment)) {
+    if (name.length === 0 || name.includes('\0') || name.includes('=')) {
+      context.addIssue({
+        code: 'custom',
+        message: 'invalid environment variable name',
+        path: [name],
+      });
     }
-  | {
-      transport: 'sse';
-      name: string;
-      url: string;
-      headers?: Record<string, string>;
-      enabledTools?: string[];
-    };
-export interface McpConfig {
-  servers: McpServer[];
-}
+    if (value.includes('\0')) {
+      context.addIssue({
+        code: 'custom',
+        message: 'invalid environment variable value',
+        path: [name],
+      });
+    }
+  }
+});
+const HeadersSchema = StringRecordSchema.superRefine((headers, context) => {
+  const normalizedNames = new Set<string>();
+  for (const [name, value] of Object.entries(headers)) {
+    try {
+      new Headers([[name, '']]);
+    } catch {
+      context.addIssue({
+        code: 'custom',
+        message: 'invalid HTTP header name',
+        path: [name],
+      });
+      continue;
+    }
+
+    const normalizedName = name.toLowerCase();
+    if (normalizedNames.has(normalizedName)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'duplicate HTTP header name',
+        path: [name],
+      });
+    } else {
+      normalizedNames.add(normalizedName);
+    }
+
+    try {
+      new Headers([[name, value]]);
+    } catch {
+      context.addIssue({
+        code: 'custom',
+        message: 'invalid HTTP header value',
+        path: [name],
+      });
+    }
+  }
+});
+
+const StdioServerSchema = z.strictObject({
+  args: z.array(SpawnStringSchema).optional(),
+  command: NonEmptySpawnStringSchema,
+  enabledTools: z.array(z.string()).optional(),
+  env: EnvironmentSchema.optional(),
+  name: ServerNameSchema,
+  transport: z.literal('stdio'),
+});
+
+const SseServerSchema = z.strictObject({
+  enabledTools: z.array(z.string()).optional(),
+  headers: HeadersSchema.optional(),
+  name: ServerNameSchema,
+  transport: z.literal('sse'),
+  url: HttpUrlSchema,
+});
+
+const McpServerSchema = z.discriminatedUnion('transport', [StdioServerSchema, SseServerSchema]);
+const McpConfigSchema = z
+  .strictObject({
+    servers: z.array(McpServerSchema),
+  })
+  .superRefine((config, context) => {
+    const serverNames = new Set<string>();
+    for (const [index, server] of config.servers.entries()) {
+      if (serverNames.has(server.name)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'duplicate server name',
+          path: ['servers', index, 'name'],
+        });
+        continue;
+      }
+      serverNames.add(server.name);
+    }
+  });
+
+export type McpServer = z.infer<typeof McpServerSchema>;
+export type McpConfig = z.infer<typeof McpConfigSchema>;
 
 const logger = createLogger('DesktopMcpLoader');
 
@@ -50,308 +159,121 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
 }
 `;
 
-type CommentStripMode = 'normal' | 'string' | 'line-comment' | 'block-comment';
-
-interface CommentStripState {
-  escaped: boolean;
-  mode: CommentStripMode;
-}
-
-function handleLineComment(char: string, output: string[], state: CommentStripState): void {
-  if (char !== '\n') {
-    return;
-  }
-  state.mode = 'normal';
-  output.push(char);
-}
-
-function handleBlockComment(
-  char: string,
-  next: string | undefined,
-  output: string[],
-  state: CommentStripState
-): number {
-  if (char === '*' && next === '/') {
-    state.mode = 'normal';
-    return 1;
-  }
-
-  if (char === '\n') {
-    output.push(char);
-  }
-
-  return 0;
-}
-
-function handleString(char: string, output: string[], state: CommentStripState): void {
-  output.push(char);
-  if (state.escaped) {
-    state.escaped = false;
-    return;
-  }
-
-  if (char === '\\') {
-    state.escaped = true;
-    return;
-  }
-
-  if (char === '"') {
-    state.mode = 'normal';
-  }
-}
-
-function handleNormal(
-  char: string,
-  next: string | undefined,
-  output: string[],
-  state: CommentStripState
-): number {
-  if (char === '"') {
-    state.mode = 'string';
-    output.push(char);
-    return 0;
-  }
-
-  if (char === '/' && next === '/') {
-    state.mode = 'line-comment';
-    return 1;
-  }
-
-  if (char === '/' && next === '*') {
-    state.mode = 'block-comment';
-    return 1;
-  }
-
-  output.push(char);
-  return 0;
-}
-
-function stripJsonComments(text: string): string {
-  // Keep JSONC preprocessing local and dependency-free in desktop main.
-  // Supported syntax mirrors our MCP template/editor needs: comments + trailing commas.
-  // If this expands beyond MCP config editing, prefer a dedicated JSONC parser dependency.
-  const output: string[] = [];
-  const state: CommentStripState = { escaped: false, mode: 'normal' };
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === undefined) {
-      continue;
-    }
-    const next = text[index + 1];
-
-    if (state.mode === 'line-comment') {
-      handleLineComment(char, output, state);
-      continue;
-    }
-
-    if (state.mode === 'block-comment') {
-      index += handleBlockComment(char, next, output, state);
-      continue;
-    }
-
-    if (state.mode === 'string') {
-      handleString(char, output, state);
-      continue;
-    }
-
-    index += handleNormal(char, next, output, state);
-  }
-
-  if (state.mode === 'block-comment') {
-    throw new Error('invalid_mcp_config: unterminated block comment');
-  }
-  if (state.mode === 'string') {
-    throw new Error('invalid_mcp_config: unterminated string');
-  }
-
-  return output.join('');
-}
-
-function isJsonWhitespace(char: string | undefined): boolean {
-  return char === ' ' || char === '\n' || char === '\r' || char === '\t';
-}
-
-function findNextNonWhitespaceCharacter(text: string, startIndex: number): string | undefined {
-  for (let index = startIndex; index < text.length; index += 1) {
-    const char = text[index];
-    if (!isJsonWhitespace(char)) {
-      return char;
-    }
-  }
-  return;
-}
-
-interface TrailingCommaStripState {
-  escaped: boolean;
-  inString: boolean;
-}
-
-function consumeStringCharacter(
-  char: string,
-  output: string[],
-  state: TrailingCommaStripState
-): void {
-  output.push(char);
-  if (state.escaped) {
-    state.escaped = false;
-    return;
-  }
-  if (char === '\\') {
-    state.escaped = true;
-    return;
-  }
-  if (char === '"') {
-    state.inString = false;
-  }
-}
-
-function isTrailingCommaToken(text: string, commaIndex: number): boolean {
-  const nextNonWhitespace = findNextNonWhitespaceCharacter(text, commaIndex + 1);
-  return nextNonWhitespace === '}' || nextNonWhitespace === ']';
-}
-
-function stripTrailingCommas(text: string): string {
-  const output: string[] = [];
-  const state: TrailingCommaStripState = {
-    escaped: false,
-    inString: false,
+function getLineAndColumn(text: string, offset: number): { column: number; line: number } {
+  const lines = text.slice(0, offset).split(/\r\n|\r|\n/u);
+  return {
+    column: (lines.at(-1)?.length ?? 0) + 1,
+    line: lines.length,
   };
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === undefined) {
-      continue;
-    }
-
-    if (state.inString) {
-      consumeStringCharacter(char, output, state);
-      continue;
-    }
-
-    if (char === '"') {
-      state.inString = true;
-      output.push(char);
-      continue;
-    }
-
-    if (char === ',' && isTrailingCommaToken(text, index)) {
-      continue;
-    }
-
-    output.push(char);
-  }
-
-  return output.join('');
 }
 
-function parseStdioServer(s: unknown): McpServer | null {
-  if (!s || typeof s !== 'object' || !('transport' in s)) {
-    return null;
-  }
-  const server = s as Record<string, unknown>;
+function formatJsoncError(text: string, error: ParseError): string {
+  const { column, line } = getLineAndColumn(text, error.offset);
+  const path = getLocation(text, error.offset).path.join('.');
+  const location = path ? ` (${path})` : '';
+  return `${printParseErrorCode(error.error)} at line ${line}, column ${column}${location}`;
+}
 
-  if (
-    server['transport'] !== 'stdio' ||
-    typeof server['name'] !== 'string' ||
-    typeof server['command'] !== 'string'
-  ) {
-    return null;
+interface PropertyIssue {
+  key: string;
+  kind: 'duplicate' | 'forbidden';
+  offset: number;
+  path: (number | string)[];
+}
+
+function collectPropertyIssues(node: JsoncNode, issues: PropertyIssue[]): void {
+  if (node.type === 'array') {
+    for (const child of node.children ?? []) {
+      collectPropertyIssues(child, issues);
+    }
+    return;
   }
 
-  const result: McpServer = {
-    command: server['command'] as string,
-    name: server['name'] as string,
-    transport: 'stdio',
-  };
+  if (node.type !== 'object') {
+    return;
+  }
 
-  if (Array.isArray(server['args'])) {
-    result.args = (server['args'] as unknown[]).filter((x): x is string => typeof x === 'string');
+  const propertyNames = new Set<string>();
+  for (const propertyNode of node.children ?? []) {
+    const [keyNode, valueNode] = propertyNode.children ?? [];
+    if (keyNode?.type !== 'string' || typeof keyNode.value !== 'string') {
+      continue;
+    }
+
+    if (keyNode.value === '__proto__') {
+      issues.push({
+        key: keyNode.value,
+        kind: 'forbidden',
+        offset: keyNode.offset,
+        path: getNodePath(keyNode),
+      });
+    }
+
+    if (propertyNames.has(keyNode.value)) {
+      issues.push({
+        key: keyNode.value,
+        kind: 'duplicate',
+        offset: keyNode.offset,
+        path: getNodePath(keyNode),
+      });
+    } else {
+      propertyNames.add(keyNode.value);
+    }
+
+    if (valueNode) {
+      collectPropertyIssues(valueNode, issues);
+    }
   }
-  if (server['env'] && typeof server['env'] === 'object') {
-    result.env = server['env'] as Record<string, string>;
-  }
-  if (Array.isArray(server['enabledTools'])) {
-    result.enabledTools = (server['enabledTools'] as unknown[]).filter(
-      (value): value is string => typeof value === 'string'
+}
+
+function formatPropertyIssue(text: string, issue: PropertyIssue): string {
+  const { column, line } = getLineAndColumn(text, issue.offset);
+  return `${issue.kind} property ${JSON.stringify(issue.key)} at line ${line}, column ${column} (${issue.path.join('.')})`;
+}
+
+function formatValidationIssue(issue: z.ZodIssue): string {
+  const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
+  return `${path}: ${issue.message}`;
+}
+
+function validateMcpConfig(value: unknown): McpConfig {
+  const parsed = McpConfigSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(
+      `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
     );
   }
-
-  return result;
-}
-
-function parseSseServer(s: unknown): McpServer | null {
-  if (!s || typeof s !== 'object' || !('transport' in s)) {
-    return null;
-  }
-  const server = s as Record<string, unknown>;
-
-  if (
-    server['transport'] !== 'sse' ||
-    typeof server['name'] !== 'string' ||
-    typeof server['url'] !== 'string'
-  ) {
-    return null;
-  }
-
-  const result: McpServer = {
-    name: server['name'] as string,
-    transport: 'sse',
-    url: server['url'] as string,
-  };
-
-  if (server['headers'] && typeof server['headers'] === 'object') {
-    result.headers = server['headers'] as Record<string, string>;
-  }
-  if (Array.isArray(server['enabledTools'])) {
-    result.enabledTools = (server['enabledTools'] as unknown[]).filter(
-      (value): value is string => typeof value === 'string'
-    );
-  }
-
-  return result;
+  return parsed.data;
 }
 
 export function parseMcpConfig(text: string): McpConfig {
-  const jsoncText = stripJsonComments(text);
-  const normalizedJson = stripTrailingCommas(jsoncText);
-  let raw: unknown;
-  try {
-    raw = JSON.parse(normalizedJson);
-  } catch (error) {
-    const parseMessage = error instanceof Error ? error.message : 'invalid JSON';
-    throw new Error(`invalid_mcp_config: ${parseMessage}`);
-  }
-  if (
-    !raw ||
-    typeof raw !== 'object' ||
-    !('servers' in raw) ||
-    !Array.isArray((raw as { servers: unknown }).servers)
-  ) {
-    throw new Error('invalid_mcp_config: servers must be array');
+  const parseErrors: ParseError[] = [];
+  const root = parseTree(text, parseErrors, {
+    allowTrailingComma: true,
+    disallowComments: false,
+  });
+
+  if (parseErrors.length > 0) {
+    throw new Error(
+      `invalid_mcp_config: ${parseErrors.map((error) => formatJsoncError(text, error)).join('; ')}`
+    );
   }
 
-  const servers: McpServer[] = [];
-  const rawServers = (raw as { servers: unknown[] }).servers;
-
-  for (const s of rawServers) {
-    const stdioServer = parseStdioServer(s);
-    if (stdioServer) {
-      servers.push(stdioServer);
-      continue;
-    }
-
-    const sseServer = parseSseServer(s);
-    if (sseServer) {
-      servers.push(sseServer);
-    }
+  if (!root) {
+    throw new Error('invalid_mcp_config: configuration document is empty');
   }
 
-  if (rawServers.length > 0 && servers.length === 0) {
-    throw new Error('invalid_mcp_config: no valid servers');
+  const propertyIssues: PropertyIssue[] = [];
+  collectPropertyIssues(root, propertyIssues);
+  if (propertyIssues.length > 0) {
+    throw new Error(
+      `invalid_mcp_config: ${propertyIssues
+        .map((issue) => formatPropertyIssue(text, issue))
+        .join('; ')}`
+    );
   }
 
-  return { servers };
+  return validateMcpConfig(getNodeValue(root));
 }
 
 export interface LoadedMcpConfig {
@@ -651,12 +573,12 @@ async function applyDecryption(
   if (!record) {
     return record;
   }
-  const out: Record<string, string> = {};
+  const out = Object.create(null) as Record<string, string>;
   for (const [k, v] of Object.entries(record)) {
     if (k.endsWith('Encrypted')) {
       const target = k.slice(0, -'Encrypted'.length);
       out[target] = await decryptIfEncrypted(v, contextForKey(target));
-    } else if (!(k in out)) {
+    } else if (!Object.hasOwn(out, k)) {
       out[k] = v;
     }
   }
@@ -683,10 +605,28 @@ export function applyDecryptionToEnv(
   );
 }
 
+function assertNoForbiddenDecryptedProperty(
+  record: Record<string, string>,
+  path: 'env' | 'headers'
+): void {
+  if (Object.hasOwn(record, '__proto__')) {
+    throw new Error(
+      `invalid_mcp_config: ${path}.__proto__: forbidden property "__proto__" after decryption`
+    );
+  }
+}
+
 async function processSseServer(s: Extract<McpServer, { transport: 'sse' }>): Promise<McpServer> {
   const headers = await applyDecryptionToHeaders(s.headers, s.name);
   if (headers !== undefined) {
-    return { ...s, headers };
+    assertNoForbiddenDecryptedProperty(headers, 'headers');
+    const parsed = SseServerSchema.safeParse({ ...s, headers });
+    if (!parsed.success) {
+      throw new Error(
+        `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
+      );
+    }
+    return parsed.data;
   }
   const { headers: _, ...rest } = s;
   return rest;
@@ -697,7 +637,14 @@ async function processStdioServer(
 ): Promise<McpServer> {
   const env = await applyDecryptionToEnv(s.env, s.name);
   if (env !== undefined) {
-    return { ...s, env };
+    assertNoForbiddenDecryptedProperty(env, 'env');
+    const parsed = StdioServerSchema.safeParse({ ...s, env });
+    if (!parsed.success) {
+      throw new Error(
+        `invalid_mcp_config: ${parsed.error.issues.map(formatValidationIssue).join('; ')}`
+      );
+    }
+    return parsed.data;
   }
   const { env: _, ...rest } = s;
   return rest;

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { mcpToolRegistry } from '@brainstrike/agent';
-import { dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from '../../ipc-mcp';
 import { disposeClients, initClients } from '../../mcp';
@@ -18,7 +18,7 @@ import { readOpenAIApiKey } from '../../openai-api-key';
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 type WatchCallback = (config: unknown) => void;
 interface LoadResult {
-  config?: { servers?: Array<{ name?: string }> };
+  servers?: Array<{ name?: string }>;
 }
 
 function mockWatchImpl(setter: (cb: WatchCallback) => void, ret: { close: () => void }) {
@@ -87,6 +87,7 @@ describe('ipc-mcp handlers', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([]);
     handlers = new Map();
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
@@ -257,10 +258,27 @@ describe('ipc-mcp handlers', () => {
   describe('mcp:config:get', () => {
     it('should load config and initialize clients when config exists', async () => {
       const mockConfig = {
-        config: { servers: [{ command: 'cmd', name: 'test', transport: 'stdio' }] },
+        config: {
+          servers: [
+            {
+              command: 'cmd',
+              env: { TOKEN: 'decrypted-secret' },
+              name: 'test',
+              transport: 'stdio',
+            },
+          ],
+        },
         exists: true,
         loadedAt: Date.now(),
         path: '/path/to/config',
+        servers: [
+          {
+            command: 'cmd',
+            env: { TOKEN: 'decrypted-secret' },
+            name: 'test',
+            transport: 'stdio',
+          },
+        ],
       };
 
       const mockedLoad = vi.mocked(loadMcpConfig);
@@ -275,7 +293,13 @@ describe('ipc-mcp handlers', () => {
       expect(loadMcpConfig).toHaveBeenCalled();
       expect(initClients).toHaveBeenCalledWith(mockConfig.config);
       expect(disposeClients).not.toHaveBeenCalled();
-      expect(result).toEqual(mockConfig);
+      expect(result).toEqual({
+        exists: true,
+        loadedAt: mockConfig.loadedAt,
+        path: '/path/to/config',
+        servers: [{ name: 'test', transport: 'stdio' }],
+      });
+      expect(JSON.stringify(result)).not.toContain('decrypted-secret');
     });
 
     it('should dispose clients when config does not exist', async () => {
@@ -327,10 +351,10 @@ describe('ipc-mcp handlers', () => {
       }
 
       const result1 = (await handler()) as LoadResult;
-      expect(result1.config?.servers[0].name).toBe('test1');
+      expect(result1.servers?.[0]?.name).toBe('test1');
 
       const result2 = (await handler()) as LoadResult;
-      expect(result2.config?.servers[0].name).toBe('test2');
+      expect(result2.servers?.[0]?.name).toBe('test2');
     });
   });
 
@@ -368,7 +392,15 @@ describe('ipc-mcp handlers', () => {
 
     it('should handle config changes with valid config', async () => {
       const mockWatcher = { close: vi.fn() };
+      const send = vi.fn();
       let watchCallback: WatchCallback | undefined;
+
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
+        {
+          isDestroyed: () => false,
+          webContents: { send },
+        } as unknown as BrowserWindow,
+      ]);
 
       mockWatchImpl((cb) => {
         watchCallback = cb;
@@ -382,9 +414,26 @@ describe('ipc-mcp handlers', () => {
 
       // Simulate config change
       const newConfig = {
-        config: { servers: [{ command: 'cmd', name: 'updated', transport: 'stdio' }] },
+        config: {
+          servers: [
+            {
+              command: 'cmd',
+              env: { TOKEN: 'decrypted-secret' },
+              name: 'updated',
+              transport: 'stdio',
+            },
+          ],
+        },
         exists: true,
         path: '/path/to/config',
+        servers: [
+          {
+            command: 'cmd',
+            env: { TOKEN: 'decrypted-secret' },
+            name: 'updated',
+            transport: 'stdio',
+          },
+        ],
       };
 
       if (!watchCallback) {
@@ -394,6 +443,12 @@ describe('ipc-mcp handlers', () => {
 
       expect(initClients).toHaveBeenCalledWith(newConfig.config);
       expect(disposeClients).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith('mcp:config:updated', {
+        exists: true,
+        path: '/path/to/config',
+        servers: [{ name: 'updated', transport: 'stdio' }],
+      });
+      expect(JSON.stringify(send.mock.calls)).not.toContain('decrypted-secret');
     });
 
     it('should dispose clients when config becomes invalid', async () => {
@@ -461,7 +516,11 @@ describe('ipc-mcp handlers', () => {
       }
       const result = await getHandler();
 
-      expect(result).toEqual(newConfig);
+      expect(result).toEqual({
+        exists: true,
+        path: '/path/to/config',
+        servers: [{ name: 'watched', transport: 'stdio' }],
+      });
     });
   });
 
@@ -630,12 +689,18 @@ describe('ipc-mcp handlers', () => {
 
       const initCallsBefore = vi.mocked(initClients).mock.calls.length;
       const result1 = await getHandler();
-      expect(result1).toEqual(mockConfig);
+      const publicConfig = {
+        exists: true,
+        loadedAt: mockConfig.loadedAt,
+        path: '/path/to/config',
+        servers: [{ name: 'test', transport: 'stdio' }],
+      };
+      expect(result1).toEqual(publicConfig);
 
       await watchHandler({});
 
       const result2 = await getHandler();
-      expect(result2).toEqual(mockConfig);
+      expect(result2).toEqual(publicConfig);
 
       expect(vi.mocked(initClients).mock.calls.length - initCallsBefore).toBe(2);
     });

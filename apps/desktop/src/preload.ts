@@ -159,6 +159,7 @@ const PARSER_HOST_PARSE_CHANNEL = 'parser-host:parse' as const;
 const AGENT_CHAT_CHANNEL = 'agent:chat' as const;
 const ASSISTANT_GET_URL_CHANNEL = 'assistant:get-url' as const;
 const MCP_CONFIG_GET_CHANNEL = 'mcp:config:get' as const;
+const MCP_CONFIG_UPDATED_EVENT = 'mcp:config:updated' as const;
 const MCP_CONFIG_WATCH_CHANNEL = 'mcp:config:watch' as const;
 const MCP_CONFIG_UNWATCH_CHANNEL = 'mcp:config:unwatch' as const;
 const MCP_CONFIG_GET_PATH_CHANNEL = 'mcp:config:getPath' as const;
@@ -673,6 +674,30 @@ contextBridge.exposeInMainWorld('mcp', {
   getToolStats: () => ipcRenderer.invoke(MCP_TOOLS_GET_STATS_CHANNEL),
   // Tool management
   listTools: () => ipcRenderer.invoke(MCP_TOOLS_LIST_CHANNEL),
+  onConfigUpdated: (
+    callback: (config: {
+      error?: string;
+      exists: boolean;
+      loadedAt?: number;
+      path: string;
+      servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+    }) => void
+  ) => {
+    const listener = (
+      _event: unknown,
+      config: {
+        error?: string;
+        exists: boolean;
+        loadedAt?: number;
+        path: string;
+        servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+      }
+    ) => callback(config);
+    ipcRenderer.on(MCP_CONFIG_UPDATED_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(MCP_CONFIG_UPDATED_EVENT, listener);
+    };
+  },
   onToolsUpdated: (
     callback: (
       tools: Record<

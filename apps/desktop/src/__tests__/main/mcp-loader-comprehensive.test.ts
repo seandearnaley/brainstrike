@@ -149,7 +149,79 @@ describe('mcp-loader comprehensive tests', () => {
       expect(result.servers).toHaveLength(2);
     });
 
-    it('should filter out invalid servers', () => {
+    it('should reject duplicate server names at the duplicate entry path', () => {
+      const json = JSON.stringify({
+        servers: [
+          { command: 'first', name: 'duplicate', transport: 'stdio' },
+          { name: 'duplicate', transport: 'sse', url: 'https://example.com/sse' },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.1\.name: duplicate server name/u
+      );
+    });
+
+    it('should reject the reserved __proto__ server name', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            name: '__proto__',
+            transport: 'stdio',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.name: reserved server name/u
+      );
+    });
+
+    it('should reject duplicate properties in a server object with source context', () => {
+      const json = `{
+  "servers": [
+    {
+      "transport": "stdio",
+      "name": "first",
+      "name": "second",
+      "command": "node"
+    }
+  ]
+}`;
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config: duplicate property "name" at line 6, column 7 \(servers\.0\.name\)/u
+      );
+    });
+
+    it.each([
+      ['headers', 'sse', '"url": "https://example.com/mcp",'],
+      ['env', 'stdio', '"command": "node",'],
+    ] as const)('should reject duplicate properties in a nested %s object with source context', (recordName, transport, requiredProperty) => {
+      const json = `{
+  "servers": [
+    {
+      "transport": "${transport}",
+      "name": "duplicate-nested",
+      ${requiredProperty}
+      "${recordName}": {
+        "TOKEN": "first",
+        "TOKEN": "second"
+      }
+    }
+  ]
+}`;
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        new RegExp(
+          `invalid_mcp_config: duplicate property "TOKEN" at line 9, column 9 \\(servers\\.0\\.${recordName}\\.TOKEN\\)`,
+          'u'
+        )
+      );
+    });
+
+    it('should reject the whole config when any server is invalid and report its path', () => {
       const json = JSON.stringify({
         servers: [
           { command: 'cmd', name: 'valid', transport: 'stdio' },
@@ -159,9 +231,9 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       });
 
-      const result = parseMcpConfig(json);
-      expect(result.servers).toHaveLength(1);
-      expect(result.servers[0].name).toBe('valid');
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.1\.transport.*servers\.2\.command.*servers\.3\.url/u
+      );
     });
 
     it('should throw for invalid JSON', () => {
@@ -170,7 +242,7 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should throw when servers is not an array', () => {
       const json = JSON.stringify({ servers: 'not-an-array' });
-      expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: servers must be array');
+      expect(() => parseMcpConfig(json)).toThrow(/invalid_mcp_config:.*servers:/u);
     });
 
     it('should allow an empty servers array for template-only configs', () => {
@@ -184,12 +256,14 @@ describe('mcp-loader comprehensive tests', () => {
         servers: [{ transport: 'stdio' }, { name: 'missing-url', transport: 'sse' }],
       });
 
-      expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: no valid servers');
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.command.*servers\.0\.name.*servers\.1\.url/u
+      );
     });
 
     it('should throw when servers field is missing', () => {
       const json = JSON.stringify({ other: 'field' });
-      expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: servers must be array');
+      expect(() => parseMcpConfig(json)).toThrow(/invalid_mcp_config:.*servers:/u);
     });
 
     it('should handle stdio server without optional fields', () => {
@@ -218,7 +292,7 @@ describe('mcp-loader comprehensive tests', () => {
       });
     });
 
-    it('should filter non-string args in stdio server', () => {
+    it('should reject non-string stdio args with their array path', () => {
       const json = JSON.stringify({
         servers: [
           {
@@ -230,8 +304,233 @@ describe('mcp-loader comprehensive tests', () => {
         ],
       });
 
-      const result = parseMcpConfig(json);
-      expect(result.servers[0].args).toEqual(['valid', 'another']);
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.args\.1.*servers\.0\.args\.2/u
+      );
+    });
+
+    it.each([
+      {
+        expectedPath: 'servers.0.command',
+        server: { command: 'node\0malformed' },
+      },
+      {
+        expectedPath: 'servers.0.args.1',
+        server: { args: ['valid', 'malformed\0argument'], command: 'node' },
+      },
+    ])('should reject NUL in stdio spawn input at $expectedPath', ({ expectedPath, server }) => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            ...server,
+            name: 'test',
+            transport: 'stdio',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        new RegExp(
+          `invalid_mcp_config:.*${expectedPath.replaceAll('.', '\\.')}: invalid spawn string`,
+          'u'
+        )
+      );
+    });
+
+    it('should reject invalid environment and header values with their record paths', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { PORT: 3000 },
+            name: 'local',
+            transport: 'stdio',
+          },
+          {
+            headers: { Authorization: ['Bearer token'] },
+            name: 'remote',
+            transport: 'sse',
+            url: 'https://example.com/sse',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.env\.PORT.*servers\.1\.headers\.Authorization/u
+      );
+    });
+
+    it('should reject stdio environment entries that Node cannot pass to spawn', () => {
+      const emptyName = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { '': 'value' },
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
+      const invalidName = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { 'BAD=KEY': 'value' },
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
+      const nullName = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { 'BAD\0KEY': 'value' },
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
+      const nullValue = JSON.stringify({
+        servers: [
+          {
+            command: 'node',
+            env: { TOKEN: 'before\0after' },
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(emptyName)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.env\.: invalid environment variable name/u
+      );
+      expect(() => parseMcpConfig(invalidName)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.env\.BAD=KEY: invalid environment variable name/u
+      );
+      expect(() => parseMcpConfig(nullName)).toThrow(/invalid environment variable name/u);
+      expect(() => parseMcpConfig(nullValue)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.env\.TOKEN: invalid environment variable value/u
+      );
+    });
+
+    it('should reject header names that the WHATWG Headers runtime rejects', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            headers: { 'Invalid Header': 'value' },
+            name: 'remote',
+            transport: 'sse',
+            url: 'https://example.com/mcp',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.headers\.Invalid Header: invalid HTTP header name/u
+      );
+    });
+
+    it('should reject case-insensitive duplicate HTTP header names', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            headers: { Authorization: 'first', authorization: 'second' },
+            name: 'remote',
+            transport: 'sse',
+            url: 'https://example.com/mcp',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.headers\.authorization: duplicate HTTP header name/u
+      );
+    });
+
+    it('should reject carriage-return and line-feed header values at their record paths', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            headers: {
+              'X-Carriage-Return': 'first\rsecond',
+              'X-Line-Feed': 'first\nsecond',
+            },
+            name: 'remote',
+            transport: 'sse',
+            url: 'http://localhost:3000/mcp',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.headers\.X-Carriage-Return: invalid HTTP header value.*servers\.0\.headers\.X-Line-Feed: invalid HTTP header value/u
+      );
+    });
+
+    it('should reject invalid and non-HTTP remote URLs with their server paths', () => {
+      const invalidUrl = JSON.stringify({
+        servers: [{ name: 'invalid', transport: 'sse', url: 'not a url' }],
+      });
+      const unsupportedProtocol = JSON.stringify({
+        servers: [{ name: 'file', transport: 'sse', url: 'file:///tmp/mcp.sock' }],
+      });
+
+      expect(() => parseMcpConfig(invalidUrl)).toThrow(/invalid_mcp_config:.*servers\.0\.url/u);
+      expect(() => parseMcpConfig(unsupportedProtocol)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.url/u
+      );
+    });
+
+    it.each([
+      'https://user@example.com/mcp',
+      'https://user:password@example.com/mcp',
+    ])('should reject credentials in a remote URL: %s', (url) => {
+      const json = JSON.stringify({
+        servers: [{ name: 'remote', transport: 'sse', url }],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(
+        /invalid_mcp_config:.*servers\.0\.url: must not include credentials/u
+      );
+    });
+
+    it('should reject unknown server keys instead of silently dropping misspelled settings', () => {
+      const json = JSON.stringify({
+        servers: [
+          {
+            comand: 'node',
+            command: 'node',
+            name: 'local',
+            transport: 'stdio',
+          },
+        ],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow(/invalid_mcp_config:.*servers\.0:.*comand/u);
+    });
+
+    it.each([
+      {
+        json: '{"__proto__":{"polluted":true},"servers":[]}',
+        path: '__proto__',
+      },
+      {
+        json: `{"servers":[{"__proto__":{"polluted":true},"command":"node","name":"local","transport":"stdio"}]}`,
+        path: 'servers.0.__proto__',
+      },
+      {
+        json: `{"servers":[{"command":"node","env":{"__proto__":"secret"},"name":"local","transport":"stdio"}]}`,
+        path: 'servers.0.env.__proto__',
+      },
+      {
+        json: `{"servers":[{"headers":{"__proto__":"secret"},"name":"remote","transport":"sse","url":"https://example.com/mcp"}]}`,
+        path: 'servers.0.headers.__proto__',
+      },
+    ])('should reject a __proto__ property at $path', ({ json, path }) => {
+      expect(() => parseMcpConfig(json)).toThrow(
+        new RegExp(`invalid_mcp_config:.*forbidden property "__proto__".*\\(${path}\\)`, 'u')
+      );
     });
 
     it('should parse JSON with comments', () => {
@@ -353,11 +652,11 @@ describe('mcp-loader comprehensive tests', () => {
       }`;
 
       expect(() => parseMcpConfig(unterminatedBlockComment)).toThrow(
-        'invalid_mcp_config: unterminated block comment'
+        /invalid_mcp_config: UnexpectedEndOfComment at line 3, column 11/u
       );
     });
 
-    it('should throw when string is unterminated during JSONC stripping', () => {
+    it('should throw when a string is unterminated during JSONC parsing', () => {
       const unterminatedString = `{
         "servers": [
           {
@@ -372,7 +671,7 @@ describe('mcp-loader comprehensive tests', () => {
       }`;
 
       expect(() => parseMcpConfig(unterminatedString)).toThrow(
-        'invalid_mcp_config: unterminated string'
+        /invalid_mcp_config: UnexpectedEndOfString at line 8, column 28 \(servers\.0\.headers\.X-Example\)/u
       );
     });
   });
@@ -460,6 +759,21 @@ describe('mcp-loader comprehensive tests', () => {
       const result = await applyDecryptionToHeaders(headers);
       expect(result?.Authorization).toBe('new');
     });
+
+    it('should preserve own keys inherited by ordinary object prototypes', async () => {
+      const headers = Object.assign(Object.create(null) as Record<string, string>, {
+        constructor: 'constructor-value',
+        toString: 'to-string-value',
+      });
+
+      const result = await applyDecryptionToHeaders(headers);
+
+      expect(Object.fromEntries(Object.entries(result ?? {}))).toEqual({
+        constructor: 'constructor-value',
+        toString: 'to-string-value',
+      });
+      expect(Object.getPrototypeOf(result)).toBeNull();
+    });
   });
 
   describe('applyDecryptionToEnv', () => {
@@ -509,6 +823,135 @@ describe('mcp-loader comprehensive tests', () => {
         transport: 'sse',
         url: 'http://example.com',
       });
+    });
+
+    it.each([
+      {
+        expectedError: 'invalid HTTP header name',
+        headers: {
+          Encrypted: Buffer.from('value').toString('base64'),
+        },
+      },
+      {
+        expectedError: 'invalid HTTP header value',
+        headers: {
+          AuthorizationEncrypted: Buffer.from('Bearer token\r\nInjected: true').toString('base64'),
+        },
+      },
+    ])('should reject decrypted SSE headers with $expectedError', async ({
+      expectedError,
+      headers,
+    }) => {
+      const config: McpConfig = {
+        servers: [
+          {
+            headers,
+            name: 'test',
+            transport: 'sse',
+            url: 'http://example.com',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        new RegExp(`invalid_mcp_config:.*${expectedError}`, 'u')
+      );
+    });
+
+    it('should reject case-insensitive duplicate HTTP header names created by decryption', async () => {
+      const config: McpConfig = {
+        servers: [
+          {
+            headers: {
+              Authorization: 'first',
+              authorizationEncrypted: Buffer.from('second').toString('base64'),
+            },
+            name: 'test',
+            transport: 'sse',
+            url: 'http://example.com',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*headers\.authorization: duplicate HTTP header name/u
+      );
+    });
+
+    it('should reject a decrypted header name that becomes __proto__', async () => {
+      const headers = Object.create(null) as Record<string, string>;
+      headers.__proto__Encrypted = Buffer.from('value').toString('base64');
+      const config: McpConfig = {
+        servers: [
+          {
+            headers,
+            name: 'test',
+            transport: 'sse',
+            url: 'http://example.com',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*forbidden property "__proto__"/u
+      );
+    });
+
+    it('should reject a decrypted env name that becomes __proto__', async () => {
+      const env = Object.create(null) as Record<string, string>;
+      env.__proto__Encrypted = Buffer.from('value').toString('base64');
+      const config: McpConfig = {
+        servers: [
+          {
+            command: 'node',
+            env,
+            name: 'test',
+            transport: 'stdio',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*forbidden property "__proto__"/u
+      );
+    });
+
+    it('should reject a decrypted stdio environment name that becomes empty', async () => {
+      const config: McpConfig = {
+        servers: [
+          {
+            command: 'node',
+            env: {
+              Encrypted: Buffer.from('value').toString('base64'),
+            },
+            name: 'test',
+            transport: 'stdio',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*env\.: invalid environment variable name/u
+      );
+    });
+
+    it('should reject a decrypted stdio environment value containing NUL', async () => {
+      const config: McpConfig = {
+        servers: [
+          {
+            command: 'node',
+            env: {
+              TOKENEncrypted: Buffer.from('before\0after').toString('base64'),
+            },
+            name: 'test',
+            transport: 'stdio',
+          },
+        ],
+      };
+
+      await expect(withDecryptedSecrets(config)).rejects.toThrow(
+        /invalid_mcp_config:.*env\.TOKEN: invalid environment variable value/u
+      );
     });
 
     it('should decrypt stdio server env', async () => {

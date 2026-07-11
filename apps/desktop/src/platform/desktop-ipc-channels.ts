@@ -79,6 +79,7 @@ export const DESKTOP_IPC_CHANNELS = {
     configSelectPath: 'mcp:config:selectPath',
     configSetPath: 'mcp:config:setPath',
     configUnwatch: 'mcp:config:unwatch',
+    configUpdated: 'mcp:config:updated',
     configWatch: 'mcp:config:watch',
     configWriteText: 'mcp:config:writeText',
     toolsDisable: 'mcp:tools:disable',
