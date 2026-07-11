@@ -127,6 +127,27 @@ export interface RuntimeWorkspaceIndexQueueProgress {
 
 export type RuntimeMemoryOptions = RuntimeJsonObject;
 
+/**
+ * Renderer-supplied preference for auto-injecting a mounted root's workspace
+ * instructions file (`AGENTS.md`/`AGENT.md`/`CLAUDE.md`) into the assistant's
+ * system context (see AGENTS.md "WORKSPACE INSTRUCTIONS CONTEXT"). Mirrors the
+ * persisted `workspace-instructions-preferences-store` slice as plain JSON.
+ *
+ * Threshold-hybrid policy: a file that FITS the per-file char budget is injected
+ * whole by default; an OVERSIZED file is injected (truncated) only for a root
+ * whose id is `true` in `oversizedOptInByRootId`. Absent/`undefined` =>
+ * master-enabled default (feature on), no oversized opt-ins.
+ */
+export interface WorkspaceInstructionsContextRequest {
+  /** Master opt-out. Absent is treated as ON (the store default). */
+  masterEnabled?: boolean;
+  /**
+   * Per-root opt-in to inject an OVERSIZED context file (truncated). Keyed by the
+   * durable DB `roots.id`; only `true` entries are meaningful.
+   */
+  oversizedOptInByRootId?: Record<string, boolean>;
+}
+
 export interface RuntimeMemoryContext {
   memoryOptions?: RuntimeMemoryOptions;
   memorySettings?: RuntimeAssistantMemorySettings;
@@ -193,6 +214,12 @@ export interface RuntimeData {
   workspaceIndexLastError?: string | null;
   workspaceIndexQueueProgress?: RuntimeWorkspaceIndexQueueProgress | null;
   workspaceIndexStatusState?: RuntimeWorkspaceIndexStatusState;
+  /**
+   * Renderer-supplied preference for auto-injecting a root's workspace
+   * instructions file into the system context. A preference, not a security
+   * boundary — the server reads it directly. Absent => master-enabled default.
+   */
+  workspaceInstructionsPreference?: WorkspaceInstructionsContextRequest;
   workspaceRootPath?: string;
   /**
    * Active workspace roots (multi-root). Resolved server-side from the DB

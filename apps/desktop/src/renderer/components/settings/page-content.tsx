@@ -10,6 +10,7 @@ import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shel
 import { configureModelRuntimeServices } from '@brainstrike/preferences/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
 import { createNotificationSettingsCategory } from '@brainstrike/preferences/settings/system/notification-settings-category';
+import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/preferences/settings/system/workspace-instructions-settings-category';
 import {
   createToolsSettingsCategory,
   type ToolDisplayMetadata,
@@ -350,6 +351,7 @@ export default function SettingsPageContent() {
       }),
       createPermissionSettingsCategory(),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
+      createWorkspaceInstructionsSettingsCategory(),
       createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({

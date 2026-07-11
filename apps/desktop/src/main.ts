@@ -49,6 +49,7 @@ import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
+import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
@@ -670,6 +671,7 @@ let unregisterClipboardIpcHandlers: null | (() => void) = null;
 let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
+let unregisterContextFilesIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
@@ -983,6 +985,7 @@ unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
 unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
+unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
 
 // Add global error handlers to catch silent crashes
@@ -1601,6 +1604,10 @@ app.on('will-quit', () => {
   if (unregisterHooksIpcHandlers) {
     unregisterHooksIpcHandlers();
     unregisterHooksIpcHandlers = null;
+  }
+  if (unregisterContextFilesIpcHandlers) {
+    unregisterContextFilesIpcHandlers();
+    unregisterContextFilesIpcHandlers = null;
   }
   if (unregisterTerminalIpcHandlers) {
     // Disposer also reaps every live pty (no orphaned shell survives quit).
