@@ -67,6 +67,28 @@ describe('useWorkerFlattenedTree', () => {
       expect(mockPort.onFlattenedRows).toHaveBeenCalledOnce();
     });
 
+    it('stays disabled when enabled is false, even above threshold or forced', () => {
+      // The consumer disables the worker whenever the normalized-tree render
+      // path is active — the worker's flattened output would be discarded, and
+      // its late arrival triggers a spurious row rebuild.
+      const portRef = { current: mockPort as unknown as FileTreeWorkerPort };
+      const expandedPaths = new Set<string>();
+
+      const { result } = renderHook(() =>
+        useWorkerFlattenedTree({
+          approximateNodeCount: 15_000,
+          enabled: false,
+          expandedPaths,
+          forceWorker: true,
+          portRef,
+        })
+      );
+
+      expect(result.current.isWorkerEnabled).toBe(false);
+      expect(mockPort.onFlattenedRows).not.toHaveBeenCalled();
+      expect(mockPort.flattenTree).not.toHaveBeenCalled();
+    });
+
     it('enables worker flattening when forceWorker is true', () => {
       const portRef = { current: mockPort as unknown as FileTreeWorkerPort };
       const expandedPaths = new Set<string>();

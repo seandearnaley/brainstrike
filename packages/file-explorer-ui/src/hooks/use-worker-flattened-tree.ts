@@ -22,6 +22,13 @@ const WORKER_THRESHOLD = 10_000;
 export interface UseWorkerFlattenedTreeOptions {
   /** Approximate node count (for threshold decision) */
   approximateNodeCount: number;
+  /**
+   * Hard off-switch (default true). When false the worker is fully disabled
+   * regardless of threshold/forceWorker — used when the normalized-tree render
+   * path is active, where the flattened output is discarded and its late
+   * arrival only triggers a spurious row rebuild.
+   */
+  enabled?: boolean;
   /** Current set of expanded directory paths */
   expandedPaths: Set<string>;
   /** Whether to force worker flattening regardless of threshold */
@@ -60,6 +67,7 @@ export function useWorkerFlattenedTree(
     portRef,
     expandedPaths,
     approximateNodeCount,
+    enabled = true,
     forceWorker = false,
     treeRevision,
   } = options;
@@ -69,7 +77,7 @@ export function useWorkerFlattenedTree(
   const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
 
   // Track if worker flattening is enabled
-  const isWorkerEnabled = forceWorker || approximateNodeCount > WORKER_THRESHOLD;
+  const isWorkerEnabled = enabled && (forceWorker || approximateNodeCount > WORKER_THRESHOLD);
 
   // Store cleanup function ref
   const cleanupRef = useRef<(() => void) | null>(null);
