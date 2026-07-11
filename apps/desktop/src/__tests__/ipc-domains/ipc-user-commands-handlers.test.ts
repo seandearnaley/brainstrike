@@ -5,17 +5,12 @@ import { addLogListener, configureLogger, type LogRecord } from '@brainstrike/ut
 import { afterEach, describe, expect, it } from 'vitest';
 import { __resetUserCommandWarningsForTests } from '../../assistant-server/user-slash-commands-loader';
 import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
-import {
-  __resetUserCommandsHandlerWarningsForTests,
-  createNodeFsScanDeps,
-  listUserSlashCommands,
-} from '../../ipc-user-commands-handlers';
+import { createNodeFsScanDeps, listUserSlashCommands } from '../../ipc-user-commands-handlers';
 
 let tempRoot: string | undefined;
 
 afterEach(() => {
   __resetUserCommandWarningsForTests();
-  __resetUserCommandsHandlerWarningsForTests();
   if (tempRoot) {
     rmSync(tempRoot, { force: true, recursive: true });
     tempRoot = undefined;

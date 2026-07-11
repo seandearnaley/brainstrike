@@ -13,7 +13,7 @@
  * the failure is logged).
  */
 
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import * as fs from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
@@ -30,10 +30,6 @@ import {
 } from './assistant-server/workspace-roots';
 
 const logger = createLogger('UserSlashCommands');
-const warnedSymlinkCommandDirectories = new Set<string>();
-
-export const __resetUserCommandsHandlerWarningsForTests = () =>
-  warnedSymlinkCommandDirectories.clear();
 
 export interface UserCommandsListDeps {
   /** Injected fs surface (real disk in production, in-memory in tests). */
@@ -50,22 +46,19 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
   return {
     listDir: (absDir, containmentRoot) => {
       try {
-        const canonicalRoot = realpathSync(containmentRoot);
-        const canonicalDirectory = realpathSync(absDir);
+        const canonicalRoot = fs.realpathSync(containmentRoot);
+        const canonicalDirectory = fs.realpathSync(absDir);
         const relative = path.relative(canonicalRoot, canonicalDirectory);
         if (
           relative === '..' ||
           relative.startsWith(`..${path.sep}`) ||
           path.isAbsolute(relative)
         ) {
-          if (!warnedSymlinkCommandDirectories.has(absDir)) {
-            warnedSymlinkCommandDirectories.add(absDir);
-            logger.warn('Skipping symlinked slash command directory');
-          }
+          logger.warn('Skipping symlinked slash command directory');
           return null;
         }
         validatedDirectories.add(canonicalDirectory);
-        return readdirSync(canonicalDirectory, { withFileTypes: true }).map((entry) => ({
+        return fs.readdirSync(canonicalDirectory, { withFileTypes: true }).map((entry) => ({
           isDirectory: entry.isDirectory(),
           isFile: entry.isFile(),
           name: entry.name,
@@ -76,7 +69,7 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
     },
     readFile: (absFile) => {
       try {
-        const canonicalFile = realpathSync(absFile);
+        const canonicalFile = fs.realpathSync(absFile);
         if (!validatedDirectories.has(path.dirname(canonicalFile))) {
           return { ok: false, reason: 'unreadable' };
         }
@@ -87,10 +80,15 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps {
         // never falsely rejected; a file above it is DEFINITIVELY oversized and
         // reported as such (honest reason — the loader logs a warn, not a
         // spurious "Failed to read"), never a blocking multi-hundred-MB read.
-        if (statSync(canonicalFile).size > MAX_USER_COMMAND_FILE_BYTES) {
-          return { ok: false, reason: 'oversized' };
+        const fd = fs.openSync(canonicalFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+        try {
+          if (fs.fstatSync(fd).size > MAX_USER_COMMAND_FILE_BYTES) {
+            return { ok: false, reason: 'oversized' };
+          }
+          return { content: fs.readFileSync(fd, 'utf8'), ok: true };
+        } finally {
+          fs.closeSync(fd);
         }
-        return { content: readFileSync(canonicalFile, 'utf8'), ok: true };
       } catch {
         return { ok: false, reason: 'unreadable' };
       }

@@ -1339,8 +1339,9 @@ the main process; web has no `window.userCommands` bridge and the hook returns
   adapter canonicalizes both the mounted root and each candidate directory,
   rejects candidates outside that boundary, and enumerates only the validated
   canonical path. Deferred file reads also require a canonical parent validated
-  by that scan, so a workspace command tree cannot escape its mounted root even
-  if a directory is swapped between enumeration and reading.
+  by that scan, then open the canonical file with no-follow and perform the size
+  check plus read on that same descriptor. A workspace command tree therefore
+  cannot escape its mounted root even if paths change between scan and read.
 - **Frontmatter:** hand-rolled `---\nkey: value\n---` parser
   (`parseUserCommandFile` in packages/assistant-contract — NO YAML dep) for
   `name`/`description` only; unknown keys ignored, and Claude Code multiline-YAML
