@@ -60,7 +60,7 @@ Heavy components (Database and Assistant) are lazy-loaded via `React.lazy()` for
 
 **Assistant status resolution:** The Assistant panel calls `GET {base}/assistant/status`. In web builds it defaults to `/api/assistant/status`; in Electron you can provide `window.assistant.getUrl()` or `window.assistant.url` to override (see `resolveAssistantStatusUrl()`).
 
-**MCP banner:** If `window.mcp?.getConfig?.()` exists, the Properties panel shows an MCP status badge and server count.
+**MCP banner:** If `window.mcp?.getConfig?.()` exists, the Properties panel shows an MCP status badge, server count, and the explicitly selected transport (`stdio`, `streamable-http`, or legacy `sse`). The public status payload contains only server names and transport discriminators—never URLs, headers, environment values, or credentials.
 
 > MCP (Model Context Protocol) is the emerging standard for tool / data connectors—think "USB-C for AI apps." If you wire servers via MCP, tools will be discovered at runtime by the host assistant. Keep secrets out of client configs; prefer envs and isolated processes. ([Model Context Protocol][2])
 
@@ -108,7 +108,7 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 
 ### MCP awareness (Assistant & MCP banner)
 
-* The shell does **not** run agents; it only hosts the Assistant panel and an MCP status banner. If MCP servers are present, the banner shows count and transport. Keep transports isolated and pass secrets via env to providers—**never** embed actual credentials in client configs.
+* The shell does **not** run agents; it only hosts the Assistant panel and an MCP status banner. If MCP servers are present, the banner shows count and the exact configured transport. Keep transports isolated and pass secrets via env to providers—**never** expose credentials through the public status bridge.
 * As the MCP ecosystem grows (Windows + IDEs baking it in), expect more users to show up with preconfigured servers. Design descriptions/tooltips accordingly. ([The Verge][10])
 
 > Security note: the **biggest risk** in MCP deployments today is **identity/secret sprawl**. Prefer ephemeral auth, least privilege, and central policy rather than static tokens sprinkled in config. ([TechRadar][11])
