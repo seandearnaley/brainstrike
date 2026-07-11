@@ -45,8 +45,8 @@ import {
 } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { fileTabToTarget } from '../context-actions/file-surface-target';
-import { useFileViewerContextMenu } from '../context-actions/use-file-viewer-context-menu';
 import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
+import { useFileViewerContextMenu } from '../hooks/use-file-viewer-context-menu';
 import { type FileTab, useTabManager } from '../hooks/use-tab-manager';
 import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
 import { useTabManagerStore } from '../stores/tab-manager-store';

@@ -7,7 +7,7 @@ import {
 import type { MarkdownSurfaceContextMenuSelection } from '@brainstrike/ui/markdown-surface';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback } from 'react';
-import { type FileSurfaceTab, fileViewerToTarget } from './file-surface-target';
+import { type FileSurfaceTab, fileViewerToTarget } from '../context-actions/file-surface-target';
 
 const logger = createLogger('FileViewerContextMenu');
 
