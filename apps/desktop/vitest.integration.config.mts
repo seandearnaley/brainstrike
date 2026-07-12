@@ -32,13 +32,14 @@ export default defineConfig({
     // "Something removed the coverage directory ... Vitest created earlier").
     // Full-suite coverage is owned by the single-process `test:coverage` script.
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
-    // {ts,tsx} deliberately matches the base config's default include breadth
-    // (vitest default `**/*.{test,spec}.?(c|m)[jt]s?(x)`, which every desktop
-    // integration file — all `.integration.test.ts` — falls under). An
-    // integration file with any other extension would not be in the full suite
-    // either, so widening only this glob would run files coverage never
-    // measures. If the base include ever broadens, update this in the same
-    // change.
-    include: ['**/*.integration.test.{ts,tsx}'],
+    // This include MIRRORS the pure lane's --exclude glob exactly (any
+    // extension), so the two lanes partition the suffix by construction: a
+    // file the pure lane excludes is always picked up here — it can never be
+    // silently orphaned. (Review finding on #1628: the earlier {ts,tsx}
+    // narrowing was NOT the base include's breadth — vitest's default include
+    // also matches .mts/.cts/.jsx — so a future .integration.test.mts would
+    // have run in NEITHER lane.) A suffix file outside the base include would
+    // run here without counting toward coverage — the safe direction.
+    include: ['**/*.integration.test.*'],
   },
 });

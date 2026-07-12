@@ -38,10 +38,11 @@ export default defineConfig({
   test: {
     ...baseTest,
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
-    // Matches the base config's `.spec.ts` extension breadth. An integration
-    // file with any other extension would not be in the full suite either, so
-    // widening this glob would run files coverage never measures. If the base
-    // include ever broadens, update this in the same change.
-    include: ['**/*.integration.spec.ts'],
+    // This include MIRRORS the pure lane's --exclude glob exactly (any
+    // extension), so the two lanes partition the suffix by construction: a
+    // file the pure lane excludes is always picked up here — it can never be
+    // silently orphaned. A suffix file outside the base include would run
+    // here without counting toward coverage — the safe direction.
+    include: ['**/*.integration.spec.*'],
   },
 });

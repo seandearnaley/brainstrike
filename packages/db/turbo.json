@@ -41,9 +41,9 @@
       // Carve-out status:
       //   - Whole-task `cache: false` (entire suite env-sensitive): db,
       //     secure-fs-native.
-      //   - Converted to the test:integration split (A1): web, file-import.
-      //   - Still whole-task carved, pending conversion: desktop (A2), agent +
-      //     app-shell (A3), embeddings (A4).
+      //   - Converted to the test:integration split: web + file-import (A1,
+      //     #1625), desktop (A2, #1628), agent + app-shell (A3, #1627).
+      //   - Still whole-task carved, pending conversion: embeddings (A4).
       "cache": false,
       // Strict environment mode filtering is INDEPENDENT of caching, so the
       // cache:false carve-out above does NOT exempt db's test task from having
