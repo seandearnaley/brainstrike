@@ -1046,9 +1046,9 @@ test.describe('File Explorer', () => {
           await page.getByRole('button', { name: 'Close selection settings' }).click();
           await expect(input).not.toBeVisible();
 
-          // Value should still be default (10)
+          // Value should still be the default (DEFAULT_MAX_SELECTION_COUNT = 1000)
           let maxCount = await getMaxSelectionCount(page);
-          expect(maxCount).toBe('10');
+          expect(maxCount).toBe('1000');
 
           // Try to set invalid value (too high)
           await settingsButton.click();
@@ -1064,9 +1064,9 @@ test.describe('File Explorer', () => {
           await page.getByRole('button', { name: 'Close selection settings' }).click();
           await expect(input).not.toBeVisible();
 
-          // Value should still be 10
+          // Value should still be the default
           maxCount = await getMaxSelectionCount(page);
-          expect(maxCount).toBe('10');
+          expect(maxCount).toBe('1000');
         },
         name: 'validates Max Selection Count values',
         tree: { 'a.ts': null, 'b.ts': null },
@@ -1103,7 +1103,11 @@ test.describe('File Explorer', () => {
           await first.click({ force: true });
           await second.click({ force: true });
 
-          await expect(page.getByText('1/1')).toBeVisible();
+          // Scope to the selection counter — a bare getByText('1/1') also
+          // matches the tree pager's "Page 1 of 1" output (strict mode).
+          await expect(
+            page.getByTestId('selection-counter-control').getByText('1/1')
+          ).toBeVisible();
         },
         name: 'caps selections when Max Selection Count is reduced',
         tree: { 'a.ts': null, 'b.ts': null },
