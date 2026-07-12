@@ -5,9 +5,16 @@ import type { EmbeddingInput } from '../../../interfaces/provider';
 import { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } from '../../../runtime-config';
 import { TransformersEmbeddingProvider } from '../transformers-provider';
 
-// Skip these tests in CI - they require downloading large ML models which times out
-// These tests were previously skipped in CI (see successful run #426)
-const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+// This suite drives TransformersEmbeddingProvider entirely through a MOCKED
+// queue (registerEmbeddingQueueFactory below) — no model is ever downloaded and
+// no network is touched (verified: 28 tests pass in ~260ms offline). It is a
+// pure unit lane and must run identically in CI and locally: a former
+// `describe.skipIf(isCI)` guard made CI skip all 28 tests while local ran them,
+// so the two environments produced different selected-test sets. Now that the
+// `test` task is turbo-cacheable (CI is a pass-through, not cache-keyed, env), a
+// cache hit could replay a green recorded from the other environment's file set
+// — a cache-poisoning hazard. The guard is removed so both environments execute
+// the same fast, fully-mocked set.
 const slowTestTimeoutMs = 30_000;
 const slowTest = (name: string, fn: () => Promise<void> | void) => it(name, fn, slowTestTimeoutMs);
 
@@ -76,7 +83,7 @@ function createQueueStub() {
   return { add, queue };
 }
 
-describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
+describe('TransformersEmbeddingProvider', () => {
   let provider: TransformersEmbeddingProvider;
 
   beforeEach(() => {
