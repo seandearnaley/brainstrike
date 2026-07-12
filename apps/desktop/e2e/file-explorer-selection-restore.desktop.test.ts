@@ -274,12 +274,23 @@ test.describe('Desktop file explorer selection restore', () => {
         visible: true,
       });
 
+      // Decision D1 (#1588): clicking an indeterminate folder COMPLETES the
+      // selection; a second click clears it.
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'src',
+        expectedCheckboxStateAfter: 'checked',
+        expectedCheckboxStateBefore: 'indeterminate',
+        expectedSelectedCountAfter: 5,
+        expectedSelectedCountBefore: 2,
+        fileTree,
+        page: restartedWindow,
+      });
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'src',
         expectedCheckboxStateAfter: 'unchecked',
-        expectedCheckboxStateBefore: 'indeterminate',
+        expectedCheckboxStateBefore: 'checked',
         expectedSelectedCountAfter: 0,
-        expectedSelectedCountBefore: 2,
+        expectedSelectedCountBefore: 5,
         fileTree,
         page: restartedWindow,
       });
