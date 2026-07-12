@@ -206,7 +206,7 @@
   <div class="meta-row">
     <span><b>Repo</b> seandearnaley/brainstrike</span>
     <span><b>Date</b> 2026-07-12</span>
-    <span><b>Scope</b> 41 workspace packages · 10 workflows · 6 months of history · 906 merged PRs</span>
+    <span><b>Scope</b> 41 workspace packages at measurement time (packages/ + apps/) · 10 workflows · 6 months of history · 906 merged PRs</span>
     <span><b>Stack</b> Turborepo 2.10.4 · pnpm 11.10 · Vite 8 · Vitest 4 · Biome 2.5 · React 19 · Electron</span>
   </div>
 </header>
@@ -233,7 +233,7 @@
     <p>Three facts dominate everything else in this report:</p>
     <ol>
       <li><strong>Tests are the only expensive thing in CI, and they are the only thing not cached.</strong> Turborepo remote caching is live and working for builds, but test selection was moved off Turbo onto raw <code>pnpm --filter</code>, so every test executes from scratch on every run, including a full 42-minute uncached re-test of the entire repo on every push to main.</li>
-      <li><strong>A one-line edit to <code>packages/types</code> invalidates the build of 33 of 40 packages</strong> before a single test runs, because <code>test</code> depends on <code>^build</code> even though the config's own comment admits tests import source directly.</li>
+      <li><strong>A one-line edit to <code>packages/types</code> invalidates the build of 33 of the other 40 packages</strong> before a single test runs, because <code>test</code> depends on <code>^build</code> even though the config's own comment admits tests import source directly.</li>
       <li><strong>The entire nightly regression tier has been silently red for 10+ days.</strong> Web E2E, desktop E2E, and performance nightlies: 10 of 10 most recent scheduled runs failed, with no failure notification. The "smoke on PR, full regression nightly" strategy is currently fictional on the regression side.</li>
     </ol>
   </div>
@@ -331,7 +331,7 @@
   </div>
 
   <figure class="viz">
-    <figcaption><div class="t">Transitive blast radius: packages invalidated per edit</div><div class="s">Dependents (incl. devDependencies) out of 40 other workspace packages.</div></figcaption>
+    <figcaption><div class="t">Transitive blast radius: packages invalidated per edit</div><div class="s">Dependents (incl. devDependencies) out of the 40 <em>other</em> workspace packages (41 analyzed, minus the one being edited).</div></figcaption>
     <div class="hbars" role="img" aria-label="Blast radius: types 33, test-utils 31, utils 29, indexing-contract 15, assistant-contract 14, ui 10, db 10">
       <span class="lab">types</span><div class="track"><div class="bar crit" style="width:82.5%"></div></div><span class="val">33 <small>/ 40</small></span>
       <span class="lab">test-utils</span><div class="track"><div class="bar crit" style="width:77.5%"></div></div><span class="val">31 <small>/ 40 (all dev)</small></span>

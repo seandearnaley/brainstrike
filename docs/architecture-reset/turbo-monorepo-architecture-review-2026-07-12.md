@@ -8,9 +8,10 @@ Four parallel analysis agents, cross-checked against each other and against
 official docs fetched the same day:
 
 1. **Package graph** — dependency extraction across all 41 workspace
-   `package.json` files, cycle check, build-tooling inventory, tsconfig/project-
-   references audit, and a read of the existing `architecture/domain-map.json`
-   boundary contract.
+   `package.json` files present at measurement time (the repo has grown since;
+   figures below are a 2026-07-12 snapshot), cycle check, build-tooling
+   inventory, tsconfig/project-references audit, and a read of the existing
+   `architecture/domain-map.json` boundary contract.
 2. **CI lanes** — every `.github/workflows/*.yml` file, the bespoke
    `scripts/run-turbo-command.mjs` / `scripts/check.mjs` orchestration, plus
    real run durations and failure rates pulled via `gh`.
