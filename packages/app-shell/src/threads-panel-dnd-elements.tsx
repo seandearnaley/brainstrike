@@ -197,6 +197,51 @@ export function GroupHeaderDndShell({
   );
 }
 
+/**
+ * Drop target for a group section's expanded body (rows area + empty hint), so
+ * the "Drop threads here" affordance works everywhere in the section, not only
+ * on the header. Row shells nested inside still win for positional drops; this
+ * catches drops on padding and the empty-group hint, resolving (via the
+ * group-header target shape) to move-thread-to-group.
+ */
+export function GroupBodyDndShell({
+  children,
+  groupId,
+}: {
+  readonly children: ReactNode;
+  readonly groupId: string;
+}): ReactElement {
+  const elementRef = useRef<HTMLDivElement>(null);
+  const [isThreadOver, setIsThreadOver] = useState(false);
+
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element) {
+      return;
+    }
+    return dropTargetForElements({
+      canDrop: ({ source }) => {
+        const sourceData = readSource(source.data);
+        return sourceData?.type === 'thread-row' && sourceData.groupId !== groupId;
+      },
+      element,
+      getData: () => makeTargetData({ groupId, type: 'group-header' }),
+      onDragEnter: () => setIsThreadOver(true),
+      onDragLeave: () => setIsThreadOver(false),
+      onDrop: () => setIsThreadOver(false),
+    });
+  }, [groupId]);
+
+  return (
+    <div
+      className={`rounded-md ${isThreadOver ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}
+      ref={elementRef}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function UngroupedSectionDndShell({
   children,
 }: {

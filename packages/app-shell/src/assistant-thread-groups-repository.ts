@@ -24,6 +24,11 @@ export interface AssistantThreadPlacement {
   readonly threadId: string;
 }
 
+export interface AssistantThreadGroupRankEntry {
+  readonly groupId: string;
+  readonly rank: string;
+}
+
 export interface AssistantThreadGroupsRepository {
   clearThreadPlacement: (threadId: string) => Promise<void>;
   createGroup: (resourceId: string, name: string, rank: string) => Promise<AssistantThreadGroup>;
@@ -32,7 +37,9 @@ export interface AssistantThreadGroupsRepository {
   listPlacements: (resourceId: string) => Promise<readonly AssistantThreadPlacement[]>;
   renameGroup: (groupId: string, name: string) => Promise<void>;
   setGroupRank: (groupId: string, rank: string) => Promise<void>;
+  setGroupRanks: (entries: readonly AssistantThreadGroupRankEntry[]) => Promise<void>;
   setThreadPlacement: (placement: AssistantThreadPlacement) => Promise<void>;
+  setThreadPlacements: (placements: readonly AssistantThreadPlacement[]) => Promise<void>;
 }
 
 const GROUPS_TABLE = 'brainstrike_assistant_thread_groups';
@@ -158,17 +165,58 @@ export function createPgliteAssistantThreadGroupsRepository(
         [groupId, rank]
       );
     },
+    async setGroupRanks(entries: readonly AssistantThreadGroupRankEntry[]): Promise<void> {
+      if (entries.length === 0) {
+        return;
+      }
+      for (const entry of entries) {
+        requireRank(entry.rank, 'group');
+      }
+      // One statement so the whole reorder is atomic — a partial failure can
+      // never leave half the groups on fresh ranks.
+      const valueRows = entries
+        .map((_, index) => `($${2 * index + 1}, $${2 * index + 2})`)
+        .join(', ');
+      await database.query(
+        `UPDATE ${GROUPS_TABLE} AS groups
+         SET rank = ranked.rank, updated_at = NOW()
+         FROM (VALUES ${valueRows}) AS ranked(id, rank)
+         WHERE groups.id = ranked.id`,
+        entries.flatMap((entry) => [entry.groupId, entry.rank])
+      );
+    },
     async setThreadPlacement(placement: AssistantThreadPlacement): Promise<void> {
-      requireRank(placement.rank, 'placement');
+      await repository.setThreadPlacements([placement]);
+    },
+    async setThreadPlacements(placements: readonly AssistantThreadPlacement[]): Promise<void> {
+      if (placements.length === 0) {
+        return;
+      }
+      for (const placement of placements) {
+        requireRank(placement.rank, 'placement');
+      }
+      // Single multi-row upsert: atomic without needing the optional
+      // DbHandle.transaction capability, and one round trip per drop.
+      const valueRows = placements
+        .map(
+          (_, index) =>
+            `($${4 * index + 1}, $${4 * index + 2}, $${4 * index + 3}, $${4 * index + 4})`
+        )
+        .join(', ');
       await database.query(
         `INSERT INTO ${PLACEMENTS_TABLE} (thread_id, resource_id, group_id, rank)
-         VALUES ($1, $2, $3, $4)
+         VALUES ${valueRows}
          ON CONFLICT (thread_id) DO UPDATE
            SET resource_id = EXCLUDED.resource_id,
                group_id = EXCLUDED.group_id,
                rank = EXCLUDED.rank,
                updated_at = NOW()`,
-        [placement.threadId, placement.resourceId, placement.groupId, placement.rank]
+        placements.flatMap((placement) => [
+          placement.threadId,
+          placement.resourceId,
+          placement.groupId,
+          placement.rank,
+        ])
       );
     },
   };

@@ -184,8 +184,10 @@ Where state lives (do not relitigate):
   Ungrouped) — placements first, so a retried group DELETE cannot strand rows.
 - `rank` columns are `fractional-indexing` keys (`generateKeyBetween`); a
   positional drop rewrites the destination section's ranks wholesale
-  (`applyThreadOrder`) and silently switches Sort by → Custom so the drag is
-  honored, never ignored. In Custom sort, unranked (new) threads render first
+  (`applyThreadOrder` → `setThreadPlacements`, a SINGLE multi-row upsert so the
+  batch is atomic without the optional `DbHandle.transaction`; `reorderGroups` →
+  `setGroupRanks` likewise) and silently switches Sort by → Custom so the drag
+  is honored, never ignored. In Custom sort, unranked (new) threads render first
   by recency.
 - View prefs (groupBy/sortBy/collapsed) persist via zustand `persist`
   (`brainstrike-assistant-thread-groups-v1`); the store registers a session

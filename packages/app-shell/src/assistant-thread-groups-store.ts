@@ -98,7 +98,9 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       ): Promise<void> => {
         // A positional drop rewrites the affected section's ranks wholesale:
         // every listed thread gets a fresh fractional key in visual order, so
-        // manual order is always fully materialized after the first drag.
+        // manual order is always fully materialized after the first drag. The
+        // repository writes the batch as ONE multi-row upsert, so a failure
+        // can never persist a half-reordered section.
         const ranks = generateNKeysBetween(null, null, orderedEntries.length);
         const placements = orderedEntries.map((entry, index) => ({
           groupId: entry.groupId,
@@ -106,9 +108,7 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
           resourceId,
           threadId: entry.threadId,
         }));
-        for (const placement of placements) {
-          await repository.setThreadPlacement(placement);
-        }
+        await repository.setThreadPlacements(placements);
         set((state) => ({
           placementsByThreadId: {
             ...state.placementsByThreadId,
@@ -290,16 +290,17 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
         const currentGroups = get().groupsByResourceId[resourceId] ?? [];
         const groupsById = new Map(currentGroups.map((group) => [group.id, group]));
         const ranks = generateNKeysBetween(null, null, orderedGroupIds.length);
-        const reorderedGroups: AssistantThreadGroup[] = [];
-        for (const [index, groupId] of orderedGroupIds.entries()) {
+        const reorderedGroups: AssistantThreadGroup[] = orderedGroupIds.map((groupId, index) => {
           const group = groupsById.get(groupId);
           if (!group) {
             throw new Error(`Unknown thread group: ${groupId}.`);
           }
-          const rank = ranks[index] as string;
-          await repository.setGroupRank(groupId, rank);
-          reorderedGroups.push({ ...group, rank });
-        }
+          return { ...group, rank: ranks[index] as string };
+        });
+        // Single-statement batch: the whole reorder lands atomically.
+        await repository.setGroupRanks(
+          reorderedGroups.map((group) => ({ groupId: group.id, rank: group.rank }))
+        );
         set((state) => ({
           groupsByResourceId: {
             ...state.groupsByResourceId,

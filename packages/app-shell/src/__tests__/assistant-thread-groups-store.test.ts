@@ -33,7 +33,9 @@ function makeRepository(overrides?: {
     listPlacements: vi.fn(async () => overrides?.placements ?? []),
     renameGroup: vi.fn(async () => undefined),
     setGroupRank: vi.fn(async () => undefined),
+    setGroupRanks: vi.fn(async () => undefined),
     setThreadPlacement: vi.fn(async () => undefined),
+    setThreadPlacements: vi.fn(async () => undefined),
   };
 }
 
@@ -130,11 +132,10 @@ describe('useAssistantThreadGroupsStore', () => {
 
     await store.reorderGroups(repository, RESOURCE_ID, ['group-2', 'group-1']);
 
-    const calls = vi.mocked(repository.setGroupRank).mock.calls;
-    expect(calls.map(([groupId]) => groupId)).toEqual(['group-2', 'group-1']);
-    const [, firstRank] = calls[0] ?? [];
-    const [, secondRank] = calls[1] ?? [];
-    expect(String(firstRank) < String(secondRank)).toBe(true);
+    expect(repository.setGroupRanks).toHaveBeenCalledTimes(1);
+    const [entries] = vi.mocked(repository.setGroupRanks).mock.calls[0] ?? [];
+    expect(entries?.map((entry) => entry.groupId)).toEqual(['group-2', 'group-1']);
+    expect(String(entries?.[0]?.rank) < String(entries?.[1]?.rank)).toBe(true);
     expect(
       useAssistantThreadGroupsStore
         .getState()
@@ -189,10 +190,11 @@ describe('useAssistantThreadGroupsStore', () => {
       { groupId: 'group-1', threadId: 'thread-1' },
     ]);
 
-    const calls = vi.mocked(repository.setThreadPlacement).mock.calls;
-    expect(calls.map(([placement]) => placement?.threadId)).toEqual(['thread-2', 'thread-1']);
-    const firstRank = String(calls[0]?.[0]?.rank);
-    const secondRank = String(calls[1]?.[0]?.rank);
+    expect(repository.setThreadPlacements).toHaveBeenCalledTimes(1);
+    const [batch] = vi.mocked(repository.setThreadPlacements).mock.calls[0] ?? [];
+    expect(batch?.map((placement) => placement.threadId)).toEqual(['thread-2', 'thread-1']);
+    const firstRank = String(batch?.[0]?.rank);
+    const secondRank = String(batch?.[1]?.rank);
     expect(firstRank < secondRank).toBe(true);
     expect(useAssistantThreadGroupsStore.getState().sortBy).toBe('custom');
     expect(useAssistantThreadGroupsStore.getState().placementsByThreadId['thread-2']?.rank).toBe(

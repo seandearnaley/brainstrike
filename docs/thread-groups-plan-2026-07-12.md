@@ -14,7 +14,7 @@ User-defined groups (folders) in the assistant Threads panel:
 ## Grounding / library choices
 
 - **DnD: `@atlaskit/pragmatic-drag-and-drop` 2.x** (+ `-hitbox` for closest-edge, `-react-drop-indicator` for the drop line). Verified on npm 2026-07: v2.0.1, React peer `^18.2 || ^19`, tiny core, native HTML5 drag under the hood, powers Trello/Jira/Confluence. The repo has **no existing DnD dependency** (exhaustive grep), so this is greenfield. Alternative considered: dnd-kit — its legacy packages are in maintenance and its rewrite (`@dnd-kit/react`) is still 0.x (0.5.0), so Pragmatic is the safer canonical pick for 2026. Pragmatic's model (draggable / dropTargetForElements / monitorForElements + edge hitboxes) also maps 1:1 onto "rows + section headers", and drops are plain data events we can unit-test without simulating pointers.
-- **Ordering: `fractional-indexing`** (`generateKeyBetween`) — the standard fractional-rank scheme (Figma/Rocicorp lineage). Reordering writes ONE row, no renumber transactions.
+- **Ordering: `fractional-indexing`** (`generateKeyBetween`) — the standard fractional-rank scheme (Figma/Rocicorp lineage). Filing a thread into a group writes ONE row (`generateKeyBetween` after the section's last rank); a positional drop rewrites the destination section's ranks wholesale as a single multi-row upsert statement (atomic, one round trip).
 - Accessibility fallback per Pragmatic guidance: every drag operation is also reachable from the existing right-click context-action system ("Move to group →", already-idiomatic in this repo).
 
 ## Where state lives (single source of truth)

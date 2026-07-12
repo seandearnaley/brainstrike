@@ -204,3 +204,78 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     expect(params).toEqual(['thread-1']);
   });
 });
+
+describe('batch writes are single atomic statements', () => {
+  it('upserts many placements in one multi-row statement', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await repository.setThreadPlacements([
+      { groupId: 'thread-group-1', rank: 'a0', resourceId: 'workspace-a', threadId: 'thread-1' },
+      { groupId: null, rank: 'a1', resourceId: 'workspace-a', threadId: 'thread-2' },
+    ]);
+
+    expect(db.query).toHaveBeenCalledTimes(1);
+    const [sql, params] = db.query.mock.calls[0] ?? [];
+    expect(String(sql)).toContain('INSERT INTO brainstrike_assistant_thread_placements');
+    expect(String(sql)).toContain('ON CONFLICT (thread_id) DO UPDATE');
+    expect(String(sql)).toContain('($1, $2, $3, $4)');
+    expect(String(sql)).toContain('($5, $6, $7, $8)');
+    expect(params).toEqual([
+      'thread-1',
+      'workspace-a',
+      'thread-group-1',
+      'a0',
+      'thread-2',
+      'workspace-a',
+      null,
+      'a1',
+    ]);
+  });
+
+  it('is a no-op for an empty placement batch', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await repository.setThreadPlacements([]);
+
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('rejects a batch containing an empty rank before writing', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.setThreadPlacements([
+        { groupId: null, rank: ' ', resourceId: 'workspace-a', threadId: 'thread-1' },
+      ])
+    ).rejects.toThrow('Thread placement rank is required.');
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('updates many group ranks in one statement', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await repository.setGroupRanks([
+      { groupId: 'thread-group-2', rank: 'a0' },
+      { groupId: 'thread-group-1', rank: 'a1' },
+    ]);
+
+    expect(db.query).toHaveBeenCalledTimes(1);
+    const [sql, params] = db.query.mock.calls[0] ?? [];
+    expect(String(sql)).toContain('UPDATE brainstrike_assistant_thread_groups');
+    expect(String(sql)).toContain('FROM (VALUES');
+    expect(params).toEqual(['thread-group-2', 'a0', 'thread-group-1', 'a1']);
+  });
+
+  it('is a no-op for an empty group-rank batch', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await repository.setGroupRanks([]);
+
+    expect(db.query).not.toHaveBeenCalled();
+  });
+});

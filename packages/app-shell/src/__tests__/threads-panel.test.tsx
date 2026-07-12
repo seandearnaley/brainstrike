@@ -676,6 +676,21 @@ describe('ThreadsPanel groups', () => {
     expect(sectionOrder).toEqual(['thread-group-section', 'threads-ungrouped-section']);
   });
 
+  it('makes the expanded group body a drop target so the empty hint works', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+
+    renderThreadsPanel();
+
+    const section = await screen.findByTestId('thread-group-section');
+    const hint = within(section).getByText('Drop threads here');
+    const bodyDropTarget = hint.closest('[data-drop-target-for-element="true"]');
+    expect(bodyDropTarget).not.toBeNull();
+    // The body target must be distinct from the header target so a drop on the
+    // hint area files the thread even without touching the header.
+    const header = within(section).getByTestId('thread-group-header');
+    expect(bodyDropTarget?.contains(header)).toBe(false);
+  });
+
   it('collapses and expands a group', async () => {
     seedGroup('group-research', 'Research', 'a0');
     seedPlacement('thread-b', 'group-research', 'a0');

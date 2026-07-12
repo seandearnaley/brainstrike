@@ -73,6 +73,7 @@ import {
   type ThreadsPanelDropTarget,
 } from './threads-panel-dnd';
 import {
+  GroupBodyDndShell,
   GroupHeaderDndShell,
   ThreadRowDndShell,
   UngroupedSectionDndShell,
@@ -1443,15 +1444,17 @@ function ThreadsPanelContent({
               />
             </GroupHeaderDndShell>
             {isCollapsed ? null : (
-              <div className="mt-1 pl-2">
-                {section.threads.length > 0 ? (
-                  <ThreadRows {...rowsProps} threads={section.threads} />
-                ) : (
-                  <div className="rounded-md border border-border border-dashed px-3 py-2 text-[11px] text-muted-foreground">
-                    Drop threads here
-                  </div>
-                )}
-              </div>
+              <GroupBodyDndShell groupId={section.group.id}>
+                <div className="mt-1 pl-2">
+                  {section.threads.length > 0 ? (
+                    <ThreadRows {...rowsProps} threads={section.threads} />
+                  ) : (
+                    <div className="rounded-md border border-border border-dashed px-3 py-2 text-[11px] text-muted-foreground">
+                      Drop threads here
+                    </div>
+                  )}
+                </div>
+              </GroupBodyDndShell>
             )}
           </div>
         );
