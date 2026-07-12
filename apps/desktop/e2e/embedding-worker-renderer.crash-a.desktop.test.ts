@@ -76,6 +76,11 @@ test.describe('Embedding Host Renderer - crash a', () => {
       return;
     }
 
+    // CI has no WebGPU and the host refuses to auto-downgrade to WASM without a
+    // configured device preference (#1246) — opt in explicitly like every other
+    // embedding spec, or reset lands in 'error' instead of 'running'.
+    await setVectorDevicePreference(activeWindow, 'wasm');
+
     // Explicitly stop first to avoid a race between the prior test's 'stop' command and
     // our 'reset' command. Without this, startWorker can silently skip starting when
     // startingRef.current is still true from a concurrent stop/start sequence.
@@ -114,6 +119,11 @@ test.describe('Embedding Host Renderer - crash a', () => {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
+
+    // Same #1246 opt-in as above: without a configured device preference the
+    // host errors with the WebGPU-required message, which this test's error
+    // allowlist below deliberately does not accept.
+    await setVectorDevicePreference(activeWindow, 'wasm');
 
     await activeWindow.evaluate(async () => {
       const host = (
