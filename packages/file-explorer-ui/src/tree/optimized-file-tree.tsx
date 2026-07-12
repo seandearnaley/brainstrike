@@ -32,6 +32,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import { fileNodeToTarget } from '../context-actions/file-entry-target';
@@ -283,7 +284,6 @@ function runLoadedDirectorySelectionMutation(args: {
  * Exposed for tests and browser devtools inspection.
  */
 export const fileTreeTelemetry = {
-  cellRenderCount: 0,
   columnsRebuildCount: 0,
   treeRowsRebuildCount: 0,
 };
@@ -314,7 +314,6 @@ export function stringSetsEqual(a: Set<string>, b: Set<string>): boolean {
 }
 
 export function resetFileTreeTelemetry(): void {
-  fileTreeTelemetry.cellRenderCount = 0;
   fileTreeTelemetry.columnsRebuildCount = 0;
   fileTreeTelemetry.treeRowsRebuildCount = 0;
 }
@@ -370,7 +369,6 @@ interface FileTreeCellContentProps {
 }
 
 function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTreeCellContentProps) {
-  fileTreeTelemetry.cellRenderCount++;
   const fileNode = rowData.fileNode;
   const { folderId, isDirectorySelectionLocked, maxSelectionCount, openFileInTab, store } =
     useFileTreeSelection();
@@ -1162,14 +1160,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         selectionModel,
       ]
     );
-    // The store is created once (stable identity) and never re-created. Render-
-    // safe write of the latest inputs happens below; subscribers are notified
-    // from an effect (React's no-setState-during-render rule).
-    const selectionStoreRef = useRef<FileTreeSelectionStore | null>(null);
-    if (selectionStoreRef.current === null) {
-      selectionStoreRef.current = createFileTreeSelectionStore(selectionInputs);
-    }
-    const selectionStore = selectionStoreRef.current;
+    // The store is created once (stable identity) via a useState lazy
+    // initializer — the React-approved create-once idiom (a plain value, not a
+    // ref, so it is safe to read + mutate during render, mirroring
+    // PreviewTable's headerSelectionStore). It is never re-created.
+    const [selectionStore] = useState(() => createFileTreeSelectionStore(selectionInputs));
     // Render-safe: pure write of the current inputs so a child rendering NOW
     // (e.g. a freshly mounted row) reads fresh state via getNodeState.
     selectionStore.setInputs(selectionInputs);
