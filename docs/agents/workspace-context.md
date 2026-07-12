@@ -15,6 +15,11 @@ Ownership and flow:
   compatibility path. Bootstrap performs the authoritative initial repository `list()`, and
   that database read remains fatal if it fails. Text filters treat SQL LIKE metacharacters
   (`%`, `_`, and `\`) as literals.
+  Startup gating discriminates "database not ready yet" from "database failed": while
+  `useDbInitializationStatus()` reports `idle`/`initializing` the connected manager renders the
+  loading placeholder; the terminal "requires an initialized database" alert is reserved for a
+  genuine init failure (status `error` with no handle), never a merely not-yet-ready DB. A
+  successful `list()` that later throws is still fatal per the readiness error path above.
 - Recall: prompt records own vectors under the dedicated singleton prompt profile — they
   are NOT fake files and MUST NOT be added to `embedding_sets`. Saved items use document
   embeddings; live composer context uses query embeddings. Vector failures surface in the
