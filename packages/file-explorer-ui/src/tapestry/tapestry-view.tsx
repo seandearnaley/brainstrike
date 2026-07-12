@@ -177,6 +177,45 @@ interface TapestrySection {
   showHeader: boolean;
 }
 
+/** In-flight drag state rendered locally; committed to the store on drag end. */
+interface TapestryDragDraft {
+  fileId: string;
+  ranges: TapestryRange[];
+}
+
+function applyDragDraftToFiles(
+  files: FileTapestry[],
+  draft: TapestryDragDraft | null
+): FileTapestry[] {
+  if (!(draft && files.some((file) => file.id === draft.fileId))) {
+    return files;
+  }
+  // Only the dragged file gets a new object — every other card keeps identity
+  // so its memo bails out during drag frames.
+  return files.map((file) =>
+    file.id === draft.fileId ? { ...file, selections: draft.ranges } : file
+  );
+}
+
+function applyDragDraftToSections(
+  sections: TapestrySection[],
+  draft: TapestryDragDraft | null
+): TapestrySection[] {
+  if (!draft) {
+    return sections;
+  }
+  let changed = false;
+  const next = sections.map((section) => {
+    const items = applyDragDraftToFiles(section.items, draft);
+    if (items === section.items) {
+      return section;
+    }
+    changed = true;
+    return { ...section, items };
+  });
+  return changed ? next : sections;
+}
+
 interface TapestryViewProps {
   activeRangesCount: number;
   groupedSections: TapestrySection[];
@@ -346,13 +385,18 @@ function useTapestryDrag(
   files: FileTapestry[],
   onRangesChange: (fileId: string, ranges: TapestryRange[]) => void,
   scale: number,
-  allowOverlap: boolean
+  allowOverlap: boolean,
+  onPreviewRanges: (draft: TapestryDragDraft | null) => void
 ) {
   const dragStateRef = useRef<DragState>({ ...IDLE_DRAG_STATE });
   const [isDragging, setIsDragging] = useState(false);
   const rafIdRef = useRef<number>(0);
   const activePointerIdRef = useRef<number | null>(null);
   const latestClientYRef = useRef<number>(0);
+  // Per-frame drag output. Rendered via onPreviewRanges (local state in
+  // TapestryView) and committed to the store ONCE on drag end — per-frame
+  // store writes re-rendered the whole PreviewPanel at pointer-move cadence.
+  const draftRef = useRef<TapestryDragDraft | null>(null);
 
   // Always-fresh ref avoids stale closures when mouse events fire between renders.
   const filesRef = useRef(files);
@@ -375,10 +419,29 @@ function useTapestryDrag(
     [onRangesChange]
   );
 
+  const discardDraft = useCallback(() => {
+    if (draftRef.current !== null) {
+      draftRef.current = null;
+      onPreviewRanges(null);
+    }
+  }, [onPreviewRanges]);
+
+  const commitDraft = useCallback(() => {
+    const draft = draftRef.current;
+    draftRef.current = null;
+    if (draft) {
+      onRangesChange(draft.fileId, draft.ranges);
+    }
+    onPreviewRanges(null);
+  }, [onRangesChange, onPreviewRanges]);
+
   const resetDragState = useCallback(() => {
+    // Safety net: any surviving draft at reset is DISCARDED (e.g. the
+    // totalLines-changed mid-drag abort). Commit paths call commitDraft first.
+    discardDraft();
     dragStateRef.current = { ...IDLE_DRAG_STATE };
     setIsDragging(false);
-  }, []);
+  }, [discardDraft]);
 
   const cancelScheduledFrame = useCallback((): boolean => {
     if (rafIdRef.current === 0) {
@@ -409,13 +472,15 @@ function useTapestryDrag(
       return;
     }
 
-    const { anchorLine, fileId, initialRange, rangeId } = current;
-    updateRanges(fileId, (ranges) =>
-      anchorLine === undefined
-        ? ranges.map((range) => (range.id === rangeId ? { ...initialRange } : range))
-        : ranges.filter((range) => range.id !== rangeId)
-    );
-  }, [updateRanges]);
+    // Move/resize drags never touched the store (frames render from the
+    // draft), so discarding the draft fully restores the pre-drag state. A
+    // CREATING drag committed its new range on pointer-down — remove it.
+    discardDraft();
+    const { anchorLine, fileId, rangeId } = current;
+    if (anchorLine !== undefined) {
+      updateRanges(fileId, (ranges) => ranges.filter((range) => range.id !== rangeId));
+    }
+  }, [discardDraft, updateRanges]);
 
   const applyLatestDragPosition = useCallback(() => {
     // Clear the gate before applying so a synchronous state update cannot leave
@@ -441,37 +506,43 @@ function useTapestryDrag(
     const { lineScale } = getTapestryRenderMetrics(file.totalLines, scaleRef.current);
     const deltaLines = Math.round((latestClientYRef.current - startY) / lineScale);
 
-    updateRanges(fileId, (ranges) => {
-      const currentRange = ranges.find((range) => range.id === rangeId) ?? initialRange;
-      const otherRanges = ranges.filter((range) => range.id !== rangeId);
+    // Frames write to the local draft (rendered by TapestryView), NOT the
+    // store — the store sees one commit on drag end. `file.selections` comes
+    // from the drafted files, so overlap constraints see the live positions.
+    const ranges = file.selections;
+    const currentRange = ranges.find((range) => range.id === rangeId) ?? initialRange;
+    const otherRanges = ranges.filter((range) => range.id !== rangeId);
 
-      // Bidirectional range creation: if dragging upward from anchor point
-      const { anchorLine } = current;
-      const newBounds =
-        anchorLine !== undefined && mode === 'RESIZING_BOTTOM' && deltaLines < 0
-          ? computeUpwardCreationBounds(
-              anchorLine,
-              deltaLines,
-              file.totalLines,
-              initialRange,
-              otherRanges,
-              allowOverlapRef.current
-            )
-          : calculateNewRange(
-              currentRange,
-              initialRange,
-              mode,
-              deltaLines,
-              file.totalLines,
-              allowOverlapRef.current,
-              otherRanges
-            );
+    // Bidirectional range creation: if dragging upward from anchor point
+    const { anchorLine } = current;
+    const newBounds =
+      anchorLine !== undefined && mode === 'RESIZING_BOTTOM' && deltaLines < 0
+        ? computeUpwardCreationBounds(
+            anchorLine,
+            deltaLines,
+            file.totalLines,
+            initialRange,
+            otherRanges,
+            allowOverlapRef.current
+          )
+        : calculateNewRange(
+            currentRange,
+            initialRange,
+            mode,
+            deltaLines,
+            file.totalLines,
+            allowOverlapRef.current,
+            otherRanges
+          );
 
-      return ranges.map((range) =>
+    draftRef.current = {
+      fileId,
+      ranges: ranges.map((range) =>
         range.id === rangeId ? { ...range, ...newBounds, userModified: true } : range
-      );
-    });
-  }, [resetDragState, updateRanges]);
+      ),
+    };
+    onPreviewRanges(draftRef.current);
+  }, [onPreviewRanges, resetDragState]);
 
   const handlePointerMove = useCallback(
     (e: PointerEvent) => {
@@ -515,10 +586,17 @@ function useTapestryDrag(
       cancelScheduledFrame();
       latestClientYRef.current = e.clientY;
       applyLatestDragPosition();
+      commitDraft();
       releaseActivePointer(e.pointerId);
       resetDragState();
     },
-    [applyLatestDragPosition, cancelScheduledFrame, releaseActivePointer, resetDragState]
+    [
+      applyLatestDragPosition,
+      cancelScheduledFrame,
+      commitDraft,
+      releaseActivePointer,
+      resetDragState,
+    ]
   );
 
   const handlePointerCancel = useCallback(
@@ -539,9 +617,16 @@ function useTapestryDrag(
     if (cancelScheduledFrame()) {
       applyLatestDragPosition();
     }
+    commitDraft();
     releaseActivePointer();
     resetDragState();
-  }, [applyLatestDragPosition, cancelScheduledFrame, releaseActivePointer, resetDragState]);
+  }, [
+    applyLatestDragPosition,
+    cancelScheduledFrame,
+    commitDraft,
+    releaseActivePointer,
+    resetDragState,
+  ]);
 
   // Store latest handlers in ref to avoid recreating event listeners
   const handlersRef = useRef({
@@ -679,8 +764,8 @@ function useTapestryDrag(
 }
 
 export const TapestryView = memo<TapestryViewProps>(function TapestryView({
-  ungroupedFiles,
-  groupedSections,
+  ungroupedFiles: ungroupedFilesProp,
+  groupedSections: groupedSectionsProp,
   groupingConfig,
   onToggleGroupCollapse,
   onGroupSelectAll,
@@ -713,6 +798,19 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
     setLensEnabled(enabled);
   }, []);
 
+  // Drag draft: per-frame range updates render from this LOCAL state (only
+  // the dragged file's object is patched, so other cards' memos bail); the
+  // workspace-context store sees one onRangesChange commit at drag end.
+  const [dragDraft, setDragDraft] = useState<TapestryDragDraft | null>(null);
+  const ungroupedFiles = useMemo(
+    () => applyDragDraftToFiles(ungroupedFilesProp, dragDraft),
+    [ungroupedFilesProp, dragDraft]
+  );
+  const groupedSections = useMemo(
+    () => applyDragDraftToSections(groupedSectionsProp, dragDraft),
+    [groupedSectionsProp, dragDraft]
+  );
+
   const files = useMemo(
     () =>
       groupingConfig === 'none'
@@ -729,7 +827,8 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
     files,
     onRangesChange,
     galleryMetrics.lineDensity,
-    allowOverlap
+    allowOverlap,
+    setDragDraft
   );
 
   const rangeIdToIndexMap = useMemo(() => {
