@@ -30,6 +30,7 @@ describe('panel-layout-store', () => {
     expect(s.showRightPanel).toBe(true);
     expect(s.showConsole).toBe(false);
     expect(s.activeTab).toBe('explorer');
+    expect(s.settingsOpen).toBe(false);
   });
 
   it('toggles panel visibility flags', () => {
@@ -52,6 +53,20 @@ describe('panel-layout-store', () => {
     expect(store.getState().activeTab).toBe('explorer');
     store.getState().setActiveTab('settings');
     expect(store.getState().activeTab).toBe('settings');
+    expect(store.getState().settingsOpen).toBe(true);
+
+    store.getState().setActiveTab('terminal');
+    expect(store.getState().settingsOpen).toBe(false);
+  });
+
+  it('opens settings over the current tab without replacing the underlay', () => {
+    store.getState().openSettings();
+
+    expect(store.getState().activeTab).toBe('explorer');
+    expect(store.getState().settingsOpen).toBe(true);
+
+    store.getState().setSettingsOpen(false);
+    expect(store.getState().settingsOpen).toBe(false);
   });
 
   it('normalizes sizes and preserves tuple shape', () => {

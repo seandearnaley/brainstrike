@@ -26,7 +26,7 @@ vi.mock('@brainstrike/assistant-contract/tool-metadata', () => ({
 // Mock lucide-react
 vi.mock('lucide-react', () => ({
   RotateCcw: () => <svg data-testid="rotate-icon" />,
-  Search: () => <svg data-testid="search-icon" />,
+  Search: (props: React.SVGProps<SVGSVGElement>) => <svg data-testid="search-icon" {...props} />,
 }));
 
 // Mock @brainstrike/ui
@@ -52,18 +52,21 @@ vi.mock('@brainstrike/ui', () => ({
     placeholder,
     'data-testid': testId,
     className,
+    style,
   }: {
     value: string;
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     placeholder?: string;
     'data-testid'?: string;
     className?: string;
+    style?: React.CSSProperties;
   }) => (
     <input
       className={className}
       data-testid={testId}
       onChange={onChange}
       placeholder={placeholder}
+      style={style}
       type="text"
       value={value}
     />
@@ -188,6 +191,11 @@ describe('ToolsFilterBar', () => {
 
       const input = screen.getByTestId('search-input');
       expect(input).toHaveAttribute('placeholder', 'Search tools...');
+      expect(input).toHaveClass('pl-10');
+      expect(input).toHaveStyle({ paddingLeft: '2.5rem' });
+      expect(input.parentElement?.querySelector('[data-slot="settings-search-icon"]')).toHaveStyle({
+        left: '0.75rem',
+      });
     });
   });
 

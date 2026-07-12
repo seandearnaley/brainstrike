@@ -351,10 +351,14 @@ vi.mock('@brainstrike/preferences', async () => {
 
   const usePanelLayoutStore = create<{
     activeTab: string;
+    openSettings: () => void;
     setActiveTab: (tab: string) => void;
+    settingsOpen: boolean;
   }>((set) => ({
     activeTab: 'explorer',
+    openSettings: () => set({ settingsOpen: true }),
     setActiveTab: (tab: string) => set({ activeTab: tab }),
+    settingsOpen: false,
   }));
 
   return {

@@ -1960,7 +1960,7 @@ describe('AssistantUiPanelWrapper', () => {
       selectedModel: 'google::gemini-3.1-pro-preview',
       selectedProvider: 'google',
     }));
-    usePanelLayoutStore.setState({ activeTab: 'explorer' });
+    usePanelLayoutStore.setState({ activeTab: 'explorer', settingsOpen: false });
     window.location.hash = '';
 
     const user = userEvent.setup();
@@ -1972,7 +1972,8 @@ describe('AssistantUiPanelWrapper', () => {
     );
 
     await user.click(screen.getByTestId('tool-menu-open-settings'));
-    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
+    expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
+    expect(usePanelLayoutStore.getState().settingsOpen).toBe(true);
     expect(window.location.hash).toBe('#settings/ai-tools');
   });
 

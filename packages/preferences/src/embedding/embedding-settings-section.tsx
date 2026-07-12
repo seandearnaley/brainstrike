@@ -28,10 +28,11 @@ import {
   Switch,
 } from '@brainstrike/ui';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import { SearchIcon } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import { useLocalRuntimeEmbeddingModelCatalog } from '../hooks/use-local-runtime-embedding-model-catalog';
 import { useEnsureModelRegistry } from '../hooks/use-model-registry';
+import { SettingsSearchIcon } from '../settings/settings-search-icon';
+import { SETTINGS_SEARCH_INPUT_STYLE } from '../settings/settings-search-layout';
 import { useEmbeddingPreferencesStore } from '../stores/embedding-preferences-store';
 import type { DbModel, DbProvider } from '../stores/model-registry-store';
 import { useModelRegistryStore } from '../stores/model-registry-store';
@@ -616,12 +617,13 @@ export function EmbeddingSettings() {
             <div className="relative w-full sm:max-w-xs">
               <Input
                 aria-label="Search embedding models"
-                className="pl-9"
+                className="pl-10"
                 onChange={(event) => setSearchTerm(event.currentTarget.value)}
                 placeholder="Search embedding models"
+                style={SETTINGS_SEARCH_INPUT_STYLE}
                 value={searchTerm}
               />
-              <SearchIcon className="absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <SettingsSearchIcon />
             </div>
           </div>
 

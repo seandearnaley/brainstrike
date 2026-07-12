@@ -137,6 +137,12 @@ describe('ModelList', () => {
     expect(screen.getByText('Unknown Provider')).toBeTruthy();
 
     const searchInput = screen.getByPlaceholderText('Search models, providers, or tags');
+    expect(searchInput.className).toContain('pl-10');
+    expect(searchInput.style.paddingLeft).toBe('2.5rem');
+    expect(
+      searchInput.parentElement?.querySelector<HTMLElement>('[data-slot="settings-search-icon"]')
+        ?.style.left
+    ).toBe('0.75rem');
     await userEvent.clear(searchInput);
     await userEvent.type(searchInput, 'gpt');
 
