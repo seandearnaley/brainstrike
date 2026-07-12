@@ -78,11 +78,12 @@
     "dev": "tsup --watch",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "test": "vitest run",
-    "test:models": "VITEST_RUN_INTEGRATION=true vitest run --testNamePattern=\"integration\"",
+    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:models": "vitest run --config vitest.models.config.mts",
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "types": "dist/index.d.ts"
 }

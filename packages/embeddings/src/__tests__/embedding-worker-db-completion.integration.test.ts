@@ -1,7 +1,7 @@
 import type { IDatabase } from '@brainstrike/db';
 import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('embedding worker DB completion', () => {
   let db: PGlite;
@@ -9,6 +9,13 @@ describe('embedding worker DB completion', () => {
   beforeEach(async () => {
     db = await wasmLoader.createPGlite('memory://embedding-worker-db-completion-tests');
     await migrate(db);
+  });
+
+  // Close the real PGlite instance opened in beforeEach so its WASM resources
+  // are released between tests (the suffixed siblings, e.g.
+  // embedding-worker-batch-optimization.integration.test.ts, do the same).
+  afterEach(async () => {
+    await db.close();
   });
 
   it('does not write vectors or mark jobs succeeded after the completion lease is lost', async () => {

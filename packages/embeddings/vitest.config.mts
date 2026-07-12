@@ -43,19 +43,26 @@ export default defineConfig({
       reportsDirectory: './coverage',
     },
     environment: 'node',
-    // Exclude integration tests by default (they require model downloads)
-    exclude: ['**/node_modules/**', '**/dist/**'],
+    // Exclude node_modules/dist AND the manual model-download lane. The
+    // `.models.test.*` suffix marks tests that download ML models (~300MB+,
+    // multi-minute, real network) — they must NEVER run in the pure `test`
+    // lane, the `test:integration` lane, or `test:coverage` (and therefore
+    // never in CI). Excluding them HERE (filename-based, one place) covers
+    // every base-config-derived lane; the manual `test:models` script
+    // re-includes them via vitest.models.config.mts.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/*.models.test.*'],
     // PGlite WASM init + migrate inside beforeEach hooks exceeds the 10s
-    // default under loaded CI runners (embedding-worker-db-completion.test.ts
-    // failed this way twice on whole-repo Unit runs); 30s matches
-    // packages/db's heavy-lane precedent (vitest.config.mts hookTimeout).
+    // default under loaded CI runners (embedding-worker-db-completion ran into
+    // this twice on whole-repo Unit runs); 30s matches packages/db's heavy-lane
+    // precedent (vitest.config.mts hookTimeout). Kept identical on both lanes.
     hookTimeout: 30_000,
-    // Allow running integration tests with --run integration
-    // Use: npx vitest run --reporter=verbose --testNamePattern="integration"
-    // Or set environment variable: VITEST_RUN_INTEGRATION=true
-    include: process.env.VITEST_RUN_INTEGRATION
-      ? ['**/*.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}']
-      : ['**/*.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}', '!**/*.integration.test.*'],
+    // Full `*.test.*` suffix breadth. The pure `test` script additionally
+    // passes --exclude "**/*.integration.test.*", so the env-sensitive
+    // integration lane (real PGlite / wall-clock timing) runs ONLY via
+    // `test:integration` (vitest.integration.config.mts). Base `test:coverage`
+    // keeps this full include so coverage measures pure + integration in one
+    // process; `.models.test.*` stays excluded via `exclude` above.
+    include: ['**/*.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     // Use forks pool with parallelization for better performance
