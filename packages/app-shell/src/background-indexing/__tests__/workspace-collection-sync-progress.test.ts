@@ -4,6 +4,7 @@ import {
   buildBatchImportErrors,
   buildNormalizedChunkingProgress,
   createScanningStatusReporter,
+  createThrottledProgressReporter,
   dispatchQueueDrainedEvent,
   isAbortError,
   mapBackfillProgressToStatus,
@@ -71,6 +72,49 @@ describe('workspace collection sync progress helpers', () => {
     reporter.dispose();
     await vi.advanceTimersByTimeAsync(100);
     expect(emit).not.toHaveBeenCalledWith('/workspace/e.ts');
+  });
+
+  it('throttles per-file import progress: leading emit, trailing coalesce, flush of the final value', async () => {
+    // The import pipeline calls onProgress once PER FILE READ — thousands of
+    // times during initial indexing. Unthrottled, each call was a store patch
+    // (and a full assistant-panel re-render). The generic reporter coalesces
+    // to the throttle cadence and the final value always lands via flush.
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const emit = vi.fn();
+    const reporter = createThrottledProgressReporter<EnhancedImportProgress>(emit, 100);
+
+    reporter.report(createEnhancedProgress({ completed: 1 }));
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenLastCalledWith(expect.objectContaining({ completed: 1 }));
+
+    // A burst of per-file updates within the throttle window coalesces to the
+    // latest value on the trailing edge.
+    vi.setSystemTime(1010);
+    for (let completed = 2; completed <= 30; completed += 1) {
+      reporter.report(createEnhancedProgress({ completed }));
+    }
+    expect(emit).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit).toHaveBeenLastCalledWith(expect.objectContaining({ completed: 30 }));
+
+    // flush() emits the pending value immediately (end-of-import must never
+    // lose the final progress state).
+    reporter.report(createEnhancedProgress({ completed: 31 }));
+    reporter.flush();
+    expect(emit).toHaveBeenLastCalledWith(expect.objectContaining({ completed: 31 }));
+
+    // flush with nothing pending is a no-op (no duplicate emission).
+    const emissionsAfterFlush = emit.mock.calls.length;
+    reporter.flush();
+    expect(emit.mock.calls.length).toBe(emissionsAfterFlush);
+
+    // dispose drops pending work.
+    reporter.report(createEnhancedProgress({ completed: 32 }));
+    reporter.dispose();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ completed: 32 }));
   });
 
   it('throws and detects abort errors while cleaning up abortable delays', async () => {

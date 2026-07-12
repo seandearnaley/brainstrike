@@ -1,6 +1,7 @@
 import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { useCallback, useEffect, useRef } from 'react';
 import {
   type AssistantForegroundActivityLease,
@@ -182,6 +183,31 @@ export function useAssistantRequestLifecycle({
     const freshPlanModeEnabled =
       planModeAvailable && useAssistantPreferencesStore.getState().planModeEnabled;
 
+    // Same fresh-read rationale as plan mode above, for the workspace-index
+    // status: the wrapper intentionally does NOT live-subscribe to per-file
+    // indexing progress (that re-rendered the whole assistant panel per
+    // processed file during initial indexing), so the render-captured
+    // `requestData.workspaceIndex` status fields can be thousands of progress
+    // patches stale by send time. Re-read them from the store here; the
+    // preference-shaped fields (enabled/mode/paused/embeddingSetId) stay from
+    // the render — the wrapper still subscribes to those (they change rarely).
+    const capturedWorkspaceIndex = requestData['workspaceIndex'];
+    let freshWorkspaceIndex: Record<string, unknown> | undefined;
+    if (
+      capturedWorkspaceIndex &&
+      typeof capturedWorkspaceIndex === 'object' &&
+      !Array.isArray(capturedWorkspaceIndex)
+    ) {
+      const sync = useWorkspaceCollectionSyncStatusStore.getState();
+      freshWorkspaceIndex = {
+        ...capturedWorkspaceIndex,
+        blockedReason: sync.blockedReason,
+        lastError: sync.lastError,
+        queueProgress: sync.queueProgress,
+        statusState: sync.state,
+      };
+    }
+
     return {
       ...requestData,
       memory: {
@@ -189,6 +215,7 @@ export function useAssistantRequestLifecycle({
         ...(runId ? { runId } : {}),
       },
       planMode: freshPlanModeEnabled ? true : undefined,
+      ...(freshWorkspaceIndex ? { workspaceIndex: freshWorkspaceIndex } : {}),
     };
   }, [
     assistantThreadRepository,

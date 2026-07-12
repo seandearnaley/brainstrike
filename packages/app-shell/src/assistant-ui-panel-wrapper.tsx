@@ -692,9 +692,14 @@ export function AssistantUiPanelWrapper({
     (state) => state.blockedReason
   );
   const workspaceIndexLastError = useWorkspaceCollectionSyncStatusStore((state) => state.lastError);
-  const workspaceIndexQueueProgress = useWorkspaceCollectionSyncStatusStore(
-    (state) => state.queueProgress
-  );
+  // queueProgress is deliberately NOT live-subscribed: during initial indexing
+  // it gets a fresh identity per processed file, and threading it through this
+  // memo re-rendered the entire (un-memoized) assistant panel per file. The
+  // value baked here is only a render-time snapshot for the initial
+  // runtimeData; prepareRequestData re-reads the store FRESH at send time
+  // (use-assistant-request-lifecycle), so outgoing requests never see a stale
+  // value. state/blockedReason/lastError stay subscribed — they change on
+  // state transitions, not per file.
   const workspaceIndex = useMemo(
     () => ({
       blockedReason: workspaceIndexBlockedReason,
@@ -703,14 +708,13 @@ export function AssistantUiPanelWrapper({
       lastError: workspaceIndexLastError,
       mode: workspaceIndexingMode,
       paused: workspaceIndexingPaused,
-      queueProgress: workspaceIndexQueueProgress,
+      queueProgress: useWorkspaceCollectionSyncStatusStore.getState().queueProgress,
       statusState: workspaceIndexStatusState,
     }),
     [
       workspaceIndexBlockedReason,
       workspaceIndexEmbeddingSetId,
       workspaceIndexLastError,
-      workspaceIndexQueueProgress,
       workspaceIndexStatusState,
       workspaceIndexingEnabled,
       workspaceIndexingMode,
