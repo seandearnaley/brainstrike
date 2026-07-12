@@ -129,7 +129,12 @@ export default defineConfig({
     // surfaces with process-wide module state. Keep this package serialized so
     // those globals cannot bleed across files under load.
     maxWorkers: 1,
-    // Use threads pool to avoid process forks (prevents EPERM kills in constrained sandboxes)
+    // Default pool for bare/editor `vitest` invocations. threads avoids process
+    // forks (which can trigger EPERM kills in constrained sandboxes). NOTE: the
+    // package's `test`, `test:integration`, and `test:coverage` scripts OVERRIDE
+    // this with `--pool=forks` on the CLI, so the effective pool for every lane
+    // that CI and `pnpm test` run is FORKS, not threads. This default only
+    // applies when vitest is invoked directly without that flag.
     pool: 'threads',
     server: {
       deps: {
