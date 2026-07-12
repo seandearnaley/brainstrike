@@ -385,6 +385,50 @@ describe('RootLayoutContent', () => {
     expect(clearIntervalSpy).toHaveBeenCalledTimes(2);
   });
 
+  it('stops frame sampling between diagnostic ticks and cancels pending work on unmount', () => {
+    vi.useFakeTimers();
+    let nextFrameId = 0;
+    const scheduledFrames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      nextFrameId += 1;
+      scheduledFrames.set(nextFrameId, callback);
+      return nextFrameId;
+    });
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((frameId) => {
+        scheduledFrames.delete(frameId);
+      });
+
+    const runNextFrame = (timestamp: number) => {
+      const next = scheduledFrames.entries().next().value as
+        | [number, FrameRequestCallback]
+        | undefined;
+      expect(next).toBeDefined();
+      if (!next) {
+        return;
+      }
+      scheduledFrames.delete(next[0]);
+      next[1](timestamp);
+    };
+
+    const { unmount } = render(<RootLayoutContent />);
+
+    runNextFrame(0);
+    runNextFrame(500);
+    runNextFrame(1000);
+    expect(scheduledFrames.size).toBe(0);
+
+    vi.advanceTimersByTime(14_999);
+    expect(scheduledFrames.size).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(scheduledFrames.size).toBe(1);
+
+    unmount();
+    expect(scheduledFrames.size).toBe(0);
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('logs visible renderer frame stalls with the latest database readiness state', () => {
     vi.useFakeTimers();
     Object.defineProperty(globalThis.performance, 'memory', {

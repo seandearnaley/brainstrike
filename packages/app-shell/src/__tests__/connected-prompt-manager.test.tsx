@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import type { PromptItem } from '@brainstrike/db';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
@@ -59,6 +59,7 @@ const mocks = vi.hoisted(() => {
     loadEmbeddingQueue: vi.fn(),
     onLibraryError: vi.fn(),
     onUseError: vi.fn(),
+    panelRenderCount: 0,
     queryPromptSuggestions: vi.fn(),
     recallRequest: null as Promise<unknown> | null,
     recordUsage: vi.fn(),
@@ -66,6 +67,11 @@ const mocks = vi.hoisted(() => {
     sharedEmbedder: { embedDocumentWithRecovery, embedQueryWithRecovery },
   };
 });
+
+function PanelRenderCounter() {
+  mocks.panelRenderCount += 1;
+  return null;
+}
 
 const repository = {
   create: vi.fn(),
@@ -212,6 +218,7 @@ vi.mock('../prompt-workbench-panel', () => ({
     suggestionsEnabled?: boolean;
   }) => (
     <div data-testid="prompt-workbench-panel">
+      <PanelRenderCounter />
       <span data-testid="active-thread-id">{props.activeThreadId}</span>
       <span data-testid="composer-context">{props.composerContext}</span>
       <span data-testid="first-item-embedding-status">
@@ -489,6 +496,7 @@ describe('ConnectedPromptManager', () => {
     mocks.queryPromptSuggestions.mockResolvedValue([]);
     mocks.recordUsage.mockResolvedValue(testItem);
     mocks.recallRequest = null;
+    mocks.panelRenderCount = 0;
     repository.list.mockReset().mockResolvedValue([]);
     mocks.createThread.mockImplementation(async (resourceId: string, title = 'New Thread') => ({
       createdAt: new Date('2026-07-10T12:00:00Z'),
@@ -528,6 +536,41 @@ describe('ConnectedPromptManager', () => {
     expect(mocks.loadEmbeddingQueue.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.embedPendingPromptItems.mock.invocationCallOrder[0] ?? 0
     );
+  });
+
+  it('does not subscribe the hidden workbench to draft changes when suggestions are disabled', async () => {
+    const { rerender } = render(
+      <ConnectedPromptManager
+        loadEmbeddingQueue={mocks.loadEmbeddingQueue}
+        suggestionsEnabled={false}
+      />
+    );
+    expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('composer-context')).toBeEmptyDOMElement();
+    const hiddenRenderCount = mocks.panelRenderCount;
+
+    act(() => {
+      useAssistantComposerCommandStore.getState().recordDraft('thread-active', 'Hidden update');
+    });
+
+    expect(mocks.panelRenderCount).toBe(hiddenRenderCount);
+    expect(mocks.queryPromptSuggestions).not.toHaveBeenCalled();
+
+    rerender(
+      <ConnectedPromptManager
+        loadEmbeddingQueue={mocks.loadEmbeddingQueue}
+        suggestionsEnabled={true}
+      />
+    );
+    expect(screen.getByTestId('composer-context')).toHaveTextContent('Hidden update');
+    const visibleRenderCount = mocks.panelRenderCount;
+
+    act(() => {
+      useAssistantComposerCommandStore.getState().recordDraft('thread-active', 'Visible update');
+    });
+
+    expect(screen.getByTestId('composer-context')).toHaveTextContent('Visible update');
+    expect(mocks.panelRenderCount).toBeGreaterThan(visibleRenderCount);
   });
 
   it('ignores obsolete legacy localStorage without surfacing compatibility UI', async () => {

@@ -297,7 +297,7 @@ export function ConnectedPromptManager({
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
   const composerContext = useAssistantComposerCommandStore((state) =>
-    activeThreadId ? (state.draftTextByThreadId[activeThreadId] ?? '') : ''
+    suggestionsEnabled && activeThreadId ? (state.draftTextByThreadId[activeThreadId] ?? '') : ''
   );
   const enqueueComposerCommand = useAssistantComposerCommandStore((state) => state.enqueue);
   const [usageError, setUsageError] = useState<string | null>(null);
