@@ -347,7 +347,7 @@ jobs:
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
 
       - name: Package the desktop application
-        run: pnpm --filter @brainstrike/desktop pack
+        run: pnpm --filter @brainstrike/desktop run pack
 
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
