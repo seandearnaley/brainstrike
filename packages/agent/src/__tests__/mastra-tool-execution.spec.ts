@@ -5,7 +5,7 @@
  * parts, so none of them exercise the real Mastra loop that actually invokes a
  * tool's `execute`. That blind spot let a resilience change silently break
  * hosted-provider tool calling while the whole suite stayed green (see the
- * "ASSISTANT RESILIENCE" note in AGENTS.md).
+ * "ASSISTANT RESILIENCE" note in docs/agents/assistant-runtime.md).
  *
  * This file deliberately does NOT mock `@mastra/core/agent`. It drives the real
  * `streamMastraAgent` → `collectCombinedTools` → real `Agent` → real tool

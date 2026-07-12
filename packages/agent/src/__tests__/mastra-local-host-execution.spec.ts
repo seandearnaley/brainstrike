@@ -12,7 +12,7 @@
  * scripted fake — exactly the seam the desktop main process implements over
  * IPC.
  *
- * This is the LIVE validation required by AGENTS.md for the local→Mastra
+ * This is the LIVE validation required by docs/agents/local-inference.md for the local→Mastra
  * path: if the proxy model, the conversion layer, or the provider seam breaks
  * tool calling, this fails while mocked suites stay green.
  */

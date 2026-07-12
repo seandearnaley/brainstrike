@@ -253,7 +253,7 @@ function substituteArgsInPath(
  *
  * There is deliberately NO handling of `!`command`` shell syntax — it is passed
  * through as inert text. Adding shell expansion (gated or not) is out of scope
- * and a security non-goal (see AGENTS.md USER-DEFINED SLASH COMMANDS).
+ * and a security non-goal (see docs/agents/workspace-context.md USER-DEFINED SLASH COMMANDS).
  */
 export function expandUserCommandTemplate(input: {
   readonly argString: string;

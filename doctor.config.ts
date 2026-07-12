@@ -12,7 +12,7 @@
  *   per-dependency allowlist. Our dependency false-positives (CSS @imports, lazy
  *   prebundles, dynamic requires, peer deps) are curated in knip.jsonc and remain owned
  *   by `pnpm knip`. We therefore DISABLE deslop's two dependency rules here. See
- *   docs/react-doctor-migration-2026-06-15.md and the REACT DOCTOR section in AGENTS.md.
+ *   docs/react-doctor-migration-2026-06-15.md and the REACT DOCTOR section in docs/agents/ci-quality.md.
  *
  * Telemetry: disabled (local-first / privacy). `noScore`/`share` cover local runs;
  * CI additionally sets REACT_DOCTOR_NO_TELEMETRY=1 (the marketplace Action has no flag).

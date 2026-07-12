@@ -20,7 +20,7 @@
  * idx_file_records_root_identity cannot serve their real query shapes),
  * everything on job_queue and file_chunks.
  *
- * Adoption checklist (per AGENTS.md "MODEL CATALOG MIGRATIONS" conventions for
+ * Adoption checklist (per docs/agents/database.md "MODEL CATALOG MIGRATIONS" conventions for
  * dual-registered DB migrations):
  * - Assign the next free migration number and register in BOTH
  *   packages/db/src/migrations/index.ts (numbered MigrationRunner — tests)

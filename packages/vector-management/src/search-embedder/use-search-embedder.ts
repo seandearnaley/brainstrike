@@ -217,7 +217,7 @@ async function createLocalEmbedder(
 }
 
 // WebGPU device-loss recovery (visible-renderer only): we cannot disable
-// Chromium background throttling on the visible window (per AGENTS.md), so
+// Chromium background throttling on the visible window (per docs/agents/local-inference.md), so
 // a cached embedder's GPU device can be invalidated after backgrounding.
 // Pattern-match the error text instead of relying on a typed exception
 // because the loss surfaces through transformers.js / ONNX Runtime Web as
