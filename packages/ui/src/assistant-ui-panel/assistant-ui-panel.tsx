@@ -82,24 +82,21 @@ import {
   ThreadContextMeter,
 } from './context-usage-meter';
 import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
-import { deriveTaskListFromParts } from './derive-task-list';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { ShellOutputProvider } from './shell-output-context';
-import { collectShellOutputs } from './shell-output-parts';
 import {
   buildSlashCommandIconMap,
   type SlashCommand,
   toSlashCommandAdapterOptions,
 } from './slash-commands';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
-import { runEventsSpanMs, summarizeToolActivity } from './tool-activity';
 import { ToolDurationProvider } from './tool-duration-context';
-import { collectToolDurations } from './tool-durations';
 import { TooltipIconButton } from './tooltip-icon-button';
+import { useChainActivityDerivations } from './use-chain-activity-derivations';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 
 const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
@@ -164,9 +161,10 @@ const assistantToolSuspendDataUI = {
   render: AssistantToolSuspendDataPart,
 } satisfies AssistantDataUIProps;
 
-// Live shell-output slices are consumed by the tool card (via collectShellOutputs
-// + ShellOutputProvider), NOT rendered inline in the message flow — register a
-// null renderer so the transient data parts never surface as stray elements.
+// Live shell-output slices are consumed by the tool card (via the incremental
+// shell-output accumulator + ShellOutputProvider), NOT rendered inline in the
+// message flow — register a null renderer so the transient data parts never
+// surface as stray elements.
 const assistantShellOutputDataUI = {
   name: SHELL_OUTPUT_DATA_NAME,
   render: () => null,
@@ -547,11 +545,10 @@ const LocalChainOfThought = () => {
     return entries.join(',');
   });
 
-  const toolActivity = useMemo(() => summarizeToolActivity(messageParts), [messageParts]);
-  const activityFallbackMs = useMemo(() => runEventsSpanMs(messageParts), [messageParts]);
-  const toolDurations = useMemo(() => collectToolDurations(messageParts), [messageParts]);
-  const shellOutputs = useMemo(() => collectShellOutputs(messageParts), [messageParts]);
-  const taskList = useMemo(() => deriveTaskListFromParts(messageParts), [messageParts]);
+  const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
+  // Per-turn derivations with context-value stability — see the hook's doc.
+  const { activityFallbackMs, shellOutputs, taskList, toolActivity, toolDurations } =
+    useChainActivityDerivations(messageParts, messageId);
 
   const initializedRef = useRef(false);
   const reasoningPanelId = useId();

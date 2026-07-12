@@ -268,7 +268,6 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const isError = displayStatus === 'error';
   const errorMessage = resolveErrorMessage(status, result, isErrorResult);
   const showDetails = policy.showDetailsExpander && !isRunning && (Boolean(argsText) || hasResult);
-  const formattedResult = hasResult ? formatResult(result) : undefined;
 
   const primaryArg = useMemo(() => extractPrimaryArg(args, argsText), [args, argsText]);
   const resultSummary = useMemo(
@@ -362,9 +361,9 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
         <ToolDetailsPane
           argsText={argsText}
           detailsId={detailsId}
-          formattedResult={formattedResult}
           hasResult={hasResult}
           isError={isError}
+          result={result}
           showRawIo={policy.showRawIo}
           toolCallId={toolCallId}
           toolName={toolName}
@@ -559,26 +558,35 @@ function ToolDetailLabel({ children }: { children: ReactNode }) {
   );
 }
 
-/** The expanded args/result panes, plus a developer-only metadata block. */
+/**
+ * The expanded args/result panes, plus a developer-only metadata block.
+ * Serializes the result HERE (memoized) rather than in ToolFallback: this
+ * pane only mounts while expanded, so collapsed cards — which still re-render
+ * with the streaming turn — never pay the multi-KB JSON.stringify.
+ */
 function ToolDetailsPane({
   argsText,
   detailsId,
-  formattedResult,
   hasResult,
   isError,
+  result,
   showRawIo,
   toolCallId,
   toolName,
 }: {
   argsText: string | undefined;
   detailsId: string;
-  formattedResult: string | undefined;
   hasResult: boolean;
   isError: boolean;
+  result: ToolResult;
   showRawIo: boolean;
   toolCallId: string;
   toolName: string;
 }) {
+  const formattedResult = useMemo(
+    () => (hasResult ? formatResult(result) : undefined),
+    [hasResult, result]
+  );
   return (
     <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
       {showRawIo ? (

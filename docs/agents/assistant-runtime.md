@@ -112,10 +112,17 @@ process flooding the stream: at the cap one truncation notice is emitted,
 streaming stops, and teardown/capture continue unchanged. Mastra hands a plain
 tool OBJECT the raw `outputWriter` fn + top-level `toolCallId` (a `createTool`
 instance gets `writer.custom` + `agent.toolCallId`); the desktop wiring accepts
-both. The renderer accumulates slices per toolCallId
-(`collectShellOutputs` + `ShellOutputProvider`) into the live tool card
-(`LiveShellOutputPane`, shown only while running). background:true (run the tool
-as a Mastra background task) is a documented FOLLOW-UP, not in v1. Proofs:
+both. The renderer accumulates slices per toolCallId INCREMENTALLY
+(`createShellOutputAccumulator` + `ShellOutputProvider`, via
+`useChainActivityDerivations`) into the live tool card (`LiveShellOutputPane`,
+shown only while running). The accumulator is O(new parts) per streamed update
+and keeps record identity stable when no shell slice arrived — do NOT replace
+it with a full rescan per update (`collectShellOutputs` is the pure/batch
+variant): the full rebuild is quadratic over a chatty command and its
+per-chunk fresh record identity re-renders every tool card in the turn. Same
+rule for `ToolDurationProvider` (value-stable via `useStableRecord`).
+background:true (run the tool as a Mastra background task) is a documented
+FOLLOW-UP, not in v1. Proofs:
 mastra-tool-execution.spec ('streams incremental shell-output …'),
 execute-command-tool.test / execute-command-live-loop.test, shell-output-parts.test.
 
