@@ -354,12 +354,14 @@ function useFileTreeSelection(): FileTreeSelectionContextValue {
 /**
  * Cell content for one tree row (file or directory).
  *
- * Reads the shared FileTreeSelectionContext and recomputes its own checkbox
- * state via computeNodeSelectionState on render. It re-renders independently of
- * TreeTableRow — columns stay stable, so TreeTableRow's React.memo prevents
- * row-level re-renders — but because the context object changes identity on
- * every selection mutation, all visible cells DO re-render per toggle (the
- * deferred #1594 per-node-subscription optimization targets exactly this).
+ * Reads the STABLE FileTreeSelectionContext (identity fixed across selection
+ * toggles) and subscribes to its OWN derived tri-state through the per-node
+ * selection store via useSyncExternalStore (#1594b). Because the store returns
+ * a stable object while a node's state is unchanged, a selection toggle
+ * re-renders only the cells whose own state actually changed (the toggled file
+ * plus its ancestor directories), not every visible cell. TreeTableRow's
+ * React.memo (columns + row data stay stable) keeps parent re-renders from
+ * reaching this cell, so the store subscription is the only re-render trigger.
  */
 interface FileTreeCellContentProps {
   isExpanded: boolean;
