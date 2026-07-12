@@ -1,4 +1,4 @@
-import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
+import { createDebouncedStorageAdapter, createSafeJsonStorageAdapter } from '@brainstrike/storage';
 import type {
   CollectionSortDirection,
   CollectionSortKey,
@@ -125,7 +125,7 @@ export type CollectionBrowserStore = CollectionBrowserData & CollectionBrowserAc
 
 // Keep the existing key stable so persisted snapshots can migrate in place.
 const STORE_NAME = 'collection-browser.v1' as const;
-const STORE_VERSION = 3 as const;
+const STORE_VERSION = 4 as const;
 type PersistedCollectionBrowserData = Partial<CollectionBrowserData>;
 
 /**
@@ -159,7 +159,9 @@ const DEFAULT_STATE: CollectionBrowserData = {
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
  */
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+const storage = createJSONStorage(() =>
+  createDebouncedStorageAdapter(createSafeJsonStorageAdapter(), { delayMs: 500 })
+);
 
 function migratePersistedState(
   persistedState: unknown,
@@ -173,14 +175,22 @@ function migratePersistedState(
     return snapshot;
   }
 
-  // Chain future version migrations here (v3->v4, etc.) to preserve upgrade paths.
+  const {
+    searchQuery: _searchQuery,
+    semanticQuery: _semanticQuery,
+    ...withoutTransientQueries
+  } = snapshot;
+
+  // Chain future version migrations here (v4->v5, etc.) to preserve upgrade paths.
   if (version < 3) {
     const { contextSelectedIds: _contextSelectedIds, ...rest } =
-      snapshot as PersistedCollectionBrowserData & { contextSelectedIds?: unknown };
+      withoutTransientQueries as PersistedCollectionBrowserData & {
+        contextSelectedIds?: unknown;
+      };
     return rest;
   }
 
-  return snapshot;
+  return withoutTransientQueries;
 }
 
 /**
@@ -328,12 +338,10 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigRetrievalMode: s.searchConfigRetrievalMode,
         searchConfigThreshold: s.searchConfigThreshold,
         searchConfigVectorWeight: s.searchConfigVectorWeight,
-        // Semantic search state
+        // Semantic search configuration; query text remains session-scoped.
         searchMode: s.searchMode,
         searchPanelExpanded: s.searchPanelExpanded,
-        searchQuery: s.searchQuery,
         selectedId: s.selectedId,
-        semanticQuery: s.semanticQuery,
         sortState: s.sortState,
       }),
       storage,

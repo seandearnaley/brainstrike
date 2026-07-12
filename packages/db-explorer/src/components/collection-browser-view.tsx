@@ -55,7 +55,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
 import { type BrowserNodeDescriptor, browserNodeToTarget } from '../context-actions';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
-import { useCollectionBrowserStore } from '../stores/collection-browser-store';
+import {
+  collectionBrowserSelectors,
+  useCollectionBrowserStore,
+} from '../stores/collection-browser-store';
 import type {
   DatabaseFileChunkSummary,
   DatabaseFileRecordSummary,
@@ -385,57 +388,72 @@ export function CollectionBrowserView({
   loadFileChunkSummaries,
   pagination,
 }: CollectionBrowserViewProps) {
-  // Use persistent store for all UI state
-  const {
-    expandedIds,
-    selectedId,
-    sortState,
-    isInspectorCollapsed,
-    inspectorWidth,
-    setExpandedIds,
-    removeExpandedIds,
-    setSelectedId,
-    setSortState,
-    setInspectorCollapsed,
-    setInspectorWidth,
-    // Filter state from store
-    searchQuery,
-    nodeTypes,
-    embeddingStatus,
-    setSearchQuery,
-    setNodeTypes,
-    setEmbeddingStatus,
-    // Semantic search state from store
-    searchMode,
-    semanticQuery,
-    searchConfigThreshold,
-    searchConfigLimit,
-    searchConfigDistanceMetric,
-    // Hybrid search state from store
-    searchConfigRetrievalMode,
-    searchConfigVectorWeight,
-    searchConfigFtsWeight,
-    searchPanelExpanded,
-    setSearchMode,
-    setSemanticQuery,
-    setSearchConfigThreshold,
-    setSearchConfigLimit,
-    setSearchConfigDistanceMetric,
-    // Hybrid search setters
-    setSearchConfigRetrievalMode,
-    setSearchConfigVectorWeight,
-    setSearchConfigFtsWeight,
-    setSearchPanelExpanded,
-    // Grouping and checkbox state
-    groupBy,
-    showCheckbox,
-    multiSelectEnabled,
-    setGroupBy,
-    setShowCheckbox,
-    setMultiSelectEnabled,
-    toggleExpanded,
-    expandIds,
-  } = useCollectionBrowserStore();
+  const expandedIds = useCollectionBrowserStore(collectionBrowserSelectors.expandedIds);
+  const selectedId = useCollectionBrowserStore(collectionBrowserSelectors.selectedId);
+  const sortState = useCollectionBrowserStore(collectionBrowserSelectors.sortState);
+  const isInspectorCollapsed = useCollectionBrowserStore(
+    collectionBrowserSelectors.isInspectorCollapsed
+  );
+  const inspectorWidth = useCollectionBrowserStore(collectionBrowserSelectors.inspectorWidth);
+  const searchQuery = useCollectionBrowserStore(collectionBrowserSelectors.searchQuery);
+  const nodeTypes = useCollectionBrowserStore(collectionBrowserSelectors.nodeTypes);
+  const embeddingStatus = useCollectionBrowserStore(collectionBrowserSelectors.embeddingStatus);
+  const searchMode = useCollectionBrowserStore(collectionBrowserSelectors.searchMode);
+  const semanticQuery = useCollectionBrowserStore(collectionBrowserSelectors.semanticQuery);
+  const searchConfigThreshold = useCollectionBrowserStore((state) => state.searchConfigThreshold);
+  const searchConfigLimit = useCollectionBrowserStore((state) => state.searchConfigLimit);
+  const searchConfigDistanceMetric = useCollectionBrowserStore(
+    (state) => state.searchConfigDistanceMetric
+  );
+  const searchConfigRetrievalMode = useCollectionBrowserStore(
+    (state) => state.searchConfigRetrievalMode
+  );
+  const searchConfigVectorWeight = useCollectionBrowserStore(
+    (state) => state.searchConfigVectorWeight
+  );
+  const searchConfigFtsWeight = useCollectionBrowserStore((state) => state.searchConfigFtsWeight);
+  const searchPanelExpanded = useCollectionBrowserStore(
+    collectionBrowserSelectors.searchPanelExpanded
+  );
+  const groupBy = useCollectionBrowserStore(collectionBrowserSelectors.groupBy);
+  const showCheckbox = useCollectionBrowserStore(collectionBrowserSelectors.showCheckbox);
+  const multiSelectEnabled = useCollectionBrowserStore(
+    collectionBrowserSelectors.multiSelectEnabled
+  );
+
+  const setExpandedIds = useCollectionBrowserStore((state) => state.setExpandedIds);
+  const removeExpandedIds = useCollectionBrowserStore((state) => state.removeExpandedIds);
+  const setSelectedId = useCollectionBrowserStore((state) => state.setSelectedId);
+  const setSortState = useCollectionBrowserStore((state) => state.setSortState);
+  const setInspectorCollapsed = useCollectionBrowserStore((state) => state.setInspectorCollapsed);
+  const setInspectorWidth = useCollectionBrowserStore((state) => state.setInspectorWidth);
+  const setSearchQuery = useCollectionBrowserStore((state) => state.setSearchQuery);
+  const setNodeTypes = useCollectionBrowserStore((state) => state.setNodeTypes);
+  const setEmbeddingStatus = useCollectionBrowserStore((state) => state.setEmbeddingStatus);
+  const setSearchMode = useCollectionBrowserStore((state) => state.setSearchMode);
+  const setSemanticQuery = useCollectionBrowserStore((state) => state.setSemanticQuery);
+  const setSearchConfigThreshold = useCollectionBrowserStore(
+    (state) => state.setSearchConfigThreshold
+  );
+  const setSearchConfigLimit = useCollectionBrowserStore((state) => state.setSearchConfigLimit);
+  const setSearchConfigDistanceMetric = useCollectionBrowserStore(
+    (state) => state.setSearchConfigDistanceMetric
+  );
+  const setSearchConfigRetrievalMode = useCollectionBrowserStore(
+    (state) => state.setSearchConfigRetrievalMode
+  );
+  const setSearchConfigVectorWeight = useCollectionBrowserStore(
+    (state) => state.setSearchConfigVectorWeight
+  );
+  const setSearchConfigFtsWeight = useCollectionBrowserStore(
+    (state) => state.setSearchConfigFtsWeight
+  );
+  const setSearchPanelExpanded = useCollectionBrowserStore((state) => state.setSearchPanelExpanded);
+  const setGroupBy = useCollectionBrowserStore((state) => state.setGroupBy);
+  const setShowCheckbox = useCollectionBrowserStore((state) => state.setShowCheckbox);
+  const setMultiSelectEnabled = useCollectionBrowserStore((state) => state.setMultiSelectEnabled);
+  const toggleExpanded = useCollectionBrowserStore((state) => state.toggleExpanded);
+  const expandIds = useCollectionBrowserStore((state) => state.expandIds);
 
   // Column widths are persisted independently from the rest of the collection
   // browser state so factory-reset + schema migration stays scoped per-surface.
