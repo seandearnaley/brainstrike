@@ -55,6 +55,33 @@ function sortSection(
 }
 
 /**
+ * Effective group membership for every loaded thread: the placement's group id
+ * when that group still exists, otherwise null (Ungrouped). The panel's drag
+ * sources and the section builder below both read membership from here so the
+ * two can never disagree.
+ */
+export function buildThreadMembership({
+  groups,
+  placements,
+  threads,
+}: {
+  readonly groups: readonly AssistantThreadGroup[];
+  readonly placements: readonly AssistantThreadPlacement[];
+  readonly threads: readonly AssistantMemoryThread[];
+}): ReadonlyMap<string, string | null> {
+  const groupIds = new Set(groups.map((group) => group.id));
+  const placementByThreadId = new Map(
+    placements.map((placement) => [placement.threadId, placement])
+  );
+  return new Map(
+    threads.map((thread) => {
+      const groupId = placementByThreadId.get(thread.id)?.groupId ?? null;
+      return [thread.id, groupId !== null && groupIds.has(groupId) ? groupId : null];
+    })
+  );
+}
+
+/**
  * Pure grouping/sorting core for the Threads panel. Placements referencing
  * unknown threads are ignored; placements referencing deleted groups fall back
  * to Ungrouped. Groups are ordered by their fractional rank; the Ungrouped
@@ -83,11 +110,9 @@ export function buildThreadListSections({
     return { kind: 'flat', threads: sortSection(threads, sortBy, rankByThreadId) };
   }
 
-  const groupIds = new Set(groups.map((group) => group.id));
+  const membership = buildThreadMembership({ groups, placements, threads });
   const groupIdByThreadId = new Map(
-    livePlacements
-      .filter((placement) => placement.groupId !== null && groupIds.has(placement.groupId))
-      .map((placement) => [placement.threadId, placement.groupId as string])
+    [...membership.entries()].filter(([, groupId]) => groupId !== null) as [string, string][]
   );
 
   const orderedGroups = [...groups].sort((left, right) =>
