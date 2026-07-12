@@ -55,7 +55,12 @@ export default defineConfig({
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     // Use forks pool with parallelization for better performance
     pool: 'forks',
-    // Set a reasonable timeout for unit tests
-    testTimeout: 10_000,
+    // PGlite WASM init + migrate inside beforeEach hooks exceeds the 10s
+    // default under loaded CI runners (embedding-worker-db-completion.test.ts
+    // failed this way twice on whole-repo Unit runs); 30s matches
+    // packages/db's heavy-lane precedent (vitest.config.mts hookTimeout).
+    hookTimeout: 30_000,
+    // Same mechanism for PGlite-backed test bodies; matches db's 30s lane.
+    testTimeout: 30_000,
   },
 });
