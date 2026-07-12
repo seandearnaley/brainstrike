@@ -44,7 +44,7 @@ describe('resolveCumulativeUsageDisplay', () => {
     // total = 0.02275
     if (display?.cost.available) {
       expect(display.cost.usdAmount).toBeCloseTo(0.022_75, 8);
-      expect(display.cost.provenance).toBe('exact-pricing');
+      expect(display.cost.provenance).toBe('captured-usage-estimate');
     }
   });
 

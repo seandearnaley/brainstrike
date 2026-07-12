@@ -13,7 +13,7 @@ import {
   DataStreamDecoder,
   toGenericMessages,
   toToolsJSONSchema,
-  // This runtime is pinned to assistant-stream 0.3.11 because tool result
+  // This runtime is pinned to assistant-stream 0.3.25 because tool result
   // streaming is still exported behind the unstable API surface.
   unstable_toolResultStream,
 } from 'assistant-stream';
@@ -362,6 +362,40 @@ function buildUsageTap(
   });
 }
 
+/**
+ * assistant-stream's decoder emits `message-finish` before it flushes the
+ * active implicit text/reasoning part. The accumulator therefore exposes a
+ * completed message while inner part streams are still draining. If the user
+ * immediately sends the next turn, assistant-ui aborts that visually complete
+ * run and a late append can target an already-closed text controller.
+ *
+ * Buffer the one terminal message marker until decoder EOF so every part-finish
+ * reaches the accumulator before the UI observes completion.
+ */
+function deferMessageFinishUntilFlush(): TransformStream<
+  AssistantStreamChunk,
+  AssistantStreamChunk
+> {
+  let pendingFinish: AssistantStreamChunk | undefined;
+  return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
+    flush(controller) {
+      if (pendingFinish) {
+        controller.enqueue(pendingFinish);
+      }
+    },
+    transform(chunk, controller) {
+      if (chunk.type === 'message-finish') {
+        if (pendingFinish) {
+          throw new Error('Assistant data stream emitted more than one message-finish chunk.');
+        }
+        pendingFinish = chunk;
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  });
+}
+
 export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
   constructor(private readonly optionsSource: BrainstrikeDataStreamRuntimeOptionsSource) {}
 
@@ -466,7 +500,9 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       // Only insert the usage tap when a consumer is wired; the common
       // no-onUsage path keeps the original decoder → tool-result pipeline.
       const onUsage = this.options.onUsage;
-      const decoded = response.body.pipeThrough(new DataStreamDecoder());
+      const decoded = response.body
+        .pipeThrough(new DataStreamDecoder())
+        .pipeThrough(deferMessageFinishUntilFlush());
       const tapped = onUsage ? decoded.pipeThrough(buildUsageTap(onUsage)) : decoded;
 
       const stream = tapped
@@ -483,6 +519,11 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       }
       this.options.onFinish?.(unstable_getMessage());
     } catch (error: unknown) {
+      if (abortSignal.aborted) {
+        throw (
+          abortSignal.reason ?? new DOMException('Assistant request was aborted.', 'AbortError')
+        );
+      }
       this.reportError(error);
       throw error;
     }

@@ -7,8 +7,9 @@ import type { ThreadCumulativeUsage } from './assistant-memory-repository';
 
 /**
  * Resolved cumulative-usage view for the context meter. Tokens are the durable
- * thread total; `cost` is a discriminated CostEstimate (never $0 for an
- * unavailable price — see the no-silent-fallbacks rule).
+ * CAPTURED thread total; subagents, observational memory, embeddings, and some
+ * paused/resumed legs are not yet itemized. `cost` therefore carries captured-
+ * usage estimate provenance, never an unqualified exact-total claim.
  */
 export interface CumulativeUsageDisplay {
   readonly cost: CostEstimate;
@@ -22,7 +23,7 @@ export type ModelPricingResolver = (
 ) => ModelTokenPricing | undefined;
 
 /**
- * Aggregate durable per-model usage into a single cumulative display value.
+ * Aggregate captured durable per-model usage into a cumulative display value.
  *
  * Cost is summed ACROSS MODELS: each per-model subtotal is priced with that
  * model's own registry rate, then totalled. A thread that mixed a priced and an
@@ -63,7 +64,7 @@ export function resolveCumulativeUsageDisplay(
   }
 
   return {
-    cost: { available: true, provenance: 'exact-pricing', usdAmount: summedUsd },
+    cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: summedUsd },
     totalTokens,
   };
 }

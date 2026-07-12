@@ -51,7 +51,7 @@ function resolveDisplayName(row: CrossRootUsageRow): string {
 }
 
 /**
- * Aggregate durable per-(root, model) usage into per-root cost rows.
+ * Aggregate captured durable per-(root, model) usage into per-root cost rows.
  *
  * Cost is priced PER MODEL with that model's own registry rate, then summed
  * within each root. A root that mixed a priced and an unpriced model is
@@ -98,7 +98,11 @@ export function resolveCrossRootCostRows(
     }
     const cost: CostEstimate = aggregate.hasUnpriced
       ? { available: false, reason: 'unpriced_model' }
-      : { available: true, provenance: 'exact-pricing', usdAmount: aggregate.cost };
+      : {
+          available: true,
+          provenance: 'captured-usage-estimate',
+          usdAmount: aggregate.cost,
+        };
     return {
       cost,
       displayName: aggregate.displayName,

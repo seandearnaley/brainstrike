@@ -42,7 +42,11 @@ export interface TokenUsageCounts {
  * branch.
  */
 export type CostEstimate =
-  | { available: true; usdAmount: number; provenance: 'exact-pricing' }
+  | {
+      available: true;
+      usdAmount: number;
+      provenance: 'captured-usage-estimate' | 'exact-pricing';
+    }
   | { available: false; reason: 'unpriced_model' | 'usage_unavailable' };
 
 function assertFiniteNonNegative(value: number, label: string): void {

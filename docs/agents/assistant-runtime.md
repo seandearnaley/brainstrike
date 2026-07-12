@@ -83,7 +83,13 @@ text/reasoning append in assistant-stream's accumulator, slicing visible text
 into fragments. `DataStreamMapper` therefore defers run events that arrive
 while a text/reasoning part is streaming and flushes them at the next boundary
 (tool start, approval, finish, error, stream end) — never drop them, never
-emit them mid-part (proof: data-stream-text-continuity.spec.ts).
+emit them mid-part (proof: data-stream-text-continuity.spec.ts). The renderer's
+data-stream runtime also defers assistant-stream's decoded `message-finish` until
+decoder flush: assistant-stream 0.3.25 emits that marker before its trailing
+`part-finish`, and exposing completion early lets an immediate next turn abort a
+still-draining text controller. Aborted runs propagate the authoritative abort
+reason without surfacing cancellation teardown as a new assistant error; server
+subscriptions detach on cancel without double-closing their stream controller.
 
 Live shell output (executeCommand streaming): `executeCommand` streams its
 subprocess stdout/stderr incrementally through Mastra's tool `writer` as it is
@@ -160,15 +166,20 @@ Flow (desktop assistant server → agent runtime):
    → `TOOL_APPROVAL_DATA_NAME` data part → `assistant-tool-approval-notice.tsx`)
    prompts the user; approve→execute, decline→skip. The chunk carries an optional
    `riskCategory`/`policyDecision` so the notice can name the reason. The
+   data-stream mapper correlates Mastra's transient tool error emitted before a
+   deliberate `suspend()` and suppresses only that call's false failure fallback;
+   unrelated tool failures remain visible. The
    approve/decline resume (`streamMastraToolApprovalAction`) passes
    `requireToolApproval: true` (the resume API needs it); the gate runs again on
    resume so the ask tools keep their per-tool flag. Because run-wide
-   `requireToolApproval: true` would suspend EVERY tool call on the resumed leg —
-   including Mastra's INTERNAL memory tools (`updateWorkingMemory`) —
+   `requireToolApproval: true` would suspend EVERY tool call on the resumed leg,
    `resolveResumeApprovalGate` (agent-runtime.ts) substitutes the FUNCTION form of
-   the gate, exempting the canonical internal ids
-   (`internal-approval-exempt-tools.ts`: `updateWorkingMemory`/`setWorkingMemory`)
-   so memory bookkeeping never prompts while genuine mutation tools still suspend.
+   the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
+   read/internal-state tools keep running, ask-gated mutations may suspend again,
+   and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
+   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt. An empty
+   policy ask set denotes an explicitly global approval request, so its resumed
+   leg continues gating every non-internal tool.
 
 Migration (enforce-on is a SECURITY fix): the store bumps to v2. Under v1,
 `false` was the default AND always persisted, so a pre-v2 `false` slice is
@@ -491,5 +502,3 @@ assistant-server resume-dispatch tests; and the UI suspend-notice tests.
 When changing this flow, update this section and the paired tests.
 
 ---
-
-

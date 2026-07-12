@@ -1159,8 +1159,9 @@ describe('mastra streaming integration', () => {
       runId: 'run-approval-1',
       toolCallId: 'tool-call-1',
     });
-    // Run-wide `true` becomes the function form so Mastra-internal tools are
-    // exempt on the resume leg (D4); genuine tools still require approval.
+    // This fixture has no permission-policy ask set, so the approval was
+    // explicitly global. The resumed leg must keep gating every non-internal
+    // follow-up tool while exempting Mastra's memory bookkeeping.
     const approveGate = agent?.approveToolCallCalls[0]?.requireToolApproval as (ctx: {
       toolName: string;
     }) => boolean;
@@ -1209,7 +1210,7 @@ describe('mastra streaming integration', () => {
       runId: 'run-approval-2',
       toolCallId: 'tool-call-2',
     });
-    // Same D4 exemption gate on the decline resume leg.
+    // The decline resume leg preserves the same explicit global gate.
     const declineGate = agent?.declineToolCallCalls[0]?.requireToolApproval as (ctx: {
       toolName: string;
     }) => boolean;

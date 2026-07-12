@@ -116,19 +116,24 @@ function createTurnCountedToolCallModel(args: {
 }
 
 /**
- * A three-turn scripted model for the D4 resume-exemption proof:
+ * A three-turn scripted model for resume-gate proofs:
  *   turn 1 (initial)          → call the ask tool (suspends for approval)
- *   turn 2 (resume continues) → call Mastra's internal `updateWorkingMemory`
+ *   turn 2 (resume continues) → call the configured follow-up tool
  *   turn 3                    → final text
- * On the resume leg the run passes run-wide `requireToolApproval: true`; the D4
- * fix must let `updateWorkingMemory` run WITHOUT a second approval prompt.
+ * The follow-up proves the run-wide resume flag still honors the rebuilt
+ * runtime's per-tool permission decision.
  */
-function createAskThenWorkingMemoryModel(args: {
+function createAskThenToolCallModel(args: {
   askToolName: string;
   askToolCallId: string;
   askInput: string;
-  workingMemoryCallId: string;
   finalText: string;
+  secondInput: string;
+  secondToolCallId: string;
+  secondToolName: string;
+  thirdInput?: string;
+  thirdToolCallId?: string;
+  thirdToolName?: string;
 }): LanguageModelV2 {
   let turn = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
@@ -158,11 +163,12 @@ function createAskThenWorkingMemoryModel(args: {
       }
       if (turn === 2) {
         return Promise.resolve({
-          stream: toolCall(
-            'updateWorkingMemory',
-            args.workingMemoryCallId,
-            JSON.stringify({ memory: '# Notes\n- user likes tests' })
-          ),
+          stream: toolCall(args.secondToolName, args.secondToolCallId, args.secondInput),
+        });
+      }
+      if (turn === 3 && args.thirdInput && args.thirdToolCallId && args.thirdToolName) {
+        return Promise.resolve({
+          stream: toolCall(args.thirdToolName, args.thirdToolCallId, args.thirdInput),
         });
       }
       const id = 'text-final';
@@ -684,6 +690,182 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     await database.close();
   });
 
+  it('lets an allowed read tool run free after an ask tool is approved', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const readExecute = vi.fn((inputData: { path: string }) =>
+      Promise.resolve({ contents: `body of ${inputData.path}` })
+    );
+    const askTool = makeAskTool(askExecute);
+    const readTool = createTool({
+      description: 'A read-only tool (allow).',
+      execute: readExecute,
+      id: 'read_tool',
+      inputSchema: z.object({ path: z.string() }),
+      outputSchema: z.object({ contents: z.string() }),
+    });
+    const policy = {
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: { read_tool: 'read', shell_tool: 'execute' },
+      yolo: false,
+    } as const;
+    const thread = { resourceId: 'resource-resume-read', threadId: 'thread-resume-read' } as const;
+
+    modelHolder.current = createAskThenToolCallModel({
+      askInput: JSON.stringify({ command: 'echo hi' }),
+      askToolCallId: 'call-ask-resume-read',
+      askToolName: 'shell_tool',
+      finalText: 'Read after approval.',
+      secondInput: JSON.stringify({ path: '/README.md' }),
+      secondToolCallId: 'call-read-after-approval',
+      secondToolName: 'read_tool',
+    });
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-resume-read', parts: [{ text: 'run then read', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: policy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { read_tool: readTool, shell_tool: askTool },
+        }
+      )
+    );
+    const approval = findApprovalChunk(suspendChunks);
+
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: policy,
+            provider: 'openai',
+          },
+          storage,
+          tools: { read_tool: readTool, shell_tool: askTool },
+        }
+      )
+    );
+
+    expect(askExecute).toHaveBeenCalledTimes(1);
+    expect(readExecute).toHaveBeenCalledTimes(1);
+    expect(
+      resumeChunks.find(
+        (chunk) => chunk.type === 'tool-approval-required' && chunk.toolName === 'read_tool'
+      )
+    ).toBeUndefined();
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
+
+  it('keeps an allowed read free after two consecutive ask approvals', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const readExecute = vi.fn((inputData: { path: string }) =>
+      Promise.resolve({ contents: inputData.path })
+    );
+    const readTool = createTool({
+      description: 'A read-only tool.',
+      execute: readExecute,
+      id: 'read_tool',
+      inputSchema: z.object({ path: z.string() }),
+      outputSchema: z.object({ contents: z.string() }),
+    });
+    const policy = {
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: { read_tool: 'read', shell_tool: 'execute' },
+      yolo: false,
+    } as const;
+    const runtime = {
+      apiKey: 'test-key',
+      memory: { resourceId: 'resource-two-asks', threadId: 'thread-two-asks' },
+      permissionPolicy: policy,
+      provider: 'openai',
+    } as const;
+    const tools = { read_tool: readTool, shell_tool: makeAskTool(askExecute) };
+
+    modelHolder.current = createAskThenToolCallModel({
+      askInput: JSON.stringify({ command: 'echo one' }),
+      askToolCallId: 'call-ask-one',
+      askToolName: 'shell_tool',
+      finalText: 'Finished after reading.',
+      secondInput: JSON.stringify({ command: 'echo two' }),
+      secondToolCallId: 'call-ask-two',
+      secondToolName: 'shell_tool',
+      thirdInput: JSON.stringify({ path: '/README.md' }),
+      thirdToolCallId: 'call-read-after-two-asks',
+      thirdToolName: 'read_tool',
+    });
+
+    const initialChunks = await drainYielding(
+      await streamMastraAgent(
+        [
+          {
+            id: 'u-two-asks',
+            parts: [{ text: 'run twice then read', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        { memory, runtime, storage, tools }
+      )
+    );
+    const firstApproval = findApprovalChunk(initialChunks);
+    const firstResumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: firstApproval?.runId ?? '',
+          toolCallId: firstApproval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        { memory, requireToolApproval: true, runtime, storage, tools }
+      )
+    );
+    const secondApproval = findApprovalChunk(firstResumeChunks);
+    expect(secondApproval?.toolCallId).toBe('call-ask-two');
+
+    const finalChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: secondApproval?.runId ?? '',
+          toolCallId: secondApproval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        { memory, requireToolApproval: true, runtime, storage, tools }
+      )
+    );
+
+    expect(askExecute).toHaveBeenCalledTimes(2);
+    expect(readExecute).toHaveBeenCalledTimes(1);
+    expect(finalChunks.some((chunk) => chunk.type === 'tool-approval-required')).toBe(false);
+    expect(finalChunks.some((chunk) => chunk.type === 'message-finish')).toBe(true);
+
+    await database.close();
+  });
+
   it('D4: the resume leg does NOT prompt approval for Mastra-internal updateWorkingMemory', async () => {
     // The resume passes run-wide requireToolApproval: true (required by the resume
     // API). Without the D4 exemption that blanket gate suspends EVERY tool call on
@@ -698,12 +880,14 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     const askTool = makeAskTool(askExecute);
     const thread = { resourceId: 'resource-d4-wm', threadId: 'thread-d4-wm' } as const;
 
-    modelHolder.current = createAskThenWorkingMemoryModel({
+    modelHolder.current = createAskThenToolCallModel({
       askInput: JSON.stringify({ command: 'echo hi' }),
       askToolCallId: 'call-ask-d4-1',
       askToolName: 'shell_tool',
       finalText: 'Noted and finished.',
-      workingMemoryCallId: 'call-wm-d4-1',
+      secondInput: JSON.stringify({ memory: '# Notes\n- user likes tests' }),
+      secondToolCallId: 'call-wm-d4-1',
+      secondToolName: 'updateWorkingMemory',
     });
 
     // ── Phase 1: initial turn suspends on the ask tool ──

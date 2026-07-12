@@ -49,6 +49,7 @@ describe('resolveCrossRootCostRows', () => {
       // openai: (1000*1.25 + 200*10)/1e6 = 0.00325
       // anthropic: (500*15 + 100*120)/1e6 = 0.0195
       expect(rootA.cost.usdAmount).toBeCloseTo(0.022_75, 8);
+      expect(rootA.cost.provenance).toBe('captured-usage-estimate');
     }
   });
 

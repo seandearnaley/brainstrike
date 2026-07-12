@@ -1911,17 +1911,24 @@ function validateToolApprovalAction(action: AssistantToolApprovalAction): void {
 /**
  * The approval RESUME leg passes Mastra's run-wide `requireToolApproval: true`
  * (the resume API needs it — see docs/agents/assistant-runtime.md PERMISSION ENGINE). A blanket `true`
- * gates EVERY tool call on the resumed run, so Mastra's INTERNAL memory tools
- * (`updateWorkingMemory`) would surface a spurious approval prompt (the D4
- * defect). Substitute the FUNCTION form of the gate so internal bookkeeping tools
- * run free while genuine mutation tools still suspend. A caller-supplied function
- * or a non-`true` value passes through unchanged.
+ * gates EVERY tool call on the resumed run. Substitute the FUNCTION form so the
+ * rebuilt runtime reuses the permission gate's authoritative `askTools` set:
+ * allowed read/state tools run free, ask-gated mutations can suspend again, and
+ * Mastra's internal memory tools remain exempt. An empty ask set means the
+ * approval was explicitly global rather than policy-scoped, so every
+ * non-internal follow-up remains gated. A caller-supplied function or a
+ * non-`true` value passes through unchanged.
  */
-function resolveResumeApprovalGate(requireToolApproval: ApprovalGate | undefined): ApprovalGate {
+function resolveResumeApprovalGate(
+  requireToolApproval: ApprovalGate | undefined,
+  askTools: ReadonlyMap<string, PermissionAskToolMetadata>
+): ApprovalGate {
   if (requireToolApproval !== true) {
     return requireToolApproval ?? false;
   }
-  return ({ toolName }: { toolName: string }): boolean => !isApprovalExemptInternalTool(toolName);
+  const isExplicitGlobalApproval = askTools.size === 0;
+  return ({ toolName }: { toolName: string }): boolean =>
+    !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
 }
 
 async function createToolApprovalIteratorFromRuntime({
@@ -1951,11 +1958,13 @@ async function createToolApprovalIteratorFromRuntime({
       ...(runtime.personasById.size > 0
         ? { delegation: createDelegationConfig({ logger, personasById: runtime.personasById }) }
         : {}),
-      // Exempt Mastra-internal tools (updateWorkingMemory) from the run-wide
-      // approval gate on the resume leg (D4).
+      // Reapply the per-tool permission decisions instead of letting Mastra's
+      // run-wide resume flag gate every subsequent tool call.
       ...(requireToolApproval === undefined
         ? {}
-        : { requireToolApproval: resolveResumeApprovalGate(requireToolApproval) }),
+        : {
+            requireToolApproval: resolveResumeApprovalGate(requireToolApproval, runtime.askTools),
+          }),
     };
 
     const streamResult =
