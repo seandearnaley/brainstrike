@@ -60,8 +60,16 @@ export type UserSlashCommandReadResult =
   | { readonly ok: false; readonly reason: 'unreadable' | 'oversized' };
 
 export interface UserSlashCommandScanDeps {
-  /** List a directory's immediate entries; `null` when it is missing/unreadable. */
-  readonly listDir: (absDir: string) => readonly UserSlashCommandDirEntry[] | null;
+  /** List at most `maxEntries`; report truncation, or `null` when unreadable. */
+  readonly listDir: (
+    absDir: string,
+    containmentRoot: string,
+    maxEntries: number
+  ) => {
+    readonly entries: readonly UserSlashCommandDirEntry[];
+    readonly inspected: number;
+    readonly truncated: boolean;
+  } | null;
   /** Read a file's UTF-8 content, or a typed failure (`unreadable`/`oversized`). */
   readonly readFile: (absFile: string) => UserSlashCommandReadResult;
 }
@@ -138,13 +146,14 @@ function joinPath(base: string, segments: readonly string[]): string {
 }
 
 interface ScanSource {
+  readonly containmentRoot: string;
   /** Owning root id for project-scoped tiers; undefined for global tiers. */
   readonly sourceRootId?: string;
 }
 
 /**
  * Mutable traversal budget threaded through the recursive collection (P2-A):
- * `remaining` candidate slots left; `truncated` flips when the budget stopped
+ * `remaining` directory entries left; `truncated` flips when the budget stopped
  * traversal early (surfaced as the count-cap warn by the caller). Bounding the
  * TRAVERSAL — not just the accepted result — is the point: the scan runs
  * synchronous `readdirSync`/`statSync` on Electron main (and re-runs on
@@ -168,6 +177,7 @@ function collectMarkdownFiles(
   baseDir: string,
   deps: UserSlashCommandScanDeps,
   budget: TraversalBudget,
+  containmentRoot: string,
   relativeSegments: readonly string[] = []
 ): { readonly absPath: string; readonly relativePath: string }[] {
   if (budget.remaining <= 0) {
@@ -175,17 +185,19 @@ function collectMarkdownFiles(
     return [];
   }
   const dirPath = relativeSegments.length > 0 ? joinPath(baseDir, relativeSegments) : baseDir;
-  const entries = deps.listDir(dirPath);
-  if (!entries) {
+  const listing = deps.listDir(dirPath, containmentRoot, budget.remaining);
+  if (!listing) {
     return [];
   }
+  budget.remaining -= listing.inspected;
+  budget.truncated ||= listing.truncated;
   const files: { absPath: string; relativePath: string }[] = [];
-  for (const entry of entries) {
-    if (budget.remaining <= 0) {
-      budget.truncated = true;
-      break;
-    }
+  for (const entry of listing.entries) {
     if (entry.isDirectory) {
+      if (budget.remaining <= 0) {
+        budget.truncated = true;
+        continue;
+      }
       if (relativeSegments.length >= MAX_USER_COMMAND_SCAN_DEPTH) {
         if (!warnedDepthCapReached) {
           warnedDepthCapReached = true;
@@ -196,13 +208,13 @@ function collectMarkdownFiles(
         }
         continue;
       }
-      files.push(...collectMarkdownFiles(baseDir, deps, budget, [...relativeSegments, entry.name]));
+      const childSegments = [...relativeSegments, entry.name];
+      files.push(...collectMarkdownFiles(baseDir, deps, budget, containmentRoot, childSegments));
       continue;
     }
     if (entry.isFile && MD_EXTENSION.test(entry.name)) {
       const relativePath = [...relativeSegments, entry.name].join('/');
       files.push({ absPath: joinPath(baseDir, [...relativeSegments, entry.name]), relativePath });
-      budget.remaining -= 1;
     }
   }
   return files;
@@ -297,12 +309,10 @@ function ingestDirectory(
     warnCountCapReached();
     return;
   }
-  // The budget counts CANDIDATES (bounding traversal work); candidates later
-  // skipped as duplicates/malformed still consumed budget, so an adversarial
-  // duplicate-heavy tree may yield fewer than the cap — the honest tradeoff for
-  // never walking an unbounded tree (the truncation is warned either way).
+  // Every enumerated entry consumes budget, including directories and ignored
+  // files, so hostile trees cannot hide unbounded work behind non-candidates.
   const budget: TraversalBudget = { remaining, truncated: false };
-  const files = collectMarkdownFiles(baseDir, deps, budget);
+  const files = collectMarkdownFiles(baseDir, deps, budget, source.containmentRoot);
   if (budget.truncated) {
     warnCountCapReached();
   }
@@ -351,31 +361,38 @@ export function scanUserSlashCommands(
 ): UserSlashCommandDescriptor[] {
   const seen = new Map<string, string | undefined>();
   const ordered: UserSlashCommandDescriptor[] = [];
+  const global = { containmentRoot: input.homeDir };
 
   // Tier 1: <root>/.brainstrike/commands (mounted order).
   for (const root of input.roots) {
     ingestDirectory(
       joinPath(root.absPath, COMMANDS_SUBPATHS.brainstrike),
-      { sourceRootId: root.id },
+      { containmentRoot: root.absPath, sourceRootId: root.id },
       deps,
       seen,
       ordered
     );
   }
   // Tier 2: ~/.brainstrike/commands.
-  ingestDirectory(joinPath(input.homeDir, COMMANDS_SUBPATHS.brainstrike), {}, deps, seen, ordered);
+  ingestDirectory(
+    joinPath(input.homeDir, COMMANDS_SUBPATHS.brainstrike),
+    global,
+    deps,
+    seen,
+    ordered
+  );
   // Tier 3: <root>/.claude/commands (mounted order).
   for (const root of input.roots) {
     ingestDirectory(
       joinPath(root.absPath, COMMANDS_SUBPATHS.claude),
-      { sourceRootId: root.id },
+      { containmentRoot: root.absPath, sourceRootId: root.id },
       deps,
       seen,
       ordered
     );
   }
   // Tier 4: ~/.claude/commands.
-  ingestDirectory(joinPath(input.homeDir, COMMANDS_SUBPATHS.claude), {}, deps, seen, ordered);
+  ingestDirectory(joinPath(input.homeDir, COMMANDS_SUBPATHS.claude), global, deps, seen, ordered);
 
   return ordered;
 }

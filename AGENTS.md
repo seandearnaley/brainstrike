@@ -1333,9 +1333,16 @@ the main process; web has no `window.userCommands` bridge and the hook returns
   Command `.md` files are UNTRUSTED repo content, so the scan is BOUNDED
   (`user-slash-commands-loader.ts`): a per-file cap `MAX_USER_COMMAND_FILE_CHARS`
   (64K) skips oversized files with a visible warn-once (the real-disk `readFile`
-  also `statSync`-gates so main never blocking-reads a giant file), and a
+  also descriptor-gates so main never blocking-reads a giant file), and a
   `MAX_USER_COMMANDS` (500) count cap ignores the rest with a warn — never a
-  silent truncation or a hard error that kills the whole scan.
+  silent truncation or a hard error that kills the whole scan. The real-disk
+  adapter opens the canonical mounted root as a native `SecureRoot` capability
+  (`@brainstrike/secure-fs-native`). POSIX traversal uses component-by-component
+  `openat(..., O_NOFOLLOW)`; Windows uses handle-relative `NtCreateFile` with
+  `RootDirectory`, `OBJ_DONT_REPARSE`, and `FILE_OPEN_REPARSE_POINT`. Directory
+  enumeration and bounded file reads stay relative to that pinned handle, so
+  roots cannot borrow one another's trust or win a parent-path swap race. There
+  is no path-based fallback; missing native support fails closed.
 - **Frontmatter:** hand-rolled `---\nkey: value\n---` parser
   (`parseUserCommandFile` in packages/assistant-contract — NO YAML dep) for
   `name`/`description` only; unknown keys ignored, and Claude Code multiline-YAML

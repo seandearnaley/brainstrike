@@ -14,7 +14,8 @@
     ],
     "npmRebuild": true,
     "asarUnpack": [
-      "**/node_modules/node-pty/prebuilds/**"
+      "**/node_modules/node-pty/prebuilds/**",
+      "**/node_modules/@brainstrike/secure-fs-native/build/Release/*.node"
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -44,6 +45,7 @@
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
+    "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
