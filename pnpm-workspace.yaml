@@ -37,3 +37,5 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@mastra/core@1.50.0'
   - '@mastra/mcp@1.13.1'
+patchedDependencies:
+  '@vitest/runner@4.1.9': patches/@vitest__runner@4.1.9.patch
