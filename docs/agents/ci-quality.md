@@ -18,6 +18,20 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+### @vitest/runner teardown patch (pnpm patch)
+
+`patches/@vitest__runner@4.1.9.patch` (wired via `patchedDependencies` in
+`pnpm-workspace.yaml`) fixes a vitest-internal flake: the runner throttles
+task-update RPCs with a 100ms `setTimeout` that is never cancelled at the end
+of a run. Under loaded CI runners that stray timer can fire after worker-state
+teardown and crash with "Vitest failed to access its internal state" as an
+unhandled error — every test passes but the run exits 1 (CI run 29183123865,
+file-explorer Unit job). The patch adds a `cancel()` to the throttle and calls
+it from `finishSendTasksUpdate` (newly exported). Regression guard:
+`packages/test-utils/__tests__/vitest-runner-throttle-teardown.test.ts` — it
+fails loudly if a vitest bump drops the patch. When bumping vitest, re-apply
+the patch (or verify upstream fixed the throttle) before deleting it.
+
 ---
 
 ## REACT DOCTOR (LINT + DEAD CODE)
