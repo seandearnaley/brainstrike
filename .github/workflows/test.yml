@@ -128,33 +128,50 @@ jobs:
       - name: Build workspace dependencies
         run: pnpm turbo run build --concurrency=4
 
-      # PR-affected unit tests via pnpm's documented filter syntax.
-      # https://pnpm.io/filtering — pattern: `pnpm --filter "...[origin/master]" test`
+      # PR-affected unit tests routed THROUGH turbo so the remote cache
+      # (TURBO_TOKEN/TURBO_TEAM, set at the workflow `env:` block above and
+      # inherited by this step) covers test execution — the only expensive,
+      # previously-uncached CI step.
       #
-      # `...[ref]` = changed packages + their dependents — same semantic as
-      # `turbo run test --affected`. `!./` excludes the root workspace
-      # (which would otherwise run its root-level `test` script that
-      # delegates back to turbo over every workspace, defeating the scoping).
-      # --if-present skips packages that don't define a `test` script. Turbo
-      # silently skipped them via its task graph; pnpm errors without this
-      # flag. Per https://pnpm.io/cli/run:
-      # "Use the --if-present flag to avoid exiting with a non-zero exit
-      # code when the script is undefined."
+      # `--filter="...[origin/$BASE_REF]"` is turbo's EXPLICIT git-range filter:
+      # `...[ref]` = packages changed since the merge base + their dependents.
+      # This is the same selection the retired pnpm `...[origin/$BASE_REF]`
+      # filter produced (proven package-for-package in the PR body), and it is
+      # deliberately NOT `--affected`: turbo's `--affected` derives its own
+      # base/head and over-selects on merge commits, the exact reason the prior
+      # pnpm-filter approach spelled the range out. Turbo's task graph skips
+      # packages with no `test` script (no `--if-present` needed) and never runs
+      # the workspace-root task under a plain `turbo run` (so the old pnpm-only
+      # `!./` root exclusion is unnecessary — verified via `--dry=json`).
+      #
+      # TURBO_TEST_MODE=unit is set EXPLICITLY here so the `test` task cache key
+      # (turbo.jsonc `test.env` = [NODE_ENV, TURBO_TEST_MODE]) matches the push
+      # path below AND the local `pnpm test` script (scripts/run-env.mjs sets the
+      # same value) — otherwise PR and push runs would compute different hashes
+      # and never share cache entries. --concurrency=4 preserves the prior
+      # `--workspace-concurrency=4` parallelism cap.
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
-        # --workspace-concurrency=4 explicitly matches pnpm's documented
-        # default for `pnpm -r` (https://pnpm.io/cli/recursive); making it
-        # explicit avoids surprises if the default changes.
-        run: pnpm --filter "...[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test
+          TURBO_TEST_MODE: unit
+        run: pnpm turbo run test --filter="...[origin/$BASE_REF]" --concurrency=4
 
+      # Push (main) + workflow_dispatch: full non-affected suite routed through
+      # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
+      # workflow `env:` block) covers these runs too, and so push and PR runs
+      # share cache entries. This is the turbo equivalent of the retired
+      # `test:fast` script (`pnpm -r --filter '!@brainstrike/embeddings' run
+      # test`); the `!@brainstrike/embeddings` exclusion is preserved verbatim.
+      # TURBO_TEST_MODE=unit (below) keeps the `test` task cache key identical to
+      # the PR path and the local `pnpm test` script. --concurrency=4 matches the
+      # PR path and the root `pnpm test` script.
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
         env:
           COVERAGE: "false"
           TURBO_TEST_MODE: unit
-        run: pnpm run test:fast
+        run: pnpm turbo run test --filter='!@brainstrike/embeddings' --concurrency=4
 
   coverage:
     name: Coverage
