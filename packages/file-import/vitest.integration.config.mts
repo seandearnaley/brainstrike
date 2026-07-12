@@ -19,6 +19,13 @@ export default defineConfig({
   ...baseConfig,
   test: {
     ...baseTest,
+    // Coverage stays OFF in this lane. The base config enables coverage when
+    // CI=true, and under `turbo run test test:integration` both lanes execute
+    // CONCURRENTLY in the same package — two vitest processes sharing one
+    // coverage/.tmp directory race and crash (observed in CI: "Something
+    // removed the coverage directory ... Vitest created earlier"). Full-suite
+    // coverage is owned by the single-process `test:coverage` script.
+    coverage: { ...(baseTest.coverage ?? {}), enabled: false },
     // {ts,tsx} deliberately matches the base config's include breadth: an
     // integration file with any other extension would not be in the full suite
     // either, so widening only this glob would run files coverage never
