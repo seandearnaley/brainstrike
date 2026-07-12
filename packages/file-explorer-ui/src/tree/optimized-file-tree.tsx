@@ -277,11 +277,13 @@ function runLoadedDirectorySelectionMutation(args: {
  * Exposed for tests and browser devtools inspection.
  */
 export const fileTreeTelemetry = {
+  cellRenderCount: 0,
   columnsRebuildCount: 0,
   treeRowsRebuildCount: 0,
 };
 
 export function resetFileTreeTelemetry(): void {
+  fileTreeTelemetry.cellRenderCount = 0;
   fileTreeTelemetry.columnsRebuildCount = 0;
   fileTreeTelemetry.treeRowsRebuildCount = 0;
 }
@@ -341,6 +343,7 @@ interface FileTreeCellContentProps {
 }
 
 function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTreeCellContentProps) {
+  fileTreeTelemetry.cellRenderCount++;
   const fileNode = rowData.fileNode;
   const {
     directoryTraversalContext,
