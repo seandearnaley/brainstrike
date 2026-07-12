@@ -63,6 +63,63 @@ class WrongDimService implements EmbeddingService {
   }
 }
 
+/**
+ * Neutral 768-dim fake used by tests whose intent is worker/queue plumbing
+ * (startup, dimension-guard gating) rather than real inference. Injecting it
+ * short-circuits the real TransformersBackend init that would otherwise throw
+ * `WebGPU Acceleration Unavailable` in headless Node.
+ */
+class NeutralEmbeddingService implements EmbeddingService {
+  private status: EmbeddingStatus = 'ready';
+  initialize(
+    _config?: Partial<EmbeddingConfig>,
+    _onProgress?: (progress: EmbeddingProgress) => void
+  ): Promise<void> {
+    this.status = 'ready';
+    return Promise.resolve();
+  }
+  async generateEmbedding(_text: string): Promise<EmbeddingResult> {
+    return {
+      dimensions: 768,
+      embedding: new Array(768).fill(0.1),
+      model: 'fake-model',
+      usage: { totalTokens: 10 },
+    };
+  }
+  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+    return Promise.all(texts.map((t) => this.generateEmbedding(t)));
+  }
+  async generateEmbeddingsStream(
+    texts: string[],
+    onBatch: (batch: {
+      startIndex: number;
+      endIndex: number;
+      results: EmbeddingResult[];
+    }) => Promise<void> | void
+  ): Promise<void> {
+    const results = await this.generateEmbeddings(texts);
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
+  }
+  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+  calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
+    return { distance: 0, method: 'cosine', similarity: 1 };
+  }
+  getStatus(): EmbeddingStatus {
+    return this.status;
+  }
+  getConfig(): EmbeddingConfig {
+    return { modelId: 'fake-model' };
+  }
+  async dispose(): Promise<void> {
+    this.status = 'disposed';
+  }
+}
+
 describe('embedding-worker: dimension mismatch handling', () => {
   let db: PGlite;
 
@@ -76,6 +133,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
       concurrency: 1,
       db: db as unknown as IDatabase,
       modelKey: 'Xenova/all-MiniLM-L6-v2', // 384D model
+      service: new NeutralEmbeddingService(),
     });
     expect(controller384).toBeDefined();
     await controller384.stop();
@@ -84,6 +142,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
       concurrency: 1,
       db: db as unknown as IDatabase,
       modelKey: 'bge-large-en-v1.5', // 1024D model
+      service: new NeutralEmbeddingService(),
     });
     expect(controller1024).toBeDefined();
     await controller1024.stop();
@@ -95,6 +154,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
       concurrency: 1,
       db: db as unknown as IDatabase,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: new NeutralEmbeddingService(),
     });
     expect(controller).toBeDefined();
     await controller.stop();
@@ -104,6 +164,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
       concurrency: 1,
       db: db as unknown as IDatabase,
       modelKey: 'Xenova/bge-base-en-v1.5',
+      service: new NeutralEmbeddingService(),
     });
     expect(controller2).toBeDefined();
     await controller2.stop();
@@ -230,6 +291,9 @@ describe('embedding-worker: dimension mismatch handling', () => {
       db: db as unknown as IDatabase,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code', // 768D model
+      // Guard under test (payload=384 vs set=768) fires on job claim before any
+      // embedding runs; the neutral fake only prevents a real-backend startup.
+      service: new NeutralEmbeddingService(),
     });
 
     // Wait for job failure

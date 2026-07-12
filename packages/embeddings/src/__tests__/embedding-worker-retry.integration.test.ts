@@ -1,7 +1,7 @@
 import type { IDatabase } from '@brainstrike/db';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index';
 import type {
   EmbeddingConfig,
@@ -107,6 +107,17 @@ async function waitFor(
   }
 }
 
+/**
+ * Contract note: for LOCAL embedding models the worker deliberately does NOT
+ * retry an execution failure back into the model. The first failure is latched
+ * (`localModelExecutionFailure`) and every subsequent queue re-claim fail-fasts
+ * with `Local embedding execution previously failed for '<model>': <cause>`
+ * rather than re-invoking the (potentially broken) local model. The queue still
+ * records the retry/backoff attempts, but the job terminates as `failed`.
+ *
+ * (Transient retry-to-success is a HOSTED-provider behavior; the injected local
+ * fake here can only exercise the local fail-fast-latch contract.)
+ */
 describe('embedding-worker retries and backoff', () => {
   let db: PGlite;
 
@@ -115,7 +126,7 @@ describe('embedding-worker retries and backoff', () => {
     await migrate(db);
   });
 
-  it('retries after a transient failure and succeeds', async () => {
+  it('latches a transient local execution failure and fails fast on retry', async () => {
     const now = new Date().toISOString();
     const embeddingSetId = 'set-r1';
     const fileId = 'file-r1';
@@ -166,24 +177,36 @@ describe('embedding-worker retries and backoff', () => {
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: createFlakyService({
         embeddingValue: 0.1,
+        // The first attempt fails; a no-latch worker would succeed on attempt 3,
+        // but the local latch fail-fasts every retry so the job never succeeds.
         errorMessage: 'Temporary service failure',
         shouldFail: (attempt) => attempt <= 2,
         totalTokens: 10,
       }),
     });
 
+    // Queue exhausts its retries (max_attempts=3) and terminates as failed.
     await waitFor(async () => {
       const res = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-r1'`);
       const row = res.rows[0] as Record<string, unknown> | undefined;
-      const state = String(row?.['state'] ?? '');
-      const attempts = Number(row?.['attempts'] ?? 0);
-      return state === 'succeeded' && attempts >= 2;
+      return String(row?.['state'] ?? '') === 'failed';
     });
+
+    const res = await db.query(`SELECT state, attempts, error FROM job_queue WHERE id = 'job-r1'`);
+    const row = res.rows[0] as
+      | { state: string; attempts: number; error: string | null }
+      | undefined;
+    expect(row?.state).toBe('failed');
+    // The queue re-claimed the job across its retry budget...
+    expect(row?.attempts).toBeGreaterThanOrEqual(2);
+    // ...but the latch short-circuited each retry instead of re-invoking the model.
+    expect(row?.error).toContain('Local embedding execution previously failed');
+    expect(row?.error).toContain('Temporary service failure');
 
     await controller.stop();
   });
 
-  it('retries when the worker task fails with a termination-style error', async () => {
+  it('fail-fast latches a termination-style local execution error', async () => {
     const now = new Date().toISOString();
     const embeddingSetId = 'set-r2';
     const fileId = 'file-r2';
@@ -233,6 +256,8 @@ describe('embedding-worker retries and backoff', () => {
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: createFlakyService({
         embeddingValue: 0.2,
+        // Even a single first-attempt failure latches: retries fail-fast rather
+        // than re-invoking the model (which would otherwise succeed on attempt 2).
         errorMessage: 'Worker terminated unexpectedly',
         shouldFail: (attempt) => attempt === 1,
         totalTokens: 8,
@@ -242,10 +267,17 @@ describe('embedding-worker retries and backoff', () => {
     await waitFor(async () => {
       const res = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-r2'`);
       const row = res.rows[0] as Record<string, unknown> | undefined;
-      const state = String(row?.['state'] ?? '');
-      const attempts = Number(row?.['attempts'] ?? 0);
-      return state === 'succeeded' && attempts === 2;
+      return String(row?.['state'] ?? '') === 'failed';
     });
+
+    const res = await db.query(`SELECT state, attempts, error FROM job_queue WHERE id = 'job-r2'`);
+    const row = res.rows[0] as
+      | { state: string; attempts: number; error: string | null }
+      | undefined;
+    expect(row?.state).toBe('failed');
+    expect(row?.attempts).toBeGreaterThanOrEqual(2);
+    expect(row?.error).toContain('Local embedding execution previously failed');
+    expect(row?.error).toContain('Worker terminated unexpectedly');
 
     await controller.stop();
   });
