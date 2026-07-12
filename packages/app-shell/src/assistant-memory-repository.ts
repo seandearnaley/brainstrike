@@ -944,7 +944,7 @@ function toHistoryReasoningPart(
  * `{ type: 'tool-invocation', toolInvocation: { toolCallId, toolName, args,
  * state, result } }` parts with the result INLINE — there are no separate
  * `role: 'tool'` rows in this dialect (see the live-loop proof in
- * packages/agent/src/__tests__/mastra-memory-persistence.spec.ts).
+ * packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts).
  */
 function toHistoryToolCallPartFromInvocation(
   record: Record<string, unknown>
