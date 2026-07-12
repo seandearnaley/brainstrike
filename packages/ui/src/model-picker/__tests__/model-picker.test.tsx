@@ -48,11 +48,20 @@ const models: ModelPickerModel[] = [
   },
   {
     capabilities: { type: 'embedding' },
+    contextWindow: 2_000_000,
     id: 'text-embedding',
     name: 'Text Embedding',
     providerId: 'openai',
   },
 ];
+
+const compactModel: ModelPickerModel = {
+  capabilities: { type: 'llm' },
+  contextWindow: 512,
+  id: 'compact-model',
+  name: 'Compact Model',
+  providerId: 'openai',
+};
 
 describe('ModelPicker', () => {
   beforeEach(() => {
@@ -224,6 +233,19 @@ describe('ModelPicker', () => {
       expect(screen.getByPlaceholderText('Search models...')).toHaveValue('');
       expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
     });
+
+    it('clears a stale search query when Escape closes the picker', () => {
+      render(<ModelPicker models={models} providers={providers} searchable />);
+      fireEvent.click(screen.getByRole('combobox'));
+      fireEvent.change(screen.getByPlaceholderText('Search models...'), {
+        target: { value: 'claude' },
+      });
+      fireEvent.keyDown(screen.getByPlaceholderText('Search models...'), { key: 'Escape' });
+      fireEvent.click(screen.getByRole('combobox'));
+
+      expect(screen.getByPlaceholderText('Search models...')).toHaveValue('');
+      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+    });
   });
 
   describe('theme handling', () => {
@@ -338,6 +360,20 @@ describe('ModelPicker', () => {
       const option = screen.getByRole('option', { name: /GPT-5\.2/i });
       expect(within(option).getByText('128K context')).toBeInTheDocument();
       expect(within(option).getByText('Streaming')).toBeInTheDocument();
+    });
+
+    it('formats sub-thousand context windows', () => {
+      render(<ModelPicker models={[compactModel]} providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      expect(screen.getByText('512 context')).toBeInTheDocument();
+    });
+
+    it('formats million-token context windows', () => {
+      render(<ModelPicker models={models} modelType="embedding" providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      expect(screen.getByText('2M context')).toBeInTheDocument();
     });
   });
 
