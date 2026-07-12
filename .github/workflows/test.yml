@@ -394,15 +394,11 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        # Exclude apps/desktop: it is the ONLY project carrying node-pty, a native
-        # module compiled from source via node-gyp. This Playwright container ships
-        # no C toolchain (make/g++ absent) and pwuser (`--user 1001`) has no sudo to
-        # apt-get one, so a full install dies building node-pty. The web E2E never
-        # loads node-pty (the terminal is desktop-only); dropping just the desktop
-        # app keeps root + web + every shared package (41/42 projects). Do NOT
-        # revert to a bare full install — it will re-break this job. See node-pty in
-        # apps/desktop/package.json.
-        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop'
+        # Exclude both desktop-only native projects: this pwuser container has no
+        # C toolchain or sudo, and web E2E loads neither node-pty nor secure-fs.
+        # Keeps root + web + every shared package (42/44 projects). Do NOT revert
+        # to a bare full install; node-gyp will fail before Playwright starts.
+        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
