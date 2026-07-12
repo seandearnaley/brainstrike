@@ -287,9 +287,14 @@ export function resetFileTreeTelemetry(): void {
 }
 
 /**
- * Context for directory selection counts — allows directory cells to access
- * aggregate selection state without embedding it in the columns definition.
- * File cells use per-path Zustand selectors instead (more granular).
+ * Shared selection context read by every visible cell (file AND directory) so
+ * selection state stays out of the (stable) columns definition. Each
+ * FileTreeCellContent recomputes its own checkbox state from this context on
+ * render. NOTE: this context object changes identity on every selection
+ * mutation, so all visible cells re-render per toggle — replacing this whole-
+ * context read with a per-node useSyncExternalStore subscription is the
+ * deferred perf follow-up (#1594, high revert-risk: an earlier ref-pattern
+ * attempt broke checkbox reactivity).
  */
 interface FileTreeSelectionContextValue {
   directoryTraversalContext: DirectorySelectionTraversalContext;
@@ -320,13 +325,14 @@ function useFileTreeSelection(): FileTreeSelectionContextValue {
 }
 
 /**
- * Cell content component with per-row store subscriptions.
+ * Cell content for one tree row (file or directory).
  *
- * File nodes use a per-path Zustand selector for O(1) re-render on selection.
- * Directory nodes read from FileTreeSelectionContext for aggregate counts.
- *
- * This component re-renders independently of TreeTableRow — columns stay stable,
- * so TreeTableRow's React.memo prevents row-level re-renders on selection changes.
+ * Reads the shared FileTreeSelectionContext and recomputes its own checkbox
+ * state via computeNodeSelectionState on render. It re-renders independently of
+ * TreeTableRow — columns stay stable, so TreeTableRow's React.memo prevents
+ * row-level re-renders — but because the context object changes identity on
+ * every selection mutation, all visible cells DO re-render per toggle (the
+ * deferred #1594 per-node-subscription optimization targets exactly this).
  */
 interface FileTreeCellContentProps {
   isExpanded: boolean;
@@ -589,6 +595,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     const { flattenedNodes, isWorkerEnabled } = useWorkerFlattenedTree({
       approximateNodeCount,
+      // The normalized-tree render path (desktop) builds rows on the main
+      // thread and ignores the worker's flattened output — disable the worker
+      // entirely there so it neither round-trips nor triggers a spurious row
+      // rebuild when its discarded result lands.
+      enabled: !normalizedTreeContext,
       expandedPaths: expandedDirectoryPaths,
       portRef: workerPortRef,
       treeRevision: normalizedTreeContext?.version ?? fileTree,
