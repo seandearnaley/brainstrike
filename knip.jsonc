@@ -265,13 +265,6 @@
         "config": "tsconfig.json"
       }
     },
-    "packages/fonts": {
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
     "packages/tailwind-config": {
       "project": ["**/*.{js,ts}"],
       "ignore": [],
