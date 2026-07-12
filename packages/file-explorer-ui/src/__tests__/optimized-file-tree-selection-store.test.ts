@@ -104,6 +104,19 @@ describe('createFileTreeSelectionStore', () => {
     expect(afterSelect.checkboxState).toBe(true);
   });
 
+  it('evicts the per-node cache when the folder changes (bounded growth)', () => {
+    const store = createFileTreeSelectionStore(inputs(new Set()));
+    const row = fileRow('/a.ts');
+    const first = store.getNodeState(row);
+    // Same folder, unchanged state → cached identity is reused.
+    expect(store.getNodeState(row)).toBe(first);
+
+    // A folder switch clears the cache, so the same path yields a fresh object
+    // (its old entry can no longer accumulate across folders).
+    store.setInputs(inputs(new Set(), { folderId: 'other-root' }));
+    expect(store.getNodeState(row)).not.toBe(first);
+  });
+
   it('notify fires every current subscriber and unsubscribe stops delivery', () => {
     const store = createFileTreeSelectionStore(inputs(new Set()));
     const a = vi.fn();

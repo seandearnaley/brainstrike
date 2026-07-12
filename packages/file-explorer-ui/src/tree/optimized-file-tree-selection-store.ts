@@ -105,6 +105,13 @@ export function createFileTreeSelectionStore(
       }
     },
     setInputs: (next) => {
+      // The per-path cache is keyed by node path, which is only unique WITHIN a
+      // root/folder. When the folder changes the whole tree changes, so evict
+      // stale entries to keep the cache bounded by ONE folder's node count
+      // instead of every path ever rendered across folder switches.
+      if (next.folderId !== inputs.folderId) {
+        nodeStateCache.clear();
+      }
       inputs = next;
     },
     subscribe: (listener) => {
