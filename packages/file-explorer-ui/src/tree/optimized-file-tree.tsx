@@ -32,6 +32,8 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
+  useSyncExternalStore,
 } from 'react';
 import { fileNodeToTarget } from '../context-actions/file-entry-target';
 import { useWorkerFlattenedTree } from '../hooks/use-worker-flattened-tree';
@@ -77,6 +79,11 @@ import {
   collectTreePaths,
   useSelectedDirectoryCounts,
 } from './optimized-file-tree-selection-counts';
+import {
+  createFileTreeSelectionStore,
+  type FileTreeSelectionInputs,
+  type FileTreeSelectionStore,
+} from './optimized-file-tree-selection-store';
 
 /** Pixel height of one virtualized tree row. */
 const ROW_HEIGHT = 32;
@@ -281,37 +288,56 @@ export const fileTreeTelemetry = {
   treeRowsRebuildCount: 0,
 };
 
+/**
+ * Content equality for two string sets (#1594b). Used as the zustand selector
+ * `equalityFn` for `expandedDirectoryPaths`: a selection toggle triggers a
+ * secondary store commit that rebuilds that set with IDENTICAL content but a
+ * fresh identity. Returning the previous reference on content-equality keeps
+ * `treeRowsBuild` (and thus every row) from re-rendering on selection changes,
+ * while a genuine expand/collapse (membership change) still yields a new
+ * identity and rebuilds. The expanded set is small (visible dirs), so the O(n)
+ * compare is far cheaper than a full row rebuild.
+ */
+export function stringSetsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.size !== b.size) {
+    return false;
+  }
+  for (const value of a) {
+    if (!b.has(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function resetFileTreeTelemetry(): void {
   fileTreeTelemetry.columnsRebuildCount = 0;
   fileTreeTelemetry.treeRowsRebuildCount = 0;
 }
 
 /**
- * Shared selection context read by every visible cell (file AND directory) so
- * selection state stays out of the (stable) columns definition. Each
- * FileTreeCellContent recomputes its own checkbox state from this context on
- * render. NOTE: this context object changes identity on every selection
- * mutation, so all visible cells re-render per toggle — replacing this whole-
- * context read with a per-node useSyncExternalStore subscription is the
- * deferred perf follow-up (#1594, high revert-risk: an earlier ref-pattern
- * attempt broke checkbox reactivity).
+ * STABLE per-tree context (#1594). Holds only fields that do NOT change on a
+ * selection toggle — so a cell reading this context does not re-render per
+ * toggle. All selection-DERIVED state (checkbox tri-state, wouldExceedLimit,
+ * rule marker) is read from `store` via useSyncExternalStore per node, which
+ * re-renders ONLY the cells whose own state changed. (An earlier attempt that
+ * put selection state directly in the context re-rendered every visible cell
+ * per toggle — the exact cost this split removes.)
  */
 interface FileTreeSelectionContextValue {
-  directoryTraversalContext: DirectorySelectionTraversalContext;
   folderId: string;
   isDirectorySelectionLocked: boolean;
   maxSelectionCount: number;
   /**
-   * Opens a file as a workspace tab. Hoisted into the shared selection context so each
-   * virtualized row reuses the parent's single useIdeFileEditor subscription instead of
-   * paying for one per visible row.
+   * Opens a file as a workspace tab. Hoisted into the shared context so each
+   * virtualized row reuses the parent's single useIdeFileEditor subscription
+   * instead of paying for one per visible row.
    */
   openFileInTab: ((compositeKey: string) => void) | undefined;
-  querySelectionManifest: FileExplorerState['querySelectionManifest'];
-  selectedCount: number;
-  selectedDirectoryCounts: Map<string, number>;
-  selectedFilePaths: Set<string>;
-  selectionModel: FileExplorerState['selectionModel'];
+  store: FileTreeSelectionStore;
 }
 
 const FileTreeSelectionContext = createContext<FileTreeSelectionContextValue | null>(null);
@@ -327,12 +353,14 @@ function useFileTreeSelection(): FileTreeSelectionContextValue {
 /**
  * Cell content for one tree row (file or directory).
  *
- * Reads the shared FileTreeSelectionContext and recomputes its own checkbox
- * state via computeNodeSelectionState on render. It re-renders independently of
- * TreeTableRow — columns stay stable, so TreeTableRow's React.memo prevents
- * row-level re-renders — but because the context object changes identity on
- * every selection mutation, all visible cells DO re-render per toggle (the
- * deferred #1594 per-node-subscription optimization targets exactly this).
+ * Reads the STABLE FileTreeSelectionContext (identity fixed across selection
+ * toggles) and subscribes to its OWN derived tri-state through the per-node
+ * selection store via useSyncExternalStore (#1594b). Because the store returns
+ * a stable object while a node's state is unchanged, a selection toggle
+ * re-renders only the cells whose own state actually changed (the toggled file
+ * plus its ancestor directories), not every visible cell. TreeTableRow's
+ * React.memo (columns + row data stay stable) keeps parent re-renders from
+ * reaching this cell, so the store subscription is the only re-render trigger.
  */
 interface FileTreeCellContentProps {
   isExpanded: boolean;
@@ -342,18 +370,18 @@ interface FileTreeCellContentProps {
 
 function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTreeCellContentProps) {
   const fileNode = rowData.fileNode;
-  const {
-    directoryTraversalContext,
-    folderId,
-    isDirectorySelectionLocked,
-    maxSelectionCount,
-    openFileInTab,
-    querySelectionManifest,
-    selectedCount,
-    selectedDirectoryCounts,
-    selectedFilePaths,
-    selectionModel,
-  } = useFileTreeSelection();
+  const { folderId, isDirectorySelectionLocked, maxSelectionCount, openFileInTab, store } =
+    useFileTreeSelection();
+  // Per-node selection state via useSyncExternalStore: this cell re-renders on
+  // a selection change ONLY when ITS OWN derived state changed, not on every
+  // toggle (#1594). getSnapshot returns a cached object with stable identity
+  // while unchanged — the store guarantees that contract.
+  const nodeState = useSyncExternalStore(
+    store.subscribe,
+    useCallback(() => store.getNodeState(rowData), [store, rowData])
+  );
+  const selectionState = nodeState;
+  const isRuleSelected = nodeState.isRuleSelected;
 
   /**
    * VS Code-style open semantics. The mouse and keyboard paths are intentionally
@@ -384,22 +412,6 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
     }
     openFileInTab(encodeFileSelection(folderId, fileNode.path));
   });
-
-  const selectionState = computeNodeSelectionState(
-    rowData,
-    directoryTraversalContext,
-    folderId,
-    querySelectionManifest,
-    selectionModel,
-    selectedFilePaths,
-    selectedDirectoryCounts,
-    selectedCount,
-    maxSelectionCount
-  );
-  const isRuleSelected =
-    fileNode.type === 'file' &&
-    selectionModel.mode === 'rules' &&
-    (selectionModel.materializedPaths?.has(fileNode.path) ?? false);
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -498,7 +510,15 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const { showToast } = useToastManager();
     // Keep a subscribed expansion snapshot for TreeTable render state.
     // Event handlers still use `store.getState()` to avoid stale async toggles.
-    const expandedDirectoryPaths = useFileExplorerStoreSelector((s) => s.expandedDirectoryPaths);
+    // Content equality (#1594b): a selection toggle triggers a secondary store
+    // commit that replaces this set's identity without changing its membership.
+    // Comparing by content keeps the reference stable across that spurious churn
+    // so tree rows do not rebuild on selection; a real expand/collapse changes
+    // membership and still yields a fresh reference.
+    const expandedDirectoryPaths = useFileExplorerStoreSelector(
+      (s) => s.expandedDirectoryPaths,
+      stringSetsEqual
+    );
     const toggleDirectoryExpansion = useFileExplorerStoreSelector(
       (s) => s.toggleDirectoryExpansion
     );
@@ -1115,16 +1135,14 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       onRender?.();
     }, [onRender]);
 
-    // Selection context value — changes when selection state changes, causing
-    // FileTreeCellContent components to re-render (but NOT TreeTableRow components,
-    // because columns stays stable).
-    const selectionContextValue = useMemo<FileTreeSelectionContextValue>(
+    // Per-node selection store (#1594). All selection-DERIVED inputs are funneled
+    // through it so each cell subscribes to only its own state. The current
+    // inputs, recomputed each render:
+    const selectionInputs = useMemo<FileTreeSelectionInputs>(
       () => ({
         directoryTraversalContext,
         folderId: folderId ?? '',
-        isDirectorySelectionLocked: Boolean(isLoadingForSelection),
         maxSelectionCount,
-        openFileInTab,
         querySelectionManifest,
         selectedCount,
         selectedDirectoryCounts,
@@ -1134,15 +1152,39 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       [
         directoryTraversalContext,
         folderId,
-        isLoadingForSelection,
         maxSelectionCount,
-        openFileInTab,
         querySelectionManifest,
         selectedCount,
         selectedDirectoryCounts,
         selectedFilePaths,
         selectionModel,
       ]
+    );
+    // The store is created once (stable identity) via a useState lazy
+    // initializer — the React-approved create-once idiom (a plain value, not a
+    // ref, so it is safe to read + mutate during render, mirroring
+    // PreviewTable's headerSelectionStore). It is never re-created.
+    const [selectionStore] = useState(() => createFileTreeSelectionStore(selectionInputs));
+    // Render-safe: pure write of the current inputs so a child rendering NOW
+    // (e.g. a freshly mounted row) reads fresh state via getNodeState.
+    selectionStore.setInputs(selectionInputs);
+    // Notify subscribers whenever the inputs change (selection toggles land here).
+    useEffect(() => {
+      selectionStore.notify();
+    }, [selectionStore, selectionInputs]);
+
+    // STABLE context: only fields that do NOT change per toggle, so a cell
+    // reading it does not re-render on selection. Selection-derived state is
+    // read from `store` per node instead.
+    const selectionContextValue = useMemo<FileTreeSelectionContextValue>(
+      () => ({
+        folderId: folderId ?? '',
+        isDirectorySelectionLocked: Boolean(isLoadingForSelection),
+        maxSelectionCount,
+        openFileInTab,
+        store: selectionStore,
+      }),
+      [folderId, isLoadingForSelection, maxSelectionCount, openFileInTab, selectionStore]
     );
 
     return (
