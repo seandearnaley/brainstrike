@@ -83,7 +83,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     // 2. Tree Expansion Performance
     await page.evaluate(() => performance.mark('expansion-start'));
 
-    const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
+    const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
     const expandCount = await expandButtons.count();
 
     for (let i = 0; i < Math.min(3, expandCount); i++) {

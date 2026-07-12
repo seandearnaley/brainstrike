@@ -251,7 +251,7 @@ test.describe('Performance: Tree Rendering', () => {
     await page.waitForTimeout(1000);
 
     // Get all folder expand buttons
-    const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
+    const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
     const count = await expandButtons.count();
 
     // Measure expansion time
@@ -286,7 +286,7 @@ test.describe('Performance: Tree Rendering', () => {
     await page.waitForTimeout(1000);
 
     // Expand several folders to create a long list
-    const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
+    const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
     const count = await expandButtons.count();
 
     for (let i = 0; i < Math.min(3, count); i++) {
@@ -352,7 +352,7 @@ test.describe('Performance: Tree Rendering', () => {
     await page.waitForTimeout(2000);
 
     // Expand some folders
-    const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
+    const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
     const expandCount = await expandButtons.count();
 
     for (let i = 0; i < Math.min(5, expandCount); i++) {

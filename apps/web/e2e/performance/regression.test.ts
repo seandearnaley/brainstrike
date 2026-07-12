@@ -182,7 +182,7 @@ export const Component${i} = () => {
     const selectionStart = performance.now();
 
     // Expand some folders first
-    const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
+    const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
     const expandCount = Math.min(3, await expandButtons.count());
     for (let i = 0; i < expandCount; i++) {
       await expandButtons.nth(i).click();
