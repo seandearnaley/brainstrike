@@ -8,6 +8,7 @@ overrides:
   react-helmet-async>react: ^19.0.0
   react-helmet-async>react-dom: ^19.0.0
 allowBuilds:
+  '@brainstrike/secure-fs-native': true
   '@biomejs/biome': false
   '@jacobwolf/biome-unnecessary-effect': true
   '@swc/core': true

@@ -16,7 +16,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Persisted per-child rows from a delegation result's `subAgentToolResults`.
- * Authoritative at completion and on reload (see SUBAGENTS in AGENTS.md).
+ * Authoritative at completion and on reload (see docs/agents/assistant-subagents.md).
  */
 export function readSubAgentToolRows(result: unknown): SubAgentToolRow[] {
   if (!isRecord(result)) {

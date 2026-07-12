@@ -576,7 +576,7 @@ export async function createMastraAgentRuntime(
   // override never clobbers (the per-call TokenLimiter only replaces
   // `inputProcessors`). Excluded for the built-in local provider. When present
   // we MUST pin `maxProcessorRetries`: any errorProcessors flips Mastra's
-  // implicit default to 10 (see ASSISTANT_MAX_PROCESSOR_RETRIES). See AGENTS.md
+  // implicit default to 10 (see ASSISTANT_MAX_PROCESSOR_RETRIES). See docs/agents/assistant-runtime.md
   // ASSISTANT RESILIENCE.
   const errorProcessors = buildAssistantErrorProcessors(normalizedProvider);
   const agent = new Agent({
@@ -1421,7 +1421,7 @@ function processMastraStreamPart(
       // and an error finish so the thread reaches a terminal state. Previously
       // we threw here; the throw produced a data-stream error frame that the
       // renderer did not surface, leaving the thread hung on a forever-spinning
-      // "Generation step started" (the "large white pause"). See AGENTS.md.
+      // "Generation step started" (the "large white pause"). See docs/agents/assistant-runtime.md.
       return makeProviderErrorTermination(
         extractErrorMessage(p.error ?? p.payload?.error) ?? 'agent_stream_error',
         lifecycleState,
@@ -1479,7 +1479,7 @@ function makeProviderErrorTermination(
   // invisible server-side — the `mastra_agent_stream_finished` success line in
   // the finally block would be the only record. Log at error level with a
   // distinct code so these stay diagnosable even though the user sees a clean
-  // message. (Per AGENTS.md "Feedback & Observability".) The FULL detail goes to
+  // message. (Per AGENTS.md's observability working rule.) The FULL detail goes to
   // the log; the visible message is clamped below.
   logger.error('mastra stream terminated by provider error', {
     code: 'mastra_agent_stream_provider_error',
@@ -1910,7 +1910,7 @@ function validateToolApprovalAction(action: AssistantToolApprovalAction): void {
 
 /**
  * The approval RESUME leg passes Mastra's run-wide `requireToolApproval: true`
- * (the resume API needs it — see AGENTS.md PERMISSION ENGINE). A blanket `true`
+ * (the resume API needs it — see docs/agents/assistant-runtime.md PERMISSION ENGINE). A blanket `true`
  * gates EVERY tool call on the resumed run, so Mastra's INTERNAL memory tools
  * (`updateWorkingMemory`) would surface a spurious approval prompt (the D4
  * defect). Substitute the FUNCTION form of the gate so internal bookkeeping tools

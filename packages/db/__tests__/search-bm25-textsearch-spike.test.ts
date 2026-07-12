@@ -18,7 +18,7 @@
  *
  * If pg_textsearch graduates to production wiring, the loader must be added to
  * ALL PGlite construction sites (wasm-loader.ts, pglite-worker-entry.ts,
- * apps/desktop/src/db-main.ts) per AGENTS.md.
+ * apps/desktop/src/db-main.ts) per docs/agents/database.md.
  */
 
 import { PGlite } from '@electric-sql/pglite';

@@ -28,3 +28,13 @@
 **Vulnerability:** The loopback desktop assistant server accepted any `http://localhost:*` Origin, allowing unrelated local web apps to reach provider-backed assistant endpoints.
 **Learning:** Loopback binding is not an origin boundary for browser callers; the assistant server carries ambient desktop authority and stored-provider access.
 **Prevention:** Keep packaged assistant CORS restricted to Electron's `Origin: null`; only unpackaged dev-server launches may allow the configured renderer origin from `DESKTOP_DEV_RENDERER_URL`.
+
+## 2026-07-11 - Workspace command discovery must not follow directory symlinks
+**Vulnerability:** The desktop slash-command filesystem adapter enumerated a symlinked `.brainstrike/commands` directory, allowing project command discovery to traverse outside the mounted workspace root.
+**Learning:** Skipping symlink entries during recursive traversal does not protect the scan root itself because `readdirSync` follows a symlink passed as the directory path.
+**Prevention:** Pin each scan source as an OS directory handle and traverse every descendant component relative to it with no-follow semantics (`openat` on POSIX; `NtCreateFile` + `RootDirectory`/`OBJ_DONT_REPARSE` on Windows). Path validation followed by path opening is not a security boundary, even with a later device/inode comparison.
+
+## 2026-07-11 - Native enumeration must own the traversal bound
+**Vulnerability:** Slash-command traversal applied its entry cap only after the native addon had synchronously materialized an entire untrusted directory in Electron main.
+**Learning:** A JavaScript traversal budget cannot bound work already performed across a native boundary; skipped symlinks and unsupported entries must also consume the native enumeration allowance.
+**Prevention:** Pass the remaining budget into native directory APIs, stop enumeration at that limit, and return both the raw inspected count and an explicit truncation signal for caller accounting and visible warnings.

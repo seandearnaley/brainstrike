@@ -3,7 +3,7 @@
  *
  * A persona is DATA: a named, read-only child agent the supervisor can delegate
  * to. Mastra converts each persona registered under the parent's `agents` config
- * into an `agent-<id>` tool (see AGENTS.md SUBAGENTS). This module owns only the
+ * into an `agent-<id>` tool (see docs/agents/assistant-subagents.md). This module owns only the
  * contract shape + the read-only invariant; the agent package builds the child
  * `Agent`s and the desktop server threads `BUILT_IN_PERSONAS` server-side.
  *
