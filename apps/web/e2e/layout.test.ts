@@ -65,17 +65,21 @@ test.describe('Application Layout', () => {
   test('should load prompts in the agent sidebar without leaving the workspace', async ({
     page,
   }) => {
+    // The workbench region only mounts once the lazily-initialized database is
+    // ready, which can take the full CI DB-init budget (~55s). Stay on the fast
+    // functional path (goto without a DB-readiness wait, per the e2e readiness
+    // contract) and let the region assertion absorb the background init instead;
+    // the connected manager renders its loading placeholder in the meantime.
+    test.setTimeout(120_000);
     const home = new HomePage(page);
-    // The Prompt Workbench needs the database; wait for it (CI-adjusted timeout)
-    // before asserting the region appears.
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
 
     const promptsTab = page.getByTestId('prompts-tab-trigger');
     await expect(promptsTab).toBeVisible({ timeout: 10_000 });
     await promptsTab.click();
 
     await expect(page.getByRole('region', { name: 'Prompt workbench' })).toBeVisible({
-      timeout: 15_000,
+      timeout: 60_000,
     });
     await expect(home.contextExplorerPageMarker).toBeVisible();
   });
