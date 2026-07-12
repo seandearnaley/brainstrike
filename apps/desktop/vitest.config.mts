@@ -121,6 +121,10 @@ export default defineConfig({
       '**/scripts/**', // Script helper tests use node:test directly.
     ],
     globals: true,
+    // Desktop integration lanes build real PGlite instances inside beforeEach
+    // hooks; vitest's 10s default hook timeout flakes on loaded CI runners
+    // (reindex-on-edit.integration.test.ts). 'database' = 20s, doubled in CI.
+    hookTimeout: getAdjustedTimeout('database'),
     // Desktop tests spin up mocked Electron, PGlite, MCP, and renderer-host
     // surfaces with process-wide module state. Keep this package serialized so
     // those globals cannot bleed across files under load.

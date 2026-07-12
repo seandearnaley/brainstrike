@@ -45,6 +45,11 @@ export default defineConfig({
     environment: 'node',
     // Exclude integration tests by default (they require model downloads)
     exclude: ['**/node_modules/**', '**/dist/**'],
+    // PGlite WASM init + migrate inside beforeEach hooks exceeds the 10s
+    // default under loaded CI runners (embedding-worker-db-completion.test.ts
+    // failed this way twice on whole-repo Unit runs); 30s matches
+    // packages/db's heavy-lane precedent (vitest.config.mts hookTimeout).
+    hookTimeout: 30_000,
     // Allow running integration tests with --run integration
     // Use: npx vitest run --reporter=verbose --testNamePattern="integration"
     // Or set environment variable: VITEST_RUN_INTEGRATION=true
@@ -55,7 +60,6 @@ export default defineConfig({
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     // Use forks pool with parallelization for better performance
     pool: 'forks',
-    // Set a reasonable timeout for unit tests
-    testTimeout: 10_000,
+    testTimeout: 30_000,
   },
 });

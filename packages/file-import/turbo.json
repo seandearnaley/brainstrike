@@ -1,0 +1,14 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // Do NOT cache: the cached lane constructs REAL PGlite via
+      // wasmLoader.createPGlite (chunking-producer.test.ts, a plain *.test.ts in
+      // the default include — not integration-gated). Same env-sensitive
+      // WASM-PGlite-under-parallelism mechanism db carves out for; carved
+      // precautionary per the required-check rule (see packages/db/turbo.json).
+      "cache": false,
+      "passThroughEnv": ["CI", "COVERAGE"]
+    }
+  }
+}
