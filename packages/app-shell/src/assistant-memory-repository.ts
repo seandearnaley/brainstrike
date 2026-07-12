@@ -4,6 +4,7 @@ import {
   type AssistantEditCheckpointCaptureStatus,
   type AssistantEditCheckpointOp,
   type AssistantEditCheckpointRecord,
+  isGuardedToolError,
 } from '@brainstrike/assistant-contract';
 import {
   DEFAULT_THREAD_TITLE,
@@ -994,16 +995,7 @@ function toHistoryToolCallPartFromInvocation(
 }
 
 function isPersistedGuardedToolError(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  const error = record['error'];
-  if (record['ok'] !== false || !error || typeof error !== 'object' || Array.isArray(error)) {
-    return false;
-  }
-  const code = (error as Record<string, unknown>)['code'];
-  return code === 'tool_timeout' || code === 'tool_failed' || code === 'tool_blocked_by_hook';
+  return isGuardedToolError(value);
 }
 
 /**

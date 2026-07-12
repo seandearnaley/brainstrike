@@ -69,7 +69,7 @@ const readResultErrorMessage = (result: ToolResult, isErrorResult = false): stri
   if (typeof error === 'string' && error.length > 0) {
     return error;
   }
-  if (error && typeof error === 'object' && !Array.isArray(error)) {
+  if (record['ok'] === false && error && typeof error === 'object' && !Array.isArray(error)) {
     const message = (error as Record<string, unknown>)['message'];
     if (typeof message === 'string' && message.length > 0) {
       return message;

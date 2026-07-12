@@ -454,9 +454,10 @@ partitioned by `runId` and assigned back to the assistant turn inside that run's
 time window; never attach only the newest run to the newest message, because
 older turns would lose tool failure state, timings, and subagent activity after
 reload. Equal-timestamp rows use Mastra's per-part `createdAt` values before the
-row role/id fallback. Guarded tool results (`ok:false` with a known guard error
-code) must hydrate as failed tool calls even though Mastra persisted the tool
-invocation itself with `state:'result'`.
+row role/id fallback. Guarded tool error codes and their type guard are owned by
+`@brainstrike/assistant-contract`; both execution and replay must use that same
+contract. Guarded results (`ok:false` with a known code) hydrate as failed tool
+calls even though Mastra persisted the invocation itself with `state:'result'`.
 
 Live shell output (executeCommand streaming): `executeCommand` streams its
 subprocess stdout/stderr incrementally through Mastra's tool `writer` as it is

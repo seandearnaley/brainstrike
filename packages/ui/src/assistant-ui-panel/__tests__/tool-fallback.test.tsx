@@ -69,4 +69,17 @@ describe('ToolFallback', () => {
       screen.getByText('The tool did not complete successfully. Try another approach.')
     ).toBeInTheDocument();
   });
+
+  it('does not classify a successful payload with nested error metadata as failed', () => {
+    renderTool({
+      argsText: '{}',
+      result: { error: { message: 'advisory only' }, ok: true },
+      status: { type: 'complete' },
+      toolName: 'lookupStatus',
+    });
+
+    expect(screen.getByTestId('tool-fallback')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Failed' })).toBeNull();
+    expect(screen.queryByText('advisory only')).toBeNull();
+  });
 });
