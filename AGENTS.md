@@ -448,6 +448,16 @@ while a text/reasoning part is streaming and flushes them at the next boundary
 (tool start, approval, finish, error, stream end) — never drop them, never
 emit them mid-part (proof: data-stream-text-continuity.spec.ts).
 
+Persisted thread replay: the assistant-ui history adapter hydrates the latest 80
+Mastra message rows together with run events from the latest 80 runs. Events are
+partitioned by `runId` and assigned back to the assistant turn inside that run's
+time window; never attach only the newest run to the newest message, because
+older turns would lose tool failure state, timings, and subagent activity after
+reload. Equal-timestamp rows use Mastra's per-part `createdAt` values before the
+row role/id fallback. Guarded tool results (`ok:false` with a known guard error
+code) must hydrate as failed tool calls even though Mastra persisted the tool
+invocation itself with `state:'result'`.
+
 Live shell output (executeCommand streaming): `executeCommand` streams its
 subprocess stdout/stderr incrementally through Mastra's tool `writer` as it is
 produced (a long build/test run is visible live, not only on exit). The tool

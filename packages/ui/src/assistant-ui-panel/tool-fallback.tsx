@@ -56,7 +56,7 @@ const isIncompleteStatus = (
 ): status is ToolStatus & { type: 'incomplete'; error?: unknown; reason?: unknown } =>
   status.type === 'incomplete';
 
-const readResultErrorMessage = (result: ToolResult): string | undefined => {
+const readResultErrorMessage = (result: ToolResult, isErrorResult = false): string | undefined => {
   if (typeof result === 'string') {
     return;
   }
@@ -69,7 +69,13 @@ const readResultErrorMessage = (result: ToolResult): string | undefined => {
   if (typeof error === 'string' && error.length > 0) {
     return error;
   }
-  if (record['isError'] === true) {
+  if (error && typeof error === 'object' && !Array.isArray(error)) {
+    const message = (error as Record<string, unknown>)['message'];
+    if (typeof message === 'string' && message.length > 0) {
+      return message;
+    }
+  }
+  if (isErrorResult || record['isError'] === true) {
     return 'Tool execution failed.';
   }
   return;
@@ -78,7 +84,8 @@ const readResultErrorMessage = (result: ToolResult): string | undefined => {
 const resolveDisplayStatus = (
   status: ToolStatus,
   hasResult: boolean,
-  result: ToolResult
+  result: ToolResult,
+  isErrorResult: boolean
 ): DisplayStatus => {
   if (status.type === 'running') {
     return 'running';
@@ -86,7 +93,7 @@ const resolveDisplayStatus = (
   if (status.type === 'incomplete') {
     return 'error';
   }
-  if (readResultErrorMessage(result)) {
+  if (readResultErrorMessage(result, isErrorResult)) {
     return 'error';
   }
   if (hasResult) {
@@ -95,9 +102,13 @@ const resolveDisplayStatus = (
   return 'unknown';
 };
 
-const resolveErrorMessage = (status: ToolStatus, result: ToolResult): string | undefined => {
+const resolveErrorMessage = (
+  status: ToolStatus,
+  result: ToolResult,
+  isErrorResult: boolean
+): string | undefined => {
   if (!isIncompleteStatus(status)) {
-    return readResultErrorMessage(result);
+    return readResultErrorMessage(result, isErrorResult);
   }
 
   if (typeof status.error === 'string') {
@@ -234,6 +245,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   args,
   argsText,
   result,
+  isError: isErrorResult = false,
   status,
 }) => {
   const { detailLevel } = useAssistantDetailLevel();
@@ -249,12 +261,12 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const detailsId = useId();
 
   const hasResult = result !== undefined;
-  const displayStatus = resolveDisplayStatus(status, hasResult, result);
+  const displayStatus = resolveDisplayStatus(status, hasResult, result, isErrorResult);
   const statusIcon = STATUS_ICONS[displayStatus];
   const statusText = STATUS_LABELS[displayStatus];
   const isRunning = displayStatus === 'running';
   const isError = displayStatus === 'error';
-  const errorMessage = resolveErrorMessage(status, result);
+  const errorMessage = resolveErrorMessage(status, result, isErrorResult);
   const showDetails = policy.showDetailsExpander && !isRunning && (Boolean(argsText) || hasResult);
   const formattedResult = hasResult ? formatResult(result) : undefined;
 

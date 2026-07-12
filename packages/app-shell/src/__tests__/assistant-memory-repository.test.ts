@@ -94,6 +94,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
     expect(repository.listMessages).toHaveBeenCalledWith('thread-1', 'workspace-a', {
       limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
     });
+    expect(repository.listThreadRunEvents).toHaveBeenCalledWith('thread-1', 'workspace-a', {
+      limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
     expect(history.headId).toBe('message-2');
     expect(history.messages.map((item) => item.parentId)).toEqual([null, 'message-1']);
     expect(history.messages.map((item) => item.message.id)).toEqual(['message-1', 'message-2']);
@@ -374,7 +377,9 @@ describe('createAssistantThreadHistoryAdapter', () => {
     const history = await adapter.load();
     const assistant = history.messages.find((item) => item.message.id === 'message-2');
 
-    expect(repository.listThreadRunEvents).toHaveBeenCalledWith('thread-1', 'workspace-a');
+    expect(repository.listThreadRunEvents).toHaveBeenCalledWith('thread-1', 'workspace-a', {
+      limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
     expect(assistant?.message.content).toEqual([
       {
         data: {
@@ -1042,6 +1047,47 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     });
   });
 
+  it('preserves guarded tool failures persisted as successful Mastra tool results', async () => {
+    const guardedError = {
+      error: {
+        code: 'tool_failed',
+        message: 'The tool did not complete successfully. Try another approach.',
+        toolName: 'brainstrike_readWorkspaceFile',
+      },
+      ok: false,
+    };
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              makeToolInvocationPart({
+                input: { path: 'packages/agent/package.json' },
+                result: guardedError,
+                toolCallId: 'call-failed-read',
+                toolName: 'brainstrike_readWorkspaceFile',
+              }),
+            ],
+          },
+          createdAt: new Date('2026-06-11T13:18:16Z'),
+          id: 'message-assistant',
+          role: 'assistant',
+        },
+      ],
+    });
+
+    expect(history.messages[0]?.message.content).toContainEqual({
+      args: { path: 'packages/agent/package.json' },
+      argsText: '{"path":"packages/agent/package.json"}',
+      isError: true,
+      result: guardedError,
+      toolCallId: 'call-failed-read',
+      toolName: 'brainstrike.readWorkspaceFile',
+      type: 'tool-call',
+    });
+  });
+
   it('dedupes tool calls repeated across observational-memory snapshot rows', async () => {
     // OM sealing persists progressive snapshots of the same accumulating
     // assistant message under fresh row ids. The same toolCallId must render
@@ -1385,11 +1431,10 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     ]);
   });
 
-  it('anchors latest-run events to the latest assistant turn, never an older one', async () => {
-    // listThreadRunEvents returns ONLY the latest run's events, and the early
-    // ones (memory loads, tool starts) occur BEFORE the latest assistant row
-    // is first saved. Pure time-splitting assigned those to the PREVIOUS
-    // turn's group on reload.
+  it("anchors a run's early events to its own assistant turn, never an older one", async () => {
+    // Early events (memory loads, tool starts) occur BEFORE the run's first
+    // assistant row is saved. Pure time-splitting assigned those to the
+    // PREVIOUS turn's group on reload.
     const makeEvent = (id: string, timestamp: string, sequence: number): AssistantRunEvent => ({
       id,
       kind: sequence === 1 ? 'memory.history.loaded' : 'run.finished',
@@ -1441,6 +1486,137 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
         .map((part) => (part.data as AssistantRunEvent).id);
     expect(eventIds(firstAssistant?.message.content)).toEqual([]);
     expect(eventIds(secondAssistant?.message.content)).toEqual(['event-early', 'event-finished']);
+  });
+
+  it('replays every recent run on its original assistant turn', async () => {
+    const makeEvent = (
+      runId: string,
+      id: string,
+      kind: 'run.started' | 'run.finished' | 'tool.started' | 'tool.failed',
+      timestamp: string,
+      sequence: number,
+      toolCallId?: string
+    ): AssistantRunEvent => ({
+      id,
+      kind,
+      label: id,
+      ...(toolCallId ? { metadata: { toolCallId } } : {}),
+      runId,
+      sequence,
+      status:
+        kind === 'tool.failed' ? 'failed' : kind.endsWith('started') ? 'running' : 'completed',
+      timestamp,
+    });
+    const history = await loadHistory({
+      messages: [
+        {
+          content: { format: 2, parts: [{ text: 'first', type: 'text' }] },
+          createdAt: new Date('2026-07-12T05:36:51.869Z'),
+          id: 'user-1',
+          role: 'user',
+        },
+        {
+          content: {
+            format: 2,
+            parts: [
+              makeToolInvocationPart({
+                result: {
+                  error: { code: 'tool_failed', message: 'failed', toolName: 'read_file' },
+                  ok: false,
+                },
+                toolCallId: 'call-1',
+                toolName: 'read_file',
+              }),
+              { text: 'first answer', type: 'text' },
+            ],
+          },
+          createdAt: new Date('2026-07-12T05:36:51.952Z'),
+          id: 'assistant-1',
+          role: 'assistant',
+        },
+        {
+          content: { format: 2, parts: [{ text: 'second', type: 'text' }] },
+          createdAt: new Date('2026-07-12T05:39:34.152Z'),
+          id: 'user-2',
+          role: 'user',
+        },
+        {
+          content: { format: 2, parts: [{ text: 'second answer', type: 'text' }] },
+          createdAt: new Date('2026-07-12T05:39:34.192Z'),
+          id: 'assistant-2',
+          role: 'assistant',
+        },
+      ],
+      runEvents: [
+        makeEvent('run-1', 'run-1-start', 'run.started', '2026-07-12T05:36:51.906Z', 1),
+        makeEvent(
+          'run-1',
+          'run-1-tool-start',
+          'tool.started',
+          '2026-07-12T05:36:56.193Z',
+          2,
+          'call-1'
+        ),
+        makeEvent(
+          'run-1',
+          'run-1-tool-failed',
+          'tool.failed',
+          '2026-07-12T05:36:56.346Z',
+          3,
+          'call-1'
+        ),
+        makeEvent('run-1', 'run-1-finish', 'run.finished', '2026-07-12T05:37:06.769Z', 4),
+        makeEvent('run-2', 'run-2-start', 'run.started', '2026-07-12T05:39:34.169Z', 1),
+        makeEvent('run-2', 'run-2-finish', 'run.finished', '2026-07-12T05:39:38.305Z', 2),
+      ],
+    });
+
+    const eventIds = (messageId: string) =>
+      history.messages
+        .find((item) => item.message.id === messageId)
+        ?.message.content.filter((part) => part.type === 'data')
+        .map((part) => (part.data as AssistantRunEvent).id);
+    expect(eventIds('assistant-1')).toEqual([
+      'run-1-start',
+      'run-1-tool-start',
+      'run-1-tool-failed',
+      'run-1-finish',
+    ]);
+    expect(eventIds('assistant-2')).toEqual(['run-2-start', 'run-2-finish']);
+  });
+
+  it('uses per-part timestamps to restore equal-timestamp message and snapshot order', async () => {
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              { createdAt: 1000, text: 'answer', type: 'text' },
+              { createdAt: 1100, text: 'tail', type: 'text' },
+            ],
+          },
+          createdAt: new Date('2026-07-12T05:36:51.000Z'),
+          id: 'a-assistant-sorts-first-by-id',
+          role: 'assistant',
+        },
+        {
+          content: {
+            content: 'question',
+            format: 2,
+            parts: [{ createdAt: 900, text: 'question', type: 'text' }],
+          },
+          createdAt: new Date('2026-07-12T05:36:51.000Z'),
+          id: 'z-user-sorts-last-by-id',
+          role: 'user',
+        },
+      ],
+    });
+
+    expect(history.messages.map((item) => item.message.id)).toEqual([
+      'z-user-sorts-last-by-id',
+      'a-assistant-sorts-first-by-id',
+    ]);
   });
 
   it('attaches run events to the newest assistant row even when no row has renderable parts', async () => {
@@ -1811,6 +1987,31 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         timestamp: '2026-04-24T12:00:00.000Z',
       },
     ]);
+  });
+
+  it('bounds replay events to the latest requested runs while returning them chronologically', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.listThreadRunEvents('thread-1', '/tmp/workspace-a', {
+      limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+    });
+
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /ORDER BY recent_run\.started_at DESC[\s\S]*LIMIT \$3[\s\S]*ORDER BY run\.started_at ASC/
+      ),
+      ['thread-1', '/tmp/workspace-a', ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT]
+    );
+  });
+
+  it('rejects invalid assistant run event hydration limits', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.listThreadRunEvents('thread-1', '/tmp/workspace-a', { limitLatestRuns: 0 })
+    ).rejects.toThrow('Assistant run event history limit must be a positive safe integer.');
   });
 
   it('hydrates persisted subagent.* run events (requireRunEventKind accepts the new kinds)', async () => {
