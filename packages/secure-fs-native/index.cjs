@@ -19,8 +19,8 @@ class SecureRoot {
     this.#native.close();
   }
 
-  listDir(relativePath) {
-    return this.#native.listDir(relativePath);
+  listDir(relativePath, maxEntries) {
+    return this.#native.listDir(relativePath, maxEntries);
   }
 
   readFile(relativePath, maxBytes) {

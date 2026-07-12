@@ -52,7 +52,7 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps & { dispose: ()
       roots.clear();
       directories.clear();
     },
-    listDir: (absDir, containmentRoot) => {
+    listDir: (absDir, containmentRoot, maxEntries) => {
       try {
         const relative = path.relative(containmentRoot, absDir);
         if (
@@ -65,12 +65,12 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps & { dispose: ()
         }
         const root = roots.get(containmentRoot) ?? new SecureRoot(containmentRoot);
         roots.set(containmentRoot, root);
-        const entries = root.listDir(relative || '.');
-        if (!entries) {
+        const listing = root.listDir(relative || '.', maxEntries);
+        if (!listing) {
           return null;
         }
         directories.set(path.normalize(absDir), { relativePath: relative, root });
-        return entries;
+        return listing;
       } catch {
         return null;
       }

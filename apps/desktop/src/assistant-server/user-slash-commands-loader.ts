@@ -60,11 +60,16 @@ export type UserSlashCommandReadResult =
   | { readonly ok: false; readonly reason: 'unreadable' | 'oversized' };
 
 export interface UserSlashCommandScanDeps {
-  /** List a directory's immediate entries; `null` when it is missing/unreadable. */
+  /** List at most `maxEntries`; report truncation, or `null` when unreadable. */
   readonly listDir: (
     absDir: string,
-    containmentRoot: string
-  ) => readonly UserSlashCommandDirEntry[] | null;
+    containmentRoot: string,
+    maxEntries: number
+  ) => {
+    readonly entries: readonly UserSlashCommandDirEntry[];
+    readonly inspected: number;
+    readonly truncated: boolean;
+  } | null;
   /** Read a file's UTF-8 content, or a typed failure (`unreadable`/`oversized`). */
   readonly readFile: (absFile: string) => UserSlashCommandReadResult;
 }
@@ -148,7 +153,7 @@ interface ScanSource {
 
 /**
  * Mutable traversal budget threaded through the recursive collection (P2-A):
- * `remaining` candidate slots left; `truncated` flips when the budget stopped
+ * `remaining` directory entries left; `truncated` flips when the budget stopped
  * traversal early (surfaced as the count-cap warn by the caller). Bounding the
  * TRAVERSAL — not just the accepted result — is the point: the scan runs
  * synchronous `readdirSync`/`statSync` on Electron main (and re-runs on
@@ -180,17 +185,19 @@ function collectMarkdownFiles(
     return [];
   }
   const dirPath = relativeSegments.length > 0 ? joinPath(baseDir, relativeSegments) : baseDir;
-  const entries = deps.listDir(dirPath, containmentRoot);
-  if (!entries) {
+  const listing = deps.listDir(dirPath, containmentRoot, budget.remaining);
+  if (!listing) {
     return [];
   }
+  budget.remaining -= listing.inspected;
+  budget.truncated ||= listing.truncated;
   const files: { absPath: string; relativePath: string }[] = [];
-  for (const entry of entries) {
-    if (budget.remaining <= 0) {
-      budget.truncated = true;
-      break;
-    }
+  for (const entry of listing.entries) {
     if (entry.isDirectory) {
+      if (budget.remaining <= 0) {
+        budget.truncated = true;
+        continue;
+      }
       if (relativeSegments.length >= MAX_USER_COMMAND_SCAN_DEPTH) {
         if (!warnedDepthCapReached) {
           warnedDepthCapReached = true;
@@ -208,7 +215,6 @@ function collectMarkdownFiles(
     if (entry.isFile && MD_EXTENSION.test(entry.name)) {
       const relativePath = [...relativeSegments, entry.name].join('/');
       files.push({ absPath: joinPath(baseDir, [...relativeSegments, entry.name]), relativePath });
-      budget.remaining -= 1;
     }
   }
   return files;
@@ -303,10 +309,8 @@ function ingestDirectory(
     warnCountCapReached();
     return;
   }
-  // The budget counts CANDIDATES (bounding traversal work); candidates later
-  // skipped as duplicates/malformed still consumed budget, so an adversarial
-  // duplicate-heavy tree may yield fewer than the cap — the honest tradeoff for
-  // never walking an unbounded tree (the truncation is warned either way).
+  // Every enumerated entry consumes budget, including directories and ignored
+  // files, so hostile trees cannot hide unbounded work behind non-candidates.
   const budget: TraversalBudget = { remaining, truncated: false };
   const files = collectMarkdownFiles(baseDir, deps, budget, source.containmentRoot);
   if (budget.truncated) {

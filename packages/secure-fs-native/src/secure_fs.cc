@@ -63,14 +63,23 @@ std::vector<std::string> SplitRelativePath(const std::string& path, bool* valid)
     *valid = true;
     return {};
   }
-  if (path.front() == '/' || path.front() == '\\' || path.find('\0') != std::string::npos) {
+  if (path.front() == '/' || path.find('\0') != std::string::npos) {
     return {};
   }
+#ifdef _WIN32
+  if (path.front() == '\\') {
+    return {};
+  }
+#endif
 
   std::vector<std::string> components;
   std::string current;
   for (const char character : path) {
-    if (character == '/' || character == '\\') {
+    bool is_separator = character == '/';
+#ifdef _WIN32
+    is_separator = is_separator || character == '\\';
+#endif
+    if (is_separator) {
       if (current.empty() || current == "." || current == "..") {
         return {};
       }
@@ -280,13 +289,16 @@ NativeHandle OpenRelativeDirectory(NativeHandle root,
 }
 
 bool ListDirectory(NativeHandle root, const std::vector<std::string>& components,
-                   std::vector<DirEntry>* entries) {
+                   size_t max_entries, std::vector<DirEntry>* entries, size_t* inspected,
+                   bool* truncated) {
   NativeHandle directory = OpenRelativeDirectory(root, components);
   if (directory == kInvalidHandle) {
     return false;
   }
   std::vector<std::byte> buffer(64 * 1024);
   bool restart = true;
+  *inspected = 0;
+  *truncated = false;
   for (;;) {
     const auto information_class =
         restart ? FileIdBothDirectoryRestartInfo : FileIdBothDirectoryInfo;
@@ -302,6 +314,14 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
       const auto* information = reinterpret_cast<const FILE_ID_BOTH_DIR_INFO*>(buffer.data() + offset);
       const size_t name_length = information->FileNameLength / sizeof(wchar_t);
       const std::wstring_view name(information->FileName, name_length);
+      if (name != L"." && name != L"..") {
+        if (*inspected >= max_entries) {
+          *truncated = true;
+          CloseNativeHandle(directory);
+          return true;
+        }
+        *inspected += 1;
+      }
       if (name != L"." && name != L".." &&
           (information->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0) {
         const std::string utf8_name = WideToUtf8(name.data(), name.size());
@@ -422,7 +442,8 @@ NativeHandle OpenRelativeDirectory(NativeHandle root,
 }
 
 bool ListDirectory(NativeHandle root, const std::vector<std::string>& components,
-                   std::vector<DirEntry>* entries) {
+                   size_t max_entries, std::vector<DirEntry>* entries, size_t* inspected,
+                   bool* truncated) {
   NativeHandle directory_fd = OpenRelativeDirectory(root, components);
   if (directory_fd == kInvalidHandle) {
     return false;
@@ -433,6 +454,8 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
     return false;
   }
   bool succeeded = true;
+  *inspected = 0;
+  *truncated = false;
   for (;;) {
     errno = 0;
     const dirent* entry = readdir(directory);
@@ -443,6 +466,11 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
     if (std::strcmp(entry->d_name, ".") == 0 || std::strcmp(entry->d_name, "..") == 0) {
       continue;
     }
+    if (*inspected >= max_entries) {
+      *truncated = true;
+      break;
+    }
+    *inspected += 1;
     struct stat information {};
     if (fstatat(dirfd(directory), entry->d_name, &information, AT_SYMLINK_NOFOLLOW) != 0) {
       continue;
@@ -547,23 +575,36 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
 
   Napi::Value ListDir(const Napi::CallbackInfo& info) {
     const Napi::Env env = info.Env();
-    if (root_ == kInvalidHandle || info.Length() != 1 || !info[0].IsString()) {
+    if (root_ == kInvalidHandle || info.Length() != 2 || !info[0].IsString() ||
+        !info[1].IsNumber()) {
+      return env.Null();
+    }
+    const double requested_limit = info[1].As<Napi::Number>().DoubleValue();
+    if (requested_limit < 1 || requested_limit > 10'000 ||
+        requested_limit != static_cast<size_t>(requested_limit)) {
       return env.Null();
     }
     bool valid = false;
     const auto components = SplitRelativePath(info[0].As<Napi::String>().Utf8Value(), &valid);
     std::vector<DirEntry> entries;
-    if (!valid || !ListDirectory(root_, components, &entries)) {
+    size_t inspected = 0;
+    bool truncated = false;
+    if (!valid || !ListDirectory(root_, components, static_cast<size_t>(requested_limit), &entries,
+                                 &inspected, &truncated)) {
       return env.Null();
     }
-    const Napi::Array result = Napi::Array::New(env, entries.size());
+    const Napi::Object result = Napi::Object::New(env);
+    const Napi::Array result_entries = Napi::Array::New(env, entries.size());
     for (size_t index = 0; index < entries.size(); ++index) {
       Napi::Object entry = Napi::Object::New(env);
       entry.Set("name", entries[index].name);
       entry.Set("isDirectory", entries[index].is_directory);
       entry.Set("isFile", entries[index].is_file);
-      result.Set(index, entry);
+      result_entries.Set(index, entry);
     }
+    result.Set("entries", result_entries);
+    result.Set("inspected", inspected);
+    result.Set("truncated", truncated);
     return result;
   }
 

@@ -18,3 +18,7 @@ resolution:
 
 There is deliberately no path-based fallback. If the native binding or secure traversal is
 unavailable, callers receive an error/null result and must fail closed.
+
+`listDir(relativePath, maxEntries)` bounds enumeration inside the native layer and returns
+`{ entries, inspected, truncated }`; callers must debit `inspected` from their traversal budget.
+`readFile(relativePath, maxBytes)` similarly applies its byte limit before returning content.

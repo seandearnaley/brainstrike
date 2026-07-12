@@ -38,16 +38,20 @@ function dbReturning(rows: { id: string; displayName: string | null; path: strin
 
 function fsWith(files: Record<string, string>, dirs: Record<string, string[]>) {
   return {
-    listDir: (absDir: string) => {
+    listDir: (absDir: string, _containmentRoot: string, maxEntries: number) => {
       const names = dirs[absDir];
       if (!names) {
         return null;
       }
-      return names.map((name) => ({
-        isDirectory: !name.includes('.'),
-        isFile: name.includes('.'),
-        name,
-      }));
+      return {
+        entries: names.slice(0, maxEntries).map((name) => ({
+          isDirectory: !name.includes('.'),
+          isFile: name.includes('.'),
+          name,
+        })),
+        inspected: Math.min(names.length, maxEntries),
+        truncated: names.length > maxEntries,
+      };
     },
     readFile: (absFile: string) =>
       absFile in files
@@ -67,7 +71,11 @@ describe('listUserSlashCommands', () => {
     symlinkSync(outside, path.join(workspace, '.brainstrike', 'commands'), 'dir');
 
     expect(
-      openScanDependencies().listDir(path.join(workspace, '.brainstrike', 'commands'), workspace)
+      openScanDependencies().listDir(
+        path.join(workspace, '.brainstrike', 'commands'),
+        workspace,
+        500
+      )
     ).toBeNull();
   });
 
@@ -83,7 +91,11 @@ describe('listUserSlashCommands', () => {
       symlinkSync(outside, path.join(workspace, commandsParent), 'dir');
 
       expect(
-        openScanDependencies().listDir(path.join(workspace, commandsParent, 'commands'), workspace)
+        openScanDependencies().listDir(
+          path.join(workspace, commandsParent, 'commands'),
+          workspace,
+          500
+        )
       ).toBeNull();
     }
   });
@@ -99,7 +111,9 @@ describe('listUserSlashCommands', () => {
     writeFileSync(path.join(outside, 'review.md'), 'Outside workspace');
 
     const deps = openScanDependencies();
-    expect(deps.listDir(commands, workspace)?.map((entry) => entry.name)).toEqual(['review.md']);
+    expect(deps.listDir(commands, workspace, 500)?.entries.map((entry) => entry.name)).toEqual([
+      'review.md',
+    ]);
     rmSync(commands, { recursive: true });
     symlinkSync(outside, commands, 'dir');
 
@@ -121,7 +135,7 @@ describe('listUserSlashCommands', () => {
     writeFileSync(path.join(outside, 'review.md'), 'Outside workspace');
 
     const deps = openScanDependencies();
-    expect(deps.listDir(commands, workspace)).not.toBeNull();
+    expect(deps.listDir(commands, workspace, 500)).not.toBeNull();
     renameSync(commands, parkedCommands);
     symlinkSync(outside, commands, 'dir');
 
@@ -141,11 +155,15 @@ describe('listUserSlashCommands', () => {
     mkdirSync(path.join(outside, '.brainstrike', 'commands', 'nested'), { recursive: true });
 
     const deps = openScanDependencies();
-    expect(deps.listDir(commands, workspace)).not.toBeNull();
+    expect(deps.listDir(commands, workspace, 500)).not.toBeNull();
     renameSync(workspace, parkedWorkspace);
     symlinkSync(outside, workspace, 'dir');
 
-    expect(deps.listDir(path.join(commands, 'nested'), workspace)).toEqual([]);
+    expect(deps.listDir(path.join(commands, 'nested'), workspace, 500)).toEqual({
+      entries: [],
+      inspected: 0,
+      truncated: false,
+    });
   });
 
   it('does not reuse a validated directory from another workspace root', () => {
@@ -160,8 +178,8 @@ describe('listUserSlashCommands', () => {
     writeFileSync(path.join(commandsB, 'review.md'), 'Root B');
 
     const deps = openScanDependencies();
-    expect(deps.listDir(commandsA, rootA)).not.toBeNull();
-    expect(deps.listDir(commandsB, rootB)).not.toBeNull();
+    expect(deps.listDir(commandsA, rootA, 500)).not.toBeNull();
+    expect(deps.listDir(commandsB, rootB, 500)).not.toBeNull();
     rmSync(commandsB, { recursive: true });
     symlinkSync(commandsA, commandsB, 'dir');
 

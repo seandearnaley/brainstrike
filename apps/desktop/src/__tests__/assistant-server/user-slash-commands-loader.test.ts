@@ -18,16 +18,20 @@ interface MemoryFs {
 
 function makeDeps(fs: MemoryFs): UserSlashCommandScanDeps {
   return {
-    listDir: (absDir) => {
+    listDir: (absDir, _containmentRoot, maxEntries) => {
       const entries = fs.dirs[absDir];
       if (!entries) {
         return null;
       }
-      return entries.map((entry) => ({
-        isDirectory: entry.kind === 'dir',
-        isFile: entry.kind === 'file',
-        name: entry.name,
-      }));
+      return {
+        entries: entries.slice(0, maxEntries).map((entry) => ({
+          isDirectory: entry.kind === 'dir',
+          isFile: entry.kind === 'file',
+          name: entry.name,
+        })),
+        inspected: Math.min(entries.length, maxEntries),
+        truncated: entries.length > maxEntries,
+      };
     },
     readFile: (absFile) =>
       absFile in fs.files
@@ -232,7 +236,11 @@ describe('scanUserSlashCommands', () => {
     const deps: UserSlashCommandScanDeps = {
       listDir: (absDir) =>
         absDir === `${HOME}/.brainstrike/commands`
-          ? [{ isDirectory: false, isFile: true, name: 'huge.md' }]
+          ? {
+              entries: [{ isDirectory: false, isFile: true, name: 'huge.md' }],
+              inspected: 1,
+              truncated: false,
+            }
           : null,
       readFile: () => ({ ok: false, reason: 'oversized' }),
     };
@@ -262,7 +270,11 @@ describe('scanUserSlashCommands', () => {
     const deps: UserSlashCommandScanDeps = {
       listDir: (absDir) =>
         absDir === `${HOME}/.brainstrike/commands`
-          ? [{ isDirectory: false, isFile: true, name: 'gone.md' }]
+          ? {
+              entries: [{ isDirectory: false, isFile: true, name: 'gone.md' }],
+              inspected: 1,
+              truncated: false,
+            }
           : null,
       readFile: () => ({ ok: false, reason: 'unreadable' }),
     };
@@ -350,9 +362,9 @@ describe('scanUserSlashCommands', () => {
     let listDirCalls = 0;
     let readFileCalls = 0;
     const deps: UserSlashCommandScanDeps = {
-      listDir: (absDir) => {
+      listDir: (absDir, containmentRoot, maxEntries) => {
         listDirCalls += 1;
-        return inner.listDir(absDir);
+        return inner.listDir(absDir, containmentRoot, maxEntries);
       },
       readFile: (absFile) => {
         readFileCalls += 1;
@@ -368,11 +380,11 @@ describe('scanUserSlashCommands', () => {
       stop();
     }
 
-    expect(commands).toHaveLength(MAX_USER_COMMANDS);
-    // Traversal work is bounded: the tier dir + at most `cap` subdirs are listed
-    // (plus the other three empty tiers), never all cap+extra subdirs.
-    expect(listDirCalls).toBeLessThanOrEqual(MAX_USER_COMMANDS + 5);
-    expect(readFileCalls).toBeLessThanOrEqual(MAX_USER_COMMANDS);
+    expect(commands).toEqual([]);
+    // The first listing consumes the entry budget, so none of its hostile fanout
+    // is descended into and no candidate file is read.
+    expect(listDirCalls).toBeLessThanOrEqual(5);
+    expect(readFileCalls).toBe(0);
     expect(
       records.some(
         (record) => record.level === 'warn' && record.message?.toLowerCase().includes('cap')
@@ -404,9 +416,9 @@ describe('scanUserSlashCommands', () => {
     const inner = makeDeps({ dirs, files });
     let listDirCalls = 0;
     const deps: UserSlashCommandScanDeps = {
-      listDir: (absDir) => {
+      listDir: (absDir, containmentRoot, maxEntries) => {
         listDirCalls += 1;
-        return inner.listDir(absDir);
+        return inner.listDir(absDir, containmentRoot, maxEntries);
       },
       readFile: inner.readFile,
     };

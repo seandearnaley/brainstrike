@@ -22,6 +22,8 @@
     "build": "node-gyp rebuild",
     "test": "pnpm build && node --test test/*.test.cjs",
     "test:coverage": "pnpm test",
+    "test:electron": "pnpm build && pnpm --filter @brainstrike/desktop exec xvfb-maybe electron ../../packages/secure-fs-native/test/electron-smoke.cjs",
+    "test:packaged": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- pnpm --filter @brainstrike/desktop exec electron ../../packages/secure-fs-native/test/packaged-smoke.cjs",
     "type-check": "node --check index.cjs"
   },
   "types": "./index.d.ts"

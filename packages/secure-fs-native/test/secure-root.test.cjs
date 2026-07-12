@@ -35,12 +35,46 @@ test('lists and reads regular files beneath a pinned root', () => {
   const { workspace } = fixture();
   const root = new SecureRoot(workspace);
   try {
-    assert.deepEqual(root.listDir('.brainstrike/commands'), [
-      { isDirectory: false, isFile: true, name: 'review.md' },
-    ]);
+    assert.deepEqual(root.listDir('.brainstrike/commands', 10), {
+      entries: [{ isDirectory: false, isFile: true, name: 'review.md' }],
+      inspected: 1,
+      truncated: false,
+    });
     const result = root.readFile('.brainstrike/commands/review.md', 1024);
     assert.equal(result.status, 'ok');
     assert.equal(result.content.toString('utf8'), 'Inside workspace');
+  } finally {
+    root.close();
+  }
+});
+
+test('bounds directory enumeration and reports truncation', () => {
+  const { commands, workspace } = fixture();
+  writeFileSync(path.join(commands, 'second.md'), 'Second');
+  writeFileSync(path.join(commands, 'third.md'), 'Third');
+  const root = new SecureRoot(workspace);
+  try {
+    const result = root.listDir('.brainstrike/commands', 2);
+    assert.equal(result.entries.length, 2);
+    assert.equal(result.inspected, 2);
+    assert.equal(result.truncated, true);
+  } finally {
+    root.close();
+  }
+});
+
+test('preserves literal POSIX backslashes between enumeration and read', {
+  skip: process.platform === 'win32',
+}, () => {
+  const { commands, workspace } = fixture();
+  writeFileSync(path.join(commands, 'literal\\name.md'), 'Literal backslash');
+  mkdirSync(path.join(commands, 'literal'));
+  writeFileSync(path.join(commands, 'literal', 'name.md'), 'Nested path');
+  const root = new SecureRoot(workspace);
+  try {
+    const result = root.readFile('.brainstrike/commands/literal\\name.md', 1024);
+    assert.equal(result.status, 'ok');
+    assert.equal(result.content.toString('utf8'), 'Literal backslash');
   } finally {
     root.close();
   }
@@ -74,7 +108,7 @@ test('rejects a command parent replaced with an outside symlink', () => {
   try {
     renameSync(commands, parked);
     symlinkSync(outside, commands, 'dir');
-    assert.equal(root.listDir('.brainstrike/commands'), null);
+    assert.equal(root.listDir('.brainstrike/commands', 10), null);
     assert.deepEqual(root.readFile('.brainstrike/commands/review.md', 1024), {
       status: 'unreadable',
     });
@@ -103,7 +137,7 @@ test('rejects traversal and oversized content', () => {
   const { workspace } = fixture();
   const root = new SecureRoot(workspace);
   try {
-    assert.equal(root.listDir('../'), null);
+    assert.equal(root.listDir('../', 10), null);
     assert.deepEqual(root.readFile('.brainstrike/commands/review.md', 4), {
       status: 'oversized',
     });
