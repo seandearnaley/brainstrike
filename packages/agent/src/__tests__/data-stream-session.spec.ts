@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { StreamChunk } from '../index';
 import {
   AssistantDataStreamSession,
@@ -6,6 +6,7 @@ import {
   createRandomId,
   resolveDataStreamSession,
 } from '../stream/data-stream';
+import { SessionSubscription } from '../stream/session-subscription';
 import { boundToolOutputForModel, TOOL_RESULT_TOO_LARGE_CODE } from '../stream/tool-output-limits';
 
 interface Encoded {
@@ -70,6 +71,26 @@ function parseLines(lines: string[]): Encoded[] {
 }
 
 describe('AssistantDataStreamSession', () => {
+  it('removes a canceled subscription without closing an already-canceled controller', () => {
+    const controller = {
+      close: vi.fn(() => {
+        throw new TypeError('Controller is already closed');
+      }),
+      enqueue: vi.fn(),
+    } as unknown as ReadableStreamDefaultController<Uint8Array>;
+    const session = {
+      isClosed: () => false,
+      pullEvent: () => undefined,
+      removeSubscription: vi.fn(),
+    };
+    const subscription = new SessionSubscription(session, controller, 0);
+
+    subscription.cancel();
+
+    expect(controller.close).not.toHaveBeenCalled();
+    expect(session.removeSubscription).toHaveBeenCalledWith(subscription);
+  });
+
   it('createRandomId returns a prefixed UUID-shaped value', () => {
     const firstId = createRandomId('sess');
     const secondId = createRandomId('sess');
@@ -1137,6 +1158,51 @@ describe('AssistantDataStreamSession', () => {
       expect(finishMessage?.value).toMatchObject({
         finishReason: 'unknown',
       });
+    });
+
+    it('does not surface a suspended tool call as a failed tool action', async () => {
+      const chunks: StreamChunk[] = [
+        {
+          name: 'earlier.tool',
+          payload: {
+            error: 'Earlier tool failure',
+            toolCallId: 'call-earlier',
+          },
+          status: 'error',
+          type: 'tool-event',
+        },
+        {
+          name: 'brainstrike.submitPlan',
+          payload: {
+            error: 'Tool execution failed',
+            toolCallId: 'call-plan',
+          },
+          status: 'error',
+          type: 'tool-event',
+        },
+        {
+          runId: 'run-plan',
+          suspendPayload: { title: 'Implementation plan' },
+          toolCallId: 'call-plan',
+          toolName: 'brainstrike.submitPlan',
+          type: 'tool-suspend-required',
+        },
+        { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        messageId: 'msg-suspended-tool',
+        sessionId: 'suspended-tool-test',
+      });
+
+      const parsed = parseLines(await readResponse(session.createResponse()));
+      const visibleText = parsed
+        .filter((part) => part.code === '0')
+        .map((part) => part.value)
+        .join('');
+
+      expect(visibleText).toContain('Earlier tool failure');
+      expect(visibleText).not.toContain('Tool execution failed');
     });
 
     it('turns oversized successful tool output into a bounded recoverable tool error', async () => {

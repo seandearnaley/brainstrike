@@ -196,7 +196,7 @@ export class DataStreamMapper {
   private finishEmitted = false;
   private hasVisibleText = false;
   private pendingRunErrorText: string | null = null;
-  private pendingToolErrorTexts: string[] = [];
+  private readonly pendingToolErrorTexts = new Map<string, string>();
   private startNewStepForNextText = false;
   /**
    * True while a text/reasoning part is streaming. Data parts emitted while a
@@ -320,7 +320,7 @@ export class DataStreamMapper {
     // If the model continues with visible text after a tool error, treat that
     // as model-owned recovery. The emitted tool-result chunk still carries the
     // structured isError result for UI retry/error affordances.
-    this.pendingToolErrorTexts = [];
+    this.pendingToolErrorTexts.clear();
     this.hasVisibleText = true;
     this.streamingPartOpen = true;
     yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
@@ -482,6 +482,10 @@ export class DataStreamMapper {
     if (!callId) {
       return;
     }
+    // Mastra reports suspend() through the tool-error path before emitting the
+    // correlated suspension event. The pause is intentional, so discard only
+    // that call's transient error while preserving unrelated tool failures.
+    this.pendingToolErrorTexts.delete(callId);
     // Text-part deferral contract: finalize any open text/reasoning append and
     // flush deferred run events BEFORE emitting the data part (a data part
     // mid-text slices visible text).
@@ -604,7 +608,7 @@ export class DataStreamMapper {
         code: DataStreamCode.toolCallResult,
         value: { isError: true, result: bounded.output, toolCallId: callId },
       } satisfies EncodedChunk;
-      this.pendingToolErrorTexts.push(bounded.errorText);
+      this.pendingToolErrorTexts.set(callId, bounded.errorText);
       this.startNewStepForNextText = true;
       return;
     }
@@ -647,7 +651,7 @@ export class DataStreamMapper {
       code: DataStreamCode.toolCallResult,
       value: { isError: true, result: output, toolCallId: callId },
     } satisfies EncodedChunk;
-    this.pendingToolErrorTexts.push(readToolOutputErrorText(output));
+    this.pendingToolErrorTexts.set(callId, readToolOutputErrorText(output));
     this.startNewStepForNextText = true;
   }
 
@@ -758,7 +762,7 @@ export class DataStreamMapper {
   }
 
   private *emitPendingToolErrorFallbackIfNeeded(): Generator<EncodedChunk> {
-    if (this.pendingToolErrorTexts.length === 0) {
+    if (this.pendingToolErrorTexts.size === 0) {
       return;
     }
     if (this.startNewStepForNextText) {
@@ -768,8 +772,8 @@ export class DataStreamMapper {
     } else {
       yield* this.startStepIfNeeded();
     }
-    const visibleText = formatToolActionFailure(this.pendingToolErrorTexts);
-    this.pendingToolErrorTexts = [];
+    const visibleText = formatToolActionFailure([...this.pendingToolErrorTexts.values()]);
+    this.pendingToolErrorTexts.clear();
     this.hasVisibleText = true;
     yield { code: DataStreamCode.textDelta, value: visibleText } satisfies EncodedChunk;
   }

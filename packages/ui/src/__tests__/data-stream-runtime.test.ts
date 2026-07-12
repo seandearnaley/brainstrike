@@ -946,6 +946,68 @@ describe('assistant-stream integration', () => {
     expect(lastMessage.status).toMatchObject({ type: 'complete' });
   });
 
+  it('does not expose a complete message until every decoded part has drained', async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            '0:"Done"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+    });
+
+    const yielded: { status?: { type?: string } }[] = [];
+    for await (const nextMessage of adapter.run(runOptions())) {
+      yielded.push(nextMessage as { status?: { type?: string } });
+    }
+
+    const firstCompleteIndex = yielded.findIndex((item) => item.status?.type === 'complete');
+    expect(firstCompleteIndex).toBe(yielded.length - 1);
+  });
+
+  it('preserves the authoritative abort reason instead of reporting a teardown error', async () => {
+    const abortController = new AbortController();
+    const abortReason = new DOMException('superseded by the next turn', 'AbortError');
+    const teardownError = new TypeError(
+      "Failed to execute 'enqueue' on 'ReadableStreamDefaultController': Cannot enqueue a chunk into a readable stream that is closed"
+    );
+    const onError = vi.fn();
+    const encoder = new TextEncoder();
+
+    globalThis.fetch = vi.fn(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('f:{"messageId":"msg-test"}\n'));
+          controller.enqueue(encoder.encode('0:"Started"\n'));
+          abortController.signal.addEventListener('abort', () => controller.error(teardownError), {
+            once: true,
+          });
+        },
+      });
+      return new Response(body);
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    });
+    const iterator = adapter.run(runOptions({ abortSignal: abortController.signal }));
+
+    await expect(iterator.next()).resolves.toMatchObject({ done: false });
+    abortController.abort(abortReason);
+    const drainAfterAbort = async () => {
+      while (true) {
+        await iterator.next();
+      }
+    };
+    await expect(drainAfterAbort()).rejects.toBe(abortReason);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it('fires onUsage with provider token counts from finish-message chunks', async () => {
     const usageEvents: { inputTokens: number; outputTokens: number }[] = [];
     globalThis.fetch = vi.fn(
