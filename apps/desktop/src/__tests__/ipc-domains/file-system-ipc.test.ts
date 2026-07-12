@@ -552,6 +552,50 @@ describe('fs:addRoot', () => {
       expect.stringContaining(realRootPath)
     );
   });
+
+  it('test mode: a registered fixture wins over a leaked BRAINSTRIKE_E2E_REAL_ROOT_PATH', async () => {
+    // A prior test file's real-root env opt-in can leak through the shared
+    // worker process; the fixture the CURRENT test registered is more specific
+    // and must win, or its picks get hijacked to a foreign temp directory.
+    vi.stubEnv('NODE_ENV', 'test');
+    const leakedRealRootPath = path.resolve('/users/test/leaked-real-root');
+    vi.stubEnv('BRAINSTRIKE_E2E_REAL_ROOT_PATH', leakedRealRootPath);
+    const rootHandle = {
+      id: 'fixture-root',
+      kind: 'directory',
+      name: 'fixture',
+      path: '/fixture',
+      type: 'directory',
+    } as DirectoryHandle & { id: string; type: 'directory' };
+    const fixture = {
+      directoriesByPath: { '/fixture': [] },
+      fileContentsByPath: {},
+      readDirectoryCalls: [],
+      readFileByPathCalls: [],
+      readFileCalls: [],
+      requestDirectoryAccessCount: 0,
+      rootHandle,
+    };
+    (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY] =
+      fixture;
+
+    fileSystem = createFileSystem();
+    storage = createStorage();
+    registerFileSystemIpcHandlers({ fileSystem, storage });
+
+    const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+
+    expect(result).toMatchObject({
+      displayName: 'fixture',
+      handle: { path: '/fixture' },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted: true,
+    });
+    expect(fixture.requestDirectoryAccessCount).toBe(1);
+    expect(fileSystem.exists).not.toHaveBeenCalledWith(leakedRealRootPath);
+    expect(storage.setItem).toHaveBeenCalledWith('rootsList', expect.stringContaining('/fixture'));
+  });
 });
 
 describe('fs:saveLastFolder (legacy shim)', () => {

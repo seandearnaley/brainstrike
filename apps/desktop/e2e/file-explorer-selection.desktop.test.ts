@@ -434,7 +434,7 @@ test.describe('Desktop file explorer selection', () => {
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'checked');
   });
 
-  test('clicking an indeterminate parent folder clears all selected descendants', async ({
+  test('clicking an indeterminate parent folder completes then clears its descendants', async ({
     electronApp,
     window,
   }) => {
@@ -469,8 +469,17 @@ test.describe('Desktop file explorer selection', () => {
     await expect(window.getByText('2/10')).toBeVisible({ timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'indeterminate');
 
+    // Decision D1 (#1588): clicking an indeterminate folder COMPLETES the
+    // selection of its descendants rather than clearing them.
     await e2eCheckbox.click({ noWaitAfter: true, timeout: 5000 });
+    await expect(window.getByTestId('selection-count')).toHaveText('5', { timeout: 15_000 });
+    await expect(e2eCheckbox).toHaveAttribute('data-state', 'checked');
+    await expect(pageObjectsCheckbox).toHaveAttribute('data-state', 'checked');
+    await expect(typesCheckbox).toHaveAttribute('data-state', 'checked');
+    await expect(utilsCheckbox).toHaveAttribute('data-state', 'checked');
 
+    // A second click on the now-checked folder clears the whole subtree.
+    await e2eCheckbox.click({ noWaitAfter: true, timeout: 5000 });
     await expect(window.getByTestId('selection-count')).toHaveText('0', { timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'unchecked');
     await expect(pageObjectsCheckbox).toHaveAttribute('data-state', 'unchecked');

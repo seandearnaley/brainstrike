@@ -174,19 +174,24 @@ async function resolveE2eRealRootDirectoryHandle(
  * the real `requestDirectoryAccess` stats the picked path, which fails with
  * ENOENT for mock paths. Shared by fs:requestDirectoryAccess and fs:addRoot
  * so both pick flows follow the exact same test-mode contract.
+ *
+ * Precedence: a fixture registered by the CURRENT test beats the
+ * BRAINSTRIKE_E2E_REAL_ROOT_PATH env opt-in — the env var is process-wide and
+ * can leak across test files sharing a Playwright worker, while a registered
+ * fixture is an explicit per-session choice.
  */
 async function resolveRequestedDirectoryHandle(
   fileSystem: ElectronFileSystemAdapter
 ): Promise<DirectoryHandle> {
   if (isE2eTestMode()) {
-    const realRootHandle = await resolveE2eRealRootDirectoryHandle(fileSystem);
-    if (realRootHandle) {
-      return realRootHandle;
-    }
     const fixture = getElectronE2eFileSystemFixture();
     if (fixture) {
       fixture.requestDirectoryAccessCount += 1;
       return fixture.rootHandle;
+    }
+    const realRootHandle = await resolveE2eRealRootDirectoryHandle(fileSystem);
+    if (realRootHandle) {
+      return realRootHandle;
     }
     return {
       id: 'mock-directory-handle',

@@ -412,9 +412,10 @@ test.describe('Database Persistence', () => {
   }
 
   async function importFromExplorer(page: Page): Promise<boolean> {
-    const explorerTab = page
-      .locator('button:has-text("Explorer")')
-      .or(page.locator('[role="tab"]:has-text("Explorer")'));
+    // Target the workspace app tab explicitly: a bare has-text("Explorer")
+    // locator also matches the tools panel's "Explorer" search sub-tab
+    // (explorer-search-tab-explorer) and trips Playwright strict mode.
+    const explorerTab = page.getByTestId('workspace-app-tab-context-explorer');
 
     if (await explorerTab.isVisible()) {
       await explorerTab.click();

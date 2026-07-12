@@ -152,8 +152,13 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
       await selectAllButton.click({ timeout: 5000 });
 
+      // The selection counter renders counts >= 1000 in compact notation
+      // (formatCompactSelectionCount, #1591): 1000 -> "1K".
       await expect(activeWindow.getByTestId('selection-count')).toHaveText(
-        String(ACTUAL_IMPORT_STRESS_FILE_COUNT),
+        new Intl.NumberFormat('en-US', {
+          maximumFractionDigits: 1,
+          notation: 'compact',
+        }).format(ACTUAL_IMPORT_STRESS_FILE_COUNT),
         {
           timeout: 60_000,
         }
