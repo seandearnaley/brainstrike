@@ -1747,3 +1747,56 @@ describe('TreeTable', () => {
     });
   });
 });
+
+describe('TreeTable — consumer-provided onCheckboxSpace', () => {
+  const spaceNodes = [createTestNode('a', 'Alpha'), createTestNode('b', 'Beta')];
+
+  function renderWithSpaceHandler(overrides: {
+    onCheckboxSpace?: (nodeId: string) => boolean;
+    onSelect?: (id: string | null) => void;
+  }) {
+    render(
+      <TreeTable
+        ariaLabel="Space grid"
+        columns={testColumns}
+        expandedIds={new Set()}
+        nodes={spaceNodes}
+        onToggleExpand={vi.fn()}
+        selectedId={null}
+        selectionMode="single"
+        {...(overrides.onSelect ? { onSelect: overrides.onSelect } : {})}
+        {...(overrides.onCheckboxSpace ? { onCheckboxSpace: overrides.onCheckboxSpace } : {})}
+      />
+    );
+    const grid = screen.getByRole('treegrid', { name: 'Space grid' });
+    grid.focus();
+    // Activate roving focus and land on the first row.
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    return grid;
+  }
+
+  it('routes Space to a consumer onCheckboxSpace (checkbox toggle), not row selection', () => {
+    // Even in single-select mode with a custom in-cell checkbox, Space must
+    // toggle selection via the consumer handler instead of activating the row
+    // (which would open the file) — APG: Space toggles, Enter activates.
+    const onCheckboxSpace = vi.fn().mockReturnValue(true);
+    const onSelect = vi.fn();
+    const grid = renderWithSpaceHandler({ onCheckboxSpace, onSelect });
+
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    expect(onCheckboxSpace).toHaveBeenCalledWith('a');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('Enter still activates the row (open) while Space toggles', () => {
+    const onCheckboxSpace = vi.fn().mockReturnValue(true);
+    const onSelect = vi.fn();
+    const grid = renderWithSpaceHandler({ onCheckboxSpace, onSelect });
+
+    fireEvent.keyDown(grid, { key: 'Enter' });
+
+    expect(onSelect).toHaveBeenCalledWith('a');
+    expect(onCheckboxSpace).not.toHaveBeenCalled();
+  });
+});

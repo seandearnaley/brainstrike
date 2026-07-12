@@ -719,3 +719,47 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
     expect(selectedKeys).toEqual([encodeFileSelection('root', '/test.txt')]);
   });
 });
+
+describe('OptimizedFileTree keyboard selection (a11y)', () => {
+  it('toggles the focused row selection on Space without opening (APG parity)', async () => {
+    let fileExplorerStore: FileExplorerStore | undefined;
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(100);
+      await Promise.resolve();
+    });
+
+    const grid = screen.getByRole('treegrid', { name: 'File tree' });
+    grid.focus();
+    // Activate roving focus onto the first row, then Space to toggle it.
+    await act(async () => {
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    });
+    const before = readyStore.getState().selectedFilePaths.size;
+    await act(async () => {
+      fireEvent.keyDown(grid, { key: ' ' });
+    });
+    const after = readyStore.getState().selectedFilePaths.size;
+
+    // Space changed the selection set (toggled a checkbox), rather than being
+    // swallowed into a row-open no-op.
+    expect(after).not.toBe(before);
+  });
+});

@@ -729,6 +729,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       return nodeMap;
     }, [treeRows]);
 
+    // Row-id → row data, so a keyboard Space on the focused row can toggle the
+    // export-selection checkbox (see handleRowCheckboxSpace below).
+    const rowDataByPath = useMemo(() => {
+      const rowMap = new Map<string, FileTreeRowData>();
+      for (const row of treeRows) {
+        rowMap.set(row.id, row.data);
+      }
+      return rowMap;
+    }, [treeRows]);
+
     const { openFileInTab } = useIdeFileEditor();
     const handleTreeRowSelect = useCallback(
       (nodeId: string | null): void => {
@@ -1055,6 +1065,19 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
     const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);
 
+    // Keyboard parity (APG): Space on the focused row toggles the export
+    // selection checkbox and is consumed (return true) so it does NOT fall
+    // through to row activation / open. Enter continues to activate via
+    // onSelect → handleTreeRowSelect.
+    const handleRowCheckboxSpace = useEventCallback((nodeId: string): boolean => {
+      const rowData = rowDataByPath.get(nodeId);
+      if (!rowData) {
+        return false;
+      }
+      handleNodeSelectionEvent(rowData);
+      return true;
+    });
+
     // Right-click context-menu target plumbing. Depend on the destructured
     // `setTarget` (stable) rather than the controller object, which is NOT
     // referentially stable across renders — keeping handleRowContextMenu
@@ -1158,6 +1181,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
                 maxHeight="none"
                 nodes={treeRows}
                 nodesArePreFlattened={true}
+                onCheckboxSpace={handleRowCheckboxSpace}
                 onRowContextMenu={handleRowContextMenu}
                 onSelect={handleTreeRowSelect}
                 onToggleExpand={handleToggleExpand}
