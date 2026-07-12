@@ -20,6 +20,11 @@ export default defineConfig({
   ...baseConfig,
   test: {
     ...baseTest,
+    // {ts,tsx} deliberately matches the base config's include breadth: an
+    // integration file with any other extension would not be in the full suite
+    // either, so widening only this glob would run files coverage never
+    // measures. If the base include ever broadens, update this in the same
+    // change.
     include: ['**/*.integration.test.{ts,tsx}'],
   },
 });

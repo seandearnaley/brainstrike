@@ -198,7 +198,8 @@
       "dependsOn": [
         "lint",
         "type-check",
-        "test"
+        "test",
+        "test:integration"
       ],
       // This composite task itself doesn't need caching.
       "cache": false,
