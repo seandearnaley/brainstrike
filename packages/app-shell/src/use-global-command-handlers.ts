@@ -23,7 +23,7 @@ import { useQuickOpenStore } from './stores/quick-open-store';
  * both project the SAME global commands from one source of truth.
  */
 export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHandlers {
-  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+  const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const { theme, setTheme } = useTheme();
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const openQuickOpen = useQuickOpenStore((state) => state.open);
@@ -44,10 +44,6 @@ export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHand
       await createThread(repository, WORKSPACE_MEMORY_RESOURCE_ID);
     };
   }, [repository, createThread]);
-
-  const openSettings = useCallback(() => {
-    setActiveTab('settings');
-  }, [setActiveTab]);
 
   const toggleTheme = useCallback(() => {
     // Resolve `system` toward its effective value, then flip — so a single

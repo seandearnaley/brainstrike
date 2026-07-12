@@ -216,7 +216,7 @@ export function AssistantUiPanelWrapper({
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
-  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+  const openSettings = usePanelLayoutStore((state) => state.openSettings);
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {
@@ -668,11 +668,11 @@ export function AssistantUiPanelWrapper({
     [nativeToolStates]
   );
   const handleOpenToolSettings = useCallback(() => {
-    setActiveTab('settings');
+    openSettings();
     if (typeof window !== 'undefined') {
       window.location.hash = '#settings/ai-tools';
     }
-  }, [setActiveTab]);
+  }, [openSettings]);
 
   const { enabledNativeToolIds, toolMenu } = useAssistantMcpMenuState({
     nativeToolItems,

@@ -432,9 +432,9 @@ export function RootLayoutContent({
         openSettings();
         return;
       }
-      setState({ activeTab: resolveActiveTabForPath(path) });
+      setActiveTab(resolveActiveTabForPath(path));
     },
-    [openSettings, setState]
+    [openSettings, setActiveTab]
   );
   const panelState = usePanelLayoutStore(
     (state) => ({

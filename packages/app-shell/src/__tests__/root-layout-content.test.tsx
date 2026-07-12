@@ -321,6 +321,40 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
   });
 
+  it('keeps the current shell tab active when settings opens and closes', async () => {
+    usePanelLayoutStore.setState({ activeTab: 'terminal' });
+    const user = userEvent.setup();
+    renderComponent({ terminalPageContent: <div data-testid="terminal-page">Terminal</div> });
+
+    act(() => {
+      usePanelLayoutStore.getState().openSettings();
+    });
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('terminal-route')).not.toHaveClass('hidden');
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(usePanelLayoutStore.getState().activeTab).toBe('terminal');
+    expect(screen.getByTestId('terminal-route')).not.toHaveClass('hidden');
+  });
+
+  it('closes settings when navigating to another shell tab', () => {
+    renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });
+
+    act(() => {
+      mockHandlers.onOpenSettings();
+    });
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/git');
+    });
+
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
+  });
+
   it('disables prompt suggestions on every hidden outer route without unmounting prompts', async () => {
     const user = userEvent.setup();
     renderComponent({
