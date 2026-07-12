@@ -56,6 +56,9 @@ describe('file-content-actions', () => {
 
   beforeEach(() => {
     store = createTestStore();
+    // The file-content cache is a module-level singleton shared across
+    // stores; reset it so tests don't depend on execution order.
+    store.getState().clearAllFileContents();
   });
 
   it('setFileContent should update fileContents with given key and content', () => {
