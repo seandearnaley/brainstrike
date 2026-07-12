@@ -79,6 +79,10 @@ import {
   useThreadsPanelDropMonitor,
 } from './threads-panel-dnd-elements';
 
+// Stable fallback so `threads` keeps referential identity across renders when
+// the resource has no entry yet (the membership/view useMemos depend on it).
+const EMPTY_THREADS: readonly AssistantMemoryThread[] = [];
+
 type ThreadPanelLoadState =
   | { readonly status: 'idle' | 'loading' | 'ready' }
   | { readonly error: string; readonly status: 'error' };
@@ -512,30 +516,30 @@ function ThreadRowItem({
           return Promise.resolve({ ok: true });
         },
       }),
-      ...moveTargets
-        .filter((moveTarget) => moveTarget.id !== rowGroupId)
-        .map((moveTarget) =>
-          defineContextAction({
-            appliesTo: ['assistant-thread'] as const,
-            group: 'tree',
-            icon: Folder,
-            id: `assistant-thread.move-to-group.${moveTarget.id}`,
-            isEnabled: (target) => isCurrentTarget(target),
-            label: `Move to ${moveTarget.name}`,
-            run: (target) => {
-              if (!isCurrentTarget(target)) {
-                return staleTargetFailure;
-              }
-              return onMoveThreadToGroup(target.id, moveTarget.id).then(
-                () => ({ ok: true as const }),
-                (error: unknown) => ({
-                  error: error instanceof Error ? error.message : String(error),
-                  ok: false as const,
-                })
-              );
-            },
-          })
-        ),
+      ...moveTargets.flatMap((moveTarget) =>
+        moveTarget.id === rowGroupId
+          ? []
+          : defineContextAction({
+              appliesTo: ['assistant-thread'] as const,
+              group: 'tree',
+              icon: Folder,
+              id: `assistant-thread.move-to-group.${moveTarget.id}`,
+              isEnabled: (target) => isCurrentTarget(target),
+              label: `Move to ${moveTarget.name}`,
+              run: (target) => {
+                if (!isCurrentTarget(target)) {
+                  return staleTargetFailure;
+                }
+                return onMoveThreadToGroup(target.id, moveTarget.id).then(
+                  () => ({ ok: true as const }),
+                  (error: unknown) => ({
+                    error: error instanceof Error ? error.message : String(error),
+                    ok: false as const,
+                  })
+                );
+              },
+            })
+      ),
       ...(rowGroupId
         ? [
             defineContextAction({
@@ -1514,7 +1518,7 @@ export function ThreadsPanel(): ReactElement {
   const selectThread = useAssistantThreadStore((state) => state.selectThread);
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   const selectedThreadId = selectedThreadByResourceId[resourceId];
-  const threads = threadsByResourceId[resourceId] ?? [];
+  const threads = threadsByResourceId[resourceId] ?? EMPTY_THREADS;
   const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
   const groupsByResourceId = useAssistantThreadGroupsStore((state) => state.groupsByResourceId);
   const placementsByThreadId = useAssistantThreadGroupsStore((state) => state.placementsByThreadId);
