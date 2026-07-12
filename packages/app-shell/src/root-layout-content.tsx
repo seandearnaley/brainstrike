@@ -387,8 +387,11 @@ export function RootLayoutContent({
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
   const activeTab = usePanelLayoutStore((state) => state.activeTab);
+  const openSettings = usePanelLayoutStore((state) => state.openSettings);
+  const settingsOpen = usePanelLayoutStore((state) => state.settingsOpen);
+  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+  const setSettingsOpen = usePanelLayoutStore((state) => state.setSettingsOpen);
   const setState = usePanelLayoutStore((state) => state.setState);
-  const [settingsOpen, setSettingsOpen] = useState(activeTab === 'settings');
   const shellTab = activeTab === 'settings' ? 'explorer' : activeTab;
   const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([shellTab]));
   const appConfig = useMemo(
@@ -417,21 +420,21 @@ export function RootLayoutContent({
     (open: boolean) => {
       setSettingsOpen(open);
       if (!open && activeTab === 'settings') {
-        setState({ activeTab: 'explorer' });
+        setActiveTab('explorer');
       }
     },
-    [activeTab, setState]
+    [activeTab, setActiveTab, setSettingsOpen]
   );
 
   const handleNavigationClick = useCallback(
     (path: string) => {
       if (path === '/settings') {
-        setSettingsOpen(true);
+        openSettings();
         return;
       }
       setState({ activeTab: resolveActiveTabForPath(path) });
     },
-    [setState]
+    [openSettings, setState]
   );
   const panelState = usePanelLayoutStore(
     (state) => ({
@@ -454,7 +457,7 @@ export function RootLayoutContent({
       config={appConfig}
       currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
       onNavigationClick={handleNavigationClick}
-      onOpenSettings={() => setSettingsOpen(true)}
+      onOpenSettings={openSettings}
     >
       {/* These providers now intentionally stay app-wide so background chunking and embedding
           work can continue across route switches. They remain inert on non-explorer routes
@@ -493,7 +496,10 @@ export function RootLayoutContent({
                   />
                 </PanelLayoutProvider>
               </div>
-              <Dialog onOpenChange={handleSettingsOpenChange} open={settingsOpen}>
+              <Dialog
+                onOpenChange={handleSettingsOpenChange}
+                open={settingsOpen || activeTab === 'settings'}
+              >
                 <DialogContent
                   aria-describedby={undefined}
                   className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"

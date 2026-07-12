@@ -202,6 +202,7 @@ describe('RootLayoutContent', () => {
     mockHandlers.promptManagerSuspended = false;
     usePanelLayoutStore.setState({
       activeTab: 'explorer',
+      settingsOpen: false,
       showConsole: false,
       showLeftPanel: true,
       showRightPanel: false,
@@ -308,6 +309,18 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
+  it('opens the settings modal when an existing caller selects the settings tab', () => {
+    renderComponent();
+
+    act(() => {
+      usePanelLayoutStore.getState().setActiveTab('settings');
+    });
+
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('settings-page')).toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+  });
+
   it('disables prompt suggestions on every hidden outer route without unmounting prompts', async () => {
     const user = userEvent.setup();
     renderComponent({
@@ -360,7 +373,7 @@ describe('RootLayoutContent', () => {
       settingsPageContent: <StatefulSettingsPage />,
     });
 
-    act(() => {
+    await act(async () => {
       mockHandlers.onOpenSettings();
     });
 
@@ -370,9 +383,10 @@ describe('RootLayoutContent', () => {
     expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
     expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
 
-    act(() => mockHandlers.onOpenSettings());
+    await act(async () => mockHandlers.onOpenSettings());
 
     expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('settings-input')).toHaveValue('');
   });
 
   it('debounces size-only explorer layout updates and keeps the latest size payload', () => {
