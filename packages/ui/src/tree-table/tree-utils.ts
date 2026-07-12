@@ -651,5 +651,38 @@ export function computeCheckboxState(
   return 'indeterminate';
 }
 
+function flattenedRowsEqual<T>(a: FlattenedRow<T>, b: FlattenedRow<T>): boolean {
+  return (
+    a.node === b.node &&
+    a.index === b.index &&
+    a.isExpanded === b.isExpanded &&
+    a.isHighlighted === b.isHighlighted &&
+    a.isInContext === b.isInContext &&
+    a.isSelected === b.isSelected &&
+    a.matchesFilter === b.matchesFilter &&
+    a.aria.ariaLevel === b.aria.ariaLevel &&
+    a.aria.ariaPosInSet === b.aria.ariaPosInSet &&
+    a.aria.ariaRowIndex === b.aria.ariaRowIndex &&
+    a.aria.ariaSetSize === b.aria.ariaSetSize
+  );
+}
+
+/**
+ * Structural sharing across flatten passes: reuse the previous pass's row
+ * object when a row's computed fields are value-equal, so the memo'd
+ * TreeTableRow bails out for rows a selection/highlight/focus change did not
+ * touch. Without this, every flatten (which depends on the selection sets)
+ * mints fresh row objects for ALL rows and re-renders every visible row.
+ */
+export function reuseEqualFlattenedRows<T>(
+  previousById: ReadonlyMap<string, FlattenedRow<T>>,
+  rows: FlattenedRow<T>[]
+): FlattenedRow<T>[] {
+  return rows.map((row) => {
+    const previous = previousById.get(row.node.id);
+    return previous && flattenedRowsEqual(previous, row) ? previous : row;
+  });
+}
+
 // Re-export DEFAULT_ARIA for use in tests
 export { DEFAULT_ARIA };
