@@ -850,6 +850,17 @@ describe('PgliteMemoryStore', () => {
       threadId: 'thread-1',
     });
 
+    const persistedConfig = await db.query<{ config: unknown }>(
+      'SELECT config FROM mastra_observational_memory WHERE id = $1',
+      [created.id]
+    );
+    // Contract for the app-shell OM activation meter. This asserts the nested
+    // shape on a row written through the production store, not only the jsonb
+    // column type exposed by information_schema.
+    expect(persistedConfig.rows[0]?.config).toEqual({
+      observation: { messageTokens: 1000 },
+    });
+
     await observedStore.updateActiveObservations({
       id: created.id,
       lastObservedAt: new Date('2026-04-22T10:00:00Z'),

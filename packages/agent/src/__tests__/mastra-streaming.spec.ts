@@ -1159,15 +1159,15 @@ describe('mastra streaming integration', () => {
       runId: 'run-approval-1',
       toolCallId: 'tool-call-1',
     });
-    // Run-wide `true` becomes the function form backed by the rebuilt runtime's
-    // ask set. This fixture has no permission policy/tools, so neither internal
-    // nor arbitrary follow-up calls are spuriously gated.
+    // This fixture has no permission-policy ask set, so the approval was
+    // explicitly global. The resumed leg must keep gating every non-internal
+    // follow-up tool while exempting Mastra's memory bookkeeping.
     const approveGate = agent?.approveToolCallCalls[0]?.requireToolApproval as (ctx: {
       toolName: string;
     }) => boolean;
     expect(typeof approveGate).toBe('function');
     expect(approveGate({ toolName: 'updateWorkingMemory' })).toBe(false);
-    expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(false);
+    expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
     expect(chunks).toContainEqual({
       finishReason: 'stop',
@@ -1210,13 +1210,13 @@ describe('mastra streaming integration', () => {
       runId: 'run-approval-2',
       toolCallId: 'tool-call-2',
     });
-    // Same empty ask-set behavior on the decline resume leg.
+    // The decline resume leg preserves the same explicit global gate.
     const declineGate = agent?.declineToolCallCalls[0]?.requireToolApproval as (ctx: {
       toolName: string;
     }) => boolean;
     expect(typeof declineGate).toBe('function');
     expect(declineGate({ toolName: 'updateWorkingMemory' })).toBe(false);
-    expect(declineGate({ toolName: 'shell_tool' })).toBe(false);
+    expect(declineGate({ toolName: 'shell_tool' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
   });
 

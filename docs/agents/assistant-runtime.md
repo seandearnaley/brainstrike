@@ -177,7 +177,9 @@ Flow (desktop assistant server → agent runtime):
    the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
-   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt.
+   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt. An empty
+   policy ask set denotes an explicitly global approval request, so its resumed
+   leg continues gating every non-internal tool.
 
 Migration (enforce-on is a SECURITY fix): the store bumps to v2. Under v1,
 `false` was the default AND always persisted, so a pre-v2 `false` slice is
@@ -500,4 +502,3 @@ assistant-server resume-dispatch tests; and the UI suspend-notice tests.
 When changing this flow, update this section and the paired tests.
 
 ---
-

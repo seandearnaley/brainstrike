@@ -1914,7 +1914,9 @@ function validateToolApprovalAction(action: AssistantToolApprovalAction): void {
  * gates EVERY tool call on the resumed run. Substitute the FUNCTION form so the
  * rebuilt runtime reuses the permission gate's authoritative `askTools` set:
  * allowed read/state tools run free, ask-gated mutations can suspend again, and
- * Mastra's internal memory tools remain exempt. A caller-supplied function or a
+ * Mastra's internal memory tools remain exempt. An empty ask set means the
+ * approval was explicitly global rather than policy-scoped, so every
+ * non-internal follow-up remains gated. A caller-supplied function or a
  * non-`true` value passes through unchanged.
  */
 function resolveResumeApprovalGate(
@@ -1924,8 +1926,9 @@ function resolveResumeApprovalGate(
   if (requireToolApproval !== true) {
     return requireToolApproval ?? false;
   }
+  const isExplicitGlobalApproval = askTools.size === 0;
   return ({ toolName }: { toolName: string }): boolean =>
-    !isApprovalExemptInternalTool(toolName) && askTools.has(toolName);
+    !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
 }
 
 async function createToolApprovalIteratorFromRuntime({
