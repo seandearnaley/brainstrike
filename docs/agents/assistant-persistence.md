@@ -31,11 +31,22 @@ contracts keep reloaded threads identical to live ones:
      a group),
    - dedupes tool calls by toolCallId (first occurrence wins; later
      result/error fields merge in),
-   - assigns each turn's run events to its own group by timestamp and weaves
-     them between content parts in time order. Tool-invocation parts carry no
-     persisted timestamp, so each is re-timed to its `tool.started` run event
-     (matched via `metadata.toolCallId`); other untimed parts anchor to their
-     snapshot row's save time. A group with only run events still renders.
+   - recalls the latest 80 message rows together with events from the latest
+     80 runs, partitions events by `runId`, assigns each run to the assistant
+     turn inside that run's time window, and weaves them between content parts
+     in time order. Never attach only the newest run to the newest message:
+     older turns would lose tool failure state, timings, and subagent activity
+     after reload. Tool-invocation parts carry no persisted timestamp, so each
+     is re-timed to its `tool.started` run event (matched via
+     `metadata.toolCallId`); other untimed parts anchor to their snapshot row's
+     save time. Equal-timestamp rows use Mastra's per-part `createdAt` values
+     before the row role/id fallback. A group with only run events still
+     renders.
+   - recognizes guarded tool results with the canonical
+     `@brainstrike/assistant-contract` type guard. A known guarded result
+     (`ok:false`) hydrates as a failed tool call even though Mastra persists
+     the invocation itself with `state:'result'`; the execution and replay
+     paths must never maintain independent guarded-error code lists.
 
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,
@@ -152,5 +163,4 @@ Runtime invariants:
   must never lie — wire-format usage is `{inputTokens, outputTokens}` (e2e mocks must use those names).
 
 ---
-
 

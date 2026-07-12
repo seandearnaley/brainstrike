@@ -4,6 +4,7 @@ import {
   type AssistantEditCheckpointCaptureStatus,
   type AssistantEditCheckpointOp,
   type AssistantEditCheckpointRecord,
+  isGuardedToolError,
 } from '@brainstrike/assistant-contract';
 import {
   DEFAULT_THREAD_TITLE,
@@ -239,7 +240,8 @@ export interface AssistantThreadRepository {
   listThreadCheckpoints: (threadId: string) => Promise<readonly AssistantEditCheckpointRecord[]>;
   listThreadRunEvents: (
     threadId: string,
-    resourceId: string
+    resourceId: string,
+    options?: AssistantThreadRunEventListOptions
   ) => Promise<readonly AssistantRunEvent[]>;
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
   recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
@@ -256,6 +258,10 @@ interface AssistantHistoryMessage {
 
 export interface AssistantThreadMessageListOptions {
   readonly limitLatest?: number;
+}
+
+export interface AssistantThreadRunEventListOptions {
+  readonly limitLatestRuns?: number;
 }
 
 export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
@@ -894,7 +900,11 @@ function toHistoryToolCallPart(
   const persistedResult = toolResultsByCallId.get(toolCallId);
   const hasInlineResult = Object.hasOwn(record, 'result');
   const isError =
-    typeof record['isError'] === 'boolean' ? record['isError'] : persistedResult?.isError;
+    typeof record['isError'] === 'boolean'
+      ? record['isError']
+      : isPersistedGuardedToolError(record['result'])
+        ? true
+        : persistedResult?.isError;
   return {
     args,
     argsText,
@@ -963,7 +973,10 @@ function toHistoryToolCallPartFromInvocation(
   ) as AssistantHistoryToolCallPart['args'];
   const hasResult = Object.hasOwn(inv, 'result');
   const errorText = typeof inv['errorText'] === 'string' ? inv['errorText'] : undefined;
-  const isError = state === 'output-error' || inv['isError'] === true;
+  const isError =
+    state === 'output-error' ||
+    inv['isError'] === true ||
+    isPersistedGuardedToolError(inv['result']);
   return {
     args,
     argsText: stringifyArgsText(args),
@@ -979,6 +992,10 @@ function toHistoryToolCallPartFromInvocation(
         : { result: errorText }),
     ...(isError ? { isError: true } : {}),
   };
+}
+
+function isPersistedGuardedToolError(value: unknown): boolean {
+  return isGuardedToolError(value);
 }
 
 /**
@@ -1371,23 +1388,121 @@ function buildHistoryUnits(
 }
 
 /**
- * Anchor the thread's run events to the LAST assistant group. The event
- * source (listThreadRunEvents) returns ONLY the latest run's events, and a
- * run's early events (memory loads, tool starts) occur BEFORE that run's
- * first assistant row is saved — splitting by time against group start times
- * assigned those early events to the PREVIOUS turn's group on reload.
+ * Assign each persisted run back to its own assistant group. A run's earliest
+ * events occur before its first assistant row is saved, while the next run's
+ * events form the upper boundary. Choosing the newest unassigned group inside
+ * each run window preserves older turns and also avoids attaching a current
+ * run's early memory/tool events to the previous turn.
  */
 function assignRunEventsToGroups(
   units: readonly AssistantHistoryUnit[],
   runEvents: readonly AssistantRunEvent[]
 ): Map<AssistantHistoryUnit, AssistantRunEventDataPart[]> {
   const assignments = new Map<AssistantHistoryUnit, AssistantRunEventDataPart[]>();
-  const lastGroup = units.findLast((unit) => unit.kind === 'assistant-group');
-  if (!lastGroup || runEvents.length === 0) {
+  const assistantGroups = units.filter(
+    (unit): unit is AssistantHistoryRowGroup => unit.kind === 'assistant-group'
+  );
+  if (assistantGroups.length === 0 || runEvents.length === 0) {
     return assignments;
   }
-  assignments.set(lastGroup, toRunEventDataParts(runEvents));
+
+  const eventsByRunId = new Map<string, AssistantRunEvent[]>();
+  for (const event of runEvents) {
+    const runId = event.runId;
+    if (!runId) {
+      continue;
+    }
+    const runEventsForId = eventsByRunId.get(runId);
+    if (runEventsForId) {
+      runEventsForId.push(event);
+    } else {
+      eventsByRunId.set(runId, [event]);
+    }
+  }
+  const runs = [...eventsByRunId.values()]
+    .map((events) => ({
+      events: events.sort(
+        (left, right) =>
+          (left.sequence ?? 0) - (right.sequence ?? 0) ||
+          Date.parse(left.timestamp) - Date.parse(right.timestamp) ||
+          left.id.localeCompare(right.id)
+      ),
+      startedAt: Math.min(...events.map((event) => Date.parse(event.timestamp))),
+    }))
+    .filter((run) => Number.isFinite(run.startedAt))
+    .sort((left, right) => left.startedAt - right.startedAt);
+  const unassignedGroups = new Set(assistantGroups);
+
+  for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
+    const run = runs[runIndex];
+    if (!run) {
+      continue;
+    }
+    const nextRunStartedAt = runs[runIndex + 1]?.startedAt ?? Number.POSITIVE_INFINITY;
+    const candidate = assistantGroups.findLast((group) => {
+      const firstRow = group.rows.at(0);
+      return (
+        unassignedGroups.has(group) &&
+        firstRow !== undefined &&
+        firstRow.createdAt.getTime() < nextRunStartedAt
+      );
+    });
+    if (!candidate) {
+      continue;
+    }
+    assignments.set(candidate, toRunEventDataParts(run.events));
+    unassignedGroups.delete(candidate);
+  }
   return assignments;
+}
+
+function historyMessagePartTimeRange(content: unknown): { first: number; last: number } | null {
+  const parts = readContentPartArray(content);
+  if (!parts) {
+    return null;
+  }
+  let first = Number.POSITIVE_INFINITY;
+  let last = Number.NEGATIVE_INFINITY;
+  for (const part of parts) {
+    if (!part || typeof part !== 'object' || Array.isArray(part)) {
+      continue;
+    }
+    const createdAt = (part as Record<string, unknown>)['createdAt'];
+    if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) {
+      continue;
+    }
+    first = Math.min(first, createdAt);
+    last = Math.max(last, createdAt);
+  }
+  return Number.isFinite(first) && Number.isFinite(last) ? { first, last } : null;
+}
+
+const HISTORY_ROLE_ORDER: Readonly<Record<string, number>> = {
+  assistant: 2,
+  system: 0,
+  tool: 3,
+  user: 1,
+};
+
+function compareHistoryMessages(left: AssistantHistoryMessage, right: AssistantHistoryMessage) {
+  const rowTimeDifference = left.createdAt.getTime() - right.createdAt.getTime();
+  if (rowTimeDifference !== 0) {
+    return rowTimeDifference;
+  }
+  const leftRange = historyMessagePartTimeRange(left.content);
+  const rightRange = historyMessagePartTimeRange(right.content);
+  const firstPartDifference = (leftRange?.first ?? 0) - (rightRange?.first ?? 0);
+  if (firstPartDifference !== 0) {
+    return firstPartDifference;
+  }
+  const lastPartDifference = (leftRange?.last ?? 0) - (rightRange?.last ?? 0);
+  if (lastPartDifference !== 0) {
+    return lastPartDifference;
+  }
+  const roleDifference =
+    (HISTORY_ROLE_ORDER[left.role] ?? Number.MAX_SAFE_INTEGER) -
+    (HISTORY_ROLE_ORDER[right.role] ?? Number.MAX_SAFE_INTEGER);
+  return roleDifference === 0 ? left.id.localeCompare(right.id) : roleDifference;
 }
 
 function toHistoryRepository(
@@ -1399,7 +1514,8 @@ function toHistoryRepository(
   >['messages'] = [];
   let parentId: string | null = null;
   const toolResultsByCallId = collectToolResults(messages);
-  const units = buildHistoryUnits(messages, toolResultsByCallId);
+  const orderedMessages = [...messages].sort(compareHistoryMessages);
+  const units = buildHistoryUnits(orderedMessages, toolResultsByCallId);
   const runEventAssignments = assignRunEventsToGroups(units, runEvents);
 
   for (const unit of units) {
@@ -1569,33 +1685,51 @@ export function createPgliteAssistantThreadRepository(
 
   const listThreadRunEvents = async (
     threadId: string,
-    resourceId: string
+    resourceId: string,
+    options?: AssistantThreadRunEventListOptions
   ): Promise<readonly AssistantRunEvent[]> => {
     await initialize();
+    const limitLatestRuns =
+      typeof options?.limitLatestRuns === 'number' && Number.isSafeInteger(options.limitLatestRuns)
+        ? options.limitLatestRuns
+        : undefined;
+    if (limitLatestRuns !== undefined && limitLatestRuns < 1) {
+      throw new Error('Assistant run event history limit must be a positive safe integer.');
+    }
+    const params: unknown[] = [threadId, resourceId];
+    const boundedRunFilter =
+      limitLatestRuns === undefined
+        ? ''
+        : `AND run.id IN (
+            SELECT recent_run.id
+            FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS recent_run
+            WHERE recent_run.thread_id = $1 AND recent_run.resource_id = $2
+            ORDER BY recent_run.started_at DESC, recent_run.created_at DESC, recent_run.id DESC
+            LIMIT $3
+          )`;
+    if (limitLatestRuns !== undefined) {
+      params.push(limitLatestRuns);
+    }
     const result = await database.query<Record<string, unknown>>(
       `SELECT
-          id,
-          run_id,
-          sequence,
-          kind,
-          status,
-          label,
-          detail,
-          duration_ms,
-          metadata,
-          occurred_at
-       FROM ${ASSISTANT_RUN_EVENTS_TABLE}
-       WHERE thread_id = $1
-          AND resource_id = $2
-          AND run_id = (
-            SELECT id
-            FROM ${ASSISTANT_THREAD_RUNS_TABLE}
-            WHERE thread_id = $1 AND resource_id = $2
-            ORDER BY started_at DESC, created_at DESC, id DESC
-            LIMIT 1
-          )
-       ORDER BY sequence ASC, occurred_at ASC, id ASC`,
-      [threadId, resourceId]
+          event.id,
+          event.run_id,
+          event.sequence,
+          event.kind,
+          event.status,
+          event.label,
+          event.detail,
+          event.duration_ms,
+          event.metadata,
+          event.occurred_at
+       FROM ${ASSISTANT_RUN_EVENTS_TABLE} AS event
+       INNER JOIN ${ASSISTANT_THREAD_RUNS_TABLE} AS run ON run.id = event.run_id
+       WHERE event.thread_id = $1
+          AND event.resource_id = $2
+          ${boundedRunFilter}
+       ORDER BY run.started_at ASC, run.created_at ASC, run.id ASC,
+                event.sequence ASC, event.occurred_at ASC, event.id ASC`,
+      params
     );
     return result.rows.map(toThreadRunEvent);
   };
@@ -2001,7 +2135,9 @@ export function createAssistantThreadHistoryAdapter({
         repository.listMessages(threadId, resourceId, {
           limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
         }),
-        repository.listThreadRunEvents(threadId, resourceId),
+        repository.listThreadRunEvents(threadId, resourceId, {
+          limitLatestRuns: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
+        }),
         discoverSuspendedApprovals
           ? discoverSuspendedApprovals(threadId, resourceId)
           : Promise.resolve<readonly RediscoveredToolApproval[]>([]),

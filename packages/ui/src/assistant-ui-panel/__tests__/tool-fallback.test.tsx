@@ -48,4 +48,38 @@ describe('ToolFallback', () => {
     expect(screen.getByText(/Arguments/i)).toBeInTheDocument();
     expect(screen.getByText(/Result/i)).toBeInTheDocument();
   });
+
+  it('renders a persisted guarded result as failed when the tool part isError flag is set', () => {
+    renderTool({
+      argsText: '{"path":"package.json"}',
+      isError: true,
+      result: {
+        error: {
+          code: 'tool_failed',
+          message: 'The tool did not complete successfully. Try another approach.',
+        },
+        ok: false,
+      },
+      status: { type: 'complete' },
+      toolName: 'brainstrike.readWorkspaceFile',
+    });
+
+    expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+    expect(
+      screen.getByText('The tool did not complete successfully. Try another approach.')
+    ).toBeInTheDocument();
+  });
+
+  it('does not classify a successful payload with nested error metadata as failed', () => {
+    renderTool({
+      argsText: '{}',
+      result: { error: { message: 'advisory only' }, ok: true },
+      status: { type: 'complete' },
+      toolName: 'lookupStatus',
+    });
+
+    expect(screen.getByTestId('tool-fallback')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Failed' })).toBeNull();
+    expect(screen.queryByText('advisory only')).toBeNull();
+  });
 });

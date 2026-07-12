@@ -1,32 +1,12 @@
+import type { GuardedToolError } from '@brainstrike/assistant-contract';
 import type { ToolLogger } from './types';
 
-export interface GuardedToolError {
-  error: {
-    code: 'tool_timeout' | 'tool_failed' | 'tool_blocked_by_hook';
-    message: string;
-    toolName: string;
-  };
-  ok: false;
-}
+export type { GuardedToolError } from '@brainstrike/assistant-contract';
+export { isGuardedToolError } from '@brainstrike/assistant-contract';
 
 const GUARDED_TOOL_ERROR_MESSAGE = 'The tool did not complete successfully. Try another approach.';
 const GUARDED_TOOL_TIMEOUT_MESSAGE =
   'The tool timed out before returning a result. Try a smaller request or another approach.';
-
-export function isGuardedToolError(value: unknown): value is GuardedToolError {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const candidate = value as { ok?: unknown; error?: { code?: unknown } };
-  return (
-    candidate.ok === false &&
-    typeof candidate.error === 'object' &&
-    candidate.error !== null &&
-    (candidate.error.code === 'tool_timeout' ||
-      candidate.error.code === 'tool_failed' ||
-      candidate.error.code === 'tool_blocked_by_hook')
-  );
-}
 
 interface ExecutableLike {
   execute: (...args: unknown[]) => unknown;
