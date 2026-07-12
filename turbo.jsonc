@@ -83,8 +83,14 @@
       // whose outcome can depend on an UN-hashed input — real PGlite/WASM under
       // wall-clock timeouts and CPU contention, native/N-API binaries + their
       // host ABI, an installed CLI shelled out to (git, node-pty, /bin/sh), or
-      // any wall-clock timing — must NOT be cacheable. See the invariant that
-      // anchors this rule in packages/db/turbo.json.
+      // REAL-SUBSYSTEM execution under wall-clock budgets — must NOT be
+      // cacheable. Boundary note: watchdog timeouts and polling budgets over
+      // fully MOCKED subsystems do not qualify — their nondeterminism lives in
+      // the test harness (worst case a false red under load, which caching a
+      // green cannot cause), and any product change re-hashes and invalidates
+      // the entry. Cross-package file reads are a separate hazard: declare them
+      // as explicit `inputs` (see apps/web/turbo.json) instead of un-caching.
+      // See the invariant that anchors this rule in packages/db/turbo.json.
       //
       // Instead of carving a package's WHOLE `test` task out with `cache: false`
       // (which strands its fast, deterministic unit tests in the uncached lane

@@ -1,7 +1,9 @@
 // Integration lane config for @brainstrike/web.
 //
-// Runs ONLY the env-sensitive `*.integration.test.*` files (real PGlite /
-// Mastra memory loop, wall-clock-sensitive render loops). It is executed by the
+// Runs the `*.integration.test.*` suffix lane. For web that is the
+// env-sensitive web-mastra-storage test (real PGlite / Mastra memory loop)
+// plus the pre-existing, fully-skipped app.integration.test.tsx, which keeps
+// its suffix for convention only. The lane is executed by the
 // `test:integration` script, which turbo routes through the root uncached
 // `test:integration` task (turbo.jsonc, `cache: false`) so these lanes are
 // never replayed from cache.

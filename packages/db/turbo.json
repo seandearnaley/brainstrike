@@ -47,10 +47,12 @@
       "cache": false,
       // Strict environment mode filtering is INDEPENDENT of caching, so the
       // cache:false carve-out above does NOT exempt db's test task from having
-      // CI/COVERAGE stripped. Redeclare passThroughEnv here explicitly: package
-      // configs REPLACE (not merge) array fields, and the docs are silent on
-      // whether an UNSPECIFIED array field inherits, so we do not rely on
-      // inheriting the root's passThroughEnv. Keep this list in sync with the
+      // CI/COVERAGE stripped. Redeclare passThroughEnv here explicitly as
+      // deliberate conservatism: per the Turborepo configuration docs, a task
+      // field a package config SUPPLIES replaces the root's value (use
+      // $TURBO_EXTENDS$ to append), while an unspecified field inherits — but
+      // an explicit copy here survives someone later adding another field to
+      // this task without knowing that rule. Keep this list in sync with the
       // root turbo.jsonc `test.passThroughEnv`.
       "passThroughEnv": ["CI", "COVERAGE"]
     }
