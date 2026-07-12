@@ -50,7 +50,7 @@ Cross-cutting invariants (full detail + rationale in the docs):
 
 ## Testing
 
-- Vitest for unit/integration (`*.test.ts`, `*.integration.test.ts`); run a single test with `pnpm vitest run -t "test name"` from the package dir.
+- Vitest for unit/integration (`*.test.ts`, `*.integration.test.ts`); run a single test with `pnpm vitest run -t "test name"` from the package dir. The `*.integration.test.*` suffix marks env-sensitive tests (real PGlite/native binaries/wall-clock timing); a package's `test` script excludes them (stays turbo-cacheable) and its `test:integration` script runs only them via the root uncached `test:integration` task.
 - Playwright for E2E: run non-interactively; prefer role/text/data-testid selectors over raw CSS.
 - Desktop E2E can be flaky headless — diagnose, don't bypass.
 - Agent-driven Electron renderer debugging (opt-in only, never in default E2E): `pnpm --filter @brainstrike/desktop dev:agent-debug`.

@@ -158,12 +158,19 @@ jobs:
       # same value) — otherwise PR and push runs would compute different hashes
       # and never share cache entries. --concurrency=4 preserves the prior
       # `--workspace-concurrency=4` parallelism cap.
+      #
+      # `test:integration` is run alongside `test`: it is the uncached sibling
+      # (root turbo.jsonc, `cache: false`) that executes the env-sensitive
+      # `*.integration.test.*` lanes packages split out of their cacheable
+      # `test` task. Passing both task names to one `turbo run` shares the
+      # affected-package selection and the build graph; turbo skips either task
+      # for packages that do not define it (no `--if-present` needed).
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test --filter="...[origin/$BASE_REF]" --concurrency=4
+        run: pnpm turbo run test test:integration --filter="...[origin/$BASE_REF]" --concurrency=4
 
       # Push (main) + workflow_dispatch: full non-affected suite routed through
       # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
@@ -173,13 +180,16 @@ jobs:
       # test`); the `!@brainstrike/embeddings` exclusion is preserved verbatim.
       # TURBO_TEST_MODE=unit (below) keeps the `test` task cache key identical to
       # the PR path and the local `pnpm test` script. --concurrency=4 matches the
-      # PR path and the root `pnpm test` script.
+      # PR path and the root `pnpm test` script. `test:integration` runs
+      # alongside `test` here too (the uncached env-sensitive sibling); the
+      # embeddings exclusion also keeps its manual model-download lane
+      # (`test:models`, formerly the colliding `test:integration`) out of CI.
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
         env:
           COVERAGE: "false"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test --filter='!@brainstrike/embeddings' --concurrency=4
+        run: pnpm turbo run test test:integration --filter='!@brainstrike/embeddings' --concurrency=4
 
   coverage:
     name: Coverage

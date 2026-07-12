@@ -60,8 +60,9 @@
     "build": "tsc -b .",
     "clean": "rimraf dist",
     "lint": "pnpm run --dir=../.. lint",
-    "test": "vitest run",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test": "vitest run --exclude '**/*.integration.test.*'",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "types": "dist/index.d.ts"
