@@ -17,7 +17,7 @@ contracts keep reloaded threads identical to live ones:
    field instead of `text` (and is often empty for encrypted provider
    reasoning). `step-start` and `data-om-*` bookkeeping parts are not
    renderable. Live-loop proof (real agent + real PGlite memory, no mocks):
-   packages/agent/src/__tests__/mastra-memory-persistence.spec.ts. Hydration
+   packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts. Hydration
    fixtures must mirror REAL persisted rows, never hand-written shapes — a
    hand-written `tool-call` fixture previously kept tests green while real
    tool history silently vanished on every reload.
