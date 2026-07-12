@@ -1,7 +1,7 @@
 /**
  * Workspace instructions context-file preferences (auto-injection of a mounted
  * root's `AGENTS.md`/`AGENT.md`/`CLAUDE.md` into the assistant's system context —
- * see AGENTS.md "WORKSPACE INSTRUCTIONS CONTEXT").
+ * see docs/agents/workspace-context.md "WORKSPACE INSTRUCTIONS CONTEXT").
  *
  * Threshold-hybrid policy (product ruling):
  * - `masterEnabled` — top-level opt-out. Defaults ON: matching Claude Code's

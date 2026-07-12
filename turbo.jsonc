@@ -148,8 +148,9 @@
         "build"
       ],
       // Turborepo runs tasks with a constrained environment. Required browser
-      // CI lanes use the shared Playwright runtime setup action, so package-level
-      // Vitest browser providers must see the cached browser path.
+      // CI lanes run in the official Playwright Docker image with browsers
+      // preinstalled, and the workflow sets PLAYWRIGHT_BROWSERS_PATH directly.
+      // Declare it here so Turborepo passes it through to package-level tasks.
       "env": [
         "CI",
         "PLAYWRIGHT_BROWSERS_PATH"

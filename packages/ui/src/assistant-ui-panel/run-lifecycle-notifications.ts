@@ -1,6 +1,6 @@
 /**
  * Trigger source for assistant run-lifecycle OS notifications (run
- * finished/failed, tool approval required — see AGENTS.md "ASSISTANT RUN
+ * finished/failed, tool approval required — see docs/agents/assistant-persistence.md "ASSISTANT RUN
  * NOTIFICATIONS"). This module only REPORTS raw events up via callback props,
  * mirroring the existing `onUsage` seam (`data-stream-runtime.ts` ->
  * `AssistantUiPanelProps.onUsage` -> app-shell's `handleUsage`) — the actual
@@ -134,7 +134,7 @@ function serializeToolApprovalRequests(messages: readonly unknown[]): string {
  * that's the dispatcher's job (see `createRunNotificationDispatcher`).
  *
  * Hydration guard: reload hydration re-weaves EVERY historical run-event /
- * approval data part into `state.thread.messages` (see AGENTS.md "ASSISTANT
+ * approval data part into `state.thread.messages` (see docs/agents/assistant-persistence.md "ASSISTANT
  * THREAD PERSISTENCE & RELOAD HYDRATION"), so the seeded baseline must capture
  * the full replayed history before any callback fires. The history adapter
  * loads that history ASYNCHRONOUSLY — opening an existing thread first renders

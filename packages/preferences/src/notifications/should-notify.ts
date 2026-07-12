@@ -1,6 +1,6 @@
 /**
  * Pure decision logic for assistant run-lifecycle OS notifications. See
- * AGENTS.md "ASSISTANT RUN NOTIFICATIONS" for the full contract. Kept free of
+ * docs/agents/assistant-persistence.md "ASSISTANT RUN NOTIFICATIONS" for the full contract. Kept free of
  * zustand/browser globals so every gate is unit-testable without mocking
  * `window`/`Notification`.
  */
