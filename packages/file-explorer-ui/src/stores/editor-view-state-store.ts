@@ -1,4 +1,4 @@
-import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
+import { createDebouncedStorageAdapter, createSafeJsonStorageAdapter } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -60,7 +60,7 @@ export type EditorViewStateStore = EditorViewStateData & EditorViewStateActions;
 
 const STORE_NAME = 'editor-view-state.v1' as const;
 
-const storage = createSafeJsonStorageAdapter();
+const storage = createDebouncedStorageAdapter(createSafeJsonStorageAdapter(), { delayMs: 500 });
 
 /** Coerce a raw line into a positive, 1-based integer. */
 function normalizeLine(line: number): number {
@@ -116,8 +116,13 @@ export const useEditorViewStateStore = create<EditorViewStateStore>()(
       selections: {},
 
       setMode: (key, mode) => set((s) => ({ modes: { ...s.modes, [key]: mode } })),
-      setScrollTop: (key, top) =>
-        set((s) => ({ scrollTops: { ...s.scrollTops, [key]: Math.max(0, top | 0) } })),
+      setScrollTop: (key, top) => {
+        const clampedTop = Math.max(0, top | 0);
+        if (get().scrollTops[key] === clampedTop) {
+          return;
+        }
+        set((s) => ({ scrollTops: { ...s.scrollTops, [key]: clampedTop } }));
+      },
       setSelection: (key, start, end) =>
         set((s) => ({ selections: { ...s.selections, [key]: { end, start } } })),
       setTarget: (key, target) =>
