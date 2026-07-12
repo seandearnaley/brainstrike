@@ -1,0 +1,27 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // vitest.config.mts imports
+      // ../agent/config/browser-safe-subpath-aliases.mjs to build this
+      // package's resolve aliases — a CROSS-PACKAGE file that turbo's default
+      // input hash for @brainstrike/app-shell does not cover (and
+      // @brainstrike/agent is not a declared dependency, so its outputs are not
+      // an input either). Now that app-shell#test is turbo-cacheable, an edit to
+      // that helper would replay a stale cached green. $TURBO_DEFAULT$ keeps the
+      // normal inputs; the extra entry folds the helper into the hash.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/agent/config/browser-safe-subpath-aliases.mjs"
+      ]
+    },
+    "test:coverage": {
+      // Same cross-package input as `test`: the coverage lane loads the same
+      // vitest.config.mts and therefore the same agent helper.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/agent/config/browser-safe-subpath-aliases.mjs"
+      ]
+    }
+  }
+}

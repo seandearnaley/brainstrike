@@ -15,9 +15,11 @@
 // (`vitest run --exclude '**/*.integration.test.*'`), so the two lanes partition
 // the base suite by construction — no file can be orphaned. Base `test:coverage`
 // keeps the base config's full include so coverage still measures every file.
-// Both lanes keep `--no-file-parallelism` (serialization is held constant across
-// the split; only caching changes) while retaining the base `pool: 'threads'`
-// and adaptive `maxWorkers`.
+// Both app-shell lanes run with vitest defaults — neither the `test` nor the
+// `test:integration` script passes `--no-file-parallelism` (this package does
+// not serialize; it relies on the base `pool: 'threads'` + adaptive
+// `maxWorkers`). Serialization is held constant across the split: the split
+// changes only caching, not the runner flags.
 import { defineConfig } from 'vitest/config';
 import baseConfig from './vitest.config.mts';
 
@@ -27,12 +29,14 @@ export default defineConfig({
   ...baseConfig,
   test: {
     ...baseTest,
-    // Coverage stays OFF in this lane. The base config enables coverage when
-    // CI=true, and under `turbo run test test:integration` both lanes execute
-    // CONCURRENTLY in the same package — two vitest processes sharing one
-    // coverage/.tmp directory race and crash (observed in CI: "Something
-    // removed the coverage directory ... Vitest created earlier"). Full-suite
-    // coverage is owned by the single-process `test:coverage` script.
+    // Coverage stays OFF in this lane. app-shell's base config declares NO
+    // coverage key at all (coverage is consolidated at the root
+    // vitest.config.mts and driven here only by the `--coverage` CLI flag on the
+    // single-process `test:coverage` script), so this `enabled: false` is not
+    // fixing an active race in THIS package — it is defensive consistency with
+    // the repo-wide integration-lane pattern, keeping the pin in place should a
+    // future config move ever introduce a base coverage key. Full-suite coverage
+    // remains owned by `test:coverage`.
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
     // {ts,tsx} deliberately matches the base config's include breadth: an
     // integration file with any other extension would not be in the full suite
