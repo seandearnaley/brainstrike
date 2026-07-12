@@ -25,7 +25,13 @@ const resolveModelPricing: ModelPricingResolver = (provider, model) => {
 
 function costLabel(row: CrossRootCostRow): string {
   // No silent $0: an unavailable price is its own state, distinct from "free".
-  return row.cost.available ? formatUsdCost(row.cost.usdAmount) : 'cost unavailable';
+  if (!row.cost.available) {
+    return 'cost unavailable';
+  }
+  const amount = formatUsdCost(row.cost.usdAmount);
+  return row.cost.provenance === 'captured-usage-estimate'
+    ? `captured usage est. ${amount}`
+    : amount;
 }
 
 interface CostAggregationPanelViewProps {
@@ -52,8 +58,9 @@ export function CostAggregationPanelView({ state }: CostAggregationPanelViewProp
           Cost by Workspace Root
         </CardTitle>
         <CardDescription>
-          Durable token usage and estimated cost, grouped by the workspace root each assistant turn
-          ran in. Cost is priced per model against current list prices and is an estimate.
+          Captured durable token usage, grouped by workspace root and priced against current model
+          list prices. Estimates exclude usage not yet itemized here, including subagents,
+          observational memory, embeddings, and some paused or resumed legs.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4" data-testid="cost-aggregation-panel">

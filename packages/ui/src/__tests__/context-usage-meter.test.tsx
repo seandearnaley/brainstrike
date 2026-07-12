@@ -101,19 +101,21 @@ describe('ContextUsageMeter', () => {
     expect(screen.queryByTestId('context-usage-cumulative')).not.toBeInTheDocument();
   });
 
-  it('renders the cumulative tokens and exact cost when priced usage is supplied', () => {
+  it('qualifies cumulative cost as a captured-usage estimate', () => {
     render(
       <ContextUsageMeter
         {...props}
         cumulativeUsage={{
-          cost: { available: true, provenance: 'exact-pricing', usdAmount: 12.5 },
+          cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: 12.5 },
           totalTokens: 1_800_000,
         }}
       />
     );
     const cumulative = screen.getByTestId('context-usage-cumulative');
     expect(cumulative).toHaveTextContent(/1\.8M tokens/);
-    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent('$12.50');
+    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent(
+      /captured usage est\. \$12\.50/i
+    );
   });
 
   it('renders "cost unavailable" (never $0) for an unpriced model', () => {
@@ -152,16 +154,20 @@ describe('ContextUsageMeter OM informational stats', () => {
 
   it('renders OM as INFORMATIONAL stats (observed tokens + compaction), NOT a budget segment', () => {
     const omSegment: OmMeterState = {
+      bufferedObservationTokens: 1000,
       compactionSavedTokens: 30_000,
       kind: 'stats',
+      messageTokenThreshold: 30_000,
       observationTokens: 20_000,
+      pendingMessageTokens: 14_000,
     };
     render(<ContextUsageMeter {...props} omSegment={omSegment} />);
     const stats = screen.getByTestId('context-usage-om-stats');
     expect(stats).toBeInTheDocument();
-    // Informational observed-token stat.
-    expect(screen.getByTestId('context-usage-om-observed')).toHaveTextContent(/observed/i);
-    expect(screen.getByTestId('context-usage-om-observed')).toHaveTextContent(/20/);
+    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/active om/i);
+    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/20/);
+    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/buffered/i);
+    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.0k.*30\.0k/i);
     // Compaction-benefit stat.
     expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/saved/i);
     expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/30/);
@@ -175,11 +181,39 @@ describe('ContextUsageMeter OM informational stats', () => {
     render(
       <ContextUsageMeter
         {...props}
-        omSegment={{ compactionSavedTokens: 0, kind: 'stats', observationTokens: 4000 }}
+        omSegment={{
+          bufferedObservationTokens: 0,
+          compactionSavedTokens: 0,
+          kind: 'stats',
+          messageTokenThreshold: 30_000,
+          observationTokens: 4000,
+          pendingMessageTokens: 500,
+        }}
       />
     );
-    expect(screen.getByTestId('context-usage-om-observed')).toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-om-active')).toBeInTheDocument();
     expect(screen.queryByTestId('context-usage-om-compaction')).not.toBeInTheDocument();
+  });
+
+  it('shows buffered and pending work instead of claiming zero tokens were observed', () => {
+    render(
+      <ContextUsageMeter
+        {...props}
+        omSegment={{
+          bufferedObservationTokens: 867,
+          compactionSavedTokens: 0,
+          kind: 'stats',
+          messageTokenThreshold: 30_000,
+          observationTokens: 0,
+          pendingMessageTokens: 14_600,
+        }}
+      />
+    );
+    const stats = screen.getByTestId('context-usage-om-stats');
+    expect(screen.queryByTestId('context-usage-om-active')).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/867/);
+    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.6k.*30\.0k/i);
+    expect(stats).not.toHaveTextContent(/0 tokens observed/i);
   });
 
   it('FIX 1: loading state stays QUIET (no note, no stats, no empty flash)', () => {

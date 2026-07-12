@@ -12,13 +12,15 @@
  *     last turn's inputTokens (= the meter's chat usage), so chat + observation
  *     would DOUBLE-COUNT it and could trip a false "over budget".
  * So the observation is INFORMATIONAL — "what OM is holding for this thread" —
- * surfaced as two stats next to the (unchanged) chat-vs-budget bar:
- *   1. OM context: ~Nk tokens observed   (observationTokenCount)
- *   2. Reflection saved ~Nk tokens        (totalTokensObserved − observationTokenCount)
+ * surfaced as informational stats next to the (unchanged) chat-vs-budget bar:
+ *   1. Active OM context                  (observationTokenCount)
+ *   2. Buffered OM summaries              (sum of buffered chunk tokenCount)
+ *   3. Pending messages / activation      (pendingMessageTokens / configured threshold)
+ *   4. Reflection saved                   (totalTokensObserved − observationTokenCount)
  * The resolver therefore takes NO budget/chat input — it structurally CANNOT feed
  * the budget math.
  *
- * The two token columns are read RAW off `mastra_observational_memory` (see
+ * The meter fields are read RAW off `mastra_observational_memory` (see
  * use-om-segment-row.ts + the projection drift guard in
  * packages/db/__tests__/mastra-om-schema-projection.test.ts). This module is the
  * PURE derivation: row + flags → a discriminated OmMeterState, unit-testable
@@ -37,10 +39,16 @@ import { getErrorMessage } from '@brainstrike/utils/error-utils';
 
 export type { OmMeterState };
 
-/** The exact RAW columns the meter reads off `mastra_observational_memory`. */
+/** The strictly parsed meter state read from `mastra_observational_memory`. */
 export interface ObservationalMemoryMeterRow {
+  /** Observation summaries already generated asynchronously but not active yet. */
+  readonly bufferedObservationTokens: number;
+  /** Pending raw-message threshold that activates buffered observations. */
+  readonly messageTokenThreshold: number;
   /** Current observation size in tokens (observationTokenCount, NOT NULL integer). */
   readonly observationTokenCount: number;
+  /** Raw message tokens currently progressing toward the activation threshold. */
+  readonly pendingMessageTokens: number;
   /** Running total of all observed tokens (totalTokensObserved, NOT NULL integer). */
   readonly totalTokensObserved: number;
 }
@@ -57,15 +65,60 @@ export function parseObservationalMemoryRow(raw: unknown): ObservationalMemoryMe
   }
   const record = raw as Record<string, unknown>;
   return {
+    bufferedObservationTokens: parseBufferedObservationTokens(record['bufferedObservationChunks']),
+    messageTokenThreshold: parseMessageTokenThreshold(record['config']),
     observationTokenCount: parseNonNegativeInteger(
       record['observationTokenCount'],
       'observationTokenCount'
+    ),
+    pendingMessageTokens: parseNonNegativeInteger(
+      record['pendingMessageTokens'],
+      'pendingMessageTokens'
     ),
     totalTokensObserved: parseNonNegativeInteger(
       record['totalTokensObserved'],
       'totalTokensObserved'
     ),
   };
+}
+
+function parseBufferedObservationTokens(value: unknown): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (!Array.isArray(value)) {
+    throw new TypeError('OM column "bufferedObservationChunks" is not an array or null');
+  }
+  return value.reduce<number>((total, chunk, index) => {
+    if (chunk === null || typeof chunk !== 'object' || Array.isArray(chunk)) {
+      throw new TypeError(`OM buffered observation chunk ${index} is not an object`);
+    }
+    return (
+      total +
+      parseNonNegativeInteger(
+        (chunk as Record<string, unknown>)['tokenCount'],
+        `bufferedObservationChunks[${index}].tokenCount`
+      )
+    );
+  }, 0);
+}
+
+function parseMessageTokenThreshold(value: unknown): number {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('OM column "config" is not an object');
+  }
+  const observation = (value as Record<string, unknown>)['observation'];
+  if (observation === null || typeof observation !== 'object' || Array.isArray(observation)) {
+    throw new TypeError('OM config observation is not an object');
+  }
+  const threshold = parseNonNegativeInteger(
+    (observation as Record<string, unknown>)['messageTokens'],
+    'config.observation.messageTokens'
+  );
+  if (threshold === 0) {
+    throw new TypeError('OM config observation messageTokens must be positive');
+  }
+  return threshold;
 }
 
 function parseNonNegativeInteger(value: unknown, field: string): number {
@@ -131,11 +184,14 @@ export function resolveOmMeterState(input: OmMeterInput): OmMeterState {
   }
 
   return {
+    bufferedObservationTokens: parsed.bufferedObservationTokens,
     // totalTokensObserved − observationTokenCount, clamped ≥ 0 (tokens compacted
     // away by reflection). 0 here means "active OM, nothing compacted yet" —
     // distinct from the suppressed-stat 'inactive' state.
     compactionSavedTokens: Math.max(0, parsed.totalTokensObserved - parsed.observationTokenCount),
     kind: 'stats',
+    messageTokenThreshold: parsed.messageTokenThreshold,
     observationTokens: parsed.observationTokenCount,
+    pendingMessageTokens: parsed.pendingMessageTokens,
   };
 }
