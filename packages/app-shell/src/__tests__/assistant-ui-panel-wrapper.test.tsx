@@ -1398,7 +1398,7 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
-  test('stores model changes as per-thread draft runtime instead of global preferences', async () => {
+  test('stores model changes per thread and remembers them as the next thread default', async () => {
     const user = userEvent.setup();
     useAssistantPreferencesStore.setState((state) => ({
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
@@ -1417,7 +1417,7 @@ describe('AssistantUiPanelWrapper', () => {
       model: 'claude-sonnet-4-6',
       provider: 'anthropic',
     });
-    expect(useAssistantPreferencesStore.getState().selectedModel).toBe('openai::gpt-5.2');
+    expect(useAssistantPreferencesStore.getState().selectedModel).toContain('anthropic::');
   });
 
   test('does not expose assistant runtime test hooks outside desktop E2E mode', async () => {
