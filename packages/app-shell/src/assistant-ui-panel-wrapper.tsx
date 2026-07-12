@@ -926,6 +926,9 @@ export function AssistantUiPanelWrapper({
     focusedRootId: currentFolderId,
     memoryResourceId,
     modelSettings,
+    // Only the desktop data-stream server runs the runtime permission gate;
+    // mirrors the `permissionPolicyRequest` useMemo transport gate above.
+    permissionEnforceable: localChatTransport === 'data-stream',
     planModeAvailable,
     providerOptions,
     requestData,

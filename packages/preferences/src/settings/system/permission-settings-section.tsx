@@ -17,6 +17,7 @@
 import {
   PERMISSION_DECISIONS,
   type PermissionDecision,
+  TOOL_RISK_CATEGORIES,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import {
@@ -119,9 +120,6 @@ function PolicySelect({ category, disabled, label, onChange, value }: PolicySele
   );
 }
 
-/** Stable display order for session-grant chips (taxonomy order, like the category cards). */
-const SESSION_GRANT_ORDER: readonly ToolRiskCategory[] = ['read', 'edit', 'execute', 'mcp'];
-
 const CATEGORY_LABELS: Record<ToolRiskCategory, string> = {
   edit: 'Edit',
   execute: 'Execute',
@@ -133,14 +131,19 @@ const CATEGORY_LABELS: Record<ToolRiskCategory, string> = {
  * Per-tool override rows + session-grant chips. Overrides are created from an
  * approval prompt ("Always allow this tool") or edited here; this section is the
  * management surface, so removal always lives next to what it removes.
+ *
+ * Deliberately NOT gated on `enforce`: overrides persist, so a user must be able
+ * to remove or adjust stale ones even while enforcement is off (e.g. cleaning up
+ * before re-enabling). The change simply has no runtime effect until enforcement
+ * is back on — the top-level caveat already states that.
  */
-function PerToolOverridesBlock({ disabled }: { disabled: boolean }) {
+function PerToolOverridesBlock() {
   const perToolOverrides = usePermissionPolicyStore(permissionPolicySelectors.perToolOverrides);
   const setToolOverride = usePermissionPolicyStore((state) => state.setToolOverride);
   const entries = Object.entries(perToolOverrides).sort(([a], [b]) => a.localeCompare(b));
 
   return (
-    <fieldset className="space-y-3 border-0 p-0" disabled={disabled}>
+    <fieldset className="space-y-3 border-0 p-0">
       <legend className="font-medium text-sm">Per-tool overrides</legend>
       <p className="text-muted-foreground text-sm">
         A per-tool decision beats its category policy. Add one from an approval prompt with{' '}
@@ -165,7 +168,6 @@ function PerToolOverridesBlock({ disabled }: { disabled: boolean }) {
                 aria-label={`${toolId} override`}
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                 data-testid={`permission-tool-override-${toolId}`}
-                disabled={disabled}
                 onChange={(event) => {
                   const next = event.target.value;
                   if (isPermissionDecisionValue(next)) {
@@ -183,7 +185,6 @@ function PerToolOverridesBlock({ disabled }: { disabled: boolean }) {
               <Button
                 aria-label={`Remove override for ${toolId}`}
                 data-testid={`permission-tool-override-remove-${toolId}`}
-                disabled={disabled}
                 onClick={() => setToolOverride(toolId, null)}
                 size="sm"
                 title={`Remove override for ${toolId}`}
@@ -200,14 +201,20 @@ function PerToolOverridesBlock({ disabled }: { disabled: boolean }) {
   );
 }
 
-/** Active "allow for this session" grants; session-lived, cleared on reload. */
-function SessionGrantsBlock({ disabled }: { disabled: boolean }) {
+/**
+ * Active "allow for this session" grants; session-lived, cleared on reload.
+ * Like the overrides block, revoke stays available regardless of `enforce` so a
+ * user can always clear a stale grant.
+ */
+function SessionGrantsBlock() {
   const sessionGrants = usePermissionPolicyStore(permissionPolicySelectors.sessionGrants);
   const revokeSessionCategory = usePermissionPolicyStore((state) => state.revokeSessionCategory);
-  const active = SESSION_GRANT_ORDER.filter((category) => sessionGrants.has(category));
+  // Taxonomy order (read → edit → execute → mcp), same source the category
+  // cards use — no local duplicate of the ordering.
+  const active = TOOL_RISK_CATEGORIES.filter((category) => sessionGrants.has(category));
 
   return (
-    <fieldset className="space-y-3 border-0 p-0" disabled={disabled}>
+    <fieldset className="space-y-3 border-0 p-0">
       <legend className="font-medium text-sm">Session grants</legend>
       <p className="text-muted-foreground text-sm">
         Categories allowed for this session only — cleared when the app reloads. Grant one from an
@@ -231,7 +238,6 @@ function SessionGrantsBlock({ disabled }: { disabled: boolean }) {
               <Button
                 aria-label={`Revoke session grant for ${CATEGORY_LABELS[category]}`}
                 data-testid={`permission-session-grant-revoke-${category}`}
-                disabled={disabled}
                 onClick={() => revokeSessionCategory(category)}
                 size="sm"
                 title={`Revoke session grant for ${CATEGORY_LABELS[category]}`}
@@ -310,9 +316,9 @@ export function PermissionSettingsSection() {
           ))}
         </fieldset>
 
-        <PerToolOverridesBlock disabled={!enforce} />
+        <PerToolOverridesBlock />
 
-        <SessionGrantsBlock disabled={!enforce} />
+        <SessionGrantsBlock />
 
         <div
           className={cn(

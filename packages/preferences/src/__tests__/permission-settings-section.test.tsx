@@ -128,6 +128,24 @@ describe('PermissionSettingsSection', () => {
       });
     });
 
+    it('allows removing an override even when enforcement is off (cleanup path)', async () => {
+      usePermissionPolicyStore.getState().setToolOverride('brainstrike.executeCommand', 'allow');
+      usePermissionPolicyStore.getState().setEnforce(false);
+      render(<PermissionSettingsSection />);
+
+      const removeButton = screen.getByTestId(
+        'permission-tool-override-remove-brainstrike.executeCommand'
+      ) as HTMLButtonElement;
+      expect(removeButton.disabled).toBe(false);
+
+      fireEvent.click(removeButton);
+      await waitFor(() => {
+        expect(
+          usePermissionPolicyStore.getState().perToolOverrides['brainstrike.executeCommand']
+        ).toBeUndefined();
+      });
+    });
+
     it('removes an override via its Remove button', async () => {
       usePermissionPolicyStore.getState().setToolOverride('brainstrike.executeCommand', 'allow');
       render(<PermissionSettingsSection />);
