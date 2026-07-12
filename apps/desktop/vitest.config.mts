@@ -121,6 +121,10 @@ export default defineConfig({
       '**/scripts/**', // Script helper tests use node:test directly.
     ],
     globals: true,
+    // Integration hooks construct real in-memory PGlite instances (+migrate),
+    // which exceed vitest's default 10s hookTimeout under coverage
+    // instrumentation on loaded CI runners.
+    hookTimeout: getAdjustedTimeout('uiComponent'),
     // Desktop tests spin up mocked Electron, PGlite, MCP, and renderer-host
     // surfaces with process-wide module state. Keep this package serialized so
     // those globals cannot bleed across files under load.

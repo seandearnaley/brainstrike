@@ -45,6 +45,11 @@ export default defineConfig({
     environment: 'node',
     // Exclude integration tests by default (they require model downloads)
     exclude: ['**/node_modules/**', '**/dist/**'],
+    // Several suites construct real in-memory PGlite instances (+migrate) in
+    // beforeEach; under coverage instrumentation on loaded CI runners that
+    // exceeds vitest's default 10s hookTimeout (matches packages/db's
+    // real-PGlite project timeout).
+    hookTimeout: 30_000,
     // Allow running integration tests with --run integration
     // Use: npx vitest run --reporter=verbose --testNamePattern="integration"
     // Or set environment variable: VITEST_RUN_INTEGRATION=true
