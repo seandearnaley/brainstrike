@@ -343,6 +343,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build desktop dependency graph
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+
       - name: Load the native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
 
