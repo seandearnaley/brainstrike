@@ -101,7 +101,7 @@ std::vector<std::string> SplitRelativePath(const std::string& path, bool* valid)
 #ifdef _WIN32
 
 using NativeHandle = HANDLE;
-constexpr NativeHandle kInvalidHandle = INVALID_HANDLE_VALUE;
+const NativeHandle kInvalidHandle = INVALID_HANDLE_VALUE;
 
 std::wstring Utf8ToWide(const std::string& value) {
   if (value.empty()) {
