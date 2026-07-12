@@ -62,10 +62,18 @@ describe('SettingsPageContent', () => {
     expect(screen.getByTestId('theme-settings')).toBeInTheDocument();
 
     const nav = screen.getByRole('navigation', { name: /settings categories/i });
-    expect(within(nav).getByRole('searchbox', { name: /search settings/i })).toBeInTheDocument();
+    const searchbox = within(nav).getByRole('searchbox', { name: /search settings/i });
+    expect(searchbox).toHaveClass('pl-10');
+    expect(searchbox).toHaveStyle({ paddingLeft: '2.5rem' });
+    expect(
+      searchbox.parentElement?.querySelector('[data-slot="settings-search-icon"]')
+    ).toHaveStyle({ left: '0.75rem' });
     const appearanceButton = within(nav).getByRole('button', { name: /Appearance/i });
     expect(appearanceButton).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('settings-category-appearance')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-category-appearance').closest('section')).toHaveStyle({
+      paddingBlock: '2rem',
+    });
     expect(screen.getByRole('heading', { level: 2, name: 'Appearance' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#settings/appearance');
   });

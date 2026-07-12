@@ -24,13 +24,6 @@ export class HomePage {
     return this.page.locator('#root');
   }
 
-  get settingsButton() {
-    // Prefer role button, case-insensitive; fall back to link if sidebar renders <a>
-    return this.page
-      .getByRole('button', { name: /settings/i })
-      .or(this.page.getByRole('link', { name: /settings/i }));
-  }
-
   get themeToggle() {
     // Theme toggle button has aria-label "Switch to dark mode" or "Switch to light mode"
     return this.page.getByRole('button', { name: /Switch to (dark|light) mode/i });
@@ -52,16 +45,8 @@ export class HomePage {
   }
 
   async openSettings() {
-    const btn = this.settingsButton;
-    if (await btn.isVisible().catch(() => false)) {
-      await btn.click();
-    } else {
-      // Fallback: click by aria-label (tooltips now use aria-label instead of title)
-      const byAriaLabel = this.page.locator('nav [aria-label="Settings"]');
-      if (await byAriaLabel.isVisible().catch(() => false)) {
-        await byAriaLabel.click();
-      }
-    }
+    await this.page.getByRole('button', { name: 'Open profile menu' }).click();
+    await this.page.getByRole('menuitem', { name: 'Settings…' }).click();
 
     const settingsLoading = this.page.getByTestId('desktop-settings-page-loading');
     if (await settingsLoading.isVisible().catch(() => false)) {

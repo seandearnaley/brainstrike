@@ -22,7 +22,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { RotateCcw, Search } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
+import { SettingsSearchIcon } from '../settings-search-icon';
+import { SETTINGS_SEARCH_INPUT_STYLE } from '../settings-search-layout';
 import type { ToolsFilterBarProps } from './types';
 
 /**
@@ -47,12 +49,13 @@ export function ToolsFilterBar({
     >
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <SettingsSearchIcon />
           <Input
-            className="h-9 max-w-xs pl-8"
+            className="h-9 max-w-xs pl-10"
             data-testid="search-input"
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Search tools..."
+            style={SETTINGS_SEARCH_INPUT_STYLE}
             type="text"
             value={searchQuery}
           />

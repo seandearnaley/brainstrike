@@ -14,8 +14,10 @@ import {
 } from '@brainstrike/ui';
 import type { LogLevel } from '@brainstrike/utils/logger';
 import type { Table as ReactTableInstance } from '@tanstack/react-table';
-import { Download, RefreshCw, Search, Settings2 } from 'lucide-react';
+import { Download, RefreshCw, Settings2 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { SettingsSearchIcon } from '../../settings-search-icon';
+import { SETTINGS_SEARCH_INPUT_STYLE } from '../../settings-search-layout';
 import type { LogRecordRow } from './log-utils';
 
 interface LogToolbarProps {
@@ -80,11 +82,12 @@ export function LogToolbar({
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-1 flex-wrap items-center gap-3">
           <div className="relative min-w-[220px] flex-1">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <SettingsSearchIcon />
             <Input
-              className="border-border/50 bg-muted/50 pl-9 transition-colors focus:bg-background"
+              className="border-border/50 bg-muted/50 pl-10 transition-colors focus:bg-background"
               onChange={(event) => onSearchChange(event.target.value)}
               placeholder="Search logs..."
+              style={SETTINGS_SEARCH_INPUT_STYLE}
               value={globalFilter}
             />
           </div>

@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
+import { SettingsSearchIcon } from './settings/settings-search-icon';
+import { SETTINGS_SEARCH_INPUT_STYLE } from './settings/settings-search-layout';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import {
   type HookReviewRoot,
@@ -255,16 +257,14 @@ export function SettingsPageContent({
             <span className="font-medium text-sm">Settings</span>
           </div>
           <div className="relative mt-3">
-            <Search
-              aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-            />
+            <SettingsSearchIcon />
             <Input
               aria-label="Search settings"
-              className="h-9 rounded-lg border-border/70 bg-background/75 pr-3 pl-9 shadow-none"
+              className="h-9 rounded-lg border-border/70 bg-background/75 pr-3 pl-10 shadow-none"
               onChange={(event) => setQuery(event.target.value)}
               placeholder={searchPlaceholder}
               role="searchbox"
+              style={SETTINGS_SEARCH_INPUT_STYLE}
               value={query}
             />
           </div>
@@ -319,7 +319,7 @@ export function SettingsPageContent({
         </div>
       </nav>
 
-      <section className="min-h-0 overflow-y-auto px-8 pt-8 pb-10 lg:px-10">
+      <section className="min-h-0 overflow-y-auto px-8 lg:px-10" style={{ paddingBlock: '2rem' }}>
         {filteredCategories.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
             Try adjusting your search to find settings.

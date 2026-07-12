@@ -205,6 +205,12 @@ describe('EmbeddingSettings', () => {
     renderComponent();
 
     const input = screen.getByPlaceholderText('Search embedding models');
+    expect(input.className).toContain('pl-10');
+    expect(input.style.paddingLeft).toBe('2.5rem');
+    expect(
+      input.parentElement?.querySelector<HTMLElement>('[data-slot="settings-search-icon"]')?.style
+        .left
+    ).toBe('0.75rem');
     fireEvent.change(input, { target: { value: 'text-embedding-3-small' } });
 
     const openaiSection = screen.getByTestId('embedding-provider-openai');

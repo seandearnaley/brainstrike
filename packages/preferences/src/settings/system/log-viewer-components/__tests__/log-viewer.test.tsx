@@ -264,6 +264,11 @@ describe('LogViewer', () => {
     await waitFor(() => expect(screen.getByText('Apple')).toBeInTheDocument());
 
     const searchInput = screen.getByPlaceholderText('Search logs...');
+    expect(searchInput).toHaveClass('pl-10');
+    expect(searchInput).toHaveStyle({ paddingLeft: '2.5rem' });
+    expect(
+      searchInput.parentElement?.querySelector('[data-slot="settings-search-icon"]')
+    ).toHaveStyle({ left: '0.75rem' });
     fireEvent.change(searchInput, { target: { value: 'Apple' } });
 
     await waitFor(() => {
