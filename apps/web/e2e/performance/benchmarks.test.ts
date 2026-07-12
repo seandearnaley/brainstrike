@@ -84,10 +84,13 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     await page.evaluate(() => performance.mark('expansion-start'));
 
     const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
+    await expect(expandButtons.first()).toBeVisible();
     const expandCount = await expandButtons.count();
 
+    // A clicked button flips to "Collapse" and leaves the locator's match set,
+    // so always click the first remaining collapsed folder.
     for (let i = 0; i < Math.min(3, expandCount); i++) {
-      await expandButtons.nth(i).click();
+      await expandButtons.first().click();
       await page.waitForTimeout(50);
     }
 

@@ -252,6 +252,7 @@ test.describe('Performance: Tree Rendering', () => {
 
     // Get all folder expand buttons
     const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
+    await expect(expandButtons.first()).toBeVisible();
     const count = await expandButtons.count();
 
     // Measure expansion time
@@ -259,9 +260,11 @@ test.describe('Performance: Tree Rendering', () => {
       performance.mark('expansion-start');
     });
 
-    // Expand first few folders sequentially
+    // Expand first few folders sequentially. A clicked button flips to
+    // "Collapse" and leaves the locator's match set, so always click the
+    // first remaining collapsed folder.
     for (let i = 0; i < Math.min(5, count); i++) {
-      await expandButtons.nth(i).click();
+      await expandButtons.first().click();
       // Small delay to allow rendering
       await page.waitForTimeout(100);
     }
@@ -287,10 +290,11 @@ test.describe('Performance: Tree Rendering', () => {
 
     // Expand several folders to create a long list
     const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
+    await expect(expandButtons.first()).toBeVisible();
     const count = await expandButtons.count();
 
     for (let i = 0; i < Math.min(3, count); i++) {
-      await expandButtons.nth(i).click();
+      await expandButtons.first().click();
       await page.waitForTimeout(50);
     }
 
@@ -353,10 +357,11 @@ test.describe('Performance: Tree Rendering', () => {
 
     // Expand some folders
     const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
+    await expect(expandButtons.first()).toBeVisible();
     const expandCount = await expandButtons.count();
 
     for (let i = 0; i < Math.min(5, expandCount); i++) {
-      await expandButtons.nth(i).click();
+      await expandButtons.first().click();
       await page.waitForTimeout(200);
     }
 
