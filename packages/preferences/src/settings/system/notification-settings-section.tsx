@@ -1,6 +1,6 @@
 /**
  * Notification settings section (assistant run finished/failed/tool-approval
- * OS notifications — see AGENTS.md "ASSISTANT RUN NOTIFICATIONS").
+ * OS notifications — see docs/agents/assistant-persistence.md "ASSISTANT RUN NOTIFICATIONS").
  *
  * CONSUMES `notification-preferences-store.ts` only — permission handling
  * lives in `../../notifications/notification-permission.ts`. Requests browser

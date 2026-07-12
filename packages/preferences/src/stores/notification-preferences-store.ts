@@ -1,6 +1,6 @@
 /**
  * Assistant run-notification preferences (OS `Notification` API, run
- * finished/failed/tool-approval-required — see AGENTS.md "ASSISTANT RUN
+ * finished/failed/tool-approval-required — see docs/agents/assistant-persistence.md "ASSISTANT RUN
  * NOTIFICATIONS").
  *
  * - `masterEnabled` — top-level opt-in. Defaults OFF: notifications are a new,

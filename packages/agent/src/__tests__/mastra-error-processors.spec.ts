@@ -1,7 +1,7 @@
 /**
  * End-to-end coverage for the Mastra ERROR-PROCESSOR layer wired into the REAL
  * agent loop (LIVE-LOOP MANDATE — this touches the agent loop; mocked stream
- * parts are not sufficient, see AGENTS.md ASSISTANT RESILIENCE).
+ * parts are not sufficient, see docs/agents/assistant-runtime.md ASSISTANT RESILIENCE).
  *
  * Like mastra-tool-execution.spec.ts this does NOT mock the Mastra agent loop.
  * It substitutes only model construction with a scripted fake so no
