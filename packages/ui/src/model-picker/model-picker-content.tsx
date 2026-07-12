@@ -40,12 +40,12 @@ export function ModelPickerContent({
 
   return (
     <Command
-      className="flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground"
+      className="flex h-full w-full flex-col overflow-hidden bg-transparent text-popover-foreground"
       shouldFilter={false}
     >
       {searchable && <ModelPickerSearch onValueChange={onSearchChange} value={searchQuery} />}
       <Command.List
-        className="!overflow-y-auto !overflow-x-hidden !pointer-events-auto max-h-[300px] p-1"
+        className="!pointer-events-auto !overflow-y-auto !overflow-x-hidden max-h-[340px] p-2"
         style={{ scrollBehavior: 'smooth' }}
       >
         {models.length === 0 && <ModelPickerEmpty />}

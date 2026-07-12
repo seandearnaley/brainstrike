@@ -301,7 +301,10 @@ When changing this flow, update this section and the paired tests in `packages/d
   - packages/agent/src/providers/provider-factory.ts
 - State:
   - packages/preferences/src/stores/assistant-preferences-store.ts
-  - Persists via localStorage.
+  - packages/app-shell/src/assistant-thread-store.ts
+  - Assistant preferences persist the most recently selected model as the default for the next
+    new thread. The thread store persists each existing thread's model and provider settings so
+    switching chats or restarting the app restores that thread-specific runtime.
 
 Assistant status endpoint resolution (in order):
 1. window.assistant.getUrl()  (async)

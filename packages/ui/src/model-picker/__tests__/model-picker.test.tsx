@@ -32,7 +32,14 @@ const providers: ModelPickerProvider[] = [
 ];
 
 const models: ModelPickerModel[] = [
-  { capabilities: { type: 'llm' }, id: 'gpt-5.2', name: 'GPT-5.2', providerId: 'openai' },
+  {
+    capabilities: { streaming: true, type: 'llm' },
+    contextWindow: 128_000,
+    description: 'Fast general-purpose reasoning model',
+    id: 'gpt-5.2',
+    name: 'GPT-5.2',
+    providerId: 'openai',
+  },
   {
     capabilities: { type: 'llm' },
     id: 'claude-sonnet-4-6',
@@ -100,6 +107,12 @@ describe('ModelPicker', () => {
     it('displays selected model in trigger', () => {
       render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
       expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+    });
+
+    it('gives the selected model a provider-aware accessible name', () => {
+      render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
+
+      expect(screen.getByRole('combobox')).toHaveAccessibleName(/GPT-5\.2.*OpenAI/i);
     });
 
     it('handles multi-select mode - adds selection', () => {
@@ -197,6 +210,19 @@ describe('ModelPicker', () => {
         expect(screen.getByText('Claude Sonnet 4.6')).toBeInTheDocument();
         expect(screen.queryByText('GPT-5.2')).not.toBeInTheDocument();
       });
+    });
+
+    it('clears a stale search query after the picker closes', async () => {
+      render(<ModelPicker models={models} providers={providers} searchable />);
+      fireEvent.click(screen.getByRole('combobox'));
+      fireEvent.change(screen.getByPlaceholderText('Search models...'), {
+        target: { value: 'claude' },
+      });
+      fireEvent.click(screen.getByText('Claude Sonnet 4.6'));
+      fireEvent.click(screen.getByRole('combobox'));
+
+      expect(screen.getByPlaceholderText('Search models...')).toHaveValue('');
+      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
     });
   });
 
@@ -303,6 +329,15 @@ describe('ModelPicker', () => {
       const openAiHeading = screen.getByText('OpenAI').closest('div');
       expect(openAiHeading).not.toBeNull();
       expect(within(openAiHeading as HTMLElement).getByText('1')).toBeInTheDocument();
+    });
+
+    it('shows useful model metadata in consistently labelled rows', () => {
+      render(<ModelPicker models={models} modelType="llm" providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      const option = screen.getByRole('option', { name: /GPT-5\.2/i });
+      expect(within(option).getByText('128K context')).toBeInTheDocument();
+      expect(within(option).getByText('Streaming')).toBeInTheDocument();
     });
   });
 

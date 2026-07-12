@@ -1095,6 +1095,9 @@ export function AssistantUiPanelWrapper({
       const provider = resolveProviderFromComposite(compositeKey);
       const model = resolveModelNameFromComposite(compositeKey);
       if (memoryThreadId && provider && model) {
+        // The thread keeps its own runtime, while global preferences remember
+        // the most recently chosen assistant model for the next new thread.
+        setModel(compositeKey);
         const draftProviderSettings = draftRuntimeByThreadId[memoryThreadId]?.providerSettings;
         const providerSettingsMap =
           copyProviderSettingsMap(draftProviderSettings) ??
