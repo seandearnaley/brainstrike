@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
@@ -401,6 +401,77 @@ describe('indexing-activity-store', () => {
       error: null,
       stats: null,
       status: 'unavailable',
+    });
+  });
+
+  // The coordinator polls these setters at 0.5–1 s forever; value-equal
+  // snapshots must be no-ops (no new snapshot identity, no subscriber
+  // notification) or the always-mounted status item re-renders 2–3×/s while
+  // the app is idle.
+  describe('value-equal snapshot writes are no-ops', () => {
+    const queueSnapshot = () => ({
+      failed: 0,
+      nextRunnableAt: null,
+      queued: 3,
+      running: 1,
+      succeeded: 7,
+      succeededLifetime: 12,
+    });
+
+    it('setQueueSnapshot with an equal snapshot keeps identity and does not notify', () => {
+      useIndexingActivityStore.getState().setQueueSnapshot(queueSnapshot());
+      const before = useIndexingActivityStore.getState().snapshot;
+
+      const listener = vi.fn();
+      const unsubscribe = useIndexingActivityStore.subscribe(listener);
+      useIndexingActivityStore.getState().setQueueSnapshot(queueSnapshot());
+      unsubscribe();
+
+      expect(useIndexingActivityStore.getState().snapshot).toBe(before);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('setDatabaseWorkSnapshot with an equal snapshot keeps identity and does not notify', () => {
+      useIndexingActivityStore.getState().setDatabaseWorkSnapshot(createDatabaseWorkSnapshot());
+      const before = useIndexingActivityStore.getState().snapshot;
+
+      const listener = vi.fn();
+      const unsubscribe = useIndexingActivityStore.subscribe(listener);
+      useIndexingActivityStore.getState().setDatabaseWorkSnapshot(createDatabaseWorkSnapshot());
+      unsubscribe();
+
+      expect(useIndexingActivityStore.getState().snapshot).toBe(before);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('setManagedCollectionStats with equal stats keeps identity and does not notify', () => {
+      const stats = () => ({
+        collectionId: 'workspace-index-a',
+        error: null,
+        stats: { ...MANAGED_COLLECTION_STATS },
+        status: 'ready' as const,
+      });
+      useIndexingActivityStore.getState().setManagedCollectionStats(stats());
+      const before = useIndexingActivityStore.getState().managedCollectionStats;
+
+      const listener = vi.fn();
+      const unsubscribe = useIndexingActivityStore.subscribe(listener);
+      useIndexingActivityStore.getState().setManagedCollectionStats(stats());
+      unsubscribe();
+
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toBe(before);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('a CHANGED queue snapshot still updates and notifies', () => {
+      useIndexingActivityStore.getState().setQueueSnapshot(queueSnapshot());
+      const listener = vi.fn();
+      const unsubscribe = useIndexingActivityStore.subscribe(listener);
+      useIndexingActivityStore.getState().setQueueSnapshot({ ...queueSnapshot(), queued: 4 });
+      unsubscribe();
+
+      expect(useIndexingActivityStore.getState().snapshot.queue?.queued).toBe(4);
+      expect(listener).toHaveBeenCalledTimes(1);
     });
   });
 });
