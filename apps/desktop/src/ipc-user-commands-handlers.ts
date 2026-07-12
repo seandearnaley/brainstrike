@@ -13,10 +13,10 @@
  * the failure is logged).
  */
 
-import * as fs from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
+import { SecureRoot } from '@brainstrike/secure-fs-native';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   MAX_USER_COMMAND_FILE_BYTES,
@@ -41,16 +41,20 @@ export interface UserCommandsListDeps {
 }
 
 /** Real-disk fs deps: a directory read yields entries; a missing path yields null. */
-export function createNodeFsScanDeps(beforeOpen?: () => void): UserSlashCommandScanDeps {
-  const roots = new Map<string, string>(),
-    directories = new Map<string, string>();
+export function createNodeFsScanDeps(): UserSlashCommandScanDeps & { dispose: () => void } {
+  const roots = new Map<string, SecureRoot>();
+  const directories = new Map<string, { relativePath: string; root: SecureRoot }>();
   return {
+    dispose: () => {
+      for (const root of roots.values()) {
+        root.close();
+      }
+      roots.clear();
+      directories.clear();
+    },
     listDir: (absDir, containmentRoot) => {
       try {
-        const canonicalRoot = roots.get(containmentRoot) ?? fs.realpathSync(containmentRoot);
-        roots.set(containmentRoot, canonicalRoot);
-        const canonicalDirectory = fs.realpathSync(absDir);
-        const relative = path.relative(canonicalRoot, canonicalDirectory);
+        const relative = path.relative(containmentRoot, absDir);
         if (
           relative === '..' ||
           relative.startsWith(`..${path.sep}`) ||
@@ -59,21 +63,23 @@ export function createNodeFsScanDeps(beforeOpen?: () => void): UserSlashCommandS
           logger.warn('Skipping symlinked slash command directory');
           return null;
         }
-        directories.set(path.normalize(absDir), canonicalDirectory);
-        return fs.readdirSync(canonicalDirectory, { withFileTypes: true }).map((entry) => ({
-          isDirectory: entry.isDirectory(),
-          isFile: entry.isFile(),
-          name: entry.name,
-        }));
+        const root = roots.get(containmentRoot) ?? new SecureRoot(containmentRoot);
+        roots.set(containmentRoot, root);
+        const entries = root.listDir(relative || '.');
+        if (!entries) {
+          return null;
+        }
+        directories.set(path.normalize(absDir), { relativePath: relative, root });
+        return entries;
       } catch {
         return null;
       }
     },
     readFile: (absFile) => {
       try {
-        const canonicalFile = fs.realpathSync(absFile);
         const lexicalDirectory = path.normalize(path.dirname(absFile));
-        if (directories.get(lexicalDirectory) !== path.dirname(canonicalFile)) {
+        const directory = directories.get(lexicalDirectory);
+        if (!directory) {
           return { ok: false, reason: 'unreadable' };
         }
         // Bound the read BEFORE pulling untrusted bytes into the main process:
@@ -83,21 +89,14 @@ export function createNodeFsScanDeps(beforeOpen?: () => void): UserSlashCommandS
         // never falsely rejected; a file above it is DEFINITIVELY oversized and
         // reported as such (honest reason — the loader logs a warn, not a
         // spurious "Failed to read"), never a blocking multi-hundred-MB read.
-        const expectedFile = fs.statSync(canonicalFile);
-        beforeOpen?.();
-        const fd = fs.openSync(canonicalFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-        try {
-          const openedFile = fs.fstatSync(fd);
-          if (openedFile.dev !== expectedFile.dev || openedFile.ino !== expectedFile.ino) {
-            return { ok: false, reason: 'unreadable' };
-          }
-          if (openedFile.size > MAX_USER_COMMAND_FILE_BYTES) {
-            return { ok: false, reason: 'oversized' };
-          }
-          return { content: fs.readFileSync(fd, 'utf8'), ok: true };
-        } finally {
-          fs.closeSync(fd);
+        const result = directory.root.readFile(
+          path.join(directory.relativePath, path.basename(absFile)),
+          MAX_USER_COMMAND_FILE_BYTES
+        );
+        if (result.status !== 'ok') {
+          return { ok: false, reason: result.status };
         }
+        return { content: result.content.toString('utf8'), ok: true };
       } catch {
         return { ok: false, reason: 'unreadable' };
       }
@@ -159,13 +158,19 @@ export async function listUserSlashCommands(
  * registration time.
  */
 export function createUserCommandsListHandler(): () => Promise<UserSlashCommandsListResult> {
-  return () =>
-    listUserSlashCommands({
-      fs: createNodeFsScanDeps(),
-      getDatabase: async () => {
-        const { getDatabase } = await import('./db-main');
-        return getDatabase();
-      },
-      homedir,
-    });
+  return async () => {
+    const filesystem = createNodeFsScanDeps();
+    try {
+      return await listUserSlashCommands({
+        fs: filesystem,
+        getDatabase: async () => {
+          const { getDatabase } = await import('./db-main');
+          return getDatabase();
+        },
+        homedir,
+      });
+    } finally {
+      filesystem.dispose();
+    }
+  };
 }

@@ -300,6 +300,29 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  native-windows:
+    name: Native Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and test secure filesystem capability
+        run: pnpm --filter @brainstrike/secure-fs-native test
+
   web-e2e:
     name: Web E2E
     if: github.event_name != 'workflow_dispatch'

@@ -8,9 +8,19 @@ import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-r
 import { createNodeFsScanDeps, listUserSlashCommands } from '../../ipc-user-commands-handlers';
 
 let tempRoot: string | undefined;
+const scanDependencies: ReturnType<typeof createNodeFsScanDeps>[] = [];
+
+function openScanDependencies(): ReturnType<typeof createNodeFsScanDeps> {
+  const dependencies = createNodeFsScanDeps();
+  scanDependencies.push(dependencies);
+  return dependencies;
+}
 
 afterEach(() => {
   __resetUserCommandWarningsForTests();
+  for (const dependencies of scanDependencies.splice(0)) {
+    dependencies.dispose();
+  }
   if (tempRoot) {
     rmSync(tempRoot, { force: true, recursive: true });
     tempRoot = undefined;
@@ -57,7 +67,7 @@ describe('listUserSlashCommands', () => {
     symlinkSync(outside, path.join(workspace, '.brainstrike', 'commands'), 'dir');
 
     expect(
-      createNodeFsScanDeps().listDir(path.join(workspace, '.brainstrike', 'commands'), workspace)
+      openScanDependencies().listDir(path.join(workspace, '.brainstrike', 'commands'), workspace)
     ).toBeNull();
   });
 
@@ -73,7 +83,7 @@ describe('listUserSlashCommands', () => {
       symlinkSync(outside, path.join(workspace, commandsParent), 'dir');
 
       expect(
-        createNodeFsScanDeps().listDir(path.join(workspace, commandsParent, 'commands'), workspace)
+        openScanDependencies().listDir(path.join(workspace, commandsParent, 'commands'), workspace)
       ).toBeNull();
     }
   });
@@ -88,7 +98,7 @@ describe('listUserSlashCommands', () => {
     writeFileSync(path.join(commands, 'review.md'), 'Inside workspace');
     writeFileSync(path.join(outside, 'review.md'), 'Outside workspace');
 
-    const deps = createNodeFsScanDeps();
+    const deps = openScanDependencies();
     expect(deps.listDir(commands, workspace)?.map((entry) => entry.name)).toEqual(['review.md']);
     rmSync(commands, { recursive: true });
     symlinkSync(outside, commands, 'dir');
@@ -99,7 +109,7 @@ describe('listUserSlashCommands', () => {
     });
   });
 
-  it('does not read through a parent swapped between canonicalization and open', () => {
+  it('does not read through a parent replaced after directory validation', () => {
     tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
     const workspace = path.join(tempRoot, 'workspace');
     const commands = path.join(workspace, '.brainstrike', 'commands');
@@ -110,11 +120,10 @@ describe('listUserSlashCommands', () => {
     writeFileSync(path.join(commands, 'review.md'), 'Inside workspace');
     writeFileSync(path.join(outside, 'review.md'), 'Outside workspace');
 
-    const deps = createNodeFsScanDeps(() => {
-      renameSync(commands, parkedCommands);
-      symlinkSync(outside, commands, 'dir');
-    });
+    const deps = openScanDependencies();
     expect(deps.listDir(commands, workspace)).not.toBeNull();
+    renameSync(commands, parkedCommands);
+    symlinkSync(outside, commands, 'dir');
 
     expect(deps.readFile(path.join(commands, 'review.md'))).toEqual({
       ok: false,
@@ -122,7 +131,7 @@ describe('listUserSlashCommands', () => {
     });
   });
 
-  it('pins the canonical root across recursive directory reads', () => {
+  it('keeps recursive reads on the pinned root after its path is replaced', () => {
     tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
     const workspace = path.join(tempRoot, 'workspace');
     const parkedWorkspace = path.join(tempRoot, 'parked-workspace');
@@ -131,12 +140,12 @@ describe('listUserSlashCommands', () => {
     mkdirSync(path.join(commands, 'nested'), { recursive: true });
     mkdirSync(path.join(outside, '.brainstrike', 'commands', 'nested'), { recursive: true });
 
-    const deps = createNodeFsScanDeps();
+    const deps = openScanDependencies();
     expect(deps.listDir(commands, workspace)).not.toBeNull();
     renameSync(workspace, parkedWorkspace);
     symlinkSync(outside, workspace, 'dir');
 
-    expect(deps.listDir(path.join(commands, 'nested'), workspace)).toBeNull();
+    expect(deps.listDir(path.join(commands, 'nested'), workspace)).toEqual([]);
   });
 
   it('does not reuse a validated directory from another workspace root', () => {
@@ -150,7 +159,7 @@ describe('listUserSlashCommands', () => {
     writeFileSync(path.join(commandsA, 'review.md'), 'Root A');
     writeFileSync(path.join(commandsB, 'review.md'), 'Root B');
 
-    const deps = createNodeFsScanDeps();
+    const deps = openScanDependencies();
     expect(deps.listDir(commandsA, rootA)).not.toBeNull();
     expect(deps.listDir(commandsB, rootB)).not.toBeNull();
     rmSync(commandsB, { recursive: true });
@@ -160,6 +169,30 @@ describe('listUserSlashCommands', () => {
       ok: false,
       reason: 'unreadable',
     });
+  });
+
+  it('loads project commands through the native root capability', async () => {
+    tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-user-commands-'));
+    const workspace = path.join(tempRoot, 'workspace');
+    const commands = path.join(workspace, '.brainstrike', 'commands');
+    mkdirSync(commands, { recursive: true });
+    writeFileSync(path.join(commands, 'review.md'), 'Review $ARGUMENTS');
+
+    const result = await listUserSlashCommands({
+      fs: openScanDependencies(),
+      getDatabase: async () =>
+        dbReturning([{ displayName: 'Workspace', id: 'root-1', path: workspace }]),
+      homedir: () => path.join(tempRoot as string, 'home'),
+    });
+
+    expect(result.commands).toEqual([
+      {
+        id: 'review',
+        label: 'review',
+        sourceRootId: 'root-1',
+        template: 'Review $ARGUMENTS',
+      },
+    ]);
   });
 
   it('resolves DB roots (DB roots.id + path) and returns commands + roots', async () => {
