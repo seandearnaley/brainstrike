@@ -66,8 +66,9 @@ test.describe('Application Layout', () => {
     page,
   }) => {
     const home = new HomePage(page);
-    await home.goto({ waitForDatabase: false });
-    await waitForAppLoad(page, { waitForDatabase: false });
+    // The Prompt Workbench needs the database; wait for it (CI-adjusted timeout)
+    // before asserting the region appears.
+    await home.goto();
 
     const promptsTab = page.getByTestId('prompts-tab-trigger');
     await expect(promptsTab).toBeVisible({ timeout: 10_000 });

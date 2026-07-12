@@ -50,7 +50,8 @@ const mocks = vi.hoisted(() => {
       },
     },
     createThread: vi.fn(),
-    db: { exec: vi.fn(), query: vi.fn() },
+    db: { exec: vi.fn(), query: vi.fn() } as { exec: unknown; query: unknown } | null,
+    dbInitializationStatus: 'ready' as 'error' | 'idle' | 'initializing' | 'ready',
     embedDocumentWithRecovery,
     embedPendingPromptItems: vi.fn(),
     embedQueryWithRecovery,
@@ -99,6 +100,7 @@ vi.mock('@brainstrike/db', async () => {
       storeEmbedding = repository.storeEmbedding;
       update = repository.update;
     },
+    useDbInitializationStatus: () => mocks.dbInitializationStatus,
     usePGliteDatabase: () => mocks.db,
   };
 });
@@ -474,6 +476,8 @@ describe('ConnectedPromptManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mocks.db = { exec: vi.fn(), query: vi.fn() };
+    mocks.dbInitializationStatus = 'ready';
     mocks.assistantProviderSettings.google = {
       googleIncludeThoughts: true,
       googleThinkingLevel: 'high',
@@ -539,6 +543,38 @@ describe('ConnectedPromptManager', () => {
     expect(localStorage.getItem('brainstrike-prompt-store')).toBe(malformedLegacyValue);
     await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalled());
     expect(screen.getByTestId('system-error')).toBeEmptyDOMElement();
+  });
+
+  it('shows the loading state, not the database alert, while the database is initializing', () => {
+    mocks.db = null;
+    mocks.dbInitializationStatus = 'initializing';
+
+    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+
+    expect(screen.getByText('Opening Prompt Workbench…')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows the loading state before lazy database initialization has started', () => {
+    mocks.db = null;
+    mocks.dbInitializationStatus = 'idle';
+
+    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+
+    expect(screen.getByText('Opening Prompt Workbench…')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('surfaces the database alert when initialization has failed', () => {
+    mocks.db = null;
+    mocks.dbInitializationStatus = 'error';
+
+    render(<ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Prompt Workbench requires an initialized database.'
+    );
+    expect(screen.queryByText('Opening Prompt Workbench…')).not.toBeInTheDocument();
   });
 
   it('keeps an initial database listing failure fatal', async () => {

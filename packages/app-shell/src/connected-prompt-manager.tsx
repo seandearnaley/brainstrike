@@ -4,6 +4,7 @@ import {
   type PromptItem,
   PromptItemRepository,
   type PromptItemUsageAction,
+  useDbInitializationStatus,
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
@@ -281,6 +282,7 @@ export function ConnectedPromptManager({
   suggestionsEnabled = true,
 }: ConnectedPromptManagerProps) {
   const db = usePGliteDatabase();
+  const dbInitializationStatus = useDbInitializationStatus();
   useEnsureModelRegistry({ db });
   const models = useModelRegistryStore((state) => state.models);
   const providers = useModelRegistryStore((state) => state.providers);
@@ -437,6 +439,16 @@ export function ConnectedPromptManager({
   );
 
   if (!repository) {
+    // Lazy DB init is still in flight (usePGliteDatabase triggers it) — this is
+    // the normal startup path, not a failure. Only a terminal init state without
+    // a database is a real error.
+    if (dbInitializationStatus === 'idle' || dbInitializationStatus === 'initializing') {
+      return (
+        <div className="grid h-full place-items-center text-muted-foreground text-xs">
+          Opening Prompt Workbench…
+        </div>
+      );
+    }
     return (
       <div
         className="m-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-destructive text-xs"
