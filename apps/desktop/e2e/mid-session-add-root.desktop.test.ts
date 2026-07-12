@@ -189,7 +189,12 @@ test.describe('Mid-session add root indexing', () => {
           'vector-preferences.v1',
           JSON.stringify({
             state: {
-              devicePref: 'webgpu',
+              // CI has no WebGPU (ELECTRON_DISABLE_GPU=1); since #1246 the
+              // embedding host refuses to auto-downgrade and errors on a
+              // webgpu preference it cannot honor, which leaves the indexer's
+              // sync loop 'stopped' so root #1 never imports. Seed wasm like
+              // every other embedding spec.
+              devicePref: 'wasm',
               devicePrefConfigured: true,
               reinitEveryN: 200,
               verboseOrtLogs: false,
