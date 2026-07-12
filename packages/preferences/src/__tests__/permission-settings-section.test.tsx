@@ -103,4 +103,66 @@ describe('PermissionSettingsSection', () => {
     const editSelect = screen.getByTestId('permission-policy-edit') as HTMLSelectElement;
     expect(editSelect.disabled).toBe(false);
   });
+
+  describe('per-tool overrides', () => {
+    it('shows an empty-state hint when no overrides exist', () => {
+      render(<PermissionSettingsSection />);
+
+      expect(screen.getByTestId('permission-tool-overrides-empty')).not.toBeNull();
+    });
+
+    it('lists overrides with a decision select and updates the store on change', async () => {
+      usePermissionPolicyStore.getState().setToolOverride('brainstrike.executeCommand', 'allow');
+      render(<PermissionSettingsSection />);
+
+      const select = screen.getByTestId(
+        'permission-tool-override-brainstrike.executeCommand'
+      ) as HTMLSelectElement;
+      expect(select.value).toBe('allow');
+
+      fireEvent.change(select, { target: { value: 'deny' } });
+      await waitFor(() => {
+        expect(
+          usePermissionPolicyStore.getState().perToolOverrides['brainstrike.executeCommand']
+        ).toBe('deny');
+      });
+    });
+
+    it('removes an override via its Remove button', async () => {
+      usePermissionPolicyStore.getState().setToolOverride('brainstrike.executeCommand', 'allow');
+      render(<PermissionSettingsSection />);
+
+      fireEvent.click(
+        screen.getByTestId('permission-tool-override-remove-brainstrike.executeCommand')
+      );
+      await waitFor(() => {
+        expect(
+          usePermissionPolicyStore.getState().perToolOverrides['brainstrike.executeCommand']
+        ).toBeUndefined();
+      });
+      expect(screen.getByTestId('permission-tool-overrides-empty')).not.toBeNull();
+    });
+  });
+
+  describe('session grants', () => {
+    it('shows an empty-state note when no session grants are active', () => {
+      render(<PermissionSettingsSection />);
+
+      expect(screen.getByTestId('permission-session-grants-empty')).not.toBeNull();
+    });
+
+    it('renders active session grants and revokes one on click', async () => {
+      usePermissionPolicyStore.getState().grantSessionCategory('edit');
+      usePermissionPolicyStore.getState().grantSessionCategory('execute');
+      render(<PermissionSettingsSection />);
+
+      fireEvent.click(screen.getByTestId('permission-session-grant-revoke-edit'));
+      await waitFor(() => {
+        expect(usePermissionPolicyStore.getState().sessionGrants.has('edit')).toBe(false);
+      });
+      // The other grant is untouched and still rendered.
+      expect(usePermissionPolicyStore.getState().sessionGrants.has('execute')).toBe(true);
+      expect(screen.getByTestId('permission-session-grant-revoke-execute')).not.toBeNull();
+    });
+  });
 });

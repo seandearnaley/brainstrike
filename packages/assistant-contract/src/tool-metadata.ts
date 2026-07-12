@@ -31,7 +31,9 @@ export {
 } from './tool-categories.js';
 export { TOOL_DESCRIPTIONS } from './tool-descriptions.js';
 export {
+  isToolRiskCategory,
   resolveToolRiskCategory,
+  TOOL_RISK_CATEGORIES,
   type ToolRiskCategory,
   type ToolRiskMetadata,
   UndeterminableToolRiskError,
