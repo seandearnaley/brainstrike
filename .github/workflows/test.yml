@@ -134,15 +134,23 @@ jobs:
       # previously-uncached CI step.
       #
       # `--filter="...[origin/$BASE_REF]"` is turbo's EXPLICIT git-range filter:
-      # `...[ref]` = packages changed since the merge base + their dependents.
-      # This is the same selection the retired pnpm `...[origin/$BASE_REF]`
-      # filter produced (proven package-for-package in the PR body), and it is
+      # `...[ref]` = packages changed since `ref` + their dependents. It is
       # deliberately NOT `--affected`: turbo's `--affected` derives its own
       # base/head and over-selects on merge commits, the exact reason the prior
       # pnpm-filter approach spelled the range out. Turbo's task graph skips
       # packages with no `test` script (no `--if-present` needed) and never runs
       # the workspace-root task under a plain `turbo run` (so the old pnpm-only
       # `!./` root exclusion is unnecessary — verified via `--dry=json`).
+      #
+      # SELECTION vs the retired `pnpm --filter "...[ref]"`: measured across four
+      # real historical ranges (HEAD~1, origin/main~10/~20/~30 — see the PR body
+      # for the exact package lists), turbo's selection is a strict SUPERSET of
+      # pnpm's. It NEVER under-selects — every package the old pnpm path would
+      # have tested is always selected, so a changed package can never be
+      # silently skipped/under-tested. On ranges whose diff touches root/global
+      # files (lockfile, pnpm-workspace.yaml) turbo may additionally pull in a
+      # few leaf config packages pnpm did not; that is safe over-selection
+      # (marginal CI time, usually a cache hit — never missed coverage).
       #
       # TURBO_TEST_MODE=unit is set EXPLICITLY here so the `test` task cache key
       # (turbo.jsonc `test.env` = [NODE_ENV, TURBO_TEST_MODE]) matches the push

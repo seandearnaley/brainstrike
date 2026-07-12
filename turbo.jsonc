@@ -46,6 +46,25 @@
         "NODE_ENV",
         "TURBO_TEST_MODE"
       ],
+      // Turbo's default STRICT environment mode filters out every variable that
+      // is not declared, including the CI-vendor variables GitHub Actions injects
+      // (https://turborepo.dev/docs/crafting-your-repository/using-environment-variables).
+      // Routing test execution through `turbo run test` therefore strips `CI` and
+      // `COVERAGE` from the vitest child process unless they are declared here. Both
+      // are read at runtime by the test configs:
+      //   - packages/test-utils/src/vitest.base.ts gates `maxWorkers` on `CI`,
+      //   - ~12 packages compute `coverageEnabled = CI === 'true' || COVERAGE === 'true'`,
+      //   - packages/db/vitest.config.mts adds Chromium `--no-sandbox` flags when `CI` is set.
+      // They belong in `passThroughEnv`, NOT `env`: they must NOT enter the cache
+      // key. `CI` only changes worker count / report emission (never pass/fail), and
+      // `COVERAGE` differs between the PR path (unset) and the push path ("false") —
+      // hashing it would give the two paths different cache keys and defeat the whole
+      // point of this change (PR and push runs sharing cache entries). passThroughEnv
+      // exposes them at runtime while keeping the hash identical across both paths.
+      "passThroughEnv": [
+        "CI",
+        "COVERAGE"
+      ],
       // Plain unit tests do not produce stable artifacts. Coverage is handled by
       // the separate test:coverage task so coverage CLI args don't hash build tasks.
       "outputs": [],

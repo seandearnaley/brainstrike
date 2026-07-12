@@ -2,7 +2,17 @@
   "extends": ["//"],
   "tasks": {
     "test": {
-      "cache": false
+      // @brainstrike/db tests are env-sensitive serialized PGlite lanes; never
+      // let them replay from cache.
+      "cache": false,
+      // Strict environment mode filtering is INDEPENDENT of caching, so the
+      // cache:false carve-out above does NOT exempt db's test task from having
+      // CI/COVERAGE stripped. Redeclare passThroughEnv here explicitly: package
+      // configs REPLACE (not merge) array fields, and the docs are silent on
+      // whether an UNSPECIFIED array field inherits, so we do not rely on
+      // inheriting the root's passThroughEnv. Keep this list in sync with the
+      // root turbo.jsonc `test.passThroughEnv`.
+      "passThroughEnv": ["CI", "COVERAGE"]
     }
   }
 }
