@@ -103,6 +103,3 @@ export const MAX_SELECTION_COUNT = 10_000;
 // Minimum and Maximum allowed value for Token Budget setting
 export const MIN_TOKEN_BUDGET = 1;
 export const MAX_TOKEN_BUDGET = 100_000_000;
-
-// Test IDs for UI elements
-export const EXPAND_COLLAPSE_TEST_ID = 'expand-collapse-button';
