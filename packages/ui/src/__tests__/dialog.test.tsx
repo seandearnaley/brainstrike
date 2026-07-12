@@ -165,4 +165,16 @@ describe('Dialog Component', () => {
     const content = screen.getByRole('dialog');
     expect(content.className).toContain('z-[51]');
   });
+
+  it('allows a modal to opt into a blurred overlay', () => {
+    render(
+      <Dialog defaultOpen>
+        <DialogContent overlayClassName="backdrop-blur-md">
+          <DialogTitle>Settings</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    );
+
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toHaveClass('backdrop-blur-md');
+  });
 });

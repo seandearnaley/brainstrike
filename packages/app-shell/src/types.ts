@@ -18,6 +18,7 @@ export interface AppLayoutProps {
   config: AppShellConfig;
   currentPath: string;
   onNavigationClick?: (path: string) => void;
+  onOpenSettings?: () => void;
   sidebarContent?: ReactNode;
 }
 

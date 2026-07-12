@@ -58,13 +58,15 @@ describe('SettingsPageContent', () => {
       />
     );
 
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument();
     expect(screen.getByTestId('theme-settings')).toBeInTheDocument();
 
     const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    expect(within(nav).getByRole('searchbox', { name: /search settings/i })).toBeInTheDocument();
     const appearanceButton = within(nav).getByRole('button', { name: /Appearance/i });
     expect(appearanceButton).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('settings-category-appearance')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Appearance' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#settings/appearance');
   });
 

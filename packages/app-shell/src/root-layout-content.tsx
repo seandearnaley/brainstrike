@@ -12,6 +12,9 @@ import {
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   ActionRegistryProvider,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   IdeLayout,
   PanelLayoutProvider,
   type PanelLayoutState,
@@ -385,25 +388,47 @@ export function RootLayoutContent({
 }: RootLayoutContentProps): ReactElement {
   const activeTab = usePanelLayoutStore((state) => state.activeTab);
   const setState = usePanelLayoutStore((state) => state.setState);
-  const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([activeTab]));
-  const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
+  const [settingsOpen, setSettingsOpen] = useState(activeTab === 'settings');
+  const shellTab = activeTab === 'settings' ? 'explorer' : activeTab;
+  const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([shellTab]));
+  const appConfig = useMemo(
+    () =>
+      createAppConfig({
+        navigationItems: navigationItems.filter((item) => item.path !== '/settings'),
+      }),
+    [navigationItems]
+  );
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
 
   useEffect(() => {
     setMountedTabs((currentTabs) => {
-      if (currentTabs.has(activeTab)) {
+      if (currentTabs.has(shellTab)) {
         return currentTabs;
       }
       const nextTabs = new Set(currentTabs);
-      nextTabs.add(activeTab);
+      nextTabs.add(shellTab);
       return nextTabs;
     });
-  }, [activeTab]);
+  }, [shellTab]);
+
+  const handleSettingsOpenChange = useCallback(
+    (open: boolean) => {
+      setSettingsOpen(open);
+      if (!open && activeTab === 'settings') {
+        setState({ activeTab: 'explorer' });
+      }
+    },
+    [activeTab, setState]
+  );
 
   const handleNavigationClick = useCallback(
     (path: string) => {
+      if (path === '/settings') {
+        setSettingsOpen(true);
+        return;
+      }
       setState({ activeTab: resolveActiveTabForPath(path) });
     },
     [setState]
@@ -427,8 +452,9 @@ export function RootLayoutContent({
   return (
     <AppLayout
       config={appConfig}
-      currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
+      currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
       onNavigationClick={handleNavigationClick}
+      onOpenSettings={() => setSettingsOpen(true)}
     >
       {/* These providers now intentionally stay app-wide so background chunking and embedding
           work can continue across route switches. They remain inert on non-explorer routes
@@ -448,8 +474,8 @@ export function RootLayoutContent({
             <SearchEmbedderProvider>
               <IndexingActivityCoordinator />
               <div
-                aria-hidden={activeTab !== 'explorer'}
-                className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+                aria-hidden={shellTab !== 'explorer'}
+                className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
                 data-testid="explorer-route"
               >
                 <PanelLayoutProvider
@@ -463,23 +489,24 @@ export function RootLayoutContent({
                     loadEmbeddingQueue={loadEmbeddingQueue}
                     {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                     preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                    visible={activeTab === 'explorer'}
+                    visible={shellTab === 'explorer'}
                   />
                 </PanelLayoutProvider>
               </div>
-              {mountedTabs.has('settings') ? (
-                <div
-                  aria-hidden={activeTab !== 'settings'}
-                  className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
-                  data-testid="settings-route"
+              <Dialog onOpenChange={handleSettingsOpenChange} open={settingsOpen}>
+                <DialogContent
+                  aria-describedby={undefined}
+                  className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"
+                  overlayClassName="bg-background/55 backdrop-blur-md"
                 >
+                  <DialogTitle className="sr-only">Settings</DialogTitle>
                   {settingsPageContent}
-                </div>
-              ) : null}
+                </DialogContent>
+              </Dialog>
               {gitPageContent && mountedTabs.has('git') ? (
                 <div
-                  aria-hidden={activeTab !== 'git'}
-                  className={activeTab === 'git' ? 'h-full' : 'hidden h-full'}
+                  aria-hidden={shellTab !== 'git'}
+                  className={shellTab === 'git' ? 'h-full' : 'hidden h-full'}
                   data-testid="git-route"
                 >
                   {gitPageContent}
@@ -490,8 +517,8 @@ export function RootLayoutContent({
                 the pty is pinned to its cwd for the session's lifetime. */}
               {terminalPageContent && mountedTabs.has('terminal') ? (
                 <div
-                  aria-hidden={activeTab !== 'terminal'}
-                  className={activeTab === 'terminal' ? 'h-full' : 'hidden h-full'}
+                  aria-hidden={shellTab !== 'terminal'}
+                  className={shellTab === 'terminal' ? 'h-full' : 'hidden h-full'}
                   data-testid="terminal-route"
                 >
                   {terminalPageContent}

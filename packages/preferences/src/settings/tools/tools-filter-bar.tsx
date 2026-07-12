@@ -47,7 +47,7 @@ export function ToolsFilterBar({
     >
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
-          <Search className="absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-9 max-w-xs pl-8"
             data-testid="search-input"
