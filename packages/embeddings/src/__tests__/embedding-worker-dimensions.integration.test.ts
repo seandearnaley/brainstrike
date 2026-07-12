@@ -148,14 +148,14 @@ describe('Embedding Worker Dimensions', () => {
       queue: 'embeddings',
     });
 
-    // 5. Start worker with custom service that returns 3072-dim embeddings
+    // 5. Start worker with custom service that returns 1536-dim embeddings
     worker = await startEmbeddingWorker({
       concurrency: 1,
       db,
       enable: true,
       // Align the worker's active model with the job payload so the local
       // model path short-circuits (no reinit, no real backend/model download)
-      // and the injected 3072-dim fake service is used directly.
+      // and the injected 1536-dim fake service is used directly.
       modelKey: 'local::large-dim-model',
       service: new LargeDimensionService(),
     });
