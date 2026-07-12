@@ -1898,13 +1898,30 @@ export function useLazyFileTree(
     resetCommittedRootState,
   ]);
 
-  return {
-    __internalGetDescendantFileCount: (path: string) =>
-      getNormalizedDescendantFileCount(normalizedTreeRef.current, path),
-    __internalGetDescendantFilePaths: (path: string, maxCount?: number) =>
+  // Stable identities (#1594b): these read `normalizedTreeRef.current` at CALL
+  // time, so wrapping them in useCallback keyed only on the stable ref is
+  // behaviorally identical while keeping their identity fixed across renders.
+  // Without this, each render minted fresh arrows, breaking the downstream
+  // FileTreeNormalizedContext value memo and rebuilding every tree row on every
+  // selection toggle.
+  const getDescendantFileCount = useCallback(
+    (path: string) => getNormalizedDescendantFileCount(normalizedTreeRef.current, path),
+    [normalizedTreeRef]
+  );
+  const getDescendantFilePaths = useCallback(
+    (path: string, maxCount?: number) =>
       listNormalizedDescendantFilePaths(normalizedTreeRef.current, path, maxCount),
-    __internalMaterializeSubtree: (path: string) =>
-      materializeNormalizedSubtree(normalizedTreeRef.current, path),
+    [normalizedTreeRef]
+  );
+  const materializeSubtree = useCallback(
+    (path: string) => materializeNormalizedSubtree(normalizedTreeRef.current, path),
+    [normalizedTreeRef]
+  );
+
+  return {
+    __internalGetDescendantFileCount: getDescendantFileCount,
+    __internalGetDescendantFilePaths: getDescendantFilePaths,
+    __internalMaterializeSubtree: materializeSubtree,
     __internalNormalizedTreeRef: normalizedTreeRef,
     __internalNormalizedTreeVersion: normalizedTreeVersion,
     cancelChildLoading: handleCancelChildLoading,
