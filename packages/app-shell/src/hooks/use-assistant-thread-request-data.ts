@@ -40,6 +40,11 @@ interface UseAssistantThreadRequestDataArgs {
     readonly folderId: string | null | undefined;
   };
   readonly semanticRecallSettings: RuntimeAssistantSemanticRecallSettings;
+  /**
+   * Opt-in workspace instructions preference; only set on the desktop
+   * data-stream transport (web has no injection path). Passthrough otherwise.
+   */
+  readonly subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   readonly workspaceIndex: {
     readonly blockedReason: RuntimeData['workspaceIndexBlockedReason'] | null;
     readonly enabled: boolean;
@@ -50,10 +55,6 @@ interface UseAssistantThreadRequestDataArgs {
     readonly queueProgress: RuntimeData['workspaceIndexQueueProgress'] | null;
     readonly statusState: RuntimeData['workspaceIndexStatusState'];
   };
-  /**
-   * Opt-in workspace instructions preference; only set on the desktop
-   * data-stream transport (web has no injection path). Passthrough otherwise.
-   */
   readonly workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
   readonly workspaceRootPath: string | null;
 }
@@ -79,6 +80,7 @@ export function useAssistantThreadRequestData({
   selectedMemoryThreadId,
   selectionData,
   semanticRecallSettings,
+  subagentPersonasRequest,
   workspaceInstructionsPreference,
   workspaceIndex,
   workspaceRootPath,
@@ -108,6 +110,7 @@ export function useAssistantThreadRequestData({
         selectedMemoryThreadId,
         selectionData,
         workspaceContext: runtimeWorkspaceContext,
+        ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
         ...(workspaceInstructionsPreference ? { workspaceInstructionsPreference } : {}),
         workspaceIndex,
         workspaceRootPath,
@@ -127,6 +130,7 @@ export function useAssistantThreadRequestData({
       selectedMemoryThreadId,
       selectionData,
       runtimeWorkspaceContext,
+      subagentPersonasRequest,
       workspaceInstructionsPreference,
       workspaceIndex,
       workspaceRootPath,

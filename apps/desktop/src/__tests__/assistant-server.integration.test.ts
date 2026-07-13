@@ -792,8 +792,10 @@ describe('assistant-server', () => {
       ];
       // Personas are set unconditionally on the runtime; the agent-side runtime
       // is where the local-provider skip lives (documented, tested in the agent
-      // package), so the server always passes the built-ins.
-      expect(runtime.personas).toBe(BUILT_IN_PERSONAS);
+      // package). The server resolves built-ins + user-defined personas per
+      // request (resolveRequestPersonas); with no persona files on disk and no
+      // availability request, the resolved list equals the built-ins.
+      expect(runtime.personas).toEqual(BUILT_IN_PERSONAS);
     });
 
     it('routes provider "local" through the injected llm-host manager (warmup + proxy client)', async () => {

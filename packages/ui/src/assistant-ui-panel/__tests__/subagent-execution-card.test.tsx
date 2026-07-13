@@ -33,8 +33,13 @@ describe('personaLabelForToolName', () => {
     expect(personaLabelForToolName('agent-analyze')).toBe('Analyst');
   });
 
-  it('falls back to the raw tool name for an unknown key (never blank)', () => {
-    expect(personaLabelForToolName('agent-ghost')).toBe('agent-ghost');
+  it('falls back to the persona id for an unknown delegation tool (user personas)', () => {
+    // User-defined personas are not in the static built-in label map; the
+    // persona id (the file name) is the honest, never-blank label.
+    expect(personaLabelForToolName('agent-security-auditor')).toBe('security-auditor');
+  });
+
+  it('falls back to the raw tool name for a non-delegation tool (never blank)', () => {
     expect(personaLabelForToolName('brainstrike.grepSearch')).toBe('brainstrike.grepSearch');
   });
 });

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import http from 'node:http';
+import { homedir } from 'node:os';
 import type {
   AgentMessage,
   AssistantRunEvent,
@@ -17,7 +18,6 @@ import {
   AssistantInvalidJsonError,
   AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
-  BUILT_IN_PERSONAS,
   buildNativeToolRiskMap,
   convertAssistantUiMessages,
   createEmbeddingProvider,
@@ -45,6 +45,9 @@ import {
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
+import { resolveRequestPersonas } from './assistant-server/request-personas';
+import { scanUserPersonas } from './assistant-server/user-personas-loader';
+import { createNodeFsScanDeps } from './ipc-user-commands-handlers';
 
 type AssistantUiMessage = AssistantUiMessageStrict;
 
@@ -1308,6 +1311,54 @@ async function resolveInitialAgentStream(args: {
   );
 }
 
+/**
+ * Scan user-defined personas from disk over the request's already-resolved
+ * workspace roots (SecureRoot-backed fs; disposed after the scan). Extracted
+ * from initializeAgentStream for the cognitive-complexity budget.
+ */
+function scanUserPersonasFromDisk(
+  workspaceRoots: RuntimeData['workspaceRoots']
+): ReturnType<typeof scanUserPersonas> {
+  const filesystem = createNodeFsScanDeps();
+  try {
+    const scanRoots = (workspaceRoots ?? [])
+      .filter((root) => Boolean(root.path))
+      .map((root) => ({
+        absPath: root.path,
+        displayName: root.displayName,
+        id: root.rootId,
+      }));
+    return scanUserPersonas({ homeDir: homedir(), roots: scanRoots }, filesystem);
+  } finally {
+    filesystem.dispose();
+  }
+}
+
+/**
+ * Resolve the request's persona set (built-in + user-defined, availability
+ * preference applied) and any pinned-provider API keys, shaped as the runtime
+ * fields to spread onto the request RuntimeData. See request-personas.ts for
+ * the trust boundaries.
+ */
+async function resolvePersonaRuntimeFields(
+  runtimeData: RuntimeData | undefined,
+  subagentPersonasRequest: RuntimeData['subagentPersonasRequest']
+): Promise<Pick<RuntimeData, 'personas' | 'personaProviderApiKeys'>> {
+  const resolved = await resolveRequestPersonas({
+    logger,
+    parentProvider: runtimeData?.provider ?? '',
+    request: subagentPersonasRequest,
+    resolveApiKey: resolveProviderApiKey,
+    scanUserPersonas: () => scanUserPersonasFromDisk(runtimeData?.workspaceRoots),
+  });
+  return {
+    personas: resolved.personas,
+    ...(resolved.personaProviderApiKeys
+      ? { personaProviderApiKeys: resolved.personaProviderApiKeys }
+      : {}),
+  };
+}
+
 async function initializeAgentStream(
   messages: AgentMessage[],
   incomingRuntimeData: RuntimeData | undefined,
@@ -1358,9 +1409,28 @@ async function initializeAgentStream(
     // hashes via `hookTrustRequest`, which the server re-hashes against disk.
     hookRunner: _ignoredClientHookRunner,
     hookTrustRequest,
+    // Strip any client-supplied `personaProviderApiKeys`: pinned-persona keys
+    // are server-resolved from the secrets bridge below — a client must never
+    // inject credentials into the runtime.
+    personaProviderApiKeys: _ignoredClientPersonaKeys,
+    // The renderer's persona availability preference; resolved (with the
+    // user-persona disk scan) into `runtime.personas` below.
+    subagentPersonasRequest,
     ...runtimeWithoutMcpConfig
   } = runtimeData ?? {};
   const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
+
+  // Subagent personas: built-ins + user-defined (scanned from
+  // `.brainstrike/agents` under each mounted root and the home dir), with the
+  // renderer's availability preference applied and cross-provider pin keys
+  // resolved from the secrets bridge. Set on the shared runtime so BOTH the
+  // initial turn and the approval/suspend-resume paths keep the `agent-<id>`
+  // delegation tools; the agent runtime skips personas for the built-in local
+  // provider (D10).
+  const personaRuntimeFields = await resolvePersonaRuntimeFields(
+    runtimeData,
+    subagentPersonasRequest
+  );
 
   try {
     const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
@@ -1387,11 +1457,6 @@ async function initializeAgentStream(
       // registration time.
       mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
       mcpEnabled: true,
-      // Built-in subagent personas (delegation). Set unconditionally on the
-      // shared runtime so BOTH the initial turn and the approval/suspend-resume
-      // paths (which reuse this object) keep the `agent-<id>` delegation tools;
-      // the agent runtime skips them for the built-in local provider (D10).
-      personas: BUILT_IN_PERSONAS,
       signal, // ← AbortSignal passed here, used by stream iterator
       // Always set: an empty list yields no <current-task-list> block (the note
       // builder returns null), so no branch is needed here.
@@ -1401,6 +1466,9 @@ async function initializeAgentStream(
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
       ...(permissionPolicy ? { permissionPolicy } : {}),
       ...(hookRunner ? { hookRunner } : {}),
+      // Resolved subagent personas (built-in + user-defined, availability
+      // preference applied) + pinned-provider keys — see resolvePersonaRuntimeFields.
+      ...personaRuntimeFields,
     };
     // Cold model loads (multi-GB download) exceed the generate request's hard
     // 5-minute ceiling, so warm the host (20-minute ceiling, progress-aware)

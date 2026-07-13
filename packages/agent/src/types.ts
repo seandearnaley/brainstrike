@@ -161,6 +161,13 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    */
   permissionPolicyRequest?: AssistantPermissionPolicyRequest;
   /**
+   * API keys for providers that pinned personas target (server-resolved from
+   * the secrets bridge, agent-only, NEVER client-supplied). Keyed by provider
+   * id. The parent provider's key is NOT duplicated here — the pin resolver
+   * reuses `apiKey` when the pin targets the parent provider.
+   */
+  personaProviderApiKeys?: Readonly<Record<string, string>>;
+  /**
    * Built-in subagent personas the supervisor may delegate to (server-set,
    * agent-only, mirrors `mastraTools`). Threaded through on both the initial turn
    * and the approval-resume path so the rebuilt supervisor keeps its `agent-<id>`

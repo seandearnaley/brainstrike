@@ -148,6 +148,19 @@ export interface WorkspaceInstructionsContextRequest {
   oversizedOptInByRootId?: Record<string, boolean>;
 }
 
+/**
+ * Renderer preference for subagent persona availability (see the
+ * subagent-personas preferences store). Presence-means-non-default: the
+ * renderer attaches it only when something diverges from "delegation on,
+ * nothing disabled".
+ */
+export interface SubagentPersonasAvailabilityRequest {
+  /** Master switch. Absent is treated as ON (the store default). */
+  delegationEnabled?: boolean;
+  /** Persona ids (built-in or user) the user toggled OFF. */
+  disabledPersonaIds?: readonly string[];
+}
+
 export interface RuntimeMemoryContext {
   memoryOptions?: RuntimeMemoryOptions;
   memorySettings?: RuntimeAssistantMemorySettings;
@@ -197,6 +210,13 @@ export interface RuntimeData {
   selectionFolderId?: string;
   selectionSnapshotId?: string;
   signal?: AbortSignal;
+  /**
+   * Renderer-supplied subagent persona availability (from the subagent-personas
+   * preferences store). A preference, not a security boundary — it can only
+   * REDUCE the persona set (disable delegation or individual personas), never
+   * inject personas or credentials. Absent => delegation on, nothing disabled.
+   */
+  subagentPersonasRequest?: SubagentPersonasAvailabilityRequest;
   /**
    * The current per-thread assistant task list, read server-side at request
    * start and re-serialized into the system instructions every turn (see the

@@ -1,6 +1,16 @@
 import { cn, Input, ThemeSettings } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { Cpu, Key, Palette, Search, Settings, ShieldCheck, Sigma, Webhook } from 'lucide-react';
+import {
+  Bot,
+  Cpu,
+  Key,
+  Palette,
+  Search,
+  Settings,
+  ShieldCheck,
+  Sigma,
+  Webhook,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
@@ -15,6 +25,7 @@ import {
 } from './settings/system/hooks-settings-section';
 import { PermissionSettingsSection } from './settings/system/permission-settings-section';
 import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
+import { SubagentPersonasSettingsSection } from './settings/system/subagent-personas-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 
 /**
@@ -480,6 +491,27 @@ export function createPermissionSettingsCategory(): SettingsCategory {
       'guardrails',
     ],
     title: 'Permissions',
+  };
+}
+
+export function createSubagentPersonasSettingsCategory(): SettingsCategory {
+  return {
+    content: <SubagentPersonasSettingsSection />,
+    description: 'Control which subagent personas the assistant may delegate to.',
+    icon: Bot,
+    id: 'subagents',
+    keywords: [
+      'subagents',
+      'subagent',
+      'personas',
+      'persona',
+      'delegation',
+      'delegate',
+      'agents',
+      'explorer',
+      'analyst',
+    ],
+    title: 'Subagents',
   };
 }
 

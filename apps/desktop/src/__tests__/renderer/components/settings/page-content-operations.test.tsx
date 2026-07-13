@@ -164,6 +164,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     id: 'search-indexing',
     title: 'Search & Indexing',
   }),
+  createSubagentPersonasSettingsCategory: () => ({
+    content: <div data-testid="subagents-category" />,
+    id: 'subagents',
+    title: 'Subagents',
+  }),
   createTokenCountingSettingsCategoryWithRuntimeSupport:
     createTokenCountingSettingsCategoryMock.mockImplementation((options: unknown) => ({
       content: <div data-options={JSON.stringify(options)} data-testid="token-counting-category" />,
