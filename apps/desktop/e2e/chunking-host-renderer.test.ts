@@ -8,6 +8,17 @@ interface ChunkingHostStatus {
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 }
 
+interface ParserRoutingProbe {
+  languages: unknown;
+  parseProbe: {
+    error?: string;
+    ok: boolean;
+    root?: { type?: string };
+  } | null;
+  parserFlag: string | null;
+  parseType: string;
+}
+
 interface SentenceChunkFileRequest {
   content: string;
   fileName: string;
@@ -377,6 +388,84 @@ test.describe('Chunking Host Renderer', () => {
     await assertVisibleWindowResponsive(window);
     const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
     expect(finalTimeOrigin).toBe(initialTimeOrigin);
+  });
+
+  test('@desktop-runtime-hosts chunking host engages the native oxc parser and tree-sitter routing', async ({
+    electronApp,
+    window,
+  }) => {
+    await waitForAppReadyInTest(window);
+
+    await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            ensureStarted?: () => Promise<ChunkingHostStatus>;
+          };
+        }
+      ).chunkingHost;
+      if (!api?.ensureStarted) {
+        throw new Error('Chunking host bridge is not available');
+      }
+      await api.ensureStarted();
+    });
+
+    await expect
+      .poll(async () => {
+        const status = await getChunkingHostStatus(window);
+        return status.state;
+      })
+      .toBe('running');
+
+    const probe = await electronApp.app.evaluate(async ({ BrowserWindow }) => {
+      const hostWindow = BrowserWindow.getAllWindows().find((candidate) =>
+        candidate.webContents.getURL().includes('mode=chunking-host')
+      );
+      if (!hostWindow) {
+        throw new Error('Chunking host window was not found');
+      }
+      // Runs in the chunking-host renderer's main world — the same realm the
+      // bootstrap in renderer/main.tsx writes to and buildInitMessage reads
+      // from before forwarding to the chunking worker.
+      return (await hostWindow.webContents.executeJavaScript(`(async () => {
+        const bridge = globalThis.parserHost;
+        const parseType = typeof (bridge && bridge.parse);
+        const flag = globalThis.__BRAINSTRIKE_PARSER_FLAG__;
+        const languages = globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__;
+        let parseProbe = null;
+        if (parseType === 'function') {
+          parseProbe = await bridge.parse({
+            content: 'const answer: number = 42;',
+            options: { errorRecovery: false, jsx: false, language: 'typescript' },
+            requestId: crypto.randomUUID(),
+          });
+        }
+        return {
+          languages: Array.isArray(languages) ? Array.from(languages) : (languages ?? null),
+          parseProbe,
+          parseType,
+          parserFlag: flag ?? null,
+        };
+      })()`)) as ParserRoutingProbe;
+    });
+
+    // A missing preload bridge would make buildInitMessage keep the worker on
+    // its 'browser' default, silently downgrading desktop chunking to Babel.
+    expect(probe.parseType).toBe('function');
+
+    // Tree-sitter rollout default (#998 Phase 8): python enabled in the host.
+    expect(probe.languages).toEqual(['python']);
+
+    // The production host URL must not carry a stray kill switch.
+    expect([null, 'auto']).toContain(probe.parserFlag);
+
+    // The bridge round-trips through main IPC to the native oxc utility
+    // process — proves the packaged binary actually parses.
+    expect(
+      probe.parseProbe?.ok,
+      `oxc parse probe failed: ${probe.parseProbe?.error ?? 'no response'}`
+    ).toBe(true);
+    expect(probe.parseProbe?.root?.type).toBe('Program');
   });
 
   test('supports accurate token sizing in the hidden chunking host without crashing the visible window', async ({
