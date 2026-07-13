@@ -115,25 +115,38 @@ export function buildThreadListSections({
   }
 
   const membership = buildThreadMembership({ groups, placements, threads });
-  const groupIdByThreadId = new Map(
-    [...membership.entries()].filter(([, groupId]) => groupId !== null) as [string, string][]
+  const threadsByGroupId = new Map<string, AssistantMemoryThread[]>(
+    groups.map((group) => [group.id, []])
   );
+  const ungroupedThreads: AssistantMemoryThread[] = [];
+
+  // Bucket once instead of rescanning every thread for every rendered group.
+  for (const thread of threads) {
+    const groupId = membership.get(thread.id);
+    if (groupId === undefined) {
+      throw new Error(`Missing thread membership for ${thread.id}`);
+    }
+    if (groupId === null) {
+      ungroupedThreads.push(thread);
+      continue;
+    }
+    const groupThreads = threadsByGroupId.get(groupId);
+    if (groupThreads === undefined) {
+      throw new Error(`Missing thread group bucket for ${groupId}`);
+    }
+    groupThreads.push(thread);
+  }
 
   const orderedGroups = [...groups].sort((left, right) =>
     left.rank < right.rank ? -1 : left.rank > right.rank ? 1 : left.id.localeCompare(right.id)
   );
-  const sections = orderedGroups.map((group) => ({
-    group,
-    threads: sortSection(
-      threads.filter((thread) => groupIdByThreadId.get(thread.id) === group.id),
-      sortBy,
-      rankByThreadId
-    ),
-  }));
-  const ungrouped = sortSection(
-    threads.filter((thread) => !groupIdByThreadId.has(thread.id)),
-    sortBy,
-    rankByThreadId
-  );
+  const sections = orderedGroups.map((group) => {
+    const groupThreads = threadsByGroupId.get(group.id);
+    if (groupThreads === undefined) {
+      throw new Error(`Missing thread group bucket for ${group.id}`);
+    }
+    return { group, threads: sortSection(groupThreads, sortBy, rankByThreadId) };
+  });
+  const ungrouped = sortSection(ungroupedThreads, sortBy, rankByThreadId);
   return { kind: 'grouped', sections, ungrouped };
 }
