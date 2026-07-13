@@ -35,10 +35,16 @@
   //   "apps/*/tsconfig*.json" + "packages/*/tsconfig*.json" entries) only added
   //   cross-package OVER-invalidation: any one of ~75 per-package tsconfig
   //   edits busted every cache in the repo for zero correctness benefit.
-  //   Verified no task reads another package's tsconfig (no vite-tsconfig-paths
-  //   anywhere; tsup/vite configs reference only their own local tsconfig; the
-  //   only cross-package tsconfig reads are the extends chains into base.json
-  //   and config→root, both still covered by the two kept globs).
+  //   Cross-package tsconfig reads that DO exist, and their hash carriers:
+  //   (a) the extends chains into base.json and config→root — the two kept
+  //   globs above; (b) TypeScript project `references` (`tsc -b` reads the
+  //   referenced package's tsconfig) — covered by the ^build task-hash cascade,
+  //   so every cross-package `references` edge MUST be mirrored by a direct or
+  //   transitive workspace dependency in that package's package.json (enforced
+  //   by scripts/__tests__/tsconfig-global-deps-contract.test.mjs; the audit
+  //   found one stale unmirrored edge, workers→storage, removed alongside this
+  //   change). No other mechanism reads a foreign tsconfig (no
+  //   vite-tsconfig-paths anywhere; tsup/vite configs use only local tsconfig).
   "globalDependencies": [
     "pnpm-lock.yaml", // Package dependencies
     "tsconfig*.json", // Root TS config — config/tsconfig.json extends it (genuinely global)
