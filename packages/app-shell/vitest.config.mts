@@ -2,6 +2,7 @@
 /// <reference types="@testing-library/jest-dom" />
 
 import path from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
@@ -111,10 +112,6 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../queue/src/index.ts'),
       },
       {
-        find: '@brainstrike/storage',
-        replacement: path.resolve(import.meta.dirname, '../storage/dist'),
-      },
-      {
         find: '@brainstrike/embeddings',
         replacement: path.resolve(import.meta.dirname, '__mocks__/embeddings.ts'),
       },
@@ -207,6 +204,12 @@ export default defineConfig({
         find: '/worker-storage.worker.js',
         replacement: path.resolve(import.meta.dirname, '__mocks__/worker-storage.worker.js'),
       },
+      // Registry fills gaps (commands, file-system, file-explorer-hooks,
+      // file-explorer-ui root, etc. — previously resolved from built dist). The
+      // deliberate local overrides above (storage -> dist, embeddings -> mock,
+      // electron -> mock) win by first-match ordering. See workspace-src-aliases
+      // (incident #1066/#1207).
+      ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
     ],
   },
   server: {

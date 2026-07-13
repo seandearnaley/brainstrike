@@ -2,6 +2,7 @@
 /// <reference types="@testing-library/jest-dom" />
 
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
@@ -75,6 +76,10 @@ export default defineConfig({
         find: '@brainstrike/indexing-contract',
         replacement: resolve(import.meta.dirname, '../indexing-contract/src'),
       },
+      // Registry fills gaps (e.g. @brainstrike/hooks, executed unmocked by
+      // use-pending-chunks.test.ts). Hand-rolled entries win by first-match.
+      // See workspace-src-aliases (incident #1066/#1207).
+      ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],
   },
   test: {

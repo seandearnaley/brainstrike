@@ -32,6 +32,26 @@ it from `finishSendTasksUpdate` (newly exported). Regression guard:
 fails loudly if a vitest bump drops the patch. When bumping vitest, re-apply
 the patch (or verify upstream fixed the throttle) before deleting it.
 
+### Workspace-src alias guard (`pnpm test:scripts`)
+
+`scripts/verify-workspace-src-aliases.mjs` (guard test:
+`scripts/__tests__/verify-workspace-src-aliases.test.mjs`, run in the Static job
+via `pnpm test:scripts`) prevents the #1066/#1207 regression class: a package
+test lane importing another `@brainstrike/*` package at RUNTIME while its vitest
+config declares NO workspace-src aliasing resolves that dep from BUILT `dist`
+(via package `exports`) — stale/broken dist then silently passes.
+
+The shared registry `@brainstrike/test-utils/workspace-src-aliases`
+(`workspaceSrcAliases(packagesDir)`, a committed plain `.mjs` — no build step)
+maps every `@brainstrike/*` package root + renamed subpath exports to `src`.
+Package vitest configs spread it (config-local mocks/dist-pins/dedicated helpers
+go BEFORE the spread — vitest `resolve.alias` is first-match). The guard flags
+any importing package with neither the registry nor an explicit `../<pkg>/src`
+alias; legitimate built-artifact consumers go in `WORKSPACE_SRC_ALIAS_ALLOWLIST`
+with a reason (NO silent fallback). This is the R3 enabler for dropping
+`test.dependsOn: ["^build"]` — see the Series B turbo-monorepo architecture
+review.
+
 ---
 
 ## REACT DOCTOR (LINT + DEAD CODE)

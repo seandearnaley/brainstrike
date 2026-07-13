@@ -1,21 +1,13 @@
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@brainstrike/utils': resolve(import.meta.dirname, './src'),
-      '@brainstrike/utils/log-buffer': resolve(import.meta.dirname, './src/log-buffer.ts'),
-      '@brainstrike/utils/logger': resolve(import.meta.dirname, './src/logger.ts'),
-      '@brainstrike/utils/logging-initializer': resolve(
-        import.meta.dirname,
-        './src/logging-initializer.ts'
-      ),
-      '@brainstrike/utils/logging-preferences': resolve(
-        import.meta.dirname,
-        './src/logging-preferences.ts'
-      ),
-    },
+    // Resolve workspace deps (@brainstrike/test-utils, @brainstrike/types, and
+    // this package's own @brainstrike/utils subpaths) from SOURCE, not dist.
+    // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
+    alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
   },
   test: {
     coverage: {

@@ -5,6 +5,7 @@
     "@brainstrike/types": "workspace:*"
   },
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },

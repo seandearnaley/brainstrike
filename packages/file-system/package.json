@@ -9,6 +9,7 @@
     "idb": "^8.0.3"
   },
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
