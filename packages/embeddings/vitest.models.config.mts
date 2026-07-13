@@ -27,9 +27,7 @@ export default defineConfig({
     // derive from the base exclude list (dropping only the models-suffix
     // entry) so any future base exclusion is honored here automatically
     // instead of silently drifting (review nit on #1629).
-    exclude: (baseTest.exclude ?? []).filter(
-      (pattern) => !pattern.includes('*.models.test.')
-    ),
+    exclude: (baseTest.exclude ?? []).filter((pattern) => !pattern.includes('*.models.test.')),
     include: ['**/*.models.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
   },
 });
