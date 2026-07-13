@@ -1659,6 +1659,216 @@ function ThreadPanelCell({
   return <ThreadPanelGroupCell groupHandlers={groupHandlers} row={row} />;
 }
 
+interface ThreadBulkSelectionController {
+  readonly confirmingDelete: boolean;
+  readonly error: string | null;
+  readonly onCancelDelete: () => void;
+  readonly onClear: () => void;
+  readonly onColor: (color: AssistantThreadColorId) => void;
+  readonly onDelete: () => void;
+  readonly onMove: (groupId: string | null) => void;
+  readonly onStartDelete: () => void;
+  readonly onTogglePanel: (panel: 'color' | 'move') => void;
+  readonly panel: 'color' | 'move' | null;
+  readonly pending: boolean;
+  readonly selectedCount: number;
+}
+
+function useThreadBulkSelectionController({
+  onBulkColor,
+  onBulkDelete,
+  onBulkMove,
+  onClearSelection,
+  selectedThreadIds,
+}: {
+  readonly onBulkColor: (
+    threadIds: readonly string[],
+    color: AssistantThreadColorId
+  ) => Promise<void>;
+  readonly onBulkDelete: (threadIds: readonly string[]) => Promise<void>;
+  readonly onBulkMove: (threadIds: readonly string[], groupId: string | null) => Promise<void>;
+  readonly onClearSelection: () => void;
+  readonly selectedThreadIds: ReadonlySet<string>;
+}): ThreadBulkSelectionController {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [panel, setPanel] = useState<'color' | 'move' | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const runAction = useCallback(
+    (action: (threadIds: readonly string[]) => Promise<void>): void => {
+      const threadIds = [...selectedThreadIds];
+      setPending(true);
+      setError(null);
+      action(threadIds)
+        .then(() => {
+          onClearSelection();
+          setPanel(null);
+          setConfirmingDelete(false);
+        })
+        .catch((actionError: unknown) => {
+          setError(actionError instanceof Error ? actionError.message : String(actionError));
+        })
+        .finally(() => setPending(false));
+    },
+    [onClearSelection, selectedThreadIds]
+  );
+
+  return {
+    confirmingDelete,
+    error,
+    onCancelDelete: () => setConfirmingDelete(false),
+    onClear: () => {
+      onClearSelection();
+      setPanel(null);
+      setConfirmingDelete(false);
+      setError(null);
+    },
+    onColor: (color) => runAction((threadIds) => onBulkColor(threadIds, color)),
+    onDelete: () => runAction(onBulkDelete),
+    onMove: (groupId) => runAction((threadIds) => onBulkMove(threadIds, groupId)),
+    onStartDelete: () => {
+      setPanel(null);
+      setConfirmingDelete(true);
+    },
+    onTogglePanel: (nextPanel) =>
+      setPanel((currentPanel) => (currentPanel === nextPanel ? null : nextPanel)),
+    panel,
+    pending,
+    selectedCount: selectedThreadIds.size,
+  };
+}
+
+function ThreadBulkSelectionOverlay({
+  controller,
+  moveTargets,
+}: {
+  readonly controller: ThreadBulkSelectionController;
+  readonly moveTargets: readonly ThreadMoveTarget[];
+}): ReactElement {
+  return (
+    <div className="absolute inset-x-3 top-12 z-20 grid gap-2">
+      {controller.error ? (
+        <p
+          className="rounded-lg border border-destructive/30 bg-popover px-3 py-2 text-[11px] text-destructive shadow-md"
+          role="alert"
+        >
+          {controller.error}
+        </p>
+      ) : null}
+      {controller.panel === 'move' ? (
+        <div className="ml-auto w-56 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
+          <div className="px-2 pb-1 text-[11px] text-muted-foreground">Move selected to</div>
+          <div className="grid gap-0.5">
+            {moveTargets.map((target) => (
+              <Button
+                className="h-8 justify-start gap-2 px-2 text-xs"
+                disabled={controller.pending}
+                key={target.id}
+                onClick={() => controller.onMove(target.id)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <Folder className="size-3.5" />
+                {target.name}
+              </Button>
+            ))}
+            <Button
+              className="h-8 justify-start gap-2 px-2 text-xs"
+              disabled={controller.pending}
+              onClick={() => controller.onMove(null)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <FolderMinus className="size-3.5" />
+              Ungrouped
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {controller.panel === 'color' ? (
+        <div className="ml-auto w-56 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
+          <div className="px-2 pb-1 text-[11px] text-muted-foreground">Color selected</div>
+          <div className="grid grid-cols-4 gap-1" data-testid="thread-bulk-color-grid">
+            {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
+              <Button
+                aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${controller.selectedCount} threads`}
+                className="justify-self-center"
+                disabled={controller.pending}
+                key={colorId}
+                onClick={() => controller.onColor(colorId)}
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`size-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
+                />
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <SelectionActionBar
+        actions={
+          controller.confirmingDelete
+            ? [
+                {
+                  disabled: controller.pending,
+                  id: 'cancel-delete',
+                  label: 'Cancel',
+                  onAction: controller.onCancelDelete,
+                },
+                {
+                  destructive: true,
+                  disabled: controller.pending,
+                  id: 'confirm-delete',
+                  label: 'Confirm delete',
+                  onAction: controller.onDelete,
+                },
+              ]
+            : [
+                {
+                  disabled: controller.pending,
+                  icon: <Folder className="size-3.5" />,
+                  id: 'move',
+                  label: 'Move',
+                  onAction: () => controller.onTogglePanel('move'),
+                },
+                {
+                  disabled: controller.pending,
+                  icon: <Palette className="size-3.5" />,
+                  id: 'color',
+                  label: 'Color',
+                  onAction: () => controller.onTogglePanel('color'),
+                },
+                {
+                  destructive: true,
+                  disabled: controller.pending,
+                  icon: <Trash2 className="size-3.5" />,
+                  id: 'delete',
+                  label: 'Delete',
+                  onAction: controller.onStartDelete,
+                },
+              ]
+        }
+        ariaLabel="Thread selection actions"
+        className="order-first"
+        compact
+        onClear={controller.onClear}
+        summary={
+          controller.confirmingDelete
+            ? `Delete ${controller.selectedCount} selected threads?`
+            : `${controller.selectedCount} selected`
+        }
+      />
+    </div>
+  );
+}
+
 function ThreadPanelTree({
   groupHandlers,
   membershipByThreadId,
@@ -1700,10 +1910,6 @@ function ThreadPanelTree({
     {}
   );
   const [selectedThreadIds, setSelectedThreadIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [bulkActionError, setBulkActionError] = useState<string | null>(null);
-  const [bulkActionPending, setBulkActionPending] = useState(false);
-  const [bulkPanel, setBulkPanel] = useState<'color' | 'move' | null>(null);
-  const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false);
   const visibleRows = useMemo(
     () =>
       buildThreadPanelVisibleRows({
@@ -1767,24 +1973,14 @@ function ThreadPanelTree({
     [selectableThreadIds, view]
   );
 
-  const runBulkAction = useCallback(
-    (action: (threadIds: readonly string[]) => Promise<void>): void => {
-      const threadIds = [...selectedAvailableThreadIds];
-      setBulkActionPending(true);
-      setBulkActionError(null);
-      action(threadIds)
-        .then(() => {
-          setSelectedThreadIds(new Set());
-          setBulkPanel(null);
-          setConfirmingBulkDelete(false);
-        })
-        .catch((error: unknown) => {
-          setBulkActionError(error instanceof Error ? error.message : String(error));
-        })
-        .finally(() => setBulkActionPending(false));
-    },
-    [selectedAvailableThreadIds]
-  );
+  const clearSelectedThreadIds = useCallback((): void => setSelectedThreadIds(new Set()), []);
+  const bulkSelectionController = useThreadBulkSelectionController({
+    onBulkColor,
+    onBulkDelete,
+    onBulkMove,
+    onClearSelection: clearSelectedThreadIds,
+    selectedThreadIds: selectedAvailableThreadIds,
+  });
 
   const rowsProps = useMemo<Omit<ThreadRowsProps, 'threads'>>(
     () => ({
@@ -1949,135 +2145,10 @@ function ThreadPanelTree({
         windowingStrategy="virtual"
       />
       {selectedAvailableThreadIds.size > 0 ? (
-        <div className="absolute inset-x-3 top-12 z-20 grid gap-2">
-          {bulkActionError ? (
-            <p
-              className="rounded-lg border border-destructive/30 bg-popover px-3 py-2 text-[11px] text-destructive shadow-md"
-              role="alert"
-            >
-              {bulkActionError}
-            </p>
-          ) : null}
-          {bulkPanel === 'move' ? (
-            <div className="ml-auto w-56 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
-              <div className="px-2 pb-1 text-[11px] text-muted-foreground">Move selected to</div>
-              <div className="grid gap-0.5">
-                {moveTargets.map((target) => (
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    disabled={bulkActionPending}
-                    key={target.id}
-                    onClick={() => runBulkAction((threadIds) => onBulkMove(threadIds, target.id))}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Folder className="size-3.5" />
-                    {target.name}
-                  </Button>
-                ))}
-                <Button
-                  className="h-8 justify-start gap-2 px-2 text-xs"
-                  disabled={bulkActionPending}
-                  onClick={() => runBulkAction((threadIds) => onBulkMove(threadIds, null))}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  <FolderMinus className="size-3.5" />
-                  Ungrouped
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          {bulkPanel === 'color' ? (
-            <div className="ml-auto w-56 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
-              <div className="px-2 pb-1 text-[11px] text-muted-foreground">Color selected</div>
-              <div className="grid grid-cols-4 gap-1" data-testid="thread-bulk-color-grid">
-                {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
-                  <Button
-                    aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${selectedAvailableThreadIds.size} threads`}
-                    className="justify-self-center"
-                    disabled={bulkActionPending}
-                    key={colorId}
-                    onClick={() => runBulkAction((threadIds) => onBulkColor(threadIds, colorId))}
-                    size="icon-sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`size-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
-                    />
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          <SelectionActionBar
-            actions={
-              confirmingBulkDelete
-                ? [
-                    {
-                      disabled: bulkActionPending,
-                      id: 'cancel-delete',
-                      label: 'Cancel',
-                      onAction: () => setConfirmingBulkDelete(false),
-                    },
-                    {
-                      destructive: true,
-                      disabled: bulkActionPending,
-                      id: 'confirm-delete',
-                      label: 'Confirm delete',
-                      onAction: () => runBulkAction(onBulkDelete),
-                    },
-                  ]
-                : [
-                    {
-                      disabled: bulkActionPending,
-                      icon: <Folder className="size-3.5" />,
-                      id: 'move',
-                      label: 'Move',
-                      onAction: () =>
-                        setBulkPanel((current) => (current === 'move' ? null : 'move')),
-                    },
-                    {
-                      disabled: bulkActionPending,
-                      icon: <Palette className="size-3.5" />,
-                      id: 'color',
-                      label: 'Color',
-                      onAction: () =>
-                        setBulkPanel((current) => (current === 'color' ? null : 'color')),
-                    },
-                    {
-                      destructive: true,
-                      disabled: bulkActionPending,
-                      icon: <Trash2 className="size-3.5" />,
-                      id: 'delete',
-                      label: 'Delete',
-                      onAction: () => {
-                        setBulkPanel(null);
-                        setConfirmingBulkDelete(true);
-                      },
-                    },
-                  ]
-            }
-            ariaLabel="Thread selection actions"
-            className="order-first"
-            compact
-            onClear={() => {
-              setSelectedThreadIds(new Set());
-              setBulkPanel(null);
-              setConfirmingBulkDelete(false);
-              setBulkActionError(null);
-            }}
-            summary={
-              confirmingBulkDelete
-                ? `Delete ${selectedAvailableThreadIds.size} selected threads?`
-                : `${selectedAvailableThreadIds.size} selected`
-            }
-          />
-        </div>
+        <ThreadBulkSelectionOverlay
+          controller={bulkSelectionController}
+          moveTargets={moveTargets}
+        />
       ) : null}
     </div>
   );

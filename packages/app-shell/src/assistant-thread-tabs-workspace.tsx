@@ -458,7 +458,6 @@ export function AssistantThreadTabsWorkspace({
   }, [
     closeAllThreadTabs,
     closeOtherThreadTabs,
-    closeThreadTab,
     closeThreadTabsToRight,
     focusThreadTargetOnNextFrame,
     handleCloseThreadTab,
