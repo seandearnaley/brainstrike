@@ -15,6 +15,7 @@ import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
 import { TokenLimiter } from '@mastra/core/processors';
 import type { MastraCompositeStore } from '@mastra/core/storage';
+import type { IdGeneratorContext } from '@mastra/core/types';
 import {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
@@ -595,6 +596,9 @@ export async function createMastraAgentRuntime(
   const mastra = storage
     ? new Mastra({
         agents: { brainstrikeAssistant: agent },
+        ...(runtime?.assistantMessageId
+          ? { idGenerator: createAssistantMessageIdGenerator(runtime.assistantMessageId) }
+          : {}),
         logger: false,
         storage,
       })
@@ -1648,12 +1652,31 @@ type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 interface BrainstrikeAgentStreamOptions {
   abortSignal?: AbortSignal;
   delegation?: DelegationConfig;
+  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+  experimental_generateMessageId?: () => string;
   inputProcessors?: unknown[];
   maxSteps?: number;
   memory?: AgentMemoryOption;
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
   requireToolApproval?: ApprovalGate;
+}
+
+function createAssistantMessageIdGenerator(
+  initialMessageId: string
+): (context?: IdGeneratorContext) => string {
+  let nextMessageId: string | undefined = initialMessageId;
+  return (context?: IdGeneratorContext) => {
+    if (context && (context.idType !== 'message' || context.source !== 'memory')) {
+      return generateUUID();
+    }
+    if (nextMessageId !== undefined) {
+      const messageId = nextMessageId;
+      nextMessageId = undefined;
+      return messageId;
+    }
+    return generateUUID();
+  };
 }
 
 const DEFAULT_AGENT_MAX_STEPS = 20;
@@ -1858,6 +1881,14 @@ async function createStreamIteratorFromRuntime({
     const streamOptions: BrainstrikeAgentStreamOptions = {
       ...buildToolLoopOptions(runtimeData),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...(runtimeData?.assistantMessageId
+        ? {
+            // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+            experimental_generateMessageId: createAssistantMessageIdGenerator(
+              runtimeData.assistantMessageId
+            ),
+          }
+        : {}),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),

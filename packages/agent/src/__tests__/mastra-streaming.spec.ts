@@ -896,6 +896,32 @@ describe('mastra streaming integration', () => {
     });
   });
 
+  it('uses the assistant-ui message id for the first persisted assistant message', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'remember this', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          assistantMessageId: 'assistant-client-id',
+          provider: 'openai',
+        } as never,
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain stream
+    }
+
+    const options = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
+      experimental_generateMessageId?: () => string;
+    };
+    expect(options.experimental_generateMessageId).toBeTypeOf('function');
+    expect(options.experimental_generateMessageId?.()).toBe('assistant-client-id');
+    expect(options.experimental_generateMessageId?.()).not.toBe('assistant-client-id');
+  });
+
   it('uses Brainstrike default stream step cap for native tool loops', async () => {
     setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
 

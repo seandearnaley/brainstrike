@@ -1927,7 +1927,8 @@ describe('assistant-server', () => {
     });
 
     it('marks assistant thread runs completed after desktop streams finish', async () => {
-      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
@@ -1954,6 +1955,7 @@ describe('assistant-server', () => {
             provider: 'openai',
           },
           messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+          unstable_assistantMessageId: 'assistant-client-id',
         }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',
@@ -1964,6 +1966,14 @@ describe('assistant-server', () => {
         expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
         expect.arrayContaining(['run-1', 'completed', null])
       );
+      expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({ assistantMessageId: 'assistant-client-id' }),
+        expect.any(Object)
+      );
+      expect(assistantDataStreamSessions.create).toHaveBeenCalledWith(expect.any(Object), {
+        messageId: 'assistant-client-id',
+      });
     });
 
     it('persists run-event chunks while desktop streams are consumed', async () => {

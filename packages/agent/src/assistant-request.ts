@@ -5,6 +5,7 @@ export const ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR =
 export const DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 
 export interface AssistantRequestPayload {
+  assistantMessageId?: string;
   data: RuntimeData | undefined;
   rawMessages: AssistantUiMessageStrict[];
   runConfig: unknown;
@@ -114,12 +115,22 @@ export function parseAssistantRequestPayloadText(body: string): AssistantRequest
     data: RuntimeData;
     messages: AssistantUiMessageStrict[];
     runConfig: unknown;
+    // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
+    unstable_assistantMessageId: unknown;
   }>;
+  const assistantMessageId = maybePayload.unstable_assistantMessageId;
+  if (
+    assistantMessageId !== undefined &&
+    (typeof assistantMessageId !== 'string' || assistantMessageId.trim().length === 0)
+  ) {
+    throw new Error('Assistant message id must be a non-empty string.');
+  }
   const rawMessages = Array.isArray(maybePayload.messages) ? maybePayload.messages : [];
   return {
     data: maybePayload.data,
     rawMessages,
     runConfig: maybePayload.runConfig,
+    ...(typeof assistantMessageId === 'string' ? { assistantMessageId } : {}),
   };
 }
 

@@ -47,6 +47,27 @@ contracts keep reloaded threads identical to live ones:
      (`ok:false`) hydrates as a failed tool call even though Mastra persists
      the invocation itself with `state:'result'`; the execution and replay
      paths must never maintain independent guarded-error code lists.
+3. **Edited-prompt branch topology:** Mastra remains the only writer of message
+   CONTENT, but its rows do not retain assistant-ui's parent graph. The client
+   history adapter therefore persists only `{messageId,parentId}` edges in
+   `brainstrike_assistant_message_parents` (migration 055) from its canonical
+   `append({message,parentId})` callback. An edge may land before Mastra saves
+   the matching content row, so `message_id`/`parent_id` intentionally have no
+   message FK. It also has no thread FK because the numbered migration runner
+   executes against a bare schema; app-shell thread deletion and factory reset
+   explicitly own cleanup. Hydration LEFT JOINs these edges and
+   uses an explicit parent (including explicit `null`) instead of chronological
+   chaining, which reconstructs edited prompts/regenerations as carousel
+   siblings after reload. Rows without an edge are legacy data and retain the
+   chronological fallback. Conflicting edges for the same message id throw —
+   branch corruption is never silently rewritten. Factory reset clears the
+   companion table explicitly. The desktop request parser preserves
+   assistant-ui's `unstable_assistantMessageId`; the stream session and Mastra
+   id generator both use that same validated id for the visible assistant
+   group. If observational-memory sealing creates additional snapshot rows,
+   hydration keeps the topology-bearing row's id for the combined assistant-ui
+   message. This identity alignment is what lets a later edited prompt point to
+   its durable assistant parent without correlation heuristics.
 
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,

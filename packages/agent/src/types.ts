@@ -96,6 +96,12 @@ export interface AssistantUiMessage {
  */
 export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'providerOptions'> {
   /**
+   * Server-validated assistant-ui message id for this response. The runtime
+   * uses it as Mastra's first generated assistant id so persisted content,
+   * streamed UI state, and branch topology share one identity. Agent-only.
+   */
+  assistantMessageId?: string;
+  /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed into the
    * tool-execute seam so PreToolUse hooks can block a permitted tool and
    * PostToolUse hooks can append bounded context. Never serialized over
