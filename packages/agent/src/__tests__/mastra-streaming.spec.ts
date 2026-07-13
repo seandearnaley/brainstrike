@@ -851,6 +851,31 @@ describe('mastra streaming integration', () => {
     expect(agentInstances.at(-1)?.registeredMastra).toBe(mastraInstances[0]);
   });
 
+  it('surfaces Mastra persisted-message ID context drift before losing the assistant-ui ID', async () => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: {
+        apiKey: 'key',
+        assistantMessageId: 'assistant-client-id',
+        provider: 'openai',
+      },
+      storage: { id: 'storage-with-workflows' } as never,
+    });
+
+    const config = mastraInstances[0]?.config as {
+      idGenerator?: (context?: { idType: 'message'; source: 'agent' | 'memory' }) => string;
+    };
+    expect(config.idGenerator?.({ idType: 'message', source: 'agent' })).not.toBe(
+      'assistant-client-id'
+    );
+    expect(() => runtime.assertAssistantMessageIdPersisted?.()).toThrow(
+      'Mastra completed without persisting assistant message ID "assistant-client-id" through its memory ID context.'
+    );
+    expect(config.idGenerator?.({ idType: 'message', source: 'memory' })).toBe(
+      'assistant-client-id'
+    );
+    expect(() => runtime.assertAssistantMessageIdPersisted?.()).not.toThrow();
+  });
+
   it('shuts down the Mastra instance when disposing a storage-backed runtime', async () => {
     const runtime = await createMastraAgentRuntime({
       runtime: { apiKey: 'key', provider: 'openai' },

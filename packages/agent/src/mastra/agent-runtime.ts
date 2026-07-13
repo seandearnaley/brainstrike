@@ -142,6 +142,8 @@ export interface MastraAgentRuntime {
    * lack of resume storage.
    */
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
+  /** Fail-loud completion check for the client-provided persisted assistant id. */
+  assertAssistantMessageIdPersisted?: () => void;
   /**
    * 'agent-<personaId>' → personaId for every registered delegation tool. Empty
    * when personas are absent/skipped. Consumed by the stream mapper (T4) to emit
@@ -182,8 +184,12 @@ function instantiateLanguageModel(
 
 export function convertMessagesToMastra(
   messages: AgentMessage[]
-): Array<{ role: 'user' | 'assistant' | 'system'; content: string }> {
-  const result: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+): Array<{ id: string; role: 'user' | 'assistant' | 'system'; content: string }> {
+  const result: Array<{
+    content: string;
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+  }> = [];
   for (const message of messages) {
     const textParts: string[] = [];
     for (const part of message.parts) {
@@ -196,7 +202,7 @@ export function convertMessagesToMastra(
       }
     }
     if (textParts.length > 0) {
-      result.push({ content: textParts.join('\n\n'), role: message.role });
+      result.push({ content: textParts.join('\n\n'), id: message.id, role: message.role });
     }
   }
   return result;
@@ -403,6 +409,34 @@ function composeRuntimeInstructions(params: {
     .join('\n');
 }
 
+function registerAgentWithMastra(
+  agent: Agent,
+  storage: MastraCompositeStore | undefined,
+  assistantMessageId: string | undefined
+): {
+  assertAssistantMessageIdPersisted?: () => void;
+  mastra?: Mastra;
+} {
+  if (!storage) {
+    return {};
+  }
+  const assistantMessageIdGenerator = assistantMessageId
+    ? createAssistantMessageIdGenerator(assistantMessageId)
+    : undefined;
+  const mastra = new Mastra({
+    agents: { brainstrikeAssistant: agent },
+    ...(assistantMessageIdGenerator ? { idGenerator: assistantMessageIdGenerator.generate } : {}),
+    logger: false,
+    storage,
+  });
+  return {
+    ...(assistantMessageIdGenerator
+      ? { assertAssistantMessageIdPersisted: assistantMessageIdGenerator.assertConsumed }
+      : {}),
+    mastra,
+  };
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -593,19 +627,15 @@ export async function createMastraAgentRuntime(
       : {}),
   });
 
-  const mastra = storage
-    ? new Mastra({
-        agents: { brainstrikeAssistant: agent },
-        ...(runtime?.assistantMessageId
-          ? { idGenerator: createAssistantMessageIdGenerator(runtime.assistantMessageId) }
-          : {}),
-        logger: false,
-        storage,
-      })
-    : undefined;
+  const { mastra, ...assistantIdentityRuntime } = registerAgentWithMastra(
+    agent,
+    storage,
+    runtime?.assistantMessageId
+  );
 
   return {
     agent,
+    ...assistantIdentityRuntime,
     askTools,
     delegationToolPersonas,
     dispose: async () => {
@@ -1662,20 +1692,33 @@ interface BrainstrikeAgentStreamOptions {
   requireToolApproval?: ApprovalGate;
 }
 
-function createAssistantMessageIdGenerator(
-  initialMessageId: string
-): (context?: IdGeneratorContext) => string {
+interface AssistantMessageIdGenerator {
+  assertConsumed: () => void;
+  generate: (context?: IdGeneratorContext) => string;
+}
+
+function createAssistantMessageIdGenerator(initialMessageId: string): AssistantMessageIdGenerator {
   let nextMessageId: string | undefined = initialMessageId;
-  return (context?: IdGeneratorContext) => {
-    if (context && (context.idType !== 'message' || context.source !== 'memory')) {
+  return {
+    assertConsumed() {
+      if (nextMessageId === undefined) {
+        return;
+      }
+      throw new Error(
+        `Mastra completed without persisting assistant message ID "${initialMessageId}" through its memory ID context.`
+      );
+    },
+    generate(context?: IdGeneratorContext) {
+      if (context && (context.idType !== 'message' || context.source !== 'memory')) {
+        return generateUUID();
+      }
+      if (nextMessageId !== undefined) {
+        const messageId = nextMessageId;
+        nextMessageId = undefined;
+        return messageId;
+      }
       return generateUUID();
-    }
-    if (nextMessageId !== undefined) {
-      const messageId = nextMessageId;
-      nextMessageId = undefined;
-      return messageId;
-    }
-    return generateUUID();
+    },
   };
 }
 
@@ -1819,6 +1862,7 @@ async function* streamChunksFromMastra({
       }
 
       if (finished) {
+        runtime.assertAssistantMessageIdPersisted?.();
         return;
       }
     }
@@ -1886,7 +1930,7 @@ async function createStreamIteratorFromRuntime({
             // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
             experimental_generateMessageId: createAssistantMessageIdGenerator(
               runtimeData.assistantMessageId
-            ),
+            ).generate,
           }
         : {}),
       ...(memoryOption ? { memory: memoryOption } : {}),

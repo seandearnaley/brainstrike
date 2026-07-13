@@ -1631,9 +1631,16 @@ function toHistoryRepository(
     }
   }
 
+  const retainedMessageIds = new Set(repositoryMessages.map((item) => item.message.id));
+  const closedGraphMessages = repositoryMessages.map((item) =>
+    item.parentId !== null && !retainedMessageIds.has(item.parentId)
+      ? { ...item, parentId: null }
+      : item
+  );
+
   return {
     headId: repositoryMessages.at(-1)?.message.id ?? null,
-    messages: repositoryMessages,
+    messages: closedGraphMessages,
   };
 }
 

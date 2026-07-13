@@ -1954,7 +1954,13 @@ describe('assistant-server', () => {
             },
             provider: 'openai',
           },
-          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+          messages: [
+            {
+              id: 'user-client-id',
+              parts: [{ text: 'Hello', type: 'text' }],
+              role: 'user',
+            },
+          ],
           unstable_assistantMessageId: 'assistant-client-id',
         }),
         headers: { 'content-type': 'application/json' },
@@ -1971,6 +1977,13 @@ describe('assistant-server', () => {
         expect.objectContaining({ assistantMessageId: 'assistant-client-id' }),
         expect.any(Object)
       );
+      expect(convertAssistantUiMessages).toHaveBeenCalledWith([
+        {
+          id: 'user-client-id',
+          parts: [{ text: 'Hello', type: 'text' }],
+          role: 'user',
+        },
+      ]);
       expect(assistantDataStreamSessions.create).toHaveBeenCalledWith(expect.any(Object), {
         messageId: 'assistant-client-id',
       });

@@ -59,15 +59,22 @@ contracts keep reloaded threads identical to live ones:
    uses an explicit parent (including explicit `null`) instead of chronological
    chaining, which reconstructs edited prompts/regenerations as carousel
    siblings after reload. Rows without an edge are legacy data and retain the
-   chronological fallback. Conflicting edges for the same message id throw —
-   branch corruption is never silently rewritten. Factory reset clears the
-   companion table explicitly. The desktop request parser preserves
+   chronological fallback. The bounded 80-row hydration window is always a
+   closed graph: retained messages whose parent fell outside the window are
+   explicitly re-rooted, so assistant-ui never imports a dangling parent.
+   Conflicting edges for the same message id throw — branch corruption is never
+   silently rewritten. Factory reset clears the companion table explicitly.
+   The UI transport preserves each assistant-ui user message id through the
+   generic-message conversion, and the desktop request parser preserves
    assistant-ui's `unstable_assistantMessageId`; the stream session and Mastra
-   id generator both use that same validated id for the visible assistant
-   group. If observational-memory sealing creates additional snapshot rows,
-   hydration keeps the topology-bearing row's id for the combined assistant-ui
-   message. This identity alignment is what lets a later edited prompt point to
-   its durable assistant parent without correlation heuristics.
+   id generator both use those validated ids for the persisted user/visible
+   assistant pair. A normally finished stream asserts that the one-shot Mastra
+   generator consumed the assistant id through its memory message context,
+   making upstream contract drift visible instead of quietly substituting a UUID. If
+   observational-memory sealing creates additional snapshot rows, hydration
+   keeps the topology-bearing row's id for the combined assistant-ui message.
+   This end-to-end identity alignment is what lets a later edited prompt point
+   to its durable assistant parent without correlation heuristics.
 
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,

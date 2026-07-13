@@ -362,9 +362,10 @@ describe('mastra memory persistence through the live stream path', () => {
       threadId,
     });
 
-    const assistantRows = (await listThreadMessages(database, threadId)).filter(
-      (row) => row.role === 'assistant'
-    );
+    const rows = await listThreadMessages(database, threadId);
+    const userRows = rows.filter((row) => row.role === 'user');
+    const assistantRows = rows.filter((row) => row.role === 'assistant');
+    expect(userRows.map((row) => row.id)).toContain('u-mem-1');
     expect(assistantRows.length).toBeGreaterThan(0);
     expect(assistantRows.map((row) => row.id)).toContain('assistant-client-id');
   });

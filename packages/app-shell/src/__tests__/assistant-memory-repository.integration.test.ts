@@ -231,6 +231,33 @@ describe('createAssistantThreadHistoryAdapter', () => {
     ]);
   });
 
+  it('returns a closed branch graph when hydration evicts the parent before the latest 80 rows', async () => {
+    const repository = makeMessagesOnlyRepository();
+    repository.listMessages = vi.fn(async () =>
+      Array.from({ length: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT }, (_, index) => ({
+        content: { content: `Prompt ${index + 1}` },
+        createdAt: new Date(Date.UTC(2026, 6, 13, 10, index)),
+        id: `message-${index + 1}`,
+        parentId: `message-${index}`,
+        role: 'user' as const,
+      }))
+    );
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+
+    const retainedIds = new Set(history.messages.map((item) => item.message.id));
+    expect(history.messages).toHaveLength(ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT);
+    expect(history.messages[0]?.parentId).toBeNull();
+    expect(
+      history.messages.every((item) => item.parentId === null || retainedIds.has(item.parentId))
+    ).toBe(true);
+  });
+
   it('appends a synthetic approval notice message per rediscovered suspended run', async () => {
     const repository = makeMessagesOnlyRepository();
     const discoverSuspendedApprovals = vi.fn(async () => [makeApproval({})]);
