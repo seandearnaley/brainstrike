@@ -1,7 +1,7 @@
 # Thread Panel and Assistant Tabs UX Plan
 
-**Date:** 2026-07-12  
-**Branch:** `codex/thread-panel-tab-polish`  
+**Date:** 2026-07-12
+**Branch:** `codex/thread-panel-tab-polish`
 **Base:** `origin/main` at `0d6044e8aa22a89634e97d3444e644b394b82043`
 
 ## Product outcome
