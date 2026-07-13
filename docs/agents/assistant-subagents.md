@@ -28,8 +28,12 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `packages/assistant-contract/src/user-personas.ts` (`buildUserPersona` —
   fail-closed; omitted `tools` = `DEFAULT_USER_PERSONA_TOOL_IDS`, the curated
   read-only exploration set WITHOUT webSearch/askUser/submitPlan/manageTaskList;
-  bare tool names get the `brainstrike.` prefix; out-of-range `maxSteps` is an
-  ERROR, never a clamp). Scan: `apps/desktop/src/assistant-server/user-personas-loader.ts`
+  the suspending/interactive trio is ALSO rejected when explicitly allowlisted —
+  child maps bypass the parent's suspend-storage fail-safe, so a no-storage run
+  could otherwise expose an unresumable child suspend tool; bare tool names get
+  the `brainstrike.` prefix; out-of-range `maxSteps` is an ERROR, never a
+  clamp; ids are capped at 58 chars so `agent-<id>` fits the 64-char provider
+  tool-name limit). Scan: `apps/desktop/src/assistant-server/user-personas-loader.ts`
   (bounded: 64K chars/file, `MAX_USER_PERSONAS` 50; INVALID files become
   visible `entries` with their error, consumed by Settings → Subagents via the
   `assistantPersonas:list` IPC / `window.assistantPersonas` bridge —
@@ -51,9 +55,13 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   child on THAT model via `resolvePinnedModel`
   (`packages/agent/src/mastra/persona-pinned-model.ts`): same-provider pins
   reuse the parent key; cross-provider pins use `personaProviderApiKeys`;
-  keyless local providers (`local`/`ollama`/`lmstudio`) need no key; anything
-  else THROWS and the factory SKIPS that persona with
-  `subagent_persona_pin_unresolvable` — never a silent parent-model fallback.
+  keyless local-server providers (`ollama`/`lmstudio`) need no key; a `local`
+  pin REQUIRES `runtime.localLlmHostClient` (renderer-only inference is
+  mandatory — a missing host client must never fall through to in-process
+  inference in Electron main); anything else THROWS and the factory SKIPS that
+  persona with `subagent_persona_pin_unresolvable` — never a silent
+  parent-model fallback. `PERSONA_PIN_KEYLESS_PROVIDERS` is the single shared
+  keyless set (agent package export, reused by the desktop key-resolution loop).
 - **Child factory:** `packages/agent/src/mastra/build-persona-subagents.ts`.
   Each child's tool map is a permission-gated SUBSET of the parent's ALREADY-
   GUARDED tool map (so per-tool timeout + `GuardedToolError` inherit for free).
