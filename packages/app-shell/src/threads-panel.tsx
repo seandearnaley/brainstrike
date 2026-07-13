@@ -2430,7 +2430,7 @@ export function ThreadsPanel(): ReactElement {
             ? applyThreadOrder(
                 groupsRepository,
                 resourceId,
-                intent.presentation,
+                view.kind === 'flat' ? 'flat' : 'grouped',
                 intent.orderedEntries
               )
             : reorderGroups(groupsRepository, resourceId, intent.orderedGroupIds);

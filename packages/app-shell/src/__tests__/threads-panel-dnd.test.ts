@@ -94,7 +94,6 @@ describe('resolveThreadsPanelDrop', () => {
         { groupId: 'group-a', threadId: 'thread-2' },
         { groupId: 'group-a', threadId: 'thread-1' },
       ],
-      presentation: 'grouped',
     });
   });
 
@@ -113,7 +112,6 @@ describe('resolveThreadsPanelDrop', () => {
         { groupId: 'group-a', threadId: 'thread-5' },
         { groupId: 'group-a', threadId: 'thread-2' },
       ],
-      presentation: 'grouped',
     });
   });
 
@@ -184,7 +182,6 @@ describe('resolveThreadsPanelDrop', () => {
         { groupId: 'group-a', threadId: 'thread-1' },
         { groupId: null, threadId: 'thread-4' },
       ],
-      presentation: 'flat',
     });
   });
 
