@@ -625,7 +625,11 @@ describe('ExplicitHttpMcpClient integration', () => {
     await client.connect();
     await client.close();
 
-    expect(requests.at(-1)).toMatchObject({ method: 'DELETE', pathname: '/mcp' });
+    // The session DELETE must have been issued, but under load an SSE reconnect
+    // GET /mcp can land after it, so we don't require it to be the final request.
+    expect(
+      requests.some((request) => request.method === 'DELETE' && request.pathname === '/mcp')
+    ).toBe(true);
     expect(signals.some((signal) => signal.aborted)).toBe(true);
   });
 
