@@ -75,7 +75,11 @@ contracts keep reloaded threads identical to live ones:
    assistant pair. A normally finished stream asserts that the one-shot Mastra
    generator consumed the assistant id through its memory message context,
    making upstream contract drift visible instead of quietly substituting a
-   UUID. If observational-memory sealing creates additional snapshot rows,
+   UUID. Initial turns and both approval/suspend resume paths pass a separate
+   per-call stream-id generator with the same initial id; the Mastra-global
+   generator remains reserved for the persisted memory row, so a transient
+   resume stream id cannot consume the durable identity first. If
+   observational-memory sealing creates additional snapshot rows,
    hydration keeps the topology-bearing row's id for the combined assistant-ui
    message. A new topology-bearing assistant id always starts a new hydration
    group, including after an open legacy group, so consecutive regenerated

@@ -1697,6 +1697,23 @@ interface AssistantMessageIdGenerator {
   generate: (context?: IdGeneratorContext) => string;
 }
 
+function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | undefined): {
+  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+  experimental_generateMessageId?: () => string;
+} {
+  const assistantMessageId = runtimeData?.assistantMessageId;
+  if (!assistantMessageId) {
+    return {};
+  }
+  return {
+    // The stream and persistence paths each consume their own one-shot
+    // generator. Sharing one would make whichever Mastra path runs first force
+    // the other to a UUID, breaking visible/persisted identity alignment.
+    // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+    experimental_generateMessageId: createAssistantMessageIdGenerator(assistantMessageId).generate,
+  };
+}
+
 function createAssistantMessageIdGenerator(initialMessageId: string): AssistantMessageIdGenerator {
   let nextMessageId: string | undefined = initialMessageId;
   return {
@@ -1925,14 +1942,7 @@ async function createStreamIteratorFromRuntime({
     const streamOptions: BrainstrikeAgentStreamOptions = {
       ...buildToolLoopOptions(runtimeData),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
-      ...(runtimeData?.assistantMessageId
-        ? {
-            // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
-            experimental_generateMessageId: createAssistantMessageIdGenerator(
-              runtimeData.assistantMessageId
-            ).generate,
-          }
-        : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
@@ -2025,6 +2035,7 @@ async function createToolApprovalIteratorFromRuntime({
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
@@ -2324,6 +2335,7 @@ async function createToolResumeIteratorFromRuntime({
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
