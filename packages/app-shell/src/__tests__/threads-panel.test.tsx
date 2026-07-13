@@ -859,8 +859,14 @@ describe('ThreadsPanel groups', () => {
 
     const section = await screen.findByTestId('thread-group-section');
     expect(within(section).getByText('Research')).toBeVisible();
-    expect(screen.getByText('Second thread').closest('tr')).toHaveAttribute('data-depth', '1');
+    const nestedThreadRow = screen.getByText('Second thread').closest('tr');
+    expect(nestedThreadRow).toHaveAttribute('data-depth', '1');
+    expect(nestedThreadRow?.querySelector<HTMLElement>('td > div > span')).toHaveStyle({
+      width: '44px',
+    });
     const ungrouped = screen.getByTestId('threads-ungrouped-section');
+    expect(ungrouped.closest('tr')).toHaveClass('[&_[role=gridcell]>div]:pl-7');
+    expect(within(ungrouped).getByTestId('threads-ungrouped-icon')).toHaveClass('size-6');
     expect(within(ungrouped).getByText('Ungrouped')).toBeVisible();
     expect(screen.getByText('First thread').closest('tr')).toHaveAttribute('data-depth', '1');
     const sectionOrder = Array.from(

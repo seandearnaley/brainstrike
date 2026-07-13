@@ -770,7 +770,7 @@ function ThreadRowDisplay({
             </div>
           </div>
         </button>
-        <div className="@[420px]/threads:flex hidden shrink-0 items-center gap-0.5">
+        <div className="-mr-px @[420px]/threads:flex hidden shrink-0 items-center gap-0.5">
           <Button
             aria-label={`${expanded ? 'Hide' : 'Show'} thread details ${thread.title}`}
             onClick={onExpandedThreadToggle}
@@ -816,7 +816,7 @@ function ThreadRowDisplay({
           <PopoverTrigger asChild>
             <Button
               aria-label={`Thread actions ${thread.title}`}
-              className="@[420px]/threads:hidden size-7 shrink-0 p-0"
+              className="-mr-px @[420px]/threads:hidden size-7 shrink-0 p-0"
               size="sm"
               type="button"
               variant="ghost"
@@ -1275,7 +1275,7 @@ function ThreadGroupHeader({
     : UNASSIGNED_THREAD_COLOR_CONFIG;
   return (
     <div className="min-w-0" data-testid="thread-group-header">
-      <div className="group/thread-group flex min-h-8 min-w-0 items-center gap-1 px-1">
+      <div className="group/thread-group flex min-h-8 min-w-0 items-center gap-1 px-2">
         <span
           className={`flex size-6 shrink-0 items-center justify-center rounded-md border ${colorConfig.markClassName}`}
           data-testid={`thread-group-color-${group.color ?? 'unassigned'}`}
@@ -1587,10 +1587,15 @@ function ThreadPanelGroupCell({
     return (
       <UngroupedSectionDndShell>
         <div
-          className="flex min-h-8 items-center gap-1.5 px-2"
+          className="flex min-h-8 items-center gap-1 px-2"
           data-testid="threads-ungrouped-section"
         >
-          <Folder className="size-3.5 text-muted-foreground" />
+          <span
+            className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/55 text-muted-foreground"
+            data-testid="threads-ungrouped-icon"
+          >
+            <Folder className="size-3.5" />
+          </span>
           <span className="font-medium text-muted-foreground text-xs">Ungrouped</span>
           <span
             className="rounded-full border border-border bg-background px-1.5 text-[10px] text-muted-foreground"
@@ -1816,7 +1821,7 @@ function ThreadPanelTree({
         ),
         className: 'p-0',
         id: 'thread',
-        indentWidth: 12,
+        indentWidth: 44,
         reserveToggleSpace: false,
       },
     ],
@@ -1912,11 +1917,15 @@ function ThreadPanelTree({
             groupHandlers.onToggleGroupCollapsed(row.group.id);
           }
         }}
-        rowClassName={(node) =>
-          node.data.kind === 'thread'
-            ? 'group/thread-tree-row border-0 bg-transparent ring-0 hover:bg-transparent'
-            : 'border-0 bg-muted/20 hover:bg-muted/35'
-        }
+        rowClassName={(node) => {
+          if (node.data.kind === 'thread') {
+            return 'group/thread-tree-row border-0 bg-transparent ring-0 hover:bg-transparent';
+          }
+          if (node.data.kind === 'group' && node.data.group === null) {
+            return 'border-0 bg-muted/20 hover:bg-muted/35 [&_[role=gridcell]>div]:pl-7';
+          }
+          return 'border-0 bg-muted/20 hover:bg-muted/35';
+        }}
         rowHeight={(node) => (node.data.kind === 'thread' ? 72 : 40)}
         selectionMode="multi"
         showCheckbox
