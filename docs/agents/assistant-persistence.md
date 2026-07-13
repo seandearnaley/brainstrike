@@ -164,3 +164,45 @@ Runtime invariants:
 
 ---
 
+
+## THREAD GROUPS (FOLDERS) IN THE THREADS PANEL
+
+User-defined groups organize the Threads panel: rank-ordered group sections, an
+**Ungrouped** section always last, drag-and-drop (Pragmatic drag and drop), and
+a Group by / Sort by view-options popover. Plan/rationale:
+`docs/thread-groups-plan-2026-07-12.md`.
+
+Where state lives (do not relitigate):
+- Groups: `brainstrike_assistant_thread_groups`; thread membership + manual
+  order: `brainstrike_assistant_thread_placements` (both migration 054, dual
+  runners). Membership deliberately does NOT live in `mastra_threads.metadata` —
+  `updateThreadMetadata` bumps `updatedAt`, which would reshuffle the recency
+  sort on every drag, and Mastra owns that schema.
+- Placements have no FK to `mastra_threads`: a placement whose thread is gone is
+  inert (the panel joins by id); the panel's thread-delete path clears it
+  explicitly. Deleting a group deletes its placements (threads return to
+  Ungrouped) — placements first, so a retried group DELETE cannot strand rows.
+- `rank` columns are `fractional-indexing` keys (`generateKeyBetween`); a
+  positional drop rewrites the destination section's ranks wholesale
+  (`applyThreadOrder` → `setThreadPlacements`, a SINGLE multi-row upsert so the
+  batch is atomic without the optional `DbHandle.transaction`; `reorderGroups` →
+  `setGroupRanks` likewise) and silently switches Sort by → Custom so the drag
+  is honored, never ignored. In Custom sort, unranked (new) threads render first
+  by recency.
+- View prefs (groupBy/sortBy/collapsed) persist via zustand `persist`
+  (`brainstrike-assistant-thread-groups-v1`); the store registers a session
+  resetter in `register-factory-reset-session-stores.ts`.
+
+Layers: repository `assistant-thread-groups-repository.ts` → store
+`assistant-thread-groups-store.ts` → pure view-model `thread-list-sections.ts`
+(grouping/sorting; `buildThreadMembership` is the single source of effective
+membership) → drop resolution `threads-panel-dnd.ts` (pure intent reducer) →
+element wiring `threads-panel-dnd-elements.tsx`. Keyboard/a11y fallback for
+every drag operation: row context-menu "Move to <group>" / "Remove from Group".
+
+Paired tests: `migration-054-assistant-thread-groups.test.ts` (packages/db),
+`assistant-thread-groups-repository.test.ts`, `assistant-thread-groups-store.test.ts`,
+`thread-list-sections.test.ts`, `threads-panel-dnd.test.ts`, and the
+`ThreadsPanel groups` suite in `threads-panel.test.tsx`.
+
+---

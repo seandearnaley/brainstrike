@@ -5,32 +5,37 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
+import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { ThreadsPanel } from '../threads-panel';
 
-const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
-  dbMocks: {
-    database: undefined as unknown,
-    deleteFailureThreadId: null as string | null,
-    initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
-    initializing: false,
-    metadataFailureThreadId: null as string | null,
-    providerError: null as Error | null,
-  },
-  fileExplorerMocks: {
-    rootDirectoryHandle: {
-      name: 'workspace-a',
-      path: '/tmp/workspace-a',
-    } as { name: string; path: string } | null,
-  },
-  mockDb: {
-    exec: vi.fn(() => Promise.resolve()),
-    query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(
-      () => Promise.resolve({ rows: [] })
-    ),
-  },
-  threadRows: [] as Record<string, unknown>[],
-}));
+const { dbMocks, fileExplorerMocks, groupRows, mockDb, placementRows, threadRows } = vi.hoisted(
+  () => ({
+    dbMocks: {
+      database: undefined as unknown,
+      deleteFailureThreadId: null as string | null,
+      initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
+      initializing: false,
+      metadataFailureThreadId: null as string | null,
+      providerError: null as Error | null,
+    },
+    fileExplorerMocks: {
+      rootDirectoryHandle: {
+        name: 'workspace-a',
+        path: '/tmp/workspace-a',
+      } as { name: string; path: string } | null,
+    },
+    groupRows: [] as Record<string, unknown>[],
+    mockDb: {
+      exec: vi.fn(() => Promise.resolve()),
+      query: vi.fn<
+        (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>
+      >(() => Promise.resolve({ rows: [] })),
+    },
+    placementRows: [] as Record<string, unknown>[],
+    threadRows: [] as Record<string, unknown>[],
+  })
+);
 
 function parseMetadataObject(value: unknown): Record<string, unknown> {
   if (typeof value !== 'string') {
@@ -66,112 +71,181 @@ function renderThreadsPanel(): ReturnType<typeof createTestActionRegistry> {
   return actionRegistry;
 }
 
-describe('ThreadsPanel', () => {
-  beforeEach(() => {
-    fileExplorerMocks.rootDirectoryHandle = {
-      name: 'workspace-a',
-      path: '/tmp/workspace-a',
-    };
-    dbMocks.database = undefined;
-    dbMocks.deleteFailureThreadId = null;
-    dbMocks.initializing = false;
-    dbMocks.initializationStatus = 'ready';
-    dbMocks.metadataFailureThreadId = null;
-    dbMocks.providerError = null;
-    useAssistantThreadStore.setState({
-      activeThreadIdByResourceId: {},
-      draftRuntimeByThreadId: {},
-      loadStateByResourceId: {},
-      openThreadIdsByResourceId: {},
-      selectedThreadByResourceId: {},
-      threadIdsByResourceId: {},
-      threadsByResourceId: {},
-    });
-    threadRows.splice(
-      0,
-      threadRows.length,
-      {
-        createdAt: new Date('2026-04-22T10:00:00Z'),
-        id: 'thread-b',
-        metadata: JSON.stringify({ color: 'blue', icon: 'message' }),
-        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-        title: 'Second thread',
-        updatedAt: new Date('2026-04-22T11:00:00Z'),
-      },
-      {
-        createdAt: new Date('2026-04-22T09:00:00Z'),
-        id: 'thread-a',
-        metadata: JSON.stringify({ color: 'emerald', icon: 'code' }),
-        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-        title: 'First thread',
-        updatedAt: new Date('2026-04-22T09:00:00Z'),
+beforeEach(() => {
+  fileExplorerMocks.rootDirectoryHandle = {
+    name: 'workspace-a',
+    path: '/tmp/workspace-a',
+  };
+  dbMocks.database = undefined;
+  dbMocks.deleteFailureThreadId = null;
+  dbMocks.initializing = false;
+  dbMocks.initializationStatus = 'ready';
+  dbMocks.metadataFailureThreadId = null;
+  dbMocks.providerError = null;
+  groupRows.splice(0, groupRows.length);
+  placementRows.splice(0, placementRows.length);
+  useAssistantThreadGroupsStore.getState().reset();
+  useAssistantThreadStore.setState({
+    activeThreadIdByResourceId: {},
+    draftRuntimeByThreadId: {},
+    loadStateByResourceId: {},
+    openThreadIdsByResourceId: {},
+    selectedThreadByResourceId: {},
+    threadIdsByResourceId: {},
+    threadsByResourceId: {},
+  });
+  threadRows.splice(
+    0,
+    threadRows.length,
+    {
+      createdAt: new Date('2026-04-22T10:00:00Z'),
+      id: 'thread-b',
+      metadata: JSON.stringify({ color: 'blue', icon: 'message' }),
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'Second thread',
+      updatedAt: new Date('2026-04-22T11:00:00Z'),
+    },
+    {
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      id: 'thread-a',
+      metadata: JSON.stringify({ color: 'emerald', icon: 'code' }),
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'First thread',
+      updatedAt: new Date('2026-04-22T09:00:00Z'),
+    }
+  );
+  mockDb.exec.mockClear();
+  mockDb.query.mockClear();
+  mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+    if (sql.includes('INSERT INTO mastra_threads')) {
+      threadRows.unshift({
+        createdAt: params?.[4],
+        id: String(params?.[0]),
+        resourceId: String(params?.[1]),
+        title: String(params?.[2]),
+        updatedAt: params?.[5],
+      });
+    }
+    if (sql.includes('DELETE FROM mastra_threads')) {
+      const threadId = String(params?.[0]);
+      if (dbMocks.deleteFailureThreadId === threadId) {
+        throw new Error('Delete failed in PGlite.');
       }
-    );
-    mockDb.exec.mockClear();
-    mockDb.query.mockClear();
-    mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
-      if (sql.includes('INSERT INTO mastra_threads')) {
-        threadRows.unshift({
-          createdAt: params?.[4],
-          id: String(params?.[0]),
-          resourceId: String(params?.[1]),
-          title: String(params?.[2]),
-          updatedAt: params?.[5],
+      const index = threadRows.findIndex((row) => row['id'] === threadId);
+      if (index >= 0) {
+        threadRows.splice(index, 1);
+      }
+    }
+    if (sql.includes('SET metadata')) {
+      const threadId = String(params?.[0]);
+      if (dbMocks.metadataFailureThreadId === threadId) {
+        throw new Error('Metadata update failed in PGlite.');
+      }
+      const row = threadRows.find((item) => item['id'] === threadId);
+      if (row) {
+        row['metadata'] = JSON.stringify({
+          ...parseMetadataObject(row['metadata']),
+          ...parseMetadataObject(params?.[1]),
         });
+        row['updatedAt'] = params?.[2];
       }
-      if (sql.includes('DELETE FROM mastra_threads')) {
-        const threadId = String(params?.[0]);
-        if (dbMocks.deleteFailureThreadId === threadId) {
-          throw new Error('Delete failed in PGlite.');
+    }
+    if (sql.includes('INSERT INTO brainstrike_assistant_thread_groups')) {
+      groupRows.push({
+        id: String(params?.[0]),
+        name: String(params?.[2]),
+        rank: String(params?.[3]),
+        resourceId: String(params?.[1]),
+      });
+      return { rows: [] };
+    }
+    if (sql.includes('UPDATE brainstrike_assistant_thread_groups')) {
+      const row = groupRows.find((item) => item['id'] === String(params?.[0]));
+      if (row) {
+        if (sql.includes('SET name')) {
+          row['name'] = String(params?.[1]);
         }
-        const index = threadRows.findIndex((row) => row['id'] === threadId);
-        if (index >= 0) {
-          threadRows.splice(index, 1);
+        if (sql.includes('SET rank')) {
+          row['rank'] = String(params?.[1]);
         }
-      }
-      if (sql.includes('SET metadata')) {
-        const threadId = String(params?.[0]);
-        if (dbMocks.metadataFailureThreadId === threadId) {
-          throw new Error('Metadata update failed in PGlite.');
-        }
-        const row = threadRows.find((item) => item['id'] === threadId);
-        if (row) {
-          row['metadata'] = JSON.stringify({
-            ...parseMetadataObject(row['metadata']),
-            ...parseMetadataObject(params?.[1]),
-          });
-          row['updatedAt'] = params?.[2];
-        }
-      }
-      if (sql.includes('FROM mastra_threads')) {
-        return { rows: [...threadRows] };
-      }
-      if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
-        return {
-          rows: [
-            {
-              completedAt: new Date('2026-04-22T11:00:10Z'),
-              createdAt: new Date('2026-04-22T11:00:00Z'),
-              error: null,
-              id: 'run-1',
-              model: 'gpt-5.2',
-              modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
-              provider: 'openai',
-              providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
-              resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-              runtimeKind: 'hosted',
-              startedAt: new Date('2026-04-22T11:00:00Z'),
-              status: 'completed',
-              threadId: 'thread-b',
-              updatedAt: new Date('2026-04-22T11:00:10Z'),
-            },
-          ],
-        };
       }
       return { rows: [] };
-    });
+    }
+    if (sql.includes('DELETE FROM brainstrike_assistant_thread_groups')) {
+      const index = groupRows.findIndex((row) => row['id'] === String(params?.[0]));
+      if (index >= 0) {
+        groupRows.splice(index, 1);
+      }
+      return { rows: [] };
+    }
+    if (sql.includes('INSERT INTO brainstrike_assistant_thread_placements')) {
+      const placementThreadId = String(params?.[0]);
+      const nextPlacement = {
+        groupId: params?.[2] ?? null,
+        rank: String(params?.[3]),
+        resourceId: String(params?.[1]),
+        threadId: placementThreadId,
+      };
+      const index = placementRows.findIndex((row) => row['threadId'] === placementThreadId);
+      if (index >= 0) {
+        placementRows[index] = nextPlacement;
+      } else {
+        placementRows.push(nextPlacement);
+      }
+      return { rows: [] };
+    }
+    if (sql.includes('DELETE FROM brainstrike_assistant_thread_placements WHERE group_id')) {
+      const removedGroupId = String(params?.[0]);
+      for (let index = placementRows.length - 1; index >= 0; index -= 1) {
+        if (placementRows[index]?.['groupId'] === removedGroupId) {
+          placementRows.splice(index, 1);
+        }
+      }
+      return { rows: [] };
+    }
+    if (sql.includes('DELETE FROM brainstrike_assistant_thread_placements WHERE thread_id')) {
+      const index = placementRows.findIndex((row) => row['threadId'] === String(params?.[0]));
+      if (index >= 0) {
+        placementRows.splice(index, 1);
+      }
+      return { rows: [] };
+    }
+    if (sql.includes('FROM brainstrike_assistant_thread_groups')) {
+      return { rows: [...groupRows] };
+    }
+    if (sql.includes('FROM brainstrike_assistant_thread_placements')) {
+      return { rows: [...placementRows] };
+    }
+    if (sql.includes('FROM mastra_threads')) {
+      return { rows: [...threadRows] };
+    }
+    if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
+      return {
+        rows: [
+          {
+            completedAt: new Date('2026-04-22T11:00:10Z'),
+            createdAt: new Date('2026-04-22T11:00:00Z'),
+            error: null,
+            id: 'run-1',
+            model: 'gpt-5.2',
+            modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
+            provider: 'openai',
+            providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+            resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+            runtimeKind: 'hosted',
+            startedAt: new Date('2026-04-22T11:00:00Z'),
+            status: 'completed',
+            threadId: 'thread-b',
+            updatedAt: new Date('2026-04-22T11:00:10Z'),
+          },
+        ],
+      };
+    }
+    return { rows: [] };
   });
+});
 
+describe('ThreadsPanel', () => {
   it('loads workspace-global threads even when no folder is open', async () => {
     // Multi-root: assistant memory is workspace-global and usable with zero roots.
     // There is no "open a folder first" gate, and threads are keyed on a stable
@@ -565,5 +639,213 @@ describe('ThreadsPanel', () => {
     expect(await screen.findByText('Delete failed in PGlite.')).toBeVisible();
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     expect(screen.queryByText('Failed to load threads')).not.toBeInTheDocument();
+  });
+});
+
+describe('ThreadsPanel groups', () => {
+  function seedGroup(id: string, name: string, rank: string): void {
+    groupRows.push({ id, name, rank, resourceId: WORKSPACE_MEMORY_RESOURCE_ID });
+  }
+
+  function seedPlacement(threadId: string, groupId: string | null, rank: string): void {
+    placementRows.push({
+      groupId,
+      rank,
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      threadId,
+    });
+  }
+
+  it('renders group sections with the ungrouped section below', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a0');
+
+    renderThreadsPanel();
+
+    const section = await screen.findByTestId('thread-group-section');
+    expect(within(section).getByText('Research')).toBeVisible();
+    expect(within(section).getByText('Second thread')).toBeVisible();
+    const ungrouped = screen.getByTestId('threads-ungrouped-section');
+    expect(within(ungrouped).getByText('Ungrouped')).toBeVisible();
+    expect(within(ungrouped).getByText('First thread')).toBeVisible();
+    const sectionOrder = Array.from(
+      document.querySelectorAll(
+        '[data-testid="thread-group-section"], [data-testid="threads-ungrouped-section"]'
+      )
+    ).map((element) => element.getAttribute('data-testid'));
+    expect(sectionOrder).toEqual(['thread-group-section', 'threads-ungrouped-section']);
+  });
+
+  it('makes the expanded group body a drop target so the empty hint works', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+
+    renderThreadsPanel();
+
+    const section = await screen.findByTestId('thread-group-section');
+    const hint = within(section).getByText('Drop threads here');
+    const bodyDropTarget = hint.closest('[data-drop-target-for-element="true"]');
+    expect(bodyDropTarget).not.toBeNull();
+    // The body target must be distinct from the header target so a drop on the
+    // hint area files the thread even without touching the header.
+    const header = within(section).getByTestId('thread-group-header');
+    expect(bodyDropTarget?.contains(header)).toBe(false);
+  });
+
+  it('collapses and expands a group', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a0');
+
+    renderThreadsPanel();
+
+    await screen.findByTestId('thread-group-section');
+    expect(screen.getByText('Second thread')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse group Research' }));
+    expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand group Research' }));
+    expect(screen.getByText('Second thread')).toBeVisible();
+  });
+
+  it('creates a group from the header button and names it inline', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'New group' }));
+
+    const nameInput = await screen.findByRole('textbox', { name: 'Group name' });
+    expect(nameInput).toHaveValue('New group');
+    fireEvent.change(nameInput, { target: { value: 'Planning' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save group name' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Planning')).toBeVisible();
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO brainstrike_assistant_thread_groups'),
+      expect.anything()
+    );
+  });
+
+  it('renames a group inline', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+
+    renderThreadsPanel();
+
+    await screen.findByTestId('thread-group-section');
+    fireEvent.click(screen.getByRole('button', { name: 'Rename group Research' }));
+    const nameInput = screen.getByRole('textbox', { name: 'Group name' });
+    fireEvent.change(nameInput, { target: { value: 'Deep Work' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save group name' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Deep Work')).toBeVisible();
+    });
+    expect(screen.queryByText('Research')).not.toBeInTheDocument();
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE brainstrike_assistant_thread_groups'),
+      ['group-research', 'Deep Work']
+    );
+  });
+
+  it('deletes a group and returns its threads to the flat list', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a0');
+
+    renderThreadsPanel();
+
+    await screen.findByTestId('thread-group-section');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete group Research' }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('thread-group-section')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Ungrouped')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM brainstrike_assistant_thread_placements WHERE group_id'),
+      ['group-research']
+    );
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM brainstrike_assistant_thread_groups'),
+      ['group-research']
+    );
+  });
+
+  it('moves a thread into a group from the context menu', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+
+    renderThreadsPanel();
+
+    await screen.findByTestId('thread-group-section');
+    fireEvent.contextMenu(screen.getByText('First thread'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Move to Research' }));
+
+    await waitFor(() => {
+      const section = screen.getByTestId('thread-group-section');
+      expect(within(section).getByText('First thread')).toBeVisible();
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO brainstrike_assistant_thread_placements'),
+      expect.arrayContaining(['thread-a', WORKSPACE_MEMORY_RESOURCE_ID, 'group-research'])
+    );
+  });
+
+  it('removes a thread from its group from the context menu', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a0');
+
+    renderThreadsPanel();
+
+    await screen.findByTestId('thread-group-section');
+    fireEvent.contextMenu(screen.getByText('Second thread'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove from Group' }));
+
+    await waitFor(() => {
+      const ungrouped = screen.getByTestId('threads-ungrouped-section');
+      expect(within(ungrouped).getByText('Second thread')).toBeVisible();
+    });
+  });
+
+  it('changes sorting from the view options popover', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    const initialTitles = screen
+      .getAllByTestId('thread-row')
+      .map((row) => within(row).getByText(/thread/i).textContent);
+    expect(initialTitles).toEqual(['Second thread', 'First thread']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Name' }));
+
+    await waitFor(() => {
+      const titles = screen
+        .getAllByTestId('thread-row')
+        .map((row) => within(row).getByText(/thread/i).textContent);
+      expect(titles).toEqual(['First thread', 'Second thread']);
+    });
+    expect(useAssistantThreadGroupsStore.getState().sortBy).toBe('name');
+  });
+
+  it('hides group sections when grouping is set to none', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a0');
+
+    renderThreadsPanel();
+
+    await screen.findByTestId('thread-group-section');
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'No grouping' }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('thread-group-section')).not.toBeInTheDocument();
+    });
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('none');
   });
 });
