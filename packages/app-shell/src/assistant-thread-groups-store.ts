@@ -66,6 +66,7 @@ interface AssistantThreadGroupsState {
     groupId: string | null
   ) => Promise<void>;
   placementsByThreadId: Record<string, AssistantThreadPlacement>;
+  pruneDeletedThreadPlacements: (threadIds: readonly string[]) => void;
   removeThreadPlacement: (
     repository: AssistantThreadGroupsRepository,
     threadId: string
@@ -423,6 +424,20 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
         }));
       },
       placementsByThreadId: {},
+      pruneDeletedThreadPlacements: (threadIds: readonly string[]): void => {
+        requireThreadIds(threadIds);
+        if (threadIds.length === 0) {
+          return;
+        }
+        const deletedThreadIds = new Set(threadIds);
+        set((state) => ({
+          placementsByThreadId: Object.fromEntries(
+            Object.entries(state.placementsByThreadId).filter(
+              ([threadId]) => !deletedThreadIds.has(threadId)
+            )
+          ),
+        }));
+      },
       removeThreadPlacement: async (
         repository: AssistantThreadGroupsRepository,
         threadId: string

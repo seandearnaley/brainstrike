@@ -7,9 +7,9 @@ import {
 /**
  * User-defined thread groups (folders) for the Threads panel.
  *
- * Groups and placements live in Brainstrike-owned tables (migration 054) — NOT
- * in `mastra_threads.metadata`, whose updates bump the thread's `updatedAt` and
- * would reshuffle the panel's recency sort on every drag. A placement row whose
+ * Groups and placements live in Brainstrike-owned tables (migrations 054 and
+ * 055) — NOT in `mastra_threads.metadata`, because grouping, folder color, and
+ * manual order are Brainstrike-owned presentation state. A placement row whose
  * thread no longer exists is inert: the panel joins placements to loaded
  * threads by id. `rank` values are fractional-index keys (`fractional-indexing`
  * `generateKeyBetween`), lexicographically ordered as text.
@@ -198,10 +198,22 @@ export function createPgliteAssistantThreadGroupsRepository(
       return group;
     },
     async deleteGroup(groupId: string): Promise<void> {
-      // Placements first: threads return to Ungrouped even if the group DELETE
-      // fails and is retried.
-      await database.query(`DELETE FROM ${PLACEMENTS_TABLE} WHERE group_id = $1`, [groupId]);
-      await database.query(`DELETE FROM ${GROUPS_TABLE} WHERE id = $1`, [groupId]);
+      await database.query(
+        `WITH deleted_placements AS (
+           DELETE FROM ${PLACEMENTS_TABLE}
+           WHERE group_id = $1
+           RETURNING thread_id
+         ),
+         deleted_group AS (
+           DELETE FROM ${GROUPS_TABLE}
+           WHERE id = $1
+           RETURNING id
+         )
+         SELECT
+           (SELECT count(*) FROM deleted_placements) AS "deletedPlacementCount",
+           (SELECT count(*) FROM deleted_group) AS "deletedGroupCount"`,
+        [groupId]
+      );
     },
     async listGroups(resourceId: string): Promise<readonly AssistantThreadGroup[]> {
       const result = await database.query<Record<string, unknown>>(

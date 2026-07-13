@@ -26,7 +26,6 @@ import {
   Bug,
   Check,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   ClipboardList,
   Code2,
@@ -65,6 +64,7 @@ import {
   createPgliteAssistantThreadGroupsRepository,
 } from './assistant-thread-groups-repository';
 import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
+import { ASSISTANT_THREAD_COLOR_PRESENTATION } from './assistant-thread-presentation';
 import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   buildThreadListSections,
@@ -119,61 +119,6 @@ const THREAD_ICON_CONFIG = {
   { readonly iconComponent: LucideIcon; readonly label: string }
 >;
 
-const THREAD_COLOR_CONFIG = {
-  amber: {
-    accentClassName: 'bg-amber-500',
-    label: 'Amber',
-    markClassName:
-      'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
-    selectedClassName: 'border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/20',
-  },
-  blue: {
-    accentClassName: 'bg-sky-500',
-    label: 'Blue',
-    markClassName:
-      'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300',
-    selectedClassName: 'border-sky-300 bg-sky-50/70 dark:border-sky-800 dark:bg-sky-950/20',
-  },
-  emerald: {
-    accentClassName: 'bg-emerald-500',
-    label: 'Emerald',
-    markClassName:
-      'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
-    selectedClassName:
-      'border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/20',
-  },
-  rose: {
-    accentClassName: 'bg-rose-500',
-    label: 'Rose',
-    markClassName:
-      'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300',
-    selectedClassName: 'border-rose-300 bg-rose-50/70 dark:border-rose-800 dark:bg-rose-950/20',
-  },
-  slate: {
-    accentClassName: 'bg-slate-500',
-    label: 'Slate',
-    markClassName:
-      'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300',
-    selectedClassName: 'border-slate-300 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-900/30',
-  },
-  violet: {
-    accentClassName: 'bg-violet-500',
-    label: 'Violet',
-    markClassName:
-      'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300',
-    selectedClassName:
-      'border-violet-300 bg-violet-50/70 dark:border-violet-800 dark:bg-violet-950/20',
-  },
-} satisfies Record<
-  AssistantThreadColorId,
-  {
-    readonly accentClassName: string;
-    readonly label: string;
-    readonly markClassName: string;
-    readonly selectedClassName: string;
-  }
->;
-
 function getProviderLabel(provider: string | undefined): string | null {
   if (!provider) {
     return null;
@@ -199,7 +144,7 @@ const UNASSIGNED_THREAD_COLOR_CONFIG = {
 
 function getThreadColorConfig(thread: AssistantMemoryThread) {
   const colorId = getThreadColorId(thread);
-  return colorId ? THREAD_COLOR_CONFIG[colorId] : UNASSIGNED_THREAD_COLOR_CONFIG;
+  return colorId ? ASSISTANT_THREAD_COLOR_PRESENTATION[colorId] : UNASSIGNED_THREAD_COLOR_CONFIG;
 }
 
 function getReasoningValue(thread: AssistantMemoryThread): string | null {
@@ -1051,7 +996,7 @@ function ThreadCustomizationPanel({
           <div className="mb-1 text-[11px] text-muted-foreground">Color</div>
           <div className="flex flex-wrap gap-1">
             {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => {
-              const label = THREAD_COLOR_CONFIG[colorId].label;
+              const label = ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label;
               const selected = getThreadColorId(thread) === colorId;
               return (
                 <Button
@@ -1067,7 +1012,7 @@ function ThreadCustomizationPanel({
                   variant="ghost"
                 >
                   <span
-                    className={`h-3.5 w-3.5 rounded-full ${THREAD_COLOR_CONFIG[colorId].accentClassName}`}
+                    className={`h-3.5 w-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
                   />
                 </Button>
               );
@@ -1309,136 +1254,213 @@ function ThreadGroupRenameForm({
 }
 
 function ThreadGroupHeader({
-  collapsed,
   group,
   onColorChange,
   onDeleteGroup,
   onRenameGroupStart,
-  onToggleCollapsed,
   renameForm,
   threadCount,
 }: {
-  readonly collapsed: boolean;
   readonly group: AssistantThreadGroup;
   readonly onColorChange: (color: AssistantThreadColorId | null) => void;
   readonly onDeleteGroup: () => void;
   readonly onRenameGroupStart: () => void;
-  readonly onToggleCollapsed: () => void;
   readonly renameForm: ReactElement | null;
   readonly threadCount: number;
 }): ReactElement {
+  const [customizing, setCustomizing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const colorConfig = group.color
-    ? THREAD_COLOR_CONFIG[group.color]
+    ? ASSISTANT_THREAD_COLOR_PRESENTATION[group.color]
     : UNASSIGNED_THREAD_COLOR_CONFIG;
   return (
-    <div
-      className="group/thread-group flex min-h-8 items-center gap-1 px-1"
-      data-testid="thread-group-header"
-    >
-      <Button
-        aria-label={`${collapsed ? 'Expand' : 'Collapse'} group ${group.name}`}
-        className="h-6 w-6 shrink-0 p-0"
-        onClick={onToggleCollapsed}
-        size="sm"
-        type="button"
-        variant="ghost"
-      >
-        {collapsed ? (
-          <ChevronRight className="h-3.5 w-3.5" />
-        ) : (
-          <ChevronDown className="h-3.5 w-3.5" />
-        )}
-      </Button>
-      <span
-        className={`flex size-6 shrink-0 items-center justify-center rounded-md border ${colorConfig.markClassName}`}
-        data-testid={`thread-group-color-${group.color ?? 'unassigned'}`}
-      >
-        <Folder className="size-3.5" />
-      </span>
-      {renameForm ?? (
-        <>
-          <span className="min-w-0 truncate font-medium text-xs">{group.name}</span>
-          <span
-            className="rounded-full border border-border bg-background px-1.5 text-[10px] text-muted-foreground"
-            data-testid="thread-group-count"
-          >
-            {threadCount}
-          </span>
-          <span className="min-w-0 flex-1" />
-          <span className="flex shrink-0 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover/thread-group:opacity-100">
+    <div className="min-w-0" data-testid="thread-group-header">
+      <div className="group/thread-group flex min-h-8 min-w-0 items-center gap-1 px-1">
+        <span
+          className={`flex size-6 shrink-0 items-center justify-center rounded-md border ${colorConfig.markClassName}`}
+          data-testid={`thread-group-color-${group.color ?? 'unassigned'}`}
+        >
+          <Folder className="size-3.5" />
+        </span>
+        {renameForm ?? (
+          <>
+            <span className="min-w-0 flex-1 truncate font-medium text-xs">{group.name}</span>
+            <span
+              className="shrink-0 rounded-full border border-border bg-background px-1.5 text-[10px] text-muted-foreground"
+              data-testid="thread-group-count"
+            >
+              {threadCount}
+            </span>
+            <span className="@[420px]/threads:flex hidden shrink-0 items-center gap-0.5">
+              <Button
+                aria-label={`Customize group ${group.name}`}
+                className="h-6 w-6 p-0"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setCustomizing((current) => !current);
+                }}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <Palette className="size-3" />
+              </Button>
+              <Button
+                aria-label={`Rename group ${group.name}`}
+                className="h-6 w-6 p-0"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRenameGroupStart();
+                }}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <Pencil className="h-3 w-3" />
+              </Button>
+              <Button
+                aria-label={`Delete group ${group.name}`}
+                className="h-6 w-6 p-0"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setConfirmingDelete(true);
+                }}
+                size="sm"
+                title="Delete group (threads return to Ungrouped)"
+                type="button"
+                variant="ghost"
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </span>
             <Popover>
               <PopoverTrigger asChild>
                 <Button
-                  aria-label={`Customize group ${group.name}`}
-                  className="h-6 w-6 p-0"
+                  aria-label={`Group actions ${group.name}`}
+                  className="@[420px]/threads:hidden size-7 shrink-0 p-0"
+                  onClick={(event) => event.stopPropagation()}
                   size="sm"
                   type="button"
                   variant="ghost"
                 >
-                  <Palette className="size-3" />
+                  <MoreHorizontal className="size-3.5" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-52 p-2">
-                <div className="mb-1 px-1 text-[11px] text-muted-foreground">Folder color</div>
-                <div className="grid grid-cols-4 gap-1">
-                  {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
-                    <Button
-                      aria-label={`Use ${THREAD_COLOR_CONFIG[colorId].label} color for ${group.name}`}
-                      className={
-                        group.color === colorId ? 'border-primary/50 bg-primary/10' : undefined
-                      }
-                      key={colorId}
-                      onClick={() => onColorChange(colorId)}
-                      size="icon"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={`size-3.5 rounded-full ${THREAD_COLOR_CONFIG[colorId].accentClassName}`}
-                      />
-                    </Button>
-                  ))}
+              <PopoverContent align="end" className="w-44 p-1.5">
+                <div className="grid gap-0.5">
                   <Button
-                    aria-label={`Clear color for ${group.name}`}
-                    className={group.color === null ? 'border-primary/50 bg-primary/10' : undefined}
-                    onClick={() => onColorChange(null)}
-                    size="icon"
+                    className="h-8 justify-start gap-2 px-2 text-xs"
+                    onClick={() => setCustomizing((current) => !current)}
+                    size="sm"
                     type="button"
                     variant="ghost"
                   >
-                    <span
-                      aria-hidden="true"
-                      className="size-3.5 rounded-full border border-border bg-muted"
-                    />
+                    <Palette className="size-3.5" />
+                    Customize
+                  </Button>
+                  <Button
+                    className="h-8 justify-start gap-2 px-2 text-xs"
+                    onClick={onRenameGroupStart}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Pencil className="size-3.5" />
+                    Rename
+                  </Button>
+                  <Button
+                    className="h-8 justify-start gap-2 px-2 text-destructive text-xs hover:text-destructive"
+                    onClick={() => setConfirmingDelete(true)}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Trash2 className="size-3.5" />
+                    Delete…
                   </Button>
                 </div>
               </PopoverContent>
             </Popover>
+          </>
+        )}
+      </div>
+      {customizing ? (
+        <div className="mx-1 mb-1 rounded-lg border border-border/70 bg-background/80 p-2">
+          <div className="mb-1 px-1 text-[11px] text-muted-foreground">Folder color</div>
+          <div className="grid grid-cols-7 gap-1">
+            {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
+              <Button
+                aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${group.name}`}
+                className={group.color === colorId ? 'border-primary/50 bg-primary/10' : undefined}
+                key={colorId}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onColorChange(colorId);
+                }}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`size-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
+                />
+              </Button>
+            ))}
             <Button
-              aria-label={`Rename group ${group.name}`}
-              className="h-6 w-6 p-0"
-              onClick={onRenameGroupStart}
+              aria-label={`Clear color for ${group.name}`}
+              className={group.color === null ? 'border-primary/50 bg-primary/10' : undefined}
+              onClick={(event) => {
+                event.stopPropagation();
+                onColorChange(null);
+              }}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <span
+                aria-hidden="true"
+                className="size-3.5 rounded-full border border-border bg-muted"
+              />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {confirmingDelete ? (
+        <div className="mx-1 mb-1 rounded-lg border border-destructive/30 bg-destructive/5 p-2">
+          <p className="text-[11px] text-destructive">Delete folder {group.name}?</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">
+            Its threads return to Ungrouped.
+          </p>
+          <div className="mt-2 flex justify-end gap-1.5">
+            <Button
+              aria-label={`Cancel delete group ${group.name}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                setConfirmingDelete(false);
+              }}
               size="sm"
               type="button"
               variant="ghost"
             >
-              <Pencil className="h-3 w-3" />
+              Cancel
             </Button>
             <Button
-              aria-label={`Delete group ${group.name}`}
-              className="h-6 w-6 p-0"
-              onClick={onDeleteGroup}
+              aria-label={`Confirm delete group ${group.name}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                setConfirmingDelete(false);
+                onDeleteGroup();
+              }}
               size="sm"
-              title="Delete group (threads return to Ungrouped)"
               type="button"
-              variant="ghost"
+              variant="destructive"
             >
-              <Trash2 className="h-3 w-3" />
+              Delete folder
             </Button>
-          </span>
-        </>
-      )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1463,9 +1485,10 @@ function buildThreadPanelTreeNodes(
   return rows.map((row) => ({
     data: row,
     depth: row.kind === 'group' ? 0 : row.parentId === null ? 0 : 1,
-    // Disclosure is already applied by buildThreadPanelVisibleRows. Group
-    // expansion stays consumer-owned so hidden members are never rematerialized.
-    hasChildren: false,
+    // Disclosure is already applied by buildThreadPanelVisibleRows, but real
+    // folders remain expandable treegrid parents so aria-expanded and the
+    // shared Left/Right keyboard contract accurately expose their state.
+    hasChildren: row.kind === 'group' && row.group !== null,
     id: row.id,
     parentId: row.kind === 'group' ? null : row.parentId,
     type: `thread-panel-${row.kind}`,
@@ -1585,12 +1608,10 @@ function ThreadPanelGroupCell({
     <div data-testid="thread-group-section">
       <GroupHeaderDndShell groupId={group.id}>
         <ThreadGroupHeader
-          collapsed={row.collapsed}
           group={group}
           onColorChange={(color) => groupHandlers.onGroupColorChange(group.id, color)}
           onDeleteGroup={() => groupHandlers.onDeleteGroup(group.id)}
           onRenameGroupStart={() => groupHandlers.onGroupRenameStart(group)}
-          onToggleCollapsed={() => groupHandlers.onToggleGroupCollapsed(group.id)}
           renameForm={
             isRenaming ? (
               <ThreadGroupRenameForm
@@ -1687,6 +1708,15 @@ function ThreadPanelTree({
     [groupHandlers.collapsedGroupIds, limitsBySectionKey, view]
   );
   const nodes = useMemo(() => buildThreadPanelTreeNodes(visibleRows.rows), [visibleRows.rows]);
+  const expandedGroupIds = useMemo(
+    () =>
+      new Set(
+        visibleRows.rows.flatMap((row) =>
+          row.kind === 'group' && row.group !== null && !row.collapsed ? [row.id] : []
+        )
+      ),
+    [visibleRows.rows]
+  );
   const selectableThreadIds = useMemo(() => new Set(threads.map((thread) => thread.id)), [threads]);
 
   const replaceSelection = useCallback(
@@ -1831,7 +1861,7 @@ function ThreadPanelTree({
         ariaLabel="Workspace threads"
         className="table-fixed"
         columns={columns}
-        expandedIds={new Set()}
+        expandedIds={expandedGroupIds}
         getCheckboxAriaLabel={(node) => {
           const row = node.data;
           if (row.kind === 'thread') {
@@ -1876,7 +1906,12 @@ function ThreadPanelTree({
           }
         }}
         onMultiSelectChange={replaceSelection}
-        onToggleExpand={() => undefined}
+        onToggleExpand={(nodeId) => {
+          const row = visibleRows.rows.find((candidate) => candidate.id === nodeId);
+          if (row?.kind === 'group' && row.group !== null) {
+            groupHandlers.onToggleGroupCollapsed(row.group.id);
+          }
+        }}
         rowClassName={(node) =>
           node.data.kind === 'thread'
             ? 'border-0 bg-transparent hover:bg-transparent'
@@ -1886,11 +1921,15 @@ function ThreadPanelTree({
         selectionMode="multi"
         showCheckbox
         showHeader={false}
-        viewportClassName="overscroll-contain px-2 pb-20 pt-1"
+        viewportClassName={
+          selectedThreadIds.size > 0
+            ? 'overscroll-contain px-2 pb-1 pt-20'
+            : 'overscroll-contain px-2 py-1'
+        }
         windowingStrategy="virtual"
       />
       {selectedThreadIds.size > 0 ? (
-        <div className="absolute inset-x-3 bottom-3 z-20 grid gap-2">
+        <div className="absolute inset-x-3 top-12 z-20 grid gap-2">
           {bulkActionError ? (
             <p
               className="rounded-lg border border-destructive/30 bg-popover px-3 py-2 text-[11px] text-destructive shadow-md"
@@ -1937,7 +1976,7 @@ function ThreadPanelTree({
               <div className="grid grid-cols-6 gap-1">
                 {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
                   <Button
-                    aria-label={`Use ${THREAD_COLOR_CONFIG[colorId].label} color for ${selectedThreadIds.size} threads`}
+                    aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${selectedThreadIds.size} threads`}
                     disabled={bulkActionPending}
                     key={colorId}
                     onClick={() => runBulkAction((threadIds) => onBulkColor(threadIds, colorId))}
@@ -1947,7 +1986,7 @@ function ThreadPanelTree({
                   >
                     <span
                       aria-hidden="true"
-                      className={`size-3.5 rounded-full ${THREAD_COLOR_CONFIG[colorId].accentClassName}`}
+                      className={`size-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
                     />
                   </Button>
                 ))}
@@ -2003,6 +2042,7 @@ function ThreadPanelTree({
                   ]
             }
             ariaLabel="Thread selection actions"
+            className="order-first"
             compact
             onClear={() => {
               setSelectedThreadIds(new Set());
@@ -2208,8 +2248,8 @@ export function ThreadsPanel(): ReactElement {
   const removeThreadPlacement = useAssistantThreadGroupsStore(
     (state) => state.removeThreadPlacement
   );
-  const removeThreadPlacements = useAssistantThreadGroupsStore(
-    (state) => state.removeThreadPlacements
+  const pruneDeletedThreadPlacements = useAssistantThreadGroupsStore(
+    (state) => state.pruneDeletedThreadPlacements
   );
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [renamingGroupDraftName, setRenamingGroupDraftName] = useState('');
@@ -2282,13 +2322,11 @@ export function ThreadsPanel(): ReactElement {
     await updateThreadsMetadata(repository, resourceId, threadIds, { color });
   };
   const handleBulkDelete = async (threadIds: readonly string[]): Promise<void> => {
-    if (!(repository && groupsRepository)) {
+    if (!repository) {
       throw new Error('Assistant memory database unavailable.');
     }
-    // Placement cleanup runs first so a failed durable thread delete keeps the
-    // selected thread records present and retryable instead of leaving inert ids.
-    await removeThreadPlacements(groupsRepository, threadIds);
     await deleteThreads(repository, resourceId, threadIds);
+    pruneDeletedThreadPlacements(threadIds);
   };
   const handleBulkMove = async (
     threadIds: readonly string[],
@@ -2296,10 +2334,6 @@ export function ThreadsPanel(): ReactElement {
   ): Promise<void> => {
     if (!groupsRepository) {
       throw new Error('Assistant thread groups database unavailable.');
-    }
-    if (groupId === null) {
-      await removeThreadPlacements(groupsRepository, threadIds);
-      return;
     }
     await moveThreadsToGroup(groupsRepository, resourceId, threadIds, groupId);
   };

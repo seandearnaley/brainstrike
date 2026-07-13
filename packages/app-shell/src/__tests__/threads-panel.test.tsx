@@ -149,6 +149,11 @@ beforeEach(() => {
           threadRows.splice(index, 1);
         }
       }
+      for (let index = placementRows.length - 1; index >= 0; index -= 1) {
+        if (threadIds.includes(String(placementRows[index]?.['threadId']))) {
+          placementRows.splice(index, 1);
+        }
+      }
       return { rows: [{ allFound: true }] };
     }
     if (sql.includes('updated_threads AS')) {
@@ -222,6 +227,13 @@ beforeEach(() => {
       return { rows: [] };
     }
     if (sql.includes('DELETE FROM brainstrike_assistant_thread_groups')) {
+      if (sql.includes('DELETE FROM brainstrike_assistant_thread_placements')) {
+        for (let index = placementRows.length - 1; index >= 0; index -= 1) {
+          if (placementRows[index]?.['groupId'] === String(params?.[0])) {
+            placementRows.splice(index, 1);
+          }
+        }
+      }
       const index = groupRows.findIndex((row) => row['id'] === String(params?.[0]));
       if (index >= 0) {
         groupRows.splice(index, 1);
@@ -385,10 +397,18 @@ describe('ThreadsPanel', () => {
   });
 
   it('offers staged bulk color and delete actions while retaining selection on failure', async () => {
+    placementRows.push({
+      flatRank: 'flat-b',
+      groupId: 'group-research',
+      rank: 'a0',
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      threadId: 'thread-b',
+    });
     renderThreadsPanel();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Select 2 visible threads' }));
     const toolbar = screen.getByRole('toolbar', { name: 'Thread selection actions' });
+    expect(toolbar.parentElement).toHaveClass('top-12');
     expect(within(toolbar).getByRole('button', { name: 'Move' })).toBeVisible();
     expect(within(toolbar).getByRole('button', { name: 'Color' })).toBeVisible();
     expect(within(toolbar).getByRole('button', { name: 'Delete' })).toBeVisible();
@@ -410,6 +430,9 @@ describe('ThreadsPanel', () => {
       '2 selected'
     );
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    expect(placementRows).toEqual([
+      expect.objectContaining({ flatRank: 'flat-b', threadId: 'thread-b' }),
+    ]);
   });
   it('loads workspace-global threads even when no folder is open', async () => {
     // Multi-root: assistant memory is workspace-global and usable with zero roots.
@@ -893,6 +916,24 @@ describe('ThreadsPanel groups', () => {
     });
   });
 
+  it('moves selected grouped threads to Ungrouped without discarding flat rank', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-a', 'group-research', 'a0');
+    placementRows[0] = { ...placementRows[0], flatRank: 'flat-a' };
+
+    renderThreadsPanel();
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select thread First thread' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Ungrouped' }));
+
+    await waitFor(() => {
+      expect(useAssistantThreadGroupsStore.getState().placementsByThreadId['thread-a']).toEqual(
+        expect.objectContaining({ flatRank: 'flat-a', groupId: null })
+      );
+    });
+  });
+
   it('makes the expanded group body a drop target so the empty hint works', async () => {
     seedGroup('group-research', 'Research', 'a0');
 
@@ -914,14 +955,24 @@ describe('ThreadsPanel groups', () => {
 
     renderThreadsPanel();
 
-    await screen.findByTestId('thread-group-section');
+    const section = await screen.findByTestId('thread-group-section');
+    const groupRow = section.closest('tr');
+    const treegrid = screen.getByRole('treegrid', { name: 'Workspace threads' });
+    expect(groupRow).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Second thread')).toBeVisible();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse group Research' }));
-    expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
+    fireEvent.click(groupRow as HTMLElement);
+    fireEvent.keyDown(treegrid, { key: 'ArrowLeft' });
+    await waitFor(() => {
+      expect(groupRow).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand group Research' }));
-    expect(screen.getByText('Second thread')).toBeVisible();
+    fireEvent.keyDown(treegrid, { key: 'ArrowRight' });
+    await waitFor(() => {
+      expect(groupRow).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByText('Second thread')).toBeVisible();
+    });
   });
 
   it('creates a group from the header button and names it inline', async () => {
@@ -976,19 +1027,23 @@ describe('ThreadsPanel groups', () => {
     await screen.findByTestId('thread-group-section');
     fireEvent.click(screen.getByRole('button', { name: 'Delete group Research' }));
 
+    expect(screen.getByText('Delete folder Research?')).toBeVisible();
+    expect(screen.getByTestId('thread-group-section')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete group Research' }));
+
     await waitFor(() => {
       expect(screen.queryByTestId('thread-group-section')).not.toBeInTheDocument();
     });
     expect(screen.queryByText('Ungrouped')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    expect(mockDb.query).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM brainstrike_assistant_thread_placements WHERE group_id'),
-      ['group-research']
+    const deleteCalls = mockDb.query.mock.calls.filter(([sql]) =>
+      String(sql).includes('WITH deleted_placements AS')
     );
-    expect(mockDb.query).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM brainstrike_assistant_thread_groups'),
-      ['group-research']
+    expect(deleteCalls).toHaveLength(1);
+    expect(String(deleteCalls[0]?.[0])).toContain(
+      'DELETE FROM brainstrike_assistant_thread_groups'
     );
+    expect(deleteCalls[0]?.[1]).toEqual(['group-research']);
   });
 
   it('moves a thread into a group from the context menu', async () => {

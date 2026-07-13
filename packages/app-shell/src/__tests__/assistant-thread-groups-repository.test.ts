@@ -169,9 +169,11 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
 
     await repository.deleteGroup('thread-group-1');
 
-    const calls = db.query.mock.calls.map(([sql]) => String(sql));
-    expect(calls[0]).toContain('DELETE FROM brainstrike_assistant_thread_placements');
-    expect(calls[1]).toContain('DELETE FROM brainstrike_assistant_thread_groups');
+    expect(db.query).toHaveBeenCalledOnce();
+    const [sql, params] = db.query.mock.calls[0] ?? [];
+    expect(String(sql)).toContain('DELETE FROM brainstrike_assistant_thread_placements');
+    expect(String(sql)).toContain('DELETE FROM brainstrike_assistant_thread_groups');
+    expect(params).toEqual(['thread-group-1']);
   });
 
   it('upserts a thread placement keyed by thread id', async () => {

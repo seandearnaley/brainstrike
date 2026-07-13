@@ -2019,6 +2019,12 @@ export function createPgliteAssistantThreadRepository(
               AND thread_id IN (SELECT id FROM requested)
             RETURNING id
           ),
+          deleted_thread_placements AS (
+            DELETE FROM brainstrike_assistant_thread_placements
+            WHERE (SELECT all_found FROM validation)
+              AND thread_id IN (SELECT id FROM requested)
+            RETURNING thread_id
+          ),
           deleted_threads AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
             WHERE (SELECT all_found FROM validation)
@@ -2030,6 +2036,7 @@ export function createPgliteAssistantThreadRepository(
           (SELECT count(*) FROM deleted_observational_memory) AS "deletedObservationalMemoryCount",
           (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
           (SELECT count(*) FROM deleted_edit_checkpoints) AS "deletedEditCheckpointCount",
+          (SELECT count(*) FROM deleted_thread_placements) AS "deletedThreadPlacementCount",
           (SELECT count(*) FROM deleted_threads) AS "deletedThreadCount"`,
         [...threadIds]
       );

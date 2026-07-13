@@ -432,6 +432,36 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(useAssistantThreadGroupsStore.getState().placementsByThreadId).toEqual({});
   });
 
+  it('prunes durably deleted thread placements without a second database mutation', async () => {
+    const repository = makeRepository({
+      placements: [
+        {
+          flatRank: 'f0',
+          groupId: 'group-1',
+          rank: 'a0',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
+        {
+          flatRank: 'f1',
+          groupId: null,
+          rank: 'a1',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-2',
+        },
+      ],
+    });
+    await useAssistantThreadGroupsStore.getState().ensureGroups(repository, RESOURCE_ID);
+
+    useAssistantThreadGroupsStore.getState().pruneDeletedThreadPlacements(['thread-1']);
+
+    expect(repository.clearThreadPlacement).not.toHaveBeenCalled();
+    expect(repository.clearThreadPlacements).not.toHaveBeenCalled();
+    expect(useAssistantThreadGroupsStore.getState().placementsByThreadId).toEqual({
+      'thread-2': expect.objectContaining({ threadId: 'thread-2' }),
+    });
+  });
+
   it('toggles group collapse and updates independent view preferences', () => {
     const store = useAssistantThreadGroupsStore.getState();
 
