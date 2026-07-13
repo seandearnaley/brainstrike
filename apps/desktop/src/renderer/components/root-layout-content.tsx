@@ -189,7 +189,11 @@ export default function RootLayoutContent() {
         return;
       }
 
-      sampleWindowStartedAt ??= timestamp;
+      // Explicit guard (not `??=`): React Compiler rejects logical-assignment
+      // operators.
+      if (sampleWindowStartedAt === null) {
+        sampleWindowStartedAt = timestamp;
+      }
 
       if (previousFrameTime !== null) {
         const frameGapMs = timestamp - previousFrameTime;
