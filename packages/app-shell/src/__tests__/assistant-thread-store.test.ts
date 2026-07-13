@@ -349,6 +349,94 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(state.threadIdsByResourceId[workspaceId]).toEqual(['thread-a', 'thread-b']);
   });
 
+  it('reorders open tabs atomically without changing active, selected, durable, or runtime state', () => {
+    const otherResourceId = '/tmp/workspace-b';
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: {
+        [otherResourceId]: 'other-thread',
+        [workspaceId]: 'thread-b',
+      },
+      draftRuntimeByThreadId: {
+        'thread-a': { model: 'gpt-5.2', provider: 'openai' },
+      },
+      openThreadIdsByResourceId: {
+        [otherResourceId]: ['other-thread'],
+        [workspaceId]: ['thread-a', 'thread-b', 'thread-c'],
+      },
+      selectedThreadByResourceId: {
+        [otherResourceId]: 'other-thread',
+        [workspaceId]: 'thread-b',
+      },
+      threadIdsByResourceId: {
+        [workspaceId]: ['thread-c', 'thread-b', 'thread-a'],
+      },
+    });
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadStore.subscribe(listener);
+
+    try {
+      useAssistantThreadStore
+        .getState()
+        .reorderThreadTabs(workspaceId, ['thread-c', 'thread-a', 'thread-b']);
+    } finally {
+      unsubscribe();
+    }
+
+    const state = useAssistantThreadStore.getState();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(state.openThreadIdsByResourceId[workspaceId]).toEqual([
+      'thread-c',
+      'thread-a',
+      'thread-b',
+    ]);
+    expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-b');
+    expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
+    expect(state.threadIdsByResourceId[workspaceId]).toEqual(['thread-c', 'thread-b', 'thread-a']);
+    expect(state.draftRuntimeByThreadId['thread-a']).toEqual({
+      model: 'gpt-5.2',
+      provider: 'openai',
+    });
+    expect(state.openThreadIdsByResourceId[otherResourceId]).toEqual(['other-thread']);
+  });
+
+  it('does not publish a transition when the requested tab order is unchanged', () => {
+    useAssistantThreadStore.setState({
+      openThreadIdsByResourceId: { [workspaceId]: ['thread-a', 'thread-b'] },
+    });
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadStore.subscribe(listener);
+
+    try {
+      useAssistantThreadStore.getState().reorderThreadTabs(workspaceId, ['thread-a', 'thread-b']);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed tab orders instead of silently dropping or duplicating tabs', () => {
+    useAssistantThreadStore.setState({
+      openThreadIdsByResourceId: {
+        [workspaceId]: ['thread-a', 'thread-b', 'thread-c'],
+      },
+    });
+
+    expect(() =>
+      useAssistantThreadStore.getState().reorderThreadTabs(workspaceId, ['thread-a', 'thread-b'])
+    ).toThrow('Assistant thread tab order must contain every open thread exactly once.');
+    expect(() =>
+      useAssistantThreadStore
+        .getState()
+        .reorderThreadTabs(workspaceId, ['thread-a', 'thread-a', 'thread-c'])
+    ).toThrow('Assistant thread tab order must contain every open thread exactly once.');
+    expect(useAssistantThreadStore.getState().openThreadIdsByResourceId[workspaceId]).toEqual([
+      'thread-a',
+      'thread-b',
+      'thread-c',
+    ]);
+  });
+
   it('deletes a durable thread and reconciles open tab state', async () => {
     const repository = createRepository();
 

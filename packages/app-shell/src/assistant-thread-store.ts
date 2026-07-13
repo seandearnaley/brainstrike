@@ -52,6 +52,7 @@ interface AssistantThreadState {
     threadId: string,
     title: string
   ) => Promise<void>;
+  reorderThreadTabs: (resourceId: string, orderedThreadIds: readonly string[]) => void;
   selectedThreadByResourceId: Record<string, string>;
   selectThread: (resourceId: string, threadId: string) => void;
   setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => void;
@@ -127,6 +128,27 @@ function reconcileOpenThreadIds(
   return openIds;
 }
 
+function assertExactOpenThreadOrder(
+  currentOpenThreadIds: readonly string[],
+  orderedThreadIds: readonly string[]
+): void {
+  const orderedIdSet = new Set(orderedThreadIds);
+  const containsEveryOpenThread = currentOpenThreadIds.every((threadId) =>
+    orderedIdSet.has(threadId)
+  );
+  if (
+    orderedThreadIds.length !== currentOpenThreadIds.length ||
+    orderedIdSet.size !== currentOpenThreadIds.length ||
+    !containsEveryOpenThread
+  ) {
+    throw new Error('Assistant thread tab order must contain every open thread exactly once.');
+  }
+}
+
+function hasSameOrder(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((threadId, index) => threadId === right[index]);
+}
+
 function selectActiveThreadAfterClose(
   currentOpenThreadIds: readonly string[],
   closingThreadId: string
@@ -138,8 +160,7 @@ function selectActiveThreadAfterClose(
   if (remainingThreadIds.length === 0) {
     return;
   }
-  const nextIndex = closingIndex > 0 ? closingIndex - 1 : 0;
-  return remainingThreadIds[nextIndex] ?? remainingThreadIds.at(-1);
+  return remainingThreadIds[closingIndex] ?? remainingThreadIds.at(-1);
 }
 
 function omitRecordKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {
@@ -556,6 +577,21 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
             ),
           },
         }));
+      },
+      reorderThreadTabs: (resourceId: string, orderedThreadIds: readonly string[]) => {
+        set((state) => {
+          const currentOpenThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
+          assertExactOpenThreadOrder(currentOpenThreadIds, orderedThreadIds);
+          if (hasSameOrder(currentOpenThreadIds, orderedThreadIds)) {
+            return state;
+          }
+          return {
+            openThreadIdsByResourceId: {
+              ...state.openThreadIdsByResourceId,
+              [resourceId]: [...orderedThreadIds],
+            },
+          };
+        });
       },
       selectedThreadByResourceId: {},
       selectThread: (resourceId: string, threadId: string) => {
