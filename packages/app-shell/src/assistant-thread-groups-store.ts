@@ -1,6 +1,7 @@
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { AssistantThreadColorId } from './assistant-memory-repository';
 import type {
   AssistantThreadGroup,
   AssistantThreadGroupsRepository,
@@ -19,10 +20,20 @@ export interface ThreadOrderEntry {
   readonly threadId: string;
 }
 
+export type ThreadOrderPresentation = 'flat' | 'grouped';
+
+interface PersistedAssistantThreadGroupsState {
+  readonly collapsedGroupIds: Record<string, true>;
+  readonly flatSortBy: ThreadsPanelSortBy;
+  readonly groupBy: ThreadsPanelGroupBy;
+  readonly groupedSortBy: ThreadsPanelSortBy;
+}
+
 interface AssistantThreadGroupsState {
   applyThreadOrder: (
     repository: AssistantThreadGroupsRepository,
     resourceId: string,
+    presentation: ThreadOrderPresentation,
     orderedEntries: readonly ThreadOrderEntry[]
   ) => Promise<void>;
   collapsedGroupIds: Record<string, true>;
@@ -37,9 +48,17 @@ interface AssistantThreadGroupsState {
     groupId: string
   ) => Promise<void>;
   ensureGroups: (repository: AssistantThreadGroupsRepository, resourceId: string) => Promise<void>;
+  flatSortBy: ThreadsPanelSortBy;
   groupBy: ThreadsPanelGroupBy;
+  groupedSortBy: ThreadsPanelSortBy;
   groupsByResourceId: Record<string, AssistantThreadGroup[]>;
   loadStateByResourceId: Record<string, ThreadGroupsLoadState>;
+  moveThreadsToGroup: (
+    repository: AssistantThreadGroupsRepository,
+    resourceId: string,
+    threadIds: readonly string[],
+    groupId: string | null
+  ) => Promise<void>;
   moveThreadToGroup: (
     repository: AssistantThreadGroupsRepository,
     resourceId: string,
@@ -47,9 +66,14 @@ interface AssistantThreadGroupsState {
     groupId: string | null
   ) => Promise<void>;
   placementsByThreadId: Record<string, AssistantThreadPlacement>;
+  pruneDeletedThreadPlacements: (threadIds: readonly string[]) => void;
   removeThreadPlacement: (
     repository: AssistantThreadGroupsRepository,
     threadId: string
+  ) => Promise<void>;
+  removeThreadPlacements: (
+    repository: AssistantThreadGroupsRepository,
+    threadIds: readonly string[]
   ) => Promise<void>;
   renameGroup: (
     repository: AssistantThreadGroupsRepository,
@@ -64,8 +88,13 @@ interface AssistantThreadGroupsState {
   ) => Promise<void>;
   reset: () => void;
   setGroupBy: (groupBy: ThreadsPanelGroupBy) => void;
-  setSortBy: (sortBy: ThreadsPanelSortBy) => void;
-  sortBy: ThreadsPanelSortBy;
+  setGroupColor: (
+    repository: AssistantThreadGroupsRepository,
+    resourceId: string,
+    groupId: string,
+    color: AssistantThreadColorId | null
+  ) => Promise<void>;
+  setSortBy: (presentation: ThreadOrderPresentation, sortBy: ThreadsPanelSortBy) => void;
   toggleGroupCollapsed: (groupId: string) => void;
 }
 
@@ -81,11 +110,85 @@ function omitRecordKey<T>(record: Record<string, T>, keyToOmit: string): Record<
   return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
 }
 
+function requireThreadIds(threadIds: readonly string[]): readonly string[] {
+  if (!Array.isArray(threadIds)) {
+    throw new Error('Thread ids must be an array.');
+  }
+  const seenIds = new Set<string>();
+  for (const threadId of threadIds) {
+    if (typeof threadId !== 'string' || !threadId.trim()) {
+      throw new Error('Thread id is required.');
+    }
+    if (seenIds.has(threadId)) {
+      throw new Error(`Duplicate thread id: ${threadId}.`);
+    }
+    seenIds.add(threadId);
+  }
+  return threadIds;
+}
+
 const DEFAULT_VIEW_STATE = {
   collapsedGroupIds: {} as Record<string, true>,
+  flatSortBy: 'recency' as ThreadsPanelSortBy,
   groupBy: 'custom-groups' as ThreadsPanelGroupBy,
-  sortBy: 'recency' as ThreadsPanelSortBy,
+  groupedSortBy: 'recency' as ThreadsPanelSortBy,
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function requirePersistedSort(value: unknown): ThreadsPanelSortBy {
+  if (value === 'custom' || value === 'name' || value === 'recency') {
+    return value;
+  }
+  throw new Error(`Invalid persisted thread sort: ${String(value)}.`);
+}
+
+function requirePersistedGroupBy(value: unknown): ThreadsPanelGroupBy {
+  if (value === 'custom-groups' || value === 'none') {
+    return value;
+  }
+  throw new Error(`Invalid persisted thread grouping: ${String(value)}.`);
+}
+
+function requireCollapsedGroupIds(value: unknown): Record<string, true> {
+  if (!isRecord(value)) {
+    throw new Error('Invalid persisted collapsed thread groups.');
+  }
+  for (const collapsed of Object.values(value)) {
+    if (collapsed !== true) {
+      throw new Error('Invalid persisted collapsed thread groups.');
+    }
+  }
+  return value as Record<string, true>;
+}
+
+export function migrateAssistantThreadGroupsPersistedState(
+  persistedState: unknown,
+  version: number
+): PersistedAssistantThreadGroupsState {
+  if (!isRecord(persistedState)) {
+    throw new Error('Invalid persisted assistant thread groups state.');
+  }
+  const collapsedGroupIds = requireCollapsedGroupIds(persistedState['collapsedGroupIds'] ?? {});
+  const groupBy = requirePersistedGroupBy(persistedState['groupBy']);
+  if (version < 2) {
+    const legacySortBy = requirePersistedSort(persistedState['sortBy']);
+    return {
+      collapsedGroupIds,
+      flatSortBy: legacySortBy,
+      groupBy,
+      groupedSortBy: legacySortBy,
+    };
+  }
+  return {
+    collapsedGroupIds,
+    flatSortBy: requirePersistedSort(persistedState['flatSortBy']),
+    groupBy,
+    groupedSortBy: requirePersistedSort(persistedState['groupedSortBy']),
+  };
+}
 
 export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>()(
   persist(
@@ -94,6 +197,7 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       applyThreadOrder: async (
         repository: AssistantThreadGroupsRepository,
         resourceId: string,
+        presentation: ThreadOrderPresentation,
         orderedEntries: readonly ThreadOrderEntry[]
       ): Promise<void> => {
         // A positional drop rewrites the affected section's ranks wholesale:
@@ -102,19 +206,26 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
         // repository writes the batch as ONE multi-row upsert, so a failure
         // can never persist a half-reordered section.
         const ranks = generateNKeysBetween(null, null, orderedEntries.length);
-        const placements = orderedEntries.map((entry, index) => ({
-          groupId: entry.groupId,
-          rank: ranks[index] as string,
-          resourceId,
-          threadId: entry.threadId,
-        }));
+        const placements = orderedEntries.map((entry, index) => {
+          const currentPlacement = get().placementsByThreadId[entry.threadId];
+          const freshRank = ranks[index] as string;
+          return {
+            flatRank: presentation === 'flat' ? freshRank : (currentPlacement?.flatRank ?? null),
+            groupId: entry.groupId,
+            rank: presentation === 'grouped' ? freshRank : (currentPlacement?.rank ?? freshRank),
+            resourceId,
+            threadId: entry.threadId,
+          };
+        });
         await repository.setThreadPlacements(placements);
         set((state) => ({
+          ...(presentation === 'flat'
+            ? { flatSortBy: 'custom' as const }
+            : { groupedSortBy: 'custom' as const }),
           placementsByThreadId: {
             ...state.placementsByThreadId,
             ...Object.fromEntries(placements.map((placement) => [placement.threadId, placement])),
           },
-          sortBy: 'custom',
         }));
       },
       createGroup: async (
@@ -154,9 +265,10 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
             ),
           },
           placementsByThreadId: Object.fromEntries(
-            Object.entries(state.placementsByThreadId).filter(
-              ([, placement]) => placement.groupId !== groupId
-            )
+            Object.entries(state.placementsByThreadId).map(([threadId, placement]) => [
+              threadId,
+              placement.groupId === groupId ? { ...placement, groupId: null } : placement,
+            ])
           ),
         }));
       },
@@ -220,6 +332,62 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       },
       groupsByResourceId: {},
       loadStateByResourceId: {},
+      moveThreadsToGroup: async (
+        repository: AssistantThreadGroupsRepository,
+        resourceId: string,
+        threadIds: readonly string[],
+        groupId: string | null
+      ): Promise<void> => {
+        requireThreadIds(threadIds);
+        if (threadIds.length === 0) {
+          return;
+        }
+        const state = get();
+        if (
+          groupId !== null &&
+          !(state.groupsByResourceId[resourceId] ?? []).some((group) => group.id === groupId)
+        ) {
+          throw new Error(`Unknown thread group: ${groupId}.`);
+        }
+        const actionableThreadIds = threadIds.filter((threadId) => {
+          const currentPlacement = state.placementsByThreadId[threadId];
+          if (!currentPlacement) {
+            return groupId !== null;
+          }
+          return currentPlacement.groupId !== groupId;
+        });
+        if (actionableThreadIds.length === 0) {
+          return;
+        }
+        const sectionRanks = Object.values(state.placementsByThreadId)
+          .filter(
+            (placement) => placement.resourceId === resourceId && placement.groupId === groupId
+          )
+          .map((placement) => placement.rank)
+          .sort();
+        const ranks = generateNKeysBetween(
+          sectionRanks.at(-1) ?? null,
+          null,
+          actionableThreadIds.length
+        );
+        const placements = actionableThreadIds.map((threadId, index) => {
+          const currentPlacement = state.placementsByThreadId[threadId];
+          return {
+            flatRank: currentPlacement?.flatRank ?? null,
+            groupId,
+            rank: ranks[index] as string,
+            resourceId,
+            threadId,
+          } satisfies AssistantThreadPlacement;
+        });
+        await repository.setThreadPlacements(placements);
+        set((current) => ({
+          placementsByThreadId: {
+            ...current.placementsByThreadId,
+            ...Object.fromEntries(placements.map((placement) => [placement.threadId, placement])),
+          },
+        }));
+      },
       moveThreadToGroup: async (
         repository: AssistantThreadGroupsRepository,
         resourceId: string,
@@ -242,6 +410,7 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
           .map((placement) => placement.rank)
           .sort();
         const placement: AssistantThreadPlacement = {
+          flatRank: currentPlacement?.flatRank ?? null,
           groupId,
           rank: generateKeyBetween(sectionRanks.at(-1) ?? null, null),
           resourceId,
@@ -256,6 +425,20 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
         }));
       },
       placementsByThreadId: {},
+      pruneDeletedThreadPlacements: (threadIds: readonly string[]): void => {
+        requireThreadIds(threadIds);
+        if (threadIds.length === 0) {
+          return;
+        }
+        const deletedThreadIds = new Set(threadIds);
+        set((state) => ({
+          placementsByThreadId: Object.fromEntries(
+            Object.entries(state.placementsByThreadId).filter(
+              ([threadId]) => !deletedThreadIds.has(threadId)
+            )
+          ),
+        }));
+      },
       removeThreadPlacement: async (
         repository: AssistantThreadGroupsRepository,
         threadId: string
@@ -263,6 +446,24 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
         await repository.clearThreadPlacement(threadId);
         set((state) => ({
           placementsByThreadId: omitRecordKey(state.placementsByThreadId, threadId),
+        }));
+      },
+      removeThreadPlacements: async (
+        repository: AssistantThreadGroupsRepository,
+        threadIds: readonly string[]
+      ): Promise<void> => {
+        requireThreadIds(threadIds);
+        if (threadIds.length === 0) {
+          return;
+        }
+        await repository.clearThreadPlacements(threadIds);
+        const removedThreadIds = new Set(threadIds);
+        set((state) => ({
+          placementsByThreadId: Object.fromEntries(
+            Object.entries(state.placementsByThreadId).filter(
+              ([threadId]) => !removedThreadIds.has(threadId)
+            )
+          ),
         }));
       },
       renameGroup: async (
@@ -320,8 +521,24 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       setGroupBy: (groupBy: ThreadsPanelGroupBy) => {
         set({ groupBy });
       },
-      setSortBy: (sortBy: ThreadsPanelSortBy) => {
-        set({ sortBy });
+      setGroupColor: async (
+        repository: AssistantThreadGroupsRepository,
+        resourceId: string,
+        groupId: string,
+        color: AssistantThreadColorId | null
+      ): Promise<void> => {
+        await repository.setGroupColor(groupId, color);
+        set((state) => ({
+          groupsByResourceId: {
+            ...state.groupsByResourceId,
+            [resourceId]: (state.groupsByResourceId[resourceId] ?? []).map((group) =>
+              group.id === groupId ? { ...group, color } : group
+            ),
+          },
+        }));
+      },
+      setSortBy: (presentation: ThreadOrderPresentation, sortBy: ThreadsPanelSortBy) => {
+        set(presentation === 'flat' ? { flatSortBy: sortBy } : { groupedSortBy: sortBy });
       },
       toggleGroupCollapsed: (groupId: string) => {
         set((state) => {
@@ -337,13 +554,15 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       },
     }),
     {
+      migrate: migrateAssistantThreadGroupsPersistedState,
       name: 'brainstrike-assistant-thread-groups-v1',
-      partialize: (state) => ({
+      partialize: (state): PersistedAssistantThreadGroupsState => ({
         collapsedGroupIds: state.collapsedGroupIds,
+        flatSortBy: state.flatSortBy,
         groupBy: state.groupBy,
-        sortBy: state.sortBy,
+        groupedSortBy: state.groupedSortBy,
       }),
-      version: 1,
+      version: 2,
     }
   )
 );

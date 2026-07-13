@@ -11,15 +11,29 @@ import {
 } from '@brainstrike/db';
 import { ActionContextMenu, Button, useContextMenuTarget } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
-import type { ReactElement, WheelEvent } from 'react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  MessageSquare,
+  Plus,
+  X,
+} from 'lucide-react';
+import type { KeyboardEvent, ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
+import { getAssistantThreadColorPresentation } from './assistant-thread-presentation';
 import { useAssistantThreadStore } from './assistant-thread-store';
+import {
+  AssistantThreadTabDndShell,
+  useAssistantThreadTabAutoScroll,
+  useAssistantThreadTabDropMonitor,
+} from './assistant-thread-tabs-dnd-elements';
 import type { AssistantUiPanelWrapperProps } from './assistant-ui-panel-wrapper';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
 
@@ -34,6 +48,103 @@ const EMPTY_TAB_SCROLL_STATE: TabScrollState = {
   canScrollBack: false,
   canScrollForward: false,
 };
+
+type TabReorderDirection = 'left' | 'right';
+
+function readTabReorderDirection(
+  event: KeyboardEvent<HTMLButtonElement>
+): TabReorderDirection | null {
+  if (!(event.altKey && event.shiftKey)) {
+    return null;
+  }
+  if (event.key === 'ArrowLeft') {
+    return 'left';
+  }
+  if (event.key === 'ArrowRight') {
+    return 'right';
+  }
+  return null;
+}
+
+function reorderTabByOnePosition({
+  currentIndex,
+  currentOpenThreadIds,
+  direction,
+  threadId,
+}: {
+  readonly currentIndex: number;
+  readonly currentOpenThreadIds: readonly string[];
+  readonly direction: TabReorderDirection;
+  readonly threadId: string;
+}): readonly string[] | null {
+  const destinationIndex = currentIndex + (direction === 'left' ? -1 : 1);
+  const adjacentThreadId = currentOpenThreadIds[destinationIndex];
+  if (!adjacentThreadId) {
+    return null;
+  }
+  const orderedThreadIds = [...currentOpenThreadIds];
+  orderedThreadIds[currentIndex] = adjacentThreadId;
+  orderedThreadIds[destinationIndex] = threadId;
+  return orderedThreadIds;
+}
+
+function resolveKeyboardNavigationTarget({
+  currentIndex,
+  currentOpenThreadIds,
+  key,
+}: {
+  readonly currentIndex: number;
+  readonly currentOpenThreadIds: readonly string[];
+  readonly key: string;
+}): string | undefined {
+  if (key === 'ArrowLeft') {
+    return currentOpenThreadIds.at(currentIndex - 1) ?? currentOpenThreadIds.at(-1);
+  }
+  if (key === 'ArrowRight') {
+    return currentOpenThreadIds[currentIndex + 1] ?? currentOpenThreadIds.at(0);
+  }
+  if (key === 'Home') {
+    return currentOpenThreadIds.at(0);
+  }
+  if (key === 'End') {
+    return currentOpenThreadIds.at(-1);
+  }
+  return;
+}
+
+function getTabId(threadId: string): string {
+  return `assistant-thread-tab-${threadId}`;
+}
+
+function getTabPanelId(threadId: string): string {
+  return `assistant-thread-panel-${threadId}`;
+}
+
+function readReducedMotionPreference(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)')?.matches ?? false;
+}
+
+function useReducedMotionPreference(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(readReducedMotionPreference);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (!mediaQuery) {
+      return;
+    }
+    const handleChange = (): void => setPrefersReducedMotion(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  return prefersReducedMotion;
+}
 
 export interface AssistantThreadTabsWorkspaceProps {
   readonly initialProviders?: AssistantUiPanelWrapperProps['initialProviders'];
@@ -77,6 +188,7 @@ export function AssistantThreadTabsWorkspace({
   const closeOtherThreadTabs = useAssistantThreadStore((state) => state.closeOtherThreadTabs);
   const closeThreadTab = useAssistantThreadStore((state) => state.closeThreadTab);
   const closeThreadTabsToRight = useAssistantThreadStore((state) => state.closeThreadTabsToRight);
+  const reorderThreadTabs = useAssistantThreadStore((state) => state.reorderThreadTabs);
 
   const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
   const threads = threadsByResourceId[resourceId] ?? [];
@@ -88,6 +200,7 @@ export function AssistantThreadTabsWorkspace({
   const activeThreadId = activeThreadIdByResourceId[resourceId];
   const tabScrollRef = useRef<HTMLDivElement | null>(null);
   const [tabScrollState, setTabScrollState] = useState<TabScrollState>(EMPTY_TAB_SCROLL_STATE);
+  const prefersReducedMotion = useReducedMotionPreference();
   const contextMenuController = useContextMenuTarget();
   const { setTarget: setContextMenuTarget } = contextMenuController;
 
@@ -105,6 +218,105 @@ export function AssistantThreadTabsWorkspace({
       setContextMenuTarget(assistantThreadToTarget(thread, 'assistant-thread-tab'));
     },
     [resourceId, setContextMenuTarget, threadById]
+  );
+
+  const focusThreadTab = useCallback((threadId: string): void => {
+    document.getElementById(getTabId(threadId))?.focus();
+  }, []);
+
+  const focusThreadTargetOnNextFrame = useCallback(
+    (threadId: string | undefined): void => {
+      window.requestAnimationFrame(() => {
+        if (threadId) {
+          focusThreadTab(threadId);
+          return;
+        }
+        document
+          .querySelector<HTMLButtonElement>('[data-testid="assistant-new-thread-button"]')
+          ?.focus();
+      });
+    },
+    [focusThreadTab]
+  );
+
+  const handleCloseThreadTab = useCallback(
+    (threadId: string): void => {
+      const currentOpenThreadIds =
+        useAssistantThreadStore.getState().openThreadIdsByResourceId[resourceId] ?? [];
+      const closingIndex = currentOpenThreadIds.indexOf(threadId);
+      if (closingIndex === -1) {
+        return;
+      }
+      const currentActiveThreadId =
+        useAssistantThreadStore.getState().activeThreadIdByResourceId[resourceId];
+      const nextFocusThreadId =
+        currentActiveThreadId === threadId
+          ? (currentOpenThreadIds[closingIndex + 1] ?? currentOpenThreadIds[closingIndex - 1])
+          : currentActiveThreadId;
+      closeThreadTab(resourceId, threadId);
+      focusThreadTargetOnNextFrame(nextFocusThreadId);
+    },
+    [closeThreadTab, focusThreadTargetOnNextFrame, resourceId]
+  );
+
+  const handleReorderThreadTabs = useCallback(
+    (orderedThreadIds: readonly string[]): void => {
+      reorderThreadTabs(resourceId, orderedThreadIds);
+    },
+    [reorderThreadTabs, resourceId]
+  );
+
+  const handleTabKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>, threadId: string): void => {
+      const currentOpenThreadIds =
+        useAssistantThreadStore.getState().openThreadIdsByResourceId[resourceId] ?? [];
+      const currentIndex = currentOpenThreadIds.indexOf(threadId);
+      if (currentIndex === -1) {
+        return;
+      }
+      if (event.key === 'Delete') {
+        event.preventDefault();
+        handleCloseThreadTab(threadId);
+        return;
+      }
+
+      const reorderDirection = readTabReorderDirection(event);
+      if (reorderDirection) {
+        event.preventDefault();
+        const orderedThreadIds = reorderTabByOnePosition({
+          currentIndex,
+          currentOpenThreadIds,
+          direction: reorderDirection,
+          threadId,
+        });
+        if (!orderedThreadIds) {
+          return;
+        }
+        reorderThreadTabs(resourceId, orderedThreadIds);
+        focusThreadTargetOnNextFrame(threadId);
+        return;
+      }
+
+      const nextThreadId = resolveKeyboardNavigationTarget({
+        currentIndex,
+        currentOpenThreadIds,
+        key: event.key,
+      });
+      if (!nextThreadId) {
+        return;
+      }
+      event.preventDefault();
+      openThreadTab(resourceId, nextThreadId);
+      focusThreadTab(nextThreadId);
+    },
+    [
+      focusThreadTab,
+      focusThreadTargetOnNextFrame,
+      handleCloseThreadTab,
+      openThreadTab,
+      reorderThreadTabs,
+      resourceId,
+    ]
   );
 
   const threadTabActions = useMemo<readonly AnyContextAction[]>(() => {
@@ -128,7 +340,7 @@ export function AssistantThreadTabsWorkspace({
           if (!isOpen(target)) {
             return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
           }
-          closeThreadTab(target.resourceId, target.id);
+          handleCloseThreadTab(target.id);
           return Promise.resolve({ ok: true });
         },
       }),
@@ -144,7 +356,69 @@ export function AssistantThreadTabsWorkspace({
             return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
           }
           closeOtherThreadTabs(target.resourceId, target.id);
+          focusThreadTargetOnNextFrame(target.id);
           return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['assistant-thread-tab'] as const,
+        group: 'primary',
+        icon: ArrowLeft,
+        id: 'assistant-thread-tab.move-left',
+        isEnabled: (target) => {
+          const currentOpenThreadIds =
+            useAssistantThreadStore.getState().openThreadIdsByResourceId[target.resourceId] ?? [];
+          return currentOpenThreadIds.indexOf(target.id) > 0;
+        },
+        label: 'Move Left',
+        run: (target) => {
+          const currentOpenThreadIds =
+            useAssistantThreadStore.getState().openThreadIdsByResourceId[target.resourceId] ?? [];
+          const currentIndex = currentOpenThreadIds.indexOf(target.id);
+          if (currentIndex <= 0) {
+            return Promise.resolve({ error: 'Thread tab cannot move left', ok: false });
+          }
+          const orderedThreadIds = [...currentOpenThreadIds];
+          const adjacentThreadId = orderedThreadIds[currentIndex - 1];
+          if (adjacentThreadId === undefined) {
+            return Promise.resolve({ error: 'Adjacent thread tab is unavailable', ok: false });
+          }
+          orderedThreadIds[currentIndex - 1] = target.id;
+          orderedThreadIds[currentIndex] = adjacentThreadId;
+          reorderThreadTabs(target.resourceId, orderedThreadIds);
+          focusThreadTargetOnNextFrame(target.id);
+          return Promise.resolve({ message: `Moved ${target.title} left`, ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['assistant-thread-tab'] as const,
+        group: 'primary',
+        icon: ArrowRight,
+        id: 'assistant-thread-tab.move-right',
+        isEnabled: (target) => {
+          const currentOpenThreadIds =
+            useAssistantThreadStore.getState().openThreadIdsByResourceId[target.resourceId] ?? [];
+          const currentIndex = currentOpenThreadIds.indexOf(target.id);
+          return currentIndex >= 0 && currentIndex < currentOpenThreadIds.length - 1;
+        },
+        label: 'Move Right',
+        run: (target) => {
+          const currentOpenThreadIds =
+            useAssistantThreadStore.getState().openThreadIdsByResourceId[target.resourceId] ?? [];
+          const currentIndex = currentOpenThreadIds.indexOf(target.id);
+          if (currentIndex === -1 || currentIndex >= currentOpenThreadIds.length - 1) {
+            return Promise.resolve({ error: 'Thread tab cannot move right', ok: false });
+          }
+          const orderedThreadIds = [...currentOpenThreadIds];
+          const adjacentThreadId = orderedThreadIds[currentIndex + 1];
+          if (adjacentThreadId === undefined) {
+            return Promise.resolve({ error: 'Adjacent thread tab is unavailable', ok: false });
+          }
+          orderedThreadIds[currentIndex] = adjacentThreadId;
+          orderedThreadIds[currentIndex + 1] = target.id;
+          reorderThreadTabs(target.resourceId, orderedThreadIds);
+          focusThreadTargetOnNextFrame(target.id);
+          return Promise.resolve({ message: `Moved ${target.title} right`, ok: true });
         },
       }),
       defineContextAction({
@@ -176,6 +450,7 @@ export function AssistantThreadTabsWorkspace({
             return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
           }
           closeAllThreadTabs(target.resourceId);
+          focusThreadTargetOnNextFrame(undefined);
           return Promise.resolve({ ok: true });
         },
       }),
@@ -183,10 +458,18 @@ export function AssistantThreadTabsWorkspace({
   }, [
     closeAllThreadTabs,
     closeOtherThreadTabs,
-    closeThreadTab,
     closeThreadTabsToRight,
+    focusThreadTargetOnNextFrame,
+    handleCloseThreadTab,
     openThreadIdsByResourceId,
+    reorderThreadTabs,
   ]);
+
+  useAssistantThreadTabAutoScroll(tabScrollRef, openThreadIds.length);
+  useAssistantThreadTabDropMonitor({
+    onReorder: handleReorderThreadTabs,
+    openThreadIds,
+  });
 
   const updateTabScrollState = useCallback((): void => {
     const scrollNode = tabScrollRef.current;
@@ -228,7 +511,7 @@ export function AssistantThreadTabsWorkspace({
     return () => {
       observer.disconnect();
     };
-  }, [updateTabScrollState]);
+  }, [openThreadIds.length, updateTabScrollState]);
 
   const scrollTabList = useCallback(
     (direction: 'back' | 'forward'): void => {
@@ -239,13 +522,29 @@ export function AssistantThreadTabsWorkspace({
 
       const distance = Math.max(160, scrollNode.clientWidth * 0.7);
       scrollNode.scrollBy({
-        behavior: 'smooth',
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
         left: direction === 'back' ? -distance : distance,
       });
       window.requestAnimationFrame(updateTabScrollState);
     },
-    [updateTabScrollState]
+    [prefersReducedMotion, updateTabScrollState]
   );
+
+  useEffect(() => {
+    if (!activeThreadId) {
+      return;
+    }
+    const activeTab = document.getElementById(getTabId(activeThreadId));
+    if (!activeTab || typeof activeTab.scrollIntoView !== 'function') {
+      return;
+    }
+    activeTab.scrollIntoView({
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      block: 'nearest',
+      inline: 'nearest',
+    });
+    window.requestAnimationFrame(updateTabScrollState);
+  }, [activeThreadId, prefersReducedMotion, updateTabScrollState]);
 
   const handleTabWheel = useCallback(
     (event: WheelEvent<HTMLDivElement>): void => {
@@ -326,12 +625,12 @@ export function AssistantThreadTabsWorkspace({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="assistant-thread-tabs-workspace">
       <div
-        className="flex h-12 flex-shrink-0 items-start gap-1.5 border-border border-b bg-muted/20 px-2 pt-1.5"
+        className="@container/assistant-tabs flex h-12 flex-shrink-0 items-center gap-1 border-border border-b bg-muted/20 px-1.5"
         data-testid="assistant-thread-tab-strip"
       >
         <Button
           aria-label="Scroll assistant tabs left"
-          className="h-8 w-8 shrink-0 rounded-full border border-border/70 bg-background/80 p-0 shadow-sm disabled:opacity-35"
+          className="@[300px]/assistant-tabs:inline-flex hidden h-7 w-7 shrink-0 rounded-md border border-transparent p-0 text-muted-foreground shadow-none hover:border-border/70 hover:bg-background/80 hover:text-foreground disabled:opacity-30 motion-reduce:transition-none"
           data-testid="assistant-tabs-scroll-left"
           disabled={!tabScrollState.canScrollBack}
           onClick={() => scrollTabList('back')}
@@ -344,7 +643,8 @@ export function AssistantThreadTabsWorkspace({
         <ActionContextMenu controller={contextMenuController} localActions={threadTabActions}>
           <div
             aria-label="Open assistant threads"
-            className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden pb-1 [scrollbar-gutter:stable]"
+            aria-orientation="horizontal"
+            className="scrollbar-thin min-w-0 flex-1 overflow-x-auto overflow-y-hidden py-1 [scrollbar-gutter:stable]"
             data-testid="assistant-thread-tab-scroll"
             onContextMenuCapture={() => setContextMenuTarget(null)}
             onScroll={updateTabScrollState}
@@ -352,42 +652,76 @@ export function AssistantThreadTabsWorkspace({
             ref={tabScrollRef}
             role="tablist"
           >
-            <div className="flex min-w-max items-start gap-1">
+            <div className="flex w-max min-w-full items-center gap-1">
               {openThreadIds.map((threadId) => {
                 const thread = threadById.get(threadId);
                 const title = thread?.title ?? threadId;
                 const isActive = threadId === activeThreadId;
+                const colorId = thread?.metadata?.color;
+                const colorPresentation = getAssistantThreadColorPresentation(colorId);
                 return (
-                  // biome-ignore lint/a11y/noNoninteractiveElementInteractions: composite tab shell claims context-menu identity for its focusable controls
-                  // biome-ignore lint/a11y/noStaticElementInteractions: composite tab shell claims context-menu identity for its focusable controls
-                  <div
-                    className={`group flex h-8 min-w-36 max-w-64 items-center rounded-t-lg border border-b-0 px-2.5 text-sm transition-colors ${
-                      isActive
-                        ? 'border-border bg-background text-foreground shadow-sm'
-                        : 'border-transparent bg-muted/35 text-muted-foreground hover:border-border/70 hover:bg-background/60 hover:text-foreground'
-                    }`}
-                    key={threadId}
-                    onContextMenu={() => handleThreadTabContextMenu(threadId)}
-                  >
-                    <button
-                      aria-selected={isActive}
-                      className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
-                      onClick={() => openThreadTab(resourceId, threadId)}
-                      role="tab"
-                      type="button"
-                    >
-                      <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{title}</span>
-                    </button>
-                    <button
-                      aria-label={`Close thread ${title}`}
-                      className="ml-2 rounded p-1 text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-                      onClick={() => closeThreadTab(resourceId, threadId)}
-                      type="button"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  <AssistantThreadTabDndShell key={threadId} threadId={threadId}>
+                    {(dragHandleRef) => (
+                      // biome-ignore lint/a11y/noStaticElementInteractions: composite tab shell claims context-menu identity for its focusable controls
+                      <div
+                        className={`group relative flex h-8 min-w-0 items-center overflow-hidden rounded-md border text-sm transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${
+                          isActive
+                            ? 'border-border/90 bg-background text-foreground shadow-xs'
+                            : 'border-transparent bg-muted/30 text-muted-foreground hover:border-border/60 hover:bg-background/65 hover:text-foreground'
+                        }`}
+                        data-thread-color={colorId ?? 'unassigned'}
+                        onContextMenu={() => handleThreadTabContextMenu(threadId)}
+                        role="presentation"
+                      >
+                        {colorPresentation ? (
+                          <span
+                            aria-hidden="true"
+                            className={`absolute inset-x-1.5 top-0 h-0.5 rounded-b-full opacity-90 ${colorPresentation.accentClassName}`}
+                            data-testid={`assistant-thread-tab-accent-${colorId}`}
+                          />
+                        ) : null}
+                        <button
+                          aria-controls={getTabPanelId(threadId)}
+                          aria-haspopup="menu"
+                          aria-selected={isActive}
+                          className="flex h-full min-w-0 flex-1 cursor-grab items-center gap-2 py-0 pr-8 pl-2 text-left outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:cursor-grabbing motion-reduce:transition-none"
+                          id={getTabId(threadId)}
+                          onClick={() => openThreadTab(resourceId, threadId)}
+                          onKeyDown={(event) => handleTabKeyDown(event, threadId)}
+                          ref={dragHandleRef}
+                          role="tab"
+                          tabIndex={isActive ? 0 : -1}
+                          title={title}
+                          type="button"
+                        >
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-sm ring-1 ring-inset ${
+                              colorPresentation?.iconClassName ??
+                              'bg-muted/70 text-muted-foreground ring-border/70'
+                            }`}
+                          >
+                            <MessageSquare className="h-3 w-3" />
+                          </span>
+                          <span className={`min-w-0 truncate ${isActive ? 'font-medium' : ''}`}>
+                            {title}
+                          </span>
+                        </button>
+                        <button
+                          aria-label={`Close thread ${title}`}
+                          className={`absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-sm bg-background/90 text-muted-foreground shadow-sm ring-1 ring-border/60 backdrop-blur-sm transition-[color,background-color,box-shadow,opacity,transform] duration-150 hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                            isActive
+                              ? 'opacity-70 hover:opacity-100'
+                              : 'pointer-events-none translate-x-1 opacity-0 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100'
+                          }`}
+                          onClick={() => handleCloseThreadTab(threadId)}
+                          tabIndex={-1}
+                          type="button"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </AssistantThreadTabDndShell>
                 );
               })}
             </div>
@@ -395,7 +729,7 @@ export function AssistantThreadTabsWorkspace({
         </ActionContextMenu>
         <Button
           aria-label="Scroll assistant tabs right"
-          className="h-8 w-8 shrink-0 rounded-full border border-border/70 bg-background/80 p-0 shadow-sm disabled:opacity-35"
+          className="@[300px]/assistant-tabs:inline-flex hidden h-7 w-7 shrink-0 rounded-md border border-transparent p-0 text-muted-foreground shadow-none hover:border-border/70 hover:bg-background/80 hover:text-foreground disabled:opacity-30 motion-reduce:transition-none"
           data-testid="assistant-tabs-scroll-right"
           disabled={!tabScrollState.canScrollForward}
           onClick={() => scrollTabList('forward')}
@@ -405,10 +739,10 @@ export function AssistantThreadTabsWorkspace({
         >
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
-        <div className="flex h-8 shrink-0 items-center">
+        <div className="flex h-8 shrink-0 items-center border-border/70 border-l pl-1">
           <Button
             aria-label="New assistant thread"
-            className="h-8 gap-1.5 rounded-full border border-border/70 bg-background/85 px-2.5 shadow-sm"
+            className="h-7 gap-1.5 rounded-md border border-transparent bg-transparent px-2 text-muted-foreground shadow-none hover:border-border/70 hover:bg-background/80 hover:text-foreground motion-reduce:transition-none"
             data-testid="assistant-new-thread-button"
             disabled={loadState?.status === 'loading'}
             onClick={() => {
@@ -421,7 +755,12 @@ export function AssistantThreadTabsWorkspace({
             variant="ghost"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span className="text-xs">New</span>
+            <span
+              className="@[380px]/assistant-tabs:inline hidden text-xs"
+              data-testid="assistant-new-thread-label"
+            >
+              New
+            </span>
           </Button>
         </div>
       </div>
@@ -437,9 +776,11 @@ export function AssistantThreadTabsWorkspace({
             const isActive = threadId === activeThreadId;
             return (
               <div
+                aria-labelledby={getTabId(threadId)}
                 className="h-full min-h-0"
                 data-testid={`assistant-thread-panel-${threadId}`}
                 hidden={!isActive}
+                id={getTabPanelId(threadId)}
                 key={threadId}
                 role="tabpanel"
               >

@@ -214,14 +214,21 @@ a Group by / Sort by view-options popover. Plan/rationale:
 
 Where state lives (do not relitigate):
 - Groups: `brainstrike_assistant_thread_groups`; thread membership + manual
-  order: `brainstrike_assistant_thread_placements` (both migration 054, dual
-  runners). Membership deliberately does NOT live in `mastra_threads.metadata` —
-  `updateThreadMetadata` bumps `updatedAt`, which would reshuffle the recency
-  sort on every drag, and Mastra owns that schema.
+  order: `brainstrike_assistant_thread_placements` (migration 054; migration
+  056 adds nullable validated folder `color` and independent `flat_rank`, seeded
+  from the legacy `rank` so existing custom order survives the split; both are
+  registered in both migration runners). Membership deliberately does NOT
+  live in `mastra_threads.metadata`: grouping, folder color, and manual order
+  are Brainstrike-owned presentation state while Mastra owns that schema.
+- Thread icon/color metadata updates preserve conversational `updatedAt`; visual
+  curation must never reshuffle a recency-sorted collection.
 - Placements have no FK to `mastra_threads`: a placement whose thread is gone is
-  inert (the panel joins by id); the panel's thread-delete path clears it
-  explicitly. Deleting a group deletes its placements (threads return to
-  Ungrouped) — placements first, so a retried group DELETE cannot strand rows.
+  inert (the panel joins by id). Bulk thread deletion removes placements and all
+  owned thread rows in one guarded CTE; an unknown id mutates nothing. Deleting
+  a group nulls its placements' `group_id` and removes the group in one CTE after
+  staged UI confirmation, returning its threads to Ungrouped without partial
+  state or discarding their independent flat-list ranks; the loaded store mirrors
+  that transition by retaining each placement with `groupId: null`.
 - `rank` columns are `fractional-indexing` keys (`generateKeyBetween`); a
   positional drop rewrites the destination section's ranks wholesale
   (`applyThreadOrder` → `setThreadPlacements`, a SINGLE multi-row upsert so the
@@ -229,20 +236,44 @@ Where state lives (do not relitigate):
   `setGroupRanks` likewise) and silently switches Sort by → Custom so the drag
   is honored, never ignored. In Custom sort, unranked (new) threads render first
   by recency.
-- View prefs (groupBy/sortBy/collapsed) persist via zustand `persist`
-  (`brainstrike-assistant-thread-groups-v1`); the store registers a session
-  resetter in `register-factory-reset-session-stores.ts`.
+- View prefs (`groupBy`, independent `flatSortBy` / `groupedSortBy`, collapsed)
+  persist via zustand `persist` (`brainstrike-assistant-thread-groups-v1`, state
+  version 2); the store registers a session resetter in
+  `register-factory-reset-session-stores.ts`.
+- The Threads panel uses shared `TreeTable` as its only scroll owner. Folder
+  rows are real expandable treegrid parents with Left/Right keyboard behavior.
+  Disclosed section rows are virtualized and capped at 50 initially, with an
+  explicit 50-row Show more action; folder selection still targets the complete
+  section, while Select visible targets only disclosed threads.
 
 Layers: repository `assistant-thread-groups-repository.ts` → store
 `assistant-thread-groups-store.ts` → pure view-model `thread-list-sections.ts`
 (grouping/sorting; `buildThreadMembership` is the single source of effective
 membership) → drop resolution `threads-panel-dnd.ts` (pure intent reducer) →
-element wiring `threads-panel-dnd-elements.tsx`. Keyboard/a11y fallback for
+element wiring `threads-panel-dnd-elements.tsx`. Semantic color presentation is
+owned once in `assistant-thread-presentation.ts` and shared by rows, folders,
+and tabs. Keyboard/a11y fallback for
 every drag operation: row context-menu "Move to <group>" / "Remove from Group".
 
-Paired tests: `migration-054-assistant-thread-groups.test.ts` (packages/db),
+Paired tests: `migration-054-assistant-thread-groups.test.ts` and
+`migration-056-assistant-thread-group-presentation.test.ts` (packages/db),
 `assistant-thread-groups-repository.test.ts`, `assistant-thread-groups-store.test.ts`,
 `thread-list-sections.test.ts`, `threads-panel-dnd.test.ts`, and the
 `ThreadsPanel groups` suite in `threads-panel.test.tsx`.
+
+## ASSISTANT THREAD TABS
+
+Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
+`reorderThreadTabs` persists the complete ordered id list atomically. The tab
+controller uses the WAI-ARIA automatic-activation pattern with roving tab focus,
+Home/End, Delete, and `Alt+Shift+Left/Right` reorder controls. Pointer drag uses
+Pragmatic drag and drop plus edge auto-scroll; context-menu Move Left / Move
+Right provides the non-drag alternative. Panels remain mounted while inactive
+so runtime state is not discarded, and a colored thread supplies the canonical
+accent from `assistant-thread-presentation.ts` rather than a tab-local palette.
+
+Paired tests: `assistant-thread-store.test.ts`,
+`assistant-thread-tabs-dnd.test.ts`, `assistant-thread-tabs-dnd-elements.test.tsx`,
+and `assistant-thread-tabs-workspace.test.tsx`.
 
 ---

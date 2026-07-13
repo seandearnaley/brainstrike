@@ -2481,6 +2481,25 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     ]);
   });
 
+  it('rejects malformed bulk thread operations before querying', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(repository.deleteThreads([])).rejects.toThrow(
+      'At least one assistant thread id is required.'
+    );
+    await expect(repository.deleteThreads(['thread-1', ' '])).rejects.toThrow(
+      'Assistant thread id is required.'
+    );
+    await expect(repository.updateThreadsMetadata(['thread-1'], {})).rejects.toThrow(
+      'Assistant thread metadata must include at least one field.'
+    );
+    await expect(
+      repository.updateThreadsMetadata(['thread-1'], { color: 'magenta' as never })
+    ).rejects.toThrow('Invalid assistant thread metadata color.');
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
   it('reuses the same repository instance for a shared database handle', async () => {
     const db = createMockDb();
     const repositoryA = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -2782,6 +2801,98 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
   });
 
+  it('atomically deletes many threads and every explicitly owned row in real PGlite', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-delete');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const first = await repository.createThread('workspace-a');
+    const second = await repository.createThread('workspace-a');
+    const survivor = await repository.createThread('workspace-a');
+
+    await db.exec(`
+      CREATE TABLE brainstrike_assistant_thread_placements (
+        thread_id text PRIMARY KEY,
+        resource_id text NOT NULL,
+        group_id text,
+        rank text NOT NULL,
+        flat_rank text,
+        updated_at timestamptz NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    for (const thread of [first, second, survivor]) {
+      await db.query(
+        `INSERT INTO mastra_messages
+          (id, thread_id, content, role, type, "createdAt", "resourceId")
+         VALUES ($1, $2, '{}'::jsonb, 'user', 'text', NOW(), 'workspace-a')`,
+        [`message-${thread.id}`, thread.id]
+      );
+      await db.query(
+        `INSERT INTO brainstrike_assistant_edit_checkpoints (
+           id, run_id, resource_id, thread_id, tool_name, op, root_id, path,
+           before_existed, before_content, before_size, after_existed,
+           capture_status, occurred_at, created_at, updated_at
+         ) VALUES (
+           $1, 'run-1', 'workspace-a', $2, 'brainstrike.writeWorkspaceFile', 'write',
+           'root-1', '/a.txt', true, 'BEFORE', 6, true, 'ok', NOW(), NOW(), NOW()
+         )`,
+        [`checkpoint-${thread.id}`, thread.id]
+      );
+      await db.query(
+        `INSERT INTO brainstrike_assistant_thread_placements
+          (thread_id, resource_id, group_id, rank, flat_rank)
+         VALUES ($1, 'workspace-a', null, $2, $3)`,
+        [thread.id, `group-${thread.id}`, `flat-${thread.id}`]
+      );
+    }
+
+    await repository.deleteThreads([first.id, second.id]);
+
+    await expect(countRows(db, 'mastra_threads', 'id', first.id)).resolves.toBe(0);
+    await expect(countRows(db, 'mastra_threads', 'id', second.id)).resolves.toBe(0);
+    await expect(countRows(db, 'mastra_threads', 'id', survivor.id)).resolves.toBe(1);
+    await expect(countRows(db, 'mastra_messages', 'thread_id', first.id)).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_edit_checkpoints', 'thread_id', second.id)
+    ).resolves.toBe(0);
+    await expect(countRows(db, 'mastra_messages', 'thread_id', survivor.id)).resolves.toBe(1);
+    await expect(
+      countRows(db, 'brainstrike_assistant_edit_checkpoints', 'thread_id', survivor.id)
+    ).resolves.toBe(1);
+    await expect(
+      countRows(db, 'brainstrike_assistant_thread_placements', 'thread_id', first.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_thread_placements', 'thread_id', second.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_thread_placements', 'thread_id', survivor.id)
+    ).resolves.toBe(1);
+  });
+
+  it('rejects an unknown bulk-delete id without deleting known threads', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-delete-unknown');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+    await db.exec(`
+      CREATE TABLE brainstrike_assistant_thread_placements (
+        thread_id text PRIMARY KEY,
+        resource_id text NOT NULL,
+        group_id text,
+        rank text NOT NULL,
+        flat_rank text,
+        updated_at timestamptz NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await expect(repository.deleteThreads([thread.id, 'thread-unknown'])).rejects.toThrow(
+      'One or more assistant threads do not exist.'
+    );
+
+    await expect(countRows(db, 'mastra_threads', 'id', thread.id)).resolves.toBe(1);
+  });
+
   it('purges edit-checkpoint rows for the deleted thread in real PGlite', async () => {
     // The checkpoint journal has NO FK to mastra_threads (bare-PGlite migration
     // constraint), so deleteThread must explicitly delete its rows or up to
@@ -2819,11 +2930,16 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(1);
   });
 
-  it('persists curated metadata updates in real PGlite thread rows', async () => {
+  it('persists curated metadata without changing conversational recency', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-curated-metadata');
     const db = await wasmLoader.createPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
+    const conversationalUpdatedAt = new Date('2026-04-22T08:00:00.000Z');
+    await db.query(`UPDATE mastra_threads SET "updatedAt" = $2 WHERE id = $1`, [
+      thread.id,
+      conversationalUpdatedAt,
+    ]);
 
     await repository.updateThreadMetadata(thread.id, {
       color: 'rose',
@@ -2837,6 +2953,58 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       icon: 'bug',
       source: 'brainstrike',
     });
+    expect(threads[0]?.updatedAt).toEqual(conversationalUpdatedAt);
+  });
+
+  it('atomically updates curated metadata for many threads without changing recency', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-metadata');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const first = await repository.createThread('workspace-a');
+    const second = await repository.createThread('workspace-a');
+    const firstUpdatedAt = new Date('2026-04-22T08:00:00.000Z');
+    const secondUpdatedAt = new Date('2026-04-22T09:00:00.000Z');
+    await db.query(`UPDATE mastra_threads SET "updatedAt" = $2 WHERE id = $1`, [
+      first.id,
+      firstUpdatedAt,
+    ]);
+    await db.query(`UPDATE mastra_threads SET "updatedAt" = $2 WHERE id = $1`, [
+      second.id,
+      secondUpdatedAt,
+    ]);
+
+    await repository.updateThreadsMetadata([first.id, second.id], {
+      color: 'emerald',
+      icon: 'research',
+    });
+
+    const threads = await repository.listThreads('workspace-a');
+    expect(threads).toEqual([
+      expect.objectContaining({
+        id: second.id,
+        metadata: expect.objectContaining({ color: 'emerald', icon: 'research' }),
+        updatedAt: secondUpdatedAt,
+      }),
+      expect.objectContaining({
+        id: first.id,
+        metadata: expect.objectContaining({ color: 'emerald', icon: 'research' }),
+        updatedAt: firstUpdatedAt,
+      }),
+    ]);
+  });
+
+  it('rejects an unknown bulk metadata id without changing known threads', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-metadata-unknown');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await expect(
+      repository.updateThreadsMetadata([thread.id, 'thread-unknown'], { color: 'rose' })
+    ).rejects.toThrow('One or more assistant threads do not exist.');
+
+    const threads = await repository.listThreads('workspace-a');
+    expect(threads[0]?.metadata).toEqual({ source: 'brainstrike' });
   });
 
   it('seeds a new thread as OM-overwritable, then a manual rename clears the marker', async () => {

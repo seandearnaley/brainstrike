@@ -5,12 +5,11 @@ import type { Migration } from './migration-runner';
  *
  * Brainstrike-owned sister tables to `brainstrike_assistant_task_lists` (050).
  * Group membership and manual ordering deliberately do NOT live in
- * `mastra_threads.metadata`: `updateThreadMetadata` bumps the thread's
- * `updatedAt`, which would reshuffle the panel's recency sort on every drag,
- * and the Mastra tables stay Mastra-owned. Placements have no FK to
+ * `mastra_threads.metadata`: grouping and ordering are Brainstrike-owned
+ * presentation state while the Mastra tables stay Mastra-owned. Placements have no FK to
  * `mastra_threads` for the same ownership reason — a placement whose thread is
- * gone is inert (the panel joins by id) and thread deletion clears it
- * explicitly. `rank` columns are fractional-index keys (`fractional-indexing`
+ * gone is inert (the panel joins by id) and bulk thread deletion clears it in
+ * the same guarded statement. `rank` columns are fractional-index keys (`fractional-indexing`
  * `generateKeyBetween`), so a reorder writes exactly one row. A placement with
  * `group_id IS NULL` is an ungrouped thread that has been manually ranked.
  *

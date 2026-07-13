@@ -54,6 +54,7 @@ import { migration052AssistantEditCheckpoints } from './052-assistant-edit-check
 import { migration053Bm25ContentIndex } from './053-bm25-content-index.js';
 import { migration054AssistantThreadGroups } from './054-assistant-thread-groups.js';
 import { migration055AssistantMessageParents } from './055-assistant-message-parents.js';
+import { migration056AssistantThreadGroupPresentation } from './056-assistant-thread-group-presentation.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -114,6 +115,7 @@ export const migrations: Migration[] = [
   migration053Bm25ContentIndex,
   migration054AssistantThreadGroups,
   migration055AssistantMessageParents,
+  migration056AssistantThreadGroupPresentation,
 ];
 
 // Export base migrations (without chunks table) for test environments

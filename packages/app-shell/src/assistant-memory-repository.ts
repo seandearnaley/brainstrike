@@ -229,6 +229,7 @@ export interface AssistantThreadRepository {
   createThread: (resourceId: string, title?: string) => Promise<AssistantMemoryThread>;
   createThreadRun: (input: CreateAssistantThreadRunInput) => Promise<AssistantThreadRunRecord>;
   deleteThread: (threadId: string) => Promise<void>;
+  deleteThreads?: (threadIds: readonly string[]) => Promise<void>;
   getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
   getThreadCumulativeUsage: (threadId: string) => Promise<ThreadCumulativeUsage | null>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
@@ -249,6 +250,18 @@ export interface AssistantThreadRepository {
   recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
+  updateThreadsMetadata?: (
+    threadIds: readonly string[],
+    metadata: AssistantThreadMetadata
+  ) => Promise<void>;
+}
+
+export interface BulkAssistantThreadRepository extends AssistantThreadRepository {
+  deleteThreads: (threadIds: readonly string[]) => Promise<void>;
+  updateThreadsMetadata: (
+    threadIds: readonly string[],
+    metadata: AssistantThreadMetadata
+  ) => Promise<void>;
 }
 
 interface AssistantHistoryMessage {
@@ -422,7 +435,7 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_revert_idx
   ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, reverted_at);
 `;
 
-const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
+const assistantThreadRepositoryCache = new WeakMap<DbHandle, BulkAssistantThreadRepository>();
 const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
 const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
@@ -670,6 +683,43 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   }
   if (metadata.providerOptions !== undefined && !optionalRecord(metadata.providerOptions)) {
     throw new Error('Invalid assistant thread metadata provider options.');
+  }
+}
+
+function requireAssistantThreadIds(threadIds: readonly string[]): readonly string[] {
+  if (!Array.isArray(threadIds) || threadIds.length === 0) {
+    throw new Error('At least one assistant thread id is required.');
+  }
+  const seenIds = new Set<string>();
+  for (const threadId of threadIds) {
+    if (typeof threadId !== 'string' || !threadId.trim()) {
+      throw new Error('Assistant thread id is required.');
+    }
+    if (seenIds.has(threadId)) {
+      throw new Error(`Duplicate assistant thread id: ${threadId}.`);
+    }
+    seenIds.add(threadId);
+  }
+  return threadIds;
+}
+
+function requireNonemptyThreadMetadata(metadata: AssistantThreadMetadata): void {
+  assertPersistableThreadMetadata(metadata);
+  if (Object.keys(metadata).length === 0) {
+    throw new Error('Assistant thread metadata must include at least one field.');
+  }
+}
+
+function threadIdValuesSql(threadIds: readonly string[]): string {
+  return threadIds.map((_, index) => `($${index + 1})`).join(', ');
+}
+
+function assertAllBulkThreadsFound(row: Record<string, unknown> | undefined): void {
+  if (typeof row?.['allFound'] !== 'boolean') {
+    throw new Error('Invalid assistant thread bulk mutation result.');
+  }
+  if (!row['allFound']) {
+    throw new Error('One or more assistant threads do not exist.');
   }
 }
 
@@ -1761,7 +1811,7 @@ function appendSuspendedApprovalMessages(
 
 export function createPgliteAssistantThreadRepository(
   database: DbHandle
-): AssistantThreadRepository {
+): BulkAssistantThreadRepository {
   assertMemoryDatabase(database);
   const cachedRepository = assistantThreadRepositoryCache.get(database);
   if (cachedRepository) {
@@ -1897,7 +1947,7 @@ export function createPgliteAssistantThreadRepository(
     return result.rows.map(toThreadRunEvent);
   };
 
-  const repository: AssistantThreadRepository = {
+  const repository: BulkAssistantThreadRepository = {
     async appendThreadRunEvent(runId: string, event: AssistantRunEvent): Promise<void> {
       await initialize();
       const sequence = event.sequence ?? 0;
@@ -2105,6 +2155,62 @@ export function createPgliteAssistantThreadRepository(
         [threadId, `thread:${threadId}`]
       );
     },
+    async deleteThreads(threadIds: readonly string[]): Promise<void> {
+      requireAssistantThreadIds(threadIds);
+      await initialize();
+      const result = await database.query<Record<string, unknown>>(
+        `WITH requested(id) AS (
+            VALUES ${threadIdValuesSql(threadIds)}
+          ),
+          validation AS (
+            SELECT COUNT(threads.id) = ${threadIds.length} AS all_found
+            FROM requested
+            LEFT JOIN ${MASTRA_MEMORY_TABLES.threads} AS threads ON threads.id = requested.id
+          ),
+          deleted_observational_memory AS (
+            DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
+            WHERE (SELECT all_found FROM validation)
+              AND (
+                "threadId" IN (SELECT id FROM requested)
+                OR "lookupKey" IN (SELECT 'thread:' || id FROM requested)
+              )
+            RETURNING id
+          ),
+          deleted_messages AS (
+            DELETE FROM ${MASTRA_MEMORY_TABLES.messages}
+            WHERE (SELECT all_found FROM validation)
+              AND thread_id IN (SELECT id FROM requested)
+            RETURNING id
+          ),
+          deleted_edit_checkpoints AS (
+            DELETE FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
+            WHERE (SELECT all_found FROM validation)
+              AND thread_id IN (SELECT id FROM requested)
+            RETURNING id
+          ),
+          deleted_thread_placements AS (
+            DELETE FROM brainstrike_assistant_thread_placements
+            WHERE (SELECT all_found FROM validation)
+              AND thread_id IN (SELECT id FROM requested)
+            RETURNING thread_id
+          ),
+          deleted_threads AS (
+            DELETE FROM ${MASTRA_MEMORY_TABLES.threads}
+            WHERE (SELECT all_found FROM validation)
+              AND id IN (SELECT id FROM requested)
+            RETURNING id
+          )
+         SELECT
+          (SELECT all_found FROM validation) AS "allFound",
+          (SELECT count(*) FROM deleted_observational_memory) AS "deletedObservationalMemoryCount",
+          (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
+          (SELECT count(*) FROM deleted_edit_checkpoints) AS "deletedEditCheckpointCount",
+          (SELECT count(*) FROM deleted_thread_placements) AS "deletedThreadPlacementCount",
+          (SELECT count(*) FROM deleted_threads) AS "deletedThreadCount"`,
+        [...threadIds]
+      );
+      assertAllBulkThreadsFound(result.rows[0]);
+    },
     async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
       await initialize();
       // Single source of truth shared with the reactive live-query hook
@@ -2290,10 +2396,42 @@ export function createPgliteAssistantThreadRepository(
       await initialize();
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
-         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb, "updatedAt" = $3
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
          WHERE id = $1`,
-        [threadId, JSON.stringify(metadata), new Date()]
+        [threadId, JSON.stringify(metadata)]
       );
+    },
+    async updateThreadsMetadata(
+      threadIds: readonly string[],
+      metadata: AssistantThreadMetadata
+    ): Promise<void> {
+      requireAssistantThreadIds(threadIds);
+      requireNonemptyThreadMetadata(metadata);
+      await initialize();
+      const metadataParameter = threadIds.length + 1;
+      const result = await database.query<Record<string, unknown>>(
+        `WITH requested(id) AS (
+            VALUES ${threadIdValuesSql(threadIds)}
+          ),
+          validation AS (
+            SELECT COUNT(threads.id) = ${threadIds.length} AS all_found
+            FROM requested
+            LEFT JOIN ${MASTRA_MEMORY_TABLES.threads} AS threads ON threads.id = requested.id
+          ),
+          updated_threads AS (
+            UPDATE ${MASTRA_MEMORY_TABLES.threads} AS threads
+            SET metadata = COALESCE(threads.metadata, '{}'::jsonb) || $${metadataParameter}::jsonb
+            FROM requested
+            WHERE (SELECT all_found FROM validation)
+              AND threads.id = requested.id
+            RETURNING threads.id
+          )
+         SELECT
+          (SELECT all_found FROM validation) AS "allFound",
+          (SELECT count(*) FROM updated_threads) AS "updatedThreadCount"`,
+        [...threadIds, JSON.stringify(metadata)]
+      );
+      assertAllBulkThreadsFound(result.rows[0]);
     },
   };
   assistantThreadRepositoryCache.set(database, repository);

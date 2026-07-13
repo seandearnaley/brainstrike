@@ -43,6 +43,10 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
 }));
 
+vi.mock('@atlaskit/pragmatic-drag-and-drop-auto-scroll/element', () => ({
+  autoScrollForElements: () => () => undefined,
+}));
+
 vi.mock('../assistant-ui-panel-wrapper', () => ({
   AssistantUiPanelWrapper: ({
     memoryThreadId,
@@ -78,6 +82,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       {
         createdAt: new Date('2026-04-22T09:00:00Z'),
         id: 'thread-a',
+        metadata: { color: 'rose' },
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'Purchasing app search log',
         updatedAt: new Date('2026-04-22T11:00:00Z'),
@@ -189,6 +194,154 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(
       within(tabList).queryByRole('button', { name: 'Scroll assistant tabs right' })
     ).toBeNull();
+    expect(tabStrip).toHaveClass('@container/assistant-tabs');
+    expect(screen.getByTestId('assistant-tabs-scroll-left')).toHaveClass(
+      'hidden',
+      '@[300px]/assistant-tabs:inline-flex'
+    );
+    expect(screen.getByTestId('assistant-tabs-scroll-right')).toHaveClass(
+      'hidden',
+      '@[300px]/assistant-tabs:inline-flex'
+    );
+    expect(screen.getByTestId('assistant-new-thread-label')).toHaveClass(
+      'hidden',
+      '@[380px]/assistant-tabs:inline'
+    );
+    expect(firstTab).toHaveClass('pr-8');
+    expect(firstTab).toHaveAttribute('aria-haspopup', 'menu');
+  });
+
+  it('links tabs and force-mounted panels while keeping one tab in the page tab sequence', async () => {
+    renderWorkspace();
+
+    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const firstPanel = screen.getByTestId('assistant-thread-panel-thread-a');
+    const secondPanel = screen.getByTestId('assistant-thread-panel-thread-b');
+
+    expect(firstTab).toHaveAttribute('id', 'assistant-thread-tab-thread-a');
+    expect(firstTab).toHaveAttribute('aria-controls', 'assistant-thread-panel-thread-a');
+    expect(firstPanel).toHaveAttribute('aria-labelledby', 'assistant-thread-tab-thread-a');
+    expect(secondTab).toHaveAttribute('tabindex', '0');
+    expect(firstTab).toHaveAttribute('tabindex', '-1');
+    expect(firstPanel).toBeInTheDocument();
+    expect(secondPanel).toBeInTheDocument();
+  });
+
+  it('uses durable thread color on tabs and leaves unassigned tabs neutral', async () => {
+    renderWorkspace();
+
+    const coloredTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    expect(coloredTab.closest('[data-thread-color]')).toHaveAttribute('data-thread-color', 'rose');
+    expect(screen.getByTestId('assistant-thread-tab-accent-rose')).toBeVisible();
+
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const neutralTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    expect(neutralTab.closest('[data-thread-color]')).toHaveAttribute(
+      'data-thread-color',
+      'unassigned'
+    );
+  });
+
+  it('supports automatic Arrow, Home, and End tab activation with roving focus', async () => {
+    renderWorkspace();
+    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+
+    secondTab.focus();
+    fireEvent.keyDown(secondTab, { key: 'ArrowLeft' });
+    expect(firstTab).toHaveFocus();
+    expect(firstTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(firstTab, { key: 'End' });
+    expect(secondTab).toHaveFocus();
+    expect(secondTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(secondTab, { key: 'Home' });
+    expect(firstTab).toHaveFocus();
+    expect(firstTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('closes the focused tab with Delete and moves focus to the following tab', async () => {
+    threadRows.push({
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      id: 'thread-c',
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'Release checklist',
+      updatedAt: new Date('2026-04-22T09:00:00Z'),
+    });
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      const store = useAssistantThreadStore.getState();
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-c');
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const middleTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const followingTab = screen.getByRole('tab', { name: /Release checklist/ });
+
+    middleTab.focus();
+    fireEvent.keyDown(middleTab, { key: 'Delete' });
+
+    await waitFor(() => expect(followingTab).toHaveFocus());
+    expect(screen.queryByRole('tab', { name: /Amazon Bedrock Converse/ })).not.toBeInTheDocument();
+    expect(followingTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('keeps focus and activation on the existing active tab when closing an inactive tab', async () => {
+    threadRows.push({
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      id: 'thread-c',
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'Release checklist',
+      updatedAt: new Date('2026-04-22T09:00:00Z'),
+    });
+    renderWorkspace();
+    const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      const store = useAssistantThreadStore.getState();
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-c');
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-a');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close thread Amazon Bedrock Converse' }));
+
+    await waitFor(() => expect(activeTab).toHaveFocus());
+    expect(activeTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Release checklist/ })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    );
+  });
+
+  it('reorders tabs with Alt+Shift+Arrow without changing the active thread', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const activeTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+
+    activeTab.focus();
+    fireEvent.keyDown(activeTab, { altKey: true, key: 'ArrowLeft', shiftKey: true });
+
+    await waitFor(() => {
+      expect(
+        useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+      ).toEqual(['thread-b', 'thread-a']);
+    });
+    expect(activeTab).toHaveFocus();
+    expect(activeTab).toHaveAttribute('aria-selected', 'true');
   });
 
   it('mounts assistant threads even when no folder is open', async () => {
@@ -333,6 +486,63 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(scrollBy).toHaveBeenCalledWith({ behavior: 'smooth', left: -160 });
   });
 
+  it('uses instant scroll behavior when reduced motion is requested', async () => {
+    const matchMediaSpy = vi.spyOn(window, 'matchMedia').mockReturnValue({
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      matches: true,
+      media: '(prefers-reduced-motion: reduce)',
+      onchange: null,
+      removeEventListener: vi.fn(),
+      removeListener: vi.fn(),
+    });
+    try {
+      renderWorkspace();
+      await screen.findByRole('tab', { name: /Purchasing app search log/ });
+      const tabScroll = screen.getByTestId('assistant-thread-tab-scroll') as HTMLDivElement & {
+        scrollBy: ReturnType<typeof vi.fn>;
+      };
+      const scrollBy = vi.fn();
+      tabScroll.scrollBy = scrollBy;
+      Object.defineProperties(tabScroll, {
+        clientWidth: { configurable: true, value: 200 },
+        scrollWidth: { configurable: true, value: 700 },
+      });
+      fireEvent.scroll(tabScroll);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Scroll assistant tabs right' }));
+
+      expect(scrollBy).toHaveBeenCalledWith({ behavior: 'auto', left: 160 });
+    } finally {
+      matchMediaSpy.mockRestore();
+    }
+  });
+
+  it('scrolls the newly active tab into view without moving the vertical page', async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      renderWorkspace();
+      await screen.findByRole('tab', { name: /Purchasing app search log/ });
+
+      act(() => {
+        useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+      });
+
+      await waitFor(() =>
+        expect(scrollIntoView).toHaveBeenLastCalledWith({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'nearest',
+        })
+      );
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
   it('scrolls the tab lane when vertical wheel input lands over the tabs', async () => {
     renderWorkspace();
 
@@ -390,6 +600,36 @@ describe('AssistantThreadTabsWorkspace', () => {
       expect.stringContaining('DELETE FROM mastra_threads'),
       expect.anything()
     );
+    await waitFor(() => expect(inactiveTab).toHaveFocus());
+  });
+
+  it('restores focus after closing a tab from its context menu', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const closingTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const remainingTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
+
+    fireEvent.contextMenu(closingTab);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close' }));
+
+    await waitFor(() => expect(remainingTab).toHaveFocus());
+    expect(remainingTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('moves focus to New after closing all tabs from the context menu', async () => {
+    renderWorkspace();
+    const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+
+    fireEvent.contextMenu(activeTab);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All Tabs' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'New assistant thread' })).toHaveFocus();
+    });
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
   });
 
   it('closes tabs to the right from the claimed tab and disables the no-op action', async () => {
@@ -426,6 +666,43 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(
       await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' })
     ).toHaveAttribute('data-disabled');
+  });
+
+  it('moves a tab left from its context action while preserving focus identity', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const secondTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    secondTab.focus();
+
+    fireEvent.contextMenu(secondTab);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Move Left' }));
+
+    await waitFor(() => {
+      expect(
+        useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+      ).toEqual(['thread-b', 'thread-a']);
+    });
+    expect(secondTab).toHaveFocus();
+  });
+
+  it('exposes Move Right and disables movement beyond the left edge', async () => {
+    renderWorkspace();
+    const firstTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    firstTab.focus();
+
+    fireEvent.contextMenu(firstTab);
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Move Left' })).toHaveAttribute(
+      'data-disabled'
+    );
+    const moveRight = within(menu).getByRole('menuitem', { name: 'Move Right' });
+    expect(moveRight).not.toHaveAttribute('data-disabled');
   });
 
   it('does not claim assistant message content as a thread-tab context target', async () => {
