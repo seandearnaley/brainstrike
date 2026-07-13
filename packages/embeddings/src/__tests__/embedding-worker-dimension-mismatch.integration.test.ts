@@ -141,7 +141,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
     const controller1024 = await startEmbeddingWorker({
       concurrency: 1,
       db: db as unknown as IDatabase,
-      modelKey: 'bge-large-en-v1.5', // 1024D model
+      modelKey: 'Xenova/bge-large-en-v1.5', // 1024D model (catalog id)
       service: new NeutralEmbeddingService(),
     });
     expect(controller1024).toBeDefined();
