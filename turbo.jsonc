@@ -4,13 +4,45 @@
   // Global configuration
   "concurrency": "40",
   // Files that, when changed, should invalidate caches globally
-  // These files affect all tasks and will cause cache misses when modified
+  // These files affect all tasks and will cause cache misses when modified.
+  //
+  // tsconfig invalidation contract (Series B2 — do NOT "tidy" the two kept
+  // tsconfig globs back to the broad per-package form; that recreates the
+  // over-invalidation this change removed):
+  //   The repo's entire tsconfig `extends` graph terminates at a SINGLE shared
+  //   preset, packages/config/tsconfig/base.json (it has no `extends`). Every
+  //   package/app main tsconfig extends it by a RAW RELATIVE PATH
+  //   ("../../packages/config/tsconfig/base.json"), NOT a package import — so
+  //   no package.json dependency edge and no build-task edge carries base.json
+  //   into consumers' hashes (packages/config has no build script; only web +
+  //   desktop even depend on @brainstrike/config). The two globs below are the
+  //   SOLE hash carriers for the only two tsconfig files that escape their
+  //   consuming package's own $TURBO_DEFAULT$ input directory:
+  //     - "tsconfig*.json" (root): matches the repo-root tsconfig.json, which
+  //       packages/config/tsconfig.json extends ("../../tsconfig.json"). That
+  //       is a genuine cross-package input for config#type-check (root tsconfig
+  //       lives OUTSIDE the config package's default inputs). KEEP.
+  //     - "packages/*/tsconfig/*.json": matches ONLY packages/config/tsconfig/
+  //       (the sole tsconfig/ dir in the repo) → carries base.json (+ presets)
+  //       into all ~40 consumers. Removing it would make base.json an INVISIBLE
+  //       input: a strict/target/etc. edit would replay stale-green caches
+  //       repo-wide — the exact #1066/#1207 landmine. KEEP.
+  //   DELIBERATELY NOT LISTED: each package's / app's OWN local tsconfig*.json
+  //   (e.g. packages/types/tsconfig.test.json, apps/desktop/tsconfig.json).
+  //   Those live inside their package dir and are already $TURBO_DEFAULT$
+  //   inputs of that package's own build/type-check/test tasks, so they still
+  //   invalidate the package that owns them. Listing them globally (the removed
+  //   "apps/*/tsconfig*.json" + "packages/*/tsconfig*.json" entries) only added
+  //   cross-package OVER-invalidation: any one of ~75 per-package tsconfig
+  //   edits busted every cache in the repo for zero correctness benefit.
+  //   Verified no task reads another package's tsconfig (no vite-tsconfig-paths
+  //   anywhere; tsup/vite configs reference only their own local tsconfig; the
+  //   only cross-package tsconfig reads are the extends chains into base.json
+  //   and config→root, both still covered by the two kept globs).
   "globalDependencies": [
     "pnpm-lock.yaml", // Package dependencies
-    "tsconfig*.json", // Root TypeScript configuration
-    "apps/*/tsconfig*.json", // App TypeScript configuration
-    "packages/*/tsconfig*.json", // Package TypeScript configuration
-    "packages/*/tsconfig/*.json", // Shared tsconfig preset package files
+    "tsconfig*.json", // Root TS config — config/tsconfig.json extends it (genuinely global)
+    "packages/*/tsconfig/*.json", // Shared tsconfig preset (base.json); sole hash carrier for ~40 raw-path consumers
     "turbo.jsonc", // Turborepo configuration
     "biome.json", // Formatting/linting configuration
     ".nvmrc", // Node version specification
