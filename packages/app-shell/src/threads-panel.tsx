@@ -568,7 +568,7 @@ function ThreadRowItem({
   ]);
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-md border px-2 py-1 text-left transition-[background-color,border-color] motion-reduce:transition-none ${
+      className={`relative w-full overflow-hidden rounded-md border px-2 py-1 text-left transition-[background-color,border-color] group-data-[focused=true]/thread-tree-row:outline group-data-[focused=true]/thread-tree-row:outline-2 group-data-[focused=true]/thread-tree-row:outline-primary group-data-[focused=true]/thread-tree-row:-outline-offset-2 motion-reduce:transition-none ${
         isSelected
           ? colorConfig.selectedClassName
           : 'border-transparent bg-transparent hover:border-border/60 hover:bg-accent/35'
@@ -1914,7 +1914,7 @@ function ThreadPanelTree({
         }}
         rowClassName={(node) =>
           node.data.kind === 'thread'
-            ? 'border-0 bg-transparent hover:bg-transparent'
+            ? 'group/thread-tree-row border-0 bg-transparent ring-0 hover:bg-transparent'
             : 'border-0 bg-muted/20 hover:bg-muted/35'
         }
         rowHeight={(node) => (node.data.kind === 'thread' ? 72 : 40)}

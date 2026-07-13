@@ -320,6 +320,13 @@ describe('ThreadsPanel', () => {
 
     const viewport = treegrid.parentElement;
     expect(viewport).toHaveClass('overflow-auto');
+    expect(screen.getAllByTestId('thread-row')[0]?.closest('tr')).toHaveClass(
+      'ring-0',
+      'group/thread-tree-row'
+    );
+    expect(screen.getAllByTestId('thread-row')[0]).toHaveClass(
+      'group-data-[focused=true]/thread-tree-row:outline-2'
+    );
     expect(viewport?.parentElement?.parentElement).not.toHaveClass('overflow-y-auto');
     expect(screen.getByTestId('threads-panel')).toHaveClass('@container/threads');
   });
