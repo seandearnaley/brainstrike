@@ -106,7 +106,7 @@
     "test:e2e:local-db": "node scripts/run-env.mjs LOCAL_FIRST_DB=true EMBED_QUEUE_ENABLED=true -- pnpm test:e2e",
     "test:e2e:perf": "cd apps/web && pnpm run test:e2e:perf",
     "test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",
-    "test:fast": "pnpm -r --filter '!@brainstrike/embeddings' run test && pnpm -r --filter '!@brainstrike/embeddings' run test:integration",
+    "test:fast": "pnpm -r run test && pnpm -r run test:integration",
     "test:scripts": "node --test scripts/__tests__/*.test.mjs",
     "test:vector": "pnpm --filter @brainstrike/db test:vector",
     "type-check": "node scripts/run-turbo-command.mjs -- run type-check --summarize --log-order=grouped",
