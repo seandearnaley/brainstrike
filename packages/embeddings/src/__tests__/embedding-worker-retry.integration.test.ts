@@ -427,6 +427,12 @@ describe('embedding-worker hosted-provider retries', () => {
     await controller.stop();
 
     expect(flaky.getAttempts()).toBe(3);
-    expect(createProviderSpy).toHaveBeenCalled();
+    expect(createProviderSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dimensions: 768,
+        modelId: 'text-embedding-3-small',
+        provider: 'openai',
+      })
+    );
   });
 });
