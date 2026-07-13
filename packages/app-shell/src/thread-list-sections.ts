@@ -102,9 +102,13 @@ export function buildThreadListSections({
 }): ThreadListView {
   const threadIds = new Set(threads.map((thread) => thread.id));
   const livePlacements = placements.filter((placement) => threadIds.has(placement.threadId));
-  const rankByThreadId = new Map(
-    livePlacements.map((placement) => [placement.threadId, placement.rank])
-  );
+  const rankByThreadId = new Map<string, string>();
+  for (const placement of livePlacements) {
+    const rank = groupBy === 'none' ? placement.flatRank : placement.rank;
+    if (rank !== null) {
+      rankByThreadId.set(placement.threadId, rank);
+    }
+  }
 
   if (groupBy === 'none' || groups.length === 0) {
     return { kind: 'flat', threads: sortSection(threads, sortBy, rankByThreadId) };

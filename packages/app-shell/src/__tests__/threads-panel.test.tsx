@@ -152,6 +152,7 @@ beforeEach(() => {
     }
     if (sql.includes('INSERT INTO brainstrike_assistant_thread_groups')) {
       groupRows.push({
+        color: null,
         id: String(params?.[0]),
         name: String(params?.[2]),
         rank: String(params?.[3]),
@@ -181,6 +182,7 @@ beforeEach(() => {
     if (sql.includes('INSERT INTO brainstrike_assistant_thread_placements')) {
       const placementThreadId = String(params?.[0]);
       const nextPlacement = {
+        flatRank: params?.[4] ?? null,
         groupId: params?.[2] ?? null,
         rank: String(params?.[3]),
         resourceId: String(params?.[1]),
@@ -644,11 +646,12 @@ describe('ThreadsPanel', () => {
 
 describe('ThreadsPanel groups', () => {
   function seedGroup(id: string, name: string, rank: string): void {
-    groupRows.push({ id, name, rank, resourceId: WORKSPACE_MEMORY_RESOURCE_ID });
+    groupRows.push({ color: null, id, name, rank, resourceId: WORKSPACE_MEMORY_RESOURCE_ID });
   }
 
   function seedPlacement(threadId: string, groupId: string | null, rank: string): void {
     placementRows.push({
+      flatRank: null,
       groupId,
       rank,
       resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
@@ -829,7 +832,7 @@ describe('ThreadsPanel groups', () => {
         .map((row) => within(row).getByText(/thread/i).textContent);
       expect(titles).toEqual(['First thread', 'Second thread']);
     });
-    expect(useAssistantThreadGroupsStore.getState().sortBy).toBe('name');
+    expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('name');
   });
 
   it('hides group sections when grouping is set to none', async () => {

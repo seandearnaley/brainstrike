@@ -4,12 +4,16 @@ import type {
   AssistantThreadGroupsRepository,
   AssistantThreadPlacement,
 } from '../assistant-thread-groups-repository';
-import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
+import {
+  migrateAssistantThreadGroupsPersistedState,
+  useAssistantThreadGroupsStore,
+} from '../assistant-thread-groups-store';
 
 const RESOURCE_ID = 'workspace-a';
 
 function makeGroup(overrides: { id: string; name?: string; rank: string }): AssistantThreadGroup {
   return {
+    color: null,
     id: overrides.id,
     name: overrides.name ?? overrides.id,
     rank: overrides.rank,
@@ -26,12 +30,19 @@ function makeRepository(overrides?: {
     clearThreadPlacement: vi.fn(async () => undefined),
     createGroup: vi.fn(async (resourceId: string, name: string, rank: string) => {
       groupCounter += 1;
-      return { id: `thread-group-created-${groupCounter}`, name: name.trim(), rank, resourceId };
+      return {
+        color: null,
+        id: `thread-group-created-${groupCounter}`,
+        name: name.trim(),
+        rank,
+        resourceId,
+      };
     }),
     deleteGroup: vi.fn(async () => undefined),
     listGroups: vi.fn(async () => overrides?.groups ?? []),
     listPlacements: vi.fn(async () => overrides?.placements ?? []),
     renameGroup: vi.fn(async () => undefined),
+    setGroupColor: vi.fn(async () => undefined),
     setGroupRank: vi.fn(async () => undefined),
     setGroupRanks: vi.fn(async () => undefined),
     setThreadPlacement: vi.fn(async () => undefined),
@@ -48,7 +59,13 @@ describe('useAssistantThreadGroupsStore', () => {
     const repository = makeRepository({
       groups: [makeGroup({ id: 'group-1', rank: 'a0' })],
       placements: [
-        { groupId: 'group-1', rank: 'a0', resourceId: RESOURCE_ID, threadId: 'thread-1' },
+        {
+          flatRank: 'b0',
+          groupId: 'group-1',
+          rank: 'a0',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
       ],
     });
 
@@ -103,12 +120,41 @@ describe('useAssistantThreadGroupsStore', () => {
     ).toBe('Deep Work');
   });
 
+  it('sets and clears a group color locally and in the repository', async () => {
+    const repository = makeRepository({ groups: [makeGroup({ id: 'group-1', rank: 'a0' })] });
+    const store = useAssistantThreadGroupsStore.getState();
+    await store.ensureGroups(repository, RESOURCE_ID);
+
+    await store.setGroupColor(repository, RESOURCE_ID, 'group-1', 'amber');
+    expect(repository.setGroupColor).toHaveBeenCalledWith('group-1', 'amber');
+    expect(
+      useAssistantThreadGroupsStore.getState().groupsByResourceId[RESOURCE_ID]?.[0]?.color
+    ).toBe('amber');
+
+    await store.setGroupColor(repository, RESOURCE_ID, 'group-1', null);
+    expect(
+      useAssistantThreadGroupsStore.getState().groupsByResourceId[RESOURCE_ID]?.[0]?.color
+    ).toBeNull();
+  });
+
   it('deletes a group and returns its threads to ungrouped locally', async () => {
     const repository = makeRepository({
       groups: [makeGroup({ id: 'group-1', rank: 'a0' })],
       placements: [
-        { groupId: 'group-1', rank: 'a0', resourceId: RESOURCE_ID, threadId: 'thread-1' },
-        { groupId: null, rank: 'a1', resourceId: RESOURCE_ID, threadId: 'thread-2' },
+        {
+          flatRank: null,
+          groupId: 'group-1',
+          rank: 'a0',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
+        {
+          flatRank: null,
+          groupId: null,
+          rank: 'a1',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-2',
+        },
       ],
     });
     const store = useAssistantThreadGroupsStore.getState();
@@ -147,7 +193,13 @@ describe('useAssistantThreadGroupsStore', () => {
     const repository = makeRepository({
       groups: [makeGroup({ id: 'group-1', rank: 'a0' })],
       placements: [
-        { groupId: 'group-1', rank: 'a0', resourceId: RESOURCE_ID, threadId: 'thread-1' },
+        {
+          flatRank: null,
+          groupId: 'group-1',
+          rank: 'a0',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
       ],
     });
     const store = useAssistantThreadGroupsStore.getState();
@@ -168,7 +220,13 @@ describe('useAssistantThreadGroupsStore', () => {
     const repository = makeRepository({
       groups: [makeGroup({ id: 'group-1', rank: 'a0' })],
       placements: [
-        { groupId: 'group-1', rank: 'a0', resourceId: RESOURCE_ID, threadId: 'thread-1' },
+        {
+          flatRank: null,
+          groupId: 'group-1',
+          rank: 'a0',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
       ],
     });
     const store = useAssistantThreadGroupsStore.getState();
@@ -179,13 +237,23 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(repository.setThreadPlacement).not.toHaveBeenCalled();
   });
 
-  it('applies an explicit thread order and switches sort to custom', async () => {
+  it('applies grouped order without changing flat rank or flat sort', async () => {
     const repository = makeRepository();
     const store = useAssistantThreadGroupsStore.getState();
     await store.ensureGroups(repository, RESOURCE_ID);
-    expect(useAssistantThreadGroupsStore.getState().sortBy).toBe('recency');
+    useAssistantThreadGroupsStore.setState({
+      placementsByThreadId: {
+        'thread-1': {
+          flatRank: 'z1',
+          groupId: 'group-1',
+          rank: 'a0',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
+      },
+    });
 
-    await store.applyThreadOrder(repository, RESOURCE_ID, [
+    await store.applyThreadOrder(repository, RESOURCE_ID, 'grouped', [
       { groupId: 'group-1', threadId: 'thread-2' },
       { groupId: 'group-1', threadId: 'thread-1' },
     ]);
@@ -196,15 +264,52 @@ describe('useAssistantThreadGroupsStore', () => {
     const firstRank = String(batch?.[0]?.rank);
     const secondRank = String(batch?.[1]?.rank);
     expect(firstRank < secondRank).toBe(true);
-    expect(useAssistantThreadGroupsStore.getState().sortBy).toBe('custom');
+    expect(batch?.[1]?.flatRank).toBe('z1');
+    expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('custom');
+    expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('recency');
     expect(useAssistantThreadGroupsStore.getState().placementsByThreadId['thread-2']?.rank).toBe(
       firstRank
     );
   });
 
+  it('applies flat order without changing grouped rank or grouped sort', async () => {
+    const repository = makeRepository({
+      placements: [
+        {
+          flatRank: null,
+          groupId: 'group-1',
+          rank: 'group-rank',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
+      ],
+    });
+    const store = useAssistantThreadGroupsStore.getState();
+    await store.ensureGroups(repository, RESOURCE_ID);
+
+    await store.applyThreadOrder(repository, RESOURCE_ID, 'flat', [
+      { groupId: 'group-1', threadId: 'thread-1' },
+      { groupId: null, threadId: 'thread-2' },
+    ]);
+
+    const [batch] = vi.mocked(repository.setThreadPlacements).mock.calls[0] ?? [];
+    expect(batch?.[0]?.rank).toBe('group-rank');
+    expect(batch?.[0]?.flatRank).toBeTruthy();
+    expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('custom');
+    expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
+  });
+
   it('clears a deleted thread placement', async () => {
     const repository = makeRepository({
-      placements: [{ groupId: null, rank: 'a0', resourceId: RESOURCE_ID, threadId: 'thread-1' }],
+      placements: [
+        {
+          flatRank: null,
+          groupId: null,
+          rank: 'a0',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
+      ],
     });
     const store = useAssistantThreadGroupsStore.getState();
     await store.ensureGroups(repository, RESOURCE_ID);
@@ -217,7 +322,7 @@ describe('useAssistantThreadGroupsStore', () => {
     ).toBeUndefined();
   });
 
-  it('toggles group collapse and updates view preferences', () => {
+  it('toggles group collapse and updates independent view preferences', () => {
     const store = useAssistantThreadGroupsStore.getState();
 
     store.toggleGroupCollapsed('group-1');
@@ -226,16 +331,39 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds['group-1']).toBeUndefined();
 
     store.setGroupBy('none');
-    store.setSortBy('name');
+    store.setSortBy('flat', 'name');
+    store.setSortBy('grouped', 'custom');
     expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('none');
-    expect(useAssistantThreadGroupsStore.getState().sortBy).toBe('name');
+    expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('name');
+    expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('custom');
+  });
+
+  it('migrates the version-1 sort into both presentation scopes', () => {
+    expect(
+      migrateAssistantThreadGroupsPersistedState(
+        { collapsedGroupIds: { 'group-1': true }, groupBy: 'none', sortBy: 'name' },
+        1
+      )
+    ).toEqual({
+      collapsedGroupIds: { 'group-1': true },
+      flatSortBy: 'name',
+      groupBy: 'none',
+      groupedSortBy: 'name',
+    });
+  });
+
+  it('rejects malformed legacy sort state instead of guessing', () => {
+    expect(() =>
+      migrateAssistantThreadGroupsPersistedState({ groupBy: 'none', sortBy: 'oldest' }, 1)
+    ).toThrow('Invalid persisted thread sort: oldest.');
   });
 
   it('reset restores defaults', async () => {
     const repository = makeRepository({ groups: [makeGroup({ id: 'group-1', rank: 'a0' })] });
     const store = useAssistantThreadGroupsStore.getState();
     await store.ensureGroups(repository, RESOURCE_ID);
-    store.setSortBy('name');
+    store.setSortBy('flat', 'name');
+    store.setSortBy('grouped', 'custom');
     store.toggleGroupCollapsed('group-1');
 
     useAssistantThreadGroupsStore.getState().reset();
@@ -243,7 +371,8 @@ describe('useAssistantThreadGroupsStore', () => {
     const state = useAssistantThreadGroupsStore.getState();
     expect(state.groupsByResourceId).toEqual({});
     expect(state.placementsByThreadId).toEqual({});
-    expect(state.sortBy).toBe('recency');
+    expect(state.flatSortBy).toBe('recency');
+    expect(state.groupedSortBy).toBe('recency');
     expect(state.groupBy).toBe('custom-groups');
     expect(state.collapsedGroupIds).toEqual({});
   });

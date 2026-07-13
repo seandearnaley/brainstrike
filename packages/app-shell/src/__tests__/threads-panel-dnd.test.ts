@@ -15,7 +15,7 @@ function makeThread(id: string): AssistantMemoryThread {
 }
 
 function makeGroup(id: string, rank: string): AssistantThreadGroup {
-  return { id, name: id, rank, resourceId: 'workspace-a' };
+  return { color: null, id, name: id, rank, resourceId: 'workspace-a' };
 }
 
 const GROUP_A = makeGroup('group-a', 'a0');
@@ -94,6 +94,7 @@ describe('resolveThreadsPanelDrop', () => {
         { groupId: 'group-a', threadId: 'thread-2' },
         { groupId: 'group-a', threadId: 'thread-1' },
       ],
+      presentation: 'grouped',
     });
   });
 
@@ -112,6 +113,7 @@ describe('resolveThreadsPanelDrop', () => {
         { groupId: 'group-a', threadId: 'thread-5' },
         { groupId: 'group-a', threadId: 'thread-2' },
       ],
+      presentation: 'grouped',
     });
   });
 
@@ -182,6 +184,7 @@ describe('resolveThreadsPanelDrop', () => {
         { groupId: 'group-a', threadId: 'thread-1' },
         { groupId: null, threadId: 'thread-4' },
       ],
+      presentation: 'flat',
     });
   });
 

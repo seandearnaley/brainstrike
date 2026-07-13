@@ -56,10 +56,19 @@ describe('register-factory-reset-session-stores', () => {
       threadId: 'thread-1',
     });
     useAssistantThreadGroupsStore.setState({
+      flatSortBy: 'name',
+      groupedSortBy: 'custom',
       groupsByResourceId: {
-        'workspace-a': [{ id: 'group-1', name: 'Research', rank: 'a0', resourceId: 'workspace-a' }],
+        'workspace-a': [
+          {
+            color: null,
+            id: 'group-1',
+            name: 'Research',
+            rank: 'a0',
+            resourceId: 'workspace-a',
+          },
+        ],
       },
-      sortBy: 'name',
     });
     useAssistantThreadGroupsStore.getState().toggleGroupCollapsed('group-1');
 
@@ -89,6 +98,7 @@ describe('register-factory-reset-session-stores', () => {
     expect(useAssistantComposerCommandStore.getState().commandsByThreadId).toEqual({});
     expect(useAssistantThreadGroupsStore.getState().groupsByResourceId).toEqual({});
     expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toEqual({});
-    expect(useAssistantThreadGroupsStore.getState().sortBy).toBe('recency');
+    expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('recency');
+    expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
   });
 });

@@ -22,6 +22,7 @@ function makeThread(overrides: {
 
 function makeGroup(overrides: { id: string; name?: string; rank: string }): AssistantThreadGroup {
   return {
+    color: null,
     id: overrides.id,
     name: overrides.name ?? overrides.id,
     rank: overrides.rank,
@@ -35,6 +36,7 @@ function makePlacement(overrides: {
   rank: string;
 }): AssistantThreadPlacement {
   return {
+    flatRank: null,
     groupId: overrides.groupId,
     rank: overrides.rank,
     resourceId: 'workspace-a',
@@ -203,5 +205,48 @@ describe('buildThreadListSections', () => {
       'thread-ranked-early',
       'thread-ranked-late',
     ]);
+  });
+
+  it('uses flatRank for flat custom order without coupling to grouped rank', () => {
+    const first = makePlacement({ groupId: null, rank: 'a0', threadId: 'thread-1' });
+    const second = makePlacement({ groupId: null, rank: 'a1', threadId: 'thread-2' });
+    const view = buildThreadListSections({
+      groupBy: 'none',
+      groups: [],
+      placements: [
+        { ...first, flatRank: 'z1' },
+        { ...second, flatRank: 'z0' },
+      ],
+      sortBy: 'custom',
+      threads: [makeThread({ id: 'thread-1' }), makeThread({ id: 'thread-2' })],
+    });
+
+    expect(view.kind).toBe('flat');
+    if (view.kind !== 'flat') {
+      return;
+    }
+    expect(view.threads.map((thread) => thread.id)).toEqual(['thread-2', 'thread-1']);
+  });
+
+  it('keeps grouped custom order on grouped rank when flatRank differs', () => {
+    const group = makeGroup({ id: 'group-a', rank: 'a0' });
+    const first = makePlacement({ groupId: group.id, rank: 'a0', threadId: 'thread-1' });
+    const second = makePlacement({ groupId: group.id, rank: 'a1', threadId: 'thread-2' });
+    const view = buildThreadListSections({
+      groupBy: 'custom-groups',
+      groups: [group],
+      placements: [
+        { ...first, flatRank: 'z1' },
+        { ...second, flatRank: 'z0' },
+      ],
+      sortBy: 'custom',
+      threads: [makeThread({ id: 'thread-1' }), makeThread({ id: 'thread-2' })],
+    });
+
+    expect(view.kind).toBe('grouped');
+    if (view.kind !== 'grouped') {
+      return;
+    }
+    expect(view.sections[0]?.threads.map((thread) => thread.id)).toEqual(['thread-1', 'thread-2']);
   });
 });

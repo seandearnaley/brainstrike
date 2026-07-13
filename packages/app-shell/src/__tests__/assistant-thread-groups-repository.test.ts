@@ -32,6 +32,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     expect(group.rank).toBe('a0');
     expect(group.resourceId).toBe('workspace-a');
     expect(group.id).toMatch(/^thread-group-/);
+    expect(group.color).toBeNull();
     const [sql, params] = db.query.mock.calls[0] ?? [];
     expect(String(sql)).toContain('INSERT INTO brainstrike_assistant_thread_groups');
     expect(params).toEqual([group.id, 'workspace-a', 'Research', 'a0']);
@@ -62,8 +63,20 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
       if (sql.includes('FROM brainstrike_assistant_thread_groups')) {
         return {
           rows: [
-            { id: 'thread-group-1', name: 'Research', rank: 'a0', resourceId: 'workspace-a' },
-            { id: 'thread-group-2', name: 'Bugs', rank: 'a1', resourceId: 'workspace-a' },
+            {
+              color: 'rose',
+              id: 'thread-group-1',
+              name: 'Research',
+              rank: 'a0',
+              resourceId: 'workspace-a',
+            },
+            {
+              color: null,
+              id: 'thread-group-2',
+              name: 'Bugs',
+              rank: 'a1',
+              resourceId: 'workspace-a',
+            },
           ],
         };
       }
@@ -74,8 +87,20 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     const groups = await repository.listGroups('workspace-a');
 
     expect(groups).toEqual([
-      { id: 'thread-group-1', name: 'Research', rank: 'a0', resourceId: 'workspace-a' },
-      { id: 'thread-group-2', name: 'Bugs', rank: 'a1', resourceId: 'workspace-a' },
+      {
+        color: 'rose',
+        id: 'thread-group-1',
+        name: 'Research',
+        rank: 'a0',
+        resourceId: 'workspace-a',
+      },
+      {
+        color: null,
+        id: 'thread-group-2',
+        name: 'Bugs',
+        rank: 'a1',
+        resourceId: 'workspace-a',
+      },
     ]);
     const [sql] = db.query.mock.calls[0] ?? [];
     expect(String(sql)).toContain('ORDER BY rank');
@@ -84,7 +109,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
   it('throws on a malformed group row instead of coercing', async () => {
     const db = createMockDb();
     db.query.mockResolvedValue({
-      rows: [{ id: 42, name: 'Research', rank: 'a0', resourceId: 'workspace-a' }],
+      rows: [{ color: null, id: 42, name: 'Research', rank: 'a0', resourceId: 'workspace-a' }],
     });
     const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
 
@@ -103,6 +128,26 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
 
     await expect(repository.renameGroup('thread-group-1', '  ')).rejects.toThrow(
       'Thread group name is required.'
+    );
+  });
+
+  it('sets and clears a validated group color', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await repository.setGroupColor('thread-group-1', 'violet');
+    await repository.setGroupColor('thread-group-1', null);
+
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining('SET color'), [
+      'thread-group-1',
+      'violet',
+    ]);
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining('SET color'), [
+      'thread-group-1',
+      null,
+    ]);
+    await expect(repository.setGroupColor('thread-group-1', 'magenta' as never)).rejects.toThrow(
+      'Invalid thread group color.'
     );
   });
 
@@ -134,6 +179,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
 
     await repository.setThreadPlacement({
+      flatRank: null,
       groupId: 'thread-group-1',
       rank: 'a0',
       resourceId: 'workspace-a',
@@ -143,7 +189,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     const [sql, params] = db.query.mock.calls[0] ?? [];
     expect(String(sql)).toContain('INSERT INTO brainstrike_assistant_thread_placements');
     expect(String(sql)).toContain('ON CONFLICT (thread_id) DO UPDATE');
-    expect(params).toEqual(['thread-1', 'workspace-a', 'thread-group-1', 'a0']);
+    expect(params).toEqual(['thread-1', 'workspace-a', 'thread-group-1', 'a0', null]);
   });
 
   it('accepts a null group id for a manually ranked ungrouped thread', async () => {
@@ -151,6 +197,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
 
     await repository.setThreadPlacement({
+      flatRank: null,
       groupId: null,
       rank: 'a1',
       resourceId: 'workspace-a',
@@ -158,7 +205,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     });
 
     const [, params] = db.query.mock.calls[0] ?? [];
-    expect(params).toEqual(['thread-1', 'workspace-a', null, 'a1']);
+    expect(params).toEqual(['thread-1', 'workspace-a', null, 'a1', null]);
   });
 
   it('rejects a placement with an empty rank', async () => {
@@ -167,6 +214,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
 
     await expect(
       repository.setThreadPlacement({
+        flatRank: null,
         groupId: null,
         rank: ' ',
         resourceId: 'workspace-a',
@@ -179,8 +227,20 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     const db = createMockDb();
     db.query.mockResolvedValue({
       rows: [
-        { groupId: 'thread-group-1', rank: 'a0', resourceId: 'workspace-a', threadId: 'thread-1' },
-        { groupId: null, rank: 'a1', resourceId: 'workspace-a', threadId: 'thread-2' },
+        {
+          flatRank: 'b0',
+          groupId: 'thread-group-1',
+          rank: 'a0',
+          resourceId: 'workspace-a',
+          threadId: 'thread-1',
+        },
+        {
+          flatRank: null,
+          groupId: null,
+          rank: 'a1',
+          resourceId: 'workspace-a',
+          threadId: 'thread-2',
+        },
       ],
     });
     const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
@@ -188,8 +248,20 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     const placements = await repository.listPlacements('workspace-a');
 
     expect(placements).toEqual([
-      { groupId: 'thread-group-1', rank: 'a0', resourceId: 'workspace-a', threadId: 'thread-1' },
-      { groupId: null, rank: 'a1', resourceId: 'workspace-a', threadId: 'thread-2' },
+      {
+        flatRank: 'b0',
+        groupId: 'thread-group-1',
+        rank: 'a0',
+        resourceId: 'workspace-a',
+        threadId: 'thread-1',
+      },
+      {
+        flatRank: null,
+        groupId: null,
+        rank: 'a1',
+        resourceId: 'workspace-a',
+        threadId: 'thread-2',
+      },
     ]);
   });
 
@@ -211,25 +283,39 @@ describe('batch writes are single atomic statements', () => {
     const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
 
     await repository.setThreadPlacements([
-      { groupId: 'thread-group-1', rank: 'a0', resourceId: 'workspace-a', threadId: 'thread-1' },
-      { groupId: null, rank: 'a1', resourceId: 'workspace-a', threadId: 'thread-2' },
+      {
+        flatRank: 'b0',
+        groupId: 'thread-group-1',
+        rank: 'a0',
+        resourceId: 'workspace-a',
+        threadId: 'thread-1',
+      },
+      {
+        flatRank: null,
+        groupId: null,
+        rank: 'a1',
+        resourceId: 'workspace-a',
+        threadId: 'thread-2',
+      },
     ]);
 
     expect(db.query).toHaveBeenCalledTimes(1);
     const [sql, params] = db.query.mock.calls[0] ?? [];
     expect(String(sql)).toContain('INSERT INTO brainstrike_assistant_thread_placements');
     expect(String(sql)).toContain('ON CONFLICT (thread_id) DO UPDATE');
-    expect(String(sql)).toContain('($1, $2, $3, $4)');
-    expect(String(sql)).toContain('($5, $6, $7, $8)');
+    expect(String(sql)).toContain('($1, $2, $3, $4, $5)');
+    expect(String(sql)).toContain('($6, $7, $8, $9, $10)');
     expect(params).toEqual([
       'thread-1',
       'workspace-a',
       'thread-group-1',
       'a0',
+      'b0',
       'thread-2',
       'workspace-a',
       null,
       'a1',
+      null,
     ]);
   });
 
@@ -248,7 +334,13 @@ describe('batch writes are single atomic statements', () => {
 
     await expect(
       repository.setThreadPlacements([
-        { groupId: null, rank: ' ', resourceId: 'workspace-a', threadId: 'thread-1' },
+        {
+          flatRank: null,
+          groupId: null,
+          rank: ' ',
+          resourceId: 'workspace-a',
+          threadId: 'thread-1',
+        },
       ])
     ).rejects.toThrow('Thread placement rank is required.');
     expect(db.query).not.toHaveBeenCalled();
