@@ -8,6 +8,17 @@ interface ChunkingHostStatus {
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 }
 
+interface ParserRoutingProbe {
+  languages: unknown;
+  parseProbe: {
+    error?: string;
+    ok: boolean;
+    root?: { type?: string };
+  } | null;
+  parserFlag: string | null;
+  parseType: string;
+}
+
 interface SentenceChunkFileRequest {
   content: string;
   fileName: string;
@@ -37,6 +48,51 @@ async function chunkSentenceFile(
             chunks: unknown[];
             skipped?: boolean;
             skipReason?: string;
+          }>;
+        };
+      }
+    ).chunkingHost;
+    if (!api?.chunkFile) {
+      throw new Error('Chunking host bridge is not available');
+    }
+    return api.chunkFile(chunkRequest);
+  }, request);
+}
+
+interface CodeChunkFileRequest {
+  content: string;
+  fileName: string;
+  filePath: string;
+  fileRecordId: string;
+  kind: 'chunk-file';
+  options: {
+    forceStrategy: boolean;
+    maxTokens: number;
+    // Must be `requestedStrategy` (not `strategy`): the chunk-file IPC
+    // validator (assertChunkingRequestOptions in chunking-host-shared.ts)
+    // only reads `requestedStrategy`. 'recursive' + a code extension is what
+    // drives the worker's chunkCode() → splitCodeByFunctions() AST path.
+    requestedStrategy: 'recursive';
+  };
+  requestId: string;
+}
+
+async function chunkCodeFile(
+  page: Page,
+  request: CodeChunkFileRequest
+): Promise<{
+  chunks: Array<{ content: string }>;
+  skipped: boolean;
+  strategyUsed: string;
+}> {
+  return await page.evaluate((chunkRequest) => {
+    const api = (
+      globalThis.window as Window & {
+        chunkingHost?: {
+          chunkFile?: (request: CodeChunkFileRequest) => Promise<{
+            chunks: Array<{ content: string }>;
+            skipped: boolean;
+            strategyUsed: string;
           }>;
         };
       }
@@ -377,6 +433,163 @@ test.describe('Chunking Host Renderer', () => {
     await assertVisibleWindowResponsive(window);
     const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
     expect(finalTimeOrigin).toBe(initialTimeOrigin);
+  });
+
+  test('@desktop-runtime-hosts chunking host engages the native oxc parser and tree-sitter routing', async ({
+    electronApp,
+    window,
+  }) => {
+    await waitForAppReadyInTest(window);
+
+    await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            ensureStarted?: () => Promise<ChunkingHostStatus>;
+          };
+        }
+      ).chunkingHost;
+      if (!api?.ensureStarted) {
+        throw new Error('Chunking host bridge is not available');
+      }
+      await api.ensureStarted();
+    });
+
+    await expect
+      .poll(async () => {
+        const status = await getChunkingHostStatus(window);
+        return status.state;
+      })
+      .toBe('running');
+
+    const probe = await electronApp.app.evaluate(async ({ BrowserWindow }) => {
+      const hostWindow = BrowserWindow.getAllWindows().find((candidate) =>
+        candidate.webContents.getURL().includes('mode=chunking-host')
+      );
+      if (!hostWindow) {
+        throw new Error('Chunking host window was not found');
+      }
+      // Runs in the chunking-host renderer's main world — the same realm the
+      // bootstrap in renderer/main.tsx writes to and buildInitMessage reads
+      // from before forwarding to the chunking worker.
+      return (await hostWindow.webContents.executeJavaScript(`(async () => {
+        const bridge = globalThis.parserHost;
+        const parseType = typeof (bridge && bridge.parse);
+        const flag = globalThis.__BRAINSTRIKE_PARSER_FLAG__;
+        const languages = globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__;
+        let parseProbe = null;
+        if (parseType === 'function') {
+          parseProbe = await bridge.parse({
+            content: 'const answer: number = 42;',
+            options: { errorRecovery: false, jsx: false, language: 'typescript' },
+            requestId: crypto.randomUUID(),
+          });
+        }
+        return {
+          languages: Array.isArray(languages) ? Array.from(languages) : (languages ?? null),
+          parseProbe,
+          parseType,
+          parserFlag: flag ?? null,
+        };
+      })()`)) as ParserRoutingProbe;
+    });
+
+    // A missing preload bridge would make buildInitMessage keep the worker on
+    // its 'browser' default, silently downgrading desktop chunking to Babel.
+    expect(probe.parseType).toBe('function');
+
+    // Tree-sitter rollout default (#998 Phase 8): python enabled in the host.
+    // Source of truth for this default is DEFAULT_ENABLED_LANGUAGES in
+    // packages/chunking-worker/src/parsers/tree-sitter-rollout.ts (which is in
+    // turn constrained to RECOGNIZED_TREE_SITTER_LANGUAGES in
+    // packages/chunking-worker/src/parsers/environment.ts). Keep this literal
+    // in sync when that rollout default changes.
+    expect(probe.languages).toEqual(['python']);
+
+    // The production host URL must not carry a stray kill switch.
+    expect([null, 'auto']).toContain(probe.parserFlag);
+
+    // The bridge round-trips through main IPC to the native oxc utility
+    // process — proves the packaged binary actually parses.
+    expect(
+      probe.parseProbe?.ok,
+      `oxc parse probe failed: ${probe.parseProbe?.error ?? 'no response'}`
+    ).toBe(true);
+    expect(probe.parseProbe?.root?.type).toBe('Program');
+
+    // ── Runtime route coverage (PR #1641 review, chatgpt-codex P2) ────────
+    // The probe above only proves preload → main IPC → utility-process
+    // parsing. It does NOT prove the chunking *worker* routes through that
+    // path. If buildInitMessage stopped forwarding parserEnv, or the
+    // worker→renderer `parser-host:invoke` bridge broke, production chunking
+    // would silently downgrade JS/TS to in-worker Babel while the probe still
+    // passed. The drive below pushes a real chunkFile through the hidden
+    // host's Web Worker so selectAdapter() actually runs and routes to oxc.
+
+    // oxc route — a .ts file with several top-level functions. This is the
+    // FIRST code parse in the worker's session (the preceding tests chunk only
+    // .txt via the 'sentence'/'character' TEXT strategies, which never reach
+    // selectAdapter), so the worker's one-shot first-parse audit reports the
+    // adapter that actually handled it.
+    const tsResult = await chunkCodeFile(window, {
+      content: [
+        'export function alpha(): number {',
+        '  return 1;',
+        '}',
+        '',
+        'export function bravo(): number {',
+        '  return 2;',
+        '}',
+        '',
+        'export function charlie(): number {',
+        '  return 3;',
+        '}',
+        '',
+      ].join('\n'),
+      fileName: 'route-probe.ts',
+      filePath: '/tmp/route-probe.ts',
+      fileRecordId: 'chunking-host-oxc-route',
+      kind: 'chunk-file',
+      options: { forceStrategy: true, maxTokens: 2048, requestedStrategy: 'recursive' },
+      requestId: crypto.randomUUID(),
+    });
+
+    expect(tsResult.skipped).toBe(false);
+    expect(tsResult.strategyUsed).toBe('recursive');
+    // AST chunking emits one chunk per top-level function. A broken
+    // parser-host bridge would make oxc fail, and splitCodeByFunctions would
+    // fall back to recursive TEXT splitting — which packs this sub-maxChars
+    // file into a single chunk. So >1 proves the AST path ran.
+    expect(tsResult.chunks.length).toBeGreaterThan(1);
+
+    // The worker's first-parse audit is posted as a WorkerLog, forwarded
+    // through the host renderer's log stream into the main buffered logs, and
+    // names the adapter that ran. It reads "oxc-native" ONLY when
+    // buildInitMessage set parserEnv=electron-chunking-host AND the
+    // parser-host:invoke bridge round-tripped to the native oxc utility
+    // process. If parserEnv were unset the worker would keep its 'browser'
+    // default and the audit would name "babel" instead — so this assertion
+    // distinguishes the oxc IPC route from a silent Babel downgrade.
+    await expect
+      .poll(async () => {
+        const logs = await getMainBufferedLogs(window);
+        return logs.some(
+          (record) =>
+            typeof record.message === 'string' &&
+            record.message.includes('first parse succeeded using adapter "oxc-native"')
+        );
+      })
+      .toBe(true);
+
+    // NOTE on tree-sitter (Python): the direct probe above asserts the host
+    // renderer's __BRAINSTRIKE_TREE_SITTER_LANGUAGES__ default is ['python'],
+    // and buildInitMessage forwards that into the worker realm (verified: a
+    // .py chunkFile drive reaches selectAdapter's tree-sitter branch). A
+    // worker-driven assertion on the *result* is intentionally omitted here
+    // because tree-sitter Python currently throws at parse time in the
+    // packaged desktop worker and falls back to recursive splitting — a real
+    // runtime bug tracked separately, not something this routing test should
+    // encode as expected behavior.
   });
 
   test('supports accurate token sizing in the hidden chunking host without crashing the visible window', async ({
