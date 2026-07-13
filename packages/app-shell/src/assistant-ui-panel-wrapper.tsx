@@ -44,6 +44,8 @@ import {
   AssistantUiPanel,
   EditCheckpointProvider,
   hasDesktopLlmHost,
+  type ToolApprovalGrantHandlers,
+  ToolApprovalGrantProvider,
   useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -924,6 +926,9 @@ export function AssistantUiPanelWrapper({
     focusedRootId: currentFolderId,
     memoryResourceId,
     modelSettings,
+    // Only the desktop data-stream server runs the runtime permission gate;
+    // mirrors the `permissionPolicyRequest` useMemo transport gate above.
+    permissionEnforceable: localChatTransport === 'data-stream',
     planModeAvailable,
     providerOptions,
     requestData,
@@ -1428,57 +1433,73 @@ export function AssistantUiPanelWrapper({
     [onRunFailed, refetchCheckpoints]
   );
 
+  // Grant actions for the tool-approval notice ("Always allow" / "Allow
+  // <category> this session"). Store-backed and stable: the wrapper already
+  // subscribes to perToolOverrides/sessionGrants for the request snapshot, so a
+  // grant recorded here reaches the very next request without extra plumbing.
+  const toolApprovalGrants = useMemo<ToolApprovalGrantHandlers>(
+    () => ({
+      grantCategoryForSession: (category) =>
+        usePermissionPolicyStore.getState().grantSessionCategory(category),
+      grantToolAlways: (toolId) =>
+        usePermissionPolicyStore.getState().setToolOverride(toolId, 'allow'),
+    }),
+    []
+  );
+
   return (
-    <EditCheckpointProvider value={editCheckpoints}>
-      <AssistantUiPanel
-        {...(composerDraftCommand ? { composerDraftCommand } : {})}
-        completePreparedRequest={completePreparedRequest}
-        contextWindow={selectedModelBudgetDef?.contextWindow}
-        {...(cumulativeUsage ? { cumulativeUsage } : {})}
-        effectiveInputBudget={effectiveInputBudget}
-        omSegment={omSegment}
-        {...(selectedMemoryThreadId
-          ? {
-              onComposerDraftCommandApplied: handleComposerCommandApplied,
-              onComposerTextChange: handleComposerTextChange,
-            }
-          : {})}
-        onProviderSettingsChange={handleProviderSettingsChange}
-        onRunFailed={handleRunFailed}
-        onRunFinished={handleRunFinished}
-        onStreamActivity={renewActiveAssistantForegroundActivity}
-        onToolApprovalRequired={onToolApprovalRequired}
-        onUsage={handleUsage}
-        pickerModels={pickerModels}
-        pickerProviders={pickerProviders}
-        prepareRequestData={prepareRequestData}
-        providerGroups={providerGroups}
-        providerSettings={effectiveProviderSettings}
-        requestData={requestData}
-        slashCommands={slashCommands}
-        {...(desktopAssistantBackendAvailable
-          ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
-          : {})}
-        toolMenu={toolMenu}
-        {...(historyAdapter ? { historyAdapter } : {})}
-        {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-        localChatTransport={localChatTransport}
-        {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
-        {...(selectedProvider ? { selectedProvider } : {})}
-        {...(currentModel ? { selectedModel: currentModel } : {})}
-        disabled={!isProviderReady || Boolean(memoryDisabledReason)}
-        onModelChange={handleModelChange}
-        onModelToggle={handleModelToggle}
-        {...(disabledReason ? { disabledReason } : {})}
-        {...(planModeAvailable
-          ? {
-              onExitPlanMode: exitPlanMode,
-              onTogglePlanMode: togglePlanMode,
-              planModeEnabled: planModeEnabledPref,
-            }
-          : {})}
-      />
-    </EditCheckpointProvider>
+    <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
+      <EditCheckpointProvider value={editCheckpoints}>
+        <AssistantUiPanel
+          {...(composerDraftCommand ? { composerDraftCommand } : {})}
+          completePreparedRequest={completePreparedRequest}
+          contextWindow={selectedModelBudgetDef?.contextWindow}
+          {...(cumulativeUsage ? { cumulativeUsage } : {})}
+          effectiveInputBudget={effectiveInputBudget}
+          omSegment={omSegment}
+          {...(selectedMemoryThreadId
+            ? {
+                onComposerDraftCommandApplied: handleComposerCommandApplied,
+                onComposerTextChange: handleComposerTextChange,
+              }
+            : {})}
+          onProviderSettingsChange={handleProviderSettingsChange}
+          onRunFailed={handleRunFailed}
+          onRunFinished={handleRunFinished}
+          onStreamActivity={renewActiveAssistantForegroundActivity}
+          onToolApprovalRequired={onToolApprovalRequired}
+          onUsage={handleUsage}
+          pickerModels={pickerModels}
+          pickerProviders={pickerProviders}
+          prepareRequestData={prepareRequestData}
+          providerGroups={providerGroups}
+          providerSettings={effectiveProviderSettings}
+          requestData={requestData}
+          slashCommands={slashCommands}
+          {...(desktopAssistantBackendAvailable
+            ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+            : {})}
+          toolMenu={toolMenu}
+          {...(historyAdapter ? { historyAdapter } : {})}
+          {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+          localChatTransport={localChatTransport}
+          {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
+          {...(selectedProvider ? { selectedProvider } : {})}
+          {...(currentModel ? { selectedModel: currentModel } : {})}
+          disabled={!isProviderReady || Boolean(memoryDisabledReason)}
+          onModelChange={handleModelChange}
+          onModelToggle={handleModelToggle}
+          {...(disabledReason ? { disabledReason } : {})}
+          {...(planModeAvailable
+            ? {
+                onExitPlanMode: exitPlanMode,
+                onTogglePlanMode: togglePlanMode,
+                planModeEnabled: planModeEnabledPref,
+              }
+            : {})}
+        />
+      </EditCheckpointProvider>
+    </ToolApprovalGrantProvider>
   );
 }
 

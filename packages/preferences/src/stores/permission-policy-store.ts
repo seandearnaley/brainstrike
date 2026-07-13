@@ -83,6 +83,8 @@ interface PermissionPolicyActions {
   clearSessionGrants: () => void;
   /** Grant "always allow for this session" for a category. */
   grantSessionCategory: (category: ToolRiskCategory) => void;
+  /** Revoke a single session grant; the category falls back to its policy. */
+  revokeSessionCategory: (category: ToolRiskCategory) => void;
   /** Set the decision for a single risk category. */
   setCategoryPolicy: (category: ToolRiskCategory, decision: PermissionDecision) => void;
   /** Toggle the master OPT-IN enforcement switch. */
@@ -210,6 +212,15 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
           }
           const next = new Set(state.sessionGrants);
           next.add(category);
+          return { sessionGrants: next };
+        }),
+      revokeSessionCategory: (category) =>
+        set((state) => {
+          if (!state.sessionGrants.has(category)) {
+            return state;
+          }
+          const next = new Set(state.sessionGrants);
+          next.delete(category);
           return { sessionGrants: next };
         }),
       setCategoryPolicy: (category, decision) =>

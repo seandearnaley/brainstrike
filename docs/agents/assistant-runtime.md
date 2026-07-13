@@ -164,7 +164,20 @@ Flow (desktop assistant server → agent runtime):
 4. The approval UI + resume chain (`makeApprovalRequiredChunks` →
    `tool-approval-required` chunk → `DataStreamMapper.handleToolApprovalRequired`
    → `TOOL_APPROVAL_DATA_NAME` data part → `assistant-tool-approval-notice.tsx`)
-   prompts the user; approve→execute, decline→skip. The chunk carries an optional
+   prompts the user; approve→execute, decline→skip. Alongside Approve/Decline
+   the notice offers two GRANT actions when (a) a `ToolApprovalGrantProvider`
+   is mounted above it (app-shell wraps the panel, same outside-in pattern as
+   `EditCheckpointProvider`; no provider → no buttons, capability gating) and
+   (b) the approval carries a valid `riskCategory` (policy-driven ask —
+   non-policy pauses never over-promise a grant): "Always allow <tool>" →
+   `setToolOverride(toolId,'allow')` (persisted), "Allow <category> this
+   session" → `grantSessionCategory` (session-lived). Both record the grant
+   FIRST, then approve the pending call through the normal resume — the grant
+   affects the NEXT request via the wrapper's reactive store subscription; the
+   pending call still resolves through `streamMastraToolApprovalAction`.
+   Management surface: Settings > Permissions lists per-tool overrides
+   (change decision / remove via `setToolOverride(id,null)`) and active
+   session grants (revoke via `revokeSessionCategory`). The chunk carries an optional
    `riskCategory`/`policyDecision` so the notice can name the reason. The
    data-stream mapper correlates Mastra's transient tool error emitted before a
    deliberate `suspend()` and suppresses only that call's false failure fallback;
