@@ -2674,6 +2674,54 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ]);
   });
 
+  it('replays the first regenerated response in a legacy thread as an assistant sibling', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-legacy-regeneration');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await repository.recordMessageParent?.({
+      messageId: 'assistant-regenerated',
+      parentId: 'user-reused',
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    });
+
+    const rows = [
+      ['user-reused', 'Original prompt', 'user', '2026-07-13T10:00:00Z'],
+      ['assistant-original', 'Original response', 'assistant', '2026-07-13T10:00:01Z'],
+      ['assistant-regenerated', 'Regenerated response', 'assistant', '2026-07-13T10:00:03Z'],
+    ] as const;
+    for (const [id, text, role, createdAt] of rows) {
+      await db.query(
+        `INSERT INTO mastra_messages
+          (id, thread_id, content, role, type, "createdAt", "resourceId")
+         VALUES ($1, $2, $3::jsonb, $4, 'v2', $5, $6)`,
+        [
+          id,
+          thread.id,
+          JSON.stringify({ content: text, format: 2, parts: [{ text, type: 'text' }] }),
+          role,
+          new Date(createdAt),
+          'workspace-a',
+        ]
+      );
+    }
+
+    const history = await createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    }).load();
+
+    expect(history.headId).toBe('assistant-regenerated');
+    expect(history.messages.map((item) => [item.message.id, item.parentId])).toEqual([
+      ['user-reused', null],
+      ['assistant-original', 'user-reused'],
+      ['assistant-regenerated', 'user-reused'],
+    ]);
+  });
+
   it('deletes messages and cascades thread runs and run events in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-cascade');
     const db = await wasmLoader.createPGlite(pgliteDataDir);

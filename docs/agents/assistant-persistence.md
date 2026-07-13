@@ -62,9 +62,10 @@ contracts keep reloaded threads identical to live ones:
    chronological fallback. The bounded 80-row hydration window is always a
    closed graph: retained messages whose parent fell outside the window are
    explicitly re-rooted. Hydration then performs a stable parent-first graph
-   traversal because Mastra regeneration can update a reused user row's
-   `createdAt` after its original assistant child; assistant-ui therefore never
-   imports a dangling or not-yet-imported parent.
+   traversal so assistant-ui never imports a dangling or not-yet-imported
+   parent. Mastra message creation time is immutable on same-id saves: a
+   regeneration reuses its parent user id, and moving that legacy row later
+   would invert pre-topology history.
    Conflicting edges for the same message id throw — branch corruption is never
    silently rewritten. Factory reset clears the companion table explicitly.
    The UI transport preserves each assistant-ui user message id through the
@@ -77,8 +78,9 @@ contracts keep reloaded threads identical to live ones:
    UUID. If observational-memory sealing creates additional snapshot rows,
    hydration keeps the topology-bearing row's id for the combined assistant-ui
    message. A new topology-bearing assistant id always starts a new hydration
-   group, so consecutive regenerated responses remain carousel siblings rather
-   than being mistaken for snapshots of one response.
+   group, including after an open legacy group, so consecutive regenerated
+   responses remain carousel siblings rather than being mistaken for snapshots
+   of one response.
    This end-to-end identity alignment is what lets a later edited prompt point
    to its durable assistant parent without correlation heuristics.
 

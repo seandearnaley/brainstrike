@@ -1456,7 +1456,7 @@ function buildHistoryUnits(
       const topologyMessageId = message.parentId === undefined ? undefined : message.id;
       if (
         topologyMessageId !== undefined &&
-        openGroup?.topologyMessageId !== undefined &&
+        openGroup !== null &&
         openGroup.topologyMessageId !== topologyMessageId
       ) {
         closeOpenGroup();
