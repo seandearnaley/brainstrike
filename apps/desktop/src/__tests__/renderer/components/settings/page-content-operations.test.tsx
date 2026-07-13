@@ -144,6 +144,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     id: 'factory-reset',
     title: 'Factory Reset',
   })),
+  createSubagentPersonasSettingsCategory: () => ({
+    content: <div data-testid="subagents-category" />,
+    id: 'subagents',
+    title: 'Subagents',
+  }),
   createHooksSettingsCategory: createHooksSettingsCategoryMock.mockImplementation(() => ({
     content: <div data-testid="hooks-category" />,
     id: 'hooks',
