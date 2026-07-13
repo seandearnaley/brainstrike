@@ -82,6 +82,30 @@ interface UseAssistantRequestLifecycleResult {
   readonly renewActiveAssistantForegroundActivity: () => void;
 }
 
+/**
+ * Overlay the LIVE workspace-index status onto the render-captured value at
+ * request-composition time. The wrapper intentionally does NOT live-subscribe
+ * to per-file indexing progress (that re-rendered the whole assistant panel per
+ * processed file during initial indexing), so the render-captured status fields
+ * can be thousands of progress patches stale by send time. The preference-shaped
+ * fields (enabled/mode/paused/embeddingSetId) stay from the render — the wrapper
+ * still subscribes to those (they change rarely). Returns undefined when the
+ * request carries no workspace-index object (nothing to refresh).
+ */
+function resolveFreshWorkspaceIndex(captured: unknown): Record<string, unknown> | undefined {
+  if (!(captured && typeof captured === 'object' && !Array.isArray(captured))) {
+    return;
+  }
+  const sync = useWorkspaceCollectionSyncStatusStore.getState();
+  return {
+    ...(captured as Record<string, unknown>),
+    blockedReason: sync.blockedReason,
+    lastError: sync.lastError,
+    queueProgress: sync.queueProgress,
+    statusState: sync.state,
+  };
+}
+
 export function useAssistantRequestLifecycle({
   assistantThreadRepository,
   focusedRootId,
@@ -195,30 +219,7 @@ export function useAssistantRequestLifecycle({
     const freshPlanModeEnabled =
       planModeAvailable && useAssistantPreferencesStore.getState().planModeEnabled;
 
-    // Same fresh-read rationale as plan mode above, for the workspace-index
-    // status: the wrapper intentionally does NOT live-subscribe to per-file
-    // indexing progress (that re-rendered the whole assistant panel per
-    // processed file during initial indexing), so the render-captured
-    // `requestData.workspaceIndex` status fields can be thousands of progress
-    // patches stale by send time. Re-read them from the store here; the
-    // preference-shaped fields (enabled/mode/paused/embeddingSetId) stay from
-    // the render — the wrapper still subscribes to those (they change rarely).
-    const capturedWorkspaceIndex = requestData['workspaceIndex'];
-    let freshWorkspaceIndex: Record<string, unknown> | undefined;
-    if (
-      capturedWorkspaceIndex &&
-      typeof capturedWorkspaceIndex === 'object' &&
-      !Array.isArray(capturedWorkspaceIndex)
-    ) {
-      const sync = useWorkspaceCollectionSyncStatusStore.getState();
-      freshWorkspaceIndex = {
-        ...capturedWorkspaceIndex,
-        blockedReason: sync.blockedReason,
-        lastError: sync.lastError,
-        queueProgress: sync.queueProgress,
-        statusState: sync.state,
-      };
-    }
+    const freshWorkspaceIndex = resolveFreshWorkspaceIndex(requestData['workspaceIndex']);
 
     // Same fresh-read rationale as `planMode` above, for permission enforcement.
     // A grant action on the approval notice ("Always allow" / "Allow <category>
