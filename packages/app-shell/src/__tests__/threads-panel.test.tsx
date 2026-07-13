@@ -9,6 +9,27 @@ import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store'
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { ThreadsPanel } from '../threads-panel';
 
+const virtualizerState = vi.hoisted(() => ({ windowSize: Number.POSITIVE_INFINITY }));
+
+// TreeTable's real virtualizer depends on layout measurements that JSDOM does
+// not provide. Render its complete disclosed row model here; a dedicated
+// virtualization test covers the bounded mounted-window contract.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: vi.fn(({ count }: { count: number }) => ({
+    getTotalSize: () => count * 40,
+    getVirtualItems: () =>
+      Array.from({ length: Math.min(count, virtualizerState.windowSize) }, (_, index) => ({
+        end: (index + 1) * 40,
+        index,
+        key: `thread-row-${index}`,
+        size: 40,
+        start: index * 40,
+      })),
+    measureElement: vi.fn(),
+    scrollToIndex: vi.fn(),
+  })),
+}));
+
 const { dbMocks, fileExplorerMocks, groupRows, mockDb, placementRows, threadRows } = vi.hoisted(
   () => ({
     dbMocks: {
@@ -72,6 +93,7 @@ function renderThreadsPanel(): ReturnType<typeof createTestActionRegistry> {
 }
 
 beforeEach(() => {
+  virtualizerState.windowSize = Number.POSITIVE_INFINITY;
   fileExplorerMocks.rootDirectoryHandle = {
     name: 'workspace-a',
     path: '/tmp/workspace-a',
@@ -117,6 +139,31 @@ beforeEach(() => {
   mockDb.exec.mockClear();
   mockDb.query.mockClear();
   mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+    if (sql.includes('deleted_threads AS')) {
+      const threadIds = (params ?? []).map(String);
+      if (threadIds.some((threadId) => dbMocks.deleteFailureThreadId === threadId)) {
+        throw new Error('Bulk delete failed in PGlite.');
+      }
+      for (let index = threadRows.length - 1; index >= 0; index -= 1) {
+        if (threadIds.includes(String(threadRows[index]?.['id']))) {
+          threadRows.splice(index, 1);
+        }
+      }
+      return { rows: [{ allFound: true }] };
+    }
+    if (sql.includes('updated_threads AS')) {
+      const threadIds = (params ?? []).slice(0, -1).map(String);
+      const metadata = parseMetadataObject(params?.at(-1));
+      for (const row of threadRows) {
+        if (threadIds.includes(String(row['id']))) {
+          row['metadata'] = JSON.stringify({
+            ...parseMetadataObject(row['metadata']),
+            ...metadata,
+          });
+        }
+      }
+      return { rows: [{ allFound: true }] };
+    }
     if (sql.includes('INSERT INTO mastra_threads')) {
       threadRows.unshift({
         createdAt: params?.[4],
@@ -168,6 +215,9 @@ beforeEach(() => {
         if (sql.includes('SET rank')) {
           row['rank'] = String(params?.[1]);
         }
+        if (sql.includes('SET color')) {
+          row['color'] = params?.[1] ?? null;
+        }
       }
       return { rows: [] };
     }
@@ -205,9 +255,11 @@ beforeEach(() => {
       return { rows: [] };
     }
     if (sql.includes('DELETE FROM brainstrike_assistant_thread_placements WHERE thread_id')) {
-      const index = placementRows.findIndex((row) => row['threadId'] === String(params?.[0]));
-      if (index >= 0) {
-        placementRows.splice(index, 1);
+      const threadIds = (params ?? []).map(String);
+      for (let index = placementRows.length - 1; index >= 0; index -= 1) {
+        if (threadIds.includes(String(placementRows[index]?.['threadId']))) {
+          placementRows.splice(index, 1);
+        }
       }
       return { rows: [] };
     }
@@ -247,6 +299,118 @@ beforeEach(() => {
 });
 
 describe('ThreadsPanel', () => {
+  it('renders the disclosed collection through the shared virtual treegrid scroll owner', async () => {
+    renderThreadsPanel();
+
+    const treegrid = await screen.findByRole('treegrid', { name: 'Workspace threads' });
+    expect(treegrid).toHaveAttribute('aria-multiselectable', 'true');
+    expect(treegrid.querySelector('thead')).toBeNull();
+
+    const viewport = treegrid.parentElement;
+    expect(viewport).toHaveClass('overflow-auto');
+    expect(viewport?.parentElement?.parentElement).not.toHaveClass('overflow-y-auto');
+    expect(screen.getByTestId('threads-panel')).toHaveClass('@container/threads');
+  });
+
+  it('mounts only the virtual window for a large disclosed collection', async () => {
+    virtualizerState.windowSize = 12;
+    useAssistantThreadGroupsStore.setState({ groupBy: 'none' });
+    for (let index = 0; index < 100; index += 1) {
+      threadRows.push({
+        createdAt: new Date('2026-04-20T09:00:00Z'),
+        id: `thread-window-${index}`,
+        metadata: null,
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        title: `Window thread ${index}`,
+        updatedAt: new Date('2026-04-20T09:00:00Z'),
+      });
+    }
+
+    renderThreadsPanel();
+
+    const treegrid = await screen.findByRole('treegrid', { name: 'Workspace threads' });
+    expect(treegrid).toHaveAttribute('aria-rowcount', '51');
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(12);
+  });
+
+  it('discloses 50 more threads with the exact remaining count', async () => {
+    useAssistantThreadGroupsStore.setState({ groupBy: 'none' });
+    for (let index = 0; index < 50; index += 1) {
+      threadRows.push({
+        createdAt: new Date('2026-04-20T09:00:00Z'),
+        id: `thread-extra-${index}`,
+        metadata: null,
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        title: `Extra thread ${index}`,
+        updatedAt: new Date('2026-04-20T09:00:00Z'),
+      });
+    }
+
+    renderThreadsPanel();
+
+    expect(await screen.findByRole('button', { name: 'Show 2 more threads' })).toBeVisible();
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(50);
+    fireEvent.click(screen.getByRole('button', { name: 'Show 2 more threads' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(52);
+    });
+    expect(screen.queryByRole('button', { name: /Show .* more threads/ })).not.toBeInTheDocument();
+  });
+
+  it('selects only disclosed threads from the visible collection control and clears on Escape', async () => {
+    useAssistantThreadGroupsStore.setState({ groupBy: 'none' });
+    for (let index = 0; index < 50; index += 1) {
+      threadRows.push({
+        createdAt: new Date('2026-04-20T09:00:00Z'),
+        id: `thread-extra-${index}`,
+        metadata: null,
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        title: `Extra thread ${index}`,
+        updatedAt: new Date('2026-04-20T09:00:00Z'),
+      });
+    }
+
+    renderThreadsPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select 50 visible threads' }));
+    expect(screen.getByRole('toolbar', { name: 'Thread selection actions' })).toHaveTextContent(
+      '50 selected'
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(
+      screen.queryByRole('toolbar', { name: 'Thread selection actions' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers staged bulk color and delete actions while retaining selection on failure', async () => {
+    renderThreadsPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select 2 visible threads' }));
+    const toolbar = screen.getByRole('toolbar', { name: 'Thread selection actions' });
+    expect(within(toolbar).getByRole('button', { name: 'Move' })).toBeVisible();
+    expect(within(toolbar).getByRole('button', { name: 'Color' })).toBeVisible();
+    expect(within(toolbar).getByRole('button', { name: 'Delete' })).toBeVisible();
+
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Color' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Rose color for 2 threads' }));
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-color-rose')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select 2 visible threads' }));
+    dbMocks.deleteFailureThreadId = 'thread-b';
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(screen.getByText('Delete 2 selected threads?')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+
+    expect(await screen.findByText('Bulk delete failed in PGlite.')).toBeVisible();
+    expect(screen.getByRole('toolbar', { name: 'Thread selection actions' })).toHaveTextContent(
+      '2 selected'
+    );
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+  });
   it('loads workspace-global threads even when no folder is open', async () => {
     // Multi-root: assistant memory is workspace-global and usable with zero roots.
     // There is no "open a folder first" gate, and threads are keyed on a stable
@@ -665,10 +829,10 @@ describe('ThreadsPanel groups', () => {
 
     const section = await screen.findByTestId('thread-group-section');
     expect(within(section).getByText('Research')).toBeVisible();
-    expect(within(section).getByText('Second thread')).toBeVisible();
+    expect(screen.getByText('Second thread').closest('tr')).toHaveAttribute('data-depth', '1');
     const ungrouped = screen.getByTestId('threads-ungrouped-section');
     expect(within(ungrouped).getByText('Ungrouped')).toBeVisible();
-    expect(within(ungrouped).getByText('First thread')).toBeVisible();
+    expect(screen.getByText('First thread').closest('tr')).toHaveAttribute('data-depth', '1');
     const sectionOrder = Array.from(
       document.querySelectorAll(
         '[data-testid="thread-group-section"], [data-testid="threads-ungrouped-section"]'
@@ -677,13 +841,65 @@ describe('ThreadsPanel groups', () => {
     expect(sectionOrder).toEqual(['thread-group-section', 'threads-ungrouped-section']);
   });
 
+  it('uses a tri-state group checkbox to select undisclosed members', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a0');
+    for (let index = 0; index < 51; index += 1) {
+      const threadId = `thread-grouped-${index}`;
+      threadRows.push({
+        createdAt: new Date('2026-04-20T09:00:00Z'),
+        id: threadId,
+        metadata: null,
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        title: `Grouped thread ${index}`,
+        updatedAt: new Date('2026-04-20T09:00:00Z'),
+      });
+      seedPlacement(threadId, 'group-research', `b${String(index).padStart(2, '0')}`);
+    }
+
+    renderThreadsPanel();
+
+    const groupCheckbox = await screen.findByRole('checkbox', {
+      name: 'Select all 52 threads in Research',
+    });
+    expect(groupCheckbox).toHaveAttribute('data-state', 'unchecked');
+    fireEvent.click(groupCheckbox);
+
+    expect(groupCheckbox).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByRole('toolbar', { name: 'Thread selection actions' })).toHaveTextContent(
+      '52 selected'
+    );
+  });
+
+  it('assigns and clears a folder color through the durable group store', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+
+    renderThreadsPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customize group Research' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Rose color for Research' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('thread-group-color-rose')).toBeVisible();
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET color'), [
+      'group-research',
+      'rose',
+    ]);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear color for Research' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('thread-group-color-unassigned')).toBeVisible();
+    });
+  });
+
   it('makes the expanded group body a drop target so the empty hint works', async () => {
     seedGroup('group-research', 'Research', 'a0');
 
     renderThreadsPanel();
 
     const section = await screen.findByTestId('thread-group-section');
-    const hint = within(section).getByText('Drop threads here');
+    const hint = screen.getByText('Drop threads here');
     const bodyDropTarget = hint.closest('[data-drop-target-for-element="true"]');
     expect(bodyDropTarget).not.toBeNull();
     // The body target must be distinct from the header target so a drop on the
@@ -785,8 +1001,7 @@ describe('ThreadsPanel groups', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Move to Research' }));
 
     await waitFor(() => {
-      const section = screen.getByTestId('thread-group-section');
-      expect(within(section).getByText('First thread')).toBeVisible();
+      expect(screen.getByText('First thread').closest('tr')).toHaveAttribute('data-depth', '1');
     });
     expect(mockDb.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO brainstrike_assistant_thread_placements'),
@@ -805,8 +1020,7 @@ describe('ThreadsPanel groups', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove from Group' }));
 
     await waitFor(() => {
-      const ungrouped = screen.getByTestId('threads-ungrouped-section');
-      expect(within(ungrouped).getByText('Second thread')).toBeVisible();
+      expect(screen.getByText('Second thread').closest('tr')).toHaveAttribute('data-depth', '1');
     });
   });
 
