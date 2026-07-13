@@ -23,9 +23,13 @@ export default defineConfig({
     // Coverage stays OFF: model downloads are not a coverage signal and the
     // combined pure+integration `test:coverage` lane owns coverage.
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
-    // Re-include the model-download suffix that the base config excludes, and
-    // drop that exclusion here so these files actually run in this lane.
-    exclude: ['**/node_modules/**', '**/dist/**'],
+    // Re-include the model-download suffix that the base config excludes:
+    // derive from the base exclude list (dropping only the models-suffix
+    // entry) so any future base exclusion is honored here automatically
+    // instead of silently drifting (review nit on #1629).
+    exclude: (baseTest.exclude ?? []).filter(
+      (pattern) => !pattern.includes('*.models.test.')
+    ),
     include: ['**/*.models.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
   },
 });
