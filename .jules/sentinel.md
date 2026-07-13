@@ -38,3 +38,8 @@
 **Vulnerability:** Slash-command traversal applied its entry cap only after the native addon had synchronously materialized an entire untrusted directory in Electron main.
 **Learning:** A JavaScript traversal budget cannot bound work already performed across a native boundary; skipped symlinks and unsupported entries must also consume the native enumeration allowance.
 **Prevention:** Pass the remaining budget into native directory APIs, stop enumeration at that limit, and return both the raw inspected count and an explicit truncation signal for caller accounting and visible warnings.
+
+## 2026-07-13 - Log listeners must redact before buffering
+**Vulnerability:** In-app log listeners received raw structured arguments, so nested API keys and authorization values bypassed Pino transport serializers and entered desktop diagnostic buffers.
+**Learning:** Brainstrike's main and renderer log viewers consume listener records before transport serialization; Pino serializers do not protect that separate path.
+**Prevention:** Recursively redact sensitive keys before emitting listener records, and regression-test the listener payload rather than only transport output.

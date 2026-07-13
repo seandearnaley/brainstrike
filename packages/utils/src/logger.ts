@@ -625,6 +625,49 @@ function resolveLogRecordMessage(args: readonly unknown[]): string | undefined {
   return;
 }
 
+const SENSITIVE_LOG_KEY_FRAGMENTS = [
+  'apikey',
+  'authorization',
+  'cookie',
+  'password',
+  'secret',
+] as const;
+
+function isSensitiveLogKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (
+    SENSITIVE_LOG_KEY_FRAGMENTS.some((fragment) => normalized.includes(fragment)) ||
+    normalized === 'token' ||
+    normalized.endsWith('token')
+  );
+}
+
+function redactSensitiveLogValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+  const existing = seen.get(value);
+  if (existing !== undefined) {
+    return existing;
+  }
+  if (Array.isArray(value)) {
+    const redacted: unknown[] = [];
+    seen.set(value, redacted);
+    redacted.push(...value.map((entry) => redactSensitiveLogValue(entry, seen)));
+    return redacted;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return value;
+  }
+  const redacted: Record<string, unknown> = {};
+  seen.set(value, redacted);
+  for (const [key, entry] of Object.entries(value)) {
+    redacted[key] = isSensitiveLogKey(key) ? '[REDACTED]' : redactSensitiveLogValue(entry, seen);
+  }
+  return redacted;
+}
+
 function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonly unknown[]): void {
   if (logListeners.size === 0) {
     return;
@@ -632,7 +675,7 @@ function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonl
 
   const bindings = resolveBaseBindings(internalConfig, scope);
   const message = resolveLogRecordMessage(args);
-  const argsCopy = [...args];
+  const argsCopy = args.map((arg) => redactSensitiveLogValue(arg));
   const record: LogRecord = {
     args: argsCopy,
     bindings,

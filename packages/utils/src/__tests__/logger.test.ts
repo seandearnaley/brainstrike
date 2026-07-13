@@ -157,6 +157,33 @@ describe('logger', () => {
       expect(record?.bindings['scope']).toBe('DbProvider');
       expect(record?.message).toBe('initialising');
     });
+
+    it('redacts nested secrets before notifying log listeners', () => {
+      const [record] = collectLogs(() => {
+        info('configured provider', {
+          headers: { 'x-api-key': 'header-secret' },
+          provider: {
+            accessToken: 'access-secret',
+            apiKey: 'sk-secret',
+            authorization: 'Bearer secret',
+            tokenCount: 42,
+          },
+        });
+      });
+
+      expect(record?.args).toEqual([
+        'configured provider',
+        {
+          headers: { 'x-api-key': '[REDACTED]' },
+          provider: {
+            accessToken: '[REDACTED]',
+            apiKey: '[REDACTED]',
+            authorization: '[REDACTED]',
+            tokenCount: 42,
+          },
+        },
+      ]);
+    });
   });
 
   describe('listeners', () => {

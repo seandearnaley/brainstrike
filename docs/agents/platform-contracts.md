@@ -31,6 +31,8 @@ Scoped loggers:
 
 Sensitive data:
 - Auto-redacts: apiKey, password, token, secret, authorization, cookie
+- Log listeners receive recursively redacted plain objects before buffering or display;
+  transport serializers alone are not a sufficient boundary for in-app diagnostics.
 - Add more via redactPaths.
 
 Testing:
