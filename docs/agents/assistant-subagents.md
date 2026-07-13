@@ -103,7 +103,8 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   (tool-output-limits.ts) so an oversized delegation result trims structurally
   (truncated + hint) instead of a hard size error.
 - **Desktop wiring:** `apps/desktop/src/assistant-server.ts` sets
-  `runtime.personas = BUILT_IN_PERSONAS` unconditionally on the shared runtime
+  `runtime.personas` to the per-request RESOLVED set (built-ins + user personas,
+  availability applied — `resolvePersonaRuntimeFields`) on the shared runtime
   (covers initial + both resume paths). Personas are skipped agent-side for
   `provider === 'local'` (D10 — the 2B on-device model's prompt budget) and in
   plan mode (delegation is out of scope for planning). Web is unaffected: the
