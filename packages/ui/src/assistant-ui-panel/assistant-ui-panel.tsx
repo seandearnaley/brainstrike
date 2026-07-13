@@ -50,20 +50,12 @@ import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { AssistantActivityGroup } from './assistant-activity-group';
 import { ControlsMenu } from './assistant-controls-menu';
-import { shouldShowBackgroundActivity } from './assistant-detail-level';
-import {
-  AssistantDetailLevelProvider,
-  useAssistantDetailLevel,
-} from './assistant-detail-level-context';
+import { AssistantDetailLevelProvider } from './assistant-detail-level-context';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
-import {
-  AssistantRunTimeline,
-  isAlwaysVisibleRunEvent,
-  resolveAssistantRunEventRenderPlan,
-  resolveAssistantRunEventStatus,
-} from './assistant-run-timeline';
+import { AssistantRunEventProvider } from './assistant-run-event-context';
+import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
 import {
   AssistantThinkingIndicator,
   BrainstrikeThinkingMark,
@@ -72,7 +64,7 @@ import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
-import { type ComposerDraftCommand, useComposerDraftCommand } from './composer-draft-command';
+import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { ComposerInputWithTriggers } from './composer-input';
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
@@ -98,45 +90,6 @@ import { ToolDurationProvider } from './tool-duration-context';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { useChainActivityDerivations } from './use-chain-activity-derivations';
 import { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
-
-const AssistantRunTimelineDataPart: DataMessagePartComponent = ({ data }) => {
-  // Memory/context background activity (observational memory, semantic recall,
-  // context prep, run steps) is internal bookkeeping that wraps the tool calls
-  // people care about. Hide every run-event row unless the Detail level is
-  // Developer — the default thread is just the grouped tool cards + the answer.
-  // EXCEPTION: terminal run failures/cancellations always surface, so a broken
-  // turn is never silently swallowed (see isAlwaysVisibleRunEvent).
-  const { detailLevel } = useAssistantDetailLevel();
-  const showRow = shouldShowBackgroundActivity(detailLevel) || isAlwaysVisibleRunEvent(data);
-  // Both selectors are O(total parts) and re-run on every streamed state change.
-  // In the default (non-Developer) case — now the common path for every hidden
-  // memory/context/run-step row — short-circuit INSIDE the selector so the scans
-  // are skipped entirely, not run only to discard the result. The ≤1-per-turn
-  // forced failure row pays for the scan, but the flood still skips it. Hooks
-  // still run unconditionally (rules-of-hooks safe); only one string primitive
-  // is selected.
-  const statusOverride = useAuiState((state) =>
-    showRow ? resolveAssistantRunEventStatus(state.thread.messages, data) : undefined
-  );
-  const renderPlanKey = useAuiState((state) => {
-    if (!showRow) {
-      return 'hidden';
-    }
-    const plan = resolveAssistantRunEventRenderPlan(state.thread.messages, data);
-    return plan.hidden ? 'hidden' : `visible:${plan.repeatCount}`;
-  });
-  if (renderPlanKey === 'hidden') {
-    return null;
-  }
-  const repeatCount = Number(renderPlanKey.slice('visible:'.length));
-  return (
-    <AssistantRunTimeline
-      data={data}
-      repeatCount={repeatCount}
-      {...(statusOverride ? { statusOverride } : {})}
-    />
-  );
-};
 
 const AssistantToolApprovalDataPart: DataMessagePartComponent = ({ data }) => (
   <AssistantToolApprovalNotice data={data} />
@@ -1107,12 +1060,6 @@ const ChatThreadUI = ({
   const historyCollapsed = hiddenMessageCount > 0 && !historyExpanded;
   const messagesRegionId = useId();
 
-  useComposerDraftCommand({
-    command: composerDraftCommand,
-    onApplied: onComposerDraftCommandApplied,
-    onTextChange: onComposerTextChange,
-  });
-
   // Slash-command "/" menu: derive the library adapter + icon lookup from the
   // app-passed commands during render (no setState-in-effect). The adapter hook
   // is memoized on the command list and always runs (rules-of-hooks), but the
@@ -1152,6 +1099,11 @@ const ChatThreadUI = ({
       data-history-collapsed={historyCollapsed ? 'true' : undefined}
     >
       <AssistantDataRendererRegistration />
+      <ComposerDraftCommandBridge
+        composerDraftCommand={composerDraftCommand}
+        onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+        onComposerTextChange={onComposerTextChange}
+      />
       <RunLifecycleNotificationBridge
         {...(onRunFailed ? { onRunFailed } : {})}
         {...(onRunFinished ? { onRunFinished } : {})}
@@ -1192,16 +1144,18 @@ const ChatThreadUI = ({
           hiddenMessageCount={hiddenMessageCount}
           onExpandedChange={setHistoryExpanded}
         />
-        <ThreadPrimitive.Messages
-          components={{
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            AssistantMessage,
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            EditComposer,
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            UserMessage,
-          }}
-        />
+        <AssistantRunEventProvider>
+          <ThreadPrimitive.Messages
+            components={{
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+              AssistantMessage,
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+              EditComposer,
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+              UserMessage,
+            }}
+          />
+        </AssistantRunEventProvider>
       </ThreadPrimitive.Viewport>
 
       {/**

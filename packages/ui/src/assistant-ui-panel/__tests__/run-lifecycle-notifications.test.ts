@@ -2,6 +2,8 @@ import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
 import { describe, expect, it } from 'vitest';
 import {
+  createTerminalRunEventsSelector,
+  createToolApprovalRequestsSelector,
   selectTerminalRunEvents,
   selectToolApprovalRequests,
 } from '../run-lifecycle-notifications';
@@ -15,6 +17,57 @@ function approvalMessage(request: Record<string, unknown>) {
 }
 
 const ts = '2026-07-09T10:00:00.000Z';
+
+function countedParts(parts: unknown[], reads: { count: number }): unknown[] {
+  return new Proxy(parts, {
+    get(target, property, receiver) {
+      if (typeof property === 'string' && /^\d+$/.test(property)) {
+        reads.count += 1;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+describe('incremental lifecycle selectors', () => {
+  it('does not re-read earlier message parts when streaming appends to the last message', () => {
+    const earlierReads = { count: 0 };
+    const lastReads = { count: 0 };
+    const earlierParts = countedParts(
+      [
+        runEventMessage({
+          id: 'finished',
+          kind: 'run.finished',
+          label: 'Done',
+          status: 'completed',
+          timestamp: ts,
+        }).content[0],
+      ],
+      earlierReads
+    );
+    const lastParts = countedParts([], lastReads);
+    const selectEvents = createTerminalRunEventsSelector();
+    const selectApprovals = createToolApprovalRequestsSelector();
+    const messages = () => [
+      { content: earlierParts, id: 'earlier' },
+      { content: lastParts, id: 'streaming' },
+    ];
+
+    selectEvents(messages());
+    selectApprovals(messages());
+    const initialEarlierReads = earlierReads.count;
+
+    for (let index = 0; index < 8; index += 1) {
+      lastParts.push({ text: `chunk-${index}`, type: 'text' });
+      selectEvents(messages());
+      selectApprovals(messages());
+    }
+
+    expect(initialEarlierReads).toBe(2);
+    expect(earlierReads.count).toBe(initialEarlierReads);
+    expect(lastReads.count).toBe(16);
+  });
+});
 
 describe('selectTerminalRunEvents', () => {
   it('returns run.finished and run.failed events, in order', () => {
