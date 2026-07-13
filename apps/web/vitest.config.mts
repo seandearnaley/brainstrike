@@ -85,6 +85,10 @@ export default defineConfig({
         '../../packages/queue/src/browser.ts'
       ),
       '@brainstrike/queue': resolve(import.meta.dirname, '../../packages/queue/src'),
+      '@brainstrike/test-utils': resolve(
+        import.meta.dirname,
+        '../../packages/test-utils/src/index.ts'
+      ),
       '@brainstrike/text-splitter/chunking-core': resolve(
         import.meta.dirname,
         '../../packages/text-splitter/src/chunking-core.ts'
