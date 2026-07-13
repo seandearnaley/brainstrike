@@ -8,7 +8,6 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
-    "rimraf": "^6.1.3",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
@@ -31,12 +30,12 @@
   "private": true,
   "scripts": {
     "build": "tsup --config ./tsup.config.ts",
-    "clean": "rimraf dist",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --config ./tsup.config.ts --watch",
     "lint": "pnpm -w lint --filter @brainstrike/file-tree-worker",
     "test": "vitest run",
     "test:watch": "vitest --watch",
-    "type-check": "tsc --noEmit -p tsconfig.json",
+    "type-check": "tsc --noEmit",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "sideEffects": false,
