@@ -163,7 +163,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     expect(params).toEqual(['thread-group-1', 'a2']);
   });
 
-  it('deletes a group and its placements so threads return to Ungrouped', async () => {
+  it('deletes a group while preserving its threads and flat ranks in Ungrouped', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
 
@@ -171,7 +171,10 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
 
     expect(db.query).toHaveBeenCalledOnce();
     const [sql, params] = db.query.mock.calls[0] ?? [];
-    expect(String(sql)).toContain('DELETE FROM brainstrike_assistant_thread_placements');
+    expect(String(sql)).toContain('UPDATE brainstrike_assistant_thread_placements');
+    expect(String(sql)).toContain('SET group_id = NULL');
+    expect(String(sql)).not.toContain('DELETE FROM brainstrike_assistant_thread_placements');
+    expect(String(sql)).not.toContain('flat_rank =');
     expect(String(sql)).toContain('DELETE FROM brainstrike_assistant_thread_groups');
     expect(params).toEqual(['thread-group-1']);
   });

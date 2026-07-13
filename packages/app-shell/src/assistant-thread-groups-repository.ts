@@ -199,8 +199,9 @@ export function createPgliteAssistantThreadGroupsRepository(
     },
     async deleteGroup(groupId: string): Promise<void> {
       await database.query(
-        `WITH deleted_placements AS (
-           DELETE FROM ${PLACEMENTS_TABLE}
+        `WITH ungrouped_placements AS (
+           UPDATE ${PLACEMENTS_TABLE}
+           SET group_id = NULL, updated_at = NOW()
            WHERE group_id = $1
            RETURNING thread_id
          ),
@@ -210,7 +211,7 @@ export function createPgliteAssistantThreadGroupsRepository(
            RETURNING id
          )
          SELECT
-           (SELECT count(*) FROM deleted_placements) AS "deletedPlacementCount",
+           (SELECT count(*) FROM ungrouped_placements) AS "ungroupedPlacementCount",
            (SELECT count(*) FROM deleted_group) AS "deletedGroupCount"`,
         [groupId]
       );

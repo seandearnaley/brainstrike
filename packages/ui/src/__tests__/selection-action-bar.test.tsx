@@ -75,6 +75,21 @@ describe('SelectionActionBar', () => {
     expect(toolbar.className).not.toMatch(/\b(?:p[xy]|p[trbl])-\d/);
   });
 
+  it('keeps summary detail visible and truncatable at narrow container widths', () => {
+    render(
+      <SelectionActionBar
+        actions={actions}
+        onClear={vi.fn()}
+        summary="3 selected"
+        summaryDetail="2 files, 1 chunk"
+      />
+    );
+
+    const detail = screen.getByText('2 files, 1 chunk');
+    expect(detail.className).toContain('truncate');
+    expect(detail.className).not.toContain('hidden');
+  });
+
   it('surfaces disabled reasons without running the action', () => {
     const onAction = vi.fn();
 

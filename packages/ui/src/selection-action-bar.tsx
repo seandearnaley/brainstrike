@@ -88,10 +88,7 @@ export function SelectionActionBar({
       >
         <span className="min-w-0 truncate font-medium">{summary}</span>
         {summaryDetail ? (
-          <span
-            className="@[480px]/selection-actions:inline hidden min-w-0 truncate text-muted-foreground"
-            title={summaryDetailTitle}
-          >
+          <span className="min-w-0 truncate text-muted-foreground" title={summaryDetailTitle}>
             {summaryDetail}
           </span>
         ) : null}

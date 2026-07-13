@@ -143,7 +143,7 @@ describe('useAssistantThreadGroupsStore', () => {
       groups: [makeGroup({ id: 'group-1', rank: 'a0' })],
       placements: [
         {
-          flatRank: null,
+          flatRank: 'flat-a0',
           groupId: 'group-1',
           rank: 'a0',
           resourceId: RESOURCE_ID,
@@ -166,7 +166,13 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(repository.deleteGroup).toHaveBeenCalledWith('group-1');
     const state = useAssistantThreadGroupsStore.getState();
     expect(state.groupsByResourceId[RESOURCE_ID]).toEqual([]);
-    expect(state.placementsByThreadId['thread-1']).toBeUndefined();
+    expect(state.placementsByThreadId['thread-1']).toEqual({
+      flatRank: 'flat-a0',
+      groupId: null,
+      rank: 'a0',
+      resourceId: RESOURCE_ID,
+      threadId: 'thread-1',
+    });
     expect(state.placementsByThreadId['thread-2']).toBeDefined();
   });
 

@@ -66,7 +66,7 @@ describe('migration 055: assistant thread group presentation', () => {
     ).rejects.toThrow();
   });
 
-  it('preserves existing groups and placements with unassigned presentation values', async () => {
+  it('preserves existing groups and seeds flat order from the legacy placement rank', async () => {
     await db.query(
       `INSERT INTO brainstrike_assistant_thread_groups (id, resource_id, name, rank)
        VALUES ('group-legacy', 'workspace-a', 'Legacy', 'a0')`
@@ -88,7 +88,7 @@ describe('migration 055: assistant thread group presentation', () => {
        WHERE thread_id = 'thread-legacy'`
     );
     expect(groups.rows).toEqual([{ color: null, id: 'group-legacy' }]);
-    expect(placements.rows).toEqual([{ flat_rank: null, thread_id: 'thread-legacy' }]);
+    expect(placements.rows).toEqual([{ flat_rank: 'a0', thread_id: 'thread-legacy' }]);
   });
 
   it('rollback removes both presentation columns', async () => {

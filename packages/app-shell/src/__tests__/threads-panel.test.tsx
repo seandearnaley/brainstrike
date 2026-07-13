@@ -378,7 +378,7 @@ describe('ThreadsPanel', () => {
     expect(screen.queryByRole('button', { name: /Show .* more threads/ })).not.toBeInTheDocument();
   });
 
-  it('selects only disclosed threads from the visible collection control and clears on Escape', async () => {
+  it('selects only disclosed threads and scopes Escape clearing to the thread panel', async () => {
     useAssistantThreadGroupsStore.setState({ groupBy: 'none' });
     for (let index = 0; index < 50; index += 1) {
       threadRows.push({
@@ -399,6 +399,13 @@ describe('ThreadsPanel', () => {
     );
 
     fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.getByRole('toolbar', { name: 'Thread selection actions' })).toHaveTextContent(
+      '50 selected'
+    );
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear 50 visible threads' }), {
+      key: 'Escape',
+    });
     expect(
       screen.queryByRole('toolbar', { name: 'Thread selection actions' })
     ).not.toBeInTheDocument();
@@ -613,6 +620,7 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
+    fireEvent.click(screen.getByRole('button', { name: 'Select 2 visible threads' }));
     fireEvent.contextMenu(screen.getByText('Second thread'));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename…' }));
 
@@ -625,6 +633,18 @@ describe('ThreadsPanel', () => {
 
     fireEvent.contextMenu(titleInput);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+    const selectionSummaryBeforeEscape = screen.getByRole('toolbar', {
+      name: 'Thread selection actions',
+    }).textContent;
+    fireEvent.change(titleInput, { target: { value: 'Discard this draft' } });
+    fireEvent.keyDown(titleInput, { key: 'Escape' });
+
+    expect(screen.queryByRole('textbox', { name: 'Thread title' })).not.toBeInTheDocument();
+    expect(screen.getByText('Second thread')).toBeVisible();
+    expect(screen.getByRole('toolbar', { name: 'Thread selection actions' }).textContent).toBe(
+      selectionSummaryBeforeEscape
+    );
   });
 
   it('reuses customization, details, and delete-confirmation row flows', async () => {
@@ -1090,9 +1110,13 @@ describe('ThreadsPanel groups', () => {
     expect(screen.queryByText('Ungrouped')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     const deleteCalls = mockDb.query.mock.calls.filter(([sql]) =>
-      String(sql).includes('WITH deleted_placements AS')
+      String(sql).includes('WITH ungrouped_placements AS')
     );
     expect(deleteCalls).toHaveLength(1);
+    expect(String(deleteCalls[0]?.[0])).toContain('SET group_id = NULL');
+    expect(String(deleteCalls[0]?.[0])).not.toContain(
+      'DELETE FROM brainstrike_assistant_thread_placements'
+    );
     expect(String(deleteCalls[0]?.[0])).toContain(
       'DELETE FROM brainstrike_assistant_thread_groups'
     );

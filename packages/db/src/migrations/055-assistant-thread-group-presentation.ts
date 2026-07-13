@@ -8,7 +8,8 @@ import type { Migration } from './migration-runner';
  * database constraint mirrors the curated thread palette so malformed values
  * fail at the storage boundary. `flat_rank` is separate from the existing
  * grouped `rank`; sharing one rank would couple manual ordering across the flat
- * and grouped presentations.
+ * and grouped presentations. Existing rows start with the legacy rank in both
+ * columns so their custom order remains stable when the presentations split.
  */
 export const migration055AssistantThreadGroupPresentation: Migration = {
   down: `
@@ -25,6 +26,10 @@ export const migration055AssistantThreadGroupPresentation: Migration = {
 
     ALTER TABLE brainstrike_assistant_thread_placements
       ADD COLUMN IF NOT EXISTS flat_rank text;
+
+    UPDATE brainstrike_assistant_thread_placements
+      SET flat_rank = rank
+      WHERE flat_rank IS NULL;
   `,
   version: 55,
 };

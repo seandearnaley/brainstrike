@@ -175,8 +175,9 @@ a Group by / Sort by view-options popover. Plan/rationale:
 Where state lives (do not relitigate):
 - Groups: `brainstrike_assistant_thread_groups`; thread membership + manual
   order: `brainstrike_assistant_thread_placements` (migration 054; migration
-  055 adds nullable validated folder `color` and independent `flat_rank`; both
-  are registered in both migration runners). Membership deliberately does NOT
+  055 adds nullable validated folder `color` and independent `flat_rank`, seeded
+  from the legacy `rank` so existing custom order survives the split; both are
+  registered in both migration runners). Membership deliberately does NOT
   live in `mastra_threads.metadata`: grouping, folder color, and manual order
   are Brainstrike-owned presentation state while Mastra owns that schema.
 - Thread icon/color metadata updates preserve conversational `updatedAt`; visual
@@ -184,8 +185,10 @@ Where state lives (do not relitigate):
 - Placements have no FK to `mastra_threads`: a placement whose thread is gone is
   inert (the panel joins by id). Bulk thread deletion removes placements and all
   owned thread rows in one guarded CTE; an unknown id mutates nothing. Deleting
-  a group removes the group and its placements in one CTE after staged UI
-  confirmation, returning its threads to Ungrouped without partial state.
+  a group nulls its placements' `group_id` and removes the group in one CTE after
+  staged UI confirmation, returning its threads to Ungrouped without partial
+  state or discarding their independent flat-list ranks; the loaded store mirrors
+  that transition by retaining each placement with `groupId: null`.
 - `rank` columns are `fractional-indexing` keys (`generateKeyBetween`); a
   positional drop rewrites the destination section's ranks wholesale
   (`applyThreadOrder` → `setThreadPlacements`, a SINGLE multi-row upsert so the

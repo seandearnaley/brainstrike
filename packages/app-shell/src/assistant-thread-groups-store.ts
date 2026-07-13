@@ -265,9 +265,10 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
             ),
           },
           placementsByThreadId: Object.fromEntries(
-            Object.entries(state.placementsByThreadId).filter(
-              ([, placement]) => placement.groupId !== groupId
-            )
+            Object.entries(state.placementsByThreadId).map(([threadId, placement]) => [
+              threadId,
+              placement.groupId === groupId ? { ...placement, groupId: null } : placement,
+            ])
           ),
         }));
       },

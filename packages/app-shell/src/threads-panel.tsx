@@ -678,6 +678,14 @@ function ThreadRenameForm({
         onChange={(event) => {
           onDraftTitleChange(event.target.value);
         }}
+        onKeyDown={(event) => {
+          if (event.defaultPrevented || event.key !== 'Escape') {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          onCancelRename();
+        }}
         value={draftTitle}
       />
       {renameError ? <span className="text-[11px] text-destructive">{renameError}</span> : null}
@@ -1942,17 +1950,6 @@ function ThreadPanelTree({
     [selectableThreadIds]
   );
 
-  useEffect(() => {
-    const clearSelectionOnEscape = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.key !== 'Escape') {
-        return;
-      }
-      setSelectedThreadIds(new Set());
-    };
-    document.addEventListener('keydown', clearSelectionOnEscape);
-    return () => document.removeEventListener('keydown', clearSelectionOnEscape);
-  }, []);
-
   const selectGroup = useCallback(
     (groupId: string | null, nextState: 'checked' | 'unchecked'): void => {
       const memberIds = getGroupMemberIds(view, groupId);
@@ -2060,6 +2057,13 @@ function ThreadPanelTree({
               }
               return nextIds;
             });
+          }}
+          onKeyDown={(event) => {
+            if (event.defaultPrevented || event.key !== 'Escape') {
+              return;
+            }
+            event.preventDefault();
+            clearSelectedThreadIds();
           }}
           size="sm"
           type="button"
