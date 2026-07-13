@@ -168,7 +168,13 @@ describe('logger', () => {
           clientSecret: 'binding-secret',
           profile: { tenantId: 'binding-tenant-secret' },
         },
-        redactPaths: ['profile.tenantId', 'provider.profile.tenantId', 'sessionId'],
+        redactPaths: [
+          'profile.tenantId',
+          'provider.accounts[*]["refresh.key"]',
+          'provider.profile.tenantId',
+          'provider.regions.*.credential',
+          'sessionId',
+        ],
       });
 
       const [record] = collectLogs(() => {
@@ -177,11 +183,16 @@ describe('logger', () => {
             headers: { 'x-api-key': 'header-secret' },
             provider: {
               accessToken: 'access-secret',
+              accounts: [{ 'refresh.key': 'refresh-secret' }],
               apiKey: 'sk-secret',
               authorization: 'Bearer secret',
               config: new ProviderConfig(),
               failure: Object.assign(new Error('provider failed'), { accessToken: 'error-secret' }),
               profile: { tenantId: 'tenant-secret' },
+              regions: {
+                east: { credential: 'east-secret' },
+                west: { credential: 'west-secret' },
+              },
               tokenCount: 42,
             },
             sessionId: 'session-secret',
@@ -199,6 +210,7 @@ describe('logger', () => {
           headers: { 'x-api-key': '[REDACTED]' },
           provider: {
             accessToken: '[REDACTED]',
+            accounts: [{ 'refresh.key': '[REDACTED]' }],
             apiKey: '[REDACTED]',
             authorization: '[REDACTED]',
             config: { apiKey: '[REDACTED]' },
@@ -209,6 +221,10 @@ describe('logger', () => {
               stack: expect.any(String),
             },
             profile: { tenantId: '[REDACTED]' },
+            regions: {
+              east: { credential: '[REDACTED]' },
+              west: { credential: '[REDACTED]' },
+            },
             tokenCount: 42,
           },
           sessionId: '[REDACTED]',

@@ -627,12 +627,16 @@ function resolveLogRecordMessage(args: readonly unknown[]): string | undefined {
 
 function isSensitiveLogKey(key: string, path: readonly string[]): boolean {
   const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-  return (
-    internalConfig.redactPaths?.includes(path.join('.')) === true ||
-    /apikey|authorization|cookie|password|secret/.test(normalized) ||
-    normalized === 'token' ||
-    normalized.endsWith('token')
-  );
+  const configured =
+    internalConfig.redactPaths?.some((redactPath) => {
+      const parts = redactPath
+        .match(/[^.[\]]+|\[([^[\]]*?)\]/g)
+        ?.map((segment) => segment.replace(/^\[['"`]?|['"`]?\]$/g, ''));
+      return (
+        parts?.length === path.length && parts.every((part, i) => part === '*' || part === path[i])
+      );
+    }) === true;
+  return configured || /apikey|authorization|cookie|password|secret|token$/.test(normalized);
 }
 
 function redactSensitiveLogValue(
@@ -647,16 +651,10 @@ function redactSensitiveLogValue(
   if (existing !== undefined) {
     return existing;
   }
-  if (Array.isArray(value)) {
-    const redacted: unknown[] = [];
-    seen.set(value, redacted);
-    redacted.push(
-      ...value.map((entry, index) => redactSensitiveLogValue(entry, [...path, `${index}`], seen))
-    );
-    return redacted;
+  const redacted = (Array.isArray(value) ? [] : {}) as Record<string, unknown>;
+  if (value instanceof Error) {
+    Object.assign(redacted, { message: value.message, name: value.name, stack: value.stack });
   }
-  const redacted: Record<string, unknown> =
-    value instanceof Error ? { message: value.message, name: value.name, stack: value.stack } : {};
   seen.set(value, redacted);
   for (const [key, entry] of Object.entries(value)) {
     const entryPath = [...path, key];
@@ -674,9 +672,8 @@ function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonl
 
   const bindings = resolveBaseBindings(internalConfig, scope);
   const message = resolveLogRecordMessage(args);
-  const argsCopy = args.map((arg) => redactSensitiveLogValue(arg));
   const record: LogRecord = {
-    args: argsCopy,
+    args,
     bindings,
     level,
     timestamp: Date.now(),
