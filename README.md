@@ -79,8 +79,9 @@ packages/
 - **Queue Semantics**: Jobs persist in PGlite/local database via `JobQueue`; the queue respects concurrency limits and automatically retries failed embeddings. Queue adapters expose pause/resume/cancel/drain semantics per ADR-0002. Progress is dispatched via `brainstrike:queue-progress` events for UI subscribers.
 - **Re-embed workflow**: Vector Status can clear embeddings for the active set and requeue jobs (model switching/backfill).
 - **Persistence**: Queue state and job history are stored in the local database (`@brainstrike/db`); survives app restarts.
-- **Pipeline package**: `@brainstrike/pipeline` ships chunking/embedding stages, progress aggregation, controller, and schema health checks. It is currently exercised in tests and not yet wired into the apps.
-- **Embedding cache (opt-in)**: `@brainstrike/db` provides an embedding cache table and repository; `startEmbeddingWorker({ embeddingCache })` can use it for content-level dedupe but it is not wired by default.
+- **Pipeline package**: `@brainstrike/pipeline` ships chunking/embedding stages, progress aggregation, controller, and schema health checks. It powers app-shell's background workspace indexing (`workspace-collection-sync-service`) and db-explorer's enhanced file import.
+- **Embedding cache**: `@brainstrike/db` provides an embedding cache table and repository (`embedding_cache`, keyed on content hash + model key). The desktop embedding host (#928) and the web in-tab worker (#1640) wire it into `startEmbeddingWorker({ embeddingCache })` by default, so byte-identical content is embedded once and deduped across files and roots.
+- **Chunking parsers**: JS/TS chunking uses the native Rust `oxc-parser` in the desktop chunking-host (default-on since #994; kill switch `?parserFlag=babel`) and Babel on web (oxc has no WASM build). Python files chunk via tree-sitter WASM on both apps (default-on since #1011; `?treeSitterLanguages=` overrides, empty value disables).
 
 Web UX notes:
 - Vector Status (Right Panel → DB) surfaces Start/Stop/Reset for optional manual control and exposes coverage, throughput, and retry actions.
