@@ -144,11 +144,6 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     id: 'factory-reset',
     title: 'Factory Reset',
   })),
-  createSubagentPersonasSettingsCategory: () => ({
-    content: <div data-testid="subagents-category" />,
-    id: 'subagents',
-    title: 'Subagents',
-  }),
   createHooksSettingsCategory: createHooksSettingsCategoryMock.mockImplementation(() => ({
     content: <div data-testid="hooks-category" />,
     id: 'hooks',
@@ -168,6 +163,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     content: <div data-testid="search-indexing-category" />,
     id: 'search-indexing',
     title: 'Search & Indexing',
+  }),
+  createSubagentPersonasSettingsCategory: () => ({
+    content: <div data-testid="subagents-category" />,
+    id: 'subagents',
+    title: 'Subagents',
   }),
   createTokenCountingSettingsCategoryWithRuntimeSupport:
     createTokenCountingSettingsCategoryMock.mockImplementation((options: unknown) => ({
