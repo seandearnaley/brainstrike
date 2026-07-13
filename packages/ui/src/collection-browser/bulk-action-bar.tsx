@@ -6,10 +6,9 @@
  * embed, export, etc.
  */
 
-import { FileText, Sparkles, Trash2, X } from 'lucide-react';
+import { FileText, Sparkles, Trash2 } from 'lucide-react';
 import type * as React from 'react';
-import { Button } from '../button';
-import { cn } from '../lib/utils';
+import { SelectionActionBar } from '../selection-action-bar';
 import type { BrowserNodeData, CollectionNodeType } from './types';
 
 /**
@@ -167,70 +166,28 @@ export function BulkActionBar({
   );
 
   return (
-    <div
-      className={cn(
-        'flex max-w-[min(96vw,920px)] items-center gap-2 rounded-xl',
-        'border border-border/80 bg-muted px-3 py-2',
-        'md:gap-3 md:px-4',
-        className
-      )}
-      style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.15), 0 2px 6px rgba(0,0,0,0.1)' }}
-    >
-      {/* Selection summary */}
-      <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-        <span className="whitespace-nowrap font-medium">{resolvedSummaryText}</span>
-        {resolvedSummarySubtext && (
-          <span
-            className="min-w-0 truncate text-muted-foreground"
-            title={resolvedSummarySubtextTitle ?? undefined}
-          >
-            ({resolvedSummarySubtext})
-          </span>
-        )}
-      </div>
-
-      {applicableActions.length > 0 && (
-        <>
-          {/* Divider */}
-          <div className="hidden h-4 w-px bg-border md:block" />
-
-          {/* Action buttons */}
-          <div className="flex min-w-0 flex-wrap items-center gap-1">
-            {applicableActions.map((action) => (
-              <Button
-                className="gap-1.5 whitespace-nowrap"
-                disabled={action.disabled}
-                key={action.id}
-                onClick={() => action.onAction(selectedIds, nodeTypes)}
-                size="sm"
-                title={action.disabled ? action.disabledReason : action.label}
-                variant={action.destructive ? 'destructive' : 'secondary'}
-              >
-                {action.icon}
-                <span className={compact ? '@[350px]:inline hidden' : undefined}>
-                  {(compact ? action.compactLabel : undefined) ?? action.label}
-                </span>
-              </Button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Clear selection button */}
-      <Button
-        aria-label={clearButtonAriaLabel ?? 'Clear selection'}
-        className="ml-auto gap-1 whitespace-nowrap"
-        onClick={onClearSelection}
-        size="sm"
-        title={clearButtonLabel ?? 'Clear'}
-        variant="ghost"
-      >
-        <X className="h-4 w-4" />
-        <span className={compact ? '@[350px]:inline hidden' : undefined}>
-          {clearButtonLabel ?? 'Clear'}
-        </span>
-      </Button>
-    </div>
+    <SelectionActionBar
+      actions={applicableActions.map((action) => ({
+        id: action.id,
+        label: action.label,
+        onAction: () => action.onAction(selectedIds, nodeTypes),
+        ...(action.compactLabel === undefined ? {} : { compactLabel: action.compactLabel }),
+        ...(action.destructive === undefined ? {} : { destructive: action.destructive }),
+        ...(action.disabled === undefined ? {} : { disabled: action.disabled }),
+        ...(action.disabledReason === undefined ? {} : { disabledReason: action.disabledReason }),
+        ...(action.icon === undefined ? {} : { icon: action.icon }),
+      }))}
+      compact={compact}
+      onClear={onClearSelection}
+      summary={resolvedSummaryText}
+      summaryDetail={resolvedSummarySubtext ? `(${resolvedSummarySubtext})` : undefined}
+      {...(className === undefined ? {} : { className })}
+      {...(clearButtonAriaLabel === undefined ? {} : { clearButtonAriaLabel })}
+      {...(clearButtonLabel === undefined ? {} : { clearButtonLabel })}
+      {...(resolvedSummarySubtextTitle === undefined || resolvedSummarySubtextTitle === null
+        ? {}
+        : { summaryDetailTitle: resolvedSummarySubtextTitle })}
+    />
   );
 }
 

@@ -57,6 +57,7 @@ export type { RouterProviderProps } from './router-provider';
 export { default as RouterProvider } from './router-provider';
 export * from './scroll-area';
 export * from './select';
+export * from './selection-action-bar';
 export * from './sortable-table-header';
 export * from './status-bar';
 export * from './switch';
