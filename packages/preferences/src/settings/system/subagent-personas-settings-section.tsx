@@ -164,7 +164,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
               disabled={!delegationEnabled}
               enabled={!disabledSet.has(item.id)}
               item={item}
-              key={`${item.source}-${item.id}`}
+              key={item.absPath ?? `${item.source}-${item.id}`}
               onToggle={setPersonaEnabled}
             />
           ))}

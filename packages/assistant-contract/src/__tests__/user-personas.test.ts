@@ -14,6 +14,7 @@ import {
   DEFAULT_USER_PERSONA_TOOL_IDS,
   deriveUserPersonaId,
   MAX_USER_PERSONA_FILE_CHARS,
+  MAX_USER_PERSONA_ID_LENGTH,
   MAX_USER_PERSONA_MAX_STEPS,
   MAX_USER_PERSONAS,
   parsePersonaModelPin,
@@ -118,6 +119,17 @@ describe('deriveUserPersonaId', () => {
   it('accepts letters, digits, underscore, and hyphen', () => {
     expect(deriveUserPersonaId('Sec_Audit-2.md')).toEqual({ id: 'Sec_Audit-2', ok: true });
   });
+
+  it('caps the id length so agent-<id> fits provider tool-name limits (64 chars)', () => {
+    const maxId = 'a'.repeat(MAX_USER_PERSONA_ID_LENGTH);
+    expect(deriveUserPersonaId(`${maxId}.md`)).toEqual({ id: maxId, ok: true });
+    const overId = 'a'.repeat(MAX_USER_PERSONA_ID_LENGTH + 1);
+    const rejected = deriveUserPersonaId(`${overId}.md`);
+    expect(rejected).toMatchObject({ ok: false });
+    if (!rejected.ok) {
+      expect(rejected.error).toMatch(/64|length|long/i);
+    }
+  });
 });
 
 describe('parsePersonaModelPin', () => {
@@ -197,6 +209,22 @@ describe('buildUserPersona', () => {
     expect(result).toMatchObject({ ok: false });
     if (!result.ok) {
       expect(result.error).toMatch(/read-only|read risk|not 'read'/i);
+    }
+  });
+
+  it('rejects suspending/interactive tools even though their risk is read', () => {
+    // askUser/submitPlan suspend the run (child maps bypass the parent's
+    // suspend-storage fail-safe) and manageTaskList is parent-scoped; a user
+    // persona must not be able to allowlist them.
+    for (const tool of ['askUser', 'submitPlan', 'manageTaskList', 'brainstrike.askUser']) {
+      const result = buildUserPersona({
+        content: validFile(`description: d\ntools: readWorkspaceFile, ${tool}`),
+        fileName: 'p.md',
+      });
+      expect(result).toMatchObject({ ok: false });
+      if (!result.ok) {
+        expect(result.error).toMatch(/not available to subagent personas/i);
+      }
     }
   });
 

@@ -100,6 +100,42 @@ describe('SubagentPersonasSettingsSection', () => {
     expect(screen.queryByTestId('subagent-persona-toggle-broken.md')).not.toBeInTheDocument();
   });
 
+  it('renders two same-named invalid files from different roots as distinct rows', async () => {
+    // Invalid entries key by absPath (their ids are just file names, which can
+    // collide across roots — a React key collision would drop/mis-reconcile).
+    setBridge({
+      list: () =>
+        Promise.resolve({
+          personas: [
+            {
+              absPath: '/work/a/.brainstrike/agents/bad.md',
+              description: '',
+              error: 'error A',
+              id: 'bad.md',
+              label: 'bad.md',
+              source: 'user' as const,
+              status: 'invalid' as const,
+            },
+            {
+              absPath: '/work/b/.brainstrike/agents/bad.md',
+              description: '',
+              error: 'error B',
+              id: 'bad.md',
+              label: 'bad.md',
+              source: 'user' as const,
+              status: 'invalid' as const,
+            },
+          ],
+        }),
+    });
+    render(<SubagentPersonasSettingsSection />);
+    await waitFor(() => {
+      expect(screen.getByText(/error A/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/error B/)).toBeInTheDocument();
+    expect(screen.getAllByText('bad.md')).toHaveLength(2);
+  });
+
   it('without the bridge, shows the desktop-only note for user personas', () => {
     render(<SubagentPersonasSettingsSection />);
     expect(screen.getByText(/desktop/i)).toBeInTheDocument();

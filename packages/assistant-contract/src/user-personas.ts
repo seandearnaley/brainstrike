@@ -17,6 +17,7 @@ import {
   type AssistantPersonaModelPin,
   assertReadOnlyPersona,
   BUILT_IN_PERSONAS,
+  SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from './personas.js';
 import { isSupportedProvider } from './provider-metadata.js';
 
@@ -55,6 +56,28 @@ const NATIVE_TOOL_ID_PREFIX = 'brainstrike.';
 
 /** `agent-<id>` must satisfy provider tool-name charsets — no ':', spaces, or unicode. */
 const PERSONA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+/**
+ * Provider tool-name length cap (Anthropic/OpenAI: 64 chars). The delegation
+ * tool is `agent-<id>`, so the id budget is 64 minus the prefix.
+ */
+const PROVIDER_TOOL_NAME_MAX_CHARS = 64;
+export const MAX_USER_PERSONA_ID_LENGTH =
+  PROVIDER_TOOL_NAME_MAX_CHARS - SUBAGENT_DELEGATION_TOOL_PREFIX.length;
+
+/**
+ * Read-risk tools a user persona must NOT allowlist: `askUser`/`submitPlan`
+ * SUSPEND the run (child tool maps are built from the parent's guarded map
+ * BEFORE the suspend-storage fail-safe, so a no-storage run could expose a
+ * child suspend tool nothing can resume — a wedge), and `manageTaskList` is
+ * parent-scoped. The default toolset already excludes them; this blocks the
+ * explicit-allowlist path too.
+ */
+const USER_PERSONA_DISALLOWED_TOOL_IDS = new Set([
+  'brainstrike.askUser',
+  'brainstrike.manageTaskList',
+  'brainstrike.submitPlan',
+]);
 
 const MODEL_PIN_SEPARATOR = '::';
 
@@ -229,6 +252,15 @@ export function deriveUserPersonaId(fileName: string): DeriveUserPersonaIdResult
       ok: false,
     };
   }
+  if (id.length > MAX_USER_PERSONA_ID_LENGTH) {
+    return {
+      error:
+        `persona id '${id}' is too long (${id.length} chars): the agent-<id> tool name must ` +
+        `fit the ${PROVIDER_TOOL_NAME_MAX_CHARS}-char provider tool-name limit, so ids are ` +
+        `capped at ${MAX_USER_PERSONA_ID_LENGTH} chars`,
+      ok: false,
+    };
+  }
   return { id, ok: true };
 }
 
@@ -364,6 +396,15 @@ function resolvePersonaTools(
     declared === undefined ? DEFAULT_USER_PERSONA_TOOL_IDS : declared.map(normalizeToolId);
   if (allowedToolIds.length === 0) {
     return { error: 'persona tools list must not be empty', ok: false };
+  }
+  const disallowed = allowedToolIds.find((toolId) => USER_PERSONA_DISALLOWED_TOOL_IDS.has(toolId));
+  if (disallowed) {
+    return {
+      error:
+        `tool '${disallowed}' is not available to subagent personas (suspending/interactive ` +
+        'tools cannot run inside a delegated child)',
+      ok: false,
+    };
   }
   return { ok: true, value: allowedToolIds };
 }

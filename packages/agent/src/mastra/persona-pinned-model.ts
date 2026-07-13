@@ -16,7 +16,17 @@ import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract
 import type { MastraModelConfig } from '@mastra/core/llm';
 import type { RuntimeData } from '../types';
 
-const KEYLESS_PROVIDERS = new Set(['local', 'ollama', 'lmstudio']);
+/**
+ * Providers whose pins never need a bearer token. `local` is handled
+ * separately (it needs the llm-host CLIENT, not a key); `ollama`/`lmstudio`
+ * are local servers reached via `runtime.providerOptions` base URLs.
+ * Exported so the desktop server's key-resolution loop shares one source.
+ */
+export const PERSONA_PIN_KEYLESS_PROVIDERS: ReadonlySet<string> = new Set([
+  'local',
+  'ollama',
+  'lmstudio',
+]);
 
 export interface CreatePersonaPinnedModelResolverParams {
   /** The parent provider's resolved API key (reused for same-provider pins). */
@@ -58,7 +68,21 @@ export function createPersonaPinnedModelResolver(
       return params.instantiate(pin.provider, mappedKey, pin.modelId, params.runtime);
     }
 
-    if (KEYLESS_PROVIDERS.has(pin.provider)) {
+    if (pin.provider === 'local') {
+      // Renderer-only inference is MANDATORY (docs/agents/local-inference.md).
+      // Without a host client, createProvider('local') falls through to the
+      // in-process backend in Electron main — never allowed. Throw → the
+      // factory skips this persona with subagent_persona_pin_unresolvable.
+      if (!params.runtime?.localLlmHostClient) {
+        throw new Error(
+          'local model pin requires the local LLM host client (renderer-only inference); ' +
+            `none is available on this run (persona '${persona.id}')`
+        );
+      }
+      return params.instantiate('local', undefined, pin.modelId, params.runtime);
+    }
+
+    if (PERSONA_PIN_KEYLESS_PROVIDERS.has(pin.provider)) {
       return params.instantiate(pin.provider, undefined, pin.modelId, params.runtime);
     }
 

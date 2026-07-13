@@ -17,15 +17,13 @@
  *   broken `.brainstrike/agents` dir must not take down chat.
  */
 
+import { PERSONA_PIN_KEYLESS_PROVIDERS } from '@brainstrike/agent';
 import {
   type AssistantPersonaDefinition,
   BUILT_IN_PERSONAS,
 } from '@brainstrike/assistant-contract';
 import type { ScopedLogger } from '@brainstrike/utils';
 import type { UserPersonaScanResult } from './user-personas-loader';
-
-/** Providers that never require a bearer token (mirrors provider-factory). */
-const KEYLESS_PROVIDERS = new Set(['local', 'ollama', 'lmstudio']);
 
 /**
  * The renderer's persona availability preference, carried on the request data
@@ -102,7 +100,11 @@ export async function resolveRequestPersonas(
   const pinnedProviders = new Set<string>();
   for (const persona of personas) {
     const pin = persona.model;
-    if (pin && pin.provider !== params.parentProvider && !KEYLESS_PROVIDERS.has(pin.provider)) {
+    if (
+      pin &&
+      pin.provider !== params.parentProvider &&
+      !PERSONA_PIN_KEYLESS_PROVIDERS.has(pin.provider)
+    ) {
       pinnedProviders.add(pin.provider);
     }
   }
