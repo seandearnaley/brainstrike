@@ -1212,6 +1212,7 @@ export function TreeTable<T>({
                   const rowShowsCheckbox = rowCheckboxState !== null;
                   return (
                     <TreeTableRow
+                      {...virtualRowMeasureProps}
                       ariaRole={tableAriaRole}
                       checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
                       checkboxState={rowCheckboxState ?? 'unchecked'}
@@ -1229,7 +1230,6 @@ export function TreeTable<T>({
                       showCheckbox={rowShowsCheckbox}
                       totalRowCount={totalRowCount}
                       virtualIndex={virtualRow.index}
-                      {...virtualRowMeasureProps}
                     />
                   );
                 })
