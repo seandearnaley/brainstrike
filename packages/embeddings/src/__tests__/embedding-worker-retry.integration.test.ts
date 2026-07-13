@@ -1,8 +1,9 @@
 import type { IDatabase } from '@brainstrike/db';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { startEmbeddingWorker } from '../index';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EmbeddingProviderFactory, startEmbeddingWorker } from '../index';
+import type { IEmbeddingProvider } from '../interfaces/provider';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -105,6 +106,63 @@ async function waitFor(
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
+}
+
+interface FlakyHostedProviderOptions {
+  dimensions: number;
+  embeddingValue: number;
+  errorMessage: string;
+  shouldFail: (attempt: number) => boolean;
+}
+
+/**
+ * Hosted providers are not served by the injected `service` — the worker routes
+ * them through `EmbeddingProviderFactory.createProvider(...).embed()`. This mock
+ * plays a transient-then-recovering hosted provider: it returns a non-terminal
+ * `api_error` (HTTP 5xx, which `classifyFailure` treats as retryable) for the
+ * first N attempts, then succeeds. The shared `attempts` counter persists across
+ * requeues because the worker re-invokes the same provider instance each attempt.
+ */
+function createFlakyHostedProvider(options: FlakyHostedProviderOptions): {
+  getAttempts: () => number;
+  provider: IEmbeddingProvider;
+} {
+  let attempts = 0;
+
+  const provider: IEmbeddingProvider = {
+    async embed(input) {
+      attempts++;
+      if (options.shouldFail(attempts)) {
+        return {
+          error: {
+            message: options.errorMessage,
+            provider: 'openai',
+            statusCode: 503,
+            type: 'api_error',
+          },
+          ok: false,
+        };
+      }
+
+      const texts = Array.isArray(input.text) ? input.text : [input.text];
+      return {
+        ok: true,
+        value: {
+          dimensions: options.dimensions,
+          embedding: new Array(options.dimensions).fill(options.embeddingValue),
+          embeddings: texts.map(() => new Array(options.dimensions).fill(options.embeddingValue)),
+          modelId: input.modelId,
+          provider: 'openai',
+        },
+      };
+    },
+    getMetadata: () => null,
+    getModelInfo: () => null,
+    isAvailable: () => Promise.resolve(true),
+    validateDimensions: () => ({ ok: true, value: undefined }),
+  };
+
+  return { getAttempts: () => attempts, provider };
 }
 
 /**
@@ -280,5 +338,95 @@ describe('embedding-worker retries and backoff', () => {
     expect(row?.error).toContain('Worker terminated unexpectedly');
 
     await controller.stop();
+  });
+});
+
+/**
+ * The local fail-fast latch above intentionally cannot exercise transient
+ * retry-to-success. Hosted providers have no such latch — a non-terminal
+ * provider error is requeued by the job queue (`attempts < max_attempts`) and a
+ * later attempt can succeed. This asserts that end-to-end through the worker,
+ * complementing the queue-layer retry tests in `packages/db`.
+ */
+describe('embedding-worker hosted-provider retries', () => {
+  let db: PGlite;
+
+  beforeEach(async () => {
+    db = await wasmLoader.createPGlite('memory://embedding-worker-hosted-retry');
+    await migrate(db);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('retries a transient hosted-provider failure and completes', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-h1';
+    const fileId = 'file-h1';
+    const chunkId = 'chunk-h1';
+    const modelKey = 'openai::text-embedding-3-small';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, modelKey, 'text-embedding-3-small', 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [fileId, 'hosted.ts', '/hosted.ts', 100, 'embed me', 'hhash', 10, now]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+      VALUES ($1,$2,0,$3,$4,10,'text',10,$5,$5)`,
+      [chunkId, fileId, 'embed me', 'hhash', now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      VALUES ('job-h1','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [JSON.stringify({ chunkId, embeddingSetId, expectedDimension: 768, modelKey }), now]
+    );
+
+    // Fail transiently on attempts 1 and 2, then succeed on attempt 3 (right at
+    // the max_attempts boundary), exercising two requeues through the queue.
+    const flaky = createFlakyHostedProvider({
+      dimensions: 768,
+      embeddingValue: 0.3,
+      errorMessage: 'Service temporarily unavailable',
+      shouldFail: (attempt) => attempt <= 2,
+    });
+
+    const createProviderSpy = vi
+      .spyOn(EmbeddingProviderFactory, 'createProvider')
+      .mockResolvedValue({ ok: true, value: flaky.provider });
+
+    const controller = await startEmbeddingWorker({
+      concurrency: 1,
+      db: db as unknown as IDatabase,
+      leaseMs: 1000,
+      modelKey,
+      // The injected service only bootstraps the startup dimension probe; the
+      // hosted job itself is served by the mocked provider factory above.
+      service: createFlakyService({
+        embeddingValue: 0.3,
+        errorMessage: 'unused-by-hosted-path',
+        shouldFail: () => false,
+        totalTokens: 10,
+      }),
+    });
+
+    await waitFor(async () => {
+      const res = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-h1'`);
+      const row = res.rows[0] as Record<string, unknown> | undefined;
+      const state = String(row?.['state'] ?? '');
+      const attempts = Number(row?.['attempts'] ?? 0);
+      return state === 'succeeded' && attempts === 3;
+    });
+
+    await controller.stop();
+
+    expect(flaky.getAttempts()).toBe(3);
+    expect(createProviderSpy).toHaveBeenCalled();
   });
 });
