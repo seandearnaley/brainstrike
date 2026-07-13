@@ -123,7 +123,7 @@ per-chunk fresh record identity re-renders every tool card in the turn. Same
 rule for `ToolDurationProvider` (value-stable via `useStableRecord`).
 background:true (run the tool as a Mastra background task) is a documented
 FOLLOW-UP, not in v1. Proofs:
-mastra-tool-execution.spec ('streams incremental shell-output …'),
+mastra-tool-execution.integration.spec ('streams incremental shell-output …'),
 execute-command-tool.test / execute-command-live-loop.test, shell-output-parts.test.
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently

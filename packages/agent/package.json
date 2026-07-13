@@ -110,7 +110,7 @@
     "clean": "rimraf dist",
     "dev": "tsup --watch",
     "lint": "pnpm -w lint",
-    "test": "vitest run --no-file-parallelism --exclude \"**/*.integration.spec.ts\"",
+    "test": "vitest run --no-file-parallelism --exclude \"**/*.integration.spec.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts --no-file-parallelism",
     "test:coverage": "vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",

@@ -38,12 +38,12 @@
       // packages whose ENTIRE suite is env-sensitive: db (heavy serialized WASM
       // PGlite) and secure-fs-native (native N-API addon).
       //
-      // Carve-out status:
-      //   - Whole-task `cache: false` (entire suite env-sensitive): db,
-      //     secure-fs-native.
-      //   - Converted to the test:integration split (A1): web, file-import.
-      //   - Still whole-task carved, pending conversion: desktop (A2), agent +
-      //     app-shell (A3), embeddings (A4).
+      // Carve-out status (Series A complete):
+      //   - Whole-task `cache: false` (entire suite genuinely env-sensitive):
+      //     db (this file), secure-fs-native (native addon build+test).
+      //   - Converted to the test:integration split: web + file-import (A1,
+      //     #1625), desktop (A2, #1628), agent + app-shell (A3, #1627),
+      //     embeddings (A4, #1629).
       "cache": false,
       // Strict environment mode filtering is INDEPENDENT of caching, so the
       // cache:false carve-out above does NOT exempt db's test task from having

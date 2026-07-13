@@ -38,12 +38,23 @@ export default defineConfig({
     // future config move ever introduce a base coverage key. Full-suite coverage
     // remains owned by `test:coverage`.
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
-    // {ts,tsx} deliberately matches the base config's include breadth: an
-    // integration file with any other extension would not be in the full suite
-    // either, so widening only this glob would run files coverage never
-    // measures. The base config's `exclude` (node_modules, dist) is inherited
-    // via the spread above. If the base include ever broadens, update this in
-    // the same change.
-    include: ['**/*.integration.test.{ts,tsx}'],
+    // This include MIRRORS the pure lane's --exclude suffix (restricted to
+    // real test-module extensions; see the note just above the glob), so the
+    // two lanes partition the suffix by construction: a
+    // file the pure lane excludes is always picked up here — it can never be
+    // silently orphaned. (This package's BASE include is explicitly
+    // {ts,tsx}-narrow, so a non-ts suffix file was never in the full suite —
+    // here the mirror's value is that any suffix file that exists runs in
+    // this lane instead of nowhere.) A suffix file outside the base include
+    // runs here without counting toward coverage — the safe direction.
+    // The base config's `exclude` (node_modules, dist) is inherited via the
+    // spread above.
+    // Vitest's canonical test-extension suffix (?(c|m)[jt]s?(x)) instead of a
+    // bare `*`: still any real JS/TS extension (mts/cts/jsx/…), but a bare
+    // `*` would also match sibling artifacts like
+    // __snapshots__/x.integration.test.ts.snap and try to LOAD them as test
+    // modules. The pure lane's `*` exclude harmlessly drops such files; this
+    // lane must not attempt to run them.
+    include: ['**/*.integration.test.?(c|m)[jt]s?(x)'],
   },
 });
