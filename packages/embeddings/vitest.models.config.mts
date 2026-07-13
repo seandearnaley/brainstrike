@@ -28,6 +28,8 @@ export default defineConfig({
     // entry) so any future base exclusion is honored here automatically
     // instead of silently drifting (review nit on #1629).
     exclude: (baseTest.exclude ?? []).filter((pattern) => !pattern.includes('*.models.test.')),
-    include: ['**/*.models.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    // Any-extension mirror of the base exclude's models suffix (matches the
+    // integration lane's glob style), so the two stay symmetric.
+    include: ['**/*.models.test.*'],
   },
 });
