@@ -80,8 +80,13 @@ interface FrontmatterAccumulator {
   maxSteps?: number;
   model?: string;
   name?: string;
-  /** The list key currently consuming `- item` continuation lines, if any. */
-  openListKey?: string;
+  /**
+   * The list key currently consuming `- item` continuation lines, if any.
+   * Explicitly `| undefined` (not just optional): the key-value consumer
+   * re-assigns `undefined` to CLOSE an open list, which
+   * exactOptionalPropertyTypes forbids on a plain optional property.
+   */
+  openListKey: string | undefined;
   tools?: string[];
 }
 
@@ -181,7 +186,7 @@ export function parseUserPersonaFile(content: string): ParsedUserPersonaFile {
     return { error: 'unterminated frontmatter: no closing --- fence', ok: false };
   }
 
-  const state: FrontmatterAccumulator = {};
+  const state: FrontmatterAccumulator = { openListKey: undefined };
   for (let index = 1; index < closingIndex; index += 1) {
     const error = consumeFrontmatterLine(state, lines[index] ?? '');
     if (error !== null) {
