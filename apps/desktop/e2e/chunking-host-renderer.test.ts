@@ -581,15 +581,85 @@ test.describe('Chunking Host Renderer', () => {
       })
       .toBe(true);
 
-    // NOTE on tree-sitter (Python): the direct probe above asserts the host
-    // renderer's __BRAINSTRIKE_TREE_SITTER_LANGUAGES__ default is ['python'],
-    // and buildInitMessage forwards that into the worker realm (verified: a
-    // .py chunkFile drive reaches selectAdapter's tree-sitter branch). A
-    // worker-driven assertion on the *result* is intentionally omitted here
-    // because tree-sitter Python currently throws at parse time in the
-    // packaged desktop worker and falls back to recursive splitting — a real
-    // runtime bug tracked separately, not something this routing test should
-    // encode as expected behavior.
+    // NOTE on tree-sitter (Python): the previously-omitted worker-driven
+    // assertion now lives in the dedicated test below. It was omitted because
+    // tree-sitter Python threw at parse time in the packaged desktop worker
+    // (Vite rewrote the grammar-WASM `new URL(..., import.meta.url)` into a
+    // 404) and silently fell back to recursive splitting. That runtime bug is
+    // fixed — the grammar URL now resolves at runtime; see
+    // packages/chunking-worker/src/parsers/tree-sitter-grammar-loader.ts — so
+    // the result is asserted directly below.
+  });
+
+  test('@desktop-runtime-hosts structure-aware Python chunking uses the tree-sitter adapter in the packaged worker', async ({
+    window,
+  }) => {
+    await waitForAppReadyInTest(window);
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+
+    // tree-sitter route — a .py file with several top-level definitions. Kept
+    // well under the recursive splitter's chunk size on purpose: the AST path
+    // emits one chunk per top-level definition (>1 chunk), whereas a silent
+    // fall back to recursive TEXT splitting (the grammar-WASM URL regression
+    // this guards) packs the whole sub-maxChars file into a SINGLE chunk. Chunk
+    // count is therefore a direct behavioral discriminator between "tree-sitter
+    // parsed" and "fell back".
+    //
+    // Unlike the oxc test above, this does NOT assert the first-parse audit
+    // log: that audit fires exactly once per worker lifetime and the preceding
+    // oxc .ts drive (same serial worker session) already consumed it as
+    // "oxc-native". The chunk-count discriminator is order-independent and
+    // catches the same regression.
+    const pyResult = await chunkCodeFile(window, {
+      content: [
+        'def alpha(value):',
+        '    """Double the input."""',
+        '    return value * 2',
+        '',
+        '',
+        'def beta(value):',
+        '    """Square the input."""',
+        '    return value * value',
+        '',
+        '',
+        'def gamma(items):',
+        '    total = 0',
+        '    for item in items:',
+        '        total += item',
+        '    return total',
+        '',
+        '',
+        'class Delta:',
+        '    def method_one(self):',
+        '        return 1',
+        '',
+        '    def method_two(self):',
+        '        return 2',
+        '',
+        '',
+        'def epsilon():',
+        '    return Delta()',
+        '',
+      ].join('\n'),
+      fileName: 'structure-aware.py',
+      filePath: '/tmp/structure-aware.py',
+      fileRecordId: 'chunking-host-tree-sitter-route',
+      kind: 'chunk-file',
+      options: { forceStrategy: true, maxTokens: 2048, requestedStrategy: 'recursive' },
+      requestId: crypto.randomUUID(),
+    });
+
+    expect(pyResult.skipped).toBe(false);
+    expect(pyResult.strategyUsed).toBe('recursive');
+    // AST chunking emits one chunk per top-level definition. A grammar-load
+    // failure would throw in the worker and fall back to recursive TEXT
+    // splitting, collapsing this small file to a single chunk. So >1 proves
+    // the tree-sitter AST path actually ran.
+    expect(pyResult.chunks.length).toBeGreaterThan(1);
+
+    await assertVisibleWindowResponsive(window);
+    const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+    expect(finalTimeOrigin).toBe(initialTimeOrigin);
   });
 
   test('supports accurate token sizing in the hidden chunking host without crashing the visible window', async ({
