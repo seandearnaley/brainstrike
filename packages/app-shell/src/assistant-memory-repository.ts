@@ -2094,9 +2094,9 @@ export function createPgliteAssistantThreadRepository(
       await initialize();
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
-         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb, "updatedAt" = $3
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
          WHERE id = $1`,
-        [threadId, JSON.stringify(metadata), new Date()]
+        [threadId, JSON.stringify(metadata)]
       );
     },
   };

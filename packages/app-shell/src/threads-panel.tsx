@@ -1530,7 +1530,8 @@ export function ThreadsPanel(): ReactElement {
   );
   const collapsedGroupIds = useAssistantThreadGroupsStore((state) => state.collapsedGroupIds);
   const groupBy = useAssistantThreadGroupsStore((state) => state.groupBy);
-  const sortBy = useAssistantThreadGroupsStore((state) => state.sortBy);
+  const flatSortBy = useAssistantThreadGroupsStore((state) => state.flatSortBy);
+  const groupedSortBy = useAssistantThreadGroupsStore((state) => state.groupedSortBy);
   const setGroupBy = useAssistantThreadGroupsStore((state) => state.setGroupBy);
   const setSortBy = useAssistantThreadGroupsStore((state) => state.setSortBy);
   const toggleGroupCollapsed = useAssistantThreadGroupsStore((state) => state.toggleGroupCollapsed);
@@ -1565,6 +1566,8 @@ export function ThreadsPanel(): ReactElement {
     () => buildThreadMembership({ groups, placements, threads }),
     [groups, placements, threads]
   );
+  const sortPresentation = groupBy === 'none' ? 'flat' : 'grouped';
+  const sortBy = sortPresentation === 'flat' ? flatSortBy : groupedSortBy;
   const view = useMemo(
     () => buildThreadListSections({ groupBy, groups, placements, sortBy, threads }),
     [groupBy, groups, placements, sortBy, threads]
@@ -1673,7 +1676,12 @@ export function ThreadsPanel(): ReactElement {
         intent.kind === 'move-thread-to-group'
           ? moveThreadToGroup(groupsRepository, resourceId, intent.threadId, intent.groupId)
           : intent.kind === 'apply-thread-order'
-            ? applyThreadOrder(groupsRepository, resourceId, intent.orderedEntries)
+            ? applyThreadOrder(
+                groupsRepository,
+                resourceId,
+                intent.presentation,
+                intent.orderedEntries
+              )
             : reorderGroups(groupsRepository, resourceId, intent.orderedGroupIds);
       run.catch((error: unknown) => {
         setGroupActionError(error instanceof Error ? error.message : String(error));
@@ -1732,7 +1740,7 @@ export function ThreadsPanel(): ReactElement {
           <ThreadsViewOptionsPopover
             groupBy={groupBy}
             onGroupByChange={setGroupBy}
-            onSortByChange={setSortBy}
+            onSortByChange={(nextSortBy) => setSortBy(sortPresentation, nextSortBy)}
             sortBy={sortBy}
           />
           <Button

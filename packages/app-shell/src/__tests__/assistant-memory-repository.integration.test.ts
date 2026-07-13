@@ -2419,11 +2419,16 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(1);
   });
 
-  it('persists curated metadata updates in real PGlite thread rows', async () => {
+  it('persists curated metadata without changing conversational recency', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-curated-metadata');
     const db = await wasmLoader.createPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
+    const conversationalUpdatedAt = new Date('2026-04-22T08:00:00.000Z');
+    await db.query(`UPDATE mastra_threads SET "updatedAt" = $2 WHERE id = $1`, [
+      thread.id,
+      conversationalUpdatedAt,
+    ]);
 
     await repository.updateThreadMetadata(thread.id, {
       color: 'rose',
@@ -2437,6 +2442,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       icon: 'bug',
       source: 'brainstrike',
     });
+    expect(threads[0]?.updatedAt).toEqual(conversationalUpdatedAt);
   });
 
   it('seeds a new thread as OM-overwritable, then a manual rename clears the marker', async () => {

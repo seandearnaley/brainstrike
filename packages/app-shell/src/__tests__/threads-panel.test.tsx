@@ -147,7 +147,6 @@ beforeEach(() => {
           ...parseMetadataObject(row['metadata']),
           ...parseMetadataObject(params?.[1]),
         });
-        row['updatedAt'] = params?.[2];
       }
     }
     if (sql.includes('INSERT INTO brainstrike_assistant_thread_groups')) {
@@ -482,18 +481,17 @@ describe('ThreadsPanel', () => {
     expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET metadata'), [
       'thread-b',
       expect.stringContaining('"icon":"bug"'),
-      expect.any(Date),
     ]);
     expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET metadata'), [
       'thread-b',
       expect.stringContaining('"color":"rose"'),
-      expect.any(Date),
     ]);
     const persistedRow = threadRows.find((row) => row['id'] === 'thread-b');
     expect(JSON.parse(String(persistedRow?.['metadata']))).toMatchObject({
       color: 'rose',
       icon: 'bug',
     });
+    expect(persistedRow?.['updatedAt']).toEqual(new Date('2026-04-22T11:00:00Z'));
   });
 
   it('shows automatic expanded metadata and keeps diagnostics out of the primary row', async () => {
