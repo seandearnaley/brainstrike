@@ -41,6 +41,7 @@ import {
 } from './workspace-collection-sync-import';
 import {
   createAbortError,
+  createThrottledProgressReporter,
   dispatchQueueDrainedEvent,
   isAbortError,
   mapBackfillProgressToStatus,
@@ -49,6 +50,14 @@ import {
   toWorkspaceCollectionSyncChunkingProgress,
   waitForAbortableDelay,
 } from './workspace-collection-sync-progress';
+
+/**
+ * Import-progress status writes are throttled to this cadence (progress fires
+ * once per file read; every status write re-renders all store subscribers).
+ * Matches SCANNING_STATUS_THROTTLE_MS.
+ */
+const IMPORT_STATUS_THROTTLE_MS = 100;
+
 import {
   collectPreparedWorkspaceSyncChanges,
   type PreparedSyncChanges,
@@ -947,20 +956,12 @@ export class WorkspaceCollectionSyncService {
     const scanSummary = this.createScanSummary(prepared);
     let latestImportProgress: EnhancedImportProgress | null = null;
 
-    await runRootFolderCacheImport({
-      abortSignal: args.abortSignal,
-      applyManagedCacheBatch: this.deps.applyManagedCacheBatch,
-      changes: prepared.changes,
-      chunkingWorkerPort,
-      chunkRepository: this.deps.chunkRepository,
-      collection: args.context.collection,
-      db: this.deps.db,
-      ...(this.deps.fileContentProcessor
-        ? { fileContentProcessor: this.deps.fileContentProcessor }
-        : {}),
-      fileRecordRepository: this.deps.fileRecordRepository,
-      onProgress: (progress) => {
-        latestImportProgress = progress;
+    // Progress fires once per FILE READ — thousands of times on a large
+    // workspace. Throttle the status-store writes (each one re-renders every
+    // subscriber) to the same cadence the scanning phase uses; the flush in
+    // `finally` guarantees the final progress state always lands.
+    const importStatusReporter = createThrottledProgressReporter<EnhancedImportProgress>(
+      (progress) => {
         this.deps.setStatus(
           mapEnhancedProgressToStatus(
             progress,
@@ -971,11 +972,34 @@ export class WorkspaceCollectionSyncService {
           )
         );
       },
-      qosPolicy: importQosPolicy,
-      rootId: args.context.dbRootId,
-      setImporting: this.deps.setImporting,
-      waitForBackgroundPermit: this.deps.waitForBackgroundPermit,
-    });
+      IMPORT_STATUS_THROTTLE_MS
+    );
+    try {
+      await runRootFolderCacheImport({
+        abortSignal: args.abortSignal,
+        applyManagedCacheBatch: this.deps.applyManagedCacheBatch,
+        changes: prepared.changes,
+        chunkingWorkerPort,
+        chunkRepository: this.deps.chunkRepository,
+        collection: args.context.collection,
+        db: this.deps.db,
+        ...(this.deps.fileContentProcessor
+          ? { fileContentProcessor: this.deps.fileContentProcessor }
+          : {}),
+        fileRecordRepository: this.deps.fileRecordRepository,
+        onProgress: (progress) => {
+          latestImportProgress = progress;
+          importStatusReporter.report(progress);
+        },
+        qosPolicy: importQosPolicy,
+        rootId: args.context.dbRootId,
+        setImporting: this.deps.setImporting,
+        waitForBackgroundPermit: this.deps.waitForBackgroundPermit,
+      });
+    } finally {
+      importStatusReporter.flush();
+      importStatusReporter.dispose();
+    }
     throwIfAborted(args.abortSignal);
 
     const chunkingProgress = latestImportProgress

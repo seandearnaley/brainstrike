@@ -3,6 +3,10 @@ import {
   __resetPermissionPolicyStoreForTests,
   usePermissionPolicyStore,
 } from '@brainstrike/preferences/stores/permission-policy-store';
+import {
+  __resetWorkspaceCollectionSyncStatusStoreForTests,
+  useWorkspaceCollectionSyncStatusStore,
+} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -53,6 +57,7 @@ describe('useAssistantRequestLifecycle', () => {
     __resetAssistantForegroundActivityForTests();
     vi.useRealTimers();
     useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
+    __resetWorkspaceCollectionSyncStatusStoreForTests();
     __resetPermissionPolicyStoreForTests();
   });
 
@@ -427,6 +432,102 @@ describe('useAssistantRequestLifecycle', () => {
       const prepared = await act(async () => result.current.prepareRequestData());
 
       expect(prepared['planMode']).toBeUndefined();
+    });
+  });
+
+  describe('workspace-index freshness at the request-composition seam', () => {
+    // The wrapper no longer live-subscribes to per-file indexing progress
+    // (during initial indexing that re-rendered the whole assistant panel per
+    // processed file), so `requestData.workspaceIndex` can be thousands of
+    // progress patches stale by the time the user hits send. Same seam as
+    // plan mode above: prepareRequestData must re-read the sync-status store
+    // at call time.
+    it('overrides the render-captured workspaceIndex status fields from the live store', async () => {
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-ws-index',
+          status: 'running',
+        })),
+      });
+      const staleWorkspaceIndex = {
+        blockedReason: null,
+        embeddingSetId: 'set-a',
+        enabled: true,
+        lastError: null,
+        mode: 'auto',
+        paused: false,
+        queueProgress: null,
+        statusState: 'idle',
+      };
+
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: { ...baseRequestData, workspaceIndex: staleWorkspaceIndex },
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      // The store advances AFTER the render that captured requestData, with
+      // no re-render in between.
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          queueProgress: {
+            failed: 0,
+            lastError: null,
+            lastEvent: null,
+            pending: 3,
+            processed: 7,
+            totalQueued: 10,
+          },
+          state: 'importing',
+        });
+      });
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['workspaceIndex']).toMatchObject({
+        // Preference-shaped fields stay from the render-captured object…
+        embeddingSetId: 'set-a',
+        enabled: true,
+        mode: 'auto',
+        // …status-shaped fields are read fresh at request time.
+        queueProgress: { pending: 3, processed: 7, totalQueued: 10 },
+        statusState: 'importing',
+      });
+    });
+
+    it('leaves requestData without workspaceIndex untouched', async () => {
+      const repository = createRepositoryStub();
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['workspaceIndex']).toBeUndefined();
     });
   });
 

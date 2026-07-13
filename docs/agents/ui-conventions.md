@@ -23,6 +23,13 @@ Windowing and performance:
 - Default strategy should remain `auto` unless a product requirement explicitly pins behavior.
 - For search-heavy and large result flows, paged windowing is acceptable when it produces more stable UX than virtual scrolling.
 - Avoid full-tree rematerialization during render paths; keep derived rows memoized and keyed by stable node ids.
+- Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):
+  row-facing handlers are identity-stable (`useEventCallback`), the keyboard
+  `actions` object and the virtualizer measure adapter are memoized, and the
+  flatten pass reuses value-equal row objects (`reuseEqualFlattenedRows`) so a
+  selection/highlight/focus change re-renders only affected rows. Do not pass
+  per-render object/function identities into `TreeTableRow` — the row memo is
+  the scroll/keyboard hot path for every tree surface.
 - Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
 
 When modifying TreeTable strategy or pagination behavior:

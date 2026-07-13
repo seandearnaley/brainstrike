@@ -28,6 +28,42 @@ function shouldIncludeNode(node: IFileNode, includes: string[], excludes: string
   );
 }
 
+/**
+ * Copy-on-write children filter: returns the ORIGINAL array when every child
+ * is retained with identical identity. Fully matching subtrees keep their
+ * node objects across (deferred) keystrokes — the previous clone-everything
+ * pass allocated a full retained tree per query settle, and its fresh
+ * identities defeated memo'd rows and WeakMap-keyed derivation caches.
+ */
+function filterChildrenByPatterns(
+  children: IFileNode[],
+  includesLower: string[],
+  excludesLower: string[]
+): IFileNode[] {
+  let diverged: IFileNode[] | null = null;
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    if (!child) {
+      continue;
+    }
+    const filtered = filterNodeByPatterns(child, includesLower, excludesLower);
+    if (diverged === null) {
+      if (filtered === child) {
+        continue;
+      }
+      diverged = children.slice(0, index);
+      if (filtered) {
+        diverged.push(filtered);
+      }
+      continue;
+    }
+    if (filtered) {
+      diverged.push(filtered);
+    }
+  }
+  return diverged ?? children;
+}
+
 function filterNodeByPatterns(
   node: IFileNode,
   includesLower: string[],
@@ -42,14 +78,15 @@ function filterNodeByPatterns(
 
   if (node.type === 'directory') {
     const children = node.children ?? [];
-    const filteredChildren = children
-      .map((child) => filterNodeByPatterns(child, includesLower, excludesLower))
-      .filter(Boolean) as IFileNode[];
+    const filteredChildren = filterChildrenByPatterns(children, includesLower, excludesLower);
     if (filteredChildren.length > 0) {
-      return { ...node, children: filteredChildren };
+      // All children retained by identity → the directory itself is unchanged.
+      return filteredChildren === node.children ? node : { ...node, children: filteredChildren };
     }
     if (shouldIncludeNode(node, includesLower, excludesLower)) {
-      return { ...node, children: [] };
+      return node.children !== undefined && node.children.length === 0
+        ? node
+        : { ...node, children: [] };
     }
     return null;
   }
@@ -64,9 +101,7 @@ export function filterTreeByPatterns(
   includesLower: string[],
   excludesLower: string[]
 ): IFileNode[] {
-  return nodes
-    .map((node) => filterNodeByPatterns(node, includesLower, excludesLower))
-    .filter(Boolean) as IFileNode[];
+  return filterChildrenByPatterns(nodes, includesLower, excludesLower);
 }
 
 /**

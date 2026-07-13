@@ -22,7 +22,7 @@ import {
   useReactTable,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { LogList } from './log-list';
 import { LogToolbar } from './log-toolbar';
 import {
@@ -59,6 +59,7 @@ const DEFAULT_RETENTION_LIMIT = 2000;
 const DEFAULT_PAGE_SIZE = 50;
 const ALL_SCOPES_VALUE = '__all__';
 const NO_SCOPE_VALUE = '__none__';
+const LOG_SUBSCRIPTION_DEBOUNCE_MS = 100;
 
 const LOG_LEVEL_ITEMS = LOG_LEVEL_OPTIONS.map((level) => (
   <SelectItem key={level} value={level}>
@@ -350,6 +351,7 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
 
 export function LogViewer({ logSource, toast }: LogViewerProps) {
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
+  const rowCacheRef = useRef(new WeakMap<LogRecord, LogRecordRow>());
   const {
     logRecords,
     logsLoading,
@@ -381,6 +383,8 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
       return;
     }
     let cancelled = false;
+    let pendingSubscriptionRecords: readonly LogRecord[] | null = null;
+    let subscriptionTimerId: number | null = null;
 
     if (logSource.getInitialRecords) {
       dispatch({ loading: true, type: 'SET_LOGS_LOADING' });
@@ -407,11 +411,25 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     }
 
     const unsubscribe = logSource.subscribe?.((records) => {
-      dispatch({ records: applyRetentionLimit(records), type: 'SET_LOG_RECORDS' });
+      pendingSubscriptionRecords = records;
+      if (subscriptionTimerId !== null) {
+        window.clearTimeout(subscriptionTimerId);
+      }
+      subscriptionTimerId = window.setTimeout(() => {
+        subscriptionTimerId = null;
+        const pendingRecords = pendingSubscriptionRecords;
+        pendingSubscriptionRecords = null;
+        if (!(cancelled || pendingRecords === null)) {
+          dispatch({ records: applyRetentionLimit(pendingRecords), type: 'SET_LOG_RECORDS' });
+        }
+      }, LOG_SUBSCRIPTION_DEBOUNCE_MS);
     });
 
     return () => {
       cancelled = true;
+      if (subscriptionTimerId !== null) {
+        window.clearTimeout(subscriptionTimerId);
+      }
       unsubscribe?.();
     };
   }, [applyRetentionLimit, logSource, toast]);
@@ -425,15 +443,22 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     );
   }, [globalFilter, logLevelFilter, logRecords, scopeFilter]);
 
-  const tableData = useMemo<LogRecordRow[]>(
-    () =>
-      filteredRecords.map((record) => ({
+  const tableData = useMemo<LogRecordRow[]>(() => {
+    const rowCache = rowCacheRef.current;
+    return filteredRecords.map((record) => {
+      const cachedRow = rowCache.get(record);
+      if (cachedRow) {
+        return cachedRow;
+      }
+      const row: LogRecordRow = {
         ...record,
         flattenedBindings: JSON.stringify(record.bindings ?? {}),
         serializedArgs: serializeArgs(record.args),
-      })),
-    [filteredRecords]
-  );
+      };
+      rowCache.set(record, row);
+      return row;
+    });
+  }, [filteredRecords]);
 
   const columns = useMemo(() => buildLogColumns(wrapLines), [wrapLines]);
 

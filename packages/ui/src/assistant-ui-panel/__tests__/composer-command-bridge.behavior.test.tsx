@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import type { ChatModelAdapter } from '@assistant-ui/react';
-import { useLocalRuntime } from '@assistant-ui/react';
+import { AssistantRuntimeProvider, ComposerPrimitive, useLocalRuntime } from '@assistant-ui/react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -26,6 +26,7 @@ vi.mock('../local-runtime-adapter', () => ({
 }));
 
 import { AssistantUiPanel, type ComposerDraftCommand } from '../assistant-ui-panel';
+import { ComposerDraftCommandBridge } from '../composer-draft-command';
 
 function renderPanel(
   command: ComposerDraftCommand | undefined,
@@ -47,6 +48,33 @@ function renderPanel(
 }
 
 describe('assistant composer command bridge', () => {
+  it('isolates composer text updates from a sibling thread-shell render', async () => {
+    const user = userEvent.setup();
+    let shellRenderCount = 0;
+    const ShellProbe = () => {
+      shellRenderCount += 1;
+      return <div data-testid="thread-shell-probe" />;
+    };
+    const Harness = () => {
+      const runtime = useLocalRuntime(NOOP_ADAPTER);
+      return (
+        <AssistantRuntimeProvider runtime={runtime}>
+          <ShellProbe />
+          <ComposerDraftCommandBridge />
+          <ComposerPrimitive.Root>
+            <ComposerPrimitive.Input aria-label="Isolated message input" />
+          </ComposerPrimitive.Root>
+        </AssistantRuntimeProvider>
+      );
+    };
+
+    render(<Harness />);
+    const rendersBeforeTyping = shellRenderCount;
+    await user.type(screen.getByRole('textbox', { name: 'Isolated message input' }), 'abc');
+
+    expect(shellRenderCount).toBe(rendersBeforeTyping);
+  });
+
   it('replaces the draft exactly once and never sends automatically', async () => {
     const onApplied = vi.fn();
     const onTextChange = vi.fn();

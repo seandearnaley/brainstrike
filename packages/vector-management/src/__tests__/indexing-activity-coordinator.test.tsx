@@ -27,6 +27,7 @@ import type {
 } from '../vector-status/embedding-runtime-controller';
 
 const {
+  appActiveState,
   databaseWorkSchedulerState,
   createPriorityDbHandleMock,
   getCollectionIndexingStatsMock,
@@ -36,6 +37,7 @@ const {
   usePGliteLiveQueryMock,
   useSharedEmbeddingRuntimeMock,
 } = vi.hoisted(() => {
+  const appActiveState = { current: true };
   const databaseWorkSchedulerState = {
     current: null as {
       getSnapshot: ReturnType<typeof vi.fn>;
@@ -43,6 +45,7 @@ const {
     } | null,
   };
   return {
+    appActiveState,
     createPriorityDbHandleMock: vi.fn((db: unknown) => db),
     databaseWorkSchedulerState,
     getCollectionIndexingStatsMock: vi.fn(),
@@ -53,6 +56,11 @@ const {
     useSharedEmbeddingRuntimeMock: vi.fn(),
   };
 });
+
+vi.mock('@brainstrike/hooks', () => ({
+  isAppActive: () => appActiveState.current,
+  useAppActive: () => appActiveState.current,
+}));
 
 interface LiveQueryState {
   error: Error | null;
@@ -242,6 +250,7 @@ function createMockRuntime(): {
 describe('IndexingActivityCoordinator', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    appActiveState.current = true;
     liveQueryState.rows = [];
     liveQueryState.loading = false;
     liveQueryState.error = null;
@@ -680,6 +689,90 @@ describe('IndexingActivityCoordinator', () => {
         configurable: true,
         value: undefined,
       });
+    }
+  });
+
+  it('does not run polling reads while the app is inactive', async () => {
+    vi.useFakeTimers();
+    const db = createQueueDatabase();
+    const schedulerSnapshot = vi.fn(async () => createDatabaseWorkSnapshot());
+    usePGliteDatabaseMock.mockReturnValue(db);
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    getCollectionIndexingStatsMock.mockResolvedValue(createManagedCollectionStats('collection-a'));
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { db: { schedulerSnapshot } },
+    });
+
+    try {
+      const view = render(<IndexingActivityCoordinator />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      appActiveState.current = false;
+      view.rerender(<IndexingActivityCoordinator />);
+      schedulerSnapshot.mockClear();
+      db.query.mockClear();
+      getCollectionIndexingStatsMock.mockClear();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      expect(schedulerSnapshot).not.toHaveBeenCalled();
+      expect(db.query).not.toHaveBeenCalled();
+      expect(getCollectionIndexingStatsMock).not.toHaveBeenCalled();
+      view.unmount();
+    } finally {
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: undefined,
+      });
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('immediately resumes all polling reads when the app becomes active', async () => {
+    vi.useFakeTimers();
+    appActiveState.current = false;
+    const db = createQueueDatabase();
+    const schedulerSnapshot = vi.fn(async () => createDatabaseWorkSnapshot());
+    usePGliteDatabaseMock.mockReturnValue(db);
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    getCollectionIndexingStatsMock.mockResolvedValue(createManagedCollectionStats('collection-a'));
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { db: { schedulerSnapshot } },
+    });
+
+    try {
+      const view = render(<IndexingActivityCoordinator />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      schedulerSnapshot.mockClear();
+      db.query.mockClear();
+      getCollectionIndexingStatsMock.mockClear();
+
+      appActiveState.current = true;
+      view.rerender(<IndexingActivityCoordinator />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
+      expect(db.query).toHaveBeenCalledTimes(1);
+      expect(getCollectionIndexingStatsMock).toHaveBeenCalledTimes(1);
+      view.unmount();
+    } finally {
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: undefined,
+      });
+      vi.clearAllTimers();
+      vi.useRealTimers();
     }
   });
 });

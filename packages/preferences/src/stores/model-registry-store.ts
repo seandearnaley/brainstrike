@@ -302,16 +302,22 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       },
 
       setDownloadProgress: (modelId: string, progress: number) => {
-        set((state) => {
-          const downloadedModels = { ...state.downloadedModels };
-          if (progress === 100) {
-            downloadedModels[modelId] = true;
-          }
-          return {
-            downloadedModels,
-            downloadProgress: { ...state.downloadProgress, [modelId]: progress },
-          };
-        });
+        const roundedProgress = Math.min(100, Math.max(0, Math.round(progress)));
+        const currentState = get();
+        const completesDownload =
+          roundedProgress === 100 && currentState.downloadedModels[modelId] !== true;
+        if (currentState.downloadProgress[modelId] === roundedProgress && !completesDownload) {
+          return;
+        }
+        set((state) => ({
+          downloadedModels: completesDownload
+            ? { ...state.downloadedModels, [modelId]: true }
+            : state.downloadedModels,
+          downloadProgress: {
+            ...state.downloadProgress,
+            [modelId]: roundedProgress,
+          },
+        }));
       },
 
       setModelCacheDir: (dir: string) => {

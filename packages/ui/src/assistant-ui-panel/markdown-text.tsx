@@ -29,6 +29,12 @@ export const MarkdownText = memo(function MarkdownTextImpl() {
     <MarkdownTextPrimitive
       className="aui-md"
       components={defaultComponents}
+      // Parse at deferred priority (useDeferredValue): without this the full
+      // remark/GFM parse re-runs synchronously over ALL accumulated text on
+      // every streamed chunk — quadratic over a long response and a main
+      // source of streaming jank. Under load intermediate parses coalesce;
+      // the final text always renders.
+      defer
       remarkPlugins={REMARK_PLUGINS}
     />
   );

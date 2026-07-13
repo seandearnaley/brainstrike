@@ -1,6 +1,6 @@
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
-import { collectShellOutputs } from '../shell-output-parts';
+import { collectShellOutputs, createShellOutputAccumulator } from '../shell-output-parts';
 
 // Mirrors the REAL data part the DataStreamMapper emits for a live shell slice:
 // `{ name, data: { chunk, stream, toolCallId, truncated? } }`.
@@ -52,5 +52,97 @@ describe('collectShellOutputs', () => {
       'not-an-object',
     ]);
     expect(result).toEqual({});
+  });
+});
+
+// The streaming message appends parts per chunk and the panel re-derives shell
+// output per update — the accumulator makes that O(new parts) instead of
+// O(all parts), and keeps result identity stable when nothing shell-related
+// changed (so context consumers don't re-render on unrelated text deltas).
+describe('createShellOutputAccumulator', () => {
+  const textDelta = (text: string) => ({ text, type: 'text' });
+
+  it('matches collectShellOutputs across growing part prefixes', () => {
+    const accumulate = createShellOutputAccumulator();
+    const parts: unknown[] = [];
+    const grow = (part: unknown) => {
+      parts.push(part);
+      const snapshot = [...parts];
+      expect(accumulate(snapshot)).toEqual(collectShellOutputs(snapshot));
+    };
+
+    grow(textDelta('hello'));
+    grow(slice('call-1', 'first\n'));
+    grow(slice('call-1', 'second\n', 'stderr'));
+    grow(slice('call-2', 'other\n'));
+    grow(textDelta(' world'));
+    grow(slice('call-1', '\n[output truncated…]\n', 'stdout', true));
+  });
+
+  it('returns the SAME record identity when new parts contain no shell slices', () => {
+    const accumulate = createShellOutputAccumulator();
+    // Parts are append-only: subsequent snapshots reuse earlier part objects.
+    const shellPart = slice('call-1', 'out\n');
+    const first = accumulate([shellPart]);
+    const second = accumulate([shellPart, textDelta('answer')]);
+    expect(second).toBe(first);
+  });
+
+  it('is not reset by a non-shell part REPLACED in place (the growing text part)', () => {
+    const accumulate = createShellOutputAccumulator();
+    const shellPart = slice('call-1', 'out\n');
+    const first = accumulate([textDelta('hel'), shellPart]);
+    // The streaming text part is swapped for a new object with more text at
+    // the same index on every chunk; already-scanned indexes are not re-read.
+    const second = accumulate([textDelta('hello'), shellPart, textDelta(' world')]);
+    expect(second).toBe(first);
+  });
+
+  it('returns the same identity when called twice with the same array', () => {
+    const accumulate = createShellOutputAccumulator();
+    const parts = [slice('call-1', 'out\n')];
+    expect(accumulate(parts)).toBe(accumulate(parts));
+  });
+
+  it('preserves untouched tool entries when another tool streams', () => {
+    const accumulate = createShellOutputAccumulator();
+    const call1Part = slice('call-1', 'a\n');
+    const first = accumulate([call1Part]);
+    const second = accumulate([call1Part, slice('call-2', 'b\n')]);
+    expect(second).not.toBe(first);
+    expect(second['call-1']).toBe(first['call-1']);
+    expect(second['call-2']).toEqual({ text: 'b\n', truncated: false });
+  });
+
+  it('does not re-read already-processed parts on subsequent calls', () => {
+    const reads = new Map<number, number>();
+    const countingSlice = (index: number, toolCallId: string, chunk: string) => {
+      const inner = slice(toolCallId, chunk);
+      return new Proxy(inner, {
+        get(target, prop, receiver) {
+          if (prop === 'data') {
+            reads.set(index, (reads.get(index) ?? 0) + 1);
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+    };
+
+    const accumulate = createShellOutputAccumulator();
+    const p0 = countingSlice(0, 'call-1', 'a\n');
+    const p1 = countingSlice(1, 'call-1', 'b\n');
+    accumulate([p0]);
+    const readsAfterFirst = reads.get(0) ?? 0;
+
+    accumulate([p0, p1]);
+    expect(reads.get(0) ?? 0).toBe(readsAfterFirst);
+    expect(reads.get(1) ?? 0).toBeGreaterThan(0);
+  });
+
+  it('recomputes from scratch when the parts prefix no longer matches (message switch)', () => {
+    const accumulate = createShellOutputAccumulator();
+    accumulate([slice('call-1', 'a\n'), slice('call-1', 'b\n')]);
+    const other = accumulate([slice('call-9', 'z\n')]);
+    expect(other).toEqual({ 'call-9': { text: 'z\n', truncated: false } });
   });
 });

@@ -21,7 +21,7 @@ import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getMessageParts } from './assistant-run-timeline';
 
 export interface RunLifecycleNotificationCallbacks {
@@ -119,12 +119,143 @@ export function selectToolApprovalRequests(
  * value, so the selector is only ever "changed" when the underlying events
  * actually differ.
  */
-function serializeTerminalRunEvents(messages: readonly unknown[]): string {
-  return JSON.stringify(selectTerminalRunEvents(messages));
+interface ScannedMessage {
+  readonly id: string | undefined;
+  readonly partCount: number;
 }
 
-function serializeToolApprovalRequests(messages: readonly unknown[]): string {
-  return JSON.stringify(selectToolApprovalRequests(messages));
+function shouldResetIncrementalScan(
+  messages: readonly unknown[],
+  partsByMessage: readonly (readonly unknown[])[],
+  scannedMessages: readonly ScannedMessage[]
+): boolean {
+  if (messages.length < scannedMessages.length) {
+    return true;
+  }
+  for (let index = 0; index < scannedMessages.length; index += 1) {
+    const previous = scannedMessages[index];
+    const message = messages[index];
+    const parts = partsByMessage[index];
+    if (!(previous && message && parts)) {
+      return true;
+    }
+    if (getMessageId(message) !== previous.id || parts.length < previous.partCount) {
+      return true;
+    }
+    if (index < scannedMessages.length - 1 && parts.length !== previous.partCount) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function appendIncrementalMatches<T>({
+  getData,
+  getKey,
+  messages,
+  partsByMessage,
+  scannedMessages,
+  seenKeys,
+  values,
+}: {
+  getData: (part: unknown) => T | undefined;
+  getKey: ((value: T) => string) | undefined;
+  messages: readonly unknown[];
+  partsByMessage: readonly (readonly unknown[])[];
+  scannedMessages: readonly ScannedMessage[];
+  seenKeys: Set<string>;
+  values: T[];
+}): boolean {
+  let matched = false;
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+    const parts = partsByMessage[messageIndex];
+    if (!parts) {
+      continue;
+    }
+    const start = scannedMessages[messageIndex]?.partCount ?? 0;
+    for (let partIndex = start; partIndex < parts.length; partIndex += 1) {
+      const value = getData(parts[partIndex]);
+      if (value === undefined) {
+        continue;
+      }
+      const key = getKey?.(value);
+      if (key !== undefined && seenKeys.has(key)) {
+        continue;
+      }
+      if (key !== undefined) {
+        seenKeys.add(key);
+      }
+      values.push(value);
+      matched = true;
+    }
+  }
+  return matched;
+}
+
+function getMessageId(message: unknown): string | undefined {
+  return isRecord(message) && typeof message['id'] === 'string' ? message['id'] : undefined;
+}
+
+function createIncrementalSerializedSelector<T>({
+  getData,
+  getKey,
+}: {
+  getData: (part: unknown) => T | undefined;
+  getKey?: (value: T) => string;
+}): (messages: readonly unknown[]) => string {
+  let scannedMessages: ScannedMessage[] = [];
+  let values: T[] = [];
+  let serialized = '[]';
+  let seenKeys = new Set<string>();
+
+  return (messages) => {
+    const partsByMessage = messages.map(getMessageParts);
+    const reset = shouldResetIncrementalScan(messages, partsByMessage, scannedMessages);
+
+    if (reset) {
+      scannedMessages = [];
+      values = [];
+      seenKeys = new Set();
+    }
+
+    const matched = appendIncrementalMatches({
+      getData,
+      getKey,
+      messages,
+      partsByMessage,
+      scannedMessages,
+      seenKeys,
+      values,
+    });
+
+    scannedMessages = messages.map((message, index) => ({
+      id: getMessageId(message),
+      partCount: partsByMessage[index]?.length ?? 0,
+    }));
+    if (matched || reset) {
+      serialized = JSON.stringify(values);
+    }
+    return serialized;
+  };
+}
+
+export function createTerminalRunEventsSelector(): (messages: readonly unknown[]) => string {
+  return createIncrementalSerializedSelector({
+    getData: (part) => {
+      const data = getPartData(part, ASSISTANT_RUN_EVENT_DATA_NAME);
+      return isTerminalRunEvent(data) ? data : undefined;
+    },
+  });
+}
+
+export function createToolApprovalRequestsSelector(): (messages: readonly unknown[]) => string {
+  return createIncrementalSerializedSelector({
+    getData: (part) => {
+      const data = getPartData(part, TOOL_APPROVAL_DATA_NAME);
+      return isToolApprovalRequest(data) ? data : undefined;
+    },
+    getKey: (request) => `${request.runId}:${request.toolCallId}`,
+  });
 }
 
 /**
@@ -155,18 +286,20 @@ export function useRunLifecycleNotifications(
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
 
+  const [selectTerminalEventsJson] = useState(createTerminalRunEventsSelector);
+  const [selectApprovalRequestsJson] = useState(createToolApprovalRequestsSelector);
+
   const terminalEventsJson = useAuiState((state) =>
-    serializeTerminalRunEvents(state.thread.messages)
+    selectTerminalEventsJson(state.thread.messages)
   );
   const approvalRequestsJson = useAuiState((state) =>
-    serializeToolApprovalRequests(state.thread.messages)
+    selectApprovalRequestsJson(state.thread.messages)
   );
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
 
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const seededEventsThreadRef = useRef(false);
   const seededEventsThreadKeyRef = useRef<string | undefined>(threadKey);
-  // biome-ignore lint/plugin: reports render-derived events to a parent callback (mirrors onUsage); must run in an effect, not render, since it has an external side effect.
   useEffect(() => {
     if (isHistoryLoading) {
       // History is still hydrating; defer seeding so the baseline captures the
@@ -201,7 +334,6 @@ export function useRunLifecycleNotifications(
   const seenApprovalKeysRef = useRef<Set<string>>(new Set());
   const seededApprovalsThreadRef = useRef(false);
   const seededApprovalsThreadKeyRef = useRef<string | undefined>(threadKey);
-  // biome-ignore lint/plugin: same rationale as the run-event effect above.
   useEffect(() => {
     if (isHistoryLoading) {
       return;
