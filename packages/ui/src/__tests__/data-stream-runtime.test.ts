@@ -456,6 +456,7 @@ describe('assistant-stream integration', () => {
         content: [
           { data: 'data:text/plain;base64,SGVsbG8=', mediaType: 'text/plain', type: 'file' },
         ],
+        id: 'file-user',
         role: 'user',
       },
       {
@@ -648,6 +649,13 @@ describe('assistant-stream integration', () => {
     expect(
       (requestBody?.['messages'] as unknown[]).map((item) => (item as { role: string }).role)
     ).toEqual(['user']);
+    expect(requestBody?.['messages']).toEqual([
+      {
+        content: [{ text: 'current-user' }],
+        id: 'current-user',
+        role: 'user',
+      },
+    ]);
   });
 
   it('reports null response bodies as transport failures', async () => {

@@ -251,6 +251,7 @@ const OM_TINY_THRESHOLD_SETTINGS: RuntimeAssistantMemorySettings = {
 };
 
 async function runTurnWithMemory(args: {
+  assistantMessageId?: string;
   database: PGlite;
   memorySettings: RuntimeAssistantMemorySettings;
   threadId: string;
@@ -269,7 +270,7 @@ async function runTurnWithMemory(args: {
       PgliteMastraMemoryOptions['observationalMemoryModel']
     >;
   }
-  const { memory } = await createPgliteMastraMemory(memoryFactoryOptions);
+  const { memory, storage } = await createPgliteMastraMemory(memoryFactoryOptions);
 
   const weatherTool = createTool({
     description: 'Get the current weather for a city.',
@@ -293,6 +294,7 @@ async function runTurnWithMemory(args: {
       memory,
       runtime: {
         apiKey: 'test-key',
+        ...(args.assistantMessageId ? { assistantMessageId: args.assistantMessageId } : {}),
         provider: 'openai',
         ...(args.signal ? { signal: args.signal } : {}),
         memory: {
@@ -301,6 +303,7 @@ async function runTurnWithMemory(args: {
           threadId: args.threadId,
         },
       },
+      storage,
       tools: { get_weather: weatherTool },
     }
   );
@@ -344,6 +347,27 @@ describe('mastra memory persistence through the live stream path', () => {
 
   afterEach(async () => {
     await database.close();
+  });
+
+  it.each([
+    ['observational memory enabled', DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS],
+    ['observational memory disabled', OM_DISABLED_SETTINGS],
+    ['observational memory sealing snapshots', OM_TINY_THRESHOLD_SETTINGS],
+  ] as const)('persists the assistant-ui message id with %s', async (_label, memorySettings) => {
+    const threadId = 'thread-assistant-message-id';
+    await runTurnWithMemory({
+      assistantMessageId: 'assistant-client-id',
+      database,
+      memorySettings,
+      threadId,
+    });
+
+    const rows = await listThreadMessages(database, threadId);
+    const userRows = rows.filter((row) => row.role === 'user');
+    const assistantRows = rows.filter((row) => row.role === 'assistant');
+    expect(userRows.map((row) => row.id)).toContain('u-mem-1');
+    expect(assistantRows.length).toBeGreaterThan(0);
+    expect(assistantRows.map((row) => row.id)).toContain('assistant-client-id');
   });
 
   it.each([

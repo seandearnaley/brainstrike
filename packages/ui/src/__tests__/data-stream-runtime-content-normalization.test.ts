@@ -114,6 +114,7 @@ describe('BrainstrikeDataStreamRuntimeAdapter content normalization', () => {
       },
       {
         content: [{ text: 'plain prompt' }],
+        id: 'user',
         role: 'user',
       },
       {

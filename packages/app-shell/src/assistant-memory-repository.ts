@@ -244,6 +244,8 @@ export interface AssistantThreadRepository {
     options?: AssistantThreadRunEventListOptions
   ) => Promise<readonly AssistantRunEvent[]>;
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
+  /** Required by history-adapter append; optional only for read-only/test repositories. */
+  recordMessageParent?: (input: RecordAssistantMessageParentInput) => Promise<void>;
   recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
@@ -253,7 +255,16 @@ interface AssistantHistoryMessage {
   readonly content: unknown;
   readonly createdAt: Date;
   readonly id: string;
+  /** Undefined only for legacy rows written before durable branch topology. */
+  readonly parentId?: string | null;
   readonly role: string;
+}
+
+export interface RecordAssistantMessageParentInput {
+  readonly messageId: string;
+  readonly parentId: string | null;
+  readonly resourceId: string;
+  readonly threadId: string;
 }
 
 export interface AssistantThreadMessageListOptions {
@@ -270,8 +281,24 @@ const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
+const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
 ${MASTRA_MEMORY_SCHEMA_SQL}
+
+-- assistant-ui's branch graph is client-owned topology layered over Mastra's
+-- durable message content. A parent row may be written before its Mastra
+-- message row, so message_id/parent_id intentionally have no message FK.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_MESSAGE_PARENTS_TABLE} (
+  message_id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  resource_id text NOT NULL,
+  parent_id text,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_message_parents_thread_idx
+  ON ${ASSISTANT_MESSAGE_PARENTS_TABLE} (thread_id, resource_id);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,
@@ -492,6 +519,37 @@ function requireString(value: unknown, fieldName: string): string {
     throw new Error(`Invalid Mastra memory row: ${fieldName} is not a string.`);
   }
   return value;
+}
+
+function requireNonEmptyTopologyId(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`Assistant message topology ${fieldName} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function mapAssistantHistoryMessageRow(row: Record<string, unknown>): AssistantHistoryMessage {
+  const parentMappingMessageId = row['parentMappingMessageId'];
+  if (parentMappingMessageId !== null && parentMappingMessageId !== undefined) {
+    requireNonEmptyTopologyId(parentMappingMessageId, 'parentMappingMessageId');
+  }
+  const parentId = row['parentId'];
+  if (parentMappingMessageId !== null && parentMappingMessageId !== undefined) {
+    if (parentId !== null) {
+      requireNonEmptyTopologyId(parentId, 'parentId');
+    }
+  } else if (parentId !== null && parentId !== undefined) {
+    throw new Error('Assistant message parent exists without a mapping row.');
+  }
+  return {
+    content: parseJson(row['content']),
+    createdAt: normalizeDate(row['createdAt']),
+    id: requireString(row['id'], 'id'),
+    ...(parentMappingMessageId === null || parentMappingMessageId === undefined
+      ? {}
+      : { parentId: parentId === null ? null : (parentId as string) }),
+    role: requireString(row['role'], 'role'),
+  };
 }
 
 /**
@@ -1144,11 +1202,11 @@ function collectToolResults(
 }
 
 /**
- * A run of consecutive assistant rows (split only by user/system rows; legacy
- * `role: 'tool'` rows do not break a run). Observational-memory sealing and
- * per-step saves split ONE live assistant turn into several rows, so a group
- * hydrates back into a single assistant-ui message — matching what the thread
- * looked like while it streamed.
+ * A run of assistant snapshot rows for one branch identity. User/system rows
+ * and a new topology-bearing assistant ID split groups; legacy `role: 'tool'`
+ * rows do not. Observational-memory sealing and per-step saves split ONE live
+ * assistant turn into several rows, so a group hydrates back into a single
+ * assistant-ui message — matching what the thread looked like while it streamed.
  */
 interface AssistantHistoryRowGroup {
   readonly kind: 'assistant-group';
@@ -1268,11 +1326,16 @@ function appendAssistantGroupMessage(args: {
     args.groupEventParts,
     firstRow.createdAt.getTime()
   );
+  const topologyRows = args.group.rows.filter((row) => row.parentId !== undefined);
+  const messageId = topologyRows.at(0)?.id ?? lastRow.id;
+  if (topologyRows.some((row) => row.id !== messageId)) {
+    throw new Error(`Assistant message snapshots disagree on branch identity for ${lastRow.id}.`);
+  }
   args.repositoryMessages.push({
     message: {
       content,
       createdAt: firstRow.createdAt,
-      id: lastRow.id,
+      id: messageId,
       metadata: {
         custom: {},
         steps: [],
@@ -1288,7 +1351,27 @@ function appendAssistantGroupMessage(args: {
     },
     parentId: args.parentId,
   });
-  return lastRow.id;
+  return messageId;
+}
+
+function resolveAssistantGroupParentId(
+  group: AssistantHistoryRowGroup,
+  legacyParentId: string | null
+): string | null {
+  let resolvedParentId: string | null | undefined;
+  for (const row of group.rows) {
+    if (row.parentId === undefined) {
+      continue;
+    }
+    if (resolvedParentId === undefined) {
+      resolvedParentId = row.parentId;
+      continue;
+    }
+    if (resolvedParentId !== row.parentId) {
+      throw new Error(`Assistant message snapshots disagree on branch parent for ${row.id}.`);
+    }
+  }
+  return resolvedParentId === undefined ? legacyParentId : resolvedParentId;
 }
 
 function appendUserHistoryMessage(args: {
@@ -1340,11 +1423,13 @@ function appendSystemHistoryMessage(args: {
 
 /**
  * Partition the row stream into units: user/system rows stand alone;
- * consecutive assistant rows collapse into one group (legacy `role: 'tool'`
- * rows neither render nor break a group). Conversion happens here exactly
- * once per row, in chronological order — the tool-call dedupe map is stateful
- * (it keeps the FIRST occurrence of each toolCallId across snapshot rows), so
- * re-converting a row would corrupt it.
+ * assistant snapshot rows with one topology identity collapse into one group
+ * (legacy `role: 'tool'` rows neither render nor break a group). A second
+ * topology-bearing assistant ID starts a regenerated sibling group even when
+ * no user row separates the persisted responses. Conversion happens here
+ * exactly once per row, in chronological order — the tool-call dedupe map is
+ * stateful (it keeps the FIRST occurrence of each toolCallId across snapshot
+ * rows), so re-converting a row would corrupt it.
  */
 function buildHistoryUnits(
   messages: readonly AssistantHistoryMessage[],
@@ -1352,12 +1437,34 @@ function buildHistoryUnits(
 ): AssistantHistoryUnit[] {
   const units: AssistantHistoryUnit[] = [];
   const seenToolCallsById = new Map<string, AssistantHistoryToolCallPart>();
-  let openGroup: { rows: AssistantHistoryMessage[]; parts: TimedHistoryContentPart[] } | null =
-    null;
+  let openGroup: {
+    parts: TimedHistoryContentPart[];
+    rows: AssistantHistoryMessage[];
+    topologyMessageId?: string;
+  } | null = null;
+
+  const closeOpenGroup = (): void => {
+    if (!openGroup) {
+      return;
+    }
+    units.push({ kind: 'assistant-group', parts: openGroup.parts, rows: openGroup.rows });
+    openGroup = null;
+  };
 
   for (const message of messages) {
     if (message.role === 'assistant') {
+      const topologyMessageId = message.parentId === undefined ? undefined : message.id;
+      if (
+        topologyMessageId !== undefined &&
+        openGroup !== null &&
+        openGroup.topologyMessageId !== topologyMessageId
+      ) {
+        closeOpenGroup();
+      }
       openGroup ??= { parts: [], rows: [] };
+      if (topologyMessageId !== undefined) {
+        openGroup.topologyMessageId = topologyMessageId;
+      }
       openGroup.rows.push(message);
       // Parts without a persisted timestamp anchor to their snapshot row's
       // save time — each row seals shortly after its parts were produced.
@@ -1372,18 +1479,13 @@ function buildHistoryUnits(
       continue;
     }
     if (message.role === 'user' || message.role === 'system') {
-      if (openGroup) {
-        units.push({ kind: 'assistant-group', ...openGroup });
-        openGroup = null;
-      }
+      closeOpenGroup();
       units.push({ kind: message.role, message });
     }
     // Other roles (legacy 'tool' rows) are folded into tool results and never
     // rendered — they intentionally do not split an assistant group.
   }
-  if (openGroup) {
-    units.push({ kind: 'assistant-group', ...openGroup });
-  }
+  closeOpenGroup();
   return units;
 }
 
@@ -1505,6 +1607,57 @@ function compareHistoryMessages(left: AssistantHistoryMessage, right: AssistantH
   return roleDifference === 0 ? left.id.localeCompare(right.id) : roleDifference;
 }
 
+/**
+ * assistant-ui imports parents before children. Mastra updates `createdAt` when
+ * a regeneration reuses its user message ID, so persisted chronological order
+ * is not necessarily topological. Close the bounded graph, then perform a
+ * stable parent-first traversal without adding a database round trip.
+ */
+function orderHistoryGraphForImport(
+  repositoryMessages: AssistantHistoryRepositoryMessages
+): AssistantHistoryRepositoryMessages {
+  const messageById = new Map<string, AssistantHistoryRepositoryMessages[number]>();
+  for (const item of repositoryMessages) {
+    if (messageById.has(item.message.id)) {
+      throw new Error(`Assistant history contains duplicate message ID ${item.message.id}.`);
+    }
+    messageById.set(item.message.id, item);
+  }
+
+  const closedMessages = repositoryMessages.map((item) =>
+    item.parentId !== null && !messageById.has(item.parentId) ? { ...item, parentId: null } : item
+  );
+  const closedMessageById = new Map(closedMessages.map((item) => [item.message.id, item]));
+  const visitState = new Map<string, 'visited' | 'visiting'>();
+  const orderedMessages: AssistantHistoryRepositoryMessages = [];
+
+  const visit = (item: AssistantHistoryRepositoryMessages[number]): void => {
+    const messageId = item.message.id;
+    const state = visitState.get(messageId);
+    if (state === 'visited') {
+      return;
+    }
+    if (state === 'visiting') {
+      throw new Error(`Assistant history contains a parent cycle at message ${messageId}.`);
+    }
+    visitState.set(messageId, 'visiting');
+    if (item.parentId !== null) {
+      const parent = closedMessageById.get(item.parentId);
+      if (!parent) {
+        throw new Error(`Assistant history parent ${item.parentId} disappeared while ordering.`);
+      }
+      visit(parent);
+    }
+    visitState.set(messageId, 'visited');
+    orderedMessages.push(item);
+  };
+
+  for (const item of closedMessages) {
+    visit(item);
+  }
+  return orderedMessages;
+}
+
 function toHistoryRepository(
   messages: readonly AssistantHistoryMessage[],
   runEvents: readonly AssistantRunEvent[] = []
@@ -1523,7 +1676,7 @@ function toHistoryRepository(
       const appendedId = appendAssistantGroupMessage({
         group: unit,
         groupEventParts: runEventAssignments.get(unit) ?? [],
-        parentId,
+        parentId: resolveAssistantGroupParentId(unit, parentId),
         repositoryMessages,
       });
       if (appendedId !== null) {
@@ -1533,16 +1686,26 @@ function toHistoryRepository(
     }
     const appended =
       unit.kind === 'user'
-        ? appendUserHistoryMessage({ message: unit.message, parentId, repositoryMessages })
-        : appendSystemHistoryMessage({ message: unit.message, parentId, repositoryMessages });
+        ? appendUserHistoryMessage({
+            message: unit.message,
+            parentId: unit.message.parentId === undefined ? parentId : unit.message.parentId,
+            repositoryMessages,
+          })
+        : appendSystemHistoryMessage({
+            message: unit.message,
+            parentId: unit.message.parentId === undefined ? parentId : unit.message.parentId,
+            repositoryMessages,
+          });
     if (appended) {
       parentId = unit.message.id;
     }
   }
 
+  const headId = repositoryMessages.at(-1)?.message.id ?? null;
+
   return {
-    headId: repositoryMessages.at(-1)?.message.id ?? null,
-    messages: repositoryMessages,
+    headId,
+    messages: orderHistoryGraphForImport(repositoryMessages),
   };
 }
 
@@ -1918,6 +2081,11 @@ export function createPgliteAssistantThreadRepository(
             WHERE thread_id = $1
             RETURNING id
           ),
+          deleted_message_parents AS (
+            DELETE FROM ${ASSISTANT_MESSAGE_PARENTS_TABLE}
+            WHERE thread_id = $1
+            RETURNING message_id
+          ),
           deleted_edit_checkpoints AS (
             DELETE FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
             WHERE thread_id = $1
@@ -1931,6 +2099,7 @@ export function createPgliteAssistantThreadRepository(
          SELECT
           (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
+          (SELECT count(*) FROM deleted_message_parents) AS deleted_message_parent_count,
           (SELECT count(*) FROM deleted_edit_checkpoints) AS deleted_edit_checkpoint_count,
           (SELECT count(*) FROM deleted_thread) AS deleted_thread_count`,
         [threadId, `thread:${threadId}`]
@@ -1996,33 +2165,36 @@ export function createPgliteAssistantThreadRepository(
         throw new Error('Assistant message history limit must be a positive safe integer.');
       }
       const params: unknown[] = [threadId, resourceId];
-      const sql =
+      const limitClause =
         limitLatest === undefined
-          ? `SELECT id, role, content, "createdAt"
-             FROM ${MASTRA_MEMORY_TABLES.messages}
-             WHERE thread_id = $1 AND "resourceId" = $2
-             ORDER BY "createdAt" ASC, id ASC`
-          : `SELECT id, role, content, "createdAt"
-             FROM (
-               SELECT id, role, content, "createdAt"
-               FROM ${MASTRA_MEMORY_TABLES.messages}
-               WHERE thread_id = $1 AND "resourceId" = $2
-               -- id is a deterministic tie-breaker for same-timestamp rows;
+          ? ''
+          : `-- id is a deterministic tie-breaker for same-timestamp rows;
                -- insertion-order ties need a future monotonic schema column.
                ORDER BY "createdAt" DESC, id DESC
-               LIMIT $3
-             ) AS recent_messages
-             ORDER BY "createdAt" ASC, id ASC`;
+               LIMIT $3`;
+      const sql = `SELECT
+          recent_messages.id,
+          recent_messages.role,
+          recent_messages.content,
+          recent_messages."createdAt",
+          message_parents.message_id AS "parentMappingMessageId",
+          message_parents.parent_id AS "parentId"
+        FROM (
+          SELECT id, role, content, "createdAt"
+          FROM ${MASTRA_MEMORY_TABLES.messages}
+          WHERE thread_id = $1 AND "resourceId" = $2
+          ${limitClause}
+        ) AS recent_messages
+        LEFT JOIN ${ASSISTANT_MESSAGE_PARENTS_TABLE} AS message_parents
+          ON message_parents.message_id = recent_messages.id
+          AND message_parents.thread_id = $1
+          AND message_parents.resource_id = $2
+        ORDER BY recent_messages."createdAt" ASC, recent_messages.id ASC`;
       if (limitLatest !== undefined) {
         params.push(limitLatest);
       }
       const result = await database.query<Record<string, unknown>>(sql, params);
-      return result.rows.map((row) => ({
-        content: parseJson(row['content']),
-        createdAt: normalizeDate(row['createdAt']),
-        id: requireString(row['id'], 'id'),
-        role: requireString(row['role'], 'role'),
-      }));
+      return result.rows.map(mapAssistantHistoryMessageRow);
     },
     listThreadCheckpoints,
     listThreadRunEvents,
@@ -2051,6 +2223,30 @@ export function createPgliteAssistantThreadRepository(
           ...(latestRun ? { latestRun } : {}),
         });
       });
+    },
+    async recordMessageParent(input: RecordAssistantMessageParentInput): Promise<void> {
+      const messageId = requireNonEmptyTopologyId(input.messageId, 'messageId');
+      const threadId = requireNonEmptyTopologyId(input.threadId, 'threadId');
+      const resourceId = requireNonEmptyTopologyId(input.resourceId, 'resourceId');
+      const parentId =
+        input.parentId === null ? null : requireNonEmptyTopologyId(input.parentId, 'parentId');
+      await initialize();
+      const now = new Date();
+      const result = await database.query(
+        `INSERT INTO ${ASSISTANT_MESSAGE_PARENTS_TABLE}
+          (message_id, thread_id, resource_id, parent_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $5)
+         ON CONFLICT (message_id) DO UPDATE
+           SET updated_at = EXCLUDED.updated_at
+           WHERE ${ASSISTANT_MESSAGE_PARENTS_TABLE}.thread_id = EXCLUDED.thread_id
+             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.resource_id = EXCLUDED.resource_id
+             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.parent_id IS NOT DISTINCT FROM EXCLUDED.parent_id
+         RETURNING message_id`,
+        [messageId, threadId, resourceId, parentId, now]
+      );
+      if (result.rows.length !== 1) {
+        throw new Error(`Assistant message ${messageId} has conflicting branch topology.`);
+      }
     },
     async recordRunUsage(input: RecordRunUsageInput): Promise<void> {
       assertUsageTokenCount(input.inputTokens, 'inputTokens');
@@ -2122,9 +2318,19 @@ export function createAssistantThreadHistoryAdapter({
   readonly threadId: string;
 }): AssistantUiThreadHistoryAdapter {
   return {
-    async append() {
-      // Mastra is the durable writer for assistant conversations. The client adapter is read-through
-      // only to avoid duplicate message rows with client-generated IDs.
+    async append(item) {
+      // Mastra remains the only durable CONTENT writer. assistant-ui owns the
+      // branch graph, so persist only its id/parent edge here; writing the
+      // message body would duplicate or race Mastra's snapshots.
+      if (!repository.recordMessageParent) {
+        throw new Error('Assistant history repository cannot persist message branch topology.');
+      }
+      await repository.recordMessageParent({
+        messageId: item.message.id,
+        parentId: item.parentId,
+        resourceId,
+        threadId,
+      });
     },
     async load() {
       // Discovery is a bounded, best-effort HTTP round-trip (see

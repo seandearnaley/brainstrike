@@ -50,6 +50,7 @@ type AssistantUiMessage = AssistantUiMessageStrict;
 
 type AssistantRoute = 'status' | 'assistant' | 'suspended-runs' | 'not-found';
 interface AssistantRequestPayload {
+  assistantMessageId?: string;
   data: RuntimeData | undefined;
   rawMessages: AssistantUiMessage[];
   toolApprovalAction?: AssistantToolApprovalAction;
@@ -260,7 +261,14 @@ async function handleAssistantPost(
   if (!prepared) {
     return;
   }
-  const { messages, runtimeData, apiKey, toolApprovalAction, toolResumeAction } = prepared;
+  const {
+    assistantMessageId,
+    messages,
+    runtimeData,
+    apiKey,
+    toolApprovalAction,
+    toolResumeAction,
+  } = prepared;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -271,6 +279,7 @@ async function handleAssistantPost(
   try {
     await streamAssistantPostResponse({
       apiKey,
+      assistantMessageId,
       messages,
       res,
       runId,
@@ -327,6 +336,7 @@ async function streamAssistantPostResponse({
   messages,
   runtimeData,
   apiKey,
+  assistantMessageId,
   signal,
   runId,
   toolApprovalAction,
@@ -337,6 +347,7 @@ async function streamAssistantPostResponse({
   readonly messages: AgentMessage[];
   readonly runtimeData: RuntimeData;
   readonly apiKey: string | undefined;
+  readonly assistantMessageId: string | undefined;
   readonly signal: AbortSignal;
   readonly runId: string | undefined;
   readonly toolApprovalAction?: AssistantToolApprovalAction;
@@ -366,7 +377,9 @@ async function streamAssistantPostResponse({
     return;
   }
 
-  const session = assistantDataStreamSessions.create(streamResult.stream);
+  const session = assistantDataStreamSessions.create(streamResult.stream, {
+    ...(assistantMessageId ? { messageId: assistantMessageId } : {}),
+  });
   const response = session.createResponse();
   await streamResponse(res, response, signal);
   if (runId) {
@@ -577,10 +590,24 @@ async function recordDesktopAssistantRunEvent(
 
 interface PreparedAssistantPostRequest {
   apiKey: string;
+  assistantMessageId?: string;
   messages: AgentMessage[];
   runtimeData: RuntimeData;
   toolApprovalAction?: AssistantToolApprovalAction;
   toolResumeAction?: AssistantToolResumeAction;
+}
+
+function withTrustedAssistantMessageId(
+  data: RuntimeData | undefined,
+  provider: SupportedProvider,
+  assistantMessageId: string | undefined
+): RuntimeData {
+  const { assistantMessageId: _ignoredClientAssistantMessageId, ...clientRuntimeData } = data ?? {};
+  return {
+    ...clientRuntimeData,
+    provider,
+    ...(assistantMessageId ? { assistantMessageId } : {}),
+  };
 }
 
 async function prepareAssistantPostRequest(
@@ -589,12 +616,14 @@ async function prepareAssistantPostRequest(
 ): Promise<PreparedAssistantPostRequest | undefined> {
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
+  let assistantMessageId: string | undefined;
   let toolApprovalAction: AssistantToolApprovalAction | undefined;
   let toolApprovalActionInvalid = false;
   let toolResumeAction: AssistantToolResumeAction | undefined;
   let toolResumeActionInvalid = false;
   try {
     const payload = await parseAssistantRequestPayload(req);
+    assistantMessageId = payload.assistantMessageId;
     rawMessages = payload.rawMessages;
     data = payload.data;
     toolApprovalAction = payload.toolApprovalAction;
@@ -656,7 +685,7 @@ async function prepareAssistantPostRequest(
   const apiKey = provider === 'local' ? '' : await resolveProviderApiKey(provider);
 
   const runtimeData: RuntimeData = hydrateRuntimeDataWithLocalRuntimeToken(
-    data ? { ...data, provider } : { provider },
+    withTrustedAssistantMessageId(data, provider, assistantMessageId),
     provider,
     apiKey
   );
@@ -684,6 +713,7 @@ async function prepareAssistantPostRequest(
 
   return {
     apiKey: apiKey ?? '',
+    ...(assistantMessageId ? { assistantMessageId } : {}),
     messages,
     runtimeData,
     ...(toolApprovalAction ? { toolApprovalAction } : {}),
@@ -871,7 +901,7 @@ function isAssistantCorsPreflight(req: http.IncomingMessage): boolean {
   );
 }
 
-function resolveRequestedProvider(data: RuntimeData | undefined): string | undefined {
+function resolveRequestedProvider(data: RuntimeData | undefined): SupportedProvider | undefined {
   const raw = typeof data?.provider === 'string' ? data.provider.trim() : '';
   if (!raw) {
     return;
