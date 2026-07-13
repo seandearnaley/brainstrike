@@ -482,7 +482,18 @@ describe('embedding-worker: concurrent access patterns', () => {
       await db.query(
         `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
          VALUES ($1, 'embeddings', 'embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
-        [jobIds[i], JSON.stringify({ chunkId, embeddingSetId }), now]
+        [
+          jobIds[i],
+          // The worker resolves each job's model from payload.modelKey (required);
+          // match the worker's active jina model so no model-switch reinit occurs.
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            expectedDimension: 768,
+            modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          }),
+          now,
+        ]
       );
     }
 
@@ -654,7 +665,17 @@ describe('embedding-worker: concurrent access patterns', () => {
       await db.query(
         `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
          VALUES ($1, 'embeddings', 'embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
-        [`job-l${i}`, JSON.stringify({ chunkId, embeddingSetId }), now]
+        [
+          `job-l${i}`,
+          // payload.modelKey is required by the worker; match the active jina model.
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            expectedDimension: 768,
+            modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          }),
+          now,
+        ]
       );
     }
 
@@ -770,7 +791,10 @@ describe('embedding-worker: lease management edge cases', () => {
       fileId: 'lease-extend-file',
       jobId: 'lease-extend-job',
       modelId: 'jinaai/jina-embeddings-v2-base-code',
-      modelKey: 'local::jina-code',
+      // Match the worker's active model (catalogued) so the job runs to success
+      // via the injected fake; the prior 'local::jina-code' key resolved to an
+      // uncatalogued model id and failed model initialization before completing.
+      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
     });
 
     const logs: Array<{ msg: string; meta?: unknown }> = [];
