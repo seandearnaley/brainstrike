@@ -37,6 +37,7 @@ export interface AssistantThreadGroupRankEntry {
 
 export interface AssistantThreadGroupsRepository {
   clearThreadPlacement: (threadId: string) => Promise<void>;
+  clearThreadPlacements: (threadIds: readonly string[]) => Promise<void>;
   createGroup: (resourceId: string, name: string, rank: string) => Promise<AssistantThreadGroup>;
   deleteGroup: (groupId: string) => Promise<void>;
   listGroups: (resourceId: string) => Promise<readonly AssistantThreadGroup[]>;
@@ -81,6 +82,28 @@ function requireString(value: unknown, fieldName: string): string {
     throw new Error(`Invalid thread group row: ${fieldName} is not a string.`);
   }
   return value;
+}
+
+function requireIdentifier(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${label} is required.`);
+  }
+  return value;
+}
+
+function requireThreadIds(threadIds: readonly string[]): readonly string[] {
+  if (!Array.isArray(threadIds)) {
+    throw new Error('Thread ids must be an array.');
+  }
+  const seenIds = new Set<string>();
+  for (const threadId of threadIds) {
+    requireIdentifier(threadId, 'Thread id');
+    if (seenIds.has(threadId)) {
+      throw new Error(`Duplicate thread id: ${threadId}.`);
+    }
+    seenIds.add(threadId);
+  }
+  return threadIds;
 }
 
 function requireNullableGroupColor(value: unknown): AssistantThreadColorId | null {
@@ -140,7 +163,18 @@ export function createPgliteAssistantThreadGroupsRepository(
 
   const repository: AssistantThreadGroupsRepository = {
     async clearThreadPlacement(threadId: string): Promise<void> {
+      requireIdentifier(threadId, 'Thread id');
       await database.query(`DELETE FROM ${PLACEMENTS_TABLE} WHERE thread_id = $1`, [threadId]);
+    },
+    async clearThreadPlacements(threadIds: readonly string[]): Promise<void> {
+      requireThreadIds(threadIds);
+      if (threadIds.length === 0) {
+        return;
+      }
+      const placeholders = threadIds.map((_, index) => `$${index + 1}`).join(', ');
+      await database.query(`DELETE FROM ${PLACEMENTS_TABLE} WHERE thread_id IN (${placeholders})`, [
+        ...threadIds,
+      ]);
     },
     async createGroup(
       resourceId: string,
@@ -238,9 +272,15 @@ export function createPgliteAssistantThreadGroupsRepository(
         return;
       }
       for (const placement of placements) {
+        requireIdentifier(placement.threadId, 'Thread id');
+        requireIdentifier(placement.resourceId, 'Thread placement resource id');
+        if (placement.groupId !== null) {
+          requireIdentifier(placement.groupId, 'Thread group id');
+        }
         requireRank(placement.rank, 'placement');
         requireNullableRank(placement.flatRank, 'flatRank');
       }
+      requireThreadIds(placements.map((placement) => placement.threadId));
       // Single multi-row upsert: atomic without needing the optional
       // DbHandle.transaction capability, and one round trip per drop.
       const valueRows = placements

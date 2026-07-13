@@ -49,6 +49,69 @@ const EMPTY_TAB_SCROLL_STATE: TabScrollState = {
   canScrollForward: false,
 };
 
+type TabReorderDirection = 'left' | 'right';
+
+function readTabReorderDirection(
+  event: KeyboardEvent<HTMLButtonElement>
+): TabReorderDirection | null {
+  if (!(event.altKey && event.shiftKey)) {
+    return null;
+  }
+  if (event.key === 'ArrowLeft') {
+    return 'left';
+  }
+  if (event.key === 'ArrowRight') {
+    return 'right';
+  }
+  return null;
+}
+
+function reorderTabByOnePosition({
+  currentIndex,
+  currentOpenThreadIds,
+  direction,
+  threadId,
+}: {
+  readonly currentIndex: number;
+  readonly currentOpenThreadIds: readonly string[];
+  readonly direction: TabReorderDirection;
+  readonly threadId: string;
+}): readonly string[] | null {
+  const destinationIndex = currentIndex + (direction === 'left' ? -1 : 1);
+  const adjacentThreadId = currentOpenThreadIds[destinationIndex];
+  if (!adjacentThreadId) {
+    return null;
+  }
+  const orderedThreadIds = [...currentOpenThreadIds];
+  orderedThreadIds[currentIndex] = adjacentThreadId;
+  orderedThreadIds[destinationIndex] = threadId;
+  return orderedThreadIds;
+}
+
+function resolveKeyboardNavigationTarget({
+  currentIndex,
+  currentOpenThreadIds,
+  key,
+}: {
+  readonly currentIndex: number;
+  readonly currentOpenThreadIds: readonly string[];
+  readonly key: string;
+}): string | undefined {
+  if (key === 'ArrowLeft') {
+    return currentOpenThreadIds.at(currentIndex - 1) ?? currentOpenThreadIds.at(-1);
+  }
+  if (key === 'ArrowRight') {
+    return currentOpenThreadIds[currentIndex + 1] ?? currentOpenThreadIds.at(0);
+  }
+  if (key === 'Home') {
+    return currentOpenThreadIds.at(0);
+  }
+  if (key === 'End') {
+    return currentOpenThreadIds.at(-1);
+  }
+  return;
+}
+
 function getTabId(threadId: string): string {
   return `assistant-thread-tab-${threadId}`;
 }
@@ -162,9 +225,15 @@ export function AssistantThreadTabsWorkspace({
     document.getElementById(getTabId(threadId))?.focus();
   }, []);
 
-  const focusThreadTabOnNextFrame = useCallback(
-    (threadId: string): void => {
-      window.requestAnimationFrame(() => focusThreadTab(threadId));
+  const focusThreadTargetOnNextFrame = useCallback(
+    (threadId: string | undefined): void => {
+      window.requestAnimationFrame(() => {
+        if (threadId) {
+          focusThreadTab(threadId);
+          return;
+        }
+        newThreadButtonRef.current?.focus();
+      });
     },
     [focusThreadTab]
   );
@@ -177,18 +246,16 @@ export function AssistantThreadTabsWorkspace({
       if (closingIndex === -1) {
         return;
       }
+      const currentActiveThreadId =
+        useAssistantThreadStore.getState().activeThreadIdByResourceId[resourceId];
       const nextFocusThreadId =
-        currentOpenThreadIds[closingIndex + 1] ?? currentOpenThreadIds[closingIndex - 1];
+        currentActiveThreadId === threadId
+          ? (currentOpenThreadIds[closingIndex + 1] ?? currentOpenThreadIds[closingIndex - 1])
+          : currentActiveThreadId;
       closeThreadTab(resourceId, threadId);
-      window.requestAnimationFrame(() => {
-        if (nextFocusThreadId) {
-          focusThreadTab(nextFocusThreadId);
-          return;
-        }
-        newThreadButtonRef.current?.focus();
-      });
+      focusThreadTargetOnNextFrame(nextFocusThreadId);
     },
-    [closeThreadTab, focusThreadTab, resourceId]
+    [closeThreadTab, focusThreadTargetOnNextFrame, resourceId]
   );
 
   const handleReorderThreadTabs = useCallback(
@@ -212,26 +279,43 @@ export function AssistantThreadTabsWorkspace({
         return;
       }
 
-      let nextThreadId: string | undefined;
-      if (event.key === 'ArrowLeft') {
-        nextThreadId = currentOpenThreadIds.at(currentIndex - 1) ?? currentOpenThreadIds.at(-1);
-      } else if (event.key === 'ArrowRight') {
-        nextThreadId = currentOpenThreadIds[currentIndex + 1] ?? currentOpenThreadIds.at(0);
-      } else if (event.key === 'Home') {
-        nextThreadId = currentOpenThreadIds.at(0);
-      } else if (event.key === 'End') {
-        nextThreadId = currentOpenThreadIds.at(-1);
-      } else {
+      const reorderDirection = readTabReorderDirection(event);
+      if (reorderDirection) {
+        event.preventDefault();
+        const orderedThreadIds = reorderTabByOnePosition({
+          currentIndex,
+          currentOpenThreadIds,
+          direction: reorderDirection,
+          threadId,
+        });
+        if (!orderedThreadIds) {
+          return;
+        }
+        reorderThreadTabs(resourceId, orderedThreadIds);
+        focusThreadTargetOnNextFrame(threadId);
         return;
       }
-      event.preventDefault();
+
+      const nextThreadId = resolveKeyboardNavigationTarget({
+        currentIndex,
+        currentOpenThreadIds,
+        key: event.key,
+      });
       if (!nextThreadId) {
         return;
       }
+      event.preventDefault();
       openThreadTab(resourceId, nextThreadId);
       focusThreadTab(nextThreadId);
     },
-    [focusThreadTab, handleCloseThreadTab, openThreadTab, resourceId]
+    [
+      focusThreadTab,
+      focusThreadTargetOnNextFrame,
+      handleCloseThreadTab,
+      openThreadTab,
+      reorderThreadTabs,
+      resourceId,
+    ]
   );
 
   const threadTabActions = useMemo<readonly AnyContextAction[]>(() => {
@@ -255,7 +339,7 @@ export function AssistantThreadTabsWorkspace({
           if (!isOpen(target)) {
             return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
           }
-          closeThreadTab(target.resourceId, target.id);
+          handleCloseThreadTab(target.id);
           return Promise.resolve({ ok: true });
         },
       }),
@@ -271,6 +355,7 @@ export function AssistantThreadTabsWorkspace({
             return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
           }
           closeOtherThreadTabs(target.resourceId, target.id);
+          focusThreadTargetOnNextFrame(target.id);
           return Promise.resolve({ ok: true });
         },
       }),
@@ -300,7 +385,7 @@ export function AssistantThreadTabsWorkspace({
           orderedThreadIds[currentIndex - 1] = target.id;
           orderedThreadIds[currentIndex] = adjacentThreadId;
           reorderThreadTabs(target.resourceId, orderedThreadIds);
-          focusThreadTabOnNextFrame(target.id);
+          focusThreadTargetOnNextFrame(target.id);
           return Promise.resolve({ message: `Moved ${target.title} left`, ok: true });
         },
       }),
@@ -331,7 +416,7 @@ export function AssistantThreadTabsWorkspace({
           orderedThreadIds[currentIndex] = adjacentThreadId;
           orderedThreadIds[currentIndex + 1] = target.id;
           reorderThreadTabs(target.resourceId, orderedThreadIds);
-          focusThreadTabOnNextFrame(target.id);
+          focusThreadTargetOnNextFrame(target.id);
           return Promise.resolve({ message: `Moved ${target.title} right`, ok: true });
         },
       }),
@@ -364,6 +449,7 @@ export function AssistantThreadTabsWorkspace({
             return Promise.resolve({ error: 'Thread tab is no longer open', ok: false });
           }
           closeAllThreadTabs(target.resourceId);
+          focusThreadTargetOnNextFrame(undefined);
           return Promise.resolve({ ok: true });
         },
       }),
@@ -373,7 +459,8 @@ export function AssistantThreadTabsWorkspace({
     closeOtherThreadTabs,
     closeThreadTab,
     closeThreadTabsToRight,
-    focusThreadTabOnNextFrame,
+    focusThreadTargetOnNextFrame,
+    handleCloseThreadTab,
     openThreadIdsByResourceId,
     reorderThreadTabs,
   ]);
@@ -538,12 +625,12 @@ export function AssistantThreadTabsWorkspace({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="assistant-thread-tabs-workspace">
       <div
-        className="flex h-12 flex-shrink-0 items-center gap-1 border-border border-b bg-muted/20 px-1.5"
+        className="@container/assistant-tabs flex h-12 flex-shrink-0 items-center gap-1 border-border border-b bg-muted/20 px-1.5"
         data-testid="assistant-thread-tab-strip"
       >
         <Button
           aria-label="Scroll assistant tabs left"
-          className="h-7 w-7 shrink-0 rounded-md border border-transparent p-0 text-muted-foreground shadow-none hover:border-border/70 hover:bg-background/80 hover:text-foreground disabled:opacity-30 motion-reduce:transition-none"
+          className="@[300px]/assistant-tabs:inline-flex hidden h-7 w-7 shrink-0 rounded-md border border-transparent p-0 text-muted-foreground shadow-none hover:border-border/70 hover:bg-background/80 hover:text-foreground disabled:opacity-30 motion-reduce:transition-none"
           data-testid="assistant-tabs-scroll-left"
           disabled={!tabScrollState.canScrollBack}
           onClick={() => scrollTabList('back')}
@@ -595,8 +682,9 @@ export function AssistantThreadTabsWorkspace({
                         ) : null}
                         <button
                           aria-controls={getTabPanelId(threadId)}
+                          aria-haspopup="menu"
                           aria-selected={isActive}
-                          className="flex h-full min-w-0 flex-1 cursor-grab items-center gap-2 px-2 text-left outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:cursor-grabbing motion-reduce:transition-none"
+                          className="flex h-full min-w-0 flex-1 cursor-grab items-center gap-2 py-0 pr-8 pl-2 text-left outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:cursor-grabbing motion-reduce:transition-none"
                           id={getTabId(threadId)}
                           onClick={() => openThreadTab(resourceId, threadId)}
                           onKeyDown={(event) => handleTabKeyDown(event, threadId)}
@@ -641,7 +729,7 @@ export function AssistantThreadTabsWorkspace({
         </ActionContextMenu>
         <Button
           aria-label="Scroll assistant tabs right"
-          className="h-7 w-7 shrink-0 rounded-md border border-transparent p-0 text-muted-foreground shadow-none hover:border-border/70 hover:bg-background/80 hover:text-foreground disabled:opacity-30 motion-reduce:transition-none"
+          className="@[300px]/assistant-tabs:inline-flex hidden h-7 w-7 shrink-0 rounded-md border border-transparent p-0 text-muted-foreground shadow-none hover:border-border/70 hover:bg-background/80 hover:text-foreground disabled:opacity-30 motion-reduce:transition-none"
           data-testid="assistant-tabs-scroll-right"
           disabled={!tabScrollState.canScrollForward}
           onClick={() => scrollTabList('forward')}
@@ -668,7 +756,12 @@ export function AssistantThreadTabsWorkspace({
             variant="ghost"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span className="text-xs">New</span>
+            <span
+              className="@[380px]/assistant-tabs:inline hidden text-xs"
+              data-testid="assistant-new-thread-label"
+            >
+              New
+            </span>
           </Button>
         </div>
       </div>

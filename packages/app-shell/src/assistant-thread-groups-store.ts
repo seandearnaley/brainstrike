@@ -53,6 +53,12 @@ interface AssistantThreadGroupsState {
   groupedSortBy: ThreadsPanelSortBy;
   groupsByResourceId: Record<string, AssistantThreadGroup[]>;
   loadStateByResourceId: Record<string, ThreadGroupsLoadState>;
+  moveThreadsToGroup: (
+    repository: AssistantThreadGroupsRepository,
+    resourceId: string,
+    threadIds: readonly string[],
+    groupId: string | null
+  ) => Promise<void>;
   moveThreadToGroup: (
     repository: AssistantThreadGroupsRepository,
     resourceId: string,
@@ -63,6 +69,10 @@ interface AssistantThreadGroupsState {
   removeThreadPlacement: (
     repository: AssistantThreadGroupsRepository,
     threadId: string
+  ) => Promise<void>;
+  removeThreadPlacements: (
+    repository: AssistantThreadGroupsRepository,
+    threadIds: readonly string[]
   ) => Promise<void>;
   renameGroup: (
     repository: AssistantThreadGroupsRepository,
@@ -97,6 +107,23 @@ function sortGroups(groups: readonly AssistantThreadGroup[]): AssistantThreadGro
 
 function omitRecordKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {
   return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
+}
+
+function requireThreadIds(threadIds: readonly string[]): readonly string[] {
+  if (!Array.isArray(threadIds)) {
+    throw new Error('Thread ids must be an array.');
+  }
+  const seenIds = new Set<string>();
+  for (const threadId of threadIds) {
+    if (typeof threadId !== 'string' || !threadId.trim()) {
+      throw new Error('Thread id is required.');
+    }
+    if (seenIds.has(threadId)) {
+      throw new Error(`Duplicate thread id: ${threadId}.`);
+    }
+    seenIds.add(threadId);
+  }
+  return threadIds;
 }
 
 const DEFAULT_VIEW_STATE = {
@@ -303,6 +330,62 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       },
       groupsByResourceId: {},
       loadStateByResourceId: {},
+      moveThreadsToGroup: async (
+        repository: AssistantThreadGroupsRepository,
+        resourceId: string,
+        threadIds: readonly string[],
+        groupId: string | null
+      ): Promise<void> => {
+        requireThreadIds(threadIds);
+        if (threadIds.length === 0) {
+          return;
+        }
+        const state = get();
+        if (
+          groupId !== null &&
+          !(state.groupsByResourceId[resourceId] ?? []).some((group) => group.id === groupId)
+        ) {
+          throw new Error(`Unknown thread group: ${groupId}.`);
+        }
+        const actionableThreadIds = threadIds.filter((threadId) => {
+          const currentPlacement = state.placementsByThreadId[threadId];
+          if (!currentPlacement) {
+            return groupId !== null;
+          }
+          return currentPlacement.groupId !== groupId;
+        });
+        if (actionableThreadIds.length === 0) {
+          return;
+        }
+        const sectionRanks = Object.values(state.placementsByThreadId)
+          .filter(
+            (placement) => placement.resourceId === resourceId && placement.groupId === groupId
+          )
+          .map((placement) => placement.rank)
+          .sort();
+        const ranks = generateNKeysBetween(
+          sectionRanks.at(-1) ?? null,
+          null,
+          actionableThreadIds.length
+        );
+        const placements = actionableThreadIds.map((threadId, index) => {
+          const currentPlacement = state.placementsByThreadId[threadId];
+          return {
+            flatRank: currentPlacement?.flatRank ?? null,
+            groupId,
+            rank: ranks[index] as string,
+            resourceId,
+            threadId,
+          } satisfies AssistantThreadPlacement;
+        });
+        await repository.setThreadPlacements(placements);
+        set((current) => ({
+          placementsByThreadId: {
+            ...current.placementsByThreadId,
+            ...Object.fromEntries(placements.map((placement) => [placement.threadId, placement])),
+          },
+        }));
+      },
       moveThreadToGroup: async (
         repository: AssistantThreadGroupsRepository,
         resourceId: string,
@@ -347,6 +430,24 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
         await repository.clearThreadPlacement(threadId);
         set((state) => ({
           placementsByThreadId: omitRecordKey(state.placementsByThreadId, threadId),
+        }));
+      },
+      removeThreadPlacements: async (
+        repository: AssistantThreadGroupsRepository,
+        threadIds: readonly string[]
+      ): Promise<void> => {
+        requireThreadIds(threadIds);
+        if (threadIds.length === 0) {
+          return;
+        }
+        await repository.clearThreadPlacements(threadIds);
+        const removedThreadIds = new Set(threadIds);
+        set((state) => ({
+          placementsByThreadId: Object.fromEntries(
+            Object.entries(state.placementsByThreadId).filter(
+              ([threadId]) => !removedThreadIds.has(threadId)
+            )
+          ),
         }));
       },
       renameGroup: async (

@@ -51,6 +51,7 @@ function createRepository(
     })),
     createThreadRun: vi.fn(),
     deleteThread: vi.fn(),
+    deleteThreads: vi.fn(),
     getCrossRootUsage: vi.fn(async () => []),
     getThreadCumulativeUsage: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(async () => []),
@@ -61,6 +62,7 @@ function createRepository(
     recordRunUsage: vi.fn(),
     renameThread: vi.fn(),
     updateThreadMetadata: vi.fn(),
+    updateThreadsMetadata: vi.fn(),
   };
 }
 
@@ -457,6 +459,89 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-a');
   });
 
+  it('deletes many durable threads in one repository call and one store transition', async () => {
+    const repository = createRepository([
+      makeThread('thread-a', '2026-04-22T11:00:00Z'),
+      makeThread('thread-b', '2026-04-22T10:00:00Z'),
+      makeThread('thread-c', '2026-04-22T09:00:00Z'),
+      makeThread('thread-d', '2026-04-22T08:00:00Z'),
+    ]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-b' },
+      draftRuntimeByThreadId: {
+        'thread-a': { model: 'gpt-a' },
+        'thread-b': { model: 'gpt-b' },
+        'thread-c': { model: 'gpt-c' },
+        'thread-d': { model: 'gpt-d' },
+      },
+      openThreadIdsByResourceId: {
+        [workspaceId]: ['thread-a', 'thread-b', 'thread-c', 'thread-d'],
+      },
+      selectedThreadByResourceId: { [workspaceId]: 'thread-b' },
+    });
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadStore.subscribe(listener);
+
+    try {
+      await useAssistantThreadStore
+        .getState()
+        .deleteThreads(repository, workspaceId, ['thread-b', 'thread-c']);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(repository.deleteThreads).toHaveBeenCalledOnce();
+    expect(repository.deleteThreads).toHaveBeenCalledWith(['thread-b', 'thread-c']);
+    expect(repository.deleteThread).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+    const state = useAssistantThreadStore.getState();
+    expect(state.threadIdsByResourceId[workspaceId]).toEqual(['thread-a', 'thread-d']);
+    expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-a', 'thread-d']);
+    expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-d');
+    expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-d');
+    expect(state.draftRuntimeByThreadId).toEqual({
+      'thread-a': { model: 'gpt-a' },
+      'thread-d': { model: 'gpt-d' },
+    });
+  });
+
+  it('preserves the active thread when deleting other open threads in bulk', async () => {
+    const repository = createRepository([
+      makeThread('thread-a', '2026-04-22T11:00:00Z'),
+      makeThread('thread-b', '2026-04-22T10:00:00Z'),
+      makeThread('thread-c', '2026-04-22T09:00:00Z'),
+    ]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-b' },
+      openThreadIdsByResourceId: { [workspaceId]: ['thread-a', 'thread-b', 'thread-c'] },
+      selectedThreadByResourceId: { [workspaceId]: 'thread-b' },
+    });
+
+    await useAssistantThreadStore
+      .getState()
+      .deleteThreads(repository, workspaceId, ['thread-a', 'thread-c']);
+
+    const state = useAssistantThreadStore.getState();
+    expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-b']);
+    expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-b');
+    expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
+  });
+
+  it('rejects an empty or unknown bulk-delete selection before persistence', async () => {
+    const repository = createRepository();
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+
+    await expect(
+      useAssistantThreadStore.getState().deleteThreads(repository, workspaceId, [])
+    ).rejects.toThrow('At least one assistant thread id is required.');
+    await expect(
+      useAssistantThreadStore.getState().deleteThreads(repository, workspaceId, ['thread-unknown'])
+    ).rejects.toThrow('Unknown assistant thread: thread-unknown.');
+    expect(repository.deleteThreads).not.toHaveBeenCalled();
+  });
+
   it('creates durable threads as focused open tabs', async () => {
     const repository = createRepository();
 
@@ -550,6 +635,53 @@ describe('useAssistantThreadStore tab sessions', () => {
       model: 'gpt-5.2',
       provider: 'openai',
     });
+    expect(
+      useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.updatedAt
+    ).toEqual(new Date('2026-04-22T10:00:00Z'));
+  });
+
+  it('updates many thread colors in one repository call and one recency-preserving transition', async () => {
+    const threadA = makeThread('thread-a', '2026-04-22T11:00:00Z');
+    const threadB = makeThread('thread-b', '2026-04-22T10:00:00Z');
+    const repository = createRepository([threadA, threadB]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadStore.subscribe(listener);
+
+    try {
+      await useAssistantThreadStore
+        .getState()
+        .updateThreadsMetadata(repository, workspaceId, ['thread-a', 'thread-b'], {
+          color: 'violet',
+        });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(repository.updateThreadsMetadata).toHaveBeenCalledOnce();
+    expect(repository.updateThreadsMetadata).toHaveBeenCalledWith(['thread-a', 'thread-b'], {
+      color: 'violet',
+    });
+    expect(repository.updateThreadMetadata).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]).toEqual([
+      { ...threadA, metadata: { color: 'violet' } },
+      { ...threadB, metadata: { color: 'violet' } },
+    ]);
+  });
+
+  it('rejects an unknown bulk metadata target before persistence', async () => {
+    const repository = createRepository();
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+
+    await expect(
+      useAssistantThreadStore
+        .getState()
+        .updateThreadsMetadata(repository, workspaceId, ['thread-a', 'thread-unknown'], {
+          color: 'amber',
+        })
+    ).rejects.toThrow('Unknown assistant thread: thread-unknown.');
+    expect(repository.updateThreadsMetadata).not.toHaveBeenCalled();
   });
 
   it('merges saved metadata against the latest loaded thread state', async () => {

@@ -28,6 +28,7 @@ function makeRepository(overrides?: {
   let groupCounter = 0;
   return {
     clearThreadPlacement: vi.fn(async () => undefined),
+    clearThreadPlacements: vi.fn(async () => undefined),
     createGroup: vi.fn(async (resourceId: string, name: string, rank: string) => {
       groupCounter += 1;
       return {
@@ -216,6 +217,77 @@ describe('useAssistantThreadGroupsStore', () => {
     );
   });
 
+  it('moves selected threads to one group with one batch write and one transition', async () => {
+    const repository = makeRepository({
+      groups: [makeGroup({ id: 'group-1', rank: 'a0' }), makeGroup({ id: 'group-2', rank: 'a1' })],
+      placements: [
+        {
+          flatRank: 'b0',
+          groupId: null,
+          rank: 'a0',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
+        {
+          flatRank: 'b1',
+          groupId: 'group-1',
+          rank: 'a1',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-2',
+        },
+      ],
+    });
+    await useAssistantThreadGroupsStore.getState().ensureGroups(repository, RESOURCE_ID);
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadGroupsStore.subscribe(listener);
+
+    try {
+      await useAssistantThreadGroupsStore
+        .getState()
+        .moveThreadsToGroup(repository, RESOURCE_ID, ['thread-1', 'thread-2'], 'group-2');
+    } finally {
+      unsubscribe();
+    }
+
+    expect(repository.setThreadPlacements).toHaveBeenCalledTimes(1);
+    expect(repository.setThreadPlacement).not.toHaveBeenCalled();
+    const [placements] = vi.mocked(repository.setThreadPlacements).mock.calls[0] ?? [];
+    expect(
+      placements?.map(({ flatRank, groupId, threadId }) => ({ flatRank, groupId, threadId }))
+    ).toEqual([
+      { flatRank: 'b0', groupId: 'group-2', threadId: 'thread-1' },
+      { flatRank: 'b1', groupId: 'group-2', threadId: 'thread-2' },
+    ]);
+    expect(String(placements?.[0]?.rank) < String(placements?.[1]?.rank)).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(useAssistantThreadGroupsStore.getState().placementsByThreadId['thread-1']?.groupId).toBe(
+      'group-2'
+    );
+  });
+
+  it('rejects an unknown bulk-move group before persistence', async () => {
+    const repository = makeRepository({ groups: [makeGroup({ id: 'group-1', rank: 'a0' })] });
+    await useAssistantThreadGroupsStore.getState().ensureGroups(repository, RESOURCE_ID);
+
+    await expect(
+      useAssistantThreadGroupsStore
+        .getState()
+        .moveThreadsToGroup(repository, RESOURCE_ID, ['thread-1'], 'group-unknown')
+    ).rejects.toThrow('Unknown thread group: group-unknown.');
+    expect(repository.setThreadPlacements).not.toHaveBeenCalled();
+  });
+
+  it('makes an empty bulk move an explicit no-op', async () => {
+    const repository = makeRepository({ groups: [makeGroup({ id: 'group-1', rank: 'a0' })] });
+    await useAssistantThreadGroupsStore.getState().ensureGroups(repository, RESOURCE_ID);
+
+    await useAssistantThreadGroupsStore
+      .getState()
+      .moveThreadsToGroup(repository, RESOURCE_ID, [], 'group-1');
+
+    expect(repository.setThreadPlacements).not.toHaveBeenCalled();
+  });
+
   it('does nothing when the thread is already in the target group', async () => {
     const repository = makeRepository({
       groups: [makeGroup({ id: 'group-1', rank: 'a0' })],
@@ -320,6 +392,44 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(
       useAssistantThreadGroupsStore.getState().placementsByThreadId['thread-1']
     ).toBeUndefined();
+  });
+
+  it('clears selected placements with one repository write and one transition', async () => {
+    const repository = makeRepository({
+      placements: [
+        {
+          flatRank: null,
+          groupId: null,
+          rank: 'a0',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-1',
+        },
+        {
+          flatRank: null,
+          groupId: null,
+          rank: 'a1',
+          resourceId: RESOURCE_ID,
+          threadId: 'thread-2',
+        },
+      ],
+    });
+    await useAssistantThreadGroupsStore.getState().ensureGroups(repository, RESOURCE_ID);
+    const listener = vi.fn();
+    const unsubscribe = useAssistantThreadGroupsStore.subscribe(listener);
+
+    try {
+      await useAssistantThreadGroupsStore
+        .getState()
+        .removeThreadPlacements(repository, ['thread-1', 'thread-2']);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(repository.clearThreadPlacements).toHaveBeenCalledOnce();
+    expect(repository.clearThreadPlacements).toHaveBeenCalledWith(['thread-1', 'thread-2']);
+    expect(repository.clearThreadPlacement).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(useAssistantThreadGroupsStore.getState().placementsByThreadId).toEqual({});
   });
 
   it('toggles group collapse and updates independent view preferences', () => {

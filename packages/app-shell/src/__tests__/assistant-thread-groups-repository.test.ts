@@ -275,6 +275,41 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     expect(String(sql)).toContain('DELETE FROM brainstrike_assistant_thread_placements');
     expect(params).toEqual(['thread-1']);
   });
+
+  it('clears many thread placements in one statement', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await repository.clearThreadPlacements(['thread-1', 'thread-2']);
+
+    expect(db.query).toHaveBeenCalledTimes(1);
+    const [sql, params] = db.query.mock.calls[0] ?? [];
+    expect(String(sql)).toContain('DELETE FROM brainstrike_assistant_thread_placements');
+    expect(String(sql)).toContain('IN ($1, $2)');
+    expect(params).toEqual(['thread-1', 'thread-2']);
+  });
+
+  it('makes an empty placement-clear batch an explicit no-op', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await repository.clearThreadPlacements([]);
+
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed and duplicate placement ids before clearing', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await expect(repository.clearThreadPlacements(['thread-1', ' '])).rejects.toThrow(
+      'Thread id is required.'
+    );
+    await expect(repository.clearThreadPlacements(['thread-1', 'thread-1'])).rejects.toThrow(
+      'Duplicate thread id: thread-1.'
+    );
+    expect(db.query).not.toHaveBeenCalled();
+  });
 });
 
 describe('batch writes are single atomic statements', () => {
@@ -343,6 +378,24 @@ describe('batch writes are single atomic statements', () => {
         },
       ])
     ).rejects.toThrow('Thread placement rank is required.');
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed placement identities before writing', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.setThreadPlacements([
+        {
+          flatRank: null,
+          groupId: ' ',
+          rank: 'a0',
+          resourceId: 'workspace-a',
+          threadId: 'thread-1',
+        },
+      ])
+    ).rejects.toThrow('Thread group id is required.');
     expect(db.query).not.toHaveBeenCalled();
   });
 

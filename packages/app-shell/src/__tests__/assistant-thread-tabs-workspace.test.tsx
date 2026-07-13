@@ -194,6 +194,21 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(
       within(tabList).queryByRole('button', { name: 'Scroll assistant tabs right' })
     ).toBeNull();
+    expect(tabStrip).toHaveClass('@container/assistant-tabs');
+    expect(screen.getByTestId('assistant-tabs-scroll-left')).toHaveClass(
+      'hidden',
+      '@[300px]/assistant-tabs:inline-flex'
+    );
+    expect(screen.getByTestId('assistant-tabs-scroll-right')).toHaveClass(
+      'hidden',
+      '@[300px]/assistant-tabs:inline-flex'
+    );
+    expect(screen.getByTestId('assistant-new-thread-label')).toHaveClass(
+      'hidden',
+      '@[380px]/assistant-tabs:inline'
+    );
+    expect(firstTab).toHaveClass('pr-8');
+    expect(firstTab).toHaveAttribute('aria-haspopup', 'menu');
   });
 
   it('links tabs and force-mounted panels while keeping one tab in the page tab sequence', async () => {
@@ -280,6 +295,53 @@ describe('AssistantThreadTabsWorkspace', () => {
     await waitFor(() => expect(followingTab).toHaveFocus());
     expect(screen.queryByRole('tab', { name: /Amazon Bedrock Converse/ })).not.toBeInTheDocument();
     expect(followingTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('keeps focus and activation on the existing active tab when closing an inactive tab', async () => {
+    threadRows.push({
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      id: 'thread-c',
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'Release checklist',
+      updatedAt: new Date('2026-04-22T09:00:00Z'),
+    });
+    renderWorkspace();
+    const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      const store = useAssistantThreadStore.getState();
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-c');
+      store.openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-a');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close thread Amazon Bedrock Converse' }));
+
+    await waitFor(() => expect(activeTab).toHaveFocus());
+    expect(activeTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Release checklist/ })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    );
+  });
+
+  it('reorders tabs with Alt+Shift+Arrow without changing the active thread', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const activeTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+
+    activeTab.focus();
+    fireEvent.keyDown(activeTab, { altKey: true, key: 'ArrowLeft', shiftKey: true });
+
+    await waitFor(() => {
+      expect(
+        useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+      ).toEqual(['thread-b', 'thread-a']);
+    });
+    expect(activeTab).toHaveFocus();
+    expect(activeTab).toHaveAttribute('aria-selected', 'true');
   });
 
   it('mounts assistant threads even when no folder is open', async () => {
@@ -538,6 +600,36 @@ describe('AssistantThreadTabsWorkspace', () => {
       expect.stringContaining('DELETE FROM mastra_threads'),
       expect.anything()
     );
+    await waitFor(() => expect(inactiveTab).toHaveFocus());
+  });
+
+  it('restores focus after closing a tab from its context menu', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
+    });
+    const closingTab = screen.getByRole('tab', { name: /Amazon Bedrock Converse/ });
+    const remainingTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
+
+    fireEvent.contextMenu(closingTab);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close' }));
+
+    await waitFor(() => expect(remainingTab).toHaveFocus());
+    expect(remainingTab).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('moves focus to New after closing all tabs from the context menu', async () => {
+    renderWorkspace();
+    const activeTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+
+    fireEvent.contextMenu(activeTab);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All Tabs' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'New assistant thread' })).toHaveFocus();
+    });
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
   });
 
   it('closes tabs to the right from the claimed tab and disables the no-op action', async () => {
