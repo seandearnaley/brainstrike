@@ -199,7 +199,6 @@ export function AssistantThreadTabsWorkspace({
   const openThreadIds = openThreadIdsByResourceId[resourceId] ?? [];
   const activeThreadId = activeThreadIdByResourceId[resourceId];
   const tabScrollRef = useRef<HTMLDivElement | null>(null);
-  const newThreadButtonRef = useRef<HTMLButtonElement | null>(null);
   const [tabScrollState, setTabScrollState] = useState<TabScrollState>(EMPTY_TAB_SCROLL_STATE);
   const prefersReducedMotion = useReducedMotionPreference();
   const contextMenuController = useContextMenuTarget();
@@ -232,7 +231,9 @@ export function AssistantThreadTabsWorkspace({
           focusThreadTab(threadId);
           return;
         }
-        newThreadButtonRef.current?.focus();
+        document
+          .querySelector<HTMLButtonElement>('[data-testid="assistant-new-thread-button"]')
+          ?.focus();
       });
     },
     [focusThreadTab]
@@ -750,7 +751,6 @@ export function AssistantThreadTabsWorkspace({
                 // The store records the explicit error state; no fallback thread source is used.
               });
             }}
-            ref={newThreadButtonRef}
             size="sm"
             type="button"
             variant="ghost"

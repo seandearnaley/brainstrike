@@ -1723,6 +1723,10 @@ function ThreadPanelTree({
     [visibleRows.rows]
   );
   const selectableThreadIds = useMemo(() => new Set(threads.map((thread) => thread.id)), [threads]);
+  const selectedAvailableThreadIds = useMemo(
+    () => new Set([...selectedThreadIds].filter((threadId) => selectableThreadIds.has(threadId))),
+    [selectableThreadIds, selectedThreadIds]
+  );
 
   const replaceSelection = useCallback(
     (nextIds: ReadonlySet<string>): void => {
@@ -1732,15 +1736,6 @@ function ThreadPanelTree({
     },
     [selectableThreadIds]
   );
-
-  useEffect(() => {
-    setSelectedThreadIds((currentIds) => {
-      const nextIds = new Set(
-        [...currentIds].filter((threadId) => selectableThreadIds.has(threadId))
-      );
-      return nextIds.size === currentIds.size ? currentIds : nextIds;
-    });
-  }, [selectableThreadIds]);
 
   useEffect(() => {
     const clearSelectionOnEscape = (event: KeyboardEvent): void => {
@@ -1757,7 +1752,9 @@ function ThreadPanelTree({
     (groupId: string | null, nextState: 'checked' | 'unchecked'): void => {
       const memberIds = getGroupMemberIds(view, groupId);
       setSelectedThreadIds((currentIds) => {
-        const nextIds = new Set(currentIds);
+        const nextIds = new Set(
+          [...currentIds].filter((threadId) => selectableThreadIds.has(threadId))
+        );
         for (const threadId of memberIds) {
           if (nextState === 'checked') {
             nextIds.add(threadId);
@@ -1768,12 +1765,12 @@ function ThreadPanelTree({
         return nextIds;
       });
     },
-    [view]
+    [selectableThreadIds, view]
   );
 
   const runBulkAction = useCallback(
     (action: (threadIds: readonly string[]) => Promise<void>): void => {
-      const threadIds = [...selectedThreadIds];
+      const threadIds = [...selectedAvailableThreadIds];
       setBulkActionPending(true);
       setBulkActionError(null);
       action(threadIds)
@@ -1787,19 +1784,31 @@ function ThreadPanelTree({
         })
         .finally(() => setBulkActionPending(false));
     },
-    [selectedThreadIds]
+    [selectedAvailableThreadIds]
   );
 
-  const rowsProps = {
-    membershipByThreadId,
-    moveTargets,
-    onDeleteThread,
-    onMoveThreadToGroup,
-    onRenameThread,
-    onSelectThread,
-    onUpdateThreadMetadata,
-    selectedThreadId,
-  };
+  const rowsProps = useMemo<Omit<ThreadRowsProps, 'threads'>>(
+    () => ({
+      membershipByThreadId,
+      moveTargets,
+      onDeleteThread,
+      onMoveThreadToGroup,
+      onRenameThread,
+      onSelectThread,
+      onUpdateThreadMetadata,
+      selectedThreadId,
+    }),
+    [
+      membershipByThreadId,
+      moveTargets,
+      onDeleteThread,
+      onMoveThreadToGroup,
+      onRenameThread,
+      onSelectThread,
+      onUpdateThreadMetadata,
+      selectedThreadId,
+    ]
+  );
   const handleShowMore = useCallback((sectionKey: string): void => {
     setLimitsBySectionKey((currentLimits) => ({
       ...currentLimits,
@@ -1830,7 +1839,7 @@ function ThreadPanelTree({
 
   const allVisibleSelected =
     visibleRows.visibleThreadIds.length > 0 &&
-    visibleRows.visibleThreadIds.every((threadId) => selectedThreadIds.has(threadId));
+    visibleRows.visibleThreadIds.every((threadId) => selectedAvailableThreadIds.has(threadId));
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1844,7 +1853,9 @@ function ThreadPanelTree({
           disabled={visibleRows.visibleThreadIds.length === 0}
           onClick={() => {
             setSelectedThreadIds((currentIds) => {
-              const nextIds = new Set(currentIds);
+              const nextIds = new Set(
+                [...currentIds].filter((threadId) => selectableThreadIds.has(threadId))
+              );
               for (const threadId of visibleRows.visibleThreadIds) {
                 if (allVisibleSelected) {
                   nextIds.delete(threadId);
@@ -1881,23 +1892,23 @@ function ThreadPanelTree({
         getCheckboxState={(node) => {
           const row = node.data;
           if (row.kind === 'thread') {
-            return selectedThreadIds.has(row.id) ? 'checked' : 'unchecked';
+            return selectedAvailableThreadIds.has(row.id) ? 'checked' : 'unchecked';
           }
           if (row.kind === 'group' && row.totalCount > 0) {
             return getSelectionState(
               getGroupMemberIds(view, row.group?.id ?? null),
-              selectedThreadIds
+              selectedAvailableThreadIds
             );
           }
           return 'hidden';
         }}
-        multiSelectedIds={new Set(selectedThreadIds)}
+        multiSelectedIds={new Set(selectedAvailableThreadIds)}
         nodes={nodes}
         nodesArePreFlattened
         onCheckboxChange={(node, nextState) => {
           const row = node.data;
           if (row.kind === 'thread') {
-            const nextIds = new Set(selectedThreadIds);
+            const nextIds = new Set(selectedAvailableThreadIds);
             if (nextState === 'checked') {
               nextIds.add(row.id);
             } else {
@@ -1931,13 +1942,13 @@ function ThreadPanelTree({
         showCheckbox
         showHeader={false}
         viewportClassName={
-          selectedThreadIds.size > 0
+          selectedAvailableThreadIds.size > 0
             ? 'overscroll-contain px-2 pb-1 pt-20'
             : 'overscroll-contain px-2 py-1'
         }
         windowingStrategy="virtual"
       />
-      {selectedThreadIds.size > 0 ? (
+      {selectedAvailableThreadIds.size > 0 ? (
         <div className="absolute inset-x-3 top-12 z-20 grid gap-2">
           {bulkActionError ? (
             <p
@@ -1985,7 +1996,7 @@ function ThreadPanelTree({
               <div className="grid grid-cols-6 gap-1">
                 {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
                   <Button
-                    aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${selectedThreadIds.size} threads`}
+                    aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${selectedAvailableThreadIds.size} threads`}
                     disabled={bulkActionPending}
                     key={colorId}
                     onClick={() => runBulkAction((threadIds) => onBulkColor(threadIds, colorId))}
@@ -2061,8 +2072,8 @@ function ThreadPanelTree({
             }}
             summary={
               confirmingBulkDelete
-                ? `Delete ${selectedThreadIds.size} selected threads?`
-                : `${selectedThreadIds.size} selected`
+                ? `Delete ${selectedAvailableThreadIds.size} selected threads?`
+                : `${selectedAvailableThreadIds.size} selected`
             }
           />
         </div>
