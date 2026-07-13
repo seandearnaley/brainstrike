@@ -80,7 +80,7 @@ packages/
 - **Re-embed workflow**: Vector Status can clear embeddings for the active set and requeue jobs (model switching/backfill).
 - **Persistence**: Queue state and job history are stored in the local database (`@brainstrike/db`); survives app restarts.
 - **Pipeline package**: `@brainstrike/pipeline` ships chunking/embedding stages, progress aggregation, controller, and schema health checks. It powers app-shell's background workspace indexing (`workspace-collection-sync-service`) and db-explorer's enhanced file import.
-- **Embedding cache**: `@brainstrike/db` provides an embedding cache table and repository (`embedding_cache`, keyed on content hash + model key). Both apps wire it into `startEmbeddingWorker({ embeddingCache })` by default (#928), so byte-identical content is embedded once and deduped across files and roots.
+- **Embedding cache**: `@brainstrike/db` provides an embedding cache table and repository (`embedding_cache`, keyed on content hash + model key). The desktop embedding host (#928) and the web in-tab worker (#1640) wire it into `startEmbeddingWorker({ embeddingCache })` by default, so byte-identical content is embedded once and deduped across files and roots.
 - **Chunking parsers**: JS/TS chunking uses the native Rust `oxc-parser` in the desktop chunking-host (default-on since #994; kill switch `?parserFlag=babel`) and Babel on web (oxc has no WASM build). Python files chunk via tree-sitter WASM on both apps (default-on since #1011; `?treeSitterLanguages=` overrides, empty value disables).
 
 Web UX notes:
