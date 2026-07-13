@@ -29,11 +29,11 @@ export default defineConfig({
     // This include MIRRORS the pure lane's --exclude glob exactly (any
     // extension), so the two lanes partition the suffix by construction: a
     // file the pure lane excludes is always picked up here — it can never be
-    // silently orphaned. (Review finding on #1628: the earlier {ts,tsx}
-    // narrowing was NOT the base include's breadth — vitest's default include
-    // also matches .mts/.cts/.jsx — so a future .integration.test.mts would
-    // have run in NEITHER lane.) A suffix file outside the base include would
-    // run here without counting toward coverage — the safe direction.
+    // silently orphaned. (This package's BASE include is explicitly
+    // {ts,tsx}-narrow, so a non-ts suffix file was never in the full suite —
+    // here the mirror's value is that any suffix file that exists runs in
+    // this lane instead of nowhere.) A suffix file outside the base include
+    // runs here without counting toward coverage — the safe direction.
     include: ['**/*.integration.test.*'],
   },
 });
