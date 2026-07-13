@@ -316,6 +316,7 @@ describe('ThreadsPanel', () => {
 
     const treegrid = await screen.findByRole('treegrid', { name: 'Workspace threads' });
     expect(treegrid).toHaveAttribute('aria-multiselectable', 'true');
+    expect(treegrid).toHaveClass('outline-none');
     expect(treegrid.querySelector('thead')).toBeNull();
 
     const viewport = treegrid.parentElement;
@@ -421,6 +422,11 @@ describe('ThreadsPanel', () => {
     expect(within(toolbar).getByRole('button', { name: 'Delete' })).toBeVisible();
 
     fireEvent.click(within(toolbar).getByRole('button', { name: 'Color' }));
+    const bulkColorGrid = await screen.findByTestId('thread-bulk-color-grid');
+    expect(bulkColorGrid).toHaveClass('grid-cols-4');
+    for (const button of within(bulkColorGrid).getAllByRole('button')) {
+      expect(button).toHaveClass('size-8', 'justify-self-center');
+    }
     fireEvent.click(await screen.findByRole('button', { name: 'Use Rose color for 2 threads' }));
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-color-rose')).toHaveLength(2);
@@ -865,7 +871,7 @@ describe('ThreadsPanel groups', () => {
       width: '44px',
     });
     const ungrouped = screen.getByTestId('threads-ungrouped-section');
-    expect(ungrouped.closest('tr')).toHaveClass('[&_[role=gridcell]>div]:pl-7');
+    expect(ungrouped.closest('tr')).not.toHaveClass('[&_[role=gridcell]>div]:pl-7');
     expect(within(ungrouped).getByTestId('threads-ungrouped-icon')).toHaveClass('size-6');
     expect(within(ungrouped).getByText('Ungrouped')).toBeVisible();
     expect(screen.getByText('First thread').closest('tr')).toHaveAttribute('data-depth', '1');
@@ -875,6 +881,35 @@ describe('ThreadsPanel groups', () => {
       )
     ).map((element) => element.getAttribute('data-testid'));
     expect(sectionOrder).toEqual(['thread-group-section', 'threads-ungrouped-section']);
+  });
+
+  it('exposes Ungrouped as an expandable parent with symmetric tree navigation', async () => {
+    seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a0');
+
+    renderThreadsPanel();
+
+    const ungroupedRow = (await screen.findByTestId('threads-ungrouped-section')).closest('tr');
+    const ungroupedThreadRow = screen.getByText('First thread').closest('tr');
+    const treegrid = screen.getByRole('treegrid', { name: 'Workspace threads' });
+    expect(ungroupedRow).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(ungroupedRow as HTMLElement);
+    fireEvent.keyDown(treegrid, { key: 'ArrowRight' });
+    expect(ungroupedThreadRow).toHaveAttribute('data-focused', 'true');
+
+    fireEvent.keyDown(treegrid, { key: 'ArrowLeft' });
+    expect(ungroupedRow).toHaveAttribute('data-focused', 'true');
+    fireEvent.keyDown(treegrid, { key: 'ArrowLeft' });
+    await waitFor(() => {
+      expect(ungroupedRow).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByText('First thread')).not.toBeInTheDocument();
+    });
+    fireEvent.keyDown(treegrid, { key: 'ArrowRight' });
+    await waitFor(() => {
+      expect(ungroupedRow).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByText('First thread')).toBeVisible();
+    });
   });
 
   it('uses a tri-state group checkbox to select undisclosed members', async () => {
@@ -913,6 +948,11 @@ describe('ThreadsPanel groups', () => {
     renderThreadsPanel();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Customize group Research' }));
+    const folderColorGrid = await screen.findByTestId('thread-group-color-grid');
+    expect(folderColorGrid).toHaveClass('grid-cols-4');
+    for (const button of within(folderColorGrid).getAllByRole('button')) {
+      expect(button).toHaveClass('size-8', 'justify-self-center');
+    }
     fireEvent.click(await screen.findByRole('button', { name: 'Use Rose color for Research' }));
 
     await waitFor(() => {

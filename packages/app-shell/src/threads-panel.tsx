@@ -77,6 +77,7 @@ import {
   buildThreadPanelVisibleRows,
   THREAD_PANEL_DISCLOSURE_INCREMENT,
   THREAD_PANEL_INITIAL_VISIBLE_LIMIT,
+  THREAD_PANEL_UNGROUPED_NODE_ID,
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
 import {
@@ -1387,17 +1388,17 @@ function ThreadGroupHeader({
       {customizing ? (
         <div className="mx-1 mb-1 rounded-lg border border-border/70 bg-background/80 p-2">
           <div className="mb-1 px-1 text-[11px] text-muted-foreground">Folder color</div>
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-4 gap-1" data-testid="thread-group-color-grid">
             {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
               <Button
                 aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${group.name}`}
-                className={group.color === colorId ? 'border-primary/50 bg-primary/10' : undefined}
+                className={`justify-self-center ${group.color === colorId ? 'border-primary/50 bg-primary/10' : ''}`}
                 key={colorId}
                 onClick={(event) => {
                   event.stopPropagation();
                   onColorChange(colorId);
                 }}
-                size="icon"
+                size="icon-sm"
                 type="button"
                 variant="ghost"
               >
@@ -1409,12 +1410,12 @@ function ThreadGroupHeader({
             ))}
             <Button
               aria-label={`Clear color for ${group.name}`}
-              className={group.color === null ? 'border-primary/50 bg-primary/10' : undefined}
+              className={`justify-self-center ${group.color === null ? 'border-primary/50 bg-primary/10' : ''}`}
               onClick={(event) => {
                 event.stopPropagation();
                 onColorChange(null);
               }}
-              size="icon"
+              size="icon-sm"
               type="button"
               variant="ghost"
             >
@@ -1485,10 +1486,10 @@ function buildThreadPanelTreeNodes(
   return rows.map((row) => ({
     data: row,
     depth: row.kind === 'group' ? 0 : row.parentId === null ? 0 : 1,
-    // Disclosure is already applied by buildThreadPanelVisibleRows, but real
-    // folders remain expandable treegrid parents so aria-expanded and the
-    // shared Left/Right keyboard contract accurately expose their state.
-    hasChildren: row.kind === 'group' && row.group !== null,
+    // Disclosure is already applied by buildThreadPanelVisibleRows, but every
+    // section header remains an expandable treegrid parent so aria-expanded
+    // and the shared Left/Right keyboard contract expose a symmetric tree.
+    hasChildren: row.kind === 'group',
     id: row.id,
     parentId: row.kind === 'group' ? null : row.parentId,
     type: `thread-panel-${row.kind}`,
@@ -1716,9 +1717,7 @@ function ThreadPanelTree({
   const expandedGroupIds = useMemo(
     () =>
       new Set(
-        visibleRows.rows.flatMap((row) =>
-          row.kind === 'group' && row.group !== null && !row.collapsed ? [row.id] : []
-        )
+        visibleRows.rows.flatMap((row) => (row.kind === 'group' && !row.collapsed ? [row.id] : []))
       ),
     [visibleRows.rows]
   );
@@ -1875,7 +1874,7 @@ function ThreadPanelTree({
       </div>
       <TreeTable
         ariaLabel="Workspace threads"
-        className="table-fixed"
+        className="table-fixed outline-none"
         columns={columns}
         expandedIds={expandedGroupIds}
         getCheckboxAriaLabel={(node) => {
@@ -1924,16 +1923,17 @@ function ThreadPanelTree({
         onMultiSelectChange={replaceSelection}
         onToggleExpand={(nodeId) => {
           const row = visibleRows.rows.find((candidate) => candidate.id === nodeId);
-          if (row?.kind === 'group' && row.group !== null) {
-            groupHandlers.onToggleGroupCollapsed(row.group.id);
+          if (row?.kind !== 'group') {
+            return;
           }
+          groupHandlers.onToggleGroupCollapsed(row.group?.id ?? THREAD_PANEL_UNGROUPED_NODE_ID);
         }}
         rowClassName={(node) => {
           if (node.data.kind === 'thread') {
             return 'group/thread-tree-row border-0 bg-transparent ring-0 hover:bg-transparent';
           }
           if (node.data.kind === 'group' && node.data.group === null) {
-            return 'border-0 bg-muted/20 hover:bg-muted/35 [&_[role=gridcell]>div]:pl-7';
+            return 'border-0 bg-muted/20 hover:bg-muted/35';
           }
           return 'border-0 bg-muted/20 hover:bg-muted/35';
         }}
@@ -1993,14 +1993,15 @@ function ThreadPanelTree({
           {bulkPanel === 'color' ? (
             <div className="ml-auto w-56 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
               <div className="px-2 pb-1 text-[11px] text-muted-foreground">Color selected</div>
-              <div className="grid grid-cols-6 gap-1">
+              <div className="grid grid-cols-4 gap-1" data-testid="thread-bulk-color-grid">
                 {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
                   <Button
                     aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${selectedAvailableThreadIds.size} threads`}
+                    className="justify-self-center"
                     disabled={bulkActionPending}
                     key={colorId}
                     onClick={() => runBulkAction((threadIds) => onBulkColor(threadIds, colorId))}
-                    size="icon"
+                    size="icon-sm"
                     type="button"
                     variant="ghost"
                   >

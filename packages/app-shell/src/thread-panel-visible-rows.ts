@@ -4,6 +4,7 @@ import type { ThreadListView } from './thread-list-sections';
 
 export const THREAD_PANEL_INITIAL_VISIBLE_LIMIT = 50;
 export const THREAD_PANEL_DISCLOSURE_INCREMENT = 50;
+export const THREAD_PANEL_UNGROUPED_NODE_ID = 'group:ungrouped' as const;
 
 export type ThreadPanelSectionKey = 'flat' | 'ungrouped' | `group:${string}`;
 
@@ -107,7 +108,7 @@ function appendGroupedSection({
   readonly visibleThreadIds: string[];
 }): void {
   const sectionKey = group ? (`group:${group.id}` as const) : ('ungrouped' as const);
-  const parentId = group ? (`group:${group.id}` as const) : ('group:ungrouped' as const);
+  const parentId = group ? (`group:${group.id}` as const) : THREAD_PANEL_UNGROUPED_NODE_ID;
   rows.push({
     collapsed,
     group,
@@ -176,7 +177,7 @@ export function buildThreadPanelVisibleRows({
     });
   }
   appendGroupedSection({
-    collapsed: false,
+    collapsed: Boolean(collapsedGroupIds[THREAD_PANEL_UNGROUPED_NODE_ID]),
     group: null,
     limitsBySectionKey,
     rows,
