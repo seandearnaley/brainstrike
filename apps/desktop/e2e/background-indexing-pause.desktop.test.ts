@@ -113,6 +113,9 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await expect(indexingTrigger).not.toContainText('Paused', { timeout: 15_000 });
     expectStableRect(triggerBeforePause, await requireBoundingBox(indexingTrigger));
 
+    await window.getByRole('button', { name: 'Close' }).click();
+    await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeHidden();
+
     await indexingTrigger.click();
     const indexingPopover = window.getByTestId('indexing-status-popover');
     await expect(indexingPopover).toBeVisible({ timeout: 15_000 });

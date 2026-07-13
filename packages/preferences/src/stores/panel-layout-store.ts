@@ -5,6 +5,7 @@
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
  * - activeTab: 'explorer' | 'settings' | 'git' | 'terminal'
+ * - settingsOpen: session-only visibility for the modal settings surface
  *
  * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
@@ -21,11 +22,14 @@ export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal';
 export interface PanelLayoutStoreState {
   // Root tabs
   activeTab: PanelTab;
+  openSettings: () => void;
   setActiveTab: (tab: PanelTab) => void;
+  setSettingsOpen: (open: boolean) => void;
 
   // Actions
   setSizes: (sizes: number[]) => void;
   setState: (next: Partial<PanelLayoutStoreState>) => void;
+  settingsOpen: boolean;
   showConsole: boolean;
   showLeftPanel: boolean;
   showRightPanel: boolean;
@@ -46,9 +50,17 @@ export interface PanelLayoutStoreState {
  */
 const DEFAULT_STATE: Omit<
   PanelLayoutStoreState,
-  'setSizes' | 'toggleLeft' | 'toggleRight' | 'toggleConsole' | 'setActiveTab' | 'setState'
+  | 'setSizes'
+  | 'toggleLeft'
+  | 'toggleRight'
+  | 'toggleConsole'
+  | 'openSettings'
+  | 'setActiveTab'
+  | 'setSettingsOpen'
+  | 'setState'
 > = {
   activeTab: 'explorer',
+  settingsOpen: false,
   showConsole: false,
   showLeftPanel: true,
   showRightPanel: true,
@@ -71,7 +83,11 @@ const creator: StateCreator<PanelLayoutStoreState, [['zustand/persist', unknown]
 ) => ({
   ...DEFAULT_STATE,
 
-  setActiveTab: (tab: PanelTab) => set({ activeTab: tab }),
+  openSettings: () => set({ settingsOpen: true }),
+
+  setActiveTab: (tab: PanelTab) => set({ activeTab: tab, settingsOpen: tab === 'settings' }),
+
+  setSettingsOpen: (open: boolean) => set({ settingsOpen: open }),
 
   setSizes: (sizes: number[]) => {
     const normalized = normalizeSizes(sizes);

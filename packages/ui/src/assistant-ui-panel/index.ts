@@ -22,5 +22,10 @@ export {
 export type { FileMention } from './file-mentions';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export type { SlashCommand } from './slash-commands';
+export {
+  type ToolApprovalGrantHandlers,
+  ToolApprovalGrantProvider,
+  useToolApprovalGrants,
+} from './tool-approval-grant-context';
 export * from './tool-fallback';
 export * from './tooltip-icon-button';

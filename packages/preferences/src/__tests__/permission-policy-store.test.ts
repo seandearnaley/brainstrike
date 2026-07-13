@@ -90,6 +90,22 @@ describe('permission-policy-store', () => {
     expect(usePermissionPolicyStore.getState().sessionGrants.size).toBe(0);
   });
 
+  it('revokeSessionCategory removes only the named grant', () => {
+    usePermissionPolicyStore.getState().grantSessionCategory('edit');
+    usePermissionPolicyStore.getState().grantSessionCategory('mcp');
+    usePermissionPolicyStore.getState().revokeSessionCategory('edit');
+    const grants = usePermissionPolicyStore.getState().sessionGrants;
+    expect(grants.has('edit')).toBe(false);
+    expect(grants.has('mcp')).toBe(true);
+  });
+
+  it('revokeSessionCategory is a no-op when the grant is absent (same set identity guard)', () => {
+    usePermissionPolicyStore.getState().grantSessionCategory('mcp');
+    const first = usePermissionPolicyStore.getState().sessionGrants;
+    usePermissionPolicyStore.getState().revokeSessionCategory('edit');
+    expect(usePermissionPolicyStore.getState().sessionGrants).toBe(first);
+  });
+
   it('setToolOverride sets and clears a per-tool override', () => {
     usePermissionPolicyStore.getState().setToolOverride('brainstrike.tool', 'deny');
     expect(usePermissionPolicyStore.getState().perToolOverrides['brainstrike.tool']).toBe('deny');

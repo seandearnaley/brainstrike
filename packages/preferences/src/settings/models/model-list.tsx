@@ -11,9 +11,11 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { Check, Download, Loader2, Search, Zap } from 'lucide-react';
+import { Check, Download, Loader2, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { DbModel, DbProvider } from '../../stores/model-registry-store';
+import { SettingsSearchIcon } from '../settings-search-icon';
+import { SETTINGS_SEARCH_INPUT_STYLE } from '../settings-search-layout';
 
 const LOCAL_PROVIDER_IDS = new Set<string>(['local', 'transformers']);
 const numberFormatter = new Intl.NumberFormat();
@@ -615,11 +617,12 @@ export function ModelList({
 
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:w-auto">
             <div className="relative flex-1 sm:w-72">
-              <Search className="absolute top-2.5 left-2 h-4 w-4 text-muted-foreground" />
+              <SettingsSearchIcon />
               <Input
-                className="pl-8"
+                className="pl-10"
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search models, providers, or tags"
+                style={SETTINGS_SEARCH_INPUT_STYLE}
                 value={search}
               />
             </div>

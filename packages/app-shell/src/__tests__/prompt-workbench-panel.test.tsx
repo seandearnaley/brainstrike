@@ -181,7 +181,9 @@ describe('PromptWorkbenchPanel', () => {
         kind: 'fragment',
       });
     });
-    expect(capture).toHaveValue('');
+    // The input clears only after the create promise resolves and React
+    // commits, so poll the UI state instead of asserting synchronously.
+    await waitFor(() => expect(capture).toHaveValue(''));
     expect(screen.getByText('Compare the failure path with the success path.')).toBeInTheDocument();
   });
 

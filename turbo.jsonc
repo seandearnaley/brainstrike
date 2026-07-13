@@ -71,6 +71,56 @@
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
+    // --- Integration Test Task (uncached env-sensitive lane) --- //
+    "test:integration": {
+      // THE UNCACHED SIBLING OF `test`. Env-sensitive integration lanes run here
+      // and are NEVER replayed from cache — every invocation executes the tests.
+      //
+      // CONTRACT: the cacheable `test` task (above, `outputs: []`) replays a
+      // previously-logged green on a cache HIT WITHOUT executing anything, which
+      // is only sound when a lane's pass/fail is a pure function of the inputs
+      // turbo hashes (source + pnpm-lock + tsconfig/biome/turbo config). Tests
+      // whose outcome can depend on an UN-hashed input — real PGlite/WASM under
+      // wall-clock timeouts and CPU contention, native/N-API binaries + their
+      // host ABI, an installed CLI shelled out to (git, node-pty, /bin/sh), or
+      // REAL-SUBSYSTEM execution under wall-clock budgets — must NOT be
+      // cacheable. Boundary note: watchdog timeouts and polling budgets over
+      // fully MOCKED subsystems do not qualify — their nondeterminism lives in
+      // the test harness (worst case a false red under load, which caching a
+      // green cannot cause), and any product change re-hashes and invalidates
+      // the entry. Cross-package file reads are a separate hazard: declare them
+      // as explicit `inputs` (see apps/web/turbo.json) instead of un-caching.
+      // See the invariant that anchors this rule in packages/db/turbo.json.
+      //
+      // Instead of carving a package's WHOLE `test` task out with `cache: false`
+      // (which strands its fast, deterministic unit tests in the uncached lane
+      // too), a package tags its env-sensitive files with the
+      // `*.integration.test.*` suffix and splits them into a `test:integration`
+      // script. The pure `test` script excludes that suffix and STAYS cacheable;
+      // this task runs the suffix and is `cache: false`. Whole-task carve-outs
+      // remain only for packages whose ENTIRE suite is env-sensitive (db,
+      // secure-fs-native).
+      //
+      // Mirrors `test`'s dependsOn/env/passThroughEnv so cache keys and the
+      // Strict-mode runtime env match the pure lane (TURBO_TEST_MODE
+      // differentiates unit vs coverage; CI/COVERAGE stay in passThroughEnv so
+      // they never enter a hash — moot here since caching is off, but kept
+      // identical so a file moving between lanes sees the same runtime env).
+      "dependsOn": [
+        "^build"
+      ],
+      "env": [
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "passThroughEnv": [
+        "CI",
+        "COVERAGE"
+      ],
+      "outputs": [],
+      "cache": false,
+      "outputLogs": "new-only"
+    },
     // --- Lint Task --- //
     "lint": {
       // Linting usually doesn't produce cacheable artifacts and should run on current code.
@@ -154,7 +204,8 @@
       "dependsOn": [
         "lint",
         "type-check",
-        "test"
+        "test",
+        "test:integration"
       ],
       // This composite task itself doesn't need caching.
       "cache": false,

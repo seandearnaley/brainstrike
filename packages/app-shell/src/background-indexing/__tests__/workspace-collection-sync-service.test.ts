@@ -282,6 +282,10 @@ describe('WorkspaceCollectionSyncService', () => {
   });
 
   it('requests the foreground-db-pressure bypass and proceeds once a sync phase is starved past the bound', async () => {
+    // Captured before useFakeTimers: the driver loop below must yield genuine
+    // event-loop turns so real-async hops in the sync pipeline (e.g.
+    // crypto.subtle.digest) can resolve between fake-timer advances.
+    const realSetTimeout = globalThis.setTimeout.bind(globalThis);
     vi.useFakeTimers();
     const foregroundYieldPolicy = createTestQosPolicy({
       allowNewWork: false,
@@ -328,10 +332,25 @@ describe('WorkspaceCollectionSyncService', () => {
         .finally(() => {
           settled = true;
         });
-      // Step fake time forward (the loop re-resolves every interBatchDelayMs)
-      // until the starved phases cross the 5s bound and the sync completes.
-      for (let step = 0; step < 400 && !settled; step += 1) {
-        await vi.advanceTimersByTimeAsync(250);
+      // Drive fake time until the sync settles. Progress alternates between
+      // faked timers (the QoS loop re-resolves every interBatchDelayMs) and
+      // real-async hops (crypto.subtle.digest resolves on a genuine
+      // event-loop turn), so each step advances pending fake timers AND
+      // yields one real macrotask turn. A fixed advance budget races the
+      // real-async work under CI load: once it is exhausted the sync parks
+      // on a fake timer nobody advances and the test times out.
+      let advancedFakeMs = 0;
+      while (!settled) {
+        if (vi.getTimerCount() > 0) {
+          await vi.advanceTimersByTimeAsync(250);
+          advancedFakeMs += 250;
+          // Far beyond the 5s starvation bound per phase: a regression that
+          // never grants the bypass fails loudly instead of hanging.
+          expect(advancedFakeMs).toBeLessThan(600_000);
+        }
+        await new Promise<void>((resolve) => {
+          realSetTimeout(resolve, 0);
+        });
       }
       await syncPromise;
 
@@ -344,7 +363,7 @@ describe('WorkspaceCollectionSyncService', () => {
     } finally {
       vi.useRealTimers();
     }
-  }, 20_000);
+  });
 
   it('does not surface an error when QoS changes to paused while waiting for scan work', async () => {
     const foregroundYieldPolicy = createTestQosPolicy({

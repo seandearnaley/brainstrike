@@ -2,25 +2,19 @@
   "extends": ["//"],
   "tasks": {
     "test": {
-      // NEVER replay @brainstrike/desktop unit tests from cache: their pass/fail
-      // depends on RESULT-AFFECTING inputs turbo does not hash (native/external
-      // binaries + real subprocess timing). Named mechanisms in the cached lane:
-      //   - terminal-ipc-handlers.test.ts spawns a REAL node-pty; the file's own
-      //     header says it "FAIL[s] loudly" if the compiled native addon cannot
-      //     load (ABI/native-build mismatch). The .node binary + host ABI are
-      //     invisible to turbo's source hash.
-      //   - assistant-server/git-service.test.ts drives the REAL `git` binary via
-      //     execFile (no git mock); output depends on the installed git version.
-      //   - assistant-server/execute-command-tool.test.ts spawns REAL `/bin/sh`
-      //     and asserts timeout/abort actually kill the process — wall-clock
-      //     timing, not a hashed input.
-      // Config already forces maxWorkers:1 + no-file-parallelism (serialized),
-      // which is the maintainers acknowledging this lane's env sensitivity.
-      "cache": false,
-      // cache:false does NOT exempt this task from turbo's strict-env filtering,
-      // and package configs REPLACE (not merge) array fields. Redeclare so the
-      // vitest child still sees CI/COVERAGE. Keep in sync with root turbo.jsonc.
-      "passThroughEnv": ["CI", "COVERAGE"]
+      // vite-config.test.ts asserts desktop/web Vite alias parity by reading
+      // apps/web/vite.config.mts — a CROSS-PACKAGE file turbo's default input
+      // hash for this package does not cover. Without this, a web-only Vite
+      // config change could replay a stale cached green for the parity guard.
+      // $TURBO_DEFAULT$ keeps the normal inputs; the extra entry adds the web
+      // config to the hash. (Mirror of apps/web/turbo.json, which declares the
+      // reverse-direction read of apps/desktop/index.html.)
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/vite.config.mts"]
+    },
+    "test:coverage": {
+      // Same cross-package input: the coverage lane runs the full suite
+      // including vite-config.test.ts.
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/vite.config.mts"]
     }
   }
 }

@@ -157,7 +157,7 @@ Flow:
      catalog). Both throw clear errors if their host manager is missing.
    - Live-loop proofs (no agent mocks): packages/agent/src/__tests__/
      mastra-local-host-execution.spec.ts (chat + tools through the real
-     provider factory) and the local-OM test in mastra-memory-persistence.spec.ts.
+     provider factory) and the local-OM test in mastra-memory-persistence.integration.spec.ts.
 3. Visible renderer (web local chat, and desktop status/warmup UX)
    - Files:
      - packages/ui/src/assistant-ui-panel/local-runtime-adapter.ts

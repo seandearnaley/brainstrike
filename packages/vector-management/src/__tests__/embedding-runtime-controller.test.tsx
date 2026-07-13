@@ -8,17 +8,26 @@ import {
 
 const {
   backgroundDbState,
+  createEmbeddingCacheRepositoryMock,
   createPriorityDbHandleMock,
+  embeddingCacheRepositoryState,
   getRegisteredEmbeddingRuntimeConfigMock,
   startEmbeddingWorkerMock,
-} = vi.hoisted(() => ({
-  backgroundDbState: {
-    current: { query: vi.fn(async () => ({ rows: [] })) },
-  },
-  createPriorityDbHandleMock: vi.fn(() => backgroundDbState.current),
-  getRegisteredEmbeddingRuntimeConfigMock: vi.fn(),
-  startEmbeddingWorkerMock: vi.fn(),
-}));
+} = vi.hoisted(() => {
+  const embeddingCacheRepositoryState = {
+    current: { kind: 'embedding-cache-repository-mock' },
+  };
+  return {
+    backgroundDbState: {
+      current: { query: vi.fn(async () => ({ rows: [] })) },
+    },
+    createEmbeddingCacheRepositoryMock: vi.fn(() => embeddingCacheRepositoryState.current),
+    createPriorityDbHandleMock: vi.fn(() => backgroundDbState.current),
+    embeddingCacheRepositoryState,
+    getRegisteredEmbeddingRuntimeConfigMock: vi.fn(),
+    startEmbeddingWorkerMock: vi.fn(),
+  };
+});
 
 const {
   cancelBackfillMock,
@@ -57,6 +66,7 @@ vi.mock('@brainstrike/embeddings/worker', () => ({
 }));
 
 vi.mock('@brainstrike/db', () => ({
+  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
   createPriorityDbHandle: createPriorityDbHandleMock,
 }));
 
@@ -450,6 +460,33 @@ describe('useEmbeddingRuntimeController', () => {
       })
     );
     expect(createPriorityDbHandleMock).toHaveBeenCalledWith(db, 'background');
+  });
+
+  it('wires the embedding cache repository over the background handle when starting the local web worker', async () => {
+    clearDesktopHostBridge();
+
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const backgroundDb = { query: vi.fn(async () => ({ rows: [] })) };
+    backgroundDbState.current = backgroundDb;
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(createEmbeddingCacheRepositoryMock).toHaveBeenCalledWith(backgroundDb);
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embeddingCache: embeddingCacheRepositoryState.current,
+      })
+    );
   });
 
   it('returns the current local status when the web worker is already running', async () => {

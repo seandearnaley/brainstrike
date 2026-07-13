@@ -62,7 +62,7 @@ below are LIVE.
 > stopped executing) while mocked tests stayed green. Future changes to these
 > layers MUST preserve coverage that runs the actual Mastra agent loop end to end
 > with real tool `execute`, not only mocked stream parts. The current proofs live
-> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts` and
+> in `packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts` and
 > `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
 > clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
 
@@ -171,7 +171,20 @@ Flow (desktop assistant server → agent runtime):
 4. The approval UI + resume chain (`makeApprovalRequiredChunks` →
    `tool-approval-required` chunk → `DataStreamMapper.handleToolApprovalRequired`
    → `TOOL_APPROVAL_DATA_NAME` data part → `assistant-tool-approval-notice.tsx`)
-   prompts the user; approve→execute, decline→skip. The chunk carries an optional
+   prompts the user; approve→execute, decline→skip. Alongside Approve/Decline
+   the notice offers two GRANT actions when (a) a `ToolApprovalGrantProvider`
+   is mounted above it (app-shell wraps the panel, same outside-in pattern as
+   `EditCheckpointProvider`; no provider → no buttons, capability gating) and
+   (b) the approval carries a valid `riskCategory` (policy-driven ask —
+   non-policy pauses never over-promise a grant): "Always allow <tool>" →
+   `setToolOverride(toolId,'allow')` (persisted), "Allow <category> this
+   session" → `grantSessionCategory` (session-lived). Both record the grant
+   FIRST, then approve the pending call through the normal resume — the grant
+   affects the NEXT request via the wrapper's reactive store subscription; the
+   pending call still resolves through `streamMastraToolApprovalAction`.
+   Management surface: Settings > Permissions lists per-tool overrides
+   (change decision / remove via `setToolOverride(id,null)`) and active
+   session grants (revoke via `revokeSessionCategory`). The chunk carries an optional
    `riskCategory`/`policyDecision` so the notice can name the reason. The
    data-stream mapper correlates Mastra's transient tool error emitted before a
    deliberate `suspend()` and suppresses only that call's false failure fallback;
@@ -201,7 +214,7 @@ assistant server / storage), so ask tools are fail-safe-omitted there and web
 local chat is unaffected (desktop-first).
 
 Live-loop proof (real Agent + real PGlite workflow storage, no agent mock):
-`packages/agent/src/__tests__/mastra-tool-approval-suspend.spec.ts` —
+`packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts` —
 suspend→approve→execute, suspend→decline→skip, AND an allowed read tool runs
 FREE while an ask tool is in the map (the per-tool-not-global guard). NOTE: the
 scripted model's synchronous stream starves the event loop during the
@@ -404,7 +417,7 @@ server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
   permission-policy v2 security bump). Factory reset clears the store unchanged.
 
 Live-loop proofs (real Agent + real `applyToolHooks`, no stream mocks):
-`packages/agent/src/__tests__/mastra-tool-execution.spec.ts` (block / allow +
+`packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts` (block / allow +
 PostToolUse context / runtime-threaded / no-runner regression / runner-fault).
 Server composition: `apps/desktop/src/__tests__/assistant-server/hooks/`.
 
@@ -499,7 +512,7 @@ waits on the separate `listSuspendedRuns` feature (the data part is transient).
 `AssistantToolResumeAction`'s fields are all recoverable from
 `listSuspendedRuns().runs[].toolCalls[]`, so nothing here blocks it.
 
-Paired tests: packages/agent/src/__tests__/mastra-tool-suspend-resume.spec.ts
+Paired tests: packages/agent/src/__tests__/mastra-tool-suspend-resume.integration.spec.ts
 (real Agent + real PGlite: suspend→approve, reject-with-feedback, askUser
 free-text + multi-select, no-storage fail-safe omit + resume-throws, plan-mode
 drops edit / keeps submitPlan); plan-mode-tool-gate.spec.ts; the streaming +

@@ -5,12 +5,17 @@ import type {
   AssistantToolApprovalRequest,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  isToolRiskCategory,
+  type ToolRiskCategory,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/utils/logger';
-import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronUp, ShieldCheck, Timer, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { CodeSurface } from '../code-surface/code-surface';
 import { DiffView } from '../diff-view/diff-view';
+import { useToolApprovalGrants } from './tool-approval-grant-context';
 
 const logger = createLogger('AssistantToolApprovalNotice');
 
@@ -268,6 +273,27 @@ function resolveApprovalReason(approval: AssistantToolApprovalRequest): string |
 }
 
 /**
+ * User-facing plural nouns for the session-grant button ("Allow commands this
+ * session"). Distinct from RISK_CATEGORY_REASON, which explains WHY this call
+ * paused.
+ */
+const RISK_CATEGORY_GRANT_NOUN: Record<ToolRiskCategory, string> = {
+  edit: 'edits',
+  execute: 'commands',
+  mcp: 'MCP tools',
+  read: 'reads',
+};
+
+/**
+ * The grant risk category for this approval, or `null` when the pause carried
+ * no valid risk hint (a non-policy approval) — grants only make sense for
+ * policy-driven asks, so the buttons are omitted rather than over-promising.
+ */
+function resolveGrantCategory(approval: AssistantToolApprovalRequest): ToolRiskCategory | null {
+  return isToolRiskCategory(approval.riskCategory) ? approval.riskCategory : null;
+}
+
+/**
  * Rediscovery metadata carried ONLY by an approval re-surfaced from workflow
  * storage after a restart/reload (see RediscoveredToolApproval). A live-stream
  * approval has neither field, so the extra lines are absent on the live path.
@@ -464,6 +490,86 @@ function resolveApprovalRunOutcome(
   return { action: submittedAction, state: 'pending' };
 }
 
+/**
+ * The two GRANT actions offered alongside Approve/Decline: "Always allow this
+ * tool" (persisted per-tool override) and "Allow <category> this session"
+ * (session grant, cleared on reload). Rendered only when a
+ * `ToolApprovalGrantProvider` is mounted (app-shell; no provider → null,
+ * capability gating) AND the approval is policy-driven (`grantCategory`
+ * present) — a non-policy pause must not over-promise a grant.
+ *
+ * Each button records the grant FIRST, then approves the pending call through
+ * the normal resume. Ordering is deliberate: if the approve append fails, the
+ * grant has still been recorded, so the retried/next run is already allowed —
+ * the safe, least-surprising direction for a button that says "always/this
+ * session".
+ */
+function ApprovalGrantButtons({
+  approve,
+  disabled,
+  grantCategory,
+  toolName,
+}: {
+  approve: () => void;
+  disabled: boolean;
+  grantCategory: ToolRiskCategory | null;
+  toolName: string;
+}) {
+  const grants = useToolApprovalGrants();
+  if (!(grants && grantCategory)) {
+    return null;
+  }
+  const grantNoun = RISK_CATEGORY_GRANT_NOUN[grantCategory];
+  return (
+    <>
+      <Button
+        aria-label={`Always allow ${toolName}`}
+        data-testid="approval-grant-tool-always"
+        disabled={disabled}
+        onClick={() => {
+          grants.grantToolAlways(toolName);
+          approve();
+        }}
+        size="sm"
+        title={`Approve and always allow ${toolName} (persists until removed in Settings > Permissions)`}
+        variant="outline"
+      >
+        <ShieldCheck className="size-3.5" />
+        Always allow
+      </Button>
+      <Button
+        aria-label={`Allow ${grantNoun} for this session`}
+        data-testid="approval-grant-category-session"
+        disabled={disabled}
+        onClick={() => {
+          grants.grantCategoryForSession(grantCategory);
+          approve();
+        }}
+        size="sm"
+        title={`Approve and allow all ${grantNoun} until the app reloads`}
+        variant="outline"
+      >
+        <Timer className="size-3.5" />
+        Allow {grantNoun} this session
+      </Button>
+    </>
+  );
+}
+
+/** Status chip text for the notice header. */
+function resolveApprovalStatusLabel(
+  displayedAction: AssistantToolApprovalDecision | null,
+  actionLockedByRun: boolean
+): string {
+  if (displayedAction === 'approve') {
+    return 'Approved';
+  }
+  if (displayedAction === 'decline') {
+    return 'Declined';
+  }
+  return actionLockedByRun ? 'Submitted' : 'Pending';
+}
+
 export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNoticeProps) {
   const aui = useAui();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -473,6 +579,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
   const detailsId = useId();
   const approval = isAssistantToolApprovalRequest(data) ? data : null;
   const approvalReason = approval ? resolveApprovalReason(approval) : null;
+  const grantCategory = approval ? resolveGrantCategory(approval) : null;
   const rediscovered = approval ? readRediscoveredDisplay(data) : null;
   const approvalRunOutcomeKey = useAuiState((state) =>
     toApprovalRunOutcomeKey(resolveApprovalRunOutcome(state.thread.messages, approval))
@@ -557,14 +664,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
   }
 
   const displayedAction = submittedAction ?? (actionLockedByRun ? approvalRunOutcome.action : null);
-  const approvalStatus =
-    displayedAction === 'approve'
-      ? 'Approved'
-      : displayedAction === 'decline'
-        ? 'Declined'
-        : actionLockedByRun
-          ? 'Submitted'
-          : 'Pending';
+  const approvalStatus = resolveApprovalStatusLabel(displayedAction, actionLockedByRun);
   const actionButtonsDisabled = submittedAction !== null || actionLockedByRun;
 
   return (
@@ -616,6 +716,12 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
               <X className="size-3.5" />
               Decline
             </Button>
+            <ApprovalGrantButtons
+              approve={() => submitApprovalAction('approve')}
+              disabled={actionButtonsDisabled}
+              grantCategory={grantCategory}
+              toolName={approval.toolName}
+            />
           </div>
         </div>
         <Button

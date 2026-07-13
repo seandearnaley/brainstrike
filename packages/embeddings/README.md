@@ -558,7 +558,7 @@ npx vitest run
 ### Integration Tests (Slow)
 Test actual model downloading and embedding generation. Requires internet connection and downloads ~300MB+ of models:
 ```bash
-pnpm test:integration
+pnpm test:models
 # or
 VITEST_RUN_INTEGRATION=true npx vitest run
 ```

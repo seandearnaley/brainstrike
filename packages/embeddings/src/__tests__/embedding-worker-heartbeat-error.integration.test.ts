@@ -121,10 +121,14 @@ describe('embedding-worker: heartbeat error logging', () => {
       ]
     );
 
-    // Wrap db to throw on heartbeat updates
+    // Wrap db to throw on heartbeat lease-extension updates. The worker uses
+    // JobQueue.heartbeatBatch, whose SQL is `UPDATE job_queue AS j SET
+    // leased_until = $1, ...` — matching the lease-extension SET clause (which
+    // only the heartbeat statements lead with) is robust to that `AS j` alias,
+    // whereas the old `UPDATE job_queue SET leased_until` literal no longer hit.
     const throwingDb: IDatabase = {
       query: async (sql: string, params?: unknown[]) => {
-        if (sql.includes('UPDATE job_queue SET leased_until')) {
+        if (sql.includes('SET leased_until = $1')) {
           throw new Error('Simulated heartbeat failure');
         }
         return (db as unknown as IDatabase).query(sql, params);

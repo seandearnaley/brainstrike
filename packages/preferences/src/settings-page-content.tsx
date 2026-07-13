@@ -1,21 +1,13 @@
 import { cn, Input, ThemeSettings } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import {
-  ChevronRight,
-  Cpu,
-  Key,
-  Palette,
-  Search,
-  Settings,
-  ShieldCheck,
-  Sigma,
-  Webhook,
-} from 'lucide-react';
+import { Cpu, Key, Palette, Search, Settings, ShieldCheck, Sigma, Webhook } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
+import { SettingsSearchIcon } from './settings/settings-search-icon';
+import { SETTINGS_SEARCH_INPUT_STYLE } from './settings/settings-search-layout';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import {
   type HookReviewRoot,
@@ -251,117 +243,108 @@ export function SettingsPageContent({
   );
 
   return (
-    <div className="h-full overflow-hidden">
-      <div className="flex h-full flex-col">
-        <header className="border-border border-b px-8 pt-8 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-primary/10 p-2">
-              <Settings aria-hidden="true" className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <h1 className="font-semibold text-3xl tracking-tight">Settings</h1>
-              <p className="text-muted-foreground text-sm">
-                Customize application behavior, integrations, and appearance.
-              </p>
-            </div>
+    <div
+      className="grid h-full min-h-0 overflow-hidden"
+      style={{ gridTemplateColumns: '248px minmax(0, 1fr)' }}
+    >
+      <nav
+        aria-label="Settings categories"
+        className="flex min-h-0 flex-col border-border/70 border-r bg-muted/20"
+      >
+        <div className="border-border/60 border-b px-4 pt-4 pb-3">
+          <div className="flex items-center gap-2 px-1">
+            <Settings aria-hidden="true" className="size-4 text-muted-foreground" />
+            <span className="font-medium text-sm">Settings</span>
           </div>
-          <div className="relative mt-6">
-            <Search
-              aria-hidden="true"
-              className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            />
+          <div className="relative mt-3">
+            <SettingsSearchIcon />
             <Input
               aria-label="Search settings"
-              className="py-2 pr-3 pl-9"
+              className="h-9 rounded-lg border-border/70 bg-background/75 pr-3 pl-10 shadow-none"
               onChange={(event) => setQuery(event.target.value)}
               placeholder={searchPlaceholder}
               role="searchbox"
+              style={SETTINGS_SEARCH_INPUT_STYLE}
               value={query}
             />
           </div>
-        </header>
+        </div>
 
-        <div className="flex flex-1 overflow-hidden">
-          <nav
-            aria-label="Settings categories"
-            className="w-80 shrink-0 space-y-1 overflow-y-auto border-border border-r px-4 py-6"
-          >
-            {filteredCategories.length ? (
-              filteredCategories.map((category) => {
-                const Icon = category.icon;
-                const isActive = category.id === effectiveActiveCategoryId;
+        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2.5 py-3">
+          {filteredCategories.length ? (
+            filteredCategories.map((category) => {
+              const Icon = category.icon;
+              const isActive = category.id === effectiveActiveCategoryId;
 
-                return (
-                  <button
-                    aria-current={isActive ? 'page' : undefined}
-                    className={cn(
-                      'flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors',
-                      isActive
-                        ? 'border-primary/40 bg-primary/10 text-primary'
-                        : 'hover:bg-muted/60'
-                    )}
-                    key={category.id}
-                    onClick={() => setActiveCategoryId(category.id)}
-                    type="button"
-                  >
-                    {Icon ? (
-                      <Icon aria-hidden="true" className="h-4 w-4 flex-none text-primary" />
-                    ) : (
-                      <span
-                        aria-hidden="true"
-                        className="h-2 w-2 rounded-full bg-muted-foreground/60"
-                      />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium leading-tight">{category.title}</div>
-                      {category.description ? (
-                        <p className="line-clamp-2 text-muted-foreground text-xs">
-                          {category.description}
-                        </p>
-                      ) : null}
-                    </div>
-                    <ChevronRight
+              return (
+                <button
+                  aria-current={isActive ? 'page' : undefined}
+                  className={cn(
+                    'group flex min-h-9 w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-2 text-left text-sm transition-[background-color,border-color,color] duration-150',
+                    isActive
+                      ? 'border-border/70 bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                  )}
+                  key={category.id}
+                  onClick={() => setActiveCategoryId(category.id)}
+                  type="button"
+                >
+                  {Icon ? (
+                    <Icon
                       aria-hidden="true"
                       className={cn(
-                        'h-4 w-4 flex-none transition-transform',
-                        isActive ? 'translate-x-0' : '-translate-x-0.5 text-muted-foreground'
+                        'size-4 flex-none transition-colors',
+                        isActive
+                          ? 'text-primary'
+                          : 'text-muted-foreground group-hover:text-foreground'
                       )}
                     />
-                  </button>
-                );
-              })
-            ) : (
-              <div className="rounded-md border border-border/60 border-dashed bg-muted/40 px-3 py-4 text-muted-foreground text-sm">
-                No settings matched "{query}".
-              </div>
-            )}
-          </nav>
-
-          <section className="flex-1 overflow-y-auto px-8 py-6">
-            {filteredCategories.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                Try adjusting your search to find settings.
-              </div>
-            ) : activeCategory ? (
-              <div className="space-y-6" data-testid={`settings-category-${activeCategory.id}`}>
-                <div>
-                  <h2 className="font-semibold text-2xl">{activeCategory.title}</h2>
-                  {activeCategory.description ? (
-                    <p className="mt-1 text-muted-foreground text-sm">
-                      {activeCategory.description}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-6">{activeCategory.content}</div>
-              </div>
-            ) : (
-              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
-                Select a setting category to view its options.
-              </div>
-            )}
-          </section>
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className="size-1.5 rounded-full bg-muted-foreground/60"
+                    />
+                  )}
+                  <span className="min-w-0 flex-1 truncate font-medium leading-tight">
+                    {category.title}
+                  </span>
+                </button>
+              );
+            })
+          ) : (
+            <div className="rounded-lg border border-border/60 border-dashed bg-background/50 px-3 py-4 text-muted-foreground text-sm">
+              No settings matched "{query}".
+            </div>
+          )}
         </div>
-      </div>
+      </nav>
+
+      <section className="min-h-0 overflow-y-auto px-8 lg:px-10" style={{ paddingBlock: '2rem' }}>
+        {filteredCategories.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+            Try adjusting your search to find settings.
+          </div>
+        ) : activeCategory ? (
+          <div
+            className="mx-auto max-w-3xl space-y-7"
+            data-testid={`settings-category-${activeCategory.id}`}
+          >
+            <div className="border-border/60 border-b pr-10 pb-5">
+              <h2 className="font-semibold text-xl tracking-tight">{activeCategory.title}</h2>
+              {activeCategory.description ? (
+                <p className="mt-1.5 max-w-2xl text-muted-foreground text-sm leading-relaxed">
+                  {activeCategory.description}
+                </p>
+              ) : null}
+            </div>
+            <div className="space-y-6">{activeCategory.content}</div>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+            Select a setting category to view its options.
+          </div>
+        )}
+      </section>
     </div>
   );
 }

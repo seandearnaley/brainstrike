@@ -66,7 +66,7 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   Mastra threads under `<resourceId>-<personaId>` resource ids — invisible to the
   user's thread list (queried by the user's own resourceId). Cleanup of orphaned
   delegation threads is a follow-up (factory reset already purges the DB).
-- **Live-loop proof:** `packages/agent/src/__tests__/mastra-subagent-execution.spec.ts`
+- **Live-loop proof:** `packages/agent/src/__tests__/mastra-subagent-execution.integration.spec.ts`
   (real supervisor Agent + real child Agent + real child tool `execute`; one
   scripted model serves both levels, discriminated by `options.tools`) —
   delegation runs, child tool executes, `subagent.*` events fire in order sharing
