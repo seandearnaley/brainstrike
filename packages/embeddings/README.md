@@ -545,25 +545,37 @@ console.log('Current model:', service.getCurrentModelConfig());
 
 ## Testing
 
-The package includes two types of tests:
+The package has three test tiers, split purely by filename suffix:
 
-### Unit Tests (Fast)
-Run by default - test the model registry and similarity calculations without downloading models:
+### Unit Tests (Fast, cacheable — `test`)
+Everything without an env-sensitive suffix: model registry, similarity math,
+provider logic, fully-mocked backend/provider suites — including the
+fake-timer `foreground-embedding-gate` watchdog (a mocked-harness suite that
+qualifies for the cacheable lane under the root turbo.jsonc boundary).
+Turbo-cacheable.
 ```bash
-pnpm test
-# or
-npx vitest run
+pnpm test          # vitest run --exclude "**/*.integration.test.*"
 ```
 
-### Integration Tests (Slow)
-Test actual model downloading and embedding generation. Requires internet connection and downloads ~300MB+ of models:
+### Integration Tests (`*.integration.test.*`, uncached — `test:integration`)
+The env-sensitive lane: 12 suites that construct REAL PGlite via
+`wasmLoader.createPGlite` (under wall-clock timeouts + machine-relative worker
+concurrency). Runs in CI but is never replayed from cache.
 ```bash
-pnpm test:models
-# or
-VITEST_RUN_INTEGRATION=true npx vitest run
+pnpm test:integration   # vitest run --config vitest.integration.config.mts
 ```
 
-**Note**: Integration tests are skipped by default in CI/development to avoid long test times and large downloads.
+### Model-Download Tests (`*.models.test.*`, manual only — `test:models`)
+Test actual model downloading and embedding generation. Requires an internet
+connection and downloads ~300MB+ of models. Excluded from every CI lane by the
+base config's `**/*.models.test.*` exclusion; reachable ONLY via:
+```bash
+pnpm test:models        # vitest run --config vitest.models.config.mts
+```
+
+**Note**: The `test` and `test:integration` lanes partition the suite by the
+`.integration.test.*` suffix; the `.models.test.*` suffix is excluded from both
+(and from `test:coverage`), so model downloads never run in CI/development.
 
 ## Contributing
 

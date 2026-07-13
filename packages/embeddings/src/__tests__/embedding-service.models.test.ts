@@ -1,11 +1,14 @@
 /**
- * Integration tests for the embedding service
- * Tests model switching, embedding generation, and similarity calculations
+ * Model-download tests for the embedding service.
+ * Tests model switching, embedding generation, and similarity calculations.
  *
- * NOTE: These tests download ML models and can take several minutes to run.
- * They are excluded from the default test run. To run them:
- * - Set environment variable: VITEST_RUN_INTEGRATION=true
- * - Or run: npx vitest run --testNamePattern="integration"
+ * NOTE: These tests download ML models (~300MB+) and can take several minutes.
+ * They are gated PURELY BY FILENAME — the `.models.test.*` suffix. The base
+ * vitest.config.mts excludes that suffix, so this file NEVER runs in the pure
+ * `test` lane, the `test:integration` lane, or the `test:coverage` lane (and
+ * therefore never in CI). It runs ONLY via the manual `test:models` script,
+ * which selects it through vitest.models.config.mts. No env-var gate remains —
+ * selection is filename-based and explicit (no silent env fallback).
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -13,14 +16,10 @@ import { SimpleEmbeddingService } from '../bge-m3-service';
 import type { EmbeddingProgress } from '../types';
 import { JINA_CODE_MODEL, MINILM_MODEL } from './fixtures/model-configs';
 
-// Skip integration tests by default (they require model downloads)
-const SKIP_INTEGRATION =
-  !process.env['VITEST_RUN_INTEGRATION'] && process.env['NODE_ENV'] !== 'integration';
-
 // Test timeout for model downloading
 const LONG_TIMEOUT = 120_000; // 2 minutes
 
-describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
+describe('Embedding Service Model-Download Tests', () => {
   let service: SimpleEmbeddingService;
 
   beforeEach(() => {
