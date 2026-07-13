@@ -8,10 +8,7 @@ import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-met
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import {
-  buildPersonaSubAgents,
-  PersonaModelPinningNotImplementedError,
-} from '../build-persona-subagents';
+import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { PermissionToolGateLogger } from '../permission-tool-gate';
 
 const noopLogger: PermissionToolGateLogger = {
@@ -201,21 +198,110 @@ describe('buildPersonaSubAgents', () => {
     expect(keys).toHaveLength(4);
   });
 
-  it('throws PersonaModelPinningNotImplementedError when a persona pins a model', () => {
+  it('builds a pinned persona with the resolver-provided model', async () => {
     const pinned: AssistantPersonaDefinition = {
       ...explorePersona,
-      model: { modelId: 'gpt-4o-mini', provider: 'openai' },
+      id: 'cheap-explore',
+      model: { modelId: 'claude-haiku-4-5', provider: 'anthropic' },
+    };
+    const pinnedModel: LanguageModelV2 = { ...fakeModel, modelId: 'pinned-fake' };
+    const resolvedPins: unknown[] = [];
+    const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
+    const result = buildPersonaSubAgents({
+      guardedTools,
+      languageModel: fakeModel,
+      logger: noopLogger,
+      permissionSnapshot: readAllowSnapshot,
+      personas: [pinned],
+      resolvePinnedModel: (persona) => {
+        resolvedPins.push(persona.model);
+        return pinnedModel;
+      },
+      toolNameMap,
+    });
+
+    const child = result.subAgents['cheap-explore'];
+    expect(child).toBeDefined();
+    expect(resolvedPins).toEqual([{ modelId: 'claude-haiku-4-5', provider: 'anthropic' }]);
+    const model = await child.getModel();
+    expect(model.modelId).toBe('pinned-fake');
+  });
+
+  it('does not invoke the resolver for un-pinned personas (parent model reuse)', async () => {
+    const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
+    let resolverCalls = 0;
+    const result = buildPersonaSubAgents({
+      guardedTools,
+      languageModel: fakeModel,
+      logger: noopLogger,
+      permissionSnapshot: readAllowSnapshot,
+      personas: [explorePersona],
+      resolvePinnedModel: () => {
+        resolverCalls += 1;
+        return fakeModel;
+      },
+      toolNameMap,
+    });
+    expect(resolverCalls).toBe(0);
+    const model = await result.subAgents.explore.getModel();
+    expect(model.modelId).toBe('fake');
+  });
+
+  it('skips a pinned persona whose resolution throws — with a warn, never a parent-model fallback', () => {
+    const pinned: AssistantPersonaDefinition = {
+      ...explorePersona,
+      id: 'broken-pin',
+      model: { modelId: 'm', provider: 'anthropic' },
+    };
+    const warns: string[] = [];
+    const logger: PermissionToolGateLogger = {
+      info: () => undefined,
+      warn: (_message, context) => {
+        warns.push(String((context as { code?: string } | undefined)?.code));
+      },
     };
     const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
-    expect(() =>
-      buildPersonaSubAgents({
-        guardedTools,
-        languageModel: fakeModel,
-        logger: noopLogger,
-        permissionSnapshot: readAllowSnapshot,
-        personas: [pinned],
-        toolNameMap,
-      })
-    ).toThrow(PersonaModelPinningNotImplementedError);
+    const result = buildPersonaSubAgents({
+      guardedTools,
+      languageModel: fakeModel,
+      logger,
+      permissionSnapshot: readAllowSnapshot,
+      personas: [pinned, explorePersona],
+      resolvePinnedModel: () => {
+        throw new Error('missing_api_key');
+      },
+      toolNameMap,
+    });
+    expect(result.subAgents['broken-pin']).toBeUndefined();
+    expect(result.delegationToolPersonas.has('agent-broken-pin')).toBe(false);
+    expect(warns).toContain('subagent_persona_pin_unresolvable');
+    // The failure is isolated: the healthy persona still registers.
+    expect(result.subAgents.explore).toBeDefined();
+  });
+
+  it('skips a pinned persona when no resolver is threaded (never runs on the parent model)', () => {
+    const pinned: AssistantPersonaDefinition = {
+      ...explorePersona,
+      id: 'pinned-no-resolver',
+      model: { modelId: 'm', provider: 'anthropic' },
+    };
+    const warns: string[] = [];
+    const logger: PermissionToolGateLogger = {
+      info: () => undefined,
+      warn: (_message, context) => {
+        warns.push(String((context as { code?: string } | undefined)?.code));
+      },
+    };
+    const { guardedTools, toolNameMap } = makeGuardedTools(ALL_TOOL_IDS);
+    const result = buildPersonaSubAgents({
+      guardedTools,
+      languageModel: fakeModel,
+      logger,
+      permissionSnapshot: readAllowSnapshot,
+      personas: [pinned],
+      toolNameMap,
+    });
+    expect(result.subAgents['pinned-no-resolver']).toBeUndefined();
+    expect(warns).toContain('subagent_persona_pin_unresolvable');
   });
 });

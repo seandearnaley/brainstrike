@@ -96,6 +96,12 @@ export interface AssistantUiMessage {
  */
 export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'providerOptions'> {
   /**
+   * Server-validated assistant-ui message id for this response. The runtime
+   * uses it as Mastra's first generated assistant id so persisted content,
+   * streamed UI state, and branch topology share one identity. Agent-only.
+   */
+  assistantMessageId?: string;
+  /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed into the
    * tool-execute seam so PreToolUse hooks can block a permitted tool and
    * PostToolUse hooks can append bounded context. Never serialized over
@@ -154,6 +160,13 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * supplied. Cleared from the runtime before the agent is built. Agent-only.
    */
   permissionPolicyRequest?: AssistantPermissionPolicyRequest;
+  /**
+   * API keys for providers that pinned personas target (server-resolved from
+   * the secrets bridge, agent-only, NEVER client-supplied). Keyed by provider
+   * id. The parent provider's key is NOT duplicated here — the pin resolver
+   * reuses `apiKey` when the pin targets the parent provider.
+   */
+  personaProviderApiKeys?: Readonly<Record<string, string>>;
   /**
    * Built-in subagent personas the supervisor may delegate to (server-set,
    * agent-only, mirrors `mastraTools`). Threaded through on both the initial turn

@@ -47,6 +47,46 @@ contracts keep reloaded threads identical to live ones:
      (`ok:false`) hydrates as a failed tool call even though Mastra persists
      the invocation itself with `state:'result'`; the execution and replay
      paths must never maintain independent guarded-error code lists.
+3. **Edited-prompt branch topology:** Mastra remains the only writer of message
+   CONTENT, but its rows do not retain assistant-ui's parent graph. The client
+   history adapter therefore persists only `{messageId,parentId}` edges in
+   `brainstrike_assistant_message_parents` (migration 055) from its canonical
+   `append({message,parentId})` callback. An edge may land before Mastra saves
+   the matching content row, so `message_id`/`parent_id` intentionally have no
+   message FK. It also has no thread FK because the numbered migration runner
+   executes against a bare schema; app-shell thread deletion and factory reset
+   explicitly own cleanup. Hydration LEFT JOINs these edges and
+   uses an explicit parent (including explicit `null`) instead of chronological
+   chaining, which reconstructs edited prompts/regenerations as carousel
+   siblings after reload. Rows without an edge are legacy data and retain the
+   chronological fallback. The bounded 80-row hydration window is always a
+   closed graph: retained messages whose parent fell outside the window are
+   explicitly re-rooted. Hydration then performs a stable parent-first graph
+   traversal so assistant-ui never imports a dangling or not-yet-imported
+   parent. Mastra message creation time is immutable on same-id saves: a
+   regeneration reuses its parent user id, and moving that legacy row later
+   would invert pre-topology history.
+   Conflicting edges for the same message id throw — branch corruption is never
+   silently rewritten. Factory reset clears the companion table explicitly.
+   The UI transport preserves each assistant-ui user message id through the
+   generic-message conversion, and the desktop request parser preserves
+   assistant-ui's `unstable_assistantMessageId`; the stream session and Mastra
+   id generator both use those validated ids for the persisted user/visible
+   assistant pair. A normally finished stream asserts that the one-shot Mastra
+   generator consumed the assistant id through its memory message context,
+   making upstream contract drift visible instead of quietly substituting a
+   UUID. Initial turns and both approval/suspend resume paths pass a separate
+   per-call stream-id generator with the same initial id; the Mastra-global
+   generator remains reserved for the persisted memory row, so a transient
+   resume stream id cannot consume the durable identity first. If
+   observational-memory sealing creates additional snapshot rows,
+   hydration keeps the topology-bearing row's id for the combined assistant-ui
+   message. A new topology-bearing assistant id always starts a new hydration
+   group, including after an open legacy group, so consecutive regenerated
+   responses remain carousel siblings rather than being mistaken for snapshots
+   of one response.
+   This end-to-end identity alignment is what lets a later edited prompt point
+   to its durable assistant parent without correlation heuristics.
 
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,
@@ -175,7 +215,7 @@ a Group by / Sort by view-options popover. Plan/rationale:
 Where state lives (do not relitigate):
 - Groups: `brainstrike_assistant_thread_groups`; thread membership + manual
   order: `brainstrike_assistant_thread_placements` (migration 054; migration
-  055 adds nullable validated folder `color` and independent `flat_rank`, seeded
+  056 adds nullable validated folder `color` and independent `flat_rank`, seeded
   from the legacy `rank` so existing custom order survives the split; both are
   registered in both migration runners). Membership deliberately does NOT
   live in `mastra_threads.metadata`: grouping, folder color, and manual order
@@ -216,7 +256,7 @@ and tabs. Keyboard/a11y fallback for
 every drag operation: row context-menu "Move to <group>" / "Remove from Group".
 
 Paired tests: `migration-054-assistant-thread-groups.test.ts` and
-`migration-055-assistant-thread-group-presentation.test.ts` (packages/db),
+`migration-056-assistant-thread-group-presentation.test.ts` (packages/db),
 `assistant-thread-groups-repository.test.ts`, `assistant-thread-groups-store.test.ts`,
 `thread-list-sections.test.ts`, `threads-panel-dnd.test.ts`, and the
 `ThreadsPanel groups` suite in `threads-panel.test.tsx`.

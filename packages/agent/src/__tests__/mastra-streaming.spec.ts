@@ -5,6 +5,7 @@ import {
   createMastraAgentRuntime,
   streamMastraAgent,
   streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
 } from '../mastra/agent-runtime';
 import { MastraAgentError, type MastraAgentErrorCode } from '../mastra/mastra-agent-error';
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
@@ -14,6 +15,7 @@ const agentInstances: Array<{
   config: { instructions?: string; memory?: unknown; tools: Record<string, unknown> };
   declineToolCallCalls: unknown[];
   registeredMastra?: unknown;
+  resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }>;
   streamCalls: Array<{ input: unknown; options: unknown }>;
   tools: Record<string, unknown>;
 }> = [];
@@ -71,6 +73,7 @@ vi.mock('@mastra/core/agent', () => ({
     approveToolCallCalls: unknown[] = [];
     declineToolCallCalls: unknown[] = [];
     registeredMastra?: unknown;
+    resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }> = [];
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
     tools: Record<string, unknown>;
     memory?: unknown;
@@ -106,6 +109,11 @@ vi.mock('@mastra/core/agent', () => ({
 
     async declineToolCall(options: unknown) {
       this.declineToolCallCalls.push(options);
+      return createMockMastraOutput();
+    }
+
+    async resumeStream(resumeData: unknown, options: unknown) {
+      this.resumeStreamCalls.push({ options, resumeData });
       return createMockMastraOutput();
     }
 
@@ -851,6 +859,31 @@ describe('mastra streaming integration', () => {
     expect(agentInstances.at(-1)?.registeredMastra).toBe(mastraInstances[0]);
   });
 
+  it('surfaces Mastra persisted-message ID context drift before losing the assistant-ui ID', async () => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: {
+        apiKey: 'key',
+        assistantMessageId: 'assistant-client-id',
+        provider: 'openai',
+      },
+      storage: { id: 'storage-with-workflows' } as never,
+    });
+
+    const config = mastraInstances[0]?.config as {
+      idGenerator?: (context?: { idType: 'message'; source: 'agent' | 'memory' }) => string;
+    };
+    expect(config.idGenerator?.({ idType: 'message', source: 'agent' })).not.toBe(
+      'assistant-client-id'
+    );
+    expect(() => runtime.assertAssistantMessageIdPersisted?.()).toThrow(
+      'Mastra completed without persisting assistant message ID "assistant-client-id" through its memory ID context.'
+    );
+    expect(config.idGenerator?.({ idType: 'message', source: 'memory' })).toBe(
+      'assistant-client-id'
+    );
+    expect(() => runtime.assertAssistantMessageIdPersisted?.()).not.toThrow();
+  });
+
   it('shuts down the Mastra instance when disposing a storage-backed runtime', async () => {
     const runtime = await createMastraAgentRuntime({
       runtime: { apiKey: 'key', provider: 'openai' },
@@ -894,6 +927,32 @@ describe('mastra streaming integration', () => {
         thread: 'thread-1',
       },
     });
+  });
+
+  it('uses the assistant-ui message id for the first persisted assistant message', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'remember this', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          assistantMessageId: 'assistant-client-id',
+          provider: 'openai',
+        } as never,
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain stream
+    }
+
+    const options = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
+      experimental_generateMessageId?: () => string;
+    };
+    expect(options.experimental_generateMessageId).toBeTypeOf('function');
+    expect(options.experimental_generateMessageId?.()).toBe('assistant-client-id');
+    expect(options.experimental_generateMessageId?.()).not.toBe('assistant-client-id');
   });
 
   it('uses Brainstrike default stream step cap for native tool loops', async () => {
@@ -1130,6 +1189,7 @@ describe('mastra streaming integration', () => {
         requireToolApproval: true,
         runtime: {
           apiKey: 'test-key',
+          assistantMessageId: 'assistant-resume-id',
           memory: {
             memoryOptions: { lastMessages: 5 },
             resourceId: 'workspace-a',
@@ -1141,12 +1201,22 @@ describe('mastra streaming integration', () => {
       }
     );
 
+    const agent = agentInstances.at(-1);
+    const approvalOptions = agent?.approveToolCallCalls[0] as {
+      experimental_generateMessageId?: () => string;
+    };
+    const mastraConfig = mastraInstances.at(-1)?.config as {
+      idGenerator?: () => string;
+    };
+    expect(approvalOptions.experimental_generateMessageId).toBeTypeOf('function');
+    expect(approvalOptions.experimental_generateMessageId?.()).toBe('assistant-resume-id');
+    expect(mastraConfig.idGenerator?.()).toBe('assistant-resume-id');
+
     const chunks: unknown[] = [];
     for await (const chunk of iterator) {
       chunks.push(chunk);
     }
 
-    const agent = agentInstances.at(-1);
     expect(agent?.approveToolCallCalls).toHaveLength(1);
     expect(agent?.declineToolCallCalls).toHaveLength(0);
     expect(agent?.approveToolCallCalls[0]).toMatchObject({
@@ -1175,6 +1245,59 @@ describe('mastra streaming integration', () => {
       type: 'message-finish',
       usage: { completionTokens: 3, promptTokens: 2 },
     });
+  });
+
+  it('keeps a suspended-tool resume stream ID independent from its persisted ID', async () => {
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { textDelta: 'Resumed and continued.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { answer: 'Paris' },
+        runId: 'run-suspended-1',
+        toolCallId: 'tool-call-suspended-1',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          assistantMessageId: 'assistant-suspend-resume-id',
+          provider: 'openai',
+        },
+        storage: storage as never,
+      }
+    );
+
+    const agent = agentInstances.at(-1);
+    const resumeOptions = agent?.resumeStreamCalls[0]?.options as {
+      experimental_generateMessageId?: () => string;
+    };
+    const mastraConfig = mastraInstances.at(-1)?.config as {
+      idGenerator?: () => string;
+    };
+    expect(resumeOptions.experimental_generateMessageId).toBeTypeOf('function');
+    expect(resumeOptions.experimental_generateMessageId?.()).toBe('assistant-suspend-resume-id');
+    expect(mastraConfig.idGenerator?.()).toBe('assistant-suspend-resume-id');
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(agent?.resumeStreamCalls[0]).toMatchObject({
+      options: {
+        maxSteps: 20,
+        runId: 'run-suspended-1',
+        toolCallId: 'tool-call-suspended-1',
+      },
+      resumeData: { answer: 'Paris' },
+    });
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'Resumed and continued.' });
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+    );
   });
 
   it('resumes a declined Mastra tool call through the official decline API', async () => {

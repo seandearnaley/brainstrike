@@ -9,7 +9,7 @@ interface ColumnRow {
   is_nullable: 'NO' | 'YES';
 }
 
-describe('migration 055: assistant thread group presentation', () => {
+describe('migration 056: assistant thread group presentation', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -18,23 +18,23 @@ describe('migration 055: assistant thread group presentation', () => {
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 55));
+    await runner.up(migrations.filter((migration) => migration.version < 56));
   });
 
   afterEach(async () => {
     await db.close();
   });
 
-  function getMigration055() {
-    const migration = migrations.find((candidate) => candidate.version === 55);
+  function getMigration056() {
+    const migration = migrations.find((candidate) => candidate.version === 56);
     if (!migration) {
-      throw new Error('Migration 055 is missing');
+      throw new Error('Migration 056 is missing');
     }
     return migration;
   }
 
   it('adds nullable validated group color and nullable flat placement rank', async () => {
-    await runner.runMigration(getMigration055());
+    await runner.runMigration(getMigration056());
 
     const groupColumns = await db.query<ColumnRow>(
       `SELECT column_name, is_nullable
@@ -77,7 +77,7 @@ describe('migration 055: assistant thread group presentation', () => {
        VALUES ('thread-legacy', 'workspace-a', 'group-legacy', 'a0')`
     );
 
-    await runner.runMigration(getMigration055());
+    await runner.runMigration(getMigration056());
 
     const groups = await db.query<{ color: string | null; id: string }>(
       `SELECT id, color FROM brainstrike_assistant_thread_groups WHERE id = 'group-legacy'`
@@ -92,7 +92,7 @@ describe('migration 055: assistant thread group presentation', () => {
   });
 
   it('rollback removes both presentation columns', async () => {
-    const migration = getMigration055();
+    const migration = getMigration056();
     await runner.runMigration(migration);
     await runner.rollback(migration);
 

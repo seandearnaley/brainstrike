@@ -15,7 +15,18 @@
 import { NATIVE_TOOL_DEFAULTS, WEB_SEARCH_TOOL_ID } from './tool-categories.js';
 import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
 
-export type AssistantPersonaId = 'analyze' | 'explore';
+/** Ids of the personas that ship with the app. */
+export type AssistantBuiltInPersonaId = 'analyze' | 'explore';
+
+/**
+ * A persona id. Built-ins use {@link AssistantBuiltInPersonaId}; user-defined
+ * personas (see user-personas.ts) derive theirs from the file name, validated
+ * against the delegation-tool-name charset.
+ */
+export type AssistantPersonaId = string;
+
+/** Where a persona came from. Absent means built-in (pre-user-persona data). */
+export type AssistantPersonaSource = 'built-in' | 'user';
 
 /**
  * Seam for pinning a persona to a cheaper/local model. v1 leaves this undefined
@@ -38,8 +49,15 @@ export interface AssistantPersonaDefinition {
   readonly label: string;
   /** Hard cap enforced via onDelegationStart.modifiedMaxSteps. */
   readonly maxSteps: number;
-  /** v1: must be undefined (seam for cheaper/local pinning later). */
+  /**
+   * Optional model pin: the child runs on `provider::modelId` instead of the
+   * parent's model. Resolution (API key + provider client) happens in the
+   * agent factory; an unresolvable pin SKIPS the persona with a visible warn,
+   * never a silent fallback to the parent model.
+   */
   readonly model?: AssistantPersonaModelPin;
+  /** Where the persona came from; absent means built-in. */
+  readonly source?: AssistantPersonaSource;
 }
 
 /** The delegation tool prefix Mastra assigns to `agents`-config children. */

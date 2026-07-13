@@ -792,8 +792,10 @@ describe('assistant-server', () => {
       ];
       // Personas are set unconditionally on the runtime; the agent-side runtime
       // is where the local-provider skip lives (documented, tested in the agent
-      // package), so the server always passes the built-ins.
-      expect(runtime.personas).toBe(BUILT_IN_PERSONAS);
+      // package). The server resolves built-ins + user-defined personas per
+      // request (resolveRequestPersonas); with no persona files on disk and no
+      // availability request, the resolved list equals the built-ins.
+      expect(runtime.personas).toEqual(BUILT_IN_PERSONAS);
     });
 
     it('routes provider "local" through the injected llm-host manager (warmup + proxy client)', async () => {
@@ -1927,7 +1929,8 @@ describe('assistant-server', () => {
     });
 
     it('marks assistant thread runs completed after desktop streams finish', async () => {
-      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
@@ -1953,7 +1956,14 @@ describe('assistant-server', () => {
             },
             provider: 'openai',
           },
-          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+          messages: [
+            {
+              id: 'user-client-id',
+              parts: [{ text: 'Hello', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          unstable_assistantMessageId: 'assistant-client-id',
         }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',
@@ -1964,6 +1974,21 @@ describe('assistant-server', () => {
         expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
         expect.arrayContaining(['run-1', 'completed', null])
       );
+      expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({ assistantMessageId: 'assistant-client-id' }),
+        expect.any(Object)
+      );
+      expect(convertAssistantUiMessages).toHaveBeenCalledWith([
+        {
+          id: 'user-client-id',
+          parts: [{ text: 'Hello', type: 'text' }],
+          role: 'user',
+        },
+      ]);
+      expect(assistantDataStreamSessions.create).toHaveBeenCalledWith(expect.any(Object), {
+        messageId: 'assistant-client-id',
+      });
     });
 
     it('persists run-event chunks while desktop streams are consumed', async () => {

@@ -146,6 +146,9 @@ export const DESKTOP_IPC_CHANNELS = {
   userCommands: {
     list: 'user-commands:list',
   },
+  userPersonas: {
+    list: 'user-personas:list',
+  },
 } as const;
 
 export const DESKTOP_PRELOAD_IPC_CHANNELS = DESKTOP_IPC_CHANNELS;

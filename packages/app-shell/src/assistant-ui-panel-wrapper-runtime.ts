@@ -231,6 +231,12 @@ export function buildAssistantRequestData(args: {
     statusState: RuntimeData['workspaceIndexStatusState'];
   };
   /**
+   * Opt-in subagent persona availability; only set on the desktop data-stream
+   * transport and only when it diverges from the defaults. A preference, not a
+   * security boundary — it can only reduce the persona set.
+   */
+  subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
+  /**
    * Opt-in workspace instructions preference; only set on the desktop
    * data-stream transport (web has no injection path). A preference, not a
    * security boundary — the server reads it directly.
@@ -307,6 +313,7 @@ interface OptInRequestFields {
   hookTrustRequest?: HookTrustRequest | undefined;
   permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
   planMode?: boolean;
+  subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
 }
 
@@ -330,6 +337,11 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
     data['planMode'] = true;
   }
   // Workspace instructions preference: absent => server default (master on).
+  // Subagent persona availability is presence-means-non-default: the builder
+  // returns undefined at the defaults, so nothing rides the wire then.
+  if (fields.subagentPersonasRequest) {
+    data['subagentPersonasRequest'] = fields.subagentPersonasRequest;
+  }
   if (fields.workspaceInstructionsPreference) {
     data['workspaceInstructionsPreference'] = fields.workspaceInstructionsPreference;
   }

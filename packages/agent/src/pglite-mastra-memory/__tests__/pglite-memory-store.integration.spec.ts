@@ -371,6 +371,44 @@ describe('PgliteMemoryStore', () => {
     expect(byId.messages.map((message) => message.id)).toEqual(['message-2']);
   });
 
+  it('preserves a message creation time when the same identity is saved again', async () => {
+    await store.saveThread({
+      thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'thread-regeneration',
+        resourceId: 'workspace-a',
+        title: 'Regeneration thread',
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    await store.saveMessages({
+      messages: [
+        textMessage(
+          'message-reused-user',
+          'thread-regeneration',
+          'workspace-a',
+          '2026-04-22T10:00:01Z'
+        ),
+      ],
+    });
+    await store.saveMessages({
+      messages: [
+        textMessage(
+          'message-reused-user',
+          'thread-regeneration',
+          'workspace-a',
+          '2026-04-22T10:01:00Z'
+        ),
+      ],
+    });
+
+    const persisted = await store.listMessagesById({ messageIds: ['message-reused-user'] });
+
+    expect(persisted.messages).toHaveLength(1);
+    expect(persisted.messages[0]?.createdAt).toEqual(new Date('2026-04-22T10:00:01Z'));
+  });
+
   it('expands included thread messages with semantic recall context windows', async () => {
     await store.saveThread({
       thread: {

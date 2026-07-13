@@ -69,8 +69,11 @@ Desktop reset order:
 4. Reload renderer.
 Do not skip reload.
 
+Database-owned assistant persistence added outside Mastra's tables must also
+be cleared explicitly. This includes `brainstrike_assistant_message_parents`,
+the assistant-ui carousel/branch topology companion store (migration 055).
+
 Add tests when changing reset behavior.
 
 ---
-
 

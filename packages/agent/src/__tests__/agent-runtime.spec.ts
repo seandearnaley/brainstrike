@@ -55,6 +55,7 @@ describe('agent-runtime edge cases', () => {
       const result = convertMessagesToMastra(messages);
 
       expect(result).toHaveLength(1);
+      expect(result[0]?.id).toBe('2');
       expect(result[0]?.content).toBe('Hello');
     });
 

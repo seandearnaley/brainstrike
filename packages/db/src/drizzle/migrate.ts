@@ -44,7 +44,8 @@ import { migration051PromptLibrary } from '../migrations/051-prompt-library.js';
 import { migration052AssistantEditCheckpoints } from '../migrations/052-assistant-edit-checkpoints.js';
 import { migration053Bm25ContentIndex } from '../migrations/053-bm25-content-index.js';
 import { migration054AssistantThreadGroups } from '../migrations/054-assistant-thread-groups.js';
-import { migration055AssistantThreadGroupPresentation } from '../migrations/055-assistant-thread-group-presentation.js';
+import { migration055AssistantMessageParents } from '../migrations/055-assistant-message-parents.js';
+import { migration056AssistantThreadGroupPresentation } from '../migrations/056-assistant-thread-group-presentation.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -191,9 +192,10 @@ const customMigrations: Migration[] = [
   customMigration('custom-052-assistant-edit-checkpoints', migration052AssistantEditCheckpoints),
   customMigration('custom-053-bm25-content-index', migration053Bm25ContentIndex),
   customMigration('custom-054-assistant-thread-groups', migration054AssistantThreadGroups),
+  customMigration('custom-055-assistant-message-parents', migration055AssistantMessageParents),
   customMigration(
-    'custom-055-assistant-thread-group-presentation',
-    migration055AssistantThreadGroupPresentation
+    'custom-056-assistant-thread-group-presentation',
+    migration056AssistantThreadGroupPresentation
   ),
 ];
 

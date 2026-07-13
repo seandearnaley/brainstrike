@@ -11,7 +11,7 @@ import type { Migration } from './migration-runner';
  * and grouped presentations. Existing rows start with the legacy rank in both
  * columns so their custom order remains stable when the presentations split.
  */
-export const migration055AssistantThreadGroupPresentation: Migration = {
+export const migration056AssistantThreadGroupPresentation: Migration = {
   down: `
     ALTER TABLE brainstrike_assistant_thread_placements
       DROP COLUMN IF EXISTS flat_rank;
@@ -31,5 +31,5 @@ export const migration055AssistantThreadGroupPresentation: Migration = {
       SET flat_rank = rank
       WHERE flat_rank IS NULL;
   `,
-  version: 55,
+  version: 56,
 };

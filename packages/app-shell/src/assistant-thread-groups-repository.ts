@@ -8,7 +8,7 @@ import {
  * User-defined thread groups (folders) for the Threads panel.
  *
  * Groups and placements live in Brainstrike-owned tables (migrations 054 and
- * 055) — NOT in `mastra_threads.metadata`, because grouping, folder color, and
+ * 056) — NOT in `mastra_threads.metadata`, because grouping, folder color, and
  * manual order are Brainstrike-owned presentation state. A placement row whose
  * thread no longer exists is inert: the panel joins placements to loaded
  * threads by id. `rank` values are fractional-index keys (`fractional-indexing`

@@ -9,8 +9,18 @@
 // package's mastra-tool-approval-suspend.spec.ts, which drives the real Mastra
 // loop against the SAME `createPgliteMastraMemory` on a bare `new PGlite()`. This
 // file proves the web-specific glue: the lazily-built, request-shared singleton.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { getAdjustedTimeout } from '@brainstrike/test-utils';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getWebMastraStorage, resetWebMastraStorageForTests } from '../web-mastra-storage';
+
+// Booting a real in-memory PGlite + the Mastra memory loop (in the beforeEach reset
+// and each `it`) exceeds the default 15s testTimeout under CI parallel load. Use the
+// repo-canonical database tier (20s, doubled to 40s under CI) at file scope so the
+// margin travels with this test rather than widening every web suite's budget.
+vi.setConfig({
+  hookTimeout: getAdjustedTimeout('database'),
+  testTimeout: getAdjustedTimeout('database'),
+});
 
 describe('getWebMastraStorage (real in-memory PGlite)', () => {
   beforeEach(async () => {

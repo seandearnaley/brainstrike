@@ -865,7 +865,6 @@ export class PgliteMemoryStore extends MemoryStorage {
         content = EXCLUDED.content,
         role = EXCLUDED.role,
         type = EXCLUDED.type,
-        "createdAt" = EXCLUDED."createdAt",
         "resourceId" = EXCLUDED."resourceId"`,
       insertValues
     );

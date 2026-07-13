@@ -15,6 +15,7 @@ import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
 import { TokenLimiter } from '@mastra/core/processors';
 import type { MastraCompositeStore } from '@mastra/core/storage';
+import type { IdGeneratorContext } from '@mastra/core/types';
 import {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
@@ -69,6 +70,7 @@ import {
   type PermissionAskToolMetadata,
   type PermissionToolGateSnapshot,
 } from './permission-tool-gate';
+import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
 import {
   type ResolvedRuntimeConfiguration,
@@ -141,6 +143,8 @@ export interface MastraAgentRuntime {
    * lack of resume storage.
    */
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
+  /** Fail-loud completion check for the client-provided persisted assistant id. */
+  assertAssistantMessageIdPersisted?: () => void;
   /**
    * 'agent-<personaId>' → personaId for every registered delegation tool. Empty
    * when personas are absent/skipped. Consumed by the stream mapper (T4) to emit
@@ -181,8 +185,12 @@ function instantiateLanguageModel(
 
 export function convertMessagesToMastra(
   messages: AgentMessage[]
-): Array<{ role: 'user' | 'assistant' | 'system'; content: string }> {
-  const result: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+): Array<{ id: string; role: 'user' | 'assistant' | 'system'; content: string }> {
+  const result: Array<{
+    content: string;
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+  }> = [];
   for (const message of messages) {
     const textParts: string[] = [];
     for (const part of message.parts) {
@@ -195,7 +203,7 @@ export function convertMessagesToMastra(
       }
     }
     if (textParts.length > 0) {
-      result.push({ content: textParts.join('\n\n'), role: message.role });
+      result.push({ content: textParts.join('\n\n'), id: message.id, role: message.role });
     }
   }
   return result;
@@ -348,6 +356,7 @@ function resolvePersonaRuntimeParts(params: {
   personas: readonly AssistantPersonaDefinition[] | undefined;
   planModeActive: boolean;
   provider: string;
+  resolvePinnedModel: (persona: AssistantPersonaDefinition) => MastraModelConfig;
   toolNameMap: Map<string, string>;
 }): PersonaRuntimeParts {
   if (params.planModeActive || !shouldEnablePersonas(params.provider, params.personas)) {
@@ -359,6 +368,7 @@ function resolvePersonaRuntimeParts(params: {
     logger,
     permissionSnapshot: params.permissionSnapshot,
     personas: params.personas ?? [],
+    resolvePinnedModel: params.resolvePinnedModel,
     toolNameMap: params.toolNameMap,
   });
   return {
@@ -400,6 +410,34 @@ function composeRuntimeInstructions(params: {
   return [resolvedInstructions, params.budgetNote, params.taskListNote]
     .filter((part): part is string => Boolean(part))
     .join('\n');
+}
+
+function registerAgentWithMastra(
+  agent: Agent,
+  storage: MastraCompositeStore | undefined,
+  assistantMessageId: string | undefined
+): {
+  assertAssistantMessageIdPersisted?: () => void;
+  mastra?: Mastra;
+} {
+  if (!storage) {
+    return {};
+  }
+  const assistantMessageIdGenerator = assistantMessageId
+    ? createAssistantMessageIdGenerator(assistantMessageId)
+    : undefined;
+  const mastra = new Mastra({
+    agents: { brainstrikeAssistant: agent },
+    ...(assistantMessageIdGenerator ? { idGenerator: assistantMessageIdGenerator.generate } : {}),
+    logger: false,
+    storage,
+  });
+  return {
+    ...(assistantMessageIdGenerator
+      ? { assertAssistantMessageIdPersisted: assistantMessageIdGenerator.assertConsumed }
+      : {}),
+    mastra,
+  };
 }
 
 export async function createMastraAgentRuntime(
@@ -557,6 +595,12 @@ export async function createMastraAgentRuntime(
     personas,
     planModeActive,
     provider: normalizedProvider,
+    resolvePinnedModel: createPersonaPinnedModelResolver({
+      apiKey,
+      instantiate: instantiateLanguageModel,
+      parentProvider: normalizedProvider,
+      runtime: sanitizedRuntime,
+    }),
     toolNameMap,
   });
 
@@ -592,16 +636,15 @@ export async function createMastraAgentRuntime(
       : {}),
   });
 
-  const mastra = storage
-    ? new Mastra({
-        agents: { brainstrikeAssistant: agent },
-        logger: false,
-        storage,
-      })
-    : undefined;
+  const { mastra, ...assistantIdentityRuntime } = registerAgentWithMastra(
+    agent,
+    storage,
+    runtime?.assistantMessageId
+  );
 
   return {
     agent,
+    ...assistantIdentityRuntime,
     askTools,
     delegationToolPersonas,
     dispose: async () => {
@@ -1648,12 +1691,61 @@ type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 interface BrainstrikeAgentStreamOptions {
   abortSignal?: AbortSignal;
   delegation?: DelegationConfig;
+  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+  experimental_generateMessageId?: () => string;
   inputProcessors?: unknown[];
   maxSteps?: number;
   memory?: AgentMemoryOption;
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
   requireToolApproval?: ApprovalGate;
+}
+
+interface AssistantMessageIdGenerator {
+  assertConsumed: () => void;
+  generate: (context?: IdGeneratorContext) => string;
+}
+
+function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | undefined): {
+  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+  experimental_generateMessageId?: () => string;
+} {
+  const assistantMessageId = runtimeData?.assistantMessageId;
+  if (!assistantMessageId) {
+    return {};
+  }
+  return {
+    // The stream and persistence paths each consume their own one-shot
+    // generator. Sharing one would make whichever Mastra path runs first force
+    // the other to a UUID, breaking visible/persisted identity alignment.
+    // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+    experimental_generateMessageId: createAssistantMessageIdGenerator(assistantMessageId).generate,
+  };
+}
+
+function createAssistantMessageIdGenerator(initialMessageId: string): AssistantMessageIdGenerator {
+  let nextMessageId: string | undefined = initialMessageId;
+  return {
+    assertConsumed() {
+      if (nextMessageId === undefined) {
+        return;
+      }
+      throw new Error(
+        `Mastra completed without persisting assistant message ID "${initialMessageId}" through its memory ID context.`
+      );
+    },
+    generate(context?: IdGeneratorContext) {
+      if (context && (context.idType !== 'message' || context.source !== 'memory')) {
+        return generateUUID();
+      }
+      if (nextMessageId !== undefined) {
+        const messageId = nextMessageId;
+        nextMessageId = undefined;
+        return messageId;
+      }
+      return generateUUID();
+    },
+  };
 }
 
 const DEFAULT_AGENT_MAX_STEPS = 20;
@@ -1796,6 +1888,7 @@ async function* streamChunksFromMastra({
       }
 
       if (finished) {
+        runtime.assertAssistantMessageIdPersisted?.();
         return;
       }
     }
@@ -1858,6 +1951,7 @@ async function createStreamIteratorFromRuntime({
     const streamOptions: BrainstrikeAgentStreamOptions = {
       ...buildToolLoopOptions(runtimeData),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
@@ -1950,6 +2044,7 @@ async function createToolApprovalIteratorFromRuntime({
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
@@ -2249,6 +2344,7 @@ async function createToolResumeIteratorFromRuntime({
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),

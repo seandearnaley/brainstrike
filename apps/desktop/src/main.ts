@@ -73,6 +73,7 @@ import { registerShellIpcHandlers } from './ipc-shell';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerToolsIpcHandlers } from './ipc-tools';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
+import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { LlmHostManager } from './llm-host-manager';
 import {
   cloneLoggingPreferences,
@@ -674,6 +675,7 @@ let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
 let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
+let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
@@ -989,6 +991,7 @@ unregisterGitIpcHandlers = registerGitIpcHandlers();
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
 unregisterUserCommandsIpcHandlers = registerUserCommandsIpcHandlers();
+unregisterUserPersonasIpcHandlers = registerUserPersonasIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
 
 // Add global error handlers to catch silent crashes
@@ -1615,6 +1618,10 @@ app.on('will-quit', () => {
   if (unregisterUserCommandsIpcHandlers) {
     unregisterUserCommandsIpcHandlers();
     unregisterUserCommandsIpcHandlers = null;
+  }
+  if (unregisterUserPersonasIpcHandlers) {
+    unregisterUserPersonasIpcHandlers();
+    unregisterUserPersonasIpcHandlers = null;
   }
   if (unregisterTerminalIpcHandlers) {
     // Disposer also reaps every live pty (no orphaned shell survives quit).

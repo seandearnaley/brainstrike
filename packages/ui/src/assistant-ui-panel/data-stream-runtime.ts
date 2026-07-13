@@ -73,6 +73,14 @@ interface GenericMessageLike {
   readonly role?: unknown;
 }
 
+function requireTransportUserMessageId(message: ThreadMessage): string {
+  const id = message.id;
+  if (typeof id !== 'string' || id.trim().length === 0) {
+    throw new Error('Assistant user message is missing its assistant-ui message ID.');
+  }
+  return id;
+}
+
 function toContentParts(content: unknown): readonly GenericTextPart[] {
   if (Array.isArray(content)) {
     return content as readonly GenericTextPart[];
@@ -248,8 +256,12 @@ export function selectTransportMessagesForMastraMemory(
 }
 
 function toLanguageModelMessages(messages: readonly ThreadMessage[]): unknown[] {
-  const genericMessages = toGenericMessages(messages as Parameters<typeof toGenericMessages>[0]);
-  return genericMessages.map((message) => {
+  const genericMessages = messages.flatMap((sourceMessage) =>
+    toGenericMessages([sourceMessage] as Parameters<typeof toGenericMessages>[0]).map(
+      (message) => ({ message, sourceMessage })
+    )
+  );
+  return genericMessages.map(({ message, sourceMessage }) => {
     const item = message as GenericMessageLike;
     const content = toContentParts(item.content);
     switch (item.role) {
@@ -263,6 +275,7 @@ function toLanguageModelMessages(messages: readonly ThreadMessage[]): unknown[] 
           content: content.map((part) =>
             part.type === 'text' ? toHostedTextPart(part) : toUserFilePart(part)
           ),
+          id: requireTransportUserMessageId(sourceMessage),
           role: 'user',
         };
       case 'assistant':

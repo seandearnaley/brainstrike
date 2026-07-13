@@ -9,7 +9,11 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import type { AssistantTaskStatus, ManageTaskListResult } from '@brainstrike/assistant-contract';
 import { cn } from '../lib/utils';
-import { SUBAGENT_TOOL_CARDS } from './subagent-tool-cards';
+import {
+  isSubagentDelegationToolName,
+  SUBAGENT_TOOL_CARDS,
+  SubagentDelegationCard,
+} from './subagent-tool-cards';
 import { ToolFallback } from './tool-fallback';
 
 const STATUS_GLYPH: Record<AssistantTaskStatus, string> = {
@@ -122,6 +126,19 @@ export const TaskListToolCard: ToolCallMessagePartComponent = ({ args, argsText,
  * delegation tools (`agent-<personaId>`) as a collapsed SubagentExecutionCard,
  * and falls back to the shared {@link ToolFallback} for every other tool.
  */
+/**
+ * Fallback router: `by_name` above is exact-match, so a USER-DEFINED persona's
+ * delegation part (`agent-<id>` for an id unknown at build time) would land on
+ * the raw ToolFallback. Route every delegation-prefixed part to the collapsed
+ * SubagentExecutionCard instead; everything else keeps the shared ToolFallback.
+ */
+const ToolFallbackWithSubagents: typeof ToolFallback = (props) => {
+  if (isSubagentDelegationToolName(props.toolName)) {
+    return <SubagentDelegationCard {...props} />;
+  }
+  return <ToolFallback {...props} />;
+};
+
 export const CHAIN_OF_THOUGHT_TOOL_COMPONENTS = {
   /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
   by_name: {
@@ -133,5 +150,5 @@ export const CHAIN_OF_THOUGHT_TOOL_COMPONENTS = {
     ...SUBAGENT_TOOL_CARDS,
   },
   /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
-  Fallback: ToolFallback,
+  Fallback: ToolFallbackWithSubagents,
 };

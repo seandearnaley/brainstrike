@@ -141,7 +141,6 @@ export {
 } from './mastra/agent-runtime';
 export {
   buildPersonaSubAgents,
-  PersonaModelPinningNotImplementedError,
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
 export {
@@ -155,6 +154,7 @@ export {
   isAssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from './mastra/permission-policy-request';
+export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
   type ShellOutputWriter,

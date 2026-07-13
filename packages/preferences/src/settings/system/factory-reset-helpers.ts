@@ -2,6 +2,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { resetHookTrustStoreToDefaults } from '../../stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from '../../stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
+import { resetSubagentPersonasStoreToDefaults } from '../../stores/subagent-personas-store';
 import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from '../../stores/workspace-instructions-preferences-store';
 
 const logger = createLogger('FactoryReset');
@@ -318,6 +319,14 @@ function clearBrowserStorage(): void {
     resetPermissionPolicyStoreToDefaults();
   } catch (error) {
     logger.warn('Failed to reset permission policy store', { error });
+  }
+
+  // Subagent persona availability (delegation switch + per-persona disables)
+  // is a persisted preference; reset it with the other preference stores.
+  try {
+    resetSubagentPersonasStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset subagent personas store', { error });
   }
 
   // Same rationale as the permission-policy store above: `masterEnabled` is a
