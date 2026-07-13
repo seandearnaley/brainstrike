@@ -86,6 +86,7 @@ const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
 const USER_COMMANDS_LIST_CHANNEL = 'user-commands:list' as const;
+const USER_PERSONAS_LIST_CHANNEL = 'user-personas:list' as const;
 const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
 const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
 const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
@@ -1156,6 +1157,17 @@ if (shouldExposeBridge('contextFiles')) {
 if (shouldExposeBridge('userCommands')) {
   contextBridge.exposeInMainWorld('userCommands', {
     list: () => ipcRenderer.invoke(USER_COMMANDS_LIST_CHANNEL),
+  });
+}
+
+// Subagent persona discovery bridge (desktop-only). Capability-gated: the
+// Settings -> Subagents panel calls `list` to show built-in + user-defined
+// personas scanned from `.brainstrike/agents`. Web never constructs this
+// bridge (no preload), so consumers must capability-check
+// `window.assistantPersonas` rather than `isElectron()`.
+if (shouldExposeBridge('assistantPersonas')) {
+  contextBridge.exposeInMainWorld('assistantPersonas', {
+    list: () => ipcRenderer.invoke(USER_PERSONAS_LIST_CHANNEL),
   });
 }
 

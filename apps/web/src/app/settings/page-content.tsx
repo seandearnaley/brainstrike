@@ -27,6 +27,7 @@ import {
   createLocalRuntimeSettingsCategory,
   createPermissionSettingsCategory,
   createSearchIndexingSettingsCategory,
+  createSubagentPersonasSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
@@ -204,6 +205,7 @@ export default function SettingsPageContent() {
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
+      createSubagentPersonasSettingsCategory(),
       createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({

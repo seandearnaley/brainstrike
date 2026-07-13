@@ -104,7 +104,7 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps & { dispose: ()
   };
 }
 
-async function resolveScanRoots(
+export async function resolveScanRoots(
   getDatabase: () => Promise<WorkspaceRootsQueryable | null>
 ): Promise<UserSlashCommandScanRoot[]> {
   let database: WorkspaceRootsQueryable | null;

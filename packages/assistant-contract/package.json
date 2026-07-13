@@ -111,6 +111,11 @@
       "types": "./dist/tool-suspend.d.ts",
       "import": "./dist/tool-suspend.js",
       "require": "./dist/tool-suspend.js"
+    },
+    "./user-personas": {
+      "types": "./dist/user-personas.d.ts",
+      "import": "./dist/user-personas.js",
+      "require": "./dist/user-personas.js"
     }
   },
   "files": [

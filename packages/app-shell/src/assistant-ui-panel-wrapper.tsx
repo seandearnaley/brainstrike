@@ -108,6 +108,7 @@ import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picke
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useFileMentions } from './use-file-mentions';
@@ -853,6 +854,9 @@ export function AssistantUiPanelWrapper({
   const workspaceInstructionsOversizedOptIns = useWorkspaceInstructionsPreferencesStore(
     (state) => state.oversizedOptInByRootId
   );
+  // Subagent persona availability (desktop data-stream only; undefined at defaults).
+  const subagentPersonasRequest = useSubagentPersonasRequest(localChatTransport);
+
   const workspaceInstructionsPreference = useMemo(() => {
     if (localChatTransport !== 'data-stream') {
       return;
@@ -913,6 +917,7 @@ export function AssistantUiPanelWrapper({
     selectedMemoryThreadId,
     selectionData,
     semanticRecallSettings,
+    subagentPersonasRequest,
     workspaceIndex,
     workspaceInstructionsPreference,
     workspaceRootPath,

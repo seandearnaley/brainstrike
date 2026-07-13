@@ -141,7 +141,6 @@ export {
 } from './mastra/agent-runtime';
 export {
   buildPersonaSubAgents,
-  PersonaModelPinningNotImplementedError,
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
 export {

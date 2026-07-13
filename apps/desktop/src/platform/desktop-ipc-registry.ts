@@ -21,7 +21,8 @@ export type DesktopIpcDomain =
   | 'storage'
   | 'terminal'
   | 'tools'
-  | 'userCommands';
+  | 'userCommands'
+  | 'userPersonas';
 
 export type DesktopIpcChannelKind = 'event' | 'invoke';
 

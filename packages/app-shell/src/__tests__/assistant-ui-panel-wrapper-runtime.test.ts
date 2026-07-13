@@ -394,6 +394,35 @@ describe('assistant runtime helpers', () => {
     ).toEqual(preference);
   });
 
+  it('attaches subagentPersonasRequest only when provided (desktop transport gate)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    // Absent (defaults / web / non-data-stream) -> nothing attached.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('subagentPersonasRequest');
+
+    const request = { delegationEnabled: false, disabledPersonaIds: ['explore'] };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, subagentPersonasRequest: request })[
+        'subagentPersonasRequest'
+      ]
+    ).toEqual(request);
+  });
+
   it('attaches hookTrustRequest only when provided (desktop transport gate)', () => {
     const baseArgs = {
       agentLoopSettings: { maxSteps: 6 },

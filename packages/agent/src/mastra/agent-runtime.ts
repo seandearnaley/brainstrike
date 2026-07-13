@@ -69,6 +69,7 @@ import {
   type PermissionAskToolMetadata,
   type PermissionToolGateSnapshot,
 } from './permission-tool-gate';
+import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
 import {
   type ResolvedRuntimeConfiguration,
@@ -348,6 +349,7 @@ function resolvePersonaRuntimeParts(params: {
   personas: readonly AssistantPersonaDefinition[] | undefined;
   planModeActive: boolean;
   provider: string;
+  resolvePinnedModel: (persona: AssistantPersonaDefinition) => MastraModelConfig;
   toolNameMap: Map<string, string>;
 }): PersonaRuntimeParts {
   if (params.planModeActive || !shouldEnablePersonas(params.provider, params.personas)) {
@@ -359,6 +361,7 @@ function resolvePersonaRuntimeParts(params: {
     logger,
     permissionSnapshot: params.permissionSnapshot,
     personas: params.personas ?? [],
+    resolvePinnedModel: params.resolvePinnedModel,
     toolNameMap: params.toolNameMap,
   });
   return {
@@ -557,6 +560,12 @@ export async function createMastraAgentRuntime(
     personas,
     planModeActive,
     provider: normalizedProvider,
+    resolvePinnedModel: createPersonaPinnedModelResolver({
+      apiKey,
+      instantiate: instantiateLanguageModel,
+      parentProvider: normalizedProvider,
+      runtime: sanitizedRuntime,
+    }),
     toolNameMap,
   });
 

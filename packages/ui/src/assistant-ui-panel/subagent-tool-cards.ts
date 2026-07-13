@@ -2,6 +2,7 @@ import { type ToolCallMessagePartComponent, useAuiState } from '@assistant-ui/re
 import {
   BUILT_IN_PERSONAS,
   delegationToolNameForPersona,
+  SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
 import { createElement, useMemo } from 'react';
 import { SubagentExecutionCard } from './subagent-execution-card';
@@ -48,3 +49,21 @@ export const SUBAGENT_TOOL_CARDS: Record<string, ToolCallMessagePartComponent> =
     SubagentExecutionCardConnected,
   ])
 );
+
+/**
+ * Whether a tool name is a Mastra delegation tool (`agent-<personaId>`).
+ * assistant-ui's `by_name` map is exact-match, so USER-DEFINED personas (whose
+ * ids are not statically known) cannot be pre-registered — the panel's
+ * Fallback uses this predicate to route any delegation part to the
+ * SubagentExecutionCard instead of a raw tool card. Mastra reserves the
+ * `agent-` prefix for delegation tools; native tools are `brainstrike.*` and
+ * MCP tools are namespaced by server, so the prefix cannot collide.
+ */
+export function isSubagentDelegationToolName(toolName: string | undefined): boolean {
+  // The Fallback can render parts with no toolName (e.g. non-tool chain
+  // steps); those are never delegation cards.
+  return toolName?.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX) === true;
+}
+
+/** The connected delegation card, exported for the Fallback router. */
+export const SubagentDelegationCard: ToolCallMessagePartComponent = SubagentExecutionCardConnected;

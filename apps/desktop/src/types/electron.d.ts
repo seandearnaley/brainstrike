@@ -1,4 +1,7 @@
-import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
+import type {
+  AssistantPersonasListResult,
+  UserSlashCommandsListResult,
+} from '@brainstrike/assistant-contract';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
@@ -76,6 +79,15 @@ declare global {
   interface Window {
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
+    };
+    /**
+     * Desktop-only subagent persona discovery bridge. Absent on web (no
+     * preload) — consumers MUST capability-check `window.assistantPersonas`.
+     * The Settings -> Subagents panel calls `list` to show built-in +
+     * user-defined personas (including invalid files with their error).
+     */
+    assistantPersonas?: {
+      list: () => Promise<AssistantPersonasListResult>;
     };
     chunkingHost: {
       ensureStarted: () => Promise<ChunkingHostStatus>;
