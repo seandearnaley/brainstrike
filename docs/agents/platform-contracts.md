@@ -31,8 +31,8 @@ Scoped loggers:
 
 Sensitive data:
 - Auto-redacts: apiKey, password, token, secret, authorization, cookie
-- Log listeners receive recursively redacted plain objects before buffering or display;
-  transport serializers alone are not a sufficient boundary for in-app diagnostics.
+- Structured arguments and listener bindings are recursively redacted before transport,
+  buffering, or display; transport serializers alone are not a sufficient boundary.
 - Add more via redactPaths.
 
 Testing:
@@ -78,4 +78,3 @@ the assistant-ui carousel/branch topology companion store (migration 055).
 Add tests when changing reset behavior.
 
 ---
-

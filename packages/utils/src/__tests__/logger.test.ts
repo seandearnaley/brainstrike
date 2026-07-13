@@ -159,29 +159,61 @@ describe('logger', () => {
     });
 
     it('redacts nested secrets before notifying log listeners', () => {
-      const [record] = collectLogs(() => {
-        info('configured provider', {
-          headers: { 'x-api-key': 'header-secret' },
-          provider: {
-            accessToken: 'access-secret',
-            apiKey: 'sk-secret',
-            authorization: 'Bearer secret',
-            tokenCount: 42,
-          },
-        });
+      class ProviderConfig {
+        apiKey = 'class-secret';
+      }
+
+      configureLogger({
+        baseBindings: {
+          clientSecret: 'binding-secret',
+          profile: { tenantId: 'binding-tenant-secret' },
+        },
+        redactPaths: ['profile.tenantId', 'provider.profile.tenantId', 'sessionId'],
       });
 
+      const [record] = collectLogs(() => {
+        info(
+          {
+            headers: { 'x-api-key': 'header-secret' },
+            provider: {
+              accessToken: 'access-secret',
+              apiKey: 'sk-secret',
+              authorization: 'Bearer secret',
+              config: new ProviderConfig(),
+              failure: Object.assign(new Error('provider failed'), { accessToken: 'error-secret' }),
+              profile: { tenantId: 'tenant-secret' },
+              tokenCount: 42,
+            },
+            sessionId: 'session-secret',
+          },
+          'configured provider'
+        );
+      });
+
+      expect(record?.bindings).toEqual({
+        clientSecret: '[REDACTED]',
+        profile: { tenantId: '[REDACTED]' },
+      });
       expect(record?.args).toEqual([
-        'configured provider',
         {
           headers: { 'x-api-key': '[REDACTED]' },
           provider: {
             accessToken: '[REDACTED]',
             apiKey: '[REDACTED]',
             authorization: '[REDACTED]',
+            config: { apiKey: '[REDACTED]' },
+            failure: {
+              accessToken: '[REDACTED]',
+              message: 'provider failed',
+              name: 'Error',
+              stack: expect.any(String),
+            },
+            profile: { tenantId: '[REDACTED]' },
             tokenCount: 42,
           },
+          sessionId: '[REDACTED]',
         },
+        'configured provider',
       ]);
     });
   });

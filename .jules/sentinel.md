@@ -40,6 +40,6 @@
 **Prevention:** Pass the remaining budget into native directory APIs, stop enumeration at that limit, and return both the raw inspected count and an explicit truncation signal for caller accounting and visible warnings.
 
 ## 2026-07-13 - Log listeners must redact before buffering
-**Vulnerability:** In-app log listeners received raw structured arguments, so nested API keys and authorization values bypassed Pino transport serializers and entered desktop diagnostic buffers.
-**Learning:** Brainstrike's main and renderer log viewers consume listener records before transport serialization; Pino serializers do not protect that separate path.
-**Prevention:** Recursively redact sensitive keys before emitting listener records, and regression-test the listener payload rather than only transport output.
+**Vulnerability:** Structured log arguments and bindings could bypass Pino's top-level serializers and enter desktop diagnostic buffers with nested or operator-configured secrets intact.
+**Learning:** Brainstrike's transports and main/renderer log viewers consume different record paths, so redaction at only one sink creates a bypass.
+**Prevention:** Redact structured values before transport and listener fan-out, honor configured paths at that shared boundary, and regression-test the listener payload.
