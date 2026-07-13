@@ -1202,11 +1202,11 @@ function collectToolResults(
 }
 
 /**
- * A run of consecutive assistant rows (split only by user/system rows; legacy
- * `role: 'tool'` rows do not break a run). Observational-memory sealing and
- * per-step saves split ONE live assistant turn into several rows, so a group
- * hydrates back into a single assistant-ui message — matching what the thread
- * looked like while it streamed.
+ * A run of assistant snapshot rows for one branch identity. User/system rows
+ * and a new topology-bearing assistant ID split groups; legacy `role: 'tool'`
+ * rows do not. Observational-memory sealing and per-step saves split ONE live
+ * assistant turn into several rows, so a group hydrates back into a single
+ * assistant-ui message — matching what the thread looked like while it streamed.
  */
 interface AssistantHistoryRowGroup {
   readonly kind: 'assistant-group';
@@ -1423,11 +1423,13 @@ function appendSystemHistoryMessage(args: {
 
 /**
  * Partition the row stream into units: user/system rows stand alone;
- * consecutive assistant rows collapse into one group (legacy `role: 'tool'`
- * rows neither render nor break a group). Conversion happens here exactly
- * once per row, in chronological order — the tool-call dedupe map is stateful
- * (it keeps the FIRST occurrence of each toolCallId across snapshot rows), so
- * re-converting a row would corrupt it.
+ * assistant snapshot rows with one topology identity collapse into one group
+ * (legacy `role: 'tool'` rows neither render nor break a group). A second
+ * topology-bearing assistant ID starts a regenerated sibling group even when
+ * no user row separates the persisted responses. Conversion happens here
+ * exactly once per row, in chronological order — the tool-call dedupe map is
+ * stateful (it keeps the FIRST occurrence of each toolCallId across snapshot
+ * rows), so re-converting a row would corrupt it.
  */
 function buildHistoryUnits(
   messages: readonly AssistantHistoryMessage[],
@@ -1435,12 +1437,34 @@ function buildHistoryUnits(
 ): AssistantHistoryUnit[] {
   const units: AssistantHistoryUnit[] = [];
   const seenToolCallsById = new Map<string, AssistantHistoryToolCallPart>();
-  let openGroup: { rows: AssistantHistoryMessage[]; parts: TimedHistoryContentPart[] } | null =
-    null;
+  let openGroup: {
+    parts: TimedHistoryContentPart[];
+    rows: AssistantHistoryMessage[];
+    topologyMessageId?: string;
+  } | null = null;
+
+  const closeOpenGroup = (): void => {
+    if (!openGroup) {
+      return;
+    }
+    units.push({ kind: 'assistant-group', parts: openGroup.parts, rows: openGroup.rows });
+    openGroup = null;
+  };
 
   for (const message of messages) {
     if (message.role === 'assistant') {
+      const topologyMessageId = message.parentId === undefined ? undefined : message.id;
+      if (
+        topologyMessageId !== undefined &&
+        openGroup?.topologyMessageId !== undefined &&
+        openGroup.topologyMessageId !== topologyMessageId
+      ) {
+        closeOpenGroup();
+      }
       openGroup ??= { parts: [], rows: [] };
+      if (topologyMessageId !== undefined) {
+        openGroup.topologyMessageId = topologyMessageId;
+      }
       openGroup.rows.push(message);
       // Parts without a persisted timestamp anchor to their snapshot row's
       // save time — each row seals shortly after its parts were produced.
@@ -1455,18 +1479,13 @@ function buildHistoryUnits(
       continue;
     }
     if (message.role === 'user' || message.role === 'system') {
-      if (openGroup) {
-        units.push({ kind: 'assistant-group', ...openGroup });
-        openGroup = null;
-      }
+      closeOpenGroup();
       units.push({ kind: message.role, message });
     }
     // Other roles (legacy 'tool' rows) are folded into tool results and never
     // rendered — they intentionally do not split an assistant group.
   }
-  if (openGroup) {
-    units.push({ kind: 'assistant-group', ...openGroup });
-  }
+  closeOpenGroup();
   return units;
 }
 
@@ -1588,6 +1607,57 @@ function compareHistoryMessages(left: AssistantHistoryMessage, right: AssistantH
   return roleDifference === 0 ? left.id.localeCompare(right.id) : roleDifference;
 }
 
+/**
+ * assistant-ui imports parents before children. Mastra updates `createdAt` when
+ * a regeneration reuses its user message ID, so persisted chronological order
+ * is not necessarily topological. Close the bounded graph, then perform a
+ * stable parent-first traversal without adding a database round trip.
+ */
+function orderHistoryGraphForImport(
+  repositoryMessages: AssistantHistoryRepositoryMessages
+): AssistantHistoryRepositoryMessages {
+  const messageById = new Map<string, AssistantHistoryRepositoryMessages[number]>();
+  for (const item of repositoryMessages) {
+    if (messageById.has(item.message.id)) {
+      throw new Error(`Assistant history contains duplicate message ID ${item.message.id}.`);
+    }
+    messageById.set(item.message.id, item);
+  }
+
+  const closedMessages = repositoryMessages.map((item) =>
+    item.parentId !== null && !messageById.has(item.parentId) ? { ...item, parentId: null } : item
+  );
+  const closedMessageById = new Map(closedMessages.map((item) => [item.message.id, item]));
+  const visitState = new Map<string, 'visited' | 'visiting'>();
+  const orderedMessages: AssistantHistoryRepositoryMessages = [];
+
+  const visit = (item: AssistantHistoryRepositoryMessages[number]): void => {
+    const messageId = item.message.id;
+    const state = visitState.get(messageId);
+    if (state === 'visited') {
+      return;
+    }
+    if (state === 'visiting') {
+      throw new Error(`Assistant history contains a parent cycle at message ${messageId}.`);
+    }
+    visitState.set(messageId, 'visiting');
+    if (item.parentId !== null) {
+      const parent = closedMessageById.get(item.parentId);
+      if (!parent) {
+        throw new Error(`Assistant history parent ${item.parentId} disappeared while ordering.`);
+      }
+      visit(parent);
+    }
+    visitState.set(messageId, 'visited');
+    orderedMessages.push(item);
+  };
+
+  for (const item of closedMessages) {
+    visit(item);
+  }
+  return orderedMessages;
+}
+
 function toHistoryRepository(
   messages: readonly AssistantHistoryMessage[],
   runEvents: readonly AssistantRunEvent[] = []
@@ -1631,16 +1701,11 @@ function toHistoryRepository(
     }
   }
 
-  const retainedMessageIds = new Set(repositoryMessages.map((item) => item.message.id));
-  const closedGraphMessages = repositoryMessages.map((item) =>
-    item.parentId !== null && !retainedMessageIds.has(item.parentId)
-      ? { ...item, parentId: null }
-      : item
-  );
+  const headId = repositoryMessages.at(-1)?.message.id ?? null;
 
   return {
-    headId: repositoryMessages.at(-1)?.message.id ?? null,
-    messages: closedGraphMessages,
+    headId,
+    messages: orderHistoryGraphForImport(repositoryMessages),
   };
 }
 

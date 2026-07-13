@@ -130,6 +130,47 @@ describe('createAssistantThreadHistoryAdapter', () => {
     ]);
   });
 
+  it('replays regenerated assistant responses as carousel siblings', async () => {
+    const repository = makeMessagesOnlyRepository();
+    repository.listMessages = vi.fn(async () => [
+      {
+        content: { content: 'Original prompt' },
+        createdAt: new Date('2026-07-13T10:00:00Z'),
+        id: 'user-original',
+        parentId: null,
+        role: 'user',
+      },
+      {
+        content: { content: 'Original response' },
+        createdAt: new Date('2026-07-13T10:00:01Z'),
+        id: 'assistant-original',
+        parentId: 'user-original',
+        role: 'assistant',
+      },
+      {
+        content: { content: 'Regenerated response' },
+        createdAt: new Date('2026-07-13T10:00:02Z'),
+        id: 'assistant-regenerated',
+        parentId: 'user-original',
+        role: 'assistant',
+      },
+    ]);
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+
+    expect(history.headId).toBe('assistant-regenerated');
+    expect(history.messages.map((item) => [item.message.id, item.parentId])).toEqual([
+      ['user-original', null],
+      ['assistant-original', 'user-original'],
+      ['assistant-regenerated', 'user-original'],
+    ]);
+  });
+
   it('keeps the assistant-ui id when Mastra seals one response into snapshot rows', async () => {
     const repository = makeMessagesOnlyRepository();
     repository.listMessages = vi.fn(async () => [
@@ -2545,6 +2586,91 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       ['assistant-original', 'user-original'],
       ['user-edited', null],
       ['assistant-edited', 'user-edited'],
+    ]);
+  });
+
+  it('topologically hydrates regeneration after Mastra updates the reused user timestamp', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-regeneration-topology-order');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    for (const edge of [
+      { messageId: 'user-reused', parentId: null },
+      { messageId: 'assistant-original', parentId: 'user-reused' },
+      { messageId: 'assistant-regenerated', parentId: 'user-reused' },
+    ] as const) {
+      await repository.recordMessageParent?.({
+        ...edge,
+        resourceId: 'workspace-a',
+        threadId: thread.id,
+      });
+    }
+
+    const saveMessage = async (args: {
+      createdAt: string;
+      id: string;
+      role: 'assistant' | 'user';
+      text: string;
+    }): Promise<void> => {
+      await db.query(
+        `INSERT INTO mastra_messages
+          (id, thread_id, content, role, type, "createdAt", "resourceId")
+         VALUES ($1, $2, $3::jsonb, $4, 'v2', $5, $6)
+         ON CONFLICT (id) DO UPDATE SET
+          content = EXCLUDED.content,
+          "createdAt" = EXCLUDED."createdAt"`,
+        [
+          args.id,
+          thread.id,
+          JSON.stringify({
+            content: args.text,
+            format: 2,
+            parts: [{ text: args.text, type: 'text' }],
+          }),
+          args.role,
+          new Date(args.createdAt),
+          'workspace-a',
+        ]
+      );
+    };
+
+    await saveMessage({
+      createdAt: '2026-07-13T10:00:00Z',
+      id: 'user-reused',
+      role: 'user',
+      text: 'Original prompt',
+    });
+    await saveMessage({
+      createdAt: '2026-07-13T10:00:01Z',
+      id: 'assistant-original',
+      role: 'assistant',
+      text: 'Original response',
+    });
+    await saveMessage({
+      createdAt: '2026-07-13T10:00:02Z',
+      id: 'user-reused',
+      role: 'user',
+      text: 'Original prompt',
+    });
+    await saveMessage({
+      createdAt: '2026-07-13T10:00:03Z',
+      id: 'assistant-regenerated',
+      role: 'assistant',
+      text: 'Regenerated response',
+    });
+
+    const history = await createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: thread.id,
+    }).load();
+
+    expect(history.headId).toBe('assistant-regenerated');
+    expect(history.messages.map((item) => [item.message.id, item.parentId])).toEqual([
+      ['user-reused', null],
+      ['assistant-original', 'user-reused'],
+      ['assistant-regenerated', 'user-reused'],
     ]);
   });
 
