@@ -38,11 +38,15 @@ export default defineConfig({
   test: {
     ...baseTest,
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
-    // This include MIRRORS the pure lane's --exclude glob exactly (any
-    // extension), so the two lanes partition the suffix by construction: a
+    // This include MIRRORS the pure lane's --exclude suffix (restricted to
+    // real test-module extensions; see the note just above the glob), so the
+    // two lanes partition the suffix by construction: a
     // file the pure lane excludes is always picked up here — it can never be
     // silently orphaned. A suffix file outside the base include would run
     // here without counting toward coverage — the safe direction.
-    include: ['**/*.integration.spec.*'],
+    // Canonical test-extension suffix instead of a bare `*` so sibling
+    // artifacts (e.g. __snapshots__/x.integration.spec.ts.snap) aren't
+    // loaded as test modules; still any real JS/TS extension.
+    include: ['**/*.integration.spec.?(c|m)[jt]s?(x)'],
   },
 });

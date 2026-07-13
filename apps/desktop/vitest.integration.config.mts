@@ -32,8 +32,9 @@ export default defineConfig({
     // "Something removed the coverage directory ... Vitest created earlier").
     // Full-suite coverage is owned by the single-process `test:coverage` script.
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
-    // This include MIRRORS the pure lane's --exclude glob exactly (any
-    // extension), so the two lanes partition the suffix by construction: a
+    // This include MIRRORS the pure lane's --exclude suffix (restricted to
+    // real test-module extensions; see the note just above the glob), so the
+    // two lanes partition the suffix by construction: a
     // file the pure lane excludes is always picked up here — it can never be
     // silently orphaned. (Review finding on #1628: desktop's base config uses
     // vitest's DEFAULT include, which also matches .mts/.cts/.jsx — so under
@@ -41,6 +42,12 @@ export default defineConfig({
     // have been in the full suite yet run in NEITHER lane.) A suffix file
     // outside the base include would run here without counting toward
     // coverage — the safe direction.
-    include: ['**/*.integration.test.*'],
+    // Vitest's canonical test-extension suffix (?(c|m)[jt]s?(x)) instead of a
+    // bare `*`: still any real JS/TS extension (mts/cts/jsx/…), but a bare
+    // `*` would also match sibling artifacts like
+    // __snapshots__/x.integration.test.ts.snap and try to LOAD them as test
+    // modules. The pure lane's `*` exclude harmlessly drops such files; this
+    // lane must not attempt to run them.
+    include: ['**/*.integration.test.?(c|m)[jt]s?(x)'],
   },
 });
