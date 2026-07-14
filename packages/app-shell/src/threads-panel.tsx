@@ -796,7 +796,10 @@ function ThreadRowDisplay({
         <div className="-mr-px flex shrink-0 items-center gap-0.5">
           <Button
             aria-label={`${expanded ? 'Hide' : 'Show'} thread details ${thread.title}`}
-            onClick={onExpandedThreadToggle}
+            onClick={(event) => {
+              event.stopPropagation();
+              onExpandedThreadToggle();
+            }}
             size="icon-xs"
             type="button"
             variant="ghost"
@@ -820,6 +823,7 @@ function ThreadRowDisplay({
             <PopoverTrigger asChild>
               <Button
                 aria-label={`Thread actions ${thread.title}`}
+                onClick={(event) => event.stopPropagation()}
                 size="icon-xs"
                 type="button"
                 variant="ghost"

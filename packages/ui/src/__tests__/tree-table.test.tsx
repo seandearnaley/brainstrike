@@ -150,10 +150,40 @@ describe('TreeTable', () => {
       expect(row).toHaveAttribute('data-focused', 'true');
       expect(row).not.toHaveClass('ring-2', 'ring-primary', 'ring-inset');
       expect(row).toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2',
         'focus-visible:outline-solid',
         'focus-visible:outline-2',
         'focus-visible:outline-foreground/50',
         'focus-visible:-outline-offset-2'
+      );
+    });
+
+    it('does not paint the roving row outline for pointer focus', () => {
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'File 1')]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const row = screen.getByText('File 1').closest('tr');
+      if (!row) {
+        throw new Error('Expected tree row to render.');
+      }
+      fireEvent.pointerDown(row);
+      fireEvent.click(row);
+
+      expect(row).toHaveAttribute('data-focused', 'true');
+      expect(row).not.toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2'
       );
     });
 

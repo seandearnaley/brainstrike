@@ -52,6 +52,14 @@ const DEFAULT_CONTEXT_NODE_IDS = new Set<string>();
 const DEFAULT_LOADING_NODE_IDS = new Set<string>();
 const MAX_WARNED_CYCLE_NODE_IDS = 1000;
 const DEFAULT_PAGE_SIZE = 50;
+const KEYBOARD_FOCUS_KEYS = new Set([
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'End',
+  'Home',
+]);
 export const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
 const MIN_FALLBACK_VIRTUAL_ROWS = 1;
 // Performance-only fallback cache keyed by table container element.
@@ -635,6 +643,7 @@ export function TreeTable<T>({
 }: TreeTableProps<T>) {
   const tableAriaRole = resolveTableAriaRole(ariaRole);
   const parentRef = React.useRef<HTMLDivElement>(null);
+  const [keyboardFocusVisible, setKeyboardFocusVisible] = React.useState(false);
   // Diagnostic-only cycle warning cache. This is intentionally mutable and
   // excluded from memo deps because it does not affect rendered output.
   const warnedCycleNodeIdsRef = React.useRef<Set<string>>(new Set());
@@ -1043,6 +1052,19 @@ export function TreeTable<T>({
     keyboardOptions.onCheckboxSpace = resolvedCheckboxSpace;
   }
   const keyboard = useTreeKeyboard(keyboardOptions);
+  const handleTreeKeyDown = useEventCallback((event: React.KeyboardEvent) => {
+    if (
+      KEYBOARD_FOCUS_KEYS.has(event.key) &&
+      !(event.target instanceof HTMLInputElement) &&
+      !(event.target instanceof HTMLTextAreaElement)
+    ) {
+      setKeyboardFocusVisible(true);
+    }
+    keyboard.onKeyDown(event);
+  });
+  const handleTreePointerDown = React.useCallback(() => {
+    setKeyboardFocusVisible(false);
+  }, []);
 
   // The TanStack virtualizer instance is identity-stable, so this adapter
   // (and the measure callback ref derived from it) only changes when the
@@ -1084,6 +1106,16 @@ export function TreeTable<T>({
     selectionMode,
     sortState,
   });
+  const getResolvedRowClassName = React.useCallback(
+    (node: TreeNode<T>): string =>
+      cn(
+        getRowClassName(node),
+        keyboardFocusVisible &&
+          keyboard.state.focusedId === node.id &&
+          'outline-2 outline-foreground/50 outline-solid -outline-offset-2'
+      ),
+    [getRowClassName, keyboard.state.focusedId, keyboardFocusVisible]
+  );
 
   const handlePaginationPageChange = React.useCallback(
     (nextPage: number) => {
@@ -1186,7 +1218,8 @@ export function TreeTable<T>({
           aria-multiselectable={selectionMode === 'multi' || undefined}
           aria-rowcount={totalRowCount}
           className={className}
-          onKeyDown={keyboard.onKeyDown}
+          onKeyDown={handleTreeKeyDown}
+          onPointerDownCapture={handleTreePointerDown}
           role={tableAriaRole}
           scrollContainer={false}
           tabIndex={0}
@@ -1216,7 +1249,7 @@ export function TreeTable<T>({
                       ariaRole={tableAriaRole}
                       checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
                       checkboxState={rowCheckboxState ?? 'unchecked'}
-                      className={getRowClassName(row.node)}
+                      className={getResolvedRowClassName(row.node)}
                       columns={columns}
                       insetTreeControls={insetTreeControls}
                       isFocused={keyboard.state.focusedId === row.node.id}
@@ -1241,7 +1274,7 @@ export function TreeTable<T>({
                       ariaRole={tableAriaRole}
                       checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
                       checkboxState={rowCheckboxState ?? 'unchecked'}
-                      className={getRowClassName(row.node)}
+                      className={getResolvedRowClassName(row.node)}
                       columns={columns}
                       insetTreeControls={insetTreeControls}
                       isFocused={keyboard.state.focusedId === row.node.id}

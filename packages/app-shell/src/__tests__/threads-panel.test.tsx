@@ -737,6 +737,23 @@ describe('ThreadsPanel', () => {
     expect(persistedRow?.['updatedAt']).toEqual(new Date('2026-04-22T11:00:00Z'));
   });
 
+  it('keeps thread detail and action controls out of row selection', async () => {
+    const user = userEvent.setup();
+    renderThreadsPanel();
+
+    const checkbox = await screen.findByRole('checkbox', {
+      name: 'Select thread Second thread',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Show thread details Second thread' }));
+    expect(checkbox).not.toBeChecked();
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    expect(checkbox).not.toBeChecked();
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+  });
+
   it('shows automatic expanded metadata and keeps diagnostics out of the primary row', async () => {
     const user = userEvent.setup();
     renderThreadsPanel();
