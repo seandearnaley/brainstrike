@@ -53,7 +53,6 @@ packages/
   embeddings/         # Vector embedding generation
   embedding-worker/   # Worker runtime (renderer)
   queue/              # Job queue infrastructure
-  queue-telemetry-collector/ # Queue telemetry collector service
   assistant-contract/        # Assistant provider/runtime contracts
   indexing-contract/         # Indexing pipeline contracts
   text-splitter/             # Text chunking utilities

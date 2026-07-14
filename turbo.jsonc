@@ -285,7 +285,6 @@
         "@brainstrike/db-explorer#dev",
         "@brainstrike/chunking-worker#dev",
         "@brainstrike/file-tree-worker#dev",
-        "@brainstrike/queue-telemetry-collector#dev",
         "@brainstrike/platform-utils#dev"
       ]
     },
