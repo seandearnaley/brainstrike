@@ -235,3 +235,72 @@ test('rejects allowlist entries without a reason string', async () => {
     /needs a reason string/
   );
 });
+
+test('BLIND SPOT: transitive src-graph deps are closed to a fixpoint', async () => {
+  // alpha imports beta (aliased to src); beta's SOURCE imports gamma. The
+  // config covers beta but not gamma — the fixpoint must flag gamma with the
+  // referral chain, exactly the live embeddings -> embedding-worker(src) ->
+  // worker-runtime shape.
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts': "import { thing } from '@brainstrike/beta';\nexport const x = thing;\n",
+  });
+  await writeFile(
+    path.join(packagesRoot, 'beta/src/index.ts'),
+    "import { g } from '@brainstrike/gamma';\nexport const thing = g;\n"
+  );
+  await writeFile(path.join(packagesRoot, 'alpha/vitest.config.mjs'), srcAliasConfig(packagesRoot));
+  const violations = await findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].specifier, '@brainstrike/gamma');
+  assert.match(violations[0].problem, /falls through to built dist/);
+  assert.match(violations[0].problem, /via @brainstrike\/beta \[@brainstrike\/beta src\]/);
+});
+
+test('transitive contributions exclude the dep package test files', async () => {
+  // beta's TEST file imports gamma, but its shipped src does not — the consumer
+  // lane never loads beta's tests, so gamma must NOT be flagged.
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts': "import { thing } from '@brainstrike/beta';\nexport const x = thing;\n",
+  });
+  await mkdir(path.join(packagesRoot, 'beta/src/__tests__'), { recursive: true });
+  await writeFile(
+    path.join(packagesRoot, 'beta/src/__tests__/beta.test.ts'),
+    "import { g } from '@brainstrike/gamma';\nexport const t = g;\n"
+  );
+  await writeFile(path.join(packagesRoot, 'alpha/vitest.config.mjs'), srcAliasConfig(packagesRoot));
+  assert.deepEqual(await findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot }), []);
+});
+
+test('DISCOVERY: a script/stryker config reference outside the convention throws', async () => {
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts': "import { thing } from '@brainstrike/beta';\nexport const x = thing;\n",
+  });
+  await writeFile(path.join(packagesRoot, 'alpha/vitest.config.mjs'), srcAliasConfig(packagesRoot));
+  // package.json script references a config file the filename convention misses
+  await writeFile(
+    path.join(packagesRoot, 'alpha/package.json'),
+    JSON.stringify({
+      name: '@brainstrike/alpha',
+      scripts: { 'test:custom': 'vitest run --config custom.vitest.mjs' },
+    })
+  );
+  await assert.rejects(
+    findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot }),
+    /references vitest config 'custom\.vitest\.mjs'.*discovery missed/
+  );
+});
+
+test('DISCOVERY: stryker configFile references are cross-checked too', async () => {
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts': "import { thing } from '@brainstrike/beta';\nexport const x = thing;\n",
+  });
+  await writeFile(path.join(packagesRoot, 'alpha/vitest.config.mjs'), srcAliasConfig(packagesRoot));
+  await writeFile(
+    path.join(packagesRoot, 'alpha/stryker.config.js'),
+    "module.exports = { tsconfigFile: 'tsconfig.json', vitest: { configFile: 'vitest.hidden.conf.mjs' } };\n"
+  );
+  await assert.rejects(
+    findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot }),
+    /references vitest config 'vitest\.hidden\.conf\.mjs'.*discovery missed/
+  );
+});

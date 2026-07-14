@@ -45,8 +45,22 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
       {
-        find: '@brainstrike/ui',
+        // Regex-EXACT: a string find would also capture subpaths like
+        // ui/markdown-surface and rewrite them onto index.ts/<sub>
+        // (nonexistent). Subpaths resolve via the registry's exact entries.
+        find: /^@brainstrike\/ui$/,
         replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
+      },
+      // @brainstrike/workers has no src/ dir (worker files at the package root),
+      // so the registry skips it; alias its subpaths explicitly — reached
+      // transitively via file-explorer-hooks/file-explorer-ui src.
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
+      },
+      {
+        find: '@brainstrike/workers/report-generation-worker',
+        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },
       {
         find: '@brainstrike/file-import/browser-queue-port',

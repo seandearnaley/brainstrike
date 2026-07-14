@@ -1,52 +1,15 @@
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
-    alias: [
-      {
-        find: '@brainstrike/types',
-        replacement: resolve(import.meta.dirname, '../types/src/index.ts'),
-      },
-      {
-        find: /^@brainstrike\/utils\/(.*)$/,
-        replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
-      },
-      {
-        find: '@brainstrike/utils',
-        replacement: resolve(import.meta.dirname, '../utils/src'),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-counting-heuristics',
-        replacement: resolve(
-          import.meta.dirname,
-          '../text-splitter/src/token-counting-heuristics.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-constants',
-        replacement: resolve(import.meta.dirname, '../text-splitter/src/token-constants.ts'),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-utils-accurate-lite',
-        replacement: resolve(
-          import.meta.dirname,
-          '../text-splitter/src/token-utils-accurate-lite.ts'
-        ),
-      },
-      {
-        find: /^@brainstrike\/text-splitter$/,
-        replacement: resolve(import.meta.dirname, '../text-splitter/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/hooks',
-        replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/worker-runtime',
-        replacement: resolve(import.meta.dirname, '../worker-runtime/src/index.ts'),
-      },
-    ],
+    // Resolve workspace deps from SOURCE, not built dist — including TRANSITIVE
+    // ones (e.g. @brainstrike/context-actions via hooks src, which the old hand
+    // map missed). Prebuilt worker-bundle exports (token-cache/worker) keep
+    // resolving to dist via exports — the registry never aliases *.worker.
+    // See @brainstrike/test-utils/workspace-src-aliases (#1066/#1207).
+    alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
   },
   test: {
     coverage: {

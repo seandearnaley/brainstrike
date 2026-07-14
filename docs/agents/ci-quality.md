@@ -54,19 +54,25 @@ first-match). `@brainstrike/agent` is excluded (Mastra/Node deps): consumers use
 `createAgentBrowserSafeAliasEntries`. `@brainstrike/workers` has no `src/` dir:
 consumers alias its subpaths explicitly.
 
-The guard EXECUTES every runnable vitest config (base + integration + mutation +
+The guard EXECUTES each discovered vitest config (base + integration + mutation +
 models, and each inline project — projects do NOT inherit top-level
-`resolve.alias`), then per runtime `@brainstrike/*` import specifier simulates
-vitest's first-match alias resolution: the winning entry must point at an
-existing non-dist source path, and an unaliased specifier must not resolve to
-`dist` via the dep's `exports` map. So dist-pin overrides, imported-but-unspread
-registries, per-dependency gaps, and bare mutation configs all FAIL. Because the
-guard imports the configs under plain node ESM, config-relative imports need
-explicit extensions (e.g. `../config/src/vitest-browser.ts`). Legitimate
-built-artifact consumers go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with a reason
-string (NO silent fallback). This is the R3 enabler for dropping
-`test.dependsOn: ["^build"]` — see the Series B turbo-monorepo architecture
-review.
+`resolve.alias`). Discovery is the `vitest.*config*.*` filename convention made
+a CHECKED invariant: every vitest `--config`/`-c` reference in package scripts
+and every stryker `configFile:` must be in the discovered set, else the guard
+throws. Per config/project it closes the runtime `@brainstrike/*` specifier set
+to a FIXPOINT over the src-resolved graph (a specifier that resolves into
+another workspace package's source pulls in that package's non-test specifiers
+— so transitive chains like embeddings → embedding-worker(src) → worker-runtime
+are checked), then simulates vitest's first-match alias resolution: the winning
+entry must point at an existing non-dist source path, and an unaliased
+specifier must not resolve to `dist` via the dep's `exports` map. So dist-pin
+overrides, imported-but-unspread registries, per-dependency gaps, bare mutation
+configs, and transitive src-graph gaps all FAIL. Because the guard imports the
+configs under plain node ESM, config-relative imports need explicit extensions
+(e.g. `../config/src/vitest-browser.ts`). Legitimate built-artifact consumers
+go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with a reason string (NO silent
+fallback). This is the R3 enabler for dropping `test.dependsOn: ["^build"]` —
+see the Series B turbo-monorepo architecture review.
 
 ---
 

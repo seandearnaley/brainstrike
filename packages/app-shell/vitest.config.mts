@@ -185,7 +185,10 @@ export default defineConfig({
         ),
       },
       {
-        find: '@brainstrike/file-import',
+        // Regex-EXACT: a string find would also capture subpaths like
+        // file-import/browser-queue-port and rewrite them onto index.ts/<sub>
+        // (nonexistent). Subpaths resolve via the registry's exact entries.
+        find: /^@brainstrike\/file-import$/,
         replacement: path.resolve(import.meta.dirname, '../file-import/src/index.ts'),
       },
       {
