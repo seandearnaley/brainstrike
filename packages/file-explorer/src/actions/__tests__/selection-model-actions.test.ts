@@ -59,7 +59,7 @@ describe('selection-model-actions', () => {
       actions.setSelectionMode('rules');
 
       expect(mockSet).toHaveBeenCalledWith(expect.any(Function));
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const currentState = createMockState();
       const result = setterFn(currentState);
 
@@ -80,7 +80,7 @@ describe('selection-model-actions', () => {
 
       actions.setSelectionMode('explicit');
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const currentState = mockGet();
       const result = setterFn(currentState);
 
@@ -97,7 +97,7 @@ describe('selection-model-actions', () => {
 
       actions.setSelectionMode('rules');
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(existingState);
 
       expect(result.selectedFilePaths).toEqual(new Set<string>());
@@ -143,7 +143,7 @@ describe('selection-model-actions', () => {
 
       actions.setSelectionMode('explicit');
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(stateWithQuery);
 
       expect(result.selectionModel.mode).toBe('explicit');
@@ -162,7 +162,7 @@ describe('selection-model-actions', () => {
       actions.setSelectionRules(ruleSetJson);
 
       expect(mockSet).toHaveBeenCalledWith(expect.any(Function));
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(createMockState());
 
       expect(result.selectionModel.ruleSetJson).toBe(ruleSetJson);
@@ -185,7 +185,7 @@ describe('selection-model-actions', () => {
 
       actions.setSelectionRules('{"new":"rules"}');
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(stateWithCache);
 
       expect(result.selectionModel.materializedPaths).toBeNull();
@@ -211,7 +211,7 @@ describe('selection-model-actions', () => {
 
       actions.clearSelectionRules();
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(stateWithRules);
 
       expect(result.selectionModel.mode).toBe('explicit');
@@ -238,7 +238,7 @@ describe('selection-model-actions', () => {
 
       actions.clearSelectionRules();
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(stateWithRules);
 
       expect(result.querySelectionManifest).toBeNull();
@@ -350,7 +350,7 @@ describe('selection-model-actions', () => {
       const afterCall = new Date();
 
       expect(mockSet).toHaveBeenCalledWith(expect.any(Function));
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(createMockState());
 
       expect(result.selectionModel.materializedPaths).toEqual(paths);
@@ -421,7 +421,7 @@ describe('selection-model-actions', () => {
 
       actions.setMaterializedPaths(paths);
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(stateWithQuery);
 
       expect(result).toEqual({
@@ -472,7 +472,7 @@ describe('selection-model-actions', () => {
         new Set(['src/index.ts', 'src/utils.ts'])
       );
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       expect(typeof setterFn).toBe('function');
 
       const result = setterFn(state);
@@ -522,7 +522,7 @@ describe('selection-model-actions', () => {
 
       actions.setQuerySelection(createQueryDescriptor(), queryManifest);
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(liveState);
 
       expect(result.selectionVersion).toBe(8);
@@ -568,7 +568,7 @@ describe('selection-model-actions', () => {
 
       actions.setQuerySelectionManifest(currentState.querySelectionManifest);
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(currentState);
 
       expect(result).toEqual({});
@@ -611,7 +611,7 @@ describe('selection-model-actions', () => {
         status: 'ready',
       });
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(currentState);
 
       expect(result.querySelectionManifest?.fingerprint).toBe('fp-new');
@@ -665,7 +665,7 @@ describe('selection-model-actions', () => {
         status: 'ready',
       });
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(currentState);
 
       expect(result).not.toBe(currentState);
@@ -718,7 +718,7 @@ describe('selection-model-actions', () => {
         status: 'ready',
       });
 
-      const setterFn = mockSet.mock.calls[0][0];
+      const setterFn = mockSet.mock.calls[0]?.[0];
       const result = setterFn(currentState);
 
       expect(result).not.toBe(currentState);

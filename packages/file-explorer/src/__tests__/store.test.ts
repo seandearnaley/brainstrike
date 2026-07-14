@@ -1,6 +1,7 @@
 import { createMemoryStorageAdapter, MemoryStorageAdapter } from '@brainstrike/storage';
 import type { StoredRootDescriptor } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StateStorage } from 'zustand/middleware';
 
 beforeEach(() => {
   vi.resetModules();
@@ -18,6 +19,9 @@ describe('useFileExplorerStore without localStorage', () => {
     // Test that the store uses MemoryStorageAdapter when localStorage is not available
     const options = useFileExplorerStore.persist.getOptions();
     expect(options.storage).toBeDefined();
+    // The persist storage is a string-based wrapper at runtime (see
+    // createStorageWrapper); type it as StateStorage to exercise it directly.
+    const storage = options.storage as unknown as StateStorage | undefined;
 
     // Verify that MemoryStorageAdapter is being used via the storage wrapper
 
@@ -26,8 +30,8 @@ describe('useFileExplorerStore without localStorage', () => {
     const testValue = { test: 'data' };
     const serializedValue = JSON.stringify(testValue);
 
-    await options.storage?.setItem(testKey, serializedValue);
-    const retrieved = await options.storage?.getItem(testKey);
+    await storage?.setItem(testKey, serializedValue);
+    const retrieved = await storage?.getItem(testKey);
 
     expect(retrieved).toEqual(serializedValue);
     expect(JSON.parse(retrieved || '{}')).toEqual(testValue);

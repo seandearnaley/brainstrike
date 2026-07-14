@@ -122,7 +122,9 @@ const STORE_KEY = '__brainstrike_file_explorer_store__' as const;
 const STORE_BRAND = '__brainstrike_store_brand__';
 const STORE_VERSION = 1 as const;
 const g = globalThis as unknown as Record<string, unknown>;
-type BoundStore = ReturnType<ReturnType<typeof create<FileExplorerState>>>;
+// Derive from createFileExplorerStore (which applies the persist middleware) so the
+// exported store type carries the persist mutator augmentation (e.g. `.persist`).
+type BoundStore = ReturnType<typeof createFileExplorerStore>;
 function isValidStore(candidate: unknown): candidate is BoundStore & { [k: string]: unknown } {
   if (!candidate || typeof candidate !== 'function') {
     return false;

@@ -16,7 +16,7 @@
  */
 
 import type { StorageAdapter } from '@brainstrike/storage';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Mock logger
@@ -142,7 +142,7 @@ const mockWorkerUrl = new URL('file:///mock-worker-storage.worker.mjs');
 describe('WorkerStorage – coverage boost', () => {
   let originalWorker: typeof Worker | undefined;
   let mockWorker: MockWorker;
-  let MockWorkerConstructorSpy: ReturnType<typeof vi.fn>;
+  let MockWorkerConstructorSpy: Mock<(url: string | URL, ...args: unknown[]) => void>;
   let WorkerStorageClass: typeof import('../worker-storage').WorkerStorage;
 
   beforeEach(async () => {

@@ -1,5 +1,6 @@
 import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StateStorage } from 'zustand/middleware';
 
 const STORE_KEY = '__brainstrike_file_explorer_store__';
 const STORE_BRAND = '__brainstrike_store_brand__';
@@ -22,16 +23,20 @@ describe('store coverage', () => {
   beforeEach(() => {
     vi.resetModules();
     delete (globalThis as Record<string, unknown>)[STORE_KEY];
-    (globalThis as Record<string, unknown>).localStorage = undefined;
+    (globalThis as Record<string, unknown>)['localStorage'] = undefined;
   });
 
   it('uses browser localStorage when it is available', async () => {
     const localStorageMock = createLocalStorageMock();
-    (globalThis as Record<string, unknown>).localStorage = localStorageMock;
+    (globalThis as Record<string, unknown>)['localStorage'] = localStorageMock;
 
     const mod = await import('../store');
     const { useFileExplorerStore } = mod;
-    const storage = useFileExplorerStore.persist.getOptions().storage;
+    // The persist storage is a string-based wrapper at runtime (see
+    // createStorageWrapper); type it as StateStorage to exercise it directly.
+    const storage = useFileExplorerStore.persist.getOptions().storage as unknown as
+      | StateStorage
+      | undefined;
 
     await storage?.setItem('store-key', 'store-value');
     const result = await storage?.getItem('store-key');
