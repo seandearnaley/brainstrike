@@ -56,7 +56,7 @@ const unsubscribe = addQueueTelemetryListener((event) => {
 unsubscribe();
 ```
 
-When running in the browser with `initializeQueueTelemetrySink`, events are POSTed to the telemetry collector (`@brainstrike/queue-telemetry-collector`).
+When running in the browser with `initializeQueueTelemetrySink`, events are batched and POSTed to the `endpoint` supplied in its options.
 
 ## Development
 

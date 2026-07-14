@@ -74,11 +74,6 @@ const OVERRIDES = new Map([
   ['@brainstrike/queue', { branches: 80, functions: 90, lines: 90, statements: 90 }],
   // Preferences package thresholds ratcheted in 2026-03 after settings/store coverage additions.
   ['@brainstrike/preferences', { branches: 63, functions: 70, lines: 82, statements: 76 }],
-  // Queue telemetry collector thresholds ratcheted in 2026-03 after CLI shutdown-path coverage additions.
-  [
-    '@brainstrike/queue-telemetry-collector',
-    { branches: 78, functions: 90, lines: 88, statements: 88 },
-  ],
 ]);
 
 // DB coverage is intentionally split into dedicated test:coverage:db:* lanes
