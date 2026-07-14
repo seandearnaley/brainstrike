@@ -198,6 +198,14 @@ describe('GitPanel', () => {
     expect(screen.getByText('new.ts')).toBeInTheDocument();
   });
 
+  it('reserves forty percent of the workbench for browsing changed files', async () => {
+    installBridge({});
+    render(<GitPanel />);
+
+    const filter = await screen.findByLabelText('Filter changed files');
+    expect(filter.closest('aside')).toHaveClass('w-[40%]');
+  });
+
   it('renders ahead/behind badges from status', async () => {
     installBridge({});
     render(<GitPanel />);

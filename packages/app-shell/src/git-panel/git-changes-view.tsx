@@ -347,7 +347,7 @@ export function GitChangesView({
 
   return (
     <div className="flex min-h-0 flex-1">
-      <aside className="flex w-[36%] min-w-80 max-w-[42rem] shrink-0 flex-col border-border border-r bg-card/15">
+      <aside className="flex w-[40%] min-w-80 max-w-[42rem] shrink-0 flex-col border-border border-r bg-card/15">
         <div className="flex h-11 shrink-0 items-center gap-2 border-border border-b px-2">
           <Checkbox
             aria-label={
