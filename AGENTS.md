@@ -57,7 +57,7 @@ Cross-cutting invariants (full detail + rationale in the docs):
 
 ## CI
 
-- Plain GitHub Actions. No CI labels, no generated proof artifacts, no custom planner/registry — do not reintroduce them. Required PR checks come from `.github/workflows/test.yml`; web + desktop E2E smoke run on every PR; full E2E regression on schedule/dispatch.
+- Plain GitHub Actions. No CI *routing* labels, no generated proof artifacts, no custom planner/registry — do not reintroduce them. (Sole exception: the `coverage` label on-demand-triggers the advisory `coverage.yml`; see `docs/agents/ci-quality.md`.) Required PR checks come from `.github/workflows/test.yml`; web + desktop E2E smoke run on every PR; full E2E regression on schedule/dispatch.
 - React Doctor runs on every PR (`scope: changed` — only NEWLY introduced error-severity issues block). Local: `pnpm doctor`. Its config invariants are pinned in `docs/agents/ci-quality.md`.
 
 # Ultracite Code Standards

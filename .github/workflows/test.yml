@@ -229,89 +229,13 @@ jobs:
           TURBO_TEST_MODE: unit
         run: pnpm turbo run test:integration --concurrency=2
 
-  coverage:
-    name: Coverage
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-test-${{ github.job }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Clear coverage directories
-        run: |
-          find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
-          rm -rf .nyc_output
-
-      # See the Unit job for the rationale. Coverage instrumentation runs
-      # tests so it has the same build-dependency requirement.
-      - name: Build workspace dependencies
-        run: pnpm turbo run build --concurrency=4
-
-      # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
-      # gate is on changed lines, which only live in directly-changed
-      # packages — dependents add no patch-coverage signal. `!./` excludes
-      # the root workspace's `test:coverage` script (which delegates to
-      # `turbo run test:coverage` over every workspace).
-      - name: Run affected-only coverage
-        env:
-          COVERAGE: "true"
-          NODE_ENV: test
-          BASE_REF: ${{ github.base_ref }}
-        # --if-present skips packages that don't define `test:coverage`.
-        # See the Unit step comment above for the rationale.
-        # Explicit --workspace-concurrency=4; same rationale as Unit.
-        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test:coverage
-
-      - name: Prepare coverage workspace
-        id: coverage
-        run: |
-          pnpm coverage:prepare-workspace
-          coverage_files=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
-          echo "coverage_files=${coverage_files}" >> "$GITHUB_OUTPUT"
-          if [ "$coverage_files" -gt 0 ]; then
-            echo "has_coverage=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_coverage=false" >> "$GITHUB_OUTPUT"
-            echo "No affected packages produced coverage; skipping merge and upload."
-          fi
-
-      - name: Generate merged coverage report
-        if: steps.coverage.outputs.has_coverage == 'true'
-        run: |
-          pnpm coverage:merge -- --quiet packages apps
-          pnpm coverage:report
-
-      - name: Upload coverage to Codecov
-        if: steps.coverage.outputs.has_coverage == 'true'
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          flags: pr
-          fail_ci_if_error: false
+  # The `coverage` job MOVED to .github/workflows/coverage.yml. It needs a
+  # `coverage`-label trigger, which would mean subscribing THIS workflow to
+  # the `pull_request` `labeled` action — and this workflow is the sole
+  # producer of every required status check, so every label add would then
+  # report those checks as `skipped` and grey out the merge box (measured on
+  # PR #1664). See the header comment in coverage.yml for the full rationale.
+  # Coverage is advisory; nightly-coverage.yml remains the threshold gate.
 
   build:
     name: Build
