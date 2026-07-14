@@ -159,27 +159,54 @@ jobs:
       # and never share cache entries. --concurrency=4 preserves the prior
       # `--workspace-concurrency=4` parallelism cap.
       #
-      # `test:integration` is run alongside `test`: it is the uncached sibling
-      # (root turbo.jsonc, `cache: false`) that executes the env-sensitive
-      # `*.integration.test.*` lanes packages split out of their cacheable
-      # `test` task. Passing both task names to one `turbo run` shares the
-      # affected-package selection and the build graph; turbo skips either task
-      # for packages that do not define it (no `--if-present` needed).
+      # PHASE SPLIT (two sequential turbo invocations, one named step each).
+      # `test` and `test:integration` previously ran in a SINGLE
+      # `turbo run test test:integration --concurrency=4`. On whole-repo-
+      # selection PRs (any global-file edit) that starved the runner: once the
+      # cacheable `test` lanes fill from cache, all 4 turbo slots end up occupied
+      # exclusively by the heavy UNCACHED lanes — the `test:integration` suites
+      # (embeddings, agent, app-shell, desktop, web, file-import) plus the
+      # whole-task-uncached `db#test` — i.e. 4 concurrent real-PGlite/wall-clock
+      # suites on a small hosted runner (PR #1650 run 29294546967: job-timeout,
+      # then lost-runner, then a 4-lane turbo cancellation cascade). The lanes
+      # are individually sound (local `--concurrency=1` = 128/128 green); this is
+      # the documented PGlite-under-CI-load flake class manifesting through lane
+      # CONCURRENCY, so the fix is at source in CI.
+      #
+      # Phase 1 runs the cacheable `test` lanes (+ the whole-task-uncached
+      # db/secure-fs-native `test` lanes, mostly light or singular) at
+      # --concurrency=4. Phase 2 runs ONLY the uncached env-sensitive
+      # `test:integration` lanes (root turbo.jsonc, `cache: false`) capped at
+      # --concurrency=2 so at most two real-subsystem suites run at once. Two
+      # named steps (not one `&&` step) give clearer failure attribution in the
+      # UI; turbo re-resolves quickly on the second invocation. turbo.jsonc's
+      # `test:integration` has `dependsOn: ["^build"]`, already satisfied by the
+      # build step / phase-1 cache, so phase 2's graph is cheap. turbo skips each
+      # task for packages that do not define it (no `--if-present` needed).
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test test:integration --filter="...[origin/$BASE_REF]" --concurrency=4
+        run: pnpm turbo run test --filter="...[origin/$BASE_REF]" --concurrency=4
+
+      - name: Pull request affected integration tests
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          TURBO_TEST_MODE: unit
+        run: pnpm turbo run test:integration --filter="...[origin/$BASE_REF]" --concurrency=2
 
       # Push (main) + workflow_dispatch: full non-affected suite routed through
       # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
       # workflow `env:` block) covers these runs too, and so push and PR runs
       # share cache entries. TURBO_TEST_MODE=unit (below) keeps the `test` task
       # cache key identical to the PR path and the local `pnpm test` script.
-      # --concurrency=4 matches the PR path and the root `pnpm test` script.
-      # `test:integration` runs alongside `test` here too (the uncached
-      # env-sensitive sibling).
+      # Same PHASE SPLIT as the PR path: phase 1 runs the cacheable `test` lanes
+      # at --concurrency=4 (matches the PR path and the root `pnpm test`
+      # script), phase 2 runs the uncached env-sensitive `test:integration`
+      # lanes capped at --concurrency=2 so at most two real-subsystem suites run
+      # at once. See the PR-path comment above for the starvation rationale.
       #
       # @brainstrike/embeddings is NO LONGER excluded (Series A4, #1629): its
       # env-sensitive files now carry the `*.integration.test.*` suffix and run
@@ -193,7 +220,14 @@ jobs:
         env:
           COVERAGE: "false"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test test:integration --concurrency=4
+        run: pnpm turbo run test --concurrency=4
+
+      - name: Push and manual integration tests
+        if: github.event_name != 'pull_request'
+        env:
+          COVERAGE: "false"
+          TURBO_TEST_MODE: unit
+        run: pnpm turbo run test:integration --concurrency=2
 
   coverage:
     name: Coverage
