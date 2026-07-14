@@ -108,19 +108,18 @@ export function parseWorktreeSummaries(
   return worktrees;
 }
 
-/** Parse NUL-separated `for-each-ref` fields (five fields per local branch). */
+/** Parse NUL-separated `for-each-ref` fields (four fields per local branch). */
 export function parseBranchSummaries(stdout: string): readonly GitBranchSummary[] {
   const fields = stdout.split('\0');
   const branches: GitBranchSummary[] = [];
   let index = 0;
-  while (index + 4 < fields.length) {
+  while (index + 3 < fields.length) {
     const rawName = fields[index] ?? '';
     const name = rawName.replace(/^\n/, '');
     const head = fields[index + 1] ?? '';
     const currentMarker = fields[index + 2] ?? '';
     const upstream = fields[index + 3] ?? '';
-    const worktreePath = fields[index + 4] ?? '';
-    index += 5;
+    index += 4;
 
     if (name.length === 0) {
       throw new Error('git returned a branch with no name');
@@ -133,7 +132,7 @@ export function parseBranchSummaries(stdout: string): readonly GitBranchSummary[
       head,
       name,
       upstream: upstream.length > 0 ? upstream : null,
-      worktreePath: worktreePath.length > 0 ? worktreePath : null,
+      worktreePath: null,
     });
   }
 

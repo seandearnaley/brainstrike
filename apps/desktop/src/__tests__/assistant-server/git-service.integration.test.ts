@@ -426,6 +426,48 @@ describe('git service — git not installed', () => {
 });
 
 describe('git service — stage / unstage round-trip', () => {
+  it('stages and unstages an exact all-whitespace path without widening to the opened root', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'base.txt', 'base\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'base'], { cwd: repo });
+    await writeFile(repo, '   ', 'spaces\n');
+    await writeFile(repo, 'other.txt', 'other\n');
+    const service = serviceFor(repo);
+
+    const staged = await service.stage({ path: '   ' });
+
+    expect(staged.ok).toBe(true);
+    expect(
+      (await execFileAsync('git', ['diff', '--cached', '--name-only', '-z'], { cwd: repo })).stdout
+    ).toBe('   \0');
+
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    const unstaged = await service.unstage({ path: '   ' });
+
+    expect(unstaged.ok).toBe(true);
+    expect(
+      (await execFileAsync('git', ['diff', '--cached', '--name-only', '-z'], { cwd: repo })).stdout
+    ).toBe('other.txt\0');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'preserves a literal backslash in a POSIX filename',
+    async () => {
+      const repo = await makeRepo();
+      await writeFile(repo, 'literal\\name.txt', 'backslash\n');
+      await writeFile(repo, 'other.txt', 'other\n');
+
+      const result = await serviceFor(repo).stage({ path: 'literal\\name.txt' });
+
+      expect(result.ok).toBe(true);
+      expect(
+        (await execFileAsync('git', ['diff', '--cached', '--name-only', '-z'], { cwd: repo }))
+          .stdout
+      ).toBe('literal\\name.txt\0');
+    }
+  );
+
   it('stages then unstages a path', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'init.txt', 'x\n');
@@ -592,7 +634,12 @@ describe('git service — repository browser', () => {
       cwd: repo,
     });
 
-    const result = await serviceFor(repo).repository();
+    const invokedArgs: string[][] = [];
+    const recordingRunner: GitCommandRunner = (params) => {
+      invokedArgs.push([...params.args]);
+      return execFileGitRunner(params);
+    };
+    const result = await createGitService({ cwd: repo, run: recordingRunner }).repository();
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -614,6 +661,7 @@ describe('git service — repository browser', () => {
     );
     expect(result.value.remotes).toEqual([]);
     expect(result.value.defaultRemote).toBeNull();
+    expect(invokedArgs.flat().some((arg) => arg.includes('%(worktreepath)'))).toBe(false);
   });
 
   it('paginates NUL-safe commit history with full metadata', async () => {
@@ -643,6 +691,52 @@ describe('git service — repository browser', () => {
     });
     expect(firstPage.value.commits[0]?.id).toMatch(/^[0-9a-f]{40,64}$/);
     expect(firstPage.value.commits[0]?.authoredAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('includes empty and merge commits and renders first-parent merge details', async () => {
+    const repo = await makeRepo('brainstrike-git-merge-history-');
+    await writeFile(repo, 'base.txt', 'base\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'base'], { cwd: repo });
+    const initialBranch = (
+      await execFileAsync('git', ['branch', '--show-current'], { cwd: repo })
+    ).stdout.trim();
+
+    await execFileAsync('git', ['switch', '-qc', 'feature/history'], { cwd: repo });
+    await writeFile(repo, 'feature.txt', 'feature\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'feature commit'], { cwd: repo });
+
+    await execFileAsync('git', ['switch', '-q', initialBranch], { cwd: repo });
+    await writeFile(repo, 'main.txt', 'main\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'main commit'], { cwd: repo });
+    await execFileAsync('git', ['merge', '--no-ff', '-qm', 'merge feature', 'feature/history'], {
+      cwd: repo,
+    });
+    const mergeId = (
+      await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })
+    ).stdout.trim();
+    await execFileAsync('git', ['commit', '--allow-empty', '-qm', 'empty checkpoint'], {
+      cwd: repo,
+    });
+
+    const service = serviceFor(repo);
+    const history = await service.history({ limit: 20, offset: 0 });
+    const files = await service.commitFiles({ commit: mergeId });
+    const diff = await service.commitDiff({ commit: mergeId, path: 'feature.txt' });
+
+    expect(history.ok).toBe(true);
+    if (history.ok) {
+      expect(history.value.commits.map((commit) => commit.summary)).toEqual(
+        expect.arrayContaining(['empty checkpoint', 'merge feature'])
+      );
+    }
+    expect(files).toEqual({ ok: true, value: [{ path: 'feature.txt', status: 'A' }] });
+    expect(diff.ok).toBe(true);
+    if (diff.ok) {
+      expect(diff.value.unifiedDiff).toContain('+feature');
+    }
   });
 
   it('returns changed files and a bounded historical file diff for a commit', async () => {

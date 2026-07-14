@@ -392,26 +392,29 @@ function scopeStatusPaths(
  * - absolute paths, and
  * - any path that normalizes to an escape (leading `..`).
  *
- * `undefined`/blank → `null` (caller scopes the whole opened root via '.').
+ * `undefined` → `null` (caller scopes the whole opened root via '.'). Explicit
+ * filenames are preserved byte-for-byte; whitespace and backslashes are valid
+ * filename characters on POSIX and must never be coerced into another path.
  */
-function resolveContainedPathArg(rawPath: string | undefined): GitResult<string | null> {
+function resolveContainedPathArg(
+  basePath: string,
+  rawPath: string | undefined
+): GitResult<string | null> {
   if (rawPath === undefined) {
     return { ok: true, value: null };
   }
-  const trimmed = rawPath.trim();
-  if (trimmed.length === 0) {
-    return { ok: true, value: null };
+  if (rawPath.length === 0) {
+    return { error: 'path must be a non-empty string', ok: false };
   }
-  if (path.isAbsolute(trimmed)) {
+  if (path.isAbsolute(rawPath)) {
     return { error: `path "${rawPath}" must be relative to the opened folder`, ok: false };
   }
-  // Normalize with POSIX semantics on a forward-slashed copy so `..` segments
-  // are resolved; any remaining leading `..` means the path escapes the root.
-  const normalized = path.posix.normalize(trimmed.replace(/\\/g, '/'));
-  if (normalized === '..' || normalized.startsWith('../')) {
+  const resolved = path.resolve(basePath, rawPath);
+  const relative = path.relative(basePath, resolved);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     return { error: `path "${rawPath}" escapes the opened folder`, ok: false };
   }
-  return { ok: true, value: normalized };
+  return { ok: true, value: rawPath };
 }
 
 /**
@@ -558,6 +561,67 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return { ok: true, value: commit };
   }
 
+  async function resolveFirstParent(commit: string): Promise<GitResult<string | null>> {
+    const run_ = await invoke(['rev-list', '--parents', '-n', '1', commit]);
+    if (run_.exitCode !== 0) {
+      return { error: describeFailure(run_), ok: false };
+    }
+    const [resolvedCommit, firstParent] = run_.stdout.trim().split(/\s+/);
+    if (resolvedCommit !== commit) {
+      return { error: 'git returned mismatched commit ancestry metadata', ok: false };
+    }
+    if (firstParent === undefined) {
+      return { ok: true, value: null };
+    }
+    if (!/^[0-9a-f]{40,64}$/.test(firstParent)) {
+      return { error: 'git returned an invalid first-parent object id', ok: false };
+    }
+    return { ok: true, value: firstParent };
+  }
+
+  async function resolveCommitDiffArgs(
+    commit: string,
+    paths: readonly string[]
+  ): Promise<GitResult<readonly string[]>> {
+    const firstParent = await resolveFirstParent(commit);
+    if (!firstParent.ok) {
+      return firstParent;
+    }
+    const commonArgs = ['--no-ext-diff', '--no-textconv', '--find-renames'];
+    return firstParent.value
+      ? {
+          ok: true,
+          value: ['diff', ...commonArgs, firstParent.value, commit, '--', ...paths],
+        }
+      : {
+          ok: true,
+          value: ['show', '--format=', ...commonArgs, commit, '--', ...paths],
+        };
+  }
+
+  function resolveCommitDiffPaths(params: {
+    originalPath?: string | undefined;
+    path: string;
+  }): GitResult<readonly string[]> {
+    const pathResult = resolveContainedPathArg(cwd, params.path);
+    if (!(pathResult.ok && pathResult.value)) {
+      return pathResult.ok
+        ? { error: 'historical diff path must be a non-empty string', ok: false }
+        : pathResult;
+    }
+    const originalPathResult = resolveContainedPathArg(cwd, params.originalPath);
+    if (!originalPathResult.ok) {
+      return originalPathResult;
+    }
+    return {
+      ok: true,
+      value:
+        originalPathResult.value && originalPathResult.value !== pathResult.value
+          ? [pathResult.value, originalPathResult.value]
+          : [pathResult.value],
+    };
+  }
+
   async function assertCommitScope(): Promise<GitResult<null>> {
     const [allRun, scopedRun] = await Promise.all([
       invoke(['diff', '--cached', '--name-only', '--no-renames', '-z']),
@@ -699,7 +763,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       invoke([
         'for-each-ref',
         '--sort=-committerdate',
-        '--format=%(refname:short)%00%(objectname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)%00',
+        '--format=%(refname:short)%00%(objectname)%00%(HEAD)%00%(upstream:short)%00',
         'refs/heads',
       ]),
       listRemoteNames(),
@@ -722,7 +786,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     if (!repositoryRoot) {
       return { error: 'git worktree inventory omitted the repository root', ok: false };
     }
-    const branches = parseBranchSummaries(branchRun.stdout);
+    const branches = parseBranchSummaries(branchRun.stdout).map((branch) => ({
+      ...branch,
+      worktreePath: worktrees.find((worktree) => worktree.branch === branch.name)?.path ?? null,
+    }));
     return {
       ok: true,
       value: {
@@ -873,30 +940,15 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!commit.ok) {
           return commit;
         }
-        const pathResult = resolveContainedPathArg(params.path);
-        if (!(pathResult.ok && pathResult.value)) {
-          return pathResult.ok
-            ? { error: 'historical diff path must be a non-empty string', ok: false }
-            : pathResult;
+        const paths = resolveCommitDiffPaths(params);
+        if (!paths.ok) {
+          return paths;
         }
-        const originalPathResult = resolveContainedPathArg(params.originalPath);
-        if (!originalPathResult.ok) {
-          return originalPathResult;
+        const args = await resolveCommitDiffArgs(commit.value, paths.value);
+        if (!args.ok) {
+          return args;
         }
-        const paths = [pathResult.value];
-        if (originalPathResult.value && originalPathResult.value !== pathResult.value) {
-          paths.push(originalPathResult.value);
-        }
-        const run_ = await invoke([
-          'show',
-          '--format=',
-          '--no-ext-diff',
-          '--no-textconv',
-          '--find-renames',
-          commit.value,
-          '--',
-          ...paths,
-        ]);
+        const run_ = await invoke(args.value);
         if (run_.exitCode !== 0 && run_.failureReason !== 'maxBuffer') {
           return { error: describeFailure(run_), ok: false };
         }
@@ -904,7 +956,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         return {
           ok: true,
           value: {
-            path: pathResult.value,
+            path: paths.value[0] ?? null,
             staged: false,
             truncated: bounded.truncated || run_.failureReason === 'maxBuffer',
             unifiedDiff: bounded.text,
@@ -924,16 +976,20 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!commit.ok) {
           return commit;
         }
+        const firstParent = await resolveFirstParent(commit.value);
+        if (!firstParent.ok) {
+          return firstParent;
+        }
         const run_ = await invoke([
           'diff-tree',
-          '--root',
+          ...(firstParent.value ? [] : ['--root']),
           '--no-commit-id',
           '--name-status',
           '-r',
           '-M',
           '--relative',
           '-z',
-          commit.value,
+          ...(firstParent.value ? [firstParent.value, commit.value] : [commit.value]),
           '--',
           '.',
         ]);
@@ -964,7 +1020,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       try {
         const staged = params.staged === true;
         const untracked = params.untracked === true;
-        const pathResult = resolveContainedPathArg(params.path);
+        const pathResult = resolveContainedPathArg(cwd, params.path);
         if (!pathResult.ok) {
           return pathResult;
         }
@@ -1051,6 +1107,11 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           return commit;
         }
         const format = '%H%x00%h%x00%s%x00%b%x00%an%x00%ae%x00%aI%x00%cI%x00%P%x00%D';
+        const prefixRun = await invoke(['rev-parse', '--show-prefix']);
+        if (prefixRun.exitCode !== 0) {
+          return { error: describeFailure(prefixRun), ok: false };
+        }
+        const openedPrefix = prefixRun.stdout.replace(/\r?\n$/, '');
         const run_ = await invoke([
           'log',
           '-z',
@@ -1058,8 +1119,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           `--skip=${params.offset}`,
           `--format=${format}`,
           commit.value,
-          '--',
-          '.',
+          ...(openedPrefix.length > 0 ? ['--', '.'] : []),
         ]);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
@@ -1128,7 +1188,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     /** Stage a path (or all changes within the opened root): `git add`. */
     stage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
       try {
-        const pathResult = resolveContainedPathArg(params.path);
+        const pathResult = resolveContainedPathArg(cwd, params.path);
         if (!pathResult.ok) {
           return pathResult;
         }
@@ -1217,7 +1277,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     /** Unstage a path (or all within the opened root): `git restore --staged`. */
     unstage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
       try {
-        const pathResult = resolveContainedPathArg(params.path);
+        const pathResult = resolveContainedPathArg(cwd, params.path);
         if (!pathResult.ok) {
           return pathResult;
         }
