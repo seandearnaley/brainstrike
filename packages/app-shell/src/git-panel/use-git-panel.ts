@@ -7,7 +7,14 @@ import {
   TRANSIENT_ROOT_RETRY_DELAY_MS,
   TRANSIENT_ROOT_RETRY_LIMIT,
 } from '../roots/transient-root-error';
-import { type GitBridge, type GitRepository, type GitStatus, resolveGitBridge } from './git-bridge';
+import {
+  type GitBridge,
+  type GitCommitFile,
+  type GitHistoryPage,
+  type GitRepository,
+  type GitStatus,
+  resolveGitBridge,
+} from './git-bridge';
 
 const logger = createLogger('GitPanel');
 
@@ -20,25 +27,37 @@ export interface UseGitPanelResult {
   /** Durable rootId of the focused workspace root, or null if none is open. */
   readonly activeRootId: string | null;
   readonly commit: (summary: string, description?: string) => Promise<boolean>;
+  readonly fetchRemote: (remote: string) => Promise<void>;
   /** True while a status fetch is in flight. */
   readonly isLoading: boolean;
   /** True while a push or pull network op is running. */
   readonly isSyncing: boolean;
+  readonly loadCommitDiff: (
+    commit: string,
+    path: string,
+    originalPath?: string
+  ) => Promise<LoadedDiff | null>;
+  readonly loadCommitFiles: (commit: string) => Promise<readonly GitCommitFile[] | null>;
   /** Loads a diff for a file, or null on error (error already toasted). */
   readonly loadDiff: (
     path: string,
     options: { staged: boolean; untracked: boolean }
   ) => Promise<LoadedDiff | null>;
+  readonly loadHistory: (ref?: string) => Promise<GitHistoryPage | null>;
   readonly pull: () => Promise<void>;
   readonly push: (remote?: string) => Promise<void>;
   readonly refresh: () => void;
+  /** Repository identity, branches, remotes, and worktrees for the active root. */
   readonly repository: GitRepository | null;
   readonly repositoryError: string | null;
+  readonly stageAll: () => Promise<void>;
   readonly stageFile: (path: string) => Promise<void>;
   /** Parsed status for the active root; null until first load / when no root. */
   readonly status: GitStatus | null;
   /** A non-recoverable status-load error (e.g. bridge failure), else null. */
   readonly statusError: string | null;
+  readonly switchBranch: (branch: string) => Promise<void>;
+  readonly unstageAll: () => Promise<void>;
   readonly unstageFile: (path: string) => Promise<void>;
 }
 
@@ -282,12 +301,20 @@ export function useGitPanel(): UseGitPanelResult {
     [runMutation]
   );
 
+  const stageAll = useCallback(async (): Promise<void> => {
+    await runMutation('Stage all', (b, rootId) => b.stage(rootId));
+  }, [runMutation]);
+
   const unstageFile = useCallback(
     async (path: string): Promise<void> => {
       await runMutation('Unstage', (b, rootId) => b.unstage(rootId, { path }));
     },
     [runMutation]
   );
+
+  const unstageAll = useCallback(async (): Promise<void> => {
+    await runMutation('Unstage all', (b, rootId) => b.unstage(rootId));
+  }, [runMutation]);
 
   const commit = useCallback(
     async (summary: string, description?: string): Promise<boolean> => {
@@ -337,6 +364,39 @@ export function useGitPanel(): UseGitPanelResult {
     },
     [bridge, activeRootId, runMutation, toast]
   );
+  const fetchRemote = useCallback(
+    async (remote: string): Promise<void> => {
+      if (!(bridge && activeRootId)) {
+        return;
+      }
+      setIsSyncing(true);
+      try {
+        await runMutation('Fetch', async (b, rootId) => {
+          const result = await b.fetch(rootId, { remote });
+          if (result.ok) {
+            toast({ description: result.value.output || 'Up to date.', title: 'Fetched' });
+          }
+          return result;
+        });
+      } finally {
+        setIsSyncing(false);
+      }
+    },
+    [bridge, activeRootId, runMutation, toast]
+  );
+
+  const switchBranch = useCallback(
+    async (branch: string): Promise<void> => {
+      await runMutation('Switch branch', async (b, rootId) => {
+        const result = await b.switchBranch(rootId, { branch });
+        if (result.ok) {
+          toast({ description: result.value.branch, title: 'Branch switched' });
+        }
+        return result;
+      });
+    },
+    [runMutation, toast]
+  );
 
   const pull = useCallback(async (): Promise<void> => {
     if (!(bridge && activeRootId)) {
@@ -385,20 +445,105 @@ export function useGitPanel(): UseGitPanelResult {
     [bridge, activeRootId, toast]
   );
 
+  const loadHistory = useCallback(
+    async (ref?: string): Promise<GitHistoryPage | null> => {
+      if (!(bridge && activeRootId)) {
+        return null;
+      }
+      try {
+        const result = await bridge.history(activeRootId, {
+          limit: 100,
+          offset: 0,
+          ...(ref ? { ref } : {}),
+        });
+        if (result.ok) {
+          return result.value;
+        }
+        logger.error('git history failed', { error: result.error, ref });
+        toast({ description: result.error, title: 'History failed', variant: 'destructive' });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('git history threw', { error: message, ref });
+        toast({ description: message, title: 'History failed', variant: 'destructive' });
+      }
+      return null;
+    },
+    [bridge, activeRootId, toast]
+  );
+
+  const loadCommitFiles = useCallback(
+    async (commitId: string): Promise<readonly GitCommitFile[] | null> => {
+      if (!(bridge && activeRootId)) {
+        return null;
+      }
+      try {
+        const result = await bridge.commitFiles(activeRootId, { commit: commitId });
+        if (result.ok) {
+          return result.value;
+        }
+        logger.error('git commit files failed', { commit: commitId, error: result.error });
+        toast({
+          description: result.error,
+          title: 'Commit files failed',
+          variant: 'destructive',
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('git commit files threw', { commit: commitId, error: message });
+        toast({ description: message, title: 'Commit files failed', variant: 'destructive' });
+      }
+      return null;
+    },
+    [bridge, activeRootId, toast]
+  );
+
+  const loadCommitDiff = useCallback(
+    async (commitId: string, path: string, originalPath?: string): Promise<LoadedDiff | null> => {
+      if (!(bridge && activeRootId)) {
+        return null;
+      }
+      try {
+        const result = await bridge.commitDiff(activeRootId, {
+          commit: commitId,
+          ...(originalPath ? { originalPath } : {}),
+          path,
+        });
+        if (result.ok) {
+          return { truncated: result.value.truncated, unifiedDiff: result.value.unifiedDiff };
+        }
+        logger.error('git commit diff failed', { commit: commitId, error: result.error, path });
+        toast({ description: result.error, title: 'Commit diff failed', variant: 'destructive' });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('git commit diff threw', { commit: commitId, error: message, path });
+        toast({ description: message, title: 'Commit diff failed', variant: 'destructive' });
+      }
+      return null;
+    },
+    [bridge, activeRootId, toast]
+  );
+
   return {
     activeRootId,
     commit,
+    fetchRemote,
     isLoading,
     isSyncing,
+    loadCommitDiff,
+    loadCommitFiles,
     loadDiff,
+    loadHistory,
     pull,
     push,
     refresh,
     repository,
     repositoryError,
+    stageAll,
     stageFile,
     status,
     statusError,
+    switchBranch,
+    unstageAll,
     unstageFile,
   };
 }
