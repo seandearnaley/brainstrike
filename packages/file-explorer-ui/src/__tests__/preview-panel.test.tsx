@@ -627,7 +627,12 @@ describe('PreviewPanel', () => {
         const bulkActionBar = screen.getByTestId('bulk-action-bar');
         expect(within(bulkActionBar).getByText('1 file selected')).toBeInTheDocument();
       });
-      expect(screen.getByTestId('selection-action-overlay')).toBeInTheDocument();
+      expect(screen.getByTestId('selection-action-overlay')).toHaveClass(
+        'flex',
+        'justify-center',
+        'px-3'
+      );
+      expect(screen.getByTestId('bulk-action-bar')).toHaveClass('w-full', 'max-w-3xl');
 
       // Click remove button
       const removeButton = screen.getByText('Remove Selected from Project');

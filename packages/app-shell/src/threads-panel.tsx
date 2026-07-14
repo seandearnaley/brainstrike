@@ -140,6 +140,8 @@ function getThreadColorId(thread: AssistantMemoryThread): AssistantThreadColorId
 
 const UNASSIGNED_THREAD_COLOR_CONFIG = {
   accentClassName: 'bg-transparent',
+  idleClassName:
+    'bg-background/70 ring-border/50 hover:bg-muted/80 hover:ring-border dark:bg-background/45',
   label: 'Unassigned',
   markClassName:
     'border-border bg-muted/70 text-muted-foreground dark:border-border dark:bg-muted/45 dark:text-muted-foreground',
@@ -579,9 +581,7 @@ function ThreadRowItem({
   return (
     <div
       className={`relative w-full overflow-hidden rounded-md px-2 py-1 text-left ring-1 ring-inset transition-[background-color,box-shadow] motion-reduce:transition-none ${
-        isSelected
-          ? colorConfig.selectedClassName
-          : 'bg-transparent ring-transparent hover:bg-accent/35 hover:ring-border/60'
+        isSelected ? colorConfig.selectedClassName : colorConfig.idleClassName
       }`}
       data-testid="thread-row"
     >
@@ -1579,6 +1579,41 @@ function buildThreadPanelTreeNodes(
   }));
 }
 
+interface ThreadGroupFrameEdges {
+  readonly endsFrame: boolean;
+  readonly startsFrame: boolean;
+}
+
+function getThreadPanelRowGroupId(row: ThreadPanelVisibleRow): string | null {
+  if (row.kind === 'group') {
+    return row.group?.id ?? null;
+  }
+  return row.groupId;
+}
+
+function buildThreadGroupFrameEdges(
+  rows: readonly ThreadPanelVisibleRow[]
+): ReadonlyMap<string, ThreadGroupFrameEdges> {
+  const edgesByRowId = new Map<string, ThreadGroupFrameEdges>();
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (!row) {
+      continue;
+    }
+    const groupId = getThreadPanelRowGroupId(row);
+    if (groupId === null) {
+      continue;
+    }
+    const previousRow = rows[index - 1];
+    const nextRow = rows[index + 1];
+    edgesByRowId.set(row.id, {
+      endsFrame: !nextRow || getThreadPanelRowGroupId(nextRow) !== groupId,
+      startsFrame: !previousRow || getThreadPanelRowGroupId(previousRow) !== groupId,
+    });
+  }
+  return edgesByRowId;
+}
+
 function getGroupMemberIds(view: ThreadListView, groupId: string | null): readonly string[] {
   if (view.kind === 'flat') {
     return [];
@@ -1940,7 +1975,7 @@ function ThreadBulkSelectionOverlay({
               ]
         }
         ariaLabel="Thread selection actions"
-        className="pointer-events-auto order-last"
+        className="pointer-events-auto order-last w-full"
         compact
         onClear={controller.onClear}
         summary={
@@ -2012,7 +2047,7 @@ function ThreadPanelTree({
     [visibleRows.rows]
   );
   const selectableThreadIds = useMemo(() => new Set(threads.map((thread) => thread.id)), [threads]);
-  const groupRailClassById = useMemo(
+  const groupPresentationById = useMemo(
     () =>
       new Map(
         view.kind === 'grouped'
@@ -2021,7 +2056,7 @@ function ThreadPanelTree({
                 ? [
                     [
                       section.group.id,
-                      `border-l-2 ${ASSISTANT_THREAD_COLOR_PRESENTATION[section.group.color].railClassName}`,
+                      ASSISTANT_THREAD_COLOR_PRESENTATION[section.group.color],
                     ] as const,
                   ]
                 : []
@@ -2029,6 +2064,10 @@ function ThreadPanelTree({
           : []
       ),
     [view]
+  );
+  const groupFrameEdgesByRowId = useMemo(
+    () => buildThreadGroupFrameEdges(visibleRows.rows),
+    [visibleRows.rows]
   );
   const selectedAvailableThreadIds = useMemo(
     () => new Set([...selectedThreadIds].filter((threadId) => selectableThreadIds.has(threadId))),
@@ -2196,6 +2235,7 @@ function ThreadPanelTree({
           }
           return 'hidden';
         }}
+        maxHeight="none"
         multiSelectedIds={new Set(selectedAvailableThreadIds)}
         nodes={nodes}
         nodesArePreFlattened
@@ -2225,15 +2265,19 @@ function ThreadPanelTree({
         }}
         rowClassName={(node) => {
           const row = node.data;
-          const groupId = row.kind === 'group' ? (row.group?.id ?? null) : row.groupId;
-          const railClassName = groupId === null ? '' : (groupRailClassById.get(groupId) ?? '');
-          if (node.data.kind === 'thread') {
-            return `group/thread-tree-row border-0 bg-transparent hover:bg-transparent ${railClassName}`;
+          const groupId = getThreadPanelRowGroupId(row);
+          const presentation = groupId === null ? undefined : groupPresentationById.get(groupId);
+          const frameEdges = groupFrameEdgesByRowId.get(row.id);
+          const frameClassName = presentation
+            ? `${presentation.railClassName} ${frameEdges?.startsFrame ? presentation.railStartClassName : ''} ${frameEdges?.endsFrame ? presentation.railEndClassName : ''}`
+            : '';
+          if (row.kind === 'thread') {
+            return `group/thread-tree-row border-0 ${frameClassName || 'bg-transparent hover:bg-transparent'}`;
           }
-          if (node.data.kind === 'group' && node.data.group === null) {
+          if (row.kind === 'group' && row.group === null) {
             return 'border-0 bg-muted/20 hover:bg-muted/35';
           }
-          return `border-0 bg-muted/20 hover:bg-muted/35 ${railClassName}`;
+          return `border-0 ${frameClassName || 'bg-muted/20 hover:bg-muted/35'}`;
         }}
         rowHeight={() => 40}
         selectionMode="multi"
@@ -2646,7 +2690,7 @@ export function ThreadsPanel(): ReactElement {
   return (
     <section
       aria-label="Threads"
-      className="@container/threads flex min-h-0 flex-col overflow-hidden border-border border-b bg-muted/20"
+      className="@container/threads flex h-full min-h-0 flex-col overflow-hidden border-border border-b bg-muted/20"
       data-testid="threads-panel"
     >
       <div className="flex items-center justify-between gap-2 px-3 py-2.5">

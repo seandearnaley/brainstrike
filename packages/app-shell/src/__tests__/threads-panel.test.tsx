@@ -343,6 +343,7 @@ describe('ThreadsPanel', () => {
 
     const viewport = treegrid.parentElement;
     expect(viewport).toHaveClass('overflow-auto');
+    expect(viewport).toHaveStyle({ maxHeight: 'none' });
     expect(screen.getAllByTestId('thread-row')[0]?.closest('tr')).toHaveClass(
       'group/thread-tree-row'
     );
@@ -351,7 +352,15 @@ describe('ThreadsPanel', () => {
       'group-data-[focused=true]/thread-tree-row:outline-2'
     );
     expect(viewport?.parentElement?.parentElement).not.toHaveClass('overflow-y-auto');
-    expect(screen.getByTestId('threads-panel')).toHaveClass('@container/threads');
+    expect(screen.getByTestId('threads-panel')).toHaveClass('@container/threads', 'h-full');
+
+    const idleThread = screen.getByText('First thread').closest('[data-testid="thread-row"]');
+    expect(idleThread).toHaveClass(
+      'bg-emerald-50/50',
+      'ring-emerald-200/70',
+      'hover:bg-emerald-50/80'
+    );
+    expect(idleThread).not.toHaveClass('bg-transparent', 'hover:bg-accent/35');
   });
 
   it('mounts only the virtual window for a large disclosed collection', async () => {
@@ -449,6 +458,7 @@ describe('ThreadsPanel', () => {
     expect(overlay).toHaveClass('bottom-3');
     expect(overlay).not.toHaveClass('top-12');
     expect(toolbar.parentElement).toBe(overlay);
+    expect(toolbar).toHaveClass('w-full');
     expect(screen.getByRole('treegrid', { name: 'Workspace threads' }).parentElement).toHaveClass(
       'pb-20'
     );
@@ -1034,6 +1044,7 @@ describe('ThreadsPanel groups', () => {
 
   it('assigns group icon and color through the durable store and colors its housing rail', async () => {
     seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-a', 'group-research', 'a0');
 
     renderThreadsPanel();
 
@@ -1065,7 +1076,22 @@ describe('ThreadsPanel groups', () => {
     await waitFor(() => {
       expect(screen.getByTestId('thread-group-color-rose')).toBeVisible();
     });
-    expect(screen.getByText('Research').closest('tr')).toHaveClass('border-l-rose-500');
+    const groupHeaderRow = screen.getByText('Research').closest('tr');
+    const groupedThreadRow = screen.getByText('First thread').closest('tr');
+    expect(groupHeaderRow).toHaveClass(
+      'border-l-4',
+      'border-l-rose-500',
+      'bg-rose-50/25',
+      '[&>td:first-child]:border-t-2',
+      '[&>td:first-child]:shadow-[inset_44px_0_0_rgb(244_63_94_/_0.14)]'
+    );
+    expect(groupedThreadRow).toHaveClass(
+      'border-l-4',
+      'border-l-rose-500',
+      'bg-rose-50/25',
+      '[&>td:first-child]:border-b-2',
+      '[&>td:first-child]:shadow-[inset_44px_0_0_rgb(244_63_94_/_0.14)]'
+    );
     expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET color'), [
       'group-research',
       'rose',

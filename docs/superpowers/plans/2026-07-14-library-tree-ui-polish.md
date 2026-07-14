@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-14
 **Branch:** `codex/library-tree-polish-20260714`
-**Base:** `origin/main` at `c0e0fe75c60e19e70d0b2807c507efc67efe9d46`
+**Base:** rebased onto `origin/main` at `1989dc83643c860a8bc1e8ebd1506ba2a98128fd`
 
 ## Product outcome
 
@@ -18,8 +18,10 @@ The direction is restrained desktop utility: compact, aligned, low-chrome, and b
 4. **Customization is transient overlay UI.** Thread icon/color and folder color choices live in collision-aware Radix popovers. Opening customization does not change virtual row height or move adjacent controls.
 5. **Secondary actions are consolidated.** Keep the disclosure control visible and put customize, rename, and delete into one consistent overflow surface at every panel width.
 6. **Selection actions share one bottom overlay.** Library and Context Explorer use the shared selection overlay and reserve bottom scroll padding so selection never moves the tree.
-7. **Group identity is durable and symmetric.** Group icon and color live beside group rank in Brainstrike's local presentation table; the color also paints a continuous rail across the group header and members.
+7. **Group identity is durable and symmetric.** Group icon and color live beside group rank in Brainstrike's local presentation table; the color paints a continuous framed chassis across the group header and members, including the control gutter left of each checkbox.
 8. **Expandable rows preserve the first-line anchor.** Thread and group rows share the compact 40px primary-line estimate, while tree controls pin to that line when deliberate details expand below it.
+9. **Color remains layered rather than flattened.** A group color owns the outer frame, while each non-selected thread keeps a lighter tint from its own durable color. Active Library tabs use a restrained primary tint instead of returning to an uncolored white tile.
+10. **Bottom docks own real panel geometry.** Library fills its tab content and removes TreeTable's browse-height cap; both Library and Context Explorer give compact selection toolbars a stable full available width so container queries do not collapse their content.
 
 ## Red/green slices
 
@@ -28,6 +30,7 @@ The direction is restrained desktop utility: compact, aligned, low-chrome, and b
 3. Add failing Library tests proving thread and folder customization render in popovers and no longer expand rows inline.
 4. Implement the minimum shared focus and Library layout/action changes, then refactor repeated popover choice UI without changing persistence behavior.
 5. Add failing follow-up coverage for bottom overlay placement, pinned tree controls, portal click isolation, group icon persistence, and the group color rail; implement migration 059 and the shared overlay only after those failures are confirmed.
+6. Add failing visual-contract coverage for the colored group chassis, thread idle tints, active Library tab tint, full-height Library scroll owner, and stable Context Explorer action-bar width; implement only after confirming each failure.
 
 ## Verification
 

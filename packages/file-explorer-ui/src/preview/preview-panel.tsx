@@ -1061,13 +1061,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             )}
 
             {previewSelections.size > 0 && (
-              <SelectionActionBarOverlay className="flex justify-center px-4">
+              <SelectionActionBarOverlay className="flex justify-center px-3">
                 <output aria-atomic="true" aria-live="polite" className="sr-only">
                   {contextSelectionSummaryText}
                 </output>
                 <BulkActionBar
                   actions={contextSelectionActions}
-                  className="pointer-events-auto"
+                  className="pointer-events-auto w-full max-w-3xl"
                   clearButtonAriaLabel="Clear context selection"
                   clearButtonLabel="Clear Selection"
                   compact

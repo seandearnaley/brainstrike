@@ -45,7 +45,14 @@ Windowing and performance:
   `SelectionActionBarOverlay` + `SelectionActionBar`. Keep the scroll owner
   padded at the bottom while the overlay is present; never insert the toolbar in
   normal flow or compensate with top padding, because selection must not shift
-  the tree.
+  the tree. The overlay's positioned ancestor must own the full available panel
+  height, and compact toolbars must receive an explicit available width; an
+  intrinsic-width compact toolbar creates a container-query feedback loop that
+  collapses its labels and spacing.
+- A colored tree group may use a continuous gutter/frame across its disclosed
+  rows, but thread identity remains independently colorable inside that frame.
+  Compute frame start/end from the visible row model so collapsed, empty, and
+  disclosure-limited groups still close their visual boundary correctly.
 
 When modifying TreeTable strategy or pagination behavior:
 - Update the related collection browser/file explorer/context preview adapters.
