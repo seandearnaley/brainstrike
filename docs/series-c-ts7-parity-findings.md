@@ -9,19 +9,24 @@ guard for future TS bumps), are the entire deliverable.
 ## TL;DR
 
 - TS 7.0.2 is real, GA (published 2026-07-08), installable, and — for the
-  ~67 `--noEmit` invocations this repo's `type-check` scripts make — **3
+  67 `--noEmit` invocations this repo's `type-check` scripts make — **3
   diagnostics differ** across 2 independent root causes. Per the task's
   stop condition ("on ANY difference: STOP"), that is a parity failure.
-- Independently, simply installing TS7 anywhere in the workspace's dependency
-  graph (even under an aliased `devDependency` name) silently hijacks
-  `node_modules/.bin/tsc` repo-wide — including for `tsc -b` **build** steps,
-  not just type-check — because pnpm/npm bin-linking keys off the literal
-  `"bin"` object key ("tsc"), not the dependency alias. This is a second,
-  independent reason a naive adoption would have been unsafe even if
-  diagnostics had matched.
+- Both divergences were probed with reverted scratch fixes rather than
+  eyeballed. One is cheap (~6 lines, clean under both compilers). The other —
+  `moduleResolution: node10`, removed in TS7 — needs a **full CJS→ESM migration
+  of the Electron main process (88 errors under BOTH compilers)**. That is the
+  real blocker, it is a project of its own, and its risk exceeds the prize.
+- Independently, installing TS7 under an aliased root `devDependency` name
+  silently takes over the **root** `node_modules/.bin/tsc`, because bin-linking
+  keys off the literal `"bin"` object key (`"tsc"`), not the dependency alias.
+  Per-package `.bin/tsc` is NOT affected. Scope and the measurements behind it
+  are in "The root `.bin/tsc` collision" below — including a correction to an
+  earlier, wider claim.
 - `typescript@^6.0.3` stays resolved for every `import ... from 'typescript'`
-  consumer; this was verified for real (not assumed) — see "TS-API consumer
-  verification" below.
+  consumer. There are **8** such consumers, not the 6 named in the task brief;
+  the brief's list was a starting point, not a census. See "TS-API consumer
+  verification" for the grep that derives it.
 
 ## Step 1 — Discovery: the exact TS7 package
 
@@ -74,45 +79,90 @@ maintainer accounts as `6.0.3`, from `github.com/microsoft/TypeScript` — no
 red flags, but it is worth noting the version is only 6 days old as of this
 writing.
 
-## A second, independent blocker: the `.bin/tsc` collision
+## A second, independent hazard: the root `.bin/tsc` collision
 
-Before running any diagnostics, this repo's wiring plan (add TS7 as a root
-`devDependency` alias, e.g. `"typescript-native": "npm:typescript@7.0.2"`) was
-tested directly. Adding that alias and running `pnpm install` produced:
+> **Correction.** An earlier revision of this document claimed this collision
+> reached *every leaf package's* `.bin/tsc`, and that `packages/utils`'s
+> `tsc -b` build would silently run under TS7. **That was wrong**, and the
+> claim is retracted. It came from a probe that ran
+> `cd packages/utils && ../../node_modules/.bin/tsc --version` — which is the
+> **root** bin, not the leaf's — mislabeled as the leaf's resolution. The
+> measurements below are the corrected, re-run result. The hazard is real but
+> **scoped to the root bin only**.
+
+The wiring the task brief suggested (add TS7 as a root `devDependency` alias,
+`"typescript-native": "npm:typescript@7.0.2"`) was tested live, then reverted.
+After `rm -rf node_modules packages/*/node_modules apps/*/node_modules` and a
+**fully clean** `pnpm install` with the alias present (i.e. the CI case, not an
+incremental install):
 
 ```
-$ node_modules/.bin/tsc --version        # root — expected 6.0.3
-Version 7.0.2
-$ packages/utils/node_modules/.bin/tsc --version   # a LEAF package — expected 6.0.3
-Version 7.0.2
+$ node_modules/.bin/tsc --version                    # ROOT — expected 6.0.3
+Version 7.0.2                                        # ← taken over
+
+$ packages/utils/node_modules/.bin/tsc --version     # LEAF
+Version 6.0.3                                        # ← unaffected
+
+$ cd packages/utils && pnpm exec tsc --version       # what utils' scripts resolve
+Version 6.0.3                                        # ← unaffected
 ```
 
-Both the root `.bin/tsc` **and every leaf package's own `.bin/tsc`** silently
-flipped to the unverified TS7 binary, including for packages whose own
-`package.json` still pins `"typescript": "^6.0.3"` as a direct dependency.
-`packages/utils`'s `"build": "pnpm run clean && tsc -b . && tsup"` would have
-started running its **declaration-emitting build** (not just type-check)
-through TS7, silently, with zero code change to that package.
+Shim targets confirm this is resolution, not staleness — both shims were
+rewritten by that install (mtimes one second apart), and each names its
+`.pnpm` store path explicitly:
 
-Root cause: npm/pnpm bin-linking keys off the literal `bin` object key
-(`"tsc"`) declared in the dependency's own `package.json`, not the alias name
-used to install it. `typescript@7.0.2` declares `"bin": {"tsc": "bin/tsc"}`
-same as `6.0.3` — aliasing the *dependency name* does not rename the *linked
-executable*, so any package resolving `typescript` anywhere in the graph
-non-deterministically loses its `tsc` binary to whichever install happens to
-win the link. This was reverted immediately
-(`git status`/`git diff` confirmed clean before any further work), and the
-parity script below never touches `node_modules/.bin` for the TS7 side — it
-takes an explicit `--ts7-bin=<path>` argument instead, so it can never
-silently pick up a wrong binary.
+```
+$ grep -o "\.pnpm/typescript@[0-9.]*" node_modules/.bin/tsc
+.pnpm/typescript@7.0.2
+$ grep -o "\.pnpm/typescript@[0-9.]*" packages/utils/node_modules/.bin/tsc
+.pnpm/typescript@6.0.3
+```
 
-Had diagnostics matched, this collision would still have needed a dedicated
-fix before Step 4 could safely proceed — e.g. depending directly on the
-bin-less platform packages (`@typescript/typescript-<os>-<arch>`, confirmed to
-ship no `"bin"` field, only a raw `lib/tsc` native executable) plus a small
-platform-detection wrapper script that never touches `node_modules/.bin`.
-That wiring was not built because Step 3 below already fails parity, making it
-moot for this PR.
+**Mechanism (one mechanism, not two).** Bin-linking keys off the literal `bin`
+object key declared in the dependency's own `package.json`, not the alias used
+to install it: `typescript@7.0.2` declares `"bin": {"tsc": "bin/tsc"}`, same
+key as `6.0.3`, so `npm:typescript@7.0.2` under any alias still links an
+executable named `tsc`. That resolves the ROOT `.bin`, which is populated from
+the ROOT `package.json`'s dependencies. It does **not** propagate to leaf
+packages: pnpm populates each package's `node_modules/.bin` from *that
+package's own* dependency set, and `packages/utils` declares
+`"typescript": "^6.0.3"` directly, so its shim resolves 6.0.3.
+
+There is **no root-bin-to-leaf hoisting** in this repo's pnpm configuration —
+tested directly, and worth recording because it is a tempting explanation:
+root-only devDeps do not appear in leaf `.bin` directories.
+
+```
+$ ls packages/utils/node_modules/.bin/
+esbuild  jiti  pino  playwright  stryker  terser  tsc  tsserver
+tsup  tsup-node  tsx  vite  vitest  yaml
+```
+
+Every entry traces to a dependency `packages/utils` itself declares (or their
+transitive deps — `tsup`→`esbuild`, `vitest`→`vite`). The root-only devDeps
+`@biomejs/biome`, `lefthook`, `ultracite`, and `turbo` are **absent**, though
+all four are root `devDependencies`. Any reasoning that assumes root tool bins
+reach leaf `.bin` directories in this repo is unsound.
+
+**Residual blast radius (real, but narrow).** The root `.bin/tsc` flip matters
+for anything invoking `tsc` from the repo root — `pnpm exec tsc`, `npx tsc`, or
+any script referencing `node_modules/.bin/tsc` by path. This repo's root
+`package.json` declares no bare `tsc` script, and every per-package
+`type-check`/`build` script resolves its own leaf bin, so the practical
+production impact is small. But it is exactly the default `--ts6-bin` of the
+parity guard in this PR — meaning a future run in a tree with TS7 installed
+would have compared TS7 against TS7 and reported parity for all 67 projects.
+`scripts/ts7-parity-check.mjs` therefore asserts each side's actual major
+version via `tsc --version` before comparing anything, and throws on mismatch;
+the TS7 side is never resolved through `node_modules/.bin` at all (it requires
+an explicit `--ts7-bin=<path>`).
+
+Had diagnostics matched, this would still have needed a deliberate wiring
+decision before Step 4 — e.g. depending directly on the bin-less platform
+packages (`@typescript/typescript-<os>-<arch>`, confirmed to ship no `"bin"`
+field, only a raw `lib/tsc` Mach-O/ELF executable) plus a platform-detection
+wrapper that never touches `node_modules/.bin`. That wiring was not built
+because Step 3 fails parity, making it moot for this PR.
 
 ## Step 2/3 — Parity script and real results
 
@@ -181,10 +231,16 @@ exactly `apps/desktop/tsconfig.main.json`), so the blast radius is narrow, but
 it is a genuine "structurally identical semantics" violation: the same config
 that type-checks clean under 6.x fails to even start under 7.x.
 
-### Divergence 2 — `TS2430`: TS7's bundled DOM lib conflicts with a hand-rolled WebGPU shim
+### Divergence 2 — `TS2430`: a diagnostic-**attribution** change that defeats `skipLibCheck`
 
-`packages/embeddings/src/device-detection.ts` declares minimal local WebGPU
-types and augments the global `Navigator` interface:
+> **Correction.** An earlier revision attributed this to "lib-version drift —
+> TS7 bundles an updated DOM lib, TS6's predates it." **That was wrong.** The
+> two bundled `lib.dom.d.ts` files are *byte-identical*
+> (`diff -q` reports no difference; `Navigator extends ... NavigatorGPU ...` is
+> at line 25780 and `readonly gpu: GPU` at 25951 in **both**). The real cause is
+> more interesting, and is established by isolated repro below.
+
+`packages/embeddings/src/device-detection.ts` augments the global `Navigator`:
 
 ```ts
 interface Gpu {
@@ -192,20 +248,99 @@ interface Gpu {
 }
 declare global {
   interface Navigator {
-    gpu?: Gpu;   // line 44 — this is what TS7 flags
+    gpu?: Gpu;   // line 44 — optional, and narrower than lib.dom's `readonly gpu: GPU`
   }
 }
 ```
 
-TS7 raw output: `error TS2430: Interface 'Navigator' incorrectly extends
-interface 'Navigator'` (self-referential — i.e. the augmentation's shape no
-longer matches the *ambient* `Navigator.gpu` typing TS7 ships in its bundled
-`lib.dom.d.ts`). TS7 evidently bundles an updated DOM lib snapshot with a real
-(and incompatible) `Navigator.gpu` typing, where TS6's bundled lib predates
-that addition and left `Navigator.gpu` for userland to define. This is a
-**lib-version drift** side effect of the major bump, independent of the
-native-vs-JS engine change, and it affects both `packages/embeddings`
-`tsconfig.json` and `tsconfig.test.json` (same file, both projects include it).
+TS7 raw output (unelided — the earlier revision quoted this wrong too; it names
+`NavigatorGPU`, not a self-referential `Navigator`):
+
+```
+src/device-detection.ts(44,13): error TS2430: Interface 'Navigator' incorrectly extends interface 'NavigatorGPU'.
+  Types of property 'gpu' are incompatible.
+    Type 'Gpu' is missing the following properties from type 'GPU': wgslLanguageFeatures, getPreferredCanvasFormat
+```
+
+**The augmentation is genuinely unsound, and BOTH compilers detect it.** A
+minimal standalone repro (its own tsconfig, no repo config involved — just the
+augmentation shape above against `lib: ["DOM", ...]`) isolates the real
+variable, which is `skipLibCheck`:
+
+| `skipLibCheck` | TS 6.0.3 | TS 7.0.2 |
+|---|---|---|
+| `false` | `lib.dom.d.ts(25780,11): error TS2430` | `lib.dom.d.ts(25780,11): error TS2430` |
+| `true`  | *clean* | `repro.ts(8,13): error TS2430` |
+
+With `skipLibCheck: false` the two compilers agree **exactly**, down to the
+file and position. The divergence appears only under `skipLibCheck: true`,
+because the two compilers **attribute the same diagnostic to different files**:
+TS6 blames `lib.dom.d.ts` (a lib file → suppressed by `skipLibCheck`), TS7
+blames the user's augmentation site (not a lib file → not suppressed).
+`packages/embeddings` sets `skipLibCheck: true` (as does
+`packages/config/tsconfig/base.json`), which is why it surfaces there.
+
+So TS7 is arguably the **more correct** of the two here: the code really is
+unsound, and TS6 was only hiding it behind an attribution accident. But it is
+still a "structurally identical semantics" violation in the strict sense — same
+input, different reported diagnostics — and it is a *class*, not a one-off: any
+`skipLibCheck`'d project with an unsound global augmentation could surface new
+errors under TS7. Across all 67 projects here, exactly one did.
+
+### Are the divergences trivial to fix? Tested, not assumed.
+
+Both were probed with throwaway local edits, each reverted immediately
+(`git status` clean after each). Results, under **both** compilers:
+
+**Divergence 1 (`moduleResolution`) — NOT trivial. This is the blocker.**
+
+| variant | TS 6.0.3 | TS 7.0.2 |
+|---|---|---|
+| `module: CommonJS` + `moduleResolution: node` *(as shipped)* | **clean** | 1 × TS5108 |
+| `moduleResolution: node16` (alone) | 1 × TS5110 | 1 × TS5110 |
+| `moduleResolution: nodenext` (alone) | 1 × TS5110 | 1 × TS5110 |
+| `module: Node16` + `moduleResolution: Node16` *(the paired fix)* | **88 errors** | **88 errors** |
+| `moduleResolution: bundler` | 1 × TS2379 | 1 × TS2379 |
+
+Changing `moduleResolution` alone fails (`TS5110: Option 'module' must be set to
+'Node16'...`). Pairing it with `module: Node16` — the natural fix — produces
+**88 diagnostics under both compilers**: `TS1479` (CommonJS file importing an
+ESM-only dependency: `@brainstrike/db`, `@brainstrike/text-splitter`,
+`strip-ansi`), `TS2835` (relative imports now need explicit `.js` extensions),
+`TS1541` (type-only ESM import needs a `resolution-mode` attribute), and so on.
+That is a **full CJS→ESM module-semantics migration of the Electron main
+process**, not a config tweak — and it changes emit, so it carries real runtime
+risk for a process that (per the Series B finding) executes its `dist` directly.
+`bundler` clears TS5108 with only one pre-existing error surfaced, but bundler
+resolution is semantically wrong for a Node-executed main process. Both
+compilers agree throughout, which is worth noting: TS7's *checking* is faithful.
+The blocker is the removed option plus the migration it forces.
+
+**Divergence 2 (WebGPU) — cheap. ~6 lines, clean under both compilers.**
+
+Naively deleting the shim does NOT work: it yields 4 × `TS2339` under both
+compilers, because the code probes legacy adapter members lib.dom does not
+declare (`requestAdapterInfo`, `isFallbackAdapter`) — the shim exists for a
+reason. The surgical fix is to drop only the *unsound* `Navigator.gpu`
+augmentation (lib.dom already declares it) and augment `GPUAdapter` with just
+the legacy optional members:
+
+```ts
+declare global {
+  interface GPUAdapter {
+    readonly isFallbackAdapter?: boolean;
+    requestAdapterInfo?: () => Promise<GPUAdapterInfo>;
+  }
+}
+```
+
+Result: **0 errors under TS6 and 0 under TS7**, for both `tsconfig.json` and
+`tsconfig.test.json`. Reverted — it is not part of this PR (it is a real,
+standalone soundness fix that deserves its own change, and shipping it here
+would bundle unrelated work into a findings PR).
+
+**Net:** divergence 2 is a cheap pre-req; divergence 1 is the real blocker and
+is a project of its own.
 
 ### Timing signal (directional, not a CI-validated number)
 
@@ -218,13 +353,24 @@ pulled from actual `gh run view --json jobs` output (not estimated):
 | 29361940277 | pull_request | 5m38s |
 | 29348769405 | pull_request | 4m53s |
 
-This confirms the brief's "~5.5 min" figure for a cold-cache CI run. Our own
-sequential per-project sum (49.0s TS6 vs 9.5s TS7, run serially on a laptop,
-not through turbo's parallel scheduler) shows a consistent **~5.14x**
-per-project speedup, which is real signal toward TS7's performance claims but
-is not directly comparable to the CI number (different hardware, turbo runs
-projects concurrently, and our sum excludes the `build` dependency turbo
-would also pay). No `gh workflow run test.yml --ref <branch>` validation run
+This confirms the brief's "~5.5 min" figure for a cold-cache CI run.
+
+Our own sequential per-project sums, from two full runs of the parity script on
+the same laptop, illustrate what is and isn't trustworthy in a local number:
+
+| run | TS6 total | TS7 total | ratio |
+|---|---|---|---|
+| first (quiet machine) | 49.0s | 9.5s | **5.14x** |
+| re-run (under background load) | 98.4s | 20.0s | **4.93x** |
+
+The absolute times are worthless as a CI predictor — they doubled purely from
+machine load — but the **ratio is stable at ~4.9–5.1x**, and the 3 mismatch
+identities were byte-identical across both runs. So: real signal toward TS7's
+speed claims, no support for a specific CI-minutes figure. Not directly
+comparable to the CI number either (different hardware, turbo runs projects
+concurrently rather than serially, and our sum excludes the `build` dependency
+turbo would also pay). Anyone quoting a projected CI saving from this document
+is over-reading it; measure it in CI. No `gh workflow run test.yml --ref <branch>` validation run
 was triggered for this PR, because this PR does not modify `turbo.jsonc`, any
 `package.json` script, or any workflow file — there is nothing new on the
 CI path to validate. (Per the global constraint, push-path validation is
@@ -248,16 +394,61 @@ Architecture domain boundaries passed: 2863 imports across 3057 files; 0/0 appro
 ```
 
 Both scripts import `typescript` as a library (`ts.createSourceFile` /
-`ts.createProgram`) — confirmed directly in source, not assumed:
+`ts.createProgram`), so both would break outright against `typescript@7.x`
+(which exports no classic API).
+
+### The full TS-API consumer census, and how to re-derive it
+
+**Do not treat this list as static — re-run the grep.** The list below is
+derived mechanically, not copied from a plan document. An earlier draft of this
+doc carried a hand-authored 6-entry list inherited from the task brief and
+**missed two real consumers**; the census below is the corrected, grep-derived
+one. Whoever attempts adoption must re-run this command rather than trust the
+table, because "confirm no API consumer accidentally resolves to TS7" is only a
+safe gate if the list is exhaustive at that moment:
 
 ```
-scripts/verify-workspace-src-aliases.mjs:39:import ts from 'typescript';
-scripts/architecture-domain-boundaries.mjs:5:import ts from 'typescript';
+$ grep -rn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git --exclude-dir=.turbo \
+    -E "(from|require\()\s*['\"]typescript['\"]" .
+
 scripts/model-catalog-migration-contract.mjs:5:import ts from 'typescript';
 scripts/check-e2e-readiness-contracts.mjs:4:import ts from 'typescript';
 scripts/e2e-playwright-title-tags.mjs:3:import ts from 'typescript';
+scripts/verify-workspace-src-aliases.mjs:39:import ts from 'typescript';
+scripts/architecture-domain-boundaries.mjs:5:import ts from 'typescript';
 packages/db/__tests__/migration-runner-types.test.ts:2:import ts from 'typescript';
+packages/db/__tests__/runtime-import-extensions.test.ts:3:import ts from 'typescript';
+apps/desktop/src/platform/runtime-host-boundary.ts:3:import ts from 'typescript';
 ```
+
+**8 consumers, not 6.** The two that a brief-derived list missed:
+
+- `packages/db/__tests__/runtime-import-extensions.test.ts` — `ts.createSourceFile`,
+  `ts.isImportDeclaration`, `ts.isStringLiteral`, `ts.isExportDeclaration`,
+  `ts.ScriptTarget`.
+- `apps/desktop/src/platform/runtime-host-boundary.ts` — `ts.isStringLiteral`,
+  `ts.SyntaxKind`, `ts.isIdentifier`, and the `ts.ImportDeclaration` /
+  `ts.ExportDeclaration` / `ts.CallExpression` types. **Note this one lives in
+  app `src/`, not under `scripts/` or `__tests__/`** — it is the architectural
+  guard enforcing the renderer-only-inference invariant, imported only by its
+  own test, but it sits inside the desktop app's type-check project. A search
+  scoped to "scripts and tests" would not find it.
+
+Every one of the 8 uses the classic compiler API (`createSourceFile` /
+`createProgram` / `SyntaxKind` / node-type guards), none of which exists in
+`typescript@7.0.2`'s `exports` map (`./lib/version.cjs` + `unstable/*` only).
+All 8 must keep resolving `typescript@^6.0.3`.
+
+Completeness of the census was checked against three other import shapes, all
+of which returned nothing: subpath imports (`from 'typescript/...'`), dynamic
+`import('typescript')` / `createRequire(...)('typescript')` / `require.resolve`,
+and a deliberately over-broad `-E "['\"]typescript['\"]"` sweep across all
+`.ts/.tsx/.mjs/.js/.cjs` files (whose extra hits are all language-name string
+literals — `language: 'typescript'`, shiki/chunking maps — plus
+`checkers: ['typescript']` in the per-package `stryker.config.*` files, which
+names the `@stryker-mutator/typescript-checker` plugin rather than importing
+the module; that plugin resolves `typescript` through its own dependency and is
+an INDIRECT consumer worth keeping in mind under any future remediation).
 
 `node_modules/typescript/bin/tsc --version` → `6.0.3` throughout; `git status`
 / `git diff` are clean on `package.json` and `pnpm-lock.yaml` (the collision
@@ -267,26 +458,57 @@ verification ran).
 ## Step 6 — Review gate
 
 - No API consumer resolves to TS7 (verified above; no devDependency change
-  shipped in this PR at all).
+  shipped in this PR at all). All **8** are enumerated by a grep that a reader
+  can re-run — the census is reproducible, not hand-maintained.
 - The parity script is retained (`scripts/ts7-parity-check.mjs`) as a
   re-runnable guard: `node scripts/ts7-parity-check.mjs --ts7-bin=<path>`
   against any future TS7.x/7.1 release once it ships a programmatic API and
   these two divergences are fixed upstream or worked around locally.
+  It refuses to report a vacuous pass: it throws if discovery finds fewer than
+  `MIN_TYPECHECK_PACKAGES` packages, if it compares fewer than
+  `MIN_COMPARED_PROJECTS` projects (or zero under `--filter`), or if either
+  binary's actual `tsc --version` major is not the one expected — the last of
+  which matters because installing TS7 takes over the root `node_modules/.bin/tsc`
+  that is this script's own default TS6 candidate.
 - Parity failed → this PR is a report, not a switch. `package.json`,
   `turbo.jsonc`, and every workflow file are untouched.
 
 ## What would need to happen to revisit this
 
-1. `apps/desktop/tsconfig.main.json` would need to move off
-   `moduleResolution: "node"` (e.g. to `"Node16"`/`"NodeNext"` — TS6-compatible
-   replacements not yet evaluated here) before it can even parse under TS7.
-2. `packages/embeddings/src/device-detection.ts`'s hand-rolled WebGPU shim
-   would need reconciling with whatever DOM lib snapshot TS7 ships (likely:
-   drop the local `Gpu`/`GPUAdapter` shim in favor of TS7's bundled typing, or
-   scope the augmentation more narrowly).
-3. A collision-free wiring path for the native binary (raw
-   `@typescript/typescript-<os>-<arch>` packages, no `"bin"` field, plus a
-   small explicit-path wrapper) would need to be built and reviewed, since the
-   naive aliased-devDependency approach is unsafe regardless of diagnostic
-   parity (see the `.bin/tsc` collision section above).
-4. Re-run `scripts/ts7-parity-check.mjs` clean before reconsidering adoption.
+Ordered cheapest-first. Steps 1–2 are small; step 3 is the one that decides
+whether TS7 adoption is worth it at all.
+
+1. **Fix the WebGPU augmentation** in
+   `packages/embeddings/src/device-detection.ts` — the ~6-line surgical change
+   tested above (drop the unsound `Navigator.gpu` augmentation, augment
+   `GPUAdapter` with the legacy optional members instead). Verified clean under
+   both compilers. Worth doing on its own merits regardless of TS7: the current
+   augmentation is genuinely unsound and TS6 only hides it via `skipLibCheck`
+   attribution.
+2. **Build a collision-free wiring path** for the native binary (raw
+   `@typescript/typescript-<os>-<arch>` packages — no `"bin"` field — plus an
+   explicit-path wrapper that never touches `node_modules/.bin`), since the
+   aliased-devDependency approach takes over the root `.bin/tsc`.
+3. **Decide the `apps/desktop/tsconfig.main.json` question — the real blocker.**
+   `moduleResolution: node10` is removed in TS7, and the paired fix
+   (`module: Node16` + `moduleResolution: Node16`) surfaces **88 errors under
+   both compilers** — a full CJS→ESM migration of the Electron main process,
+   with emit changes and real runtime risk. This is a project in its own right,
+   not a config tweak, and it should be justified on its own terms (module
+   hygiene) rather than as collateral of a type-check speedup. Note it is
+   independent of TS7 and could be done — or rejected — separately. Until it is
+   resolved, TS7 cannot type-check the desktop main project at all.
+4. **Re-run `scripts/ts7-parity-check.mjs` clean** before reconsidering
+   adoption:
+   `node scripts/ts7-parity-check.mjs --ts7-bin=<path-to-7.x-tsc>`.
+   Re-derive the TS-API consumer census with the grep above at the same time —
+   do not trust this document's table, which is a snapshot.
+
+**Is it worth it?** The measured per-project speedup is real (~5.14x on the
+sequential local sum; CI's Type check step is a genuine ~5–6 min). But the
+price of entry is an Electron-main module migration whose own risk is
+substantially larger than the prize, and TS7 offers no programmatic API until
+7.1 — so the 8 API consumers pin `typescript@6.x` in the tree regardless,
+meaning adoption means running two TypeScript majors side by side. A re-look
+once 7.1 ships (programmatic API, and possibly a softer stance on the removed
+resolution modes) is likely a better use of the effort than forcing it now.

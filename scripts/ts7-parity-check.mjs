@@ -29,6 +29,21 @@ const DIAGNOSTIC_RE = /error TS\d+/;
 // Matches "path(line,col): error TSxxxx: message" (tsc --pretty false format).
 const LOCATION_RE = /^(.*?)\((\d+),(\d+)\): (error TS\d+)/;
 
+// Discovery floors. A guard that compares NOTHING and reports "parity holds" is
+// a vacuous green — the exact silent-degradation failure this script exists to
+// prevent. Discovery is dynamic (it walks apps/ + packages/ and parses each
+// `type-check` script), so a repo restructuring, a relocated copy of this
+// script, or a --filter that matches nothing would otherwise sail through with
+// mismatchCount === 0. These floors turn all of those into a loud throw.
+//
+// Values are deliberately well below the real counts at time of writing (39
+// packages with a `type-check` script; 67 comparable --noEmit invocations) so
+// ordinary churn doesn't trip them, while a collapse to near-zero does. If a
+// legitimate restructuring drops the real count below a floor, LOWER THE FLOOR
+// in the same commit — do not delete the check.
+const MIN_TYPECHECK_PACKAGES = 30;
+const MIN_COMPARED_PROJECTS = 55;
+
 function parseArgs(argv) {
   const options = { filter: null, ts6Bin: null, ts7Bin: null };
   for (const arg of argv) {
@@ -43,6 +58,44 @@ function parseArgs(argv) {
     }
   }
   return options;
+}
+
+// Reads `tsc --version` ("Version 7.0.2") and returns the major as a number.
+// Throws rather than returning a sentinel: a binary whose version we cannot
+// read must never be silently treated as either compiler.
+function readTscMajor(bin) {
+  const result = spawnSync(bin, ['--version'], { encoding: 'utf8' });
+  if (result.error) {
+    throw new Error(`Failed to run "${bin} --version": ${result.error.message}`);
+  }
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  const match = output.match(/Version\s+(\d+)\.\d+\.\d+/);
+  if (!match) {
+    throw new Error(`Could not parse a version out of "${bin} --version" (got: ${output.trim()}).`);
+  }
+  return Number(match[1]);
+}
+
+// Asserts a binary is the major we think it is. This is not paranoia: adding
+// TS7 to the workspace under ANY name rewrites the ROOT node_modules/.bin/tsc
+// to the 7.x binary (see the ".bin/tsc collision" section of
+// docs/series-c-ts7-parity-findings.md) — which is exactly this function's
+// default TS6 candidate. Without this check, running the guard in a tree that
+// has TS7 installed would compare TS7 against TS7 and report parity for
+// everything. That is the same vacuous-green class as an empty discovery set.
+function assertMajor(bin, expectedMajor, label) {
+  const actualMajor = readTscMajor(bin);
+  if (actualMajor !== expectedMajor) {
+    throw new Error(
+      `${label} binary at ${bin} reports major version ${actualMajor}, expected ${expectedMajor}. ` +
+        'Refusing to run: comparing a compiler against itself would report parity vacuously. ' +
+        (expectedMajor === 6
+          ? 'If TypeScript 7 is installed in this workspace it will have taken over the root ' +
+            'node_modules/.bin/tsc — pass --ts6-bin=<path to a real 6.x tsc> explicitly.'
+          : 'Pass --ts7-bin=<path to a real 7.x tsc>.')
+    );
+  }
+  return actualMajor;
 }
 
 function resolveTs6Bin(explicit) {
@@ -193,11 +246,25 @@ function main() {
   const ts6Bin = resolveTs6Bin(options.ts6Bin);
   const ts7Bin = resolveTs7Bin(options.ts7Bin);
 
-  console.log(`TS6 bin: ${ts6Bin}`);
-  console.log(`TS7 bin: ${ts7Bin}`);
+  // Each side must actually BE the compiler it claims to be (see assertMajor).
+  const ts6Major = assertMajor(ts6Bin, 6, 'TypeScript 6');
+  const ts7Major = assertMajor(ts7Bin, 7, 'TypeScript 7');
+
+  console.log(`TS6 bin: ${ts6Bin} (major ${ts6Major}, verified)`);
+  console.log(`TS7 bin: ${ts7Bin} (major ${ts7Major}, verified)`);
   console.log('');
 
   const manifests = loadPackageManifests().filter((m) => 'type-check' in m.scripts);
+
+  // Vacuous-pass guard #1: discovery itself must find a plausible workspace.
+  if (manifests.length < MIN_TYPECHECK_PACKAGES) {
+    throw new Error(
+      `Discovery found only ${manifests.length} package(s) with a "type-check" script under ${REPO_ROOT}, ` +
+        `below the floor of ${MIN_TYPECHECK_PACKAGES}. Refusing to report parity over a near-empty set. ` +
+        'Either this script is not running against the brainstrike workspace, or the workspace layout changed ' +
+        '(if the drop is legitimate, lower MIN_TYPECHECK_PACKAGES in the same commit).'
+    );
+  }
 
   const results = [];
   let mismatchCount = 0;
@@ -263,6 +330,23 @@ function main() {
         ts7ElapsedMs: ts7.elapsedMs,
       });
     }
+  }
+
+  // Vacuous-pass guard #2: a run must actually have COMPARED something. An
+  // unfiltered run is held to the full-sweep floor; a --filter run only has to
+  // have matched a package and produced at least one comparison (a filter that
+  // matches nothing is itself an error, not a pass).
+  const comparedFloor = options.filter ? 1 : MIN_COMPARED_PROJECTS;
+  if (results.length < comparedFloor) {
+    throw new Error(
+      `Compared only ${results.length} project(s), below the floor of ${comparedFloor}` +
+        (options.filter ? ` for --filter=${options.filter}` : '') +
+        '. Refusing to report parity over a near-empty set. ' +
+        (options.filter
+          ? 'Check that the filter matches a package with a "type-check" script.'
+          : 'The type-check script shapes may have changed such that they are no longer recognized as ' +
+            '--noEmit runs (if the drop is legitimate, lower MIN_COMPARED_PROJECTS in the same commit).')
+    );
   }
 
   const totalTs6Ms = results.reduce((sum, r) => sum + r.ts6ElapsedMs, 0);
