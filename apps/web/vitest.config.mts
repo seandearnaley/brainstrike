@@ -14,6 +14,29 @@ export default defineConfig({
       '@brainstrike/agent': resolve(import.meta.dirname, '../../packages/agent/src'),
       ...createAgentBrowserSafeAliasMap(resolve(import.meta.dirname, '../../packages/agent')),
       '@brainstrike/app-shell': resolve(import.meta.dirname, '../../packages/app-shell/src'),
+      // B4 gap fills: these roots were missing from this hand-maintained map,
+      // so they resolved via package `exports` to dist — invisible while
+      // test.dependsOn ^build guaranteed dist existed, loud once B4 dropped it
+      // (agent src imports assistant-contract; db src imports indexing-contract;
+      // src/main.tsx imports the chunking-worker root).
+      '@brainstrike/assistant-contract': resolve(
+        import.meta.dirname,
+        '../../packages/assistant-contract/src'
+      ),
+      '@brainstrike/chunking-worker': resolve(
+        import.meta.dirname,
+        '../../packages/chunking-worker/src'
+      ),
+      '@brainstrike/context-actions': resolve(
+        import.meta.dirname,
+        '../../packages/context-actions/src'
+      ),
+      '@brainstrike/file-system': resolve(import.meta.dirname, '../../packages/file-system/src'),
+      '@brainstrike/indexing-contract': resolve(
+        import.meta.dirname,
+        '../../packages/indexing-contract/src/index.ts'
+      ),
+      '@brainstrike/storage': resolve(import.meta.dirname, '../../packages/storage/src'),
       '@brainstrike/db': resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
       '@brainstrike/db-explorer': resolve(import.meta.dirname, '../../packages/db-explorer/src'),
       '@brainstrike/embeddings/backend': resolve(

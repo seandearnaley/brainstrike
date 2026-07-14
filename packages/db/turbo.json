@@ -45,6 +45,21 @@
       //     #1625), desktop (A2, #1628), agent + app-shell (A3, #1627),
       //     embeddings (A4, #1629).
       "cache": false,
+      // B4 build-edge exception. The root `test` task now `dependsOn: ["topo"]`
+      // (a no-op transit node that builds nothing — see turbo.jsonc). db#test
+      // still needs @brainstrike/utils' BUILT declarations: __tests__/
+      // migration-runner-types.test.ts runs a nested `ts.createProgram` that
+      // type-checks a fixture importing db source, whose `@brainstrike/utils`
+      // specifier the TypeScript COMPILER resolves via the package `exports`
+      // `types` condition to dist/index.d.ts. Vitest `resolve.alias` maps every
+      // OTHER db test's runtime workspace import to src, but it cannot intercept
+      // a separate tsc instance — so this one edge must survive B4.
+      // `$TURBO_EXTENDS$` appends to the inherited `["topo"]` → the effective
+      // dependsOn is `["topo", "@brainstrike/utils#build"]` (per the Turborepo
+      // docs, without it a package config REPLACES the inherited array). Only
+      // utils#build is needed: migration-runner.ts imports no other workspace
+      // package, so no other dist declaration enters the compiler's graph.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/utils#build"],
       // Strict environment mode filtering is INDEPENDENT of caching, so the
       // cache:false carve-out above does NOT exempt db's test task from having
       // CI/COVERAGE stripped. Redeclare passThroughEnv here explicitly as
@@ -55,6 +70,15 @@
       // this task without knowing that rule. Keep this list in sync with the
       // root turbo.jsonc `test.passThroughEnv`.
       "passThroughEnv": ["CI", "COVERAGE"]
+    },
+    // db#test:coverage runs `pnpm run test --coverage` (test-lanes.mjs run all),
+    // i.e. the SAME suite as db#test including migration-runner-types.test.ts, so
+    // it needs the same @brainstrike/utils#build edge. Inherits `["topo"]` from
+    // the root test:coverage task; $TURBO_EXTENDS$ appends the build edge. The
+    // per-bucket coverage lanes (test:coverage:db:* in turbo.jsonc) carry the
+    // same edge directly.
+    "test:coverage": {
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/utils#build"]
     }
   }
 }

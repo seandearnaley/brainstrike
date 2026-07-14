@@ -146,7 +146,7 @@ function isRuntimeModuleCall(node) {
  * correctly — a line-level regex misread their closing `} from '...'` line as
  * a runtime import.
  */
-function collectFileRuntimeSpecifiers(filePath, text) {
+export function collectFileRuntimeSpecifiers(filePath, text) {
   const scriptKind = filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const sourceFile = ts.createSourceFile(filePath, text, ts.ScriptTarget.Latest, true, scriptKind);
   const specifiers = new Set();

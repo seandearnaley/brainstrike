@@ -1237,6 +1237,9 @@ importers:
         specifier: ^10.0.3
         version: 10.0.3
     devDependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../config
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -1974,6 +1977,9 @@ importers:
         specifier: workspace:*
         version: link:../platform-utils
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
@@ -2317,6 +2323,9 @@ importers:
         specifier: ^5.0.14
         version: 5.0.14(@types/react@19.2.17)(immer@10.2.0)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
     devDependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../config
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils

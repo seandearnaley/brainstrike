@@ -113,20 +113,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Build workspace deps first, for BOTH test paths below. The previous
-      # `turbo run test --affected` got its build dependency via turbo.jsonc's
-      # `dependsOn: ["^build"]`, but pnpm's filter doesn't traverse that graph
-      # — workspace deps with exports maps pointing at `dist/` would otherwise
-      # fail to resolve at test time.
-      # MUST stay unconditional (no `if: pull_request`): the
-      # `Push and manual unit tests` step runs the full suite on push/main and
-      # workflow_dispatch, and hits the same unbuilt-`dist` resolution failure
-      # (e.g. @brainstrike/indexing-contract importing @brainstrike/types).
-      # A PR-only guard here left push-to-main Unit red for ~3 weeks invisibly.
-      # Use turbo for build (cache makes this fast); use pnpm for affected
-      # test selection (turbo's --affected over-selects on merge commits).
-      - name: Build workspace dependencies
-        run: pnpm turbo run build --concurrency=4
+      # NO standalone build step (B4). Test lanes resolve workspace imports
+      # from SOURCE (the B3 #1651 registry + the app vitest alias maps), so
+      # tests no longer need `dist` to exist, and `test.dependsOn` is the
+      # no-build `topo` transit node instead of `^build` (turbo.jsonc). The few
+      # lanes that genuinely consume built artifacts (packages/utils' own-dist
+      # test, packages/db's nested-tsc test) declare exact `#build` edges in
+      # their own turbo.json, and `turbo run test` SELF-BUILDS exactly those
+      # (verified: the whole-repo test+test:integration graph contains 3 build
+      # tasks — utils + its dep closure — and a full clean-state no-dist run is
+      # green; see the B4 PR). The predecessor step's #1066/#1207 rationale
+      # ("exports maps pointing at dist fail to resolve at test time") is
+      # retired by source resolution, and unlike that incident a regression
+      # here fails LOUDLY on the always-clean CI runner instead of passing
+      # against stale dist. The Build job below still exercises the full build.
 
       # PR-affected unit tests routed THROUGH turbo so the remote cache
       # (TURBO_TOKEN/TURBO_TEAM, set at the workflow `env:` block above and
@@ -180,8 +180,8 @@ jobs:
       # --concurrency=2 so at most two real-subsystem suites run at once. Two
       # named steps (not one `&&` step) give clearer failure attribution in the
       # UI; turbo re-resolves quickly on the second invocation. turbo.jsonc's
-      # `test:integration` has `dependsOn: ["^build"]`, already satisfied by the
-      # build step / phase-1 cache, so phase 2's graph is cheap. turbo skips each
+      # `test:integration` has `dependsOn: ["topo"]` (the B4 no-build transit
+      # node), so phase 2's graph builds nothing and is cheap. turbo skips each
       # task for packages that do not define it (no `--if-present` needed).
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'

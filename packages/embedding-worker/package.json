@@ -10,6 +10,7 @@
     "workerpool": "^10.0.3"
   },
   "devDependencies": {
+    "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "^26.1.0",
     "esbuild": "^0.28.1",
