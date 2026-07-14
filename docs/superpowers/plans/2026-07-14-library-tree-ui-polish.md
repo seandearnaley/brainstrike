@@ -17,6 +17,9 @@ The direction is restrained desktop utility: compact, aligned, low-chrome, and b
 3. **Tree controls use one horizontal rhythm.** Parent disclosure width becomes the child indentation unit so parent and child checkboxes, identity marks, and labels resolve to stable vertical columns.
 4. **Customization is transient overlay UI.** Thread icon/color and folder color choices live in collision-aware Radix popovers. Opening customization does not change virtual row height or move adjacent controls.
 5. **Secondary actions are consolidated.** Keep the disclosure control visible and put customize, rename, and delete into one consistent overflow surface at every panel width.
+6. **Selection actions share one bottom overlay.** Library and Context Explorer use the shared selection overlay and reserve bottom scroll padding so selection never moves the tree.
+7. **Group identity is durable and symmetric.** Group icon and color live beside group rank in Brainstrike's local presentation table; the color also paints a continuous rail across the group header and members.
+8. **Expandable rows preserve the first-line anchor.** Thread and group rows share the compact 40px primary-line estimate, while tree controls pin to that line when deliberate details expand below it.
 
 ## Red/green slices
 
@@ -24,6 +27,7 @@ The direction is restrained desktop utility: compact, aligned, low-chrome, and b
 2. Add failing Library tests proving group/thread checkbox alignment uses the shared disclosure width.
 3. Add failing Library tests proving thread and folder customization render in popovers and no longer expand rows inline.
 4. Implement the minimum shared focus and Library layout/action changes, then refactor repeated popover choice UI without changing persistence behavior.
+5. Add failing follow-up coverage for bottom overlay placement, pinned tree controls, portal click isolation, group icon persistence, and the group color rail; implement migration 059 and the shared overlay only after those failures are confirmed.
 
 ## Verification
 

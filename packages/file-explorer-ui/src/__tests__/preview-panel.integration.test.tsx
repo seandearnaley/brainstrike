@@ -205,6 +205,7 @@ vi.mock('@brainstrike/ui', async () => {
         {children}
       </div>
     ),
+    SelectionActionBarOverlay: sharedUiMock.SelectionActionBarOverlay,
     SortableTableHeader: ({
       title,
       onSort,

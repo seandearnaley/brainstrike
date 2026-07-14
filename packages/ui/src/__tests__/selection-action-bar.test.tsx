@@ -1,7 +1,11 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { FolderInput } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type SelectionAction, SelectionActionBar } from '../selection-action-bar';
+import {
+  type SelectionAction,
+  SelectionActionBar,
+  SelectionActionBarOverlay,
+} from '../selection-action-bar';
 
 describe('SelectionActionBar', () => {
   afterEach(cleanup);
@@ -164,5 +168,19 @@ describe('SelectionActionBar', () => {
     render(<SelectionActionBar actions={actions} onClear={vi.fn()} summary="1 selected" />);
 
     expect(screen.getByRole('toolbar').className).toContain('motion-reduce:transition-none');
+  });
+});
+
+describe('SelectionActionBarOverlay', () => {
+  it('floats selection controls above the bottom edge without intercepting the tree', () => {
+    render(
+      <SelectionActionBarOverlay>
+        <SelectionActionBar actions={[]} onClear={vi.fn()} summary="1 selected" />
+      </SelectionActionBarOverlay>
+    );
+
+    const overlay = screen.getByTestId('selection-action-overlay');
+    expect(overlay).toHaveClass('absolute', 'bottom-3', 'pointer-events-none');
+    expect(overlay.className).not.toMatch(/\btop-/);
   });
 });

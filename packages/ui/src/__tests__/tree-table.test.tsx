@@ -1189,6 +1189,32 @@ describe('TreeTable', () => {
   });
 
   describe('pluggable checkbox API', () => {
+    it('can pin tree controls to the first row line when cell content expands', () => {
+      const pinnedColumns: TreeTableColumn<TestData>[] = [
+        {
+          cell: ({ node }) => <div className="h-24">{node.data.name}</div>,
+          id: 'name',
+          treeControlsPosition: 'top',
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={pinnedColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'unchecked'}
+          nodes={[createTestNode('file', 'Expanded file')]}
+          onCheckboxChange={() => {}}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      const checkbox = screen.getByLabelText('Select file');
+      expect(checkbox.parentElement).toHaveAttribute('data-tree-controls-position', 'top');
+      expect(checkbox.parentElement).toHaveClass('self-start');
+    });
+
     it('renders checkbox state from getCheckboxState, including indeterminate', () => {
       const nodes: TreeNode<TestData>[] = [
         createTestNode('file', 'File', null, true, 0),

@@ -57,6 +57,7 @@ import { migration055AssistantMessageParents } from './055-assistant-message-par
 import { migration056AssistantThreadGroupPresentation } from './056-assistant-thread-group-presentation.js';
 import { migration057UpdateProviderModels202607 } from './057-update-provider-models-2026-07.js';
 import { migration058ProviderBilledCost } from './058-provider-billed-cost.js';
+import { migration059AssistantThreadGroupIcons } from './059-assistant-thread-group-icons.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -120,6 +121,7 @@ export const migrations: Migration[] = [
   migration056AssistantThreadGroupPresentation,
   migration057UpdateProviderModels202607,
   migration058ProviderBilledCost,
+  migration059AssistantThreadGroupIcons,
 ];
 
 // Export base migrations (without chunks table) for test environments

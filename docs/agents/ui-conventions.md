@@ -37,6 +37,15 @@ Windowing and performance:
   per-render object/function identities into `TreeTableRow` — the row memo is
   the scroll/keyboard hot path for every tree surface.
 - Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
+- Tree rows whose content can expand below their primary line must set the tree
+  column's `treeControlsPosition` to `top`. This keeps disclosure and checkbox
+  controls pinned to the first 40px row line instead of recentering when details
+  appear below it.
+- Ephemeral selection actions float at the bottom through
+  `SelectionActionBarOverlay` + `SelectionActionBar`. Keep the scroll owner
+  padded at the bottom while the overlay is present; never insert the toolbar in
+  normal flow or compensate with top padding, because selection must not shift
+  the tree.
 
 When modifying TreeTable strategy or pagination behavior:
 - Update the related collection browser/file explorer/context preview adapters.

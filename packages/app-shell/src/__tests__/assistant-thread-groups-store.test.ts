@@ -14,6 +14,7 @@ const RESOURCE_ID = 'workspace-a';
 function makeGroup(overrides: { id: string; name?: string; rank: string }): AssistantThreadGroup {
   return {
     color: null,
+    icon: null,
     id: overrides.id,
     name: overrides.name ?? overrides.id,
     rank: overrides.rank,
@@ -33,6 +34,7 @@ function makeRepository(overrides?: {
       groupCounter += 1;
       return {
         color: null,
+        icon: null,
         id: `thread-group-created-${groupCounter}`,
         name: name.trim(),
         rank,
@@ -44,6 +46,7 @@ function makeRepository(overrides?: {
     listPlacements: vi.fn(async () => overrides?.placements ?? []),
     renameGroup: vi.fn(async () => undefined),
     setGroupColor: vi.fn(async () => undefined),
+    setGroupIcon: vi.fn(async () => undefined),
     setGroupRank: vi.fn(async () => undefined),
     setGroupRanks: vi.fn(async () => undefined),
     setThreadPlacement: vi.fn(async () => undefined),
@@ -135,6 +138,23 @@ describe('useAssistantThreadGroupsStore', () => {
     await store.setGroupColor(repository, RESOURCE_ID, 'group-1', null);
     expect(
       useAssistantThreadGroupsStore.getState().groupsByResourceId[RESOURCE_ID]?.[0]?.color
+    ).toBeNull();
+  });
+
+  it('sets and clears a group icon locally and in the repository', async () => {
+    const repository = makeRepository({ groups: [makeGroup({ id: 'group-1', rank: 'a0' })] });
+    const store = useAssistantThreadGroupsStore.getState();
+    await store.ensureGroups(repository, RESOURCE_ID);
+
+    await store.setGroupIcon(repository, RESOURCE_ID, 'group-1', 'research');
+    expect(repository.setGroupIcon).toHaveBeenCalledWith('group-1', 'research');
+    expect(
+      useAssistantThreadGroupsStore.getState().groupsByResourceId[RESOURCE_ID]?.[0]?.icon
+    ).toBe('research');
+
+    await store.setGroupIcon(repository, RESOURCE_ID, 'group-1', null);
+    expect(
+      useAssistantThreadGroupsStore.getState().groupsByResourceId[RESOURCE_ID]?.[0]?.icon
     ).toBeNull();
   });
 

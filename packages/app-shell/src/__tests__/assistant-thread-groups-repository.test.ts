@@ -33,6 +33,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     expect(group.resourceId).toBe('workspace-a');
     expect(group.id).toMatch(/^thread-group-/);
     expect(group.color).toBeNull();
+    expect(group.icon).toBeNull();
     const [sql, params] = db.query.mock.calls[0] ?? [];
     expect(String(sql)).toContain('INSERT INTO brainstrike_assistant_thread_groups');
     expect(params).toEqual([group.id, 'workspace-a', 'Research', 'a0']);
@@ -65,6 +66,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
           rows: [
             {
               color: 'rose',
+              icon: 'research',
               id: 'thread-group-1',
               name: 'Research',
               rank: 'a0',
@@ -72,6 +74,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
             },
             {
               color: null,
+              icon: null,
               id: 'thread-group-2',
               name: 'Bugs',
               rank: 'a1',
@@ -89,6 +92,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     expect(groups).toEqual([
       {
         color: 'rose',
+        icon: 'research',
         id: 'thread-group-1',
         name: 'Research',
         rank: 'a0',
@@ -96,6 +100,7 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
       },
       {
         color: null,
+        icon: null,
         id: 'thread-group-2',
         name: 'Bugs',
         rank: 'a1',
@@ -109,7 +114,16 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
   it('throws on a malformed group row instead of coercing', async () => {
     const db = createMockDb();
     db.query.mockResolvedValue({
-      rows: [{ color: null, id: 42, name: 'Research', rank: 'a0', resourceId: 'workspace-a' }],
+      rows: [
+        {
+          color: null,
+          icon: null,
+          id: 42,
+          name: 'Research',
+          rank: 'a0',
+          resourceId: 'workspace-a',
+        },
+      ],
     });
     const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
 
@@ -148,6 +162,26 @@ describe('createPgliteAssistantThreadGroupsRepository', () => {
     ]);
     await expect(repository.setGroupColor('thread-group-1', 'magenta' as never)).rejects.toThrow(
       'Invalid thread group color.'
+    );
+  });
+
+  it('sets and clears a validated group icon', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadGroupsRepository(db as unknown as DbHandle);
+
+    await repository.setGroupIcon('thread-group-1', 'research');
+    await repository.setGroupIcon('thread-group-1', null);
+
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining('SET icon'), [
+      'thread-group-1',
+      'research',
+    ]);
+    expect(db.query).toHaveBeenNthCalledWith(2, expect.stringContaining('SET icon'), [
+      'thread-group-1',
+      null,
+    ]);
+    await expect(repository.setGroupIcon('thread-group-1', 'folder' as never)).rejects.toThrow(
+      'Invalid thread group icon.'
     );
   });
 

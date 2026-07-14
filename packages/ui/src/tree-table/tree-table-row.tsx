@@ -303,18 +303,20 @@ interface TreeExpandControlProps {
   isExpanded: boolean;
   isLoading: boolean | undefined;
   onExpandClick: (event: React.MouseEvent) => void;
+  pinnedToTop: boolean;
 }
 
 function TreeExpandControl({
   isExpanded,
   isLoading,
   onExpandClick,
+  pinnedToTop,
 }: TreeExpandControlProps): React.ReactElement {
   return (
     <Button
       aria-expanded={isExpanded}
       aria-label={isExpanded ? 'Collapse' : 'Expand'}
-      className="flex-shrink-0"
+      className={cn('flex-shrink-0', pinnedToTop && 'mt-1.5')}
       disabled={isLoading}
       onClick={onExpandClick}
       size="icon-xs"
@@ -362,10 +364,18 @@ function TreeTableCellComponent<T>({
   if (isFirstColumn) {
     const shouldReserveToggleSpace = column.reserveToggleSpace !== false;
     const indentWidth = column.indentWidth ?? INDENT_WIDTH;
+    const controlsPinnedToTop = column.treeControlsPosition === 'top';
 
     return (
       <TableCell className={cn('p-0', column.className)} colSpan={colSpan} role="gridcell">
-        <div className={cn('flex items-center', insetTreeControls && 'pl-1')}>
+        <div
+          className={cn(
+            'flex',
+            controlsPinnedToTop ? 'items-start self-start' : 'items-center',
+            insetTreeControls && 'pl-1'
+          )}
+          data-tree-controls-position={controlsPinnedToTop ? 'top' : 'center'}
+        >
           {/* Indentation spacer */}
           <span className="flex-shrink-0" style={{ width: node.depth * indentWidth }} />
 
@@ -375,6 +385,7 @@ function TreeTableCellComponent<T>({
               isExpanded={isExpanded}
               isLoading={node.isLoading}
               onExpandClick={onExpandClick}
+              pinnedToTop={controlsPinnedToTop}
             />
           ) : shouldReserveToggleSpace ? (
             <span className="h-7 w-7 flex-shrink-0" />
@@ -387,7 +398,7 @@ function TreeTableCellComponent<T>({
               checked={
                 checkboxState === 'indeterminate' ? 'indeterminate' : checkboxState === 'checked'
               }
-              className="ml-1.5 h-4 w-4 flex-shrink-0"
+              className={cn('ml-1.5 h-4 w-4 flex-shrink-0', controlsPinnedToTop && 'mt-3')}
               data-state={checkboxState}
               onCheckedChange={() => onCheckboxChange?.()}
               onClick={(e) => e.stopPropagation()}

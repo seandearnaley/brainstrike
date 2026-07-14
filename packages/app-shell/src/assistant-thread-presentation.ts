@@ -5,6 +5,7 @@ export interface AssistantThreadColorPresentation {
   readonly iconClassName: string;
   readonly label: string;
   readonly markClassName: string;
+  readonly railClassName: string;
   readonly selectedClassName: string;
 }
 
@@ -16,7 +17,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     label: 'Amber',
     markClassName:
       'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
-    selectedClassName: 'border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/20',
+    railClassName: 'border-l-amber-500',
+    selectedClassName: 'bg-amber-50/70 ring-amber-300 dark:bg-amber-950/20 dark:ring-amber-800',
   },
   blue: {
     accentClassName: 'bg-sky-500',
@@ -25,7 +27,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     label: 'Blue',
     markClassName:
       'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300',
-    selectedClassName: 'border-sky-300 bg-sky-50/70 dark:border-sky-800 dark:bg-sky-950/20',
+    railClassName: 'border-l-sky-500',
+    selectedClassName: 'bg-sky-50/70 ring-sky-300 dark:bg-sky-950/20 dark:ring-sky-800',
   },
   emerald: {
     accentClassName: 'bg-emerald-500',
@@ -34,8 +37,9 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     label: 'Emerald',
     markClassName:
       'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
+    railClassName: 'border-l-emerald-500',
     selectedClassName:
-      'border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/20',
+      'bg-emerald-50/70 ring-emerald-300 dark:bg-emerald-950/20 dark:ring-emerald-800',
   },
   rose: {
     accentClassName: 'bg-rose-500',
@@ -44,7 +48,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     label: 'Rose',
     markClassName:
       'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300',
-    selectedClassName: 'border-rose-300 bg-rose-50/70 dark:border-rose-800 dark:bg-rose-950/20',
+    railClassName: 'border-l-rose-500',
+    selectedClassName: 'bg-rose-50/70 ring-rose-300 dark:bg-rose-950/20 dark:ring-rose-800',
   },
   slate: {
     accentClassName: 'bg-slate-500',
@@ -53,7 +58,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     label: 'Slate',
     markClassName:
       'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300',
-    selectedClassName: 'border-slate-300 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-900/30',
+    railClassName: 'border-l-slate-500',
+    selectedClassName: 'bg-slate-50/70 ring-slate-300 dark:bg-slate-900/30 dark:ring-slate-700',
   },
   violet: {
     accentClassName: 'bg-violet-500',
@@ -62,8 +68,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
     label: 'Violet',
     markClassName:
       'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300',
-    selectedClassName:
-      'border-violet-300 bg-violet-50/70 dark:border-violet-800 dark:bg-violet-950/20',
+    railClassName: 'border-l-violet-500',
+    selectedClassName: 'bg-violet-50/70 ring-violet-300 dark:bg-violet-950/20 dark:ring-violet-800',
   },
 } satisfies Record<AssistantThreadColorId, AssistantThreadColorPresentation>;
 

@@ -21,6 +21,7 @@ describe('createPgliteAssistantThreadGroupsRepository integration', () => {
         name text NOT NULL,
         rank text NOT NULL,
         color text,
+        icon text,
         updated_at timestamptz NOT NULL DEFAULT NOW()
       );
       CREATE TABLE brainstrike_assistant_thread_placements (
