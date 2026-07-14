@@ -56,7 +56,7 @@
   /* Panel surface gradient — warm cream wash for empty states / panel shells */
   --bs-panel-surface: linear-gradient(to bottom, #fdfcfb, #f2f0ef);
   --bs-input: 30 10% 90%; /* #E8E5E2 - Input border */
-  --bs-ring: 215 55% 45%; /* #3D6A9E - Focus ring matches primary */
+  --bs-ring: 25 12% 38%; /* Warm graphite focus ring; distinct from brand blue */
 
   /* Chart Colors - Harmonized with warm palette */
   --bs-chart-1: 215 55% 45%; /* Slate blue (matches primary) */
@@ -73,7 +73,7 @@
   --bs-sidebar-accent: 30 12% 92%; /* #EDEBE8 - Hover state */
   --bs-sidebar-accent-foreground: 25 20% 14%; /* #2D2520 */
   --bs-sidebar-border: 30 10% 90%; /* #E8E5E2 - Warm border */
-  --bs-sidebar-ring: 215 55% 45%; /* #3D6A9E - Focus ring */
+  --bs-sidebar-ring: 25 12% 38%; /* Warm graphite focus ring */
 
   /* Semantic Status Colors */
   --bs-success: 152 55% 41%; /* #2F9E6E - Green */
@@ -168,7 +168,7 @@
   /* Panel surface gradient — deep warm obsidian wash */
   --bs-panel-surface: linear-gradient(to bottom, #1a1816, #0a0a0a);
   --bs-input: 30 5% 20%; /* #353230 - Input border */
-  --bs-ring: 215 50% 58%; /* #6A94BE - Focus ring */
+  --bs-ring: 30 8% 70%; /* Warm neutral focus ring */
 
   /* Chart Colors - Harmonized for dark mode */
   --bs-chart-1: 215 50% 58%; /* Light slate blue */
@@ -185,7 +185,7 @@
   --bs-sidebar-accent: 30 5% 18%; /* #302C29 - Hover */
   --bs-sidebar-accent-foreground: 30 10% 93%; /* #F0EEEB */
   --bs-sidebar-border: 30 5% 18%; /* #302C29 - Border */
-  --bs-sidebar-ring: 215 50% 58%; /* #6A94BE - Focus */
+  --bs-sidebar-ring: 30 8% 70%; /* Warm neutral focus ring */
 
   /* Semantic Status Colors - Adjusted for dark mode */
   --bs-success: 152 50% 50%; /* Brighter green */
@@ -261,10 +261,11 @@
     --bs-border: 0 0% 0%; /* Black borders */
     --bs-panel-divider: 0 0% 0%; /* High-contrast: panel divider matches border (black) for max visibility */
     --bs-input: 0 0% 0%;
-    --bs-ring: 212 100% 35%;
+    --bs-ring: 0 0% 0%;
     --bs-sidebar: 0 0% 95%;
     --bs-sidebar-foreground: 0 0% 0%;
     --bs-sidebar-border: 0 0% 0%;
+    --bs-sidebar-ring: 0 0% 0%;
   }
 
   .dark {
@@ -287,10 +288,11 @@
     --bs-border: 0 0% 100%; /* White borders */
     --bs-panel-divider: 0 0% 100%; /* High-contrast dark: panel divider matches border (white) for max visibility */
     --bs-input: 0 0% 100%;
-    --bs-ring: 212 100% 70%;
+    --bs-ring: 0 0% 100%;
     --bs-sidebar: 0 0% 5%;
     --bs-sidebar-foreground: 0 0% 100%;
     --bs-sidebar-border: 0 0% 100%;
+    --bs-sidebar-ring: 0 0% 100%;
   }
 }
 

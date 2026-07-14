@@ -133,6 +133,30 @@ describe('TreeTable', () => {
       expect(screen.getByText('File 2')).toBeInTheDocument();
     });
 
+    it('keeps roving focus semantic without painting the old primary ring', () => {
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'File 1')]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const treegrid = screen.getByRole('treegrid');
+      fireEvent.keyDown(treegrid, { key: 'ArrowDown' });
+
+      const row = screen.getByText('File 1').closest('tr');
+      expect(row).toHaveAttribute('data-focused', 'true');
+      expect(row).not.toHaveClass('ring-2', 'ring-primary', 'ring-inset');
+      expect(row).toHaveClass(
+        'focus-visible:outline-solid',
+        'focus-visible:outline-2',
+        'focus-visible:outline-foreground/50',
+        'focus-visible:-outline-offset-2'
+      );
+    });
+
     it('renders column headers', () => {
       const columns: TreeTableColumn<TestData>[] = [
         {

@@ -13,6 +13,10 @@ Rules:
   - File explorer tree (left nav).
   - Context explorer grouped preview tree (main panel).
 - Preserve WAI-ARIA treegrid semantics (`role="treegrid"`, row/level metadata, keyboard traversal).
+- Roving row focus and selection are independent. Keep `data-focused`/`tabIndex`
+  for keyboard ownership, but paint the row affordance through `:focus-visible`
+  only; pointer-focused rows must not receive a persistent primary-color ring.
+  Focus tokens are neutral so focus is distinguishable from brand/selection color.
 - Keep the shared `TreeTableViewport` as the sole two-axis scroll owner and the
   virtualizer's scroll element. Consumer wrappers must remain layout-only
   (`overflow-hidden`); do not reintroduce nested `overflow-auto` wrappers or a
@@ -119,5 +123,4 @@ Rules:
 When changing this flow, update this section and the related tests.
 
 ---
-
 

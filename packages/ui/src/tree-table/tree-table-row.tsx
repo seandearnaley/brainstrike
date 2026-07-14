@@ -202,7 +202,7 @@ function TreeTableRowInner<T>({
         isSelected && !isGroupHeader && 'bg-accent',
         isHighlighted && !isSelected && !isGroupHeader && 'bg-yellow-50 dark:bg-yellow-950/20',
         isInContext && !isSelected && !isHighlighted && 'border-l-2 border-l-primary/60',
-        isFocused && 'ring-2 ring-primary ring-inset',
+        'outline-none focus-visible:outline-2 focus-visible:outline-foreground/50 focus-visible:outline-solid focus-visible:-outline-offset-2',
         !matchesFilter && 'opacity-50',
         className
       )}
