@@ -1,38 +1,10 @@
-import { readdirSync } from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildDbCoverageLaneMap,
+  collectDbTestFiles,
   dbCoverageLaneDefinitions,
   dbUnitLaneDefinitions,
 } from '../scripts/db-test-lane-manifest.mjs';
-
-/**
- * Mirrors `collectUnitTests` in packages/db/scripts/coverage-lanes.mjs: same recursive
- * scan, same `.test.ts`/`.test.tsx` match, same `.browser.test.ts`/`.browser.test.tsx`
- * exclusion (browser-project tests run under a different vitest project and are out of
- * scope for coverage lanes). Duplicated here — rather than imported — because that
- * function is a script-local implementation detail, not part of the manifest's public
- * surface (`db-test-lane-manifest.mjs` only exports the lane definitions and the two
- * `build*LaneMap` functions).
- */
-function collectUnitTestFileNames(dir: string, prefix = ''): string[] {
-  const tests: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      tests.push(...collectUnitTestFileNames(path.join(dir, entry.name), relativePath));
-      continue;
-    }
-    const isTestFile = entry.name.endsWith('.test.ts') || entry.name.endsWith('.test.tsx');
-    const isBrowserTestFile =
-      entry.name.endsWith('.browser.test.ts') || entry.name.endsWith('.browser.test.tsx');
-    if (isTestFile && !isBrowserTestFile) {
-      tests.push(relativePath);
-    }
-  }
-  return tests.sort();
-}
 
 describe('db test lane manifest', () => {
   it('gives every DB unit lane a coverage default', () => {
@@ -54,9 +26,10 @@ describe('db test lane manifest', () => {
 
   it('assigns every real packages/db/__tests__ file to exactly one coverage lane', () => {
     // Dogfoods the single-source flow against the REAL __tests__ directory (including
-    // this file itself): a new test file needs only a dbUnitLaneDefinitions regex to
-    // resolve a coverage lane automatically — no second, independent registration.
-    const testFiles = collectUnitTestFileNames(import.meta.dirname);
+    // this file itself), via the SAME collector coverage-lanes.mjs uses: a new test file
+    // needs only a dbUnitLaneDefinitions regex to resolve a coverage lane automatically
+    // — no second, independent registration.
+    const testFiles = collectDbTestFiles({ includeBrowserTests: false });
 
     const { failures, laneMap } = buildDbCoverageLaneMap(testFiles);
 
@@ -64,6 +37,44 @@ describe('db test lane manifest', () => {
 
     const assignedFiles = [...laneMap.values()].flat().sort();
     expect(assignedFiles).toEqual(testFiles);
+  });
+
+  it('differs between the unit and coverage views by exactly the browser tests', () => {
+    // Pins the ONE intentional asymmetry between the two lane scripts' views of "all
+    // tests" (test-lanes.mjs passes true, coverage-lanes.mjs passes false). It is
+    // structurally necessary — coverage runs `vitest --project unit`, which cannot
+    // execute browser-project files.
+    const unitView = collectDbTestFiles({ includeBrowserTests: true });
+    const coverageView = collectDbTestFiles({ includeBrowserTests: false });
+    const isBrowserTest = (fileName: string) => fileName.includes('.browser.test.');
+
+    // BOTH directions must be pinned, or the flag is only half-guarded:
+    //
+    // 1. Presence — the unit view really does include browser tests. Without this, an
+    //    unconditional `if (BROWSER_TEST_FILE_PATTERN.test(name)) continue;` (i.e. a
+    //    future agent deleting the `!includeBrowserTests &&` as redundant-looking)
+    //    satisfies the relative check below VACUOUSLY: both views lose browser tests
+    //    together, their difference is still empty, and the unit lane silently drops a
+    //    file with every check still exiting 0.
+    //    If this ever fails because the last *.browser.test.* file was deleted, that is
+    //    a real signal, not noise: with zero browser tests the two views are identical
+    //    and `includeBrowserTests` has no live use case, so the flag itself should be
+    //    revisited rather than this assertion loosened.
+    expect(unitView.some(isBrowserTest)).toBe(true);
+
+    // 2. Relative — the views differ by exactly the browser tests, nothing else. Stated
+    //    as a set relation rather than a hardcoded filename so it survives browser tests
+    //    being added or renamed.
+    expect(unitView.filter((fileName) => !isBrowserTest(fileName))).toEqual(coverageView);
+    // The unit view is a strict superset: every coverage file is also a unit file.
+    expect(coverageView.every((fileName) => unitView.includes(fileName))).toBe(true);
+  });
+
+  it('requires an explicit includeBrowserTests rather than silently defaulting', () => {
+    // NO SILENT FALLBACKS: an implicit default here is precisely how the unit and
+    // coverage views would drift apart again.
+    // @ts-expect-error — deliberately calling with the option omitted.
+    expect(() => collectDbTestFiles()).toThrow(/explicit \{ includeBrowserTests: boolean \}/);
   });
 
   it('fails loudly (not silently) when a unit lane has no coverage default', () => {
