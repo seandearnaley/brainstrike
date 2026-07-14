@@ -114,11 +114,13 @@ function workspacePackageDirs() {
   for (const glob of readWorkspaceGlobs()) {
     const match = glob.match(/^(.+)\/\*$/);
     if (!match) {
-      // NO SILENT FALLBACK: an unfamiliar glob shape would under-enumerate and
-      // fake a green. Surface it so the enumerator is taught the new shape.
+      // NO SILENT FALLBACK: an unfamiliar glob shape (including pnpm exclusion
+      // globs like "!apps/legacy" or recursive "apps/**") would under-enumerate
+      // and fake a green. Surface it so the enumerator is taught the new shape.
       throw new Error(
         `pnpm-workspace.yaml contains the package glob "${glob}", which this contract does not know how to ` +
-          'enumerate (it only supports single-level "<dir>/*" globs). Update workspacePackageDirs() in ' +
+          'enumerate (it only supports single-level "<dir>/*" globs — pnpm exclusion/recursive glob forms are ' +
+          'not handled). Update workspacePackageDirs() in ' +
           'scripts/__tests__/package-scripts-canonical-form-contract.test.mjs before this glob can hide a package.'
       );
     }
@@ -126,7 +128,10 @@ function workspacePackageDirs() {
     let entries;
     try {
       entries = readdirSync(groupDir);
-    } catch {
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        throw err; // NO SILENT FALLBACK: only a genuinely-absent group dir is skippable
+      }
       continue; // group dir absent → nothing to enumerate
     }
     for (const entry of entries) {
