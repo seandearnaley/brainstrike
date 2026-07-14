@@ -14,7 +14,7 @@ const logger = createLogger('GitPanel');
 export interface UseGitPanelResult {
   /** Durable rootId of the focused workspace root, or null if none is open. */
   readonly activeRootId: string | null;
-  readonly commit: (message: string) => Promise<boolean>;
+  readonly commit: (summary: string, description?: string) => Promise<boolean>;
   /** True while a status fetch is in flight. */
   readonly isLoading: boolean;
   /** True while a push or pull network op is running. */
@@ -222,8 +222,8 @@ export function useGitPanel(): UseGitPanelResult {
   );
 
   const commit = useCallback(
-    async (message: string): Promise<boolean> => {
-      const trimmed = message.trim();
+    async (summary: string, description?: string): Promise<boolean> => {
+      const trimmed = summary.trim();
       if (trimmed.length === 0) {
         toast({
           description: 'Enter a commit message first.',
@@ -233,7 +233,10 @@ export function useGitPanel(): UseGitPanelResult {
         return false;
       }
       return await runMutation('Commit', async (b, rootId) => {
-        const result = await b.commit(rootId, { message: trimmed });
+        const result = await b.commit(rootId, {
+          ...(description?.trim() ? { description: description.trim() } : {}),
+          summary: trimmed,
+        });
         if (result.ok) {
           toast({
             description: `${result.value.commit}${result.value.branch ? ` on ${result.value.branch}` : ''}`,

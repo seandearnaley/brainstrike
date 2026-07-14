@@ -79,9 +79,15 @@ const GIT_DIFF_CHANNEL = 'git:diff' as const;
 const GIT_STAGE_CHANNEL = 'git:stage' as const;
 const GIT_UNSTAGE_CHANNEL = 'git:unstage' as const;
 const GIT_COMMIT_CHANNEL = 'git:commit' as const;
+const GIT_COMMIT_DIFF_CHANNEL = 'git:commitDiff' as const;
+const GIT_COMMIT_FILES_CHANNEL = 'git:commitFiles' as const;
 const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
+const GIT_FETCH_CHANNEL = 'git:fetch' as const;
+const GIT_HISTORY_CHANNEL = 'git:history' as const;
 const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
+const GIT_REPOSITORY_CHANNEL = 'git:repository' as const;
+const GIT_SWITCH_BRANCH_CHANNEL = 'git:switchBranch' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
@@ -1110,15 +1116,27 @@ if (shouldExposeBridge('platform')) {
 if (shouldExposeBridge('git')) {
   contextBridge.exposeInMainWorld('git', {
     aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),
-    commit: (rootId: string, params: { message: string }) =>
+    commit: (rootId: string, params: { description?: string; summary: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
+    commitDiff: (rootId: string, params: { commit: string; originalPath?: string; path: string }) =>
+      ipcRenderer.invoke(GIT_COMMIT_DIFF_CHANNEL, rootId, params),
+    commitFiles: (rootId: string, params: { commit: string }) =>
+      ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
     diff: (rootId: string, params?: { path?: string; staged?: boolean; untracked?: boolean }) =>
       ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params ?? {}),
+    fetch: (rootId: string, params: { remote: string }) =>
+      ipcRenderer.invoke(GIT_FETCH_CHANNEL, rootId, params),
+    history: (rootId: string, params: { limit: number; offset: number; ref?: string }) =>
+      ipcRenderer.invoke(GIT_HISTORY_CHANNEL, rootId, params),
     pull: (rootId: string) => ipcRenderer.invoke(GIT_PULL_CHANNEL, rootId),
-    push: (rootId: string) => ipcRenderer.invoke(GIT_PUSH_CHANNEL, rootId),
+    push: (rootId: string, params?: { remote?: string }) =>
+      ipcRenderer.invoke(GIT_PUSH_CHANNEL, rootId, params ?? {}),
+    repository: (rootId: string) => ipcRenderer.invoke(GIT_REPOSITORY_CHANNEL, rootId),
     stage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_STAGE_CHANNEL, rootId, params ?? {}),
     status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
+    switchBranch: (rootId: string, params: { branch: string }) =>
+      ipcRenderer.invoke(GIT_SWITCH_BRANCH_CHANNEL, rootId, params),
     unstage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_UNSTAGE_CHANNEL, rootId, params ?? {}),
   });

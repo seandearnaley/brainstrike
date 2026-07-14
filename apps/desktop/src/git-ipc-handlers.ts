@@ -39,6 +39,38 @@ const logger = createLogger('GitIpc');
 
 export type { WorkspaceRootResolver } from './workspace-root-cwd';
 
+const GIT_ROUTING_ENV_KEYS = new Set([
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_CEILING_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_DIR',
+  'GIT_DISCOVERY_ACROSS_FILESYSTEM',
+  'GIT_EXEC_PATH',
+  'GIT_INDEX_FILE',
+  'GIT_NAMESPACE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_PREFIX',
+  'GIT_TEMPLATE_DIR',
+  'GIT_WORK_TREE',
+]);
+
+/**
+ * Remove inherited environment variables that can redirect Git away from the
+ * DB-authorized cwd or inject per-command config. Authentication variables such
+ * as SSH agent/socket configuration remain intact for explicit network actions.
+ */
+export function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const environment = { ...source };
+  for (const key of Object.keys(environment)) {
+    if (GIT_ROUTING_ENV_KEYS.has(key) || key.startsWith('GIT_CONFIG_')) {
+      Reflect.deleteProperty(environment, key);
+    }
+  }
+  environment['GIT_OPTIONAL_LOCKS'] = '0';
+  environment['GIT_TERMINAL_PROMPT'] = '0';
+  return environment;
+}
+
 /**
  * Adapt Node's `execFile` to the {@link GitCommandRunner} contract.
  *
@@ -96,13 +128,7 @@ export const execFileGitRunner: GitCommandRunner = ({ args, cwd, signal, timeout
         cwd,
         // Discourage interactive credential prompts that would hang a push/pull
         // in a headless main process; surface an auth error instead of blocking.
-        env: {
-          ...process.env,
-          // biome-ignore lint/style/useNamingConvention: standard git env var names (must be uppercase).
-          GIT_OPTIONAL_LOCKS: '0',
-          // biome-ignore lint/style/useNamingConvention: standard git env var names (must be uppercase).
-          GIT_TERMINAL_PROMPT: '0',
-        },
+        env: createPinnedGitEnvironment(process.env),
         maxBuffer: GIT_MAX_BUFFER_BYTES,
         signal,
         timeout: timeoutMs,
@@ -167,8 +193,23 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
 
   return {
     aheadBehind: (rootId: unknown) => withService(rootId, (service) => service.aheadBehind()),
-    commit: (rootId: unknown, params: { message: string }) =>
-      withService(rootId, (service) => service.commit({ message: params?.message })),
+    commit: (rootId: unknown, params: { description?: string; summary: string }) =>
+      withService(rootId, (service) =>
+        service.commit({ description: params?.description, summary: params?.summary })
+      ),
+    commitDiff: (
+      rootId: unknown,
+      params: { commit: string; originalPath?: string; path: string }
+    ) =>
+      withService(rootId, (service) =>
+        service.commitDiff({
+          commit: params?.commit,
+          originalPath: params?.originalPath,
+          path: params?.path,
+        })
+      ),
+    commitFiles: (rootId: unknown, params: { commit: string }) =>
+      withService(rootId, (service) => service.commitFiles({ commit: params?.commit })),
     diff: (
       rootId: unknown,
       params: { path?: string; staged?: boolean; untracked?: boolean } = {}
@@ -176,11 +217,21 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
       withService(rootId, (service) =>
         service.diff({ path: params.path, staged: params.staged, untracked: params.untracked })
       ),
+    fetch: (rootId: unknown, params: { remote: string }) =>
+      withService(rootId, (service) => service.fetch({ remote: params?.remote })),
+    history: (rootId: unknown, params: { limit: number; offset: number; ref?: string }) =>
+      withService(rootId, (service) =>
+        service.history({ limit: params?.limit, offset: params?.offset, ref: params?.ref })
+      ),
     pull: (rootId: unknown) => withService(rootId, (service) => service.pull()),
-    push: (rootId: unknown) => withService(rootId, (service) => service.push()),
+    push: (rootId: unknown, params: { remote?: string } = {}) =>
+      withService(rootId, (service) => service.push({ remote: params?.remote })),
+    repository: (rootId: unknown) => withService(rootId, (service) => service.repository()),
     stage: (rootId: unknown, params: { path?: string } = {}) =>
       withService(rootId, (service) => service.stage({ path: params.path })),
     status: (rootId: unknown) => withService(rootId, (service) => service.status()),
+    switchBranch: (rootId: unknown, params: { branch: string }) =>
+      withService(rootId, (service) => service.switchBranch({ branch: params?.branch })),
     unstage: (rootId: unknown, params: { path?: string } = {}) =>
       withService(rootId, (service) => service.unstage({ path: params.path })),
   };

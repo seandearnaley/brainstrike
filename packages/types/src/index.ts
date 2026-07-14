@@ -17,6 +17,7 @@ export * from './file-explorer-strings';
 export * from './file-explorer-types';
 // export * from "./git-types"; // Removed as git-types.ts is deleted
 export * from './file-system'; // Added export for file system types
+export * from './git';
 export * from './tapestry-colors';
 export * from './view-filter-preset-types';
 export * from './workspace-path-utils';

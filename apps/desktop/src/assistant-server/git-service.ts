@@ -2,9 +2,9 @@
  * Pure, dependency-injected git operations for the desktop `git` IPC domain.
  *
  * This module has NO Electron imports so it is hermetically testable against a
- * real temp git repository (see `git-service.test.ts`). It exposes a small set
- * of typed operations — status / diff / stage / unstage / commit / push / pull /
- * ahead-behind — each of which:
+ * real temp git repository (see `git-service.integration.test.ts`). It exposes
+ * typed working-tree, repository, branch, history, commit, and network
+ * operations, each of which:
  *
  * - runs `git` via an injected `execFile`-style runner (NEVER a shell, NEVER
  *   `execSync`). Every argument (branch name, commit message, path) is passed as
@@ -20,6 +20,44 @@
  */
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
+import type {
+  GitAheadBehind,
+  GitBranchSummary,
+  GitCommitFile,
+  GitCommitResult,
+  GitDiff,
+  GitHistoryPage,
+  GitPushPullResult,
+  GitRepository,
+  GitResult,
+  GitStatus,
+  GitStatusFile,
+  GitSwitchBranchResult,
+  GitWorktreeSummary,
+} from '@brainstrike/types';
+import {
+  parseBranchSummaries,
+  parseCommitFiles,
+  parseHistoryPage,
+  parseWorktreeSummaries,
+} from './git-repository-parsers';
+
+export type {
+  GitAheadBehind,
+  GitBranchSummary,
+  GitCommitFile,
+  GitCommitResult,
+  GitDiff,
+  GitHistoryCommit,
+  GitHistoryPage,
+  GitPushPullResult,
+  GitRepository,
+  GitResult,
+  GitStatus,
+  GitStatusFile,
+  GitSwitchBranchResult,
+  GitWorktreeSummary,
+} from '@brainstrike/types';
 
 export const GIT_DEFAULT_TIMEOUT_MS = 30_000;
 /** Push / pull can hang on auth or a slow network — give them a longer leash. */
@@ -74,76 +112,6 @@ export type GitCommandRunner = (params: {
   readonly signal?: AbortSignal | undefined;
   readonly timeoutMs: number;
 }) => Promise<GitCommandRun>;
-
-/** Discriminated result envelope returned across the IPC boundary. */
-export type GitResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
-/** A single changed path in the working tree / index. */
-export interface GitStatusFile {
-  /** Original path for a rename/copy, else undefined. */
-  readonly originalPath?: string;
-  /** POSIX-ish path relative to the repo root, as git reports it. */
-  readonly path: string;
-  /** True when the index differs from HEAD for this path (staged change). */
-  readonly staged: boolean;
-  /** Single-letter status (M, A, D, R, C, U, ?, !) for the relevant side. */
-  readonly status: string;
-  /** True when the working tree differs from the index (unstaged change). */
-  readonly unstaged: boolean;
-  /** True for an untracked path (`?`). */
-  readonly untracked: boolean;
-}
-
-export interface GitStatus {
-  /** Commits HEAD is ahead of its upstream, or null if no upstream. */
-  readonly ahead: number | null;
-  /** Commits the upstream is ahead of HEAD (HEAD is behind), or null if none/unknown. */
-  readonly behind: number | null;
-  /** Current branch name, or null on a detached HEAD. */
-  readonly branch: string | null;
-  /** True when the working tree + index are clean. */
-  readonly clean: boolean;
-  /** Changed paths (staged, unstaged, untracked, renamed). */
-  readonly files: readonly GitStatusFile[];
-  /** True when `cwd` is not inside a git work tree. */
-  readonly isRepository: boolean;
-  /** Upstream tracking ref (e.g. `origin/main`), or null if none. */
-  readonly upstream: string | null;
-}
-
-export interface GitDiff {
-  /** The path the diff was scoped to, or null for a whole-tree diff. */
-  readonly path: string | null;
-  /** True when the diff was for the staged (index vs HEAD) view. */
-  readonly staged: boolean;
-  /** True when the unified diff text was trimmed to the size budget. */
-  readonly truncated: boolean;
-  /** Unified diff text (bounded to {@link GIT_MAX_OUTPUT_BYTES}). */
-  readonly unifiedDiff: string;
-}
-
-export interface GitAheadBehind {
-  /** Commits HEAD is ahead of its upstream, or null when there is no upstream. */
-  readonly ahead: number | null;
-  /** Commits HEAD is behind its upstream, or null when there is no upstream. */
-  readonly behind: number | null;
-  /** True when an upstream tracking ref is configured. */
-  readonly hasUpstream: boolean;
-  /** Upstream tracking ref (e.g. `origin/main`), or null if none. */
-  readonly upstream: string | null;
-}
-
-export interface GitCommitResult {
-  /** Branch the commit landed on (best-effort; may be null on detached HEAD). */
-  readonly branch: string | null;
-  /** Short commit hash of the new commit. */
-  readonly commit: string;
-}
-
-export interface GitPushPullResult {
-  /** Combined human-readable output git emitted (bounded). */
-  readonly output: string;
-}
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -332,6 +300,88 @@ export function parsePorcelainV2(stdout: string): Omit<GitStatus, 'isRepository'
 }
 
 /**
+ * Parse `git status --porcelain=v2 --branch -z`. Unlike the line format above,
+ * paths are literal and NUL-terminated, so tabs/newlines and rename paths are
+ * unambiguous. This is the production parser; the line parser remains exported
+ * for its narrow pure-format tests and backwards compatibility.
+ */
+export function parsePorcelainV2Z(stdout: string): Omit<GitStatus, 'isRepository'> {
+  const header: BranchHeader = { ahead: null, behind: null, branch: null, upstream: null };
+  const files: GitStatusFile[] = [];
+  const fields = stdout.split('\0');
+
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index] ?? '';
+    if (field.length === 0) {
+      continue;
+    }
+    if (field.startsWith('# ')) {
+      applyBranchHeader(field, header);
+      continue;
+    }
+    if (field.startsWith('2 ')) {
+      const parsed = parseTrackedEntry(field, true);
+      const originalPath = fields[index + 1];
+      if (!(parsed && originalPath)) {
+        throw new Error('git returned malformed NUL-delimited rename status');
+      }
+      index += 1;
+      files.push({ ...parsed, originalPath });
+      continue;
+    }
+    const parsed = parseStatusLine(field);
+    if (!parsed) {
+      throw new Error('git returned malformed NUL-delimited status');
+    }
+    files.push(parsed);
+  }
+
+  return {
+    ahead: header.ahead,
+    behind: header.behind,
+    branch: header.branch,
+    clean: files.length === 0,
+    files,
+    upstream: header.upstream,
+  };
+}
+
+function scopeStatusPaths(
+  status: Omit<GitStatus, 'isRepository'>,
+  repositoryPrefix: string
+): GitResult<Omit<GitStatus, 'isRepository'>> {
+  if (repositoryPrefix.length === 0) {
+    return { ok: true, value: status };
+  }
+  const scopePath = (filePath: string): GitResult<string> => {
+    if (!filePath.startsWith(repositoryPrefix)) {
+      return { error: `git returned path "${filePath}" outside the opened folder`, ok: false };
+    }
+    const relative = filePath.slice(repositoryPrefix.length);
+    return relative.length > 0
+      ? { ok: true, value: relative }
+      : { error: 'git returned an empty path for the opened folder', ok: false };
+  };
+  const files: GitStatusFile[] = [];
+  for (const file of status.files) {
+    const scopedPath = scopePath(file.path);
+    if (!scopedPath.ok) {
+      return scopedPath;
+    }
+    if (file.originalPath) {
+      const scopedOriginal = scopePath(file.originalPath);
+      if (!scopedOriginal.ok) {
+        return scopedOriginal;
+      }
+      files.push({ ...file, originalPath: scopedOriginal.value, path: scopedPath.value });
+    } else {
+      files.push({ ...file, path: scopedPath.value });
+    }
+  }
+  return { ok: true, value: { ...status, files } };
+}
+
+/**
  * Resolve + CONTAIN a renderer/model-supplied path arg to a repo-root-relative
  * pathspec, or reject it.
  *
@@ -426,25 +476,337 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return await run({ args, cwd, signal, timeoutMs });
   }
 
+  async function resolveWorktreeRoot(): Promise<GitResult<string>> {
+    const run_ = await invoke(['rev-parse', '--path-format=absolute', '--show-toplevel']);
+    if (run_.exitCode !== 0) {
+      return { error: describeFailure(run_), ok: false };
+    }
+    const worktreeRoot = run_.stdout.trim();
+    if (worktreeRoot.length === 0) {
+      return { error: 'git returned an empty worktree root', ok: false };
+    }
+    return { ok: true, value: worktreeRoot };
+  }
+
+  async function requireFullWorktreeRoot(action: string): Promise<GitResult<null>> {
+    const root = await resolveWorktreeRoot();
+    if (!root.ok) {
+      return root;
+    }
+    const [openedReal, worktreeReal] = await Promise.all([realpath(cwd), realpath(root.value)]);
+    if (openedReal !== worktreeReal) {
+      return {
+        error: `${action} requires the full Git worktree root to be opened`,
+        ok: false,
+      };
+    }
+    return { ok: true, value: null };
+  }
+
+  async function listRemoteNames(): Promise<GitResult<readonly string[]>> {
+    const run_ = await invoke(['remote']);
+    if (run_.exitCode !== 0) {
+      return { error: describeFailure(run_), ok: false };
+    }
+    const remotes = run_.stdout
+      .split('\n')
+      .map((remote) => remote.trim())
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right));
+    return { ok: true, value: remotes };
+  }
+
+  async function requireRemote(remote: unknown): Promise<GitResult<string>> {
+    if (typeof remote !== 'string' || remote.trim().length === 0) {
+      return { error: 'remote must be a non-empty string', ok: false };
+    }
+    const name = remote.trim();
+    const remotes = await listRemoteNames();
+    if (!remotes.ok) {
+      return remotes;
+    }
+    if (!remotes.value.includes(name)) {
+      return { error: `remote "${name}" does not exist`, ok: false };
+    }
+    return { ok: true, value: name };
+  }
+
+  async function resolveHistoryCommit(ref: string | undefined): Promise<GitResult<string>> {
+    if (ref === undefined) {
+      const head = await invoke(['rev-parse', '--verify', 'HEAD^{commit}']);
+      return head.exitCode === 0
+        ? { ok: true, value: head.stdout.trim() }
+        : { error: describeFailure(head), ok: false };
+    }
+    if (/^[0-9a-f]{40,64}$/.test(ref)) {
+      const commit = await invoke(['rev-parse', '--verify', `${ref}^{commit}`]);
+      return commit.exitCode === 0
+        ? { ok: true, value: commit.stdout.trim() }
+        : { error: describeFailure(commit), ok: false };
+    }
+    const branch = await invoke(['show-ref', '--verify', '--hash', `refs/heads/${ref}`]);
+    if (branch.exitCode !== 0) {
+      return { error: `local branch "${ref}" does not exist`, ok: false };
+    }
+    return { ok: true, value: branch.stdout.trim() };
+  }
+
+  function requireCommitId(commit: unknown): GitResult<string> {
+    if (typeof commit !== 'string' || !/^[0-9a-f]{40,64}$/.test(commit)) {
+      return { error: 'commit must be a full object id returned by Git', ok: false };
+    }
+    return { ok: true, value: commit };
+  }
+
+  async function assertCommitScope(): Promise<GitResult<null>> {
+    const [allRun, scopedRun] = await Promise.all([
+      invoke(['diff', '--cached', '--name-only', '--no-renames', '-z']),
+      invoke(['diff', '--cached', '--name-only', '--no-renames', '-z', '--', '.']),
+    ]);
+    if (allRun.exitCode !== 0) {
+      return { error: describeFailure(allRun), ok: false };
+    }
+    if (scopedRun.exitCode !== 0) {
+      return { error: describeFailure(scopedRun), ok: false };
+    }
+    const scopedPaths = new Set(scopedRun.stdout.split('\0').filter(Boolean));
+    const outsidePaths = allRun.stdout
+      .split('\0')
+      .filter(Boolean)
+      .filter((filePath) => !scopedPaths.has(filePath));
+    if (outsidePaths.length > 0) {
+      const preview = outsidePaths.slice(0, 3).join(', ');
+      return {
+        error: `Cannot commit: ${outsidePaths.length} staged path${outsidePaths.length === 1 ? '' : 's'} outside the opened folder (${preview})`,
+        ok: false,
+      };
+    }
+    return { ok: true, value: null };
+  }
+
+  function buildCommitArgs(params: {
+    summary: string;
+    description?: string | undefined;
+  }): GitResult<string[]> {
+    if (typeof params.summary !== 'string' || params.summary.trim().length === 0) {
+      return { error: 'commit summary must be a non-empty string', ok: false };
+    }
+    if (params.description !== undefined && typeof params.description !== 'string') {
+      return { error: 'commit description must be a string', ok: false };
+    }
+    const args = ['commit', '-m', params.summary.trim()];
+    const description = params.description?.trim() ?? '';
+    if (description.length > 0) {
+      args.push('-m', description);
+    }
+    return { ok: true, value: args };
+  }
+
+  async function resolveCreatedCommit(): Promise<GitResult<GitCommitResult>> {
+    const hashRun = await invoke(['rev-parse', '--short', 'HEAD']);
+    if (hashRun.exitCode !== 0) {
+      return {
+        error: `commit created but resolving its hash failed: ${describeFailure(hashRun)}`,
+        ok: false,
+      };
+    }
+    const branchRun = await invoke(['rev-parse', '--abbrev-ref', 'HEAD']);
+    if (branchRun.exitCode !== 0) {
+      return {
+        error: `commit created but resolving its branch failed: ${describeFailure(branchRun)}`,
+        ok: false,
+      };
+    }
+    const branchName = branchRun.stdout.trim();
+    return {
+      ok: true,
+      value: {
+        branch: branchName.length > 0 && branchName !== 'HEAD' ? branchName : null,
+        commit: hashRun.stdout.trim(),
+      },
+    };
+  }
+
+  interface BranchTracking {
+    readonly branch: string | null;
+    readonly upstream: string | null;
+  }
+
+  async function resolveBranchTracking(): Promise<GitResult<BranchTracking>> {
+    const branchRun = await invoke(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    if (branchRun.exitCode === 1) {
+      return { ok: true, value: { branch: null, upstream: null } };
+    }
+    if (branchRun.exitCode !== 0) {
+      return { error: describeFailure(branchRun), ok: false };
+    }
+    const branch = branchRun.stdout.trim();
+    if (branch.length === 0) {
+      return { error: 'git returned an empty current branch name', ok: false };
+    }
+    const upstreamRun = await invoke([
+      'for-each-ref',
+      '--format=%(upstream:short)',
+      `refs/heads/${branch}`,
+    ]);
+    if (upstreamRun.exitCode !== 0) {
+      return { error: describeFailure(upstreamRun), ok: false };
+    }
+    return {
+      ok: true,
+      value: { branch, upstream: upstreamRun.stdout.trim() || null },
+    };
+  }
+
+  async function resolvePushArgs(remote: unknown): Promise<GitResult<readonly string[]>> {
+    const tracking = await resolveBranchTracking();
+    if (!tracking.ok) {
+      return tracking;
+    }
+    if (tracking.value.branch === null) {
+      return { error: 'push requires a checked-out local branch', ok: false };
+    }
+    if (tracking.value.upstream !== null) {
+      return { ok: true, value: ['push'] };
+    }
+    if (typeof remote !== 'string' || remote.trim().length === 0) {
+      return { error: 'first push requires an explicit remote', ok: false };
+    }
+    const configuredRemote = await requireRemote(remote);
+    if (!configuredRemote.ok) {
+      return configuredRemote;
+    }
+    return { ok: true, value: ['push', '-u', configuredRemote.value, 'HEAD'] };
+  }
+
+  interface RepositoryInventory {
+    readonly branches: readonly GitBranchSummary[];
+    readonly currentBranch: string | null;
+    readonly currentWorktree: GitWorktreeSummary;
+    readonly remotes: readonly string[];
+    readonly repositoryRoot: string;
+    readonly worktreeRoot: string;
+    readonly worktrees: readonly GitWorktreeSummary[];
+  }
+
+  async function loadRepositoryInventory(): Promise<GitResult<RepositoryInventory>> {
+    const root = await resolveWorktreeRoot();
+    if (!root.ok) {
+      return root;
+    }
+    const [worktreeRun, branchRun, remotes] = await Promise.all([
+      invoke(['worktree', 'list', '--porcelain', '-z']),
+      invoke([
+        'for-each-ref',
+        '--sort=-committerdate',
+        '--format=%(refname:short)%00%(objectname)%00%(HEAD)%00%(upstream:short)%00%(worktreepath)%00',
+        'refs/heads',
+      ]),
+      listRemoteNames(),
+    ]);
+    if (worktreeRun.exitCode !== 0) {
+      return { error: describeFailure(worktreeRun), ok: false };
+    }
+    if (branchRun.exitCode !== 0) {
+      return { error: describeFailure(branchRun), ok: false };
+    }
+    if (!remotes.ok) {
+      return remotes;
+    }
+    const worktrees = parseWorktreeSummaries(worktreeRun.stdout, root.value);
+    const currentWorktree = worktrees.find((worktree) => worktree.current);
+    if (!currentWorktree) {
+      return { error: 'git worktree inventory omitted the current worktree', ok: false };
+    }
+    const repositoryRoot = worktrees[0]?.path;
+    if (!repositoryRoot) {
+      return { error: 'git worktree inventory omitted the repository root', ok: false };
+    }
+    const branches = parseBranchSummaries(branchRun.stdout);
+    return {
+      ok: true,
+      value: {
+        branches,
+        currentBranch: branches.find((branch) => branch.current)?.name ?? null,
+        currentWorktree,
+        remotes: remotes.value,
+        repositoryRoot,
+        worktreeRoot: root.value,
+        worktrees,
+      },
+    };
+  }
+
+  async function resolveDefaultRemote(
+    currentBranch: string | null,
+    remotes: readonly string[]
+  ): Promise<GitResult<string | null>> {
+    if (currentBranch === null) {
+      return { ok: true, value: null };
+    }
+    const remoteRun = await invoke(['config', '--get', `branch.${currentBranch}.remote`]);
+    if (remoteRun.exitCode === 1) {
+      return { ok: true, value: null };
+    }
+    if (remoteRun.exitCode !== 0) {
+      return { error: describeFailure(remoteRun), ok: false };
+    }
+    const configured = remoteRun.stdout.trim();
+    if (configured === '.') {
+      return { ok: true, value: null };
+    }
+    if (!remotes.includes(configured)) {
+      return { error: `current branch names unknown remote "${configured}"`, ok: false };
+    }
+    return { ok: true, value: configured };
+  }
+
+  async function createRepositorySnapshot(): Promise<GitResult<GitRepository>> {
+    const inventory = await loadRepositoryInventory();
+    if (!inventory.ok) {
+      return inventory;
+    }
+    const defaultRemote = await resolveDefaultRemote(
+      inventory.value.currentBranch,
+      inventory.value.remotes
+    );
+    if (!defaultRemote.ok) {
+      return defaultRemote;
+    }
+    const [openedReal, worktreeReal] = await Promise.all([
+      realpath(cwd),
+      realpath(inventory.value.worktreeRoot),
+    ]);
+    return {
+      ok: true,
+      value: {
+        branches: inventory.value.branches,
+        currentWorktree: inventory.value.currentWorktree,
+        defaultRemote: defaultRemote.value,
+        name: path.basename(inventory.value.repositoryRoot),
+        openedRoot: openedReal,
+        remotes: inventory.value.remotes,
+        repositoryRoot: inventory.value.repositoryRoot,
+        scope: openedReal === worktreeReal ? 'repository' : 'workspace',
+        worktrees: inventory.value.worktrees,
+      },
+    };
+  }
+
   return {
     /** Ahead/behind counts vs the upstream tracking ref. */
     aheadBehind: async (): Promise<GitResult<GitAheadBehind>> => {
       try {
-        // `@{upstream}` errors with exit 128 when no upstream is set — that is a
-        // valid state, not a failure.
-        const upstreamRun = await invoke([
-          'rev-parse',
-          '--abbrev-ref',
-          '--symbolic-full-name',
-          '@{upstream}',
-        ]);
-        if (upstreamRun.exitCode !== 0) {
+        const tracking = await resolveBranchTracking();
+        if (!tracking.ok) {
+          return tracking;
+        }
+        if (tracking.value.upstream === null) {
           return {
             ok: true,
             value: { ahead: null, behind: null, hasUpstream: false, upstream: null },
           };
         }
-        const upstream = upstreamRun.stdout.trim() || null;
         const countRun = await invoke([
           'rev-list',
           '--left-right',
@@ -464,7 +826,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
             ahead: Number.isNaN(ahead) ? null : ahead,
             behind: Number.isNaN(behind) ? null : behind,
             hasUpstream: true,
-            upstream,
+            upstream: tracking.value.upstream,
           },
         };
       } catch (error) {
@@ -477,37 +839,108 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
      * single `execFile` argument (`-m <message>`), so shell metacharacters in it
      * are inert — they become the literal commit message, never executed.
      */
-    commit: async (params: { message: string }): Promise<GitResult<GitCommitResult>> => {
+    commit: async (params: {
+      summary: string;
+      description?: string | undefined;
+    }): Promise<GitResult<GitCommitResult>> => {
       try {
-        const message = params.message;
-        if (typeof message !== 'string' || message.trim().length === 0) {
-          return { error: 'commit message must be a non-empty string', ok: false };
+        const args = buildCommitArgs(params);
+        if (!args.ok) {
+          return args;
         }
-        const run_ = await invoke(['commit', '-m', message]);
+        const scope = await assertCommitScope();
+        if (!scope.ok) {
+          return scope;
+        }
+        const run_ = await invoke(args.value);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
-        // Resolve the new commit hash + branch without re-parsing porcelain noise.
-        // The commit landed; a failed hash rev-parse is a REAL error, not a blank
-        // hash returned as success (no-silent-fallbacks, per this file's header).
-        const hashRun = await invoke(['rev-parse', '--short', 'HEAD']);
-        if (hashRun.exitCode !== 0) {
-          return {
-            error: `commit created but resolving its hash failed: ${describeFailure(hashRun)}`,
-            ok: false,
-          };
+        return await resolveCreatedCommit();
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
+    /** Historical unified diff for one contained path in a full commit object. */
+    commitDiff: async (params: {
+      commit: string;
+      originalPath?: string | undefined;
+      path: string;
+    }): Promise<GitResult<GitDiff>> => {
+      try {
+        const commit = requireCommitId(params.commit);
+        if (!commit.ok) {
+          return commit;
         }
-        // Branch is best-effort metadata: a detached HEAD legitimately resolves to
-        // `HEAD` → null; only an exit-0 result is trusted as a real branch name.
-        const branchRun = await invoke(['rev-parse', '--abbrev-ref', 'HEAD']);
-        const branchName = branchRun.exitCode === 0 ? branchRun.stdout.trim() : '';
+        const pathResult = resolveContainedPathArg(params.path);
+        if (!(pathResult.ok && pathResult.value)) {
+          return pathResult.ok
+            ? { error: 'historical diff path must be a non-empty string', ok: false }
+            : pathResult;
+        }
+        const originalPathResult = resolveContainedPathArg(params.originalPath);
+        if (!originalPathResult.ok) {
+          return originalPathResult;
+        }
+        const paths = [pathResult.value];
+        if (originalPathResult.value && originalPathResult.value !== pathResult.value) {
+          paths.push(originalPathResult.value);
+        }
+        const run_ = await invoke([
+          'show',
+          '--format=',
+          '--no-ext-diff',
+          '--no-textconv',
+          '--find-renames',
+          commit.value,
+          '--',
+          ...paths,
+        ]);
+        if (run_.exitCode !== 0 && run_.failureReason !== 'maxBuffer') {
+          return { error: describeFailure(run_), ok: false };
+        }
+        const bounded = boundOutput(run_.stdout);
         return {
           ok: true,
           value: {
-            branch: branchName.length > 0 && branchName !== 'HEAD' ? branchName : null,
-            commit: hashRun.stdout.trim(),
+            path: pathResult.value,
+            staged: false,
+            truncated: bounded.truncated || run_.failureReason === 'maxBuffer',
+            unifiedDiff: bounded.text,
           },
         };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
+    /** File list for a historical commit, scoped to the opened workspace root. */
+    commitFiles: async (params: {
+      commit: string;
+    }): Promise<GitResult<readonly GitCommitFile[]>> => {
+      try {
+        const commit = requireCommitId(params.commit);
+        if (!commit.ok) {
+          return commit;
+        }
+        const run_ = await invoke([
+          'diff-tree',
+          '--root',
+          '--no-commit-id',
+          '--name-status',
+          '-r',
+          '-M',
+          '--relative',
+          '-z',
+          commit.value,
+          '--',
+          '.',
+        ]);
+        if (run_.exitCode !== 0) {
+          return { error: describeFailure(run_), ok: false };
+        }
+        return { ok: true, value: parseCommitFiles(run_.stdout) };
       } catch (error) {
         return { error: toErrorMessage(error), ok: false };
       }
@@ -537,7 +970,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         }
         const pathArg = pathResult.value;
 
-        const args: string[] = ['diff'];
+        const args: string[] = ['diff', '--no-ext-diff', '--no-textconv'];
         if (untracked && pathArg !== null) {
           // SECURITY: --no-index reads the filesystem, so a symlinked path could
           // escape the opened folder. Verify real-path containment before git.
@@ -582,9 +1015,71 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       }
     },
 
+    /** Fetch one explicit, configured remote without integrating changes. */
+    fetch: async (params: { remote: string }): Promise<GitResult<GitPushPullResult>> => {
+      try {
+        const remote = await requireRemote(params.remote);
+        if (!remote.ok) {
+          return remote;
+        }
+        const run_ = await invoke(['fetch', '--prune', remote.value], GIT_NETWORK_TIMEOUT_MS);
+        if (run_.exitCode !== 0) {
+          return { error: describeFailure(run_), ok: false };
+        }
+        const bounded = boundOutput(`${run_.stdout}${run_.stderr}`.trim());
+        return { ok: true, value: { output: bounded.text } };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
+    /** Paginated, summary-only history for HEAD, a local branch, or a returned OID. */
+    history: async (params: {
+      limit: number;
+      offset: number;
+      ref?: string | undefined;
+    }): Promise<GitResult<GitHistoryPage>> => {
+      try {
+        if (!(Number.isInteger(params.limit) && params.limit >= 1 && params.limit <= 200)) {
+          return { error: 'history limit must be an integer between 1 and 200', ok: false };
+        }
+        if (!(Number.isInteger(params.offset) && params.offset >= 0 && params.offset <= 100_000)) {
+          return { error: 'history offset must be an integer between 0 and 100000', ok: false };
+        }
+        const commit = await resolveHistoryCommit(params.ref);
+        if (!commit.ok) {
+          return commit;
+        }
+        const format = '%H%x00%h%x00%s%x00%b%x00%an%x00%ae%x00%aI%x00%cI%x00%P%x00%D';
+        const run_ = await invoke([
+          'log',
+          '-z',
+          `--max-count=${params.limit + 1}`,
+          `--skip=${params.offset}`,
+          `--format=${format}`,
+          commit.value,
+          '--',
+          '.',
+        ]);
+        if (run_.exitCode !== 0) {
+          return { error: describeFailure(run_), ok: false };
+        }
+        return {
+          ok: true,
+          value: parseHistoryPage(run_.stdout, { limit: params.limit, offset: params.offset }),
+        };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
     /** Pull (fetch + merge) from the upstream remote (network op). */
     pull: async (): Promise<GitResult<GitPushPullResult>> => {
       try {
+        const scope = await requireFullWorktreeRoot('Pull');
+        if (!scope.ok) {
+          return scope;
+        }
         const run_ = await invoke(['pull'], GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
@@ -599,33 +1094,32 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     /**
      * Push to the upstream remote (network op, longer timeout).
      *
-     * When the current branch has NO upstream (a freshly-created local branch),
-     * a bare `git push` fails unless the user configured `push.autoSetupRemote`.
-     * So we first probe `@{upstream}`; if it is absent we push with
-     * `-u origin HEAD`, which both pushes AND sets the upstream so subsequent
-     * pushes/pulls and the ahead/behind meter work. This keeps `origin` as the
-     * conventional default remote — if the user has a non-`origin` remote the
-     * push surfaces git's own actionable error rather than silently guessing.
+     * When the current branch has NO upstream, the caller must choose a
+     * configured remote explicitly. The service never guesses `origin`.
      */
-    push: async (): Promise<GitResult<GitPushPullResult>> => {
+    push: async (
+      params: { remote?: string | undefined } = {}
+    ): Promise<GitResult<GitPushPullResult>> => {
       try {
-        const upstreamRun = await invoke([
-          'rev-parse',
-          '--abbrev-ref',
-          '--symbolic-full-name',
-          '@{upstream}',
-        ]);
-        const hasUpstream = upstreamRun.exitCode === 0 && upstreamRun.stdout.trim().length > 0;
-        const args = hasUpstream
-          ? ['push']
-          : // No upstream: set it on this first push so the branch becomes tracked.
-            ['push', '-u', 'origin', 'HEAD'];
-        const run_ = await invoke(args, GIT_NETWORK_TIMEOUT_MS);
+        const args = await resolvePushArgs(params.remote);
+        if (!args.ok) {
+          return args;
+        }
+        const run_ = await invoke(args.value, GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
         const bounded = boundOutput(`${run_.stdout}${run_.stderr}`.trim());
         return { ok: true, value: { output: bounded.text } };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
+    /** Repository/worktree/branch identity. Worktree paths are metadata only. */
+    repository: async (): Promise<GitResult<GitRepository>> => {
+      try {
+        return await createRepositorySnapshot();
       } catch (error) {
         return { error: toErrorMessage(error), ok: false };
       }
@@ -656,7 +1150,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         // like `../other/file` that could then be passed back to diff/stage and
         // escape the opened folder. `--branch` still yields the repo-wide branch
         // header (ahead/behind), which is what the meter wants.
-        const run_ = await invoke(['status', '--porcelain=v2', '--branch', '--', '.']);
+        const [run_, prefixRun] = await Promise.all([
+          invoke(['status', '--porcelain=v2', '--branch', '-z', '--', '.']),
+          invoke(['rev-parse', '--show-prefix']),
+        ]);
         if (run_.exitCode !== 0) {
           if (isNotARepository(run_)) {
             // A non-repo (or web FSA root) is a clean, EXPECTED state — not an
@@ -676,10 +1173,42 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           }
           return { error: describeFailure(run_), ok: false };
         }
+        if (prefixRun.exitCode !== 0) {
+          return { error: describeFailure(prefixRun), ok: false };
+        }
+        const parsed = scopeStatusPaths(parsePorcelainV2Z(run_.stdout), prefixRun.stdout.trim());
+        if (!parsed.ok) {
+          return parsed;
+        }
         return {
           ok: true,
-          value: { isRepository: true, ...parsePorcelainV2(run_.stdout) },
+          value: { isRepository: true, ...parsed.value },
         };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
+    /** Switch the full opened worktree to an existing local branch. */
+    switchBranch: async (params: { branch: string }): Promise<GitResult<GitSwitchBranchResult>> => {
+      try {
+        if (typeof params.branch !== 'string' || params.branch.trim().length === 0) {
+          return { error: 'branch must be a non-empty string', ok: false };
+        }
+        const scope = await requireFullWorktreeRoot('Branch switching');
+        if (!scope.ok) {
+          return scope;
+        }
+        const branch = params.branch.trim();
+        const exists = await invoke(['show-ref', '--verify', '--hash', `refs/heads/${branch}`]);
+        if (exists.exitCode !== 0) {
+          return { error: `local branch "${branch}" does not exist`, ok: false };
+        }
+        const run_ = await invoke(['switch', '--no-guess', branch]);
+        if (run_.exitCode !== 0) {
+          return { error: describeFailure(run_), ok: false };
+        }
+        return { ok: true, value: { branch } };
       } catch (error) {
         return { error: toErrorMessage(error), ok: false };
       }

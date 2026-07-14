@@ -78,13 +78,53 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
       ok({ ahead: 2, behind: 1, hasUpstream: true, upstream: 'origin/main' })
     ),
     commit: vi.fn(async () => ok({ branch: 'main', commit: 'abc1234' })),
+    commitDiff: vi.fn(async () =>
+      ok({ path: 'staged.ts', staged: false, truncated: false, unifiedDiff: '' })
+    ),
+    commitFiles: vi.fn(async () => ok([])),
     diff: vi.fn(async () =>
       ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: '' })
     ),
+    fetch: vi.fn(async () => ok({ output: 'Fetched.' })),
+    history: vi.fn(async () => ok({ commits: [], hasMore: false, limit: 100, offset: 0 })),
     pull: vi.fn(async () => ok({ output: 'Already up to date.' })),
     push: vi.fn(async () => ok({ output: 'Everything up-to-date' })),
+    repository: vi.fn(async () =>
+      ok({
+        branches: [
+          {
+            current: true,
+            head: '0123456789012345678901234567890123456789',
+            name: 'main',
+            upstream: 'origin/main',
+            worktreePath: '/abs/repo',
+          },
+        ],
+        currentWorktree: {
+          bare: false,
+          branch: 'main',
+          current: true,
+          detached: false,
+          head: '0123456789012345678901234567890123456789',
+          lockedReason: null,
+          name: 'repo',
+          path: '/abs/repo',
+          prunableReason: null,
+        },
+        defaultRemote: 'origin',
+        name: 'repo',
+        openedRoot: '/abs/repo',
+        remotes: ['origin'],
+        repositoryRoot: '/abs/repo',
+        scope: 'repository' as const,
+        worktrees: [],
+      })
+    ),
     stage: vi.fn(async () => ok(null)),
     status: vi.fn(async () => ok(makeStatus())),
+    switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) =>
+      ok({ branch: params.branch })
+    ),
     unstage: vi.fn(async () => ok(null)),
     ...bridge,
   };
@@ -181,7 +221,7 @@ describe('GitPanel', () => {
     await user.type(box, 'feat: do the thing');
     await user.click(screen.getByRole('button', { name: /^Commit/ }));
 
-    expect(bridge.commit).toHaveBeenCalledWith('root-1', { message: 'feat: do the thing' });
+    expect(bridge.commit).toHaveBeenCalledWith('root-1', { summary: 'feat: do the thing' });
     await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(''));
   });
 
