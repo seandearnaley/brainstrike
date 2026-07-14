@@ -79,9 +79,10 @@ building anything, so a `packages/types` edit no longer rebuilds ~39 packages
 before a test runs. Plain deletion of the edge would be a stale-green landmine
 (tests import upstream source, so a cached dependent must still re-hash when an
 upstream's source changes); the transit node REPLACES the edge instead of
-removing it. `topo`'s inputs exclude `*.test.*`/`__tests__/**` (a dependent
-never imports an upstream's test files) but keep `package.json` (its `exports`
-map feeds the src-alias registry). Explicit build edges survive in per-package
+removing it. `topo` hashes the FULL default inputs (no test-file exclusions —
+`__tests__/` dirs contain importable helper modules and no guard enforces
+"never imported cross-package", so narrowing was reviewed out as a stale-green
+vector; test-only over-invalidation is the cheaper failure mode). Explicit build edges survive in per-package
 `turbo.json` where a test genuinely consumes a built artifact:
 `@brainstrike/utils#test` needs its own `build` (logger-dist-singleton test
 imports utils' `dist` by file URL); `@brainstrike/db#test`/`#test:coverage`

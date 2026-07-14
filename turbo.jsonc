@@ -88,25 +88,19 @@
     // green for weeks). `topo` REPLACES the edge: it re-carries the cascade
     // through a node that runs no script. See proof #2 in the B4 PR body.
     //
-    // INPUTS narrowing (precision, not correctness): default inputs would hash
-    // ALL of a package's files into its topo node, so editing a dep's OWN test
-    // files would needlessly re-run every dependent's tests. A downstream
-    // package only ever imports an upstream through its `exports` map (→ `src`),
-    // NEVER the upstream's `*.test.*` files or `__tests__/` dirs (those are not
-    // exported and are not src-alias targets). Excluding them from the
-    // propagation hash is therefore SOUND (it can never hide a change a
-    // dependent could observe) and only removes over-invalidation.
-    // `package.json` is DELIBERATELY kept in the hash: it holds the `exports`
-    // map, a runtime input to the src-alias registry — an exports edit MUST
-    // cascade to dependents.
+    // INPUTS: deliberately the FULL default (no `inputs` key — every checked-in
+    // file of the package hashes into its topo node). A dep's test-only edit
+    // therefore re-runs its dependents' tests too. That is over-invalidation,
+    // but narrowing (excluding `**/*.test.*` / `**/__tests__/**`) was reviewed
+    // OUT of B4: `__tests__/` dirs in this repo contain helper/fixture modules
+    // that other packages CAN import, and nothing enforces "test files are
+    // never imported cross-package" — an unenforced exclusion is a stale-green
+    // vector, while test-only over-invalidation is merely a slower cache miss.
+    // Precision is a possible follow-up, gated on a guard proving no
+    // cross-package import resolves into an excluded path.
     "topo": {
       "dependsOn": [
         "^topo"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.test.*",
-        "!**/__tests__/**"
       ]
     },
     // --- Build Task --- //
