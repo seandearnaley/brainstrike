@@ -6,8 +6,12 @@
 //
 // HOW IT WORKS (no marker strings — the configs are executed):
 // 1. Per packages/* with a vitest config, collect every runtime `@brainstrike/*`
-//    import SPECIFIER from its source/test files (static `from`, side-effect
-//    `import '...'`, and dynamic `import('...')`; type-only imports ignored).
+//    import SPECIFIER from its source/test files via TypeScript SYNTAX parsing
+//    (static imports, `export ... from`, side-effect imports, dynamic
+//    `import('...')`, CJS `require('...')`). Type-only declarations —
+//    `import type`/`export type ... from`, including multiline forms and
+//    all-`type` named-binding lists — are erased at compile time and ignored;
+//    a mixed list (`import { type A, b }`) still loads the module and counts.
 // 2. Enumerate the package's runnable vitest configs. Discovery is the
 //    `vitest.*config*.*` filename convention, CROSS-CHECKED against reality:
 //    every vitest `--config`/`-c` reference in the package's scripts and every
@@ -31,6 +35,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// Syntax-only parsing (ts.createSourceFile) to classify imports; no type check.
+import ts from 'typescript';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -93,11 +99,78 @@ function collectSourceFiles(dir, acc, { includeTests }) {
   return acc;
 }
 
-const IMPORT_SPECIFIER_RES = [
-  /from\s*['"](@brainstrike\/[^'"]+)['"]/, // static import/export ... from
-  /^\s*import\s*['"](@brainstrike\/[^'"]+)['"]/, // side-effect import
-  /import\s*\(\s*['"](@brainstrike\/[^'"]+)['"]\s*\)/, // dynamic import()
-];
+/** True when an import declaration is fully erased at compile time. */
+function isTypeOnlyImport(node) {
+  const clause = node.importClause;
+  if (!clause) {
+    return false; // side-effect import — always runtime
+  }
+  if (clause.isTypeOnly) {
+    return true; // import type { ... } / import type Default (incl. multiline)
+  }
+  if (!clause.name && clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+    const elements = clause.namedBindings.elements;
+    // `import { type A, type B } from ...` erases; a single runtime binding
+    // (`import { type A, b } from ...`) keeps the module load.
+    return elements.length > 0 && elements.every((element) => element.isTypeOnly);
+  }
+  return false;
+}
+
+/** True when an `export ... from` declaration is fully erased at compile time. */
+function isTypeOnlyReExport(node) {
+  if (node.isTypeOnly) {
+    return true; // export type { ... } from ...
+  }
+  if (node.exportClause && ts.isNamedExports(node.exportClause)) {
+    const elements = node.exportClause.elements;
+    return elements.length > 0 && elements.every((element) => element.isTypeOnly);
+  }
+  return false;
+}
+
+/** True for dynamic `import('...')` and CJS `require('...')` call shapes. */
+function isRuntimeModuleCall(node) {
+  return (
+    (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+      (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
+    node.arguments.length === 1 &&
+    ts.isStringLiteralLike(node.arguments[0])
+  );
+}
+
+/**
+ * Parse one source file (syntax only — no type checking) and collect its
+ * RUNTIME module specifiers. Uses the repo's own `typescript` package so
+ * multiline `import type { ... } from '...'` declarations are classified
+ * correctly — a line-level regex misread their closing `} from '...'` line as
+ * a runtime import.
+ */
+function collectFileRuntimeSpecifiers(filePath, text) {
+  const scriptKind = filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const sourceFile = ts.createSourceFile(filePath, text, ts.ScriptTarget.Latest, true, scriptKind);
+  const specifiers = new Set();
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+      if (!isTypeOnlyImport(node)) {
+        specifiers.add(node.moduleSpecifier.text);
+      }
+    } else if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      if (!isTypeOnlyReExport(node)) {
+        specifiers.add(node.moduleSpecifier.text);
+      }
+    } else if (ts.isCallExpression(node) && isRuntimeModuleCall(node)) {
+      specifiers.add(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return specifiers;
+}
 
 /**
  * Full runtime @brainstrike/* specifiers imported by a package (excluding self).
@@ -109,16 +182,12 @@ export function collectRuntimeWorkspaceSpecifiers(pkgDir, selfName, options = {}
   const includeTests = options.includeTests ?? true;
   const specifiers = new Set();
   for (const file of collectSourceFiles(pkgDir, [], { includeTests })) {
-    for (const line of readFileSync(file, 'utf8').split('\n')) {
-      // Type-only imports are erased at compile time — never resolved at runtime.
-      if (/^\s*import\s+type\b|^\s*export\s+type\b/.test(line)) {
-        continue;
-      }
-      for (const re of IMPORT_SPECIFIER_RES) {
-        const match = line.match(re);
-        if (match && match[1].split('/').slice(0, 2).join('/') !== selfName) {
-          specifiers.add(match[1]);
-        }
+    for (const specifier of collectFileRuntimeSpecifiers(file, readFileSync(file, 'utf8'))) {
+      if (
+        specifier.startsWith('@brainstrike/') &&
+        specifier.split('/').slice(0, 2).join('/') !== selfName
+      ) {
+        specifiers.add(specifier);
       }
     }
   }

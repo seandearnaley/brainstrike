@@ -304,3 +304,71 @@ test('DISCOVERY: stryker configFile references are cross-checked too', async () 
     /references vitest config 'vitest\.hidden\.conf\.mjs'.*discovery missed/
   );
 });
+
+test('CLASSIFIER: multiline `import type { ... } from` is erased (probe case)', async () => {
+  // Mirrors packages/test-utils/src/factories/file-node.ts — the line-level
+  // regex misread the closing `} from '...'` line as a runtime import.
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts':
+      "import type {\n  ThingA,\n  ThingB,\n} from '@brainstrike/beta';\nexport type X = ThingA | ThingB;\n",
+  });
+  await writeFile(
+    path.join(packagesRoot, 'alpha/vitest.config.mjs'),
+    'export default { test: {} };\n'
+  );
+  assert.deepEqual(await findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot }), []);
+});
+
+test('CLASSIFIER: all-type named bindings erase; a mixed list stays runtime', async () => {
+  const packagesRoot = await writeFixture({
+    // beta: `import { type A, type B }` — fully erased, no runtime load
+    // gamma: `import { type A, b }` — mixed, module IS loaded at runtime
+    'alpha/src/index.ts':
+      "import { type ThingA, type ThingB } from '@brainstrike/beta';\n" +
+      "import { type OnlyType, g } from '@brainstrike/gamma';\n" +
+      'export const x: ThingA | ThingB | OnlyType | undefined = g;\n',
+  });
+  await writeFile(
+    path.join(packagesRoot, 'alpha/vitest.config.mjs'),
+    'export default { test: {} };\n'
+  );
+  const violations = await findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot });
+  assert.deepEqual(
+    violations.map((v) => v.specifier),
+    ['@brainstrike/gamma']
+  );
+});
+
+test('CLASSIFIER: `export type { } from` erases; `export { } from` is runtime', async () => {
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts':
+      "export type { ThingA } from '@brainstrike/beta';\nexport { g } from '@brainstrike/gamma';\n",
+  });
+  await writeFile(
+    path.join(packagesRoot, 'alpha/vitest.config.mjs'),
+    'export default { test: {} };\n'
+  );
+  const violations = await findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot });
+  assert.deepEqual(
+    violations.map((v) => v.specifier),
+    ['@brainstrike/gamma']
+  );
+});
+
+test('CLASSIFIER: CJS require(...) is a runtime import', async () => {
+  // The db-provider class: a bare require() bypasses vite aliases entirely, so
+  // it must at minimum be counted as a runtime workspace dependency.
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts':
+      "export function load(): unknown {\n  const { thing } = require('@brainstrike/beta');\n  return thing;\n}\n",
+  });
+  await writeFile(
+    path.join(packagesRoot, 'alpha/vitest.config.mjs'),
+    'export default { test: {} };\n'
+  );
+  const violations = await findWorkspaceSrcAliasViolations({ allowlist: {}, packagesRoot });
+  assert.deepEqual(
+    violations.map((v) => v.specifier),
+    ['@brainstrike/beta']
+  );
+});
