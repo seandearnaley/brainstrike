@@ -81,19 +81,36 @@ describe('db test lane manifest', () => {
     // Reproduces the one residual manual step: a brand-new unit lane with no
     // coverageDefaultsByUnitLane entry must not let its tests silently vanish from
     // coverage. buildDbCoverageLaneMap must surface an explicit failure instead.
+    //
+    // The fixture is fully self-contained rather than spreading dbCoverageLaneDefinitions:
+    // inheriting the real coverageOverridesByLane/laneOrder while passing only the fixture
+    // file made the function emit 22 unrelated failures ("Lane X references missing test
+    // …", "Lane X has no tests") that the assertion then had to fish its signal out of.
+    // It mirrors the real manifest's SHAPE — one properly-mapped unit lane plus one
+    // orphan — so the happy path is exercised alongside the failure and `toEqual` below
+    // can assert the orphan is the ONLY thing that goes wrong.
     const orphanLaneDefinitions = {
-      ...dbCoverageLaneDefinitions,
-      unitLaneDefinitions: [{ matches: [/^orphan-lane-fixture\.test\.ts$/], name: 'orphan-lane' }],
-      // 'orphan-lane' is intentionally absent from coverageDefaultsByUnitLane.
+      coverageDefaultsByUnitLane: { 'mapped-lane': 'mapped-coverage-lane' },
+      coverageOverridesByLane: {},
+      laneOrder: ['mapped-coverage-lane'],
+      unitLaneDefinitions: [
+        { matches: [/^mapped-fixture\.test\.ts$/], name: 'mapped-lane' },
+        // 'orphan-lane' is intentionally absent from coverageDefaultsByUnitLane.
+        { matches: [/^orphan-lane-fixture\.test\.ts$/], name: 'orphan-lane' },
+      ],
     };
 
-    const { failures } = buildDbCoverageLaneMap(
-      ['orphan-lane-fixture.test.ts'],
+    const { failures, laneMap } = buildDbCoverageLaneMap(
+      ['mapped-fixture.test.ts', 'orphan-lane-fixture.test.ts'],
       orphanLaneDefinitions
     );
 
-    expect(failures).toContain(
-      'Test orphan-lane-fixture.test.ts has no coverage default for DB unit lane orphan-lane.'
-    );
+    // Exactly one failure, naming the orphan lane — no incidental noise.
+    expect(failures).toEqual([
+      'Test orphan-lane-fixture.test.ts has no coverage default for DB unit lane orphan-lane.',
+    ]);
+    // …and the properly-mapped lane still resolved, proving the failure above is specific
+    // to the missing default rather than the fixture failing everything.
+    expect(laneMap.get('mapped-coverage-lane')).toEqual(['mapped-fixture.test.ts']);
   });
 });
