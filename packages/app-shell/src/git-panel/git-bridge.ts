@@ -1,76 +1,78 @@
 /**
  * Structural typing + capability resolution for the desktop `window.git` bridge.
  *
- * app-shell cannot import `apps/desktop` types, so the bridge shape is mirrored
- * here as the minimal contract the Git panel consumes. It MUST stay in sync with
- * the desktop bridge declared in `apps/desktop/src/types/electron.d.ts` (and the
- * service in `apps/desktop/src/assistant-server/git-service.ts`).
+ * Shared Git domain values come from `@brainstrike/types`; this interface only
+ * describes the capability methods exposed by the desktop preload.
  *
  * Capability gating (CLAUDE.md CONTEXT ACTION SYSTEM): the panel is desktop-only
  * because it is constructed only when `resolveGitBridge()` returns a fully-formed
  * bridge. Web never sees it — there is no `isElectron()` check anywhere.
  */
+
+import type {
+  GitAheadBehind,
+  GitCommitFile,
+  GitCommitResult,
+  GitDiff,
+  GitDiffParams,
+  GitHistoryPage,
+  GitPushPullResult,
+  GitRepository,
+  GitResult,
+  GitStatus,
+  GitSwitchBranchResult,
+} from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
+
+export type {
+  GitAheadBehind,
+  GitBranchSummary,
+  GitCommitFile,
+  GitCommitResult,
+  GitDiff,
+  GitDiffParams,
+  GitHistoryCommit,
+  GitHistoryPage,
+  GitPushPullResult,
+  GitRepository,
+  GitResult,
+  GitStatus,
+  GitStatusFile,
+  GitSwitchBranchResult,
+  GitWorktreeSummary,
+} from '@brainstrike/types';
 
 const logger = createLogger('GitPanel');
 
-/** Discriminated result envelope returned across the IPC boundary (never throws). */
-export type GitResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
-/** A single changed path in the working tree / index. */
-export interface GitStatusFile {
-  readonly originalPath?: string;
-  readonly path: string;
-  readonly staged: boolean;
-  readonly status: string;
-  readonly unstaged: boolean;
-  readonly untracked: boolean;
-}
-
-export interface GitStatus {
-  readonly ahead: number | null;
-  readonly behind: number | null;
-  readonly branch: string | null;
-  readonly clean: boolean;
-  readonly files: readonly GitStatusFile[];
-  readonly isRepository: boolean;
-  readonly upstream: string | null;
-}
-
-export interface GitDiff {
-  readonly path: string | null;
-  readonly staged: boolean;
-  readonly truncated: boolean;
-  readonly unifiedDiff: string;
-}
-
-export interface GitAheadBehind {
-  readonly ahead: number | null;
-  readonly behind: number | null;
-  readonly hasUpstream: boolean;
-  readonly upstream: string | null;
-}
-
-export interface GitCommitResult {
-  readonly branch: string | null;
-  readonly commit: string;
-}
-
-export interface GitPushPullResult {
-  readonly output: string;
-}
-
 export interface GitBridge {
   aheadBehind: (rootId: string) => Promise<GitResult<GitAheadBehind>>;
-  commit: (rootId: string, params: { message: string }) => Promise<GitResult<GitCommitResult>>;
-  diff: (
+  commit: (
     rootId: string,
-    params?: { path?: string; staged?: boolean; untracked?: boolean }
+    params: { description?: string; summary: string }
+  ) => Promise<GitResult<GitCommitResult>>;
+  commitDiff: (
+    rootId: string,
+    params: { commit: string; originalPath?: string; path: string }
   ) => Promise<GitResult<GitDiff>>;
+  commitFiles: (
+    rootId: string,
+    params: { commit: string }
+  ) => Promise<GitResult<readonly GitCommitFile[]>>;
+  diff: (rootId: string, params: GitDiffParams) => Promise<GitResult<GitDiff>>;
+  fetch: (rootId: string, params: { remote: string }) => Promise<GitResult<GitPushPullResult>>;
+  history: (
+    rootId: string,
+    params: { limit: number; offset: number; ref?: string }
+  ) => Promise<GitResult<GitHistoryPage>>;
   pull: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
-  push: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
+  push: (rootId: string, params?: { remote?: string }) => Promise<GitResult<GitPushPullResult>>;
+  repository: (rootId: string) => Promise<GitResult<GitRepository>>;
   stage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
   status: (rootId: string) => Promise<GitResult<GitStatus>>;
+  switchBranch: (
+    rootId: string,
+    params: { branch: string }
+  ) => Promise<GitResult<GitSwitchBranchResult>>;
   unstage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
 }
 
@@ -78,12 +80,18 @@ export interface GitBridge {
 const REQUIRED_METHODS: readonly (keyof GitBridge)[] = [
   'status',
   'diff',
+  'commitDiff',
+  'commitFiles',
   'stage',
   'unstage',
   'commit',
   'aheadBehind',
+  'fetch',
+  'history',
   'push',
   'pull',
+  'repository',
+  'switchBranch',
 ];
 
 /**

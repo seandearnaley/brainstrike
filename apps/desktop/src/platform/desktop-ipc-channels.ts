@@ -60,11 +60,17 @@ export const DESKTOP_IPC_CHANNELS = {
   git: {
     aheadBehind: 'git:aheadBehind',
     commit: 'git:commit',
+    commitDiff: 'git:commitDiff',
+    commitFiles: 'git:commitFiles',
     diff: 'git:diff',
+    fetch: 'git:fetch',
+    history: 'git:history',
     pull: 'git:pull',
     push: 'git:push',
+    repository: 'git:repository',
     stage: 'git:stage',
     status: 'git:status',
+    switchBranch: 'git:switchBranch',
     unstage: 'git:unstage',
   },
   hooks: {

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { GitCommandRun, GitCommandRunner } from '../assistant-server/git-service';
 import {
   createGitIpcHandlers,
+  createPinnedGitEnvironment,
   execFileGitRunner,
   type WorkspaceRootResolver,
 } from '../git-ipc-handlers';
@@ -108,10 +109,19 @@ describe('git IPC handlers — root resolution + containment', () => {
 
     const result = await handlers.status('r1');
     expect(result.ok).toBe(true);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(calls[0]?.cwd).toBe(dir);
     // Scoped to the opened root ('-- .') for subdir-of-worktree containment.
-    expect(calls[0]?.args).toEqual(['status', '--porcelain=v2', '--branch', '--', '.']);
+    expect(calls[0]?.args).toEqual([
+      'status',
+      '--porcelain=v2',
+      '--branch',
+      '--untracked-files=all',
+      '-z',
+      '--',
+      '.',
+    ]);
+    expect(calls[1]?.args).toEqual(['rev-parse', '--show-prefix']);
   });
 
   it('reports a clean error when the resolved root no longer exists on disk', async () => {
@@ -172,29 +182,43 @@ describe('git IPC handlers — root resolution + containment', () => {
 describe('git IPC handlers — push/pull command construction (no network)', () => {
   it('builds the push command and maps a network failure to a structured error', async () => {
     const dir = await makeDir();
-    const { runner, calls } = recordingRunner({
-      exitCode: 128,
-      stderr: 'fatal: could not read Username for https://example.com: terminal prompts disabled',
-      stdout: '',
-      timedOut: false,
-    });
+    const responses = [
+      { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
+      { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
+      { exitCode: 0, stderr: '', stdout: '\n', timedOut: false },
+      { exitCode: 0, stderr: '', stdout: 'origin\n', timedOut: false },
+      {
+        exitCode: 128,
+        stderr: 'fatal: could not read Username for https://example.com: terminal prompts disabled',
+        stdout: '',
+        timedOut: false,
+      },
+    ];
+    let index = 0;
+    const calls: { args: readonly string[]; cwd: string }[] = [];
     const handlers = createGitIpcHandlers({
       resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
-      run: runner,
+      run: ({ args, cwd }) => {
+        calls.push({ args, cwd });
+        const response = responses[index] ?? responses.at(-1);
+        index += 1;
+        return Promise.resolve(response ?? responses[3]);
+      },
     });
 
-    const result = await handlers.push('r1');
-    // Push now first PROBES the upstream (`rev-parse @{upstream}`); the recording
-    // runner returns exit 128 for that probe → "no upstream" → the service falls
-    // back to `push -u origin HEAD` to set the upstream on the first push.
-    expect(calls).toHaveLength(2);
-    expect(calls[0]?.args).toEqual([
-      'rev-parse',
-      '--abbrev-ref',
-      '--symbolic-full-name',
-      '@{upstream}',
+    const result = await handlers.push('r1', { remote: 'origin' });
+    // Push first verifies that the authorized root is the full worktree. It
+    // then probes the upstream and validates the renderer-selected remote.
+    expect(calls).toHaveLength(5);
+    expect(calls[0]?.args).toEqual(['rev-parse', '--path-format=absolute', '--show-toplevel']);
+    expect(calls[1]?.args).toEqual(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    expect(calls[2]?.args).toEqual([
+      'for-each-ref',
+      '--format=%(upstream:short)',
+      'refs/heads/main',
     ]);
-    expect(calls[1]?.args).toEqual(['push', '-u', 'origin', 'HEAD']);
+    expect(calls[3]?.args).toEqual(['remote']);
+    expect(calls[4]?.args).toEqual(['push', '-u', '--', 'origin', 'HEAD']);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toMatch(/could not read Username|terminal prompts disabled/);
@@ -203,8 +227,10 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
 
   it('uses a bare `git push` when the branch already has an upstream', async () => {
     const dir = await makeDir();
-    // Per-call responses: the upstream probe succeeds, then the push succeeds.
+    // Per-call responses: full-root probe, current branch, upstream, then push.
     const responses = [
+      { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
+      { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'origin/main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'Everything up-to-date\n', timedOut: false },
     ];
@@ -226,26 +252,32 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     });
 
     const result = await handlers.push('r1');
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.args).toEqual(['push']);
+    expect(calls).toHaveLength(4);
+    expect(calls[3]?.args).toEqual(['push']);
     expect(result.ok).toBe(true);
   });
 
   it('builds the pull command and returns the output on success', async () => {
     const dir = await makeDir();
-    const { runner, calls } = recordingRunner({
-      exitCode: 0,
-      stderr: '',
-      stdout: 'Already up to date.\n',
-      timedOut: false,
-    });
+    const calls: { args: readonly string[]; cwd: string }[] = [];
     const handlers = createGitIpcHandlers({
       resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
-      run: runner,
+      run: ({ args, cwd }) => {
+        calls.push({ args, cwd });
+        return Promise.resolve({
+          exitCode: 0,
+          stderr: '',
+          stdout: args[0] === 'rev-parse' ? `${dir}\n` : 'Already up to date.\n',
+          timedOut: false,
+        });
+      },
     });
 
     const result = await handlers.pull('r1');
-    expect(calls[0]?.args).toEqual(['pull']);
+    expect(calls.map((call) => call.args)).toEqual([
+      ['rev-parse', '--path-format=absolute', '--show-toplevel'],
+      ['pull'],
+    ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.output).toContain('Already up to date');
@@ -254,16 +286,26 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
 
   it('maps a timed-out push to a structured timeout error', async () => {
     const dir = await makeDir();
-    const { runner } = recordingRunner({
-      exitCode: null,
-      failureReason: 'timeout',
-      stderr: '',
-      stdout: '',
-      timedOut: true,
-    });
+    const responses = [
+      { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
+      { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
+      { exitCode: 0, stderr: '', stdout: 'origin/main\n', timedOut: false },
+      {
+        exitCode: null,
+        failureReason: 'timeout' as const,
+        stderr: '',
+        stdout: '',
+        timedOut: true,
+      },
+    ];
+    let index = 0;
     const handlers = createGitIpcHandlers({
       resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
-      run: runner,
+      run: () => {
+        const response = responses[index] ?? responses.at(-1);
+        index += 1;
+        return Promise.resolve(response ?? responses[2]);
+      },
     });
 
     const result = await handlers.push('r1');
@@ -275,7 +317,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
 });
 
 describe('git IPC handlers — commit arg construction (no shell)', () => {
-  it('passes the commit message as a single -m argument (no shell interpolation)', async () => {
+  it('passes summary and description as separate literal -m arguments', async () => {
     const dir = await makeDir();
     const { runner, calls } = recordingRunner({
       exitCode: 0,
@@ -289,10 +331,69 @@ describe('git IPC handlers — commit arg construction (no shell)', () => {
     });
 
     const evil = 'msg; rm -rf / $(touch x)';
-    await handlers.commit('r1', { message: evil });
-    // The commit invocation passes the message verbatim as one arg after -m.
+    await handlers.commit('r1', { description: 'Detailed body.', summary: evil });
     const commitCall = calls.find((c) => c.args[0] === 'commit');
-    expect(commitCall?.args).toEqual(['commit', '-m', evil]);
+    expect(commitCall?.args).toEqual(['commit', '-m', evil, '-m', 'Detailed body.']);
+  });
+});
+
+describe('git IPC runner — pinned repository environment', () => {
+  it('removes routing overrides case-insensitively while preserving audited Git controls', () => {
+    const environment = createPinnedGitEnvironment({
+      GIT_ALLOW_PROTOCOL: 'https:ssh',
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: '/outside/objects',
+      GIT_ASKPASS: '/usr/local/bin/git-askpass',
+      GIT_AUTHOR_EMAIL: 'author@example.com',
+      GIT_AUTHOR_NAME: 'Explicit Author',
+      GIT_COMMON_DIR: '/outside/common',
+      GIT_CONFIG: '/outside/config',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'core.hooksPath',
+      GIT_CONFIG_VALUE_0: '/outside/hooks',
+      GIT_DIR: '/outside/repository',
+      GIT_GRAFT_FILE: '/outside/grafts',
+      GIT_INDEX_FILE: '/outside/index',
+      GIT_LFS_SKIP_PUSH: '1',
+      GIT_LFS_SKIP_SMUDGE: '1',
+      GIT_LITERAL_PATHSPECS: '0',
+      GIT_REPLACE_REF_BASE: 'refs/replace-elsewhere/',
+      GIT_SHALLOW_FILE: '/outside/shallow',
+      GIT_SSH_COMMAND: 'ssh -F /outside/config',
+      GIT_WORK_TREE: '/outside/worktree',
+      Git_Config: '/outside/mixed-case-config',
+      git_dir: '/outside/mixed-case-repository',
+      HOME: '/Users/example',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
+    });
+
+    expect(environment).toMatchObject({
+      GIT_ALLOW_PROTOCOL: 'https:ssh',
+      GIT_ASKPASS: '/usr/local/bin/git-askpass',
+      GIT_AUTHOR_EMAIL: 'author@example.com',
+      GIT_AUTHOR_NAME: 'Explicit Author',
+      GIT_LFS_SKIP_PUSH: '1',
+      GIT_LFS_SKIP_SMUDGE: '1',
+      GIT_LITERAL_PATHSPECS: '1',
+      GIT_OPTIONAL_LOCKS: '0',
+      GIT_SSH_COMMAND: 'ssh -F /outside/config',
+      GIT_TERMINAL_PROMPT: '0',
+      HOME: '/Users/example',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
+    });
+    expect(environment.GIT_DIR).toBeUndefined();
+    expect(environment.GIT_WORK_TREE).toBeUndefined();
+    expect(environment.GIT_COMMON_DIR).toBeUndefined();
+    expect(environment.GIT_INDEX_FILE).toBeUndefined();
+    expect(environment.GIT_ALTERNATE_OBJECT_DIRECTORIES).toBeUndefined();
+    expect(environment.GIT_CONFIG).toBeUndefined();
+    expect(environment.GIT_CONFIG_COUNT).toBeUndefined();
+    expect(environment.GIT_CONFIG_KEY_0).toBeUndefined();
+    expect(environment.GIT_CONFIG_VALUE_0).toBeUndefined();
+    expect(environment.GIT_GRAFT_FILE).toBeUndefined();
+    expect(environment.GIT_REPLACE_REF_BASE).toBeUndefined();
+    expect(environment.GIT_SHALLOW_FILE).toBeUndefined();
+    expect(environment.Git_Config).toBeUndefined();
+    expect(environment.git_dir).toBeUndefined();
   });
 });
 
