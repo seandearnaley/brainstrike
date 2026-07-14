@@ -8,15 +8,50 @@ Pull requests use plain GitHub Actions workflows. There is no custom planner,
 no generated CI artifact, no CI routing labels, and no local command registry.
 
 Rules:
-- Do not add CI labels.
+- Do not add CI **routing** labels. The removed custom planner used labels to
+  decide WHICH CI ran; that stays dead. The one permitted label is `coverage`
+  (see "Coverage is a separate workflow" below) — an on-demand re-run request
+  for an ADVISORY job, not routing, and it can only ever ADD work, never skip
+  a required check.
 - Do not commit generated CI proof artifacts.
 - Do not reintroduce the removed custom proof/planner commands or any custom
   planner script.
 - Required PR checks should be the always-present checks from `.github/workflows/test.yml`.
+  As of the Series C R7 split this is exactly: `Static`, `Unit`, `Build`,
+  `Web E2E`, `Desktop E2E`. `Coverage` is deliberately NOT required.
 - Web and desktop E2E smoke workflows run on every PR.
 - Full web and desktop E2E regression runs on `schedule` or explicit
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
+
+### Coverage is a separate workflow (`.github/workflows/coverage.yml`)
+
+Coverage used to be a job inside `test.yml` running on every `synchronize` —
+11-14 min of re-instrumentation on EVERY push. Series C R7 demoted it to once
+per PR lifecycle: it runs on non-draft `opened`, `ready_for_review`, non-draft
+`reopened`, or an explicit `coverage` label add. It does NOT run on
+`synchronize`. `nightly-coverage.yml` remains the authoritative threshold gate;
+per-PR coverage is advisory Codecov patch signal only.
+
+**Why its own file, and why you must not merge it back into `test.yml`:** the
+label trigger requires subscribing to the `pull_request` `labeled` action.
+`test.yml` is the SOLE producer of all five required status checks, so if it
+subscribed to `labeled`, every label add would fire it and each required job
+would need an `if:` guard — reporting a `skipped` check run for every required
+context. Measured on PR #1664: merges are NOT blocked (`skipped` satisfies a
+required check — `gh pr view --json mergeable` returned MERGEABLE), BUT the
+merge box renders the LATEST check run per context, so all five required checks
+displayed as `skipping` instead of `pass`. The `codex` label is already in use,
+so this would hit a real flow. Splitting the file means `test.yml` never fires
+on `labeled` and green stays green. It also avoids a footgun: under the guard
+design, every NEW job added to `test.yml` would have to remember an `if:` guard
+or silently run on label churn.
+
+`coverage.yml` sets `cancel-in-progress: false` deliberately — it subscribes to
+`labeled` for ALL labels (GitHub cannot filter label names at the trigger
+level), so an unrelated label creates a run whose job is skipped; since
+workflow-level concurrency is evaluated before job-level `if:`, that no-op run
+would otherwise cancel an in-flight 11-14 min Coverage run.
 
 ### @vitest/runner teardown patch (pnpm patch)
 
