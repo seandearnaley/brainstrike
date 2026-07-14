@@ -11,7 +11,11 @@ import { fileURLToPath } from 'node:url';
  * contract stops them from silently drifting back into bespoke shapes.
  *
  * Canonical forms:
- *   clean        →  node ../../scripts/rimraf.mjs dist .tsbuildinfo
+ *   clean        →  node <up-to-repo-root>/scripts/rimraf.mjs dist .tsbuildinfo
+ *                    (the `../` depth is relative — 2 for packages/<name> and
+ *                    apps/<name>, 3 for the nested packages/config/<name> — see
+ *                    canonicalCleanFor(); a flat literal would silently accept a
+ *                    broken path for any package at a different nesting depth)
  *   type-check   →  tsc --noEmit
  *              or   tsc --noEmit && tsc --noEmit --project tsconfig.test.json
  *
@@ -34,7 +38,20 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-const CANONICAL_CLEAN = 'node ../../scripts/rimraf.mjs dist .tsbuildinfo';
+/**
+ * The canonical `clean` form is depth-relative, not a flat literal: it must
+ * reach the repo-root `scripts/rimraf.mjs` via as many `../` segments as the
+ * package sits below the repo root. `packages/<name>` and `apps/<name>` sit 2
+ * levels down (`../../scripts/...`); the nested `packages/config/<name>` sits 3
+ * levels down (`../../../scripts/...`). A single hardcoded literal would either
+ * silently accept a broken path for a differently-nested package, or reject a
+ * correct one — caught by review against packages/config/tsconfig.
+ */
+function canonicalCleanFor(relDir) {
+  const depth = relDir.split(path.sep).length;
+  return `node ${'../'.repeat(depth)}scripts/rimraf.mjs dist .tsbuildinfo`;
+}
+
 const CANONICAL_TYPE_CHECK_FORMS = [
   'tsc --noEmit',
   'tsc --noEmit && tsc --noEmit --project tsconfig.test.json',
@@ -108,9 +125,14 @@ function readWorkspaceGlobs() {
   return globs;
 }
 
-/** Absolute dirs of every workspace package (a dir with a package.json). */
+/**
+ * Absolute dirs of every workspace package (a dir with a package.json), each
+ * tagged with the pnpm-workspace.yaml glob group that produced it. The group
+ * tag lets the vacuous-enumeration test below detect a specific glob group
+ * silently yielding zero packages, not just a total wipeout.
+ */
 function workspacePackageDirs() {
-  const dirs = new Set();
+  const dirs = new Map(); // absolute dir → originating glob group
   for (const glob of readWorkspaceGlobs()) {
     const match = glob.match(/^(.+)\/\*$/);
     if (!match) {
@@ -138,20 +160,21 @@ function workspacePackageDirs() {
       const dir = path.join(groupDir, entry);
       try {
         if (statSync(dir).isDirectory() && statSync(path.join(dir, 'package.json')).isFile()) {
-          dirs.add(dir);
+          dirs.set(dir, glob);
         }
       } catch {
         // not a package dir
       }
     }
   }
-  return [...dirs];
+  return [...dirs.entries()].map(([dir, group]) => ({ dir, group }));
 }
 
-const packages = workspacePackageDirs().map((dir) => {
+const packages = workspacePackageDirs().map(({ dir, group }) => {
   const manifest = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
   return {
     dir,
+    group,
     name: manifest.name,
     relDir: path.relative(repoRoot, dir),
     scripts: manifest.scripts ?? {},
@@ -166,10 +189,11 @@ test('every package clean script matches the canonical rimraf form', () => {
     if (clean === undefined || CLEAN_ALLOWLIST.has(pkg.name)) {
       continue;
     }
-    if (normalize(clean) !== normalize(CANONICAL_CLEAN)) {
+    const canonicalClean = canonicalCleanFor(pkg.relDir);
+    if (normalize(clean) !== normalize(canonicalClean)) {
       violations.push(
         `${pkg.relDir} (${pkg.name}) has clean = ${JSON.stringify(clean)}, but the canonical form is ` +
-          `${JSON.stringify(CANONICAL_CLEAN)}. Restore the canonical form, or — if this package legitimately ` +
+          `${JSON.stringify(canonicalClean)}. Restore the canonical form, or — if this package legitimately ` +
           'needs a different clean — add it to CLEAN_ALLOWLIST with a documented reason.'
       );
     }
@@ -216,10 +240,11 @@ test('CLEAN_ALLOWLIST has no dead entries (each listed package actually diverges
       );
       continue;
     }
-    if (normalize(clean) === normalize(CANONICAL_CLEAN)) {
+    const canonicalClean = canonicalCleanFor(pkg.relDir);
+    if (normalize(clean) === normalize(canonicalClean)) {
       violations.push(
         `${name} is in CLEAN_ALLOWLIST but its clean already matches the canonical form ` +
-          `(${JSON.stringify(CANONICAL_CLEAN)}). Remove the stale exemption so this guard protects the package.`
+          `(${JSON.stringify(canonicalClean)}). Remove the stale exemption so this guard protects the package.`
       );
     }
   }
@@ -252,4 +277,38 @@ test('TYPE_CHECK_ALLOWLIST has no dead entries (each listed package actually div
     }
   }
   assert.deepEqual(violations, [], `Stale TYPE_CHECK_ALLOWLIST entries:\n${violations.join('\n')}`);
+});
+
+test('workspace enumeration is not vacuous (every configured glob group still yields packages)', () => {
+  // Every test above trusts `packages` to be a real, total enumeration. If
+  // pnpm-workspace.yaml is ever reformatted (flow-style `packages: [...]`, a
+  // renamed `packages:` key, etc.) in a way readWorkspaceGlobs() no longer
+  // parses, every for-loop above would iterate zero times and pass VACUOUSLY —
+  // the exact stale-green class this whole file exists to prevent.
+  const configuredGroups = readWorkspaceGlobs();
+  assert.ok(
+    configuredGroups.length >= 3,
+    `readWorkspaceGlobs() found only ${configuredGroups.length} package glob(s) in pnpm-workspace.yaml (expected ` +
+      'at least 3: apps/*, packages/*, packages/config/*). This usually means the packages: block changed shape ' +
+      '(flow-style array, renamed key, …) in a way the parser no longer recognizes. Fix readWorkspaceGlobs(), not ' +
+      'this assertion.'
+  );
+
+  const groupsWithPackages = new Set(packages.map((pkg) => pkg.group));
+  const emptyGroups = configuredGroups.filter((group) => !groupsWithPackages.has(group));
+  assert.deepEqual(
+    emptyGroups,
+    [],
+    `The following pnpm-workspace.yaml package glob(s) matched zero workspace packages: ${emptyGroups.join(', ')}. ` +
+      'A configured glob yielding no packages usually means its directory was renamed or moved — e.g. ' +
+      'packages/config/* owns exactly one package (@brainstrike/tsconfig), so losing that directory would ' +
+      'otherwise go unnoticed by every other assertion in this file.'
+  );
+
+  assert.ok(
+    packages.length >= 30,
+    `Expected the workspace enumeration to find at least 30 packages but found ${packages.length}. A sudden drop ` +
+      'usually means pnpm-workspace.yaml stopped parsing correctly rather than 10+ packages being legitimately ' +
+      'removed at once.'
+  );
 });
