@@ -39,9 +39,22 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   };
 }
 
+function isStructuredError(value: unknown, error: Error): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'name' in value &&
+    value.name === error.name &&
+    'message' in value &&
+    value.message === error.message
+  );
+}
+
 function hasStructuredErrorArg(record: LogRecord, error: Error): boolean {
   return record.args.some(
-    (arg) => typeof arg === 'object' && arg !== null && 'err' in arg && arg.err === error
+    (arg) =>
+      isStructuredError(arg, error) ||
+      (typeof arg === 'object' && arg !== null && 'err' in arg && isStructuredError(arg.err, error))
   );
 }
 
@@ -242,7 +255,7 @@ describe('DbProvider', () => {
             record.level === LogLevel.ERROR &&
             record.scope === 'DbProvider' &&
             record.message === 'Failed to close database:' &&
-            record.args.includes(closeError)
+            hasStructuredErrorArg(record, closeError)
         )
       ).toBe(true);
     });
