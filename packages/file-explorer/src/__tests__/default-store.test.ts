@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StateStorage } from 'zustand/middleware';
 
 // Ensure fresh module import for each test
 beforeEach(() => {
@@ -21,14 +22,17 @@ describe('default store creation without localStorage', () => {
     // Test that the store uses MemoryStorageAdapter when localStorage is unavailable
     const options = useFileExplorerStore.persist.getOptions();
     expect(options.storage).toBeDefined();
+    // The persist storage is a string-based wrapper at runtime (see
+    // createStorageWrapper); type it as StateStorage to exercise it directly.
+    const storage = options.storage as unknown as StateStorage | undefined;
 
     // Test that we can directly use the storage
     const testKey = 'test-memory-key';
     const testValue = { folder: 'test-folder' };
     const serializedValue = JSON.stringify(testValue);
 
-    await options.storage?.setItem(testKey, serializedValue);
-    const retrieved = await options.storage?.getItem(testKey);
+    await storage?.setItem(testKey, serializedValue);
+    const retrieved = await storage?.getItem(testKey);
 
     expect(retrieved).toEqual(serializedValue);
     expect(JSON.parse(retrieved || '{}')).toEqual(testValue);

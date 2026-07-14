@@ -1,6 +1,6 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import { createEmptySelectionModel } from '@brainstrike/types';
-import { vi } from 'vitest';
+import { createEmptySelectionModel, DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
+import { type Mock, vi } from 'vitest';
 
 vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
@@ -19,18 +19,28 @@ vi.mock('@brainstrike/utils/selection-utils', () => ({
   encodeFileSelection: (folderId: string, path: string) => `${folderId}|@|${path}`,
 }));
 
-export const mockSet = vi.fn();
+export const mockSet: Mock = vi.fn();
 export const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
 export const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplorerState => ({
+  activeRootIds: [],
+  addActiveRoot: vi.fn(),
   addMultipleSelectedFiles: vi.fn(),
   addMultipleSelectedFilesChunked: vi.fn(),
   addSelectedFile: vi.fn(),
   clearAllFileContents: vi.fn(),
+  clearDisabledFilters: vi.fn(),
   clearFileContents: vi.fn(),
+  clearQuickFilter: vi.fn(),
   clearSelectedFiles: vi.fn(),
+  clearSelectionRules: vi.fn(),
   collapseAllDirectories: vi.fn(),
+  commitRulesToExplicit: vi.fn(),
   currentFolderId: 'folder1',
+  devInlineFixtureEnabled: false,
+  disabledExcludeFilters: new Set<string>(),
+  disabledIncludeFilters: new Set<string>(),
+  evictOldFileContents: vi.fn(),
   excludeFilters: [],
   expandAllDirectories: vi.fn(),
   expandedDirectoryPaths: new Set<string>(),
@@ -38,29 +48,54 @@ export const createMockState = (overrides: Partial<FileExplorerState> = {}): Fil
   folderAccessOrder: [],
   folderStates: {},
   folderSummaryThreshold: 100,
+  getFileContent: vi.fn(),
+  getFileContentCacheStats: vi.fn(),
   hydrateFolderState: vi.fn(),
   includeFilters: [],
   includeProjectTree: true,
+  isAccessLoading: false,
+  isFilterChipsVisible: true,
+  isFiltersExpanded: true,
   lastActiveTab: 'files',
   maxSelectionCount: 100,
   querySelectionManifest: null,
+  quickFilter: '',
+  removeActiveRoot: vi.fn(),
   removeMultipleSelectedFiles: vi.fn(),
   removeSelectedFile: vi.fn(),
+  rootDescriptors: {},
   selectedFilePaths: new Set<string>(),
   selectionModel: createEmptySelectionModel(),
   selectionVersion: 0,
+  setActiveRoots: vi.fn(),
   setCurrentFolderId: vi.fn(),
+  setDevInlineFixtureEnabled: vi.fn(),
   setExpandedPaths: vi.fn(),
   setFileContent: vi.fn(),
+  setFilterChipsVisible: vi.fn(),
   setFilters: vi.fn(),
+  setFiltersExpanded: vi.fn(),
+  setFolderSelection: vi.fn(),
   setFolderSummaryThreshold: vi.fn(),
   setIncludeProjectTree: vi.fn(),
+  setIsAccessLoading: vi.fn(),
   setLastActiveTab: vi.fn(),
+  setMaterializedPaths: vi.fn(),
   setMaxSelectionCount: vi.fn(),
+  setQuerySelection: vi.fn(),
+  setQuerySelectionManifest: vi.fn(),
+  setQuickFilter: vi.fn(),
   setSelectedFiles: vi.fn(),
+  setSelectionMode: vi.fn(),
+  setSelectionRules: vi.fn(),
+  setTokenBudget: vi.fn(),
   setUseRegex: vi.fn(),
+  setViewFilterPresetId: vi.fn(),
   toggleDirectoryExpansion: vi.fn(),
+  toggleFilterEnabled: vi.fn(),
   toggleSelectedFile: vi.fn(),
+  tokenBudget: DEFAULT_TOKEN_BUDGET,
   useRegex: false,
+  viewFilterPresetId: null,
   ...overrides,
 });

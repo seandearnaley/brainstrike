@@ -42,7 +42,6 @@ describe('createPersistOptions migration (coverage)', () => {
 
   afterEach(() => {
     if (originalLS === undefined) {
-      // @ts-expect-error cleanup
       (globalThis as unknown as { localStorage?: unknown }).localStorage = undefined;
     } else {
       (globalThis as unknown as { localStorage: unknown }).localStorage = originalLS as unknown;
