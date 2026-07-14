@@ -92,7 +92,7 @@ Either "lint is cleanly cacheable — split `lint` into `lint:cacheable` (biome+
 
 ---
 
-## Task C1: R7 — demote Coverage to once-per-PR-lifecycle
+## Task 1: C1 — R7 demote Coverage to once-per-PR-lifecycle
 
 **Files:**
 - Modify: `.github/workflows/test.yml:3-11` (pull_request types), `:232-234` (coverage job `if:`)
@@ -149,7 +149,7 @@ Adversarial review must confirm: the `labeled` type doesn't leak extra Unit/Stat
 
 ---
 
-## Task C2: R9a — composite setup action + cache re-key
+## Task 2: C2 — R9a composite setup action + cache re-key
 
 **Files:**
 - Create: `.github/actions/setup-workspace/action.yml`
@@ -225,7 +225,7 @@ Reviewer confirms: web-e2e/desktop-e2e bespoke installs untouched; cache key cha
 
 ---
 
-## Task C3: R9b — ARM runners + (conditionally) cacheable lint
+## Task 3: C3 — R9b ARM runners + (conditionally) cacheable lint
 
 **Gated on P1 and P2.** Do not start until both probes report.
 
@@ -262,7 +262,7 @@ Reviewer confirms no native lane silently moved to ARM; lint split (if present) 
 
 ---
 
-## Task C4: R12a — TypeScript 7 verify-then-adopt
+## Task 4: C4 — R12a TypeScript 7 verify-then-adopt
 
 **Files:**
 - Modify: root `package.json` (add TS7 native compiler devDep + wire the type-check binary), `turbo.jsonc` (type-check task env only if needed)
@@ -319,7 +319,7 @@ Reviewer confirms: no API consumer accidentally resolves to TS7; parity script i
 
 ---
 
-## Task C5: R6 — one module-resolution registry
+## Task 5: C5 — R6 one module-resolution registry
 
 **Files:**
 - Modify: `apps/web/vitest.config.mts` (hand map → registry spread), `apps/web/vite.config.ts`, `apps/desktop/vite.config.ts`, `packages/test-utils/workspace-src-aliases.mjs` (add a vite-shaped consumer if needed), `scripts/verify-workspace-src-aliases.mjs` (extend to apps/*)
@@ -371,7 +371,7 @@ Reviewer confirms: the file-explorer→dist exception is preserved and commented
 
 ---
 
-## Task C6: R8 — pnpm catalogs, retire syncpack
+## Task 6: C6 — R8 pnpm catalogs, retire syncpack
 
 **Files:**
 - Modify: `pnpm-workspace.yaml` (add `catalog:` + `catalogMode: strict` + `cleanupUnusedCatalogs`), every `package.json` with a catalogued dep (version → `catalog:`), root `package.json` (drop `syncpack` devDep + `deps:fix/lint/update/update:check` scripts), `pnpm-lock.yaml`, `renovate.json`
@@ -430,7 +430,7 @@ Reviewer confirms: `overrides`/`allowBuilds`/`minimumReleaseAgeExclude`/`patched
 
 ---
 
-## Task C7: delete the queue-telemetry-collector orphan
+## Task 7: C7 — delete the queue-telemetry-collector orphan
 
 **Files:**
 - Delete: `packages/queue-telemetry-collector/` (3 src files + package.json + README + dist)
@@ -474,7 +474,7 @@ Reviewer independently re-runs the two grep verifications. Merge only when they 
 
 ---
 
-## Task C8: verify coverage-lane derivation + correct the docs
+## Task 8: C8 — verify coverage-lane derivation + correct the docs
 
 **REFRAMED.** The audit found the derivation is ALREADY implemented: `packages/db/scripts/test-lanes.mjs` and `coverage-lanes.mjs` BOTH import from a single `packages/db/scripts/db-test-lane-manifest.mjs`; `buildDbCoverageLaneMap` derives coverage lanes from `dbUnitLaneDefinitions` via `coverageDefaultsByUnitLane`. So the review's §7 "derive coverage-lanes from test-lanes" is done. This task VERIFIES completeness and corrects the stale "register in BOTH registries" wording rather than building a new derivation.
 
