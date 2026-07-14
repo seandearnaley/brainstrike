@@ -1298,7 +1298,7 @@ export function AssistantUiPanelWrapper({
   // interactive mid-run. They are stored PER ROW so cost is attributable per
   // model when a thread switches models mid-conversation.
   const handleUsage = useCallback(
-    (usage: { inputTokens: number; outputTokens: number }) => {
+    (usage: { billedCostUsd?: number; inputTokens: number; outputTokens: number }) => {
       const threadId = selectedMemoryThreadId ?? 'active';
       useContextUsageStore.getState().recordUsage(threadId, usage);
 
@@ -1326,6 +1326,7 @@ export function AssistantUiPanelWrapper({
       }
       assistantThreadRepository
         .recordRunUsage({
+          ...(usage.billedCostUsd === undefined ? {} : { billedCostUsd: usage.billedCostUsd }),
           inputTokens: usage.inputTokens,
           model: runContext.model,
           outputTokens: usage.outputTokens,

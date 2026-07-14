@@ -73,7 +73,7 @@ import {
   type OmMeterState,
   ThreadContextMeter,
 } from './context-usage-meter';
-import { useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
+import { type AssistantUsage, useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
 import { LocalModelStatus } from './local-model-status';
@@ -291,7 +291,7 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
    */
   onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
   /** Called with the provider's exact token counts from a finish-message chunk. */
-  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
+  onUsage?: (usage: AssistantUsage) => void;
   /** Models for the ModelPicker component */
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
@@ -675,7 +675,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   onStreamActivity?: (() => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
-  onUsage?: ((usage: { inputTokens: number; outputTokens: number }) => void) | undefined;
+  onUsage?: ((usage: AssistantUsage) => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
   /** Composer plan-mode toggle; absent → no toggle rendered. */

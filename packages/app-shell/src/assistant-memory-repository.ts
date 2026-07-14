@@ -123,6 +123,8 @@ export interface CompleteAssistantThreadRunInput {
  * model.
  */
 export interface RecordRunUsageInput {
+  /** Exact amount billed by the provider for this run, when reported. */
+  readonly billedCostUsd?: number;
   readonly inputTokens: number;
   readonly model: string;
   readonly outputTokens: number;
@@ -147,6 +149,9 @@ export interface RecordRunUsageInput {
  * never cumulative tokens against a single price.
  */
 export interface CrossRootUsageRow {
+  readonly billedCostUsd?: number;
+  readonly estimatedInputTokens?: number;
+  readonly estimatedOutputTokens?: number;
   readonly inputTokens: number;
   readonly model: string;
   readonly outputTokens: number;
@@ -176,7 +181,12 @@ export const CROSS_ROOT_USAGE_AGGREGATION_SQL = `
     u.provider AS provider,
     u.model AS model,
     SUM(u.input_tokens)::bigint AS "inputTokens",
-    SUM(u.output_tokens)::bigint AS "outputTokens"
+    SUM(u.output_tokens)::bigint AS "outputTokens",
+    SUM(u.billed_cost_usd) AS "billedCostUsd",
+    SUM(CASE WHEN u.billed_cost_usd IS NULL THEN u.input_tokens ELSE 0 END)::bigint
+      AS "estimatedInputTokens",
+    SUM(CASE WHEN u.billed_cost_usd IS NULL THEN u.output_tokens ELSE 0 END)::bigint
+      AS "estimatedOutputTokens"
   FROM brainstrike_assistant_run_usage u
   LEFT JOIN roots r ON r.id = u.root_id
   WHERE u.resource_id = $1
@@ -192,7 +202,21 @@ export const CROSS_ROOT_USAGE_AGGREGATION_SQL = `
  * Callers must catch and surface a visible "couldn't load" state.
  */
 export function mapCrossRootUsageRow(row: Record<string, unknown>): CrossRootUsageRow {
+  const billedCostUsd = optionalNonNegativeFiniteNumber(row['billedCostUsd'], 'billedCostUsd');
   return {
+    ...(billedCostUsd === undefined
+      ? {}
+      : {
+          billedCostUsd,
+          estimatedInputTokens: requireNonNegativeInteger(
+            row['estimatedInputTokens'],
+            'estimatedInputTokens'
+          ),
+          estimatedOutputTokens: requireNonNegativeInteger(
+            row['estimatedOutputTokens'],
+            'estimatedOutputTokens'
+          ),
+        }),
     inputTokens: requireNonNegativeInteger(row['inputTokens'], 'inputTokens'),
     model: requireString(row['model'], 'model'),
     outputTokens: requireNonNegativeInteger(row['outputTokens'], 'outputTokens'),
@@ -205,6 +229,9 @@ export function mapCrossRootUsageRow(row: Record<string, unknown>): CrossRootUsa
 
 /** Per-model token subtotal for a single thread. */
 export interface ThreadModelUsageSubtotal {
+  readonly billedCostUsd?: number;
+  readonly estimatedInputTokens?: number;
+  readonly estimatedOutputTokens?: number;
   readonly inputTokens: number;
   readonly model: string;
   readonly outputTokens: number;
@@ -382,9 +409,13 @@ CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
   provider text NOT NULL,
   input_tokens integer NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
   output_tokens integer NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0),
   created_at timestamptz NOT NULL DEFAULT NOW(),
   root_id text
 );
+
+ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
+  ADD COLUMN IF NOT EXISTS billed_cost_usd numeric(24, 12) CHECK (billed_cost_usd >= 0);
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
@@ -583,6 +614,17 @@ function requireNonNegativeInteger(value: unknown, fieldName: string): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!(Number.isFinite(parsed) && Number.isInteger(parsed)) || parsed < 0) {
     throw new Error(`Invalid run usage aggregate: ${fieldName} is not a non-negative integer.`);
+  }
+  return parsed;
+}
+
+function optionalNonNegativeFiniteNumber(value: unknown, fieldName: string): number | undefined {
+  if (value === null || value === undefined) {
+    return;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`Invalid run usage aggregate: ${fieldName} is not a non-negative number.`);
   }
   return parsed;
 }
@@ -2230,7 +2272,12 @@ export function createPgliteAssistantThreadRepository(
             provider,
             model,
             SUM(input_tokens)::bigint AS "inputTokens",
-            SUM(output_tokens)::bigint AS "outputTokens"
+            SUM(output_tokens)::bigint AS "outputTokens",
+            SUM(billed_cost_usd) AS "billedCostUsd",
+            SUM(CASE WHEN billed_cost_usd IS NULL THEN input_tokens ELSE 0 END)::bigint
+              AS "estimatedInputTokens",
+            SUM(CASE WHEN billed_cost_usd IS NULL THEN output_tokens ELSE 0 END)::bigint
+              AS "estimatedOutputTokens"
          FROM ${ASSISTANT_RUN_USAGE_TABLE}
          WHERE thread_id = $1
          GROUP BY provider, model
@@ -2245,9 +2292,26 @@ export function createPgliteAssistantThreadRepository(
       const perModel = result.rows.map((row) => {
         const inputTokens = requireNonNegativeInteger(row['inputTokens'], 'inputTokens');
         const outputTokens = requireNonNegativeInteger(row['outputTokens'], 'outputTokens');
+        const billedCostUsd = optionalNonNegativeFiniteNumber(
+          row['billedCostUsd'],
+          'billedCostUsd'
+        );
         totalInputTokens += inputTokens;
         totalOutputTokens += outputTokens;
         return {
+          ...(billedCostUsd === undefined
+            ? {}
+            : {
+                billedCostUsd,
+                estimatedInputTokens: requireNonNegativeInteger(
+                  row['estimatedInputTokens'],
+                  'estimatedInputTokens'
+                ),
+                estimatedOutputTokens: requireNonNegativeInteger(
+                  row['estimatedOutputTokens'],
+                  'estimatedOutputTokens'
+                ),
+              }),
           inputTokens,
           model: requireString(row['model'], 'model'),
           outputTokens,
@@ -2357,11 +2421,17 @@ export function createPgliteAssistantThreadRepository(
     async recordRunUsage(input: RecordRunUsageInput): Promise<void> {
       assertUsageTokenCount(input.inputTokens, 'inputTokens');
       assertUsageTokenCount(input.outputTokens, 'outputTokens');
+      if (
+        input.billedCostUsd !== undefined &&
+        (!Number.isFinite(input.billedCostUsd) || input.billedCostUsd < 0)
+      ) {
+        throw new Error('Assistant run usage billedCostUsd must be a finite, non-negative number.');
+      }
       await initialize();
       await database.query(
         `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
-          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id, billed_cost_usd)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           crypto.randomUUID(),
           input.threadId,
@@ -2373,6 +2443,7 @@ export function createPgliteAssistantThreadRepository(
           input.outputTokens,
           new Date(),
           input.rootId ?? null,
+          input.billedCostUsd ?? null,
         ]
       );
     },

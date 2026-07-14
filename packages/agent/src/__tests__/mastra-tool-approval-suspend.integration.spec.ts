@@ -67,6 +67,7 @@ function createTurnCountedToolCallModel(args: {
   toolCallId: string;
   input: string;
   finalText: string;
+  openRouterStepCosts?: readonly [number, number];
 }): LanguageModelV2 {
   let turn = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
@@ -93,7 +94,18 @@ function createTurnCountedToolCallModel(args: {
               toolName: args.toolName,
               type: 'tool-call',
             },
-            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+            {
+              finishReason: 'tool-calls',
+              ...(args.openRouterStepCosts
+                ? {
+                    providerMetadata: {
+                      openrouter: { usage: { cost: args.openRouterStepCosts[0] } },
+                    },
+                  }
+                : {}),
+              type: 'finish',
+              usage: USAGE,
+            },
           ]),
         });
       }
@@ -104,7 +116,18 @@ function createTurnCountedToolCallModel(args: {
           { id, type: 'text-start' },
           { delta: args.finalText, id, type: 'text-delta' },
           { id, type: 'text-end' },
-          { finishReason: 'stop', type: 'finish', usage: USAGE },
+          {
+            finishReason: 'stop',
+            ...(args.openRouterStepCosts
+              ? {
+                  providerMetadata: {
+                    openrouter: { usage: { cost: args.openRouterStepCosts[1] } },
+                  },
+                }
+              : {}),
+            type: 'finish',
+            usage: USAGE,
+          },
         ]),
       });
     },
@@ -324,6 +347,79 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     expect(resumeRunEventKinds).toContain('tool.completed');
     const resumeFinish = resumeChunks.find((chunk) => chunk.type === 'message-finish');
     expect(resumeFinish).toBeDefined();
+
+    await database.close();
+  });
+
+  it('keeps an OpenRouter approval resumable and reports both model-step costs after resume', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = {
+      resourceId: 'resource-openrouter-approval-cost',
+      threadId: 'thread-openrouter-approval-cost',
+    } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Command finished with exact cost.',
+      input: JSON.stringify({ command: 'echo approved' }),
+      openRouterStepCosts: [0.001_25, 0.003_75],
+      toolCallId: 'call-openrouter-approval-cost',
+      toolName: 'shell_tool',
+    });
+
+    const suspendIterator = await streamMastraAgent(
+      [{ id: 'u-openrouter-cost', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
+      {
+        memory,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openrouter',
+        },
+        storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const suspendChunks = await drainYielding(suspendIterator);
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toBeDefined();
+    const pauseFinish = suspendChunks.find(
+      (chunk) => chunk.type === 'message-finish' && chunk.finishReason === 'tool-calls'
+    );
+    expect(pauseFinish).toMatchObject({ finishReason: 'tool-calls', type: 'message-finish' });
+    expect(pauseFinish).not.toHaveProperty('billedCostUsd');
+
+    const resumeIterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: approval?.runId ?? '',
+        toolCallId: approval?.toolCallId ?? '',
+        toolName: 'shell_tool',
+      },
+      {
+        memory,
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          permissionPolicy: ASK_POLICY,
+          provider: 'openrouter',
+        },
+        storage,
+        tools: { shell_tool: askTool },
+      }
+    );
+    const resumeChunks = await drainYielding(resumeIterator);
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toMatchObject({
+      billedCostUsd: 0.005,
+      finishReason: 'stop',
+      type: 'message-finish',
+    });
 
     await database.close();
   });

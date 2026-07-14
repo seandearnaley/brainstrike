@@ -155,7 +155,13 @@ function getReasoningValue(thread: AssistantMemoryThread): string | null {
     provider && providerOptions && typeof providerOptions[provider] === 'object'
       ? (providerOptions[provider] as Record<string, unknown>)
       : null;
-  const reasoning = providerRecord?.['reasoningEffort'] ?? providerRecord?.['effort'];
+  const nestedReasoning = providerRecord?.['reasoning'];
+  const nestedEffort =
+    nestedReasoning && typeof nestedReasoning === 'object'
+      ? (nestedReasoning as Record<string, unknown>)['effort']
+      : undefined;
+  const reasoning =
+    providerRecord?.['reasoningEffort'] ?? providerRecord?.['effort'] ?? nestedEffort;
   return typeof reasoning === 'string' && reasoning.trim() ? reasoning : null;
 }
 

@@ -223,6 +223,29 @@ describe('AssistantDataStreamSession', () => {
     });
   });
 
+  it('preserves provider-reported billed cost on the finish message', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        billedCostUsd: 0.0042,
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 7, promptTokens: 5 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-provider-cost',
+      sessionId: 'provider-cost',
+    });
+
+    const finish = parseLines(await readResponse(session.createResponse())).at(-1)?.value;
+    expect(finish).toMatchObject({
+      billedCostUsd: 0.0042,
+      usage: { inputTokens: 5, outputTokens: 7 },
+    });
+  });
+
   it('encodes approval-required tool chunks as pending approval data', async () => {
     const chunks: StreamChunk[] = [
       {

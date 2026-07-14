@@ -45,7 +45,7 @@ export type CostEstimate =
   | {
       available: true;
       usdAmount: number;
-      provenance: 'captured-usage-estimate' | 'exact-pricing';
+      provenance: 'captured-usage-estimate' | 'exact-pricing' | 'provider-reported';
     }
   | { available: false; reason: 'unpriced_model' | 'usage_unavailable' };
 

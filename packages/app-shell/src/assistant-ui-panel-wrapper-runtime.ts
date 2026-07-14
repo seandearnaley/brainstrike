@@ -5,6 +5,7 @@ import {
   type HookTrustRequest,
   type LocalProviderOptions,
   type OpenAiProviderOptions,
+  type OpenRouterProviderOptions,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
 } from '@brainstrike/assistant-contract';
@@ -896,6 +897,16 @@ function buildOpenAiOptions(
   ]);
 }
 
+function buildOpenRouterOptions(
+  settings: AssistantProviderSettings
+): OpenRouterProviderOptions | undefined {
+  const reasoning = buildOptionalOptions<NonNullable<OpenRouterProviderOptions['reasoning']>>([
+    ['effort', settings.reasoningEffort || undefined],
+    ['summary', settings.reasoningSummary || undefined],
+  ]);
+  return reasoning ? { reasoning } : undefined;
+}
+
 function buildAnthropicOptions(
   settings: AssistantProviderSettings
 ): AnthropicProviderOptions | undefined {
@@ -965,10 +976,13 @@ export function buildProviderOptions(
   }
 
   switch (providerId) {
-    case 'openai':
-    case 'openrouter': {
+    case 'openai': {
       const openai = buildOpenAiOptions(settings);
       return openai ? { openai } : undefined;
+    }
+    case 'openrouter': {
+      const openrouter = buildOpenRouterOptions(settings);
+      return openrouter ? { openrouter } : undefined;
     }
     case 'anthropic': {
       const anthropic = buildAnthropicOptions(settings);

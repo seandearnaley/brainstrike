@@ -63,4 +63,54 @@ describe('resolveCumulativeUsageDisplay', () => {
     expect(display?.totalTokens).toBe(1200);
     expect(display?.cost).toEqual({ available: false, reason: 'unpriced_model' });
   });
+
+  it('uses exact provider-reported cost without requiring static pricing', () => {
+    const usage: ThreadCumulativeUsage = {
+      perModel: [
+        {
+          billedCostUsd: 0.0042,
+          estimatedInputTokens: 0,
+          estimatedOutputTokens: 0,
+          inputTokens: 1000,
+          model: 'dynamic-model',
+          outputTokens: 200,
+          provider: 'openrouter',
+        },
+      ],
+      totalInputTokens: 1000,
+      totalOutputTokens: 200,
+    };
+
+    const display = resolveCumulativeUsageDisplay(usage, () => undefined);
+    expect(display?.cost).toEqual({
+      available: true,
+      provenance: 'provider-reported',
+      usdAmount: 0.0042,
+    });
+  });
+
+  it('adds exact cost to the static estimate for legacy unreported runs', () => {
+    const usage: ThreadCumulativeUsage = {
+      perModel: [
+        {
+          billedCostUsd: 0.004,
+          estimatedInputTokens: 1000,
+          estimatedOutputTokens: 200,
+          inputTokens: 2000,
+          model: 'gpt-5.2',
+          outputTokens: 400,
+          provider: 'openai',
+        },
+      ],
+      totalInputTokens: 2000,
+      totalOutputTokens: 400,
+    };
+
+    const display = resolveCumulativeUsageDisplay(usage, resolvePricing);
+    expect(display?.cost).toEqual({
+      available: true,
+      provenance: 'captured-usage-estimate',
+      usdAmount: 0.007_25,
+    });
+  });
 });
