@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import config from '../../tsup.config';
 
@@ -27,8 +28,8 @@ describe('chunking worker tsup config', () => {
 
     targetConfig.esbuildOptions?.(buildOptions, { format: 'esm' });
 
-    expect(buildOptions.alias?.['@brainstrike/utils/token-utils-accurate-lite']).toMatch(
-      /packages\/utils\/src\/token-utils-accurate-lite\.ts$/
+    expect(buildOptions.alias?.['@brainstrike/utils/token-utils-accurate-lite']).toBe(
+      fileURLToPath(new URL('../../../utils/src/token-utils-accurate-lite.ts', import.meta.url))
     );
   });
 });
