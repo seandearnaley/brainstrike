@@ -818,6 +818,78 @@ describe('GitPanel', () => {
     expect(bridge.history).toHaveBeenCalledTimes(2);
   });
 
+  it('clears the selected changes diff after switching branches in the same root', async () => {
+    const user = userEvent.setup();
+    let branch = 'main';
+    const bridge = installBridge({
+      diff: vi.fn(async () =>
+        ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: SAMPLE_DIFF })
+      ),
+      repository: vi.fn(async () =>
+        ok(
+          makeRepository({
+            branches: [
+              {
+                current: branch === 'main',
+                head: 'a'.repeat(40),
+                name: 'main',
+                upstream: 'origin/main',
+                worktreePath: branch === 'main' ? '/abs/repo' : null,
+              },
+              {
+                current: branch === 'feature/clean',
+                head: 'b'.repeat(40),
+                name: 'feature/clean',
+                upstream: null,
+                worktreePath: branch === 'feature/clean' ? '/abs/repo' : null,
+              },
+            ],
+            currentWorktree: {
+              ...makeRepository().currentWorktree,
+              branch,
+              head: branch === 'main' ? 'a'.repeat(40) : 'b'.repeat(40),
+            },
+          })
+        )
+      ),
+      status: vi.fn(async () =>
+        ok(
+          makeStatus({
+            branch,
+            clean: branch !== 'main',
+            files:
+              branch === 'main'
+                ? [
+                    {
+                      path: 'staged.ts',
+                      staged: true,
+                      status: 'M',
+                      unstaged: false,
+                      untracked: false,
+                    },
+                  ]
+                : [],
+          })
+        )
+      ),
+      switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) => {
+        branch = params.branch;
+        return ok({ branch });
+      }),
+    });
+    render(<GitPanel />);
+
+    await user.click(await screen.findByRole('button', { name: 'staged.ts' }));
+    expect(await screen.findByTestId('diff-view-stub')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Current branch main' }));
+    await user.click(screen.getByRole('menuitem', { name: 'feature/clean' }));
+
+    expect(await screen.findByTestId('git-panel-clean')).toBeInTheDocument();
+    expect(screen.queryByTestId('diff-view-stub')).not.toBeInTheDocument();
+    expect(bridge.diff).toHaveBeenCalledTimes(1);
+  });
+
   it('implements keyboard-operated tabs with persistent labelled panels', async () => {
     const user = userEvent.setup();
     installBridge({});

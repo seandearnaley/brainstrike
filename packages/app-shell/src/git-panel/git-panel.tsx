@@ -123,7 +123,7 @@ export function GitPanel(): ReactElement {
       >
         {tab === 'changes' ? (
           <GitChangesView
-            key={panel.activeRootId}
+            key={`${panel.activeRootId ?? 'no-root'}:${repository.currentWorktree.branch ?? 'detached'}:${repository.currentWorktree.head ?? 'unborn'}`}
             panel={panel}
             repository={repository}
             status={status}
