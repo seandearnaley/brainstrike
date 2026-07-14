@@ -334,9 +334,13 @@ describe('git IPC handlers — commit arg construction (no shell)', () => {
 });
 
 describe('git IPC runner — pinned repository environment', () => {
-  it('removes inherited Git routing/config overrides while preserving ordinary environment', () => {
+  it('removes routing overrides case-insensitively while preserving audited Git controls', () => {
     const environment = createPinnedGitEnvironment({
+      GIT_ALLOW_PROTOCOL: 'https:ssh',
       GIT_ALTERNATE_OBJECT_DIRECTORIES: '/outside/objects',
+      GIT_ASKPASS: '/usr/local/bin/git-askpass',
+      GIT_AUTHOR_EMAIL: 'author@example.com',
+      GIT_AUTHOR_NAME: 'Explicit Author',
       GIT_COMMON_DIR: '/outside/common',
       GIT_CONFIG: '/outside/config',
       GIT_CONFIG_COUNT: '1',
@@ -345,16 +349,27 @@ describe('git IPC runner — pinned repository environment', () => {
       GIT_DIR: '/outside/repository',
       GIT_GRAFT_FILE: '/outside/grafts',
       GIT_INDEX_FILE: '/outside/index',
+      GIT_LFS_SKIP_PUSH: '1',
+      GIT_LFS_SKIP_SMUDGE: '1',
       GIT_REPLACE_REF_BASE: 'refs/replace-elsewhere/',
       GIT_SHALLOW_FILE: '/outside/shallow',
       GIT_SSH_COMMAND: 'ssh -F /outside/config',
       GIT_WORK_TREE: '/outside/worktree',
+      Git_Config: '/outside/mixed-case-config',
+      git_dir: '/outside/mixed-case-repository',
       HOME: '/Users/example',
       SSH_AUTH_SOCK: '/tmp/agent.sock',
     });
 
     expect(environment).toMatchObject({
+      GIT_ALLOW_PROTOCOL: 'https:ssh',
+      GIT_ASKPASS: '/usr/local/bin/git-askpass',
+      GIT_AUTHOR_EMAIL: 'author@example.com',
+      GIT_AUTHOR_NAME: 'Explicit Author',
+      GIT_LFS_SKIP_PUSH: '1',
+      GIT_LFS_SKIP_SMUDGE: '1',
       GIT_OPTIONAL_LOCKS: '0',
+      GIT_SSH_COMMAND: 'ssh -F /outside/config',
       GIT_TERMINAL_PROMPT: '0',
       HOME: '/Users/example',
       SSH_AUTH_SOCK: '/tmp/agent.sock',
@@ -371,7 +386,8 @@ describe('git IPC runner — pinned repository environment', () => {
     expect(environment.GIT_GRAFT_FILE).toBeUndefined();
     expect(environment.GIT_REPLACE_REF_BASE).toBeUndefined();
     expect(environment.GIT_SHALLOW_FILE).toBeUndefined();
-    expect(environment.GIT_SSH_COMMAND).toBeUndefined();
+    expect(environment.Git_Config).toBeUndefined();
+    expect(environment.git_dir).toBeUndefined();
   });
 });
 

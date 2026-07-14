@@ -117,9 +117,24 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Remove Git's record terminator without corrupting path-significant whitespace. */
+/** Remove Git's platform record terminator without consuming a POSIX literal CR. */
 function stripLineEnding(value: string): string {
-  return value.replace(/\r?\n$/, '');
+  if (!value.endsWith('\n')) {
+    return value;
+  }
+  const withoutLf = value.slice(0, -1);
+  if (process.platform === 'win32' && withoutLf.endsWith('\r')) {
+    return withoutLf.slice(0, -1);
+  }
+  return withoutLf;
+}
+
+function splitLineRecords(value: string): readonly string[] {
+  const records = stripLineEnding(value).split('\n');
+  if (process.platform !== 'win32') {
+    return records;
+  }
+  return records.map((record) => (record.endsWith('\r') ? record.slice(0, -1) : record));
 }
 
 function parseGitVersion(value: string): readonly [number, number, number] | null {
@@ -559,9 +574,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     if (run_.exitCode !== 0) {
       return { error: describeFailure(run_), ok: false };
     }
-    const remotes = run_.stdout
-      .split('\n')
-      .map((remote) => remote.replace(/\r$/, ''))
+    const remotes = splitLineRecords(run_.stdout)
       .filter((remote) => remote.length > 0)
       .sort((left, right) => left.localeCompare(right));
     return { ok: true, value: remotes };
@@ -953,9 +966,9 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     },
 
     /**
-     * Commit the staged changes with `message`. The message is passed as a
-     * single `execFile` argument (`-m <message>`), so shell metacharacters in it
-     * are inert — they become the literal commit message, never executed.
+     * Commit staged changes with a required summary and optional description.
+     * Each paragraph is passed as its own literal `-m <value>` argument, so
+     * shell metacharacters are inert commit content, never executed.
      */
     commit: async (params: {
       summary: string;

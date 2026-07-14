@@ -39,20 +39,47 @@ const logger = createLogger('GitIpc');
 
 export type { WorkspaceRootResolver } from './workspace-root-cwd';
 
+const PRESERVED_GIT_ENV_KEYS = new Set([
+  'GIT_ALLOW_PROTOCOL',
+  'GIT_ASKPASS',
+  'GIT_AUTHOR_DATE',
+  'GIT_AUTHOR_EMAIL',
+  'GIT_AUTHOR_NAME',
+  'GIT_COMMITTER_DATE',
+  'GIT_COMMITTER_EMAIL',
+  'GIT_COMMITTER_NAME',
+  'GIT_LFS_SKIP_PUSH',
+  'GIT_LFS_SKIP_SMUDGE',
+  'GIT_PROTOCOL_FROM_USER',
+  'GIT_SSH',
+  'GIT_SSH_COMMAND',
+  'GIT_SSH_VARIANT',
+]);
+
 /**
- * Remove every inherited `GIT_*` variable before pinning the small, explicit set
- * this domain owns. Git's environment surface can redirect repositories,
- * objects, indexes, config, grafts, shallow boundaries, replace refs, hooks,
- * pagers, and network helpers; an allowlist would silently become incomplete as
- * Git adds more variables. Ordinary environment, including SSH agent/socket
- * configuration, remains intact for explicit network actions.
+ * Remove inherited `GIT_*` variables case-insensitively, then restore the
+ * audited controls that carry explicit identity, authentication, protocol, and
+ * Git LFS safety intent. Everything capable of redirecting repositories,
+ * objects, indexes, config, grafts, shallow boundaries, replace refs, hooks, or
+ * helpers stays removed. Ordinary environment, including SSH agent/socket
+ * configuration, also remains intact for explicit network actions.
  */
 export function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const environment = { ...source };
+  const preservedGitEnvironment = new Map<string, string>();
   for (const key of Object.keys(environment)) {
-    if (key.startsWith('GIT_')) {
-      Reflect.deleteProperty(environment, key);
+    const normalizedKey = key.toUpperCase();
+    if (!normalizedKey.startsWith('GIT_')) {
+      continue;
     }
+    const value = environment[key];
+    if (value !== undefined && PRESERVED_GIT_ENV_KEYS.has(normalizedKey)) {
+      preservedGitEnvironment.set(key, value);
+    }
+    Reflect.deleteProperty(environment, key);
+  }
+  for (const [key, value] of preservedGitEnvironment) {
+    environment[key] = value;
   }
   environment['GIT_OPTIONAL_LOCKS'] = '0';
   environment['GIT_TERMINAL_PROMPT'] = '0';

@@ -1112,7 +1112,7 @@ if (shouldExposeBridge('platform')) {
 // checks it to an absolute cwd and runs git via execFile (no shell). Web never
 // constructs this bridge (there is no preload), so `window.git` is simply
 // absent there; consumers must capability-check `window.git` rather than
-// `isElectron()`. The Git panel UI lands in a later PR.
+// `isElectron()`.
 if (shouldExposeBridge('git')) {
   contextBridge.exposeInMainWorld('git', {
     aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),

@@ -1019,6 +1019,56 @@ describe('git service — aheadBehind', () => {
 });
 
 describe('git service — push', () => {
+  it.skipIf(process.platform === 'win32')(
+    'preserves a carriage-return-ending repository path on POSIX',
+    async () => {
+      const parent = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-cr-root-'));
+      const parentReal = await fsPromises.realpath(parent);
+      createdRoots.push(parentReal);
+      const repo = path.join(parentReal, 'repository\r');
+      await fsPromises.mkdir(repo);
+      await execFileAsync('git', ['init', '-q'], { cwd: repo });
+      await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: repo });
+      await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: repo });
+
+      const repository = await serviceFor(repo).repository();
+
+      expect(repository.ok).toBe(true);
+      if (repository.ok) {
+        expect(repository.value.repositoryRoot).toBe(repo);
+        expect(repository.value.openedRoot).toBe(repo);
+        expect(repository.value.currentWorktree.path).toBe(repo);
+      }
+    }
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'preserves a carriage-return-ending configured remote name on POSIX',
+    async () => {
+      const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
+      const remoteReal = await fsPromises.realpath(remote);
+      createdRoots.push(remoteReal);
+      await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+
+      const repo = await makeRepo();
+      await writeFile(repo, 'a.txt', 'x\n');
+      await execFileAsync('git', ['add', '.'], { cwd: repo });
+      await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+      const remoteName = 'origin\r';
+      await execFileAsync('git', ['config', `remote.${remoteName}.url`, remoteReal], { cwd: repo });
+
+      const pushed = await serviceFor(repo).push({ remote: remoteName });
+
+      expect(pushed.ok).toBe(true);
+      const repository = await serviceFor(repo).repository();
+      expect(repository.ok).toBe(true);
+      if (repository.ok) {
+        expect(repository.value.remotes).toContain(remoteName);
+        expect(repository.value.defaultRemote).toBe(remoteName);
+      }
+    }
+  );
+
   it('preserves a whitespace-bearing configured remote name exactly', async () => {
     const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
     const remoteReal = await fsPromises.realpath(remote);
