@@ -1,7 +1,13 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GitBridge, GitDiffParams, GitResult, GitStatus } from '../git-panel/git-bridge';
+import type {
+  GitBridge,
+  GitDiffParams,
+  GitRepository,
+  GitResult,
+  GitStatus,
+} from '../git-panel/git-bridge';
 
 // ── Controllable active-root + toast spies ────────────────────────────────────
 const mockRoot: {
@@ -72,6 +78,39 @@ function makeStatus(overrides: Partial<GitStatus> = {}): GitStatus {
   };
 }
 
+function makeRepository(overrides: Partial<GitRepository> = {}): GitRepository {
+  return {
+    branches: [
+      {
+        current: true,
+        head: '0123456789012345678901234567890123456789',
+        name: 'main',
+        upstream: 'origin/main',
+        worktreePath: '/abs/repo',
+      },
+    ],
+    currentWorktree: {
+      bare: false,
+      branch: 'main',
+      current: true,
+      detached: false,
+      head: '0123456789012345678901234567890123456789',
+      lockedReason: null,
+      name: 'repo',
+      path: '/abs/repo',
+      prunableReason: null,
+    },
+    defaultRemote: 'origin',
+    name: 'repo',
+    openedRoot: '/abs/repo',
+    remotes: ['origin'],
+    repositoryRoot: '/abs/repo',
+    scope: 'repository',
+    worktrees: [],
+    ...overrides,
+  };
+}
+
 function installBridge(bridge: Partial<GitBridge>): GitBridge {
   const full: GitBridge = {
     aheadBehind: vi.fn(async () =>
@@ -89,37 +128,7 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
     history: vi.fn(async () => ok({ commits: [], hasMore: false, limit: 100, offset: 0 })),
     pull: vi.fn(async () => ok({ output: 'Already up to date.' })),
     push: vi.fn(async () => ok({ output: 'Everything up-to-date' })),
-    repository: vi.fn(async () =>
-      ok({
-        branches: [
-          {
-            current: true,
-            head: '0123456789012345678901234567890123456789',
-            name: 'main',
-            upstream: 'origin/main',
-            worktreePath: '/abs/repo',
-          },
-        ],
-        currentWorktree: {
-          bare: false,
-          branch: 'main',
-          current: true,
-          detached: false,
-          head: '0123456789012345678901234567890123456789',
-          lockedReason: null,
-          name: 'repo',
-          path: '/abs/repo',
-          prunableReason: null,
-        },
-        defaultRemote: 'origin',
-        name: 'repo',
-        openedRoot: '/abs/repo',
-        remotes: ['origin'],
-        repositoryRoot: '/abs/repo',
-        scope: 'repository' as const,
-        worktrees: [],
-      })
-    ),
+    repository: vi.fn(async () => ok(makeRepository())),
     stage: vi.fn(async () => ok(null)),
     status: vi.fn(async () => ok(makeStatus())),
     switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) =>
@@ -330,7 +339,83 @@ describe('GitPanel', () => {
     );
   });
 
-  it('requests an untracked file diff with untracked:true (whole-file additions)', async () => {
+  it('hides prior-root status and repository actions until the focused root finishes loading', async () => {
+    const user = userEvent.setup();
+    let resolveRoot2Status: (result: GitResult<GitStatus>) => void = () => {
+      throw new Error('root-2 status resolver was not initialized');
+    };
+    let resolveRoot2Repository: (result: GitResult<GitRepository>) => void = () => {
+      throw new Error('root-2 repository resolver was not initialized');
+    };
+    const root2Status = new Promise<GitResult<GitStatus>>((resolve) => {
+      resolveRoot2Status = resolve;
+    });
+    const root2Repository = new Promise<GitResult<GitRepository>>((resolve) => {
+      resolveRoot2Repository = resolve;
+    });
+    const bridge = installBridge({
+      repository: vi.fn(async (rootId: string) => {
+        if (rootId === 'root-2') {
+          return await root2Repository;
+        }
+        return ok(makeRepository());
+      }),
+      status: vi.fn(async (rootId: string) => {
+        if (rootId === 'root-2') {
+          return await root2Status;
+        }
+        return ok(makeStatus());
+      }),
+    });
+    const { rerender } = render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    await user.type(screen.getByPlaceholderText('Commit message'), 'root-1 draft');
+
+    mockRoot.handle = {
+      kind: 'directory',
+      name: 'repo2',
+      path: '/abs/repo2',
+      platform: 'electron',
+      rootId: 'root-2',
+    };
+    rerender(<GitPanel />);
+
+    await waitFor(() => expect(screen.queryByTestId('git-panel')).not.toBeInTheDocument());
+    expect(screen.queryByText('unstaged.ts')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stage unstaged.ts' })).not.toBeInTheDocument();
+    expect(bridge.stage).not.toHaveBeenCalled();
+
+    resolveRoot2Status(
+      ok(
+        makeStatus({
+          files: [
+            {
+              path: 'root-2.ts',
+              staged: false,
+              status: 'M',
+              unstaged: true,
+              untracked: false,
+            },
+          ],
+        })
+      )
+    );
+    resolveRoot2Repository(
+      ok(
+        makeRepository({
+          name: 'repo2',
+          openedRoot: '/abs/repo2',
+          repositoryRoot: '/abs/repo2',
+        })
+      )
+    );
+
+    expect(await screen.findByRole('button', { name: 'Stage root-2.ts' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Commit message')).toHaveValue('');
+  });
+
+  it('requests an untracked file diff in untracked mode (whole-file additions)', async () => {
     const user = userEvent.setup();
     const NEW_FILE_DIFF = [
       'diff --git a/new.ts b/new.ts',

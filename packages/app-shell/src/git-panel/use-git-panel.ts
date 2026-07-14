@@ -11,6 +11,11 @@ import { type GitBridge, type GitRepository, type GitStatus, resolveGitBridge } 
 
 const logger = createLogger('GitPanel');
 
+interface RootScopedValue<T> {
+  readonly rootId: string;
+  readonly value: T;
+}
+
 export interface UseGitPanelResult {
   /** Durable rootId of the focused workspace root, or null if none is open. */
   readonly activeRootId: string | null;
@@ -72,11 +77,15 @@ export function useGitPanel(): UseGitPanelResult {
     return rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path) ?? null;
   }, [rootDirectoryHandle, rootIdByPath]);
 
-  const [status, setStatus] = useState<GitStatus | null>(null);
-  const [repository, setRepository] = useState<GitRepository | null>(null);
-  const [repositoryError, setRepositoryError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusState, setStatusState] = useState<RootScopedValue<GitStatus> | null>(null);
+  const [repositoryState, setRepositoryState] = useState<RootScopedValue<GitRepository> | null>(
+    null
+  );
+  const [repositoryErrorState, setRepositoryErrorState] = useState<RootScopedValue<string> | null>(
+    null
+  );
+  const [loadingRootId, setLoadingRootId] = useState<string | null>(null);
+  const [statusErrorState, setStatusErrorState] = useState<RootScopedValue<string> | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   // Bumped to force a refresh after a mutation or a manual refresh click.
   const [refreshToken, setRefreshToken] = useState(0);
@@ -85,6 +94,15 @@ export function useGitPanel(): UseGitPanelResult {
   // silent boot-race retry loop is bounded. Reset on success, on a manual
   // refresh, and when the focused root changes.
   const transientRetryCountRef = useRef(0);
+
+  const status = statusState?.rootId === activeRootId ? statusState.value : null;
+  const repository = repositoryState?.rootId === activeRootId ? repositoryState.value : null;
+  const repositoryError =
+    repositoryErrorState?.rootId === activeRootId ? repositoryErrorState.value : null;
+  const statusError = statusErrorState?.rootId === activeRootId ? statusErrorState.value : null;
+  const isLoading =
+    activeRootId !== null &&
+    (loadingRootId === activeRootId || statusState?.rootId !== activeRootId);
 
   const refresh = useCallback(() => {
     transientRetryCountRef.current = 0;
@@ -96,16 +114,16 @@ export function useGitPanel(): UseGitPanelResult {
   // captured and a `cancelled` flag guards the async write-back.
   useEffect(() => {
     if (!(bridge && activeRootId)) {
-      setStatus(null);
-      setStatusError(null);
-      setIsLoading(false);
+      setStatusState(null);
+      setStatusErrorState(null);
+      setLoadingRootId(null);
       return;
     }
 
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    setIsLoading(true);
-    setStatusError(null);
+    setLoadingRootId(activeRootId);
+    setStatusErrorState(null);
 
     bridge
       .status(activeRootId)
@@ -115,8 +133,8 @@ export function useGitPanel(): UseGitPanelResult {
         }
         if (result.ok) {
           transientRetryCountRef.current = 0;
-          setStatus(result.value);
-          setStatusError(null);
+          setStatusState({ rootId: activeRootId, value: result.value });
+          setStatusErrorState(null);
         } else if (
           isTransientRootError(result.error) &&
           transientRetryCountRef.current < TRANSIENT_ROOT_RETRY_LIMIT
@@ -136,8 +154,8 @@ export function useGitPanel(): UseGitPanelResult {
           }, TRANSIENT_ROOT_RETRY_DELAY_MS);
           return;
         } else {
-          setStatus(null);
-          setStatusError(result.error);
+          setStatusState(null);
+          setStatusErrorState({ rootId: activeRootId, value: result.error });
           logger.error('git status failed', { error: result.error });
           toast({
             description: result.error,
@@ -151,8 +169,8 @@ export function useGitPanel(): UseGitPanelResult {
           return;
         }
         const message = error instanceof Error ? error.message : String(error);
-        setStatus(null);
-        setStatusError(message);
+        setStatusState(null);
+        setStatusErrorState({ rootId: activeRootId, value: message });
         logger.error('git status threw', { error: message });
         toast({ description: message, title: 'Git status failed', variant: 'destructive' });
       })
@@ -160,7 +178,7 @@ export function useGitPanel(): UseGitPanelResult {
         // Keep the loading state up while a transient-root retry is pending so
         // the panel shows "loading", not a flash of empty/error UI.
         if (!(cancelled || retryTimer)) {
-          setIsLoading(false);
+          setLoadingRootId((rootId) => (rootId === activeRootId ? null : rootId));
         }
       });
 
@@ -174,8 +192,8 @@ export function useGitPanel(): UseGitPanelResult {
 
   useEffect(() => {
     if (!(bridge && activeRootId && status?.isRepository)) {
-      setRepository(null);
-      setRepositoryError(null);
+      setRepositoryState(null);
+      setRepositoryErrorState(null);
       return;
     }
     let cancelled = false;
@@ -186,12 +204,12 @@ export function useGitPanel(): UseGitPanelResult {
           return;
         }
         if (result.ok) {
-          setRepository(result.value);
-          setRepositoryError(null);
+          setRepositoryState({ rootId: activeRootId, value: result.value });
+          setRepositoryErrorState(null);
           return;
         }
-        setRepository(null);
-        setRepositoryError(result.error);
+        setRepositoryState(null);
+        setRepositoryErrorState({ rootId: activeRootId, value: result.error });
         logger.error('git repository metadata failed', { error: result.error });
         toast({
           description: result.error,
@@ -204,8 +222,8 @@ export function useGitPanel(): UseGitPanelResult {
           return;
         }
         const message = error instanceof Error ? error.message : String(error);
-        setRepository(null);
-        setRepositoryError(message);
+        setRepositoryState(null);
+        setRepositoryErrorState({ rootId: activeRootId, value: message });
         logger.error('git repository metadata threw', { error: message });
         toast({
           description: message,
@@ -235,7 +253,7 @@ export function useGitPanel(): UseGitPanelResult {
         rootId: string
       ) => Promise<{ ok: true } | { ok: false; error: string }>
     ): Promise<boolean> => {
-      if (!(bridge && activeRootId)) {
+      if (!(bridge && activeRootId && status?.isRepository)) {
         return false;
       }
       try {
@@ -254,7 +272,7 @@ export function useGitPanel(): UseGitPanelResult {
         return false;
       }
     },
-    [bridge, activeRootId, refresh, toast]
+    [bridge, activeRootId, refresh, status?.isRepository, toast]
   );
 
   const stageFile = useCallback(

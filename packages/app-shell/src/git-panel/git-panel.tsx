@@ -308,6 +308,45 @@ function DiffPane({
   );
 }
 
+function CommitBox({
+  commit,
+  stagedCount,
+}: {
+  readonly commit: (summary: string) => Promise<boolean>;
+  readonly stagedCount: number;
+}): ReactElement {
+  const [message, setMessage] = useState('');
+  const handleCommit = useCallback(async () => {
+    if (await commit(message)) {
+      setMessage('');
+    }
+  }, [commit, message]);
+
+  return (
+    <div className="border-border border-t p-2">
+      <label className="sr-only" htmlFor="git-commit-message">
+        Commit message
+      </label>
+      <textarea
+        className="min-h-16 w-full resize-none rounded-md border border-input bg-background p-2 text-sm outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        id="git-commit-message"
+        onChange={(event) => setMessage(event.target.value)}
+        placeholder="Commit message"
+        value={message}
+      />
+      <Button
+        className="mt-2 w-full"
+        disabled={message.trim().length === 0 || stagedCount === 0}
+        onClick={handleCommit}
+        size="sm"
+        type="button"
+      >
+        Commit {stagedCount > 0 ? `(${stagedCount})` : ''}
+      </Button>
+    </div>
+  );
+}
+
 /**
  * Owns the selected-file → diff lifecycle: tracks the clicked file and loads its
  * diff via the bridge into a discriminated {@link DiffState}. Keeps {@link GitPanel}
@@ -427,17 +466,9 @@ export function GitPanel(): ReactElement {
     repositoryError,
   } = useGitPanel();
 
-  const [commitMessage, setCommitMessage] = useState('');
   const { selected, handleSelect, diffState, parsedDiff } = useSelectedDiff(loadDiff, activeRootId);
 
   const buckets = useMemo(() => partitionFiles(status?.files ?? []), [status?.files]);
-
-  const handleCommit = useCallback(async () => {
-    const ok = await commit(commitMessage);
-    if (ok) {
-      setCommitMessage('');
-    }
-  }, [commit, commitMessage]);
 
   if (!activeRootId) {
     return (
@@ -609,28 +640,7 @@ export function GitPanel(): ReactElement {
           </div>
         </ScrollArea>
 
-        {/* Commit box */}
-        <div className="border-border border-t p-2">
-          <label className="sr-only" htmlFor="git-commit-message">
-            Commit message
-          </label>
-          <textarea
-            className="min-h-16 w-full resize-none rounded-md border border-input bg-background p-2 text-sm outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            id="git-commit-message"
-            onChange={(event) => setCommitMessage(event.target.value)}
-            placeholder="Commit message"
-            value={commitMessage}
-          />
-          <Button
-            className="mt-2 w-full"
-            disabled={commitMessage.trim().length === 0 || buckets.staged.length === 0}
-            onClick={handleCommit}
-            size="sm"
-            type="button"
-          >
-            Commit {buckets.staged.length > 0 ? `(${buckets.staged.length})` : ''}
-          </Button>
-        </div>
+        <CommitBox commit={commit} key={activeRootId} stagedCount={buckets.staged.length} />
       </div>
 
       {/* Right: diff viewer */}

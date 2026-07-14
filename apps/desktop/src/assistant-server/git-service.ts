@@ -1102,7 +1102,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     /**
      * Unified diff for a path (or the whole tree), optionally for the index.
      *
-     * For an UNTRACKED file (`untracked: true`), a plain `git diff` reports
+     * In untracked mode, a plain `git diff` reports
      * nothing (the file is not in the index), so the reviewer would see an empty
      * diff for a file that clearly has content. In that case we diff the new file
      * against `/dev/null` with `git diff --no-index`, which renders the whole
@@ -1258,6 +1258,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       params: { remote?: string | undefined } = {}
     ): Promise<GitResult<GitPushPullResult>> => {
       try {
+        const scope = await requireFullWorktreeRoot('Push');
+        if (!scope.ok) {
+          return scope;
+        }
         const args = await resolvePushArgs(params.remote);
         if (!args.ok) {
           return args;

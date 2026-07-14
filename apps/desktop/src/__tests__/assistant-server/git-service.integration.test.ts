@@ -1132,6 +1132,46 @@ describe('git service — aheadBehind', () => {
 });
 
 describe('git service — push', () => {
+  it('REFUSES to push an ancestor repository from an opened subdirectory root', async () => {
+    const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
+    const remoteReal = await fsPromises.realpath(remote);
+    createdRoots.push(remoteReal);
+    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+
+    const repo = await makeRepo('brainstrike-git-push-scope-');
+    await fsPromises.mkdir(path.join(repo, 'opened'));
+    await writeFile(repo, 'opened/file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
+    await execFileAsync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
+    const remoteBefore = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: remoteReal }))
+      .stdout;
+
+    await writeFile(repo, 'opened/file.txt', 'local-only\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'local-only'], { cwd: repo });
+
+    const invokedArgs: string[][] = [];
+    const service = createGitService({
+      cwd: path.join(repo, 'opened'),
+      run: async (params) => {
+        invokedArgs.push([...params.args]);
+        return await execFileGitRunner(params);
+      },
+    });
+    const pushed = await service.push();
+
+    expect(pushed).toEqual({
+      error: expect.stringMatching(/full Git worktree root/i),
+      ok: false,
+    });
+    expect(invokedArgs.some((args) => args[0] === 'push')).toBe(false);
+    const remoteAfter = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: remoteReal }))
+      .stdout;
+    expect(remoteAfter).toBe(remoteBefore);
+  });
+
   it.skipIf(process.platform === 'win32')(
     'preserves a carriage-return-ending repository path on POSIX',
     async () => {

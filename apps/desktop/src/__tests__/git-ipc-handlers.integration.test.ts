@@ -183,6 +183,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
   it('builds the push command and maps a network failure to a structured error', async () => {
     const dir = await makeDir();
     const responses = [
+      { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: '\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'origin\n', timedOut: false },
@@ -206,17 +207,18 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     });
 
     const result = await handlers.push('r1', { remote: 'origin' });
-    // Push first probes the upstream. With none configured, it validates the
-    // renderer-selected remote before setting it as the upstream.
-    expect(calls).toHaveLength(4);
-    expect(calls[0]?.args).toEqual(['symbolic-ref', '--quiet', '--short', 'HEAD']);
-    expect(calls[1]?.args).toEqual([
+    // Push first verifies that the authorized root is the full worktree. It
+    // then probes the upstream and validates the renderer-selected remote.
+    expect(calls).toHaveLength(5);
+    expect(calls[0]?.args).toEqual(['rev-parse', '--path-format=absolute', '--show-toplevel']);
+    expect(calls[1]?.args).toEqual(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    expect(calls[2]?.args).toEqual([
       'for-each-ref',
       '--format=%(upstream:short)',
       'refs/heads/main',
     ]);
-    expect(calls[2]?.args).toEqual(['remote']);
-    expect(calls[3]?.args).toEqual(['push', '-u', '--', 'origin', 'HEAD']);
+    expect(calls[3]?.args).toEqual(['remote']);
+    expect(calls[4]?.args).toEqual(['push', '-u', '--', 'origin', 'HEAD']);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toMatch(/could not read Username|terminal prompts disabled/);
@@ -225,8 +227,9 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
 
   it('uses a bare `git push` when the branch already has an upstream', async () => {
     const dir = await makeDir();
-    // Per-call responses: current branch, upstream, then push.
+    // Per-call responses: full-root probe, current branch, upstream, then push.
     const responses = [
+      { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'origin/main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'Everything up-to-date\n', timedOut: false },
@@ -249,8 +252,8 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     });
 
     const result = await handlers.push('r1');
-    expect(calls).toHaveLength(3);
-    expect(calls[2]?.args).toEqual(['push']);
+    expect(calls).toHaveLength(4);
+    expect(calls[3]?.args).toEqual(['push']);
     expect(result.ok).toBe(true);
   });
 
@@ -284,6 +287,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
   it('maps a timed-out push to a structured timeout error', async () => {
     const dir = await makeDir();
     const responses = [
+      { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'origin/main\n', timedOut: false },
       {
