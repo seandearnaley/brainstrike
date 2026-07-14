@@ -41,6 +41,6 @@ describe('model pricing metadata', () => {
     const sonnet = models.find((model) => model.id === 'anthropic/claude-sonnet-5');
     const glm = models.find((model) => model.id === 'z-ai/glm-5.2');
     expect(sonnet?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
-    expect(glm?.pricing).toEqual({ inputPerMTok: 0.9296, outputPerMTok: 2.9216 });
+    expect(glm?.pricing).toEqual({ inputPerMTok: 0.9282, outputPerMTok: 2.9172 });
   });
 });

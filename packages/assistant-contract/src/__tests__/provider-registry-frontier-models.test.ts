@@ -161,7 +161,7 @@ describe('contextWindow metadata', () => {
 
   it('getLlmModelDefinition resolves a known model and throws on unknown ids', () => {
     expect(getLlmModelDefinition('anthropic', 'claude-sonnet-5').contextWindow).toBe(1_000_000);
-    expect(getLlmModelDefinition('openrouter', 'z-ai/glm-5.2').maxOutputTokens).toBe(128_000);
+    expect(getLlmModelDefinition('openrouter', 'z-ai/glm-5.2').maxOutputTokens).toBe(131_072);
     expect(() => getLlmModelDefinition('anthropic', 'no-such-model')).toThrow(/Unknown LLM model/);
     expect(() => getLlmModelDefinition('openai', 'claude-sonnet-4-6')).toThrow(/Unknown LLM model/);
   });
