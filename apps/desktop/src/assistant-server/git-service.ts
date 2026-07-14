@@ -117,6 +117,23 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Remove Git's record terminator without corrupting path-significant whitespace. */
+function stripLineEnding(value: string): string {
+  return value.replace(/\r?\n$/, '');
+}
+
+function parseGitVersion(value: string): readonly [number, number, number] | null {
+  const match = /^git version (\d+)\.(\d+)(?:\.(\d+))?/.exec(value);
+  if (!match) {
+    return null;
+  }
+  return [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+}
+
+function isAtLeastGit236(version: readonly [number, number, number]): boolean {
+  return version[0] > 2 || (version[0] === 2 && version[1] >= 36);
+}
+
 /** Bound a captured stream to the size budget, keeping the head (where git's
  * summary / errors lead) plus a truncation marker. */
 function boundOutput(text: string): { text: string; truncated: boolean } {
@@ -156,6 +173,19 @@ function describeFailure(run: GitCommandRun): string {
     return stdout;
   }
   return `git exited with code ${run.exitCode ?? 'null (terminated by signal)'}`;
+}
+
+function describeDiffFailure(run: GitCommandRun, untracked: boolean): string | null {
+  if (run.exitCode === 0 || run.failureReason === 'maxBuffer') {
+    return null;
+  }
+  if (!(untracked && run.exitCode === 1)) {
+    return describeFailure(run);
+  }
+  if (run.stdout.length > 0) {
+    return null;
+  }
+  return run.stderr.trim() || 'git returned no diff for the untracked path';
 }
 
 /**
@@ -484,11 +514,29 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     if (run_.exitCode !== 0) {
       return { error: describeFailure(run_), ok: false };
     }
-    const worktreeRoot = run_.stdout.trim();
+    const worktreeRoot = stripLineEnding(run_.stdout);
     if (worktreeRoot.length === 0) {
       return { error: 'git returned an empty worktree root', ok: false };
     }
     return { ok: true, value: worktreeRoot };
+  }
+
+  async function requireNulSafeWorktreeInventory(): Promise<GitResult<null>> {
+    const run_ = await invoke(['version']);
+    if (run_.exitCode !== 0) {
+      return { error: describeFailure(run_), ok: false };
+    }
+    const version = parseGitVersion(stripLineEnding(run_.stdout));
+    if (!version) {
+      return { error: 'git returned an unrecognized version string', ok: false };
+    }
+    if (!isAtLeastGit236(version)) {
+      return {
+        error: `Git 2.36 or newer is required for repository and worktree browsing; found ${version.join('.')}`,
+        ok: false,
+      };
+    }
+    return { ok: true, value: null };
   }
 
   async function requireFullWorktreeRoot(action: string): Promise<GitResult<null>> {
@@ -754,6 +802,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   }
 
   async function loadRepositoryInventory(): Promise<GitResult<RepositoryInventory>> {
+    const compatible = await requireNulSafeWorktreeInventory();
+    if (!compatible.ok) {
+      return compatible;
+    }
     const root = await resolveWorktreeRoot();
     if (!root.ok) {
       return root;
@@ -1051,9 +1103,9 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         // the partial stdout is still a valid prefix of the diff, so bound it and
         // report a `truncated: true` SUCCESS rather than a failure. With
         // `--no-index`, exit code 1 means "files differ" (expected success).
-        const noIndexDiffered = untracked && run_.exitCode === 1;
-        if (run_.exitCode !== 0 && run_.failureReason !== 'maxBuffer' && !noIndexDiffered) {
-          return { error: describeFailure(run_), ok: false };
+        const failure = describeDiffFailure(run_, untracked);
+        if (failure) {
+          return { error: failure, ok: false };
         }
         const overflowed = run_.failureReason === 'maxBuffer';
         const bounded = boundOutput(run_.stdout);
@@ -1211,7 +1263,15 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         // escape the opened folder. `--branch` still yields the repo-wide branch
         // header (ahead/behind), which is what the meter wants.
         const [run_, prefixRun] = await Promise.all([
-          invoke(['status', '--porcelain=v2', '--branch', '-z', '--', '.']),
+          invoke([
+            'status',
+            '--porcelain=v2',
+            '--branch',
+            '--untracked-files=all',
+            '-z',
+            '--',
+            '.',
+          ]),
           invoke(['rev-parse', '--show-prefix']),
         ]);
         if (run_.exitCode !== 0) {
@@ -1236,7 +1296,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (prefixRun.exitCode !== 0) {
           return { error: describeFailure(prefixRun), ok: false };
         }
-        const parsed = scopeStatusPaths(parsePorcelainV2Z(run_.stdout), prefixRun.stdout.trim());
+        const parsed = scopeStatusPaths(
+          parsePorcelainV2Z(run_.stdout),
+          stripLineEnding(prefixRun.stdout)
+        );
         if (!parsed.ok) {
           return parsed;
         }

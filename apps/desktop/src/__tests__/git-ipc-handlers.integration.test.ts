@@ -112,7 +112,15 @@ describe('git IPC handlers — root resolution + containment', () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]?.cwd).toBe(dir);
     // Scoped to the opened root ('-- .') for subdir-of-worktree containment.
-    expect(calls[0]?.args).toEqual(['status', '--porcelain=v2', '--branch', '-z', '--', '.']);
+    expect(calls[0]?.args).toEqual([
+      'status',
+      '--porcelain=v2',
+      '--branch',
+      '--untracked-files=all',
+      '-z',
+      '--',
+      '.',
+    ]);
     expect(calls[1]?.args).toEqual(['rev-parse', '--show-prefix']);
   });
 

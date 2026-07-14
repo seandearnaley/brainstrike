@@ -383,7 +383,7 @@ describe('GitPanel', () => {
     );
   });
 
-  it('enables Push for a branch with NO upstream (so a new branch can set it)', async () => {
+  it('requires an explicit remote before publishing a branch with no upstream', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({
       status: vi.fn(async () => ok(makeStatus({ ahead: null, behind: null, upstream: null }))),
@@ -391,13 +391,43 @@ describe('GitPanel', () => {
     render(<GitPanel />);
 
     await screen.findByTestId('git-panel');
-    const pushButton = screen.getByRole('button', { name: 'Push to upstream' });
-    expect(pushButton).toBeEnabled();
-    // Pull stays disabled (nothing to pull without an upstream).
+    expect(screen.queryByRole('button', { name: 'Push to upstream' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pull from upstream' })).toBeDisabled();
 
-    await user.click(pushButton);
-    expect(bridge.push).toHaveBeenCalledWith('root-1');
+    await user.click(screen.getByRole('button', { name: 'Choose remote to publish branch' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Publish to origin' }));
+    expect(bridge.push).toHaveBeenCalledWith('root-1', { remote: 'origin' });
+  });
+
+  it('disables full-worktree pull when the opened workspace is a subfolder', async () => {
+    installBridge({
+      repository: vi.fn(async () =>
+        ok({
+          branches: [],
+          currentWorktree: {
+            bare: false,
+            branch: 'main',
+            current: true,
+            detached: false,
+            head: '0123456789012345678901234567890123456789',
+            lockedReason: null,
+            name: 'repo',
+            path: '/abs/repo',
+            prunableReason: null,
+          },
+          defaultRemote: 'origin',
+          name: 'repo',
+          openedRoot: '/abs/repo/packages/app',
+          remotes: ['origin'],
+          repositoryRoot: '/abs/repo',
+          scope: 'workspace' as const,
+          worktrees: [],
+        })
+      ),
+    });
+    render(<GitPanel />);
+
+    expect(await screen.findByRole('button', { name: 'Pull from upstream' })).toBeDisabled();
   });
 
   it('surfaces a commit error as a toast and does not clear the box', async () => {

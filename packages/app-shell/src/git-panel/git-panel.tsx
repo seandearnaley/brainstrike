@@ -2,6 +2,10 @@ import {
   Badge,
   Button,
   DiffView,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   type ParsedUnifiedDiff,
   parseUnifiedDiff,
   ScrollArea,
@@ -9,6 +13,7 @@ import {
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   Download,
   FileMinus,
   FilePlus,
@@ -143,6 +148,91 @@ function FileSection({
         ))}
       </ul>
     </section>
+  );
+}
+
+function SyncControls({
+  ahead,
+  behind,
+  isSyncing,
+  onPull,
+  onPush,
+  remotes,
+  scope,
+  status,
+}: {
+  readonly ahead: number;
+  readonly behind: number;
+  readonly isSyncing: boolean;
+  readonly onPull: () => void;
+  readonly onPush: (remote?: string) => void;
+  readonly remotes: readonly string[];
+  readonly scope: 'repository' | 'workspace';
+  readonly status: NonNullable<ReturnType<typeof useGitPanel>['status']>;
+}): ReactElement {
+  const fullWorktree = scope === 'repository';
+  return (
+    <div className="flex items-center gap-2 border-border border-b px-3 py-2">
+      <Button
+        aria-label="Pull from upstream"
+        disabled={isSyncing || !status.upstream || !fullWorktree}
+        onClick={onPull}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        <Download aria-hidden="true" className="mr-1" />
+        Pull
+        {behind > 0 ? (
+          <Badge className="ml-1" data-testid="behind-badge" variant="secondary">
+            <ArrowDown aria-hidden="true" className="mr-0.5" />
+            {behind}
+          </Badge>
+        ) : null}
+      </Button>
+      {status.upstream ? (
+        <Button
+          aria-label="Push to upstream"
+          disabled={isSyncing || !status.branch || !fullWorktree}
+          onClick={() => onPush()}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <Upload aria-hidden="true" className="mr-1" />
+          Push
+          {ahead > 0 ? (
+            <Badge className="ml-1" data-testid="ahead-badge" variant="secondary">
+              <ArrowUp aria-hidden="true" className="mr-0.5" />
+              {ahead}
+            </Badge>
+          ) : null}
+        </Button>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              aria-label="Choose remote to publish branch"
+              disabled={isSyncing || !status.branch || !fullWorktree || remotes.length === 0}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Upload aria-hidden="true" className="mr-1" />
+              Publish
+              <ChevronDown aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {remotes.map((remote) => (
+              <DropdownMenuItem key={remote} onSelect={() => onPush(remote)}>
+                Publish to {remote}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
   );
 }
 
@@ -333,6 +423,8 @@ export function GitPanel(): ReactElement {
     push,
     pull,
     loadDiff,
+    repository,
+    repositoryError,
   } = useGitPanel();
 
   const [commitMessage, setCommitMessage] = useState('');
@@ -385,9 +477,33 @@ export function GitPanel(): ReactElement {
     );
   }
 
-  const ahead = status?.ahead ?? null;
-  const behind = status?.behind ?? null;
-  const hasChanges = (status?.files.length ?? 0) > 0;
+  if (repositoryError) {
+    return (
+      <div
+        className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm"
+        data-testid="git-panel-error"
+      >
+        <p className="text-destructive">Could not load repository details.</p>
+        <p className="max-w-md text-muted-foreground text-xs">{repositoryError}</p>
+        <Button onClick={refresh} size="sm" type="button" variant="outline">
+          <RefreshCw aria-hidden="true" className="mr-1" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  if (!(status && repository)) {
+    return (
+      <div className="grid h-full place-items-center text-muted-foreground text-sm">
+        Loading Git workbench…
+      </div>
+    );
+  }
+
+  const ahead = status.ahead ?? 0;
+  const behind = status.behind ?? 0;
+  const hasChanges = status.files.length > 0;
 
   return (
     <div className="flex h-full min-h-0" data-testid="git-panel">
@@ -412,47 +528,16 @@ export function GitPanel(): ReactElement {
           </Button>
         </div>
 
-        {/* Push/pull + ahead/behind */}
-        <div className="flex items-center gap-2 border-border border-b px-3 py-2">
-          <Button
-            aria-label="Pull from upstream"
-            disabled={isSyncing || !status?.upstream}
-            onClick={pull}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <Download aria-hidden="true" className="mr-1" />
-            Pull
-            {behind && behind > 0 ? (
-              <Badge className="ml-1" data-testid="behind-badge" variant="secondary">
-                <ArrowDown aria-hidden="true" className="mr-0.5" />
-                {behind}
-              </Badge>
-            ) : null}
-          </Button>
-          {/* Push is enabled even with NO upstream so a freshly-created local
-              branch can push and set its upstream (the service uses
-              `push -u origin HEAD` when no upstream exists). It only requires a
-              branch (not a detached HEAD) and no in-flight sync. */}
-          <Button
-            aria-label="Push to upstream"
-            disabled={isSyncing || !status?.branch}
-            onClick={push}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <Upload aria-hidden="true" className="mr-1" />
-            Push
-            {ahead && ahead > 0 ? (
-              <Badge className="ml-1" data-testid="ahead-badge" variant="secondary">
-                <ArrowUp aria-hidden="true" className="mr-0.5" />
-                {ahead}
-              </Badge>
-            ) : null}
-          </Button>
-        </div>
+        <SyncControls
+          ahead={ahead}
+          behind={behind}
+          isSyncing={isSyncing}
+          onPull={() => void pull()}
+          onPush={(remote) => void push(remote)}
+          remotes={repository.remotes}
+          scope={repository.scope}
+          status={status}
+        />
 
         <ScrollArea className="min-h-0 flex-1">
           <div className="py-2">

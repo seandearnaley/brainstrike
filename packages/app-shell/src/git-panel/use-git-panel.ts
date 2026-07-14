@@ -7,7 +7,7 @@ import {
   TRANSIENT_ROOT_RETRY_DELAY_MS,
   TRANSIENT_ROOT_RETRY_LIMIT,
 } from '../roots/transient-root-error';
-import { type GitBridge, type GitStatus, resolveGitBridge } from './git-bridge';
+import { type GitBridge, type GitRepository, type GitStatus, resolveGitBridge } from './git-bridge';
 
 const logger = createLogger('GitPanel');
 
@@ -25,8 +25,10 @@ export interface UseGitPanelResult {
     options: { staged: boolean; untracked: boolean }
   ) => Promise<LoadedDiff | null>;
   readonly pull: () => Promise<void>;
-  readonly push: () => Promise<void>;
+  readonly push: (remote?: string) => Promise<void>;
   readonly refresh: () => void;
+  readonly repository: GitRepository | null;
+  readonly repositoryError: string | null;
   readonly stageFile: (path: string) => Promise<void>;
   /** Parsed status for the active root; null until first load / when no root. */
   readonly status: GitStatus | null;
@@ -71,6 +73,8 @@ export function useGitPanel(): UseGitPanelResult {
   }, [rootDirectoryHandle, rootIdByPath]);
 
   const [status, setStatus] = useState<GitStatus | null>(null);
+  const [repository, setRepository] = useState<GitRepository | null>(null);
+  const [repositoryError, setRepositoryError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -168,6 +172,52 @@ export function useGitPanel(): UseGitPanelResult {
     };
   }, [bridge, activeRootId, refreshToken, toast]);
 
+  useEffect(() => {
+    if (!(bridge && activeRootId && status?.isRepository)) {
+      setRepository(null);
+      setRepositoryError(null);
+      return;
+    }
+    let cancelled = false;
+    bridge
+      .repository(activeRootId)
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        if (result.ok) {
+          setRepository(result.value);
+          setRepositoryError(null);
+          return;
+        }
+        setRepository(null);
+        setRepositoryError(result.error);
+        logger.error('git repository metadata failed', { error: result.error });
+        toast({
+          description: result.error,
+          title: 'Repository details failed',
+          variant: 'destructive',
+        });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        setRepository(null);
+        setRepositoryError(message);
+        logger.error('git repository metadata threw', { error: message });
+        toast({
+          description: message,
+          title: 'Repository details failed',
+          variant: 'destructive',
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRootId, bridge, refreshToken, status?.isRepository, toast]);
+
   // A different focused root starts with a fresh transient-retry budget.
   useEffect(() => {
     transientRetryCountRef.current = 0;
@@ -249,23 +299,26 @@ export function useGitPanel(): UseGitPanelResult {
     [runMutation, toast]
   );
 
-  const push = useCallback(async (): Promise<void> => {
-    if (!(bridge && activeRootId)) {
-      return;
-    }
-    setIsSyncing(true);
-    try {
-      await runMutation('Push', async (b, rootId) => {
-        const result = await b.push(rootId);
-        if (result.ok) {
-          toast({ description: result.value.output || 'Up to date.', title: 'Pushed' });
-        }
-        return result;
-      });
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [bridge, activeRootId, runMutation, toast]);
+  const push = useCallback(
+    async (remote?: string): Promise<void> => {
+      if (!(bridge && activeRootId)) {
+        return;
+      }
+      setIsSyncing(true);
+      try {
+        await runMutation('Push', async (b, rootId) => {
+          const result = remote ? await b.push(rootId, { remote }) : await b.push(rootId);
+          if (result.ok) {
+            toast({ description: result.value.output || 'Up to date.', title: 'Pushed' });
+          }
+          return result;
+        });
+      } finally {
+        setIsSyncing(false);
+      }
+    },
+    [bridge, activeRootId, runMutation, toast]
+  );
 
   const pull = useCallback(async (): Promise<void> => {
     if (!(bridge && activeRootId)) {
@@ -324,6 +377,8 @@ export function useGitPanel(): UseGitPanelResult {
     pull,
     push,
     refresh,
+    repository,
+    repositoryError,
     stageFile,
     status,
     statusError,

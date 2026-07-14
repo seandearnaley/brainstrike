@@ -158,6 +158,46 @@ describe('git service — status', () => {
     expect(result.value.clean).toBe(false);
   });
 
+  it('enumerates nested untracked files individually so each diff is inspectable', async () => {
+    const repo = await makeRepo('brainstrike-git-untracked-tree-');
+    await fsPromises.mkdir(path.join(repo, 'nested', 'deep'), { recursive: true });
+    await writeFile(repo, 'nested/deep/new-file.txt', 'nested content\n');
+
+    const service = serviceFor(repo);
+    const status = await service.status();
+
+    expect(status.ok).toBe(true);
+    if (!status.ok) {
+      return;
+    }
+    expect(status.value.files).toContainEqual(
+      expect.objectContaining({ path: 'nested/deep/new-file.txt', untracked: true })
+    );
+    expect(status.value.files.some((file) => file.path === 'nested/')).toBe(false);
+
+    const diff = await service.diff({ path: 'nested/deep/new-file.txt', untracked: true });
+    expect(diff.ok).toBe(true);
+    if (diff.ok) {
+      expect(diff.value.unifiedDiff).toContain('+nested content');
+    }
+  });
+
+  it('preserves whitespace in the opened-subfolder prefix returned by Git', async () => {
+    const repo = await makeRepo('brainstrike-git-prefix-space-');
+    const scopedFolder = '  scoped folder  ';
+    await fsPromises.mkdir(path.join(repo, scopedFolder));
+    await writeFile(repo, `${scopedFolder}/inside.txt`, 'inside\n');
+
+    const status = await serviceFor(path.join(repo, scopedFolder)).status();
+
+    expect(status.ok).toBe(true);
+    if (status.ok) {
+      expect(status.value.files).toEqual([
+        expect.objectContaining({ path: 'inside.txt', untracked: true }),
+      ]);
+    }
+  });
+
   it('returns a clean non-repository status (not an error) for a non-git dir', async () => {
     const dir = await makeNonRepoDir();
     const result = await serviceFor(dir).status();
@@ -384,24 +424,24 @@ describe('git service — diff', () => {
     }
   });
 
-  it('UNTRACKED: ALLOWS a leaf symlink to a DIRECTORY — git yields an EMPTY diff, never the dir contents', async () => {
+  it('UNTRACKED: surfaces a leaf symlink-to-directory diff failure instead of returning empty', async () => {
     const repo = await makeRepo();
     // A leaf symlink whose target is a DIRECTORY (vs the file case above, which
     // renders a 120000 link-text addition). git lstat's the leaf, so
     // `--no-index -- /dev/null dir-link` errors ("Could not access
-    // 'dir-link/null'") and produces an EMPTY diff — the directory's contents are
-    // never read. Containment ALLOWS it (parent is contained); the security
-    // property is that NO out-of-root content reaches the diff.
+    // 'dir-link/null'") and produces no stdout. Containment allows the leaf
+    // (its parent is contained), but the Git failure must remain visible rather
+    // than being mislabeled as a successful empty diff.
     const outside = await makeNonRepoDir();
     await fsPromises.writeFile(path.join(outside, 'secret.txt'), 'TOP-SECRET-OUT-OF-ROOT', 'utf8');
     await fsPromises.symlink(outside, path.join(repo, 'dir-link'));
 
     const result = await serviceFor(repo).diff({ path: 'dir-link', untracked: true });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      // Empty, NOT a trivially-passing "no secret" check on a populated diff.
-      expect(result.value.unifiedDiff).toBe('');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/could not access|no diff/i);
+      expect(result.error).not.toContain('TOP-SECRET');
     }
   });
 });
@@ -621,6 +661,49 @@ describe('git service — commit', () => {
 });
 
 describe('git service — repository browser', () => {
+  it('surfaces the Git 2.36 minimum required for NUL-safe worktree inventory', async () => {
+    const repo = await makeRepo('brainstrike-git-old-version-');
+    const oldGitRunner: GitCommandRunner = (params) => {
+      if (params.args[0] === 'version') {
+        return Promise.resolve({
+          exitCode: 0,
+          stderr: '',
+          stdout: 'git version 2.35.8\n',
+          timedOut: false,
+        });
+      }
+      return execFileGitRunner(params);
+    };
+
+    const result = await createGitService({ cwd: repo, run: oldGitRunner }).repository();
+
+    expect(result).toEqual({
+      error: 'Git 2.36 or newer is required for repository and worktree browsing; found 2.35.8',
+      ok: false,
+    });
+  });
+
+  it('preserves trailing whitespace in the worktree root returned by Git', async () => {
+    const parent = await fsPromises.mkdtemp(
+      path.join(os.tmpdir(), 'brainstrike-git-space-parent-')
+    );
+    const parentReal = await fsPromises.realpath(parent);
+    createdRoots.push(parentReal);
+    const repo = path.join(parentReal, 'repository ');
+    await fsPromises.mkdir(repo);
+    await execFileAsync('git', ['init', '-q'], { cwd: repo });
+    await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: repo });
+    await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: repo });
+
+    const result = await serviceFor(repo).repository();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.repositoryRoot).toBe(repo);
+      expect(result.value.openedRoot).toBe(repo);
+    }
+  });
+
   it('returns repository, linked-worktree, branch, and remote identity', async () => {
     const repo = await makeRepo('brainstrike-git-repository-');
     await writeFile(repo, 'README.md', '# repository\n');
