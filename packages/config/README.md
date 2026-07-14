@@ -27,9 +27,6 @@ Strict TypeScript configuration for all packages.
 - **Output**: Declaration files, source maps, declaration maps
 - **Target**: ES2020
 
-#### `react-library.json`
-Extends `base.json` with React-specific settings for component libraries.
-
 ### Playwright Environment
 
 Located in `src/playwright-environment.ts`:
@@ -51,19 +48,6 @@ Extend the base configuration in your package's `tsconfig.json`:
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist", "__tests__"]
-}
-```
-
-### For React Libraries
-
-Use the React-specific configuration:
-
-```json
-{
-  "extends": "@brainstrike/config/tsconfig/react-library.json",
-  "compilerOptions": {
-    "outDir": "./dist"
-  }
 }
 ```
 
@@ -139,7 +123,6 @@ The base configuration enforces:
 packages/config/
 ├── tsconfig/
 │   ├── base.json           # Base TypeScript configuration
-│   ├── react-library.json  # React library configuration
 │   └── package.json        # Package descriptor for tsconfig
 ├── src/
 │   └── playwright-environment.ts  # Playwright environment setup

@@ -50,7 +50,8 @@
     "dev": "tsup --watch",
     "mutation": "npx @stryker-mutator/core run",
     "test": "vitest run",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "type-check": "tsc --noEmit"
   },
   "types": "dist/index.d.ts"
 }

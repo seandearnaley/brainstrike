@@ -12,7 +12,6 @@
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "^26.1.0",
-    "rimraf": "^6.1.3",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
@@ -32,7 +31,7 @@
   "private": true,
   "scripts": {
     "build": "pnpm run clean && tsc -b . && tsup --config tsup.config.ts",
-    "clean": "rimraf dist",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --config tsup.config.ts --watch",
     "lint": "pnpm -w lint --filter @brainstrike/queue-telemetry-collector",
     "start": "pnpm run build && node --enable-source-maps dist/cli.js",
