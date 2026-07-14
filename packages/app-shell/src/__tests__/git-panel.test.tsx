@@ -37,6 +37,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 }));
 
 const toastSpy = vi.fn();
+const uiSpies = vi.hoisted(() => ({ parseUnifiedDiff: vi.fn() }));
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
@@ -51,6 +52,10 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         data-testid="diff-view-stub"
       />
     ),
+    parseUnifiedDiff: (unifiedDiff: string) => {
+      uiSpies.parseUnifiedDiff(unifiedDiff);
+      return original.parseUnifiedDiff(unifiedDiff);
+    },
     useToast: () => ({ dismiss: vi.fn(), toast: toastSpy, toasts: [] }),
   };
 });
@@ -321,6 +326,24 @@ describe('GitPanel', () => {
     expect(diff).toHaveAttribute('data-filename', 'staged.ts');
     expect(diff).toHaveAttribute('data-original', 'const a = 1;');
     expect(diff).toHaveAttribute('data-modified', 'const a = 2;');
+  });
+
+  it('does not reparse an unchanged diff when the file filter changes', async () => {
+    const user = userEvent.setup();
+    installBridge({
+      diff: vi.fn(async () =>
+        ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: SAMPLE_DIFF })
+      ),
+    });
+    render(<GitPanel />);
+
+    await user.click(await screen.findByRole('button', { name: 'staged.ts' }));
+    await screen.findByTestId('diff-view-stub');
+    const parseCount = uiSpies.parseUnifiedDiff.mock.calls.length;
+
+    await user.type(screen.getByRole('textbox', { name: 'Filter changed files' }), 'stag');
+
+    expect(uiSpies.parseUnifiedDiff).toHaveBeenCalledTimes(parseCount);
   });
 
   it('clears the previous-root diff before loading a selection for the focused root', async () => {
@@ -696,6 +719,102 @@ describe('GitPanel', () => {
     expect(bridge.switchBranch).toHaveBeenCalledWith('root-1', { branch: 'feature/search' });
   });
 
+  it('reloads the current branch history after switching branches', async () => {
+    const user = userEvent.setup();
+    let branch = 'main';
+    const bridge = installBridge({
+      history: vi.fn(async () =>
+        ok({
+          commits: [
+            makeHistoryCommit(
+              branch === 'main' ? 'a'.repeat(40) : 'b'.repeat(40),
+              branch === 'main' ? 'main branch commit' : 'feature branch commit'
+            ),
+          ],
+          hasMore: false,
+          limit: 100,
+          offset: 0,
+        })
+      ),
+      repository: vi.fn(async () =>
+        ok(
+          makeRepository({
+            branches: [
+              {
+                current: branch === 'main',
+                head: 'a'.repeat(40),
+                name: 'main',
+                upstream: 'origin/main',
+                worktreePath: branch === 'main' ? '/abs/repo' : null,
+              },
+              {
+                current: branch === 'feature/search',
+                head: 'b'.repeat(40),
+                name: 'feature/search',
+                upstream: null,
+                worktreePath: branch === 'feature/search' ? '/abs/repo' : null,
+              },
+            ],
+            currentWorktree: {
+              ...makeRepository().currentWorktree,
+              branch,
+              head: branch === 'main' ? 'a'.repeat(40) : 'b'.repeat(40),
+            },
+          })
+        )
+      ),
+      status: vi.fn(async () => ok(makeStatus({ branch }))),
+      switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) => {
+        branch = params.branch;
+        return ok({ branch });
+      }),
+    });
+    render(<GitPanel />);
+
+    await user.click(await screen.findByRole('tab', { name: 'History' }));
+    expect(await screen.findByRole('button', { name: /main branch commit/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Current branch main' }));
+    await user.click(screen.getByRole('menuitem', { name: 'feature/search' }));
+
+    expect(
+      await screen.findByRole('button', { name: /feature branch commit/ })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /main branch commit/ })).not.toBeInTheDocument();
+    expect(bridge.history).toHaveBeenCalledTimes(2);
+  });
+
+  it('associates workbench tabs with labelled tab panels', async () => {
+    const user = userEvent.setup();
+    installBridge({});
+    render(<GitPanel />);
+
+    const changesTab = await screen.findByRole('tab', { name: /Changes/ });
+    expect(changesTab).toHaveAttribute('aria-controls', 'git-workbench-changes-panel');
+    expect(screen.getByRole('tabpanel', { name: /Changes/ })).toHaveAttribute(
+      'id',
+      'git-workbench-changes-panel'
+    );
+
+    await user.click(screen.getByRole('tab', { name: 'History' }));
+    expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
+      'aria-controls',
+      'git-workbench-history-panel'
+    );
+    expect(screen.getByRole('tabpanel', { name: 'History' })).toHaveAttribute(
+      'id',
+      'git-workbench-history-panel'
+    );
+  });
+
+  it('provides a persistent accessible label for the commit summary', async () => {
+    installBridge({});
+    render(<GitPanel />);
+
+    expect(
+      await screen.findByRole('textbox', { name: 'Commit summary (required)' })
+    ).toHaveAttribute('placeholder', 'Summary (required)');
+  });
+
   it('shows worktree metadata without pretending it can change the authorized workspace root', async () => {
     const user = userEvent.setup();
     installBridge({
@@ -982,15 +1101,15 @@ describe('GitPanel', () => {
             detached: false,
             head: '0123456789012345678901234567890123456789',
             lockedReason: null,
-            name: 'repo',
-            path: '/abs/repo',
+            name: 'repo-linked',
+            path: 'C:\\linked\\repo\\',
             prunableReason: null,
           },
           defaultRemote: 'origin',
           name: 'repo',
-          openedRoot: '/abs/repo/packages/app',
+          openedRoot: 'C:/linked/repo/packages/app',
           remotes: ['origin'],
-          repositoryRoot: '/abs/repo',
+          repositoryRoot: 'C:\\main\\repo\\',
           scope: 'workspace' as const,
           worktrees: [],
         })

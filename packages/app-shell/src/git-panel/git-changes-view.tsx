@@ -346,7 +346,12 @@ export function GitChangesView({
   const diffState = resolveDiffState(selected, diffKey, resolvedDiff);
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div
+      aria-labelledby="git-workbench-changes-tab"
+      className="flex min-h-0 flex-1"
+      id="git-workbench-changes-panel"
+      role="tabpanel"
+    >
       <aside className="flex w-[40%] min-w-80 max-w-[42rem] shrink-0 flex-col border-border border-r bg-card/15">
         <div className="flex h-11 shrink-0 items-center gap-2 border-border border-b px-2">
           <Checkbox
@@ -431,8 +436,12 @@ export function GitChangesView({
         </ScrollArea>
 
         <div className="shrink-0 border-border border-t p-2">
+          <label className="sr-only" htmlFor="git-commit-summary">
+            Commit summary (required)
+          </label>
           <Input
             className="h-8 text-xs"
+            id="git-commit-summary"
             onChange={(event) => setSummary(event.target.value)}
             placeholder="Summary (required)"
             value={summary}

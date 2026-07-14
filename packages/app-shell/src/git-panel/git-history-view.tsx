@@ -168,7 +168,12 @@ function GitHistoryBrowser({ panel }: { readonly panel: UseGitPanelResult }): Re
   const diffState = resolveHistoricalDiffState(selection, resolvedDiff);
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div
+      aria-labelledby="git-workbench-history-tab"
+      className="flex min-h-0 flex-1"
+      id="git-workbench-history-panel"
+      role="tabpanel"
+    >
       <aside className="w-[36%] min-w-80 max-w-[42rem] shrink-0 border-border border-r bg-card/15">
         <ScrollArea className="h-full">
           {commits === null ? (

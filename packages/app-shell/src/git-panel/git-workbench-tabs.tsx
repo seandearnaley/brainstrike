@@ -14,10 +14,12 @@ export function GitWorkbenchTabs({
   return (
     <div className="grid h-10 shrink-0 grid-cols-2 border-border border-b" role="tablist">
       <button
+        aria-controls="git-workbench-changes-panel"
         aria-selected={active === 'changes'}
         className={`relative text-sm transition-colors hover:bg-accent/40 ${
           active === 'changes' ? 'font-medium text-foreground' : 'text-muted-foreground'
         }`}
+        id="git-workbench-changes-tab"
         onClick={() => onChange('changes')}
         role="tab"
         type="button"
@@ -33,10 +35,12 @@ export function GitWorkbenchTabs({
         ) : null}
       </button>
       <button
+        aria-controls="git-workbench-history-panel"
         aria-selected={active === 'history'}
         className={`relative text-sm transition-colors hover:bg-accent/40 ${
           active === 'history' ? 'font-medium text-foreground' : 'text-muted-foreground'
         }`}
+        id="git-workbench-history-tab"
         onClick={() => onChange('history')}
         role="tab"
         type="button"

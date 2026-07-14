@@ -7,6 +7,17 @@ import { GitWorkbenchHeader } from './git-workbench-header';
 import { type GitWorkbenchTab, GitWorkbenchTabs } from './git-workbench-tabs';
 import { useGitPanel } from './use-git-panel';
 
+function formatWorkspaceScope(openedRoot: string, worktreeRoot: string): string {
+  const normalizedOpenedRoot = openedRoot.replaceAll('\\', '/').replace(/\/+$/, '');
+  const normalizedWorktreeRoot = worktreeRoot.replaceAll('\\', '/').replace(/\/+$/, '');
+  const worktreePrefix = `${normalizedWorktreeRoot}/`;
+
+  if (!normalizedOpenedRoot.startsWith(worktreePrefix)) {
+    return openedRoot;
+  }
+  return normalizedOpenedRoot.slice(worktreePrefix.length);
+}
+
 function CenteredMessage({
   children,
   testId,
@@ -96,8 +107,8 @@ export function GitPanel(): ReactElement {
       />
       {repository.scope === 'workspace' ? (
         <div className="shrink-0 border-amber-500/25 border-b bg-amber-500/8 px-3 py-1.5 text-amber-700 text-xs dark:text-amber-300">
-          Showing changes for {repository.openedRoot.slice(repository.repositoryRoot.length + 1)}{' '}
-          only.
+          Showing changes for{' '}
+          {formatWorkspaceScope(repository.openedRoot, repository.currentWorktree.path)} only.
         </div>
       ) : null}
       <GitWorkbenchTabs active={tab} changedFiles={status.files.length} onChange={setTab} />
@@ -109,7 +120,10 @@ export function GitPanel(): ReactElement {
           status={status}
         />
       ) : (
-        <GitHistoryView key={panel.activeRootId ?? 'no-root'} panel={panel} />
+        <GitHistoryView
+          key={`${panel.activeRootId ?? 'no-root'}:${repository.currentWorktree.branch ?? 'detached'}:${repository.currentWorktree.head ?? 'unborn'}`}
+          panel={panel}
+        />
       )}
     </div>
   );

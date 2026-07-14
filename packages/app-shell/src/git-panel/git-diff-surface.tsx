@@ -1,5 +1,5 @@
 import { DiffView, parseUnifiedDiff } from '@brainstrike/ui';
-import type { ReactElement } from 'react';
+import { type ReactElement, useMemo } from 'react';
 import type { LoadedDiff } from './use-git-panel';
 
 export type GitDiffSurfaceState =
@@ -9,6 +9,12 @@ export type GitDiffSurfaceState =
   | { readonly diff: LoadedDiff; readonly kind: 'loaded'; readonly path: string };
 
 export function GitDiffSurface({ state }: { readonly state: GitDiffSurfaceState }): ReactElement {
+  const unifiedDiff = state.kind === 'loaded' ? state.diff.unifiedDiff : null;
+  const parsed = useMemo(
+    () => (unifiedDiff === null ? null : parseUnifiedDiff(unifiedDiff)),
+    [unifiedDiff]
+  );
+
   if (state.kind !== 'loaded') {
     return (
       <div
@@ -22,7 +28,9 @@ export function GitDiffSurface({ state }: { readonly state: GitDiffSurfaceState 
     );
   }
 
-  const parsed = parseUnifiedDiff(state.diff.unifiedDiff);
+  if (parsed === null) {
+    throw new Error('Loaded Git diff state must include a parsed diff.');
+  }
   if (!parsed.hasHunks) {
     return (
       <div
