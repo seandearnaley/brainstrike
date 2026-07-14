@@ -1100,6 +1100,7 @@ describe('git service — push', () => {
     await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
 
     const repo = await makeRepo();
+    await execFileAsync('git', ['branch', '-m', 'trunk'], { cwd: repo });
     await writeFile(repo, 'a.txt', 'x\n');
     await execFileAsync('git', ['add', '.'], { cwd: repo });
     await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
@@ -1110,10 +1111,10 @@ describe('git service — push', () => {
 
     expect(pushed.ok).toBe(true);
     expect(fetched.ok).toBe(true);
-    const remoteHead = await execFileAsync('git', ['show-ref', '--verify', 'refs/heads/main'], {
+    const remoteHead = await execFileAsync('git', ['show-ref', '--verify', 'refs/heads/trunk'], {
       cwd: remoteReal,
     });
-    expect(remoteHead.stdout).toContain('refs/heads/main');
+    expect(remoteHead.stdout).toContain('refs/heads/trunk');
   });
 
   it('sets the upstream on the first push of a branch with no upstream', async () => {
