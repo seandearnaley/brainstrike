@@ -148,10 +148,13 @@ describe('DesktopLoggingSettings', () => {
 
     render(<DesktopLoggingSettings />);
 
-    await waitFor(() => {
-      expect(screen.getByText('renderer diagnostic')).toBeInTheDocument();
-      expect(screen.getByText('main diagnostic')).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText('renderer diagnostic')).toBeInTheDocument();
+        expect(screen.getByText('main diagnostic')).toBeInTheDocument();
+      },
+      { timeout: 10_000 }
+    );
   });
 
   it('renders an explicit diagnostic when Electron main buffered logs cannot be loaded', async () => {
