@@ -303,6 +303,24 @@ beforeEach(() => {
             threadId: 'thread-b',
             updatedAt: new Date('2026-04-22T11:00:10Z'),
           },
+          {
+            completedAt: new Date('2026-04-22T09:00:10Z'),
+            createdAt: new Date('2026-04-22T09:00:00Z'),
+            error: null,
+            id: 'run-openrouter-1',
+            model: 'openai/gpt-5.6-terra',
+            modelSettings: null,
+            provider: 'openrouter',
+            providerOptions: JSON.stringify({
+              openrouter: { reasoning: { effort: 'low', summary: 'auto' } },
+            }),
+            resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+            runtimeKind: 'hosted',
+            startedAt: new Date('2026-04-22T09:00:00Z'),
+            status: 'completed',
+            threadId: 'thread-a',
+            updatedAt: new Date('2026-04-22T09:00:10Z'),
+          },
         ],
       };
     }
@@ -556,6 +574,7 @@ describe('ThreadsPanel', () => {
     expect(screen.getByText('OpenAI')).toBeVisible();
     expect(screen.getByText('gpt-5.2')).toBeVisible();
     expect(screen.getByText('Reasoning: high')).toBeVisible();
+    expect(screen.getByText('Reasoning: low')).toBeVisible();
     expect(screen.getByText('Max output: 512')).toBeVisible();
     expect(
       useAssistantThreadStore.getState().selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]

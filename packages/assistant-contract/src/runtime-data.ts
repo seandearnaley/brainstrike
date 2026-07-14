@@ -16,6 +16,13 @@ export interface OpenAiProviderOptions extends RuntimeJsonObject {
   reasoningSummary?: OpenAiReasoningSummary;
 }
 
+export interface OpenRouterProviderOptions extends RuntimeJsonObject {
+  reasoning?: {
+    effort?: OpenAiReasoningEffort;
+    summary?: OpenAiReasoningSummary;
+  };
+}
+
 export type AnthropicEffort = 'low' | 'medium' | 'high';
 
 export interface AnthropicProviderOptions extends RuntimeJsonObject {
@@ -59,6 +66,7 @@ export type RuntimeProviderOptions = RuntimeJsonObject & {
   local?: LocalProviderOptions;
   ollama?: LocalRuntimeProviderOptions;
   openai?: OpenAiProviderOptions;
+  openrouter?: OpenRouterProviderOptions;
 };
 
 export interface RuntimeWorkspaceContextRangeMetadata {

@@ -24,10 +24,18 @@
   model-router IDs, not a generic `createOpenAI({ baseURL })` client. The
   official OpenRouter adapter preserves `providerMetadata.openrouter.usage.cost`;
   that exact billed amount is aggregated across `step-finish` parts and carried
-  on the terminal message. Mastra's terminal token usage is cumulative, but its
+  on the terminal message. Approval and tool-suspension pauses carry the
+  accumulated amount on a cost-only `{inputTokens:0, outputTokens:0}` finish so
+  the pre-pause provider charge is durable without double-counting cumulative
+  tokens on resume. Mastra's terminal token usage is cumulative, but its
   terminal provider metadata repeats only the final step, so every observed step
   must report cost; a missing or malformed reported cost fails visibly rather
   than silently undercounting.
+- OpenRouter request options use the native `providerOptions.openrouter`
+  namespace. The shared reasoning controls map to
+  `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case
+  `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
+  adapter ignores.
 - Static OpenRouter prices are estimates for pre-existing/unreported usage.
   Exact provider-reported cost is authoritative because routing, caching, BYOK,
   and provider tiers can make the catalog rate differ from the billed amount.

@@ -522,6 +522,7 @@ export type {
   OpenAiProviderOptions,
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
+  OpenRouterProviderOptions,
   RuntimeData,
   RuntimeModelSettings,
   RuntimeProviderOptions,

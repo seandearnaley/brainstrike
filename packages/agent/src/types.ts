@@ -199,6 +199,13 @@ export interface OpenAiProviderOptions extends JSONObject {
   reasoningSummary?: OpenAiReasoningSummary;
 }
 
+export interface OpenRouterProviderOptions extends JSONObject {
+  reasoning?: {
+    effort?: OpenAiReasoningEffort;
+    summary?: OpenAiReasoningSummary;
+  };
+}
+
 export type AnthropicEffort = 'low' | 'medium' | 'high';
 
 export interface AnthropicProviderOptions extends JSONObject {
@@ -240,6 +247,7 @@ export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3Provider
   local?: LocalProviderOptions & JSONObject;
   ollama?: LocalRuntimeProviderOptions & JSONObject;
   lmstudio?: LocalRuntimeProviderOptions & JSONObject;
+  openrouter?: OpenRouterProviderOptions & JSONObject;
 };
 
 export interface StreamChunkText {

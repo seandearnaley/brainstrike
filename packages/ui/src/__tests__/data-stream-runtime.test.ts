@@ -1168,6 +1168,39 @@ describe('assistant-stream integration', () => {
     expect(onUsage).not.toHaveBeenCalled();
   });
 
+  it('forwards a cost-only zero-token finish from an OpenRouter approval pause', async () => {
+    const onUsage = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-cost-pause"}',
+            'd:{"finishReason":"tool-calls","usage":{"inputTokens":0,"outputTokens":0},"billedCostUsd":0.00125,"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage,
+    });
+
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      // drain
+    }
+
+    expect(onUsage).toHaveBeenCalledWith({
+      billedCostUsd: 0.001_25,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+  });
+
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
     const messages = await readAssistantStreamMessages([
       'f:{"messageId":"msg-test"}',
