@@ -1,6 +1,6 @@
 import { Badge, Button, ScrollArea } from '@brainstrike/ui';
 import { GitCommitHorizontal, GitMerge, LoaderCircle } from 'lucide-react';
-import { type ReactElement, useEffect, useState } from 'react';
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import type { GitCommitFile, GitHistoryCommit } from './git-bridge';
 import { GitDiffSurface, type GitDiffSurfaceState } from './git-diff-surface';
 import type { LoadedDiff, UseGitPanelResult } from './use-git-panel';
@@ -15,6 +15,18 @@ interface LoadedHistoricalDiff {
   readonly diff: LoadedDiff | null;
   readonly path: string;
 }
+
+interface HistoryListState {
+  readonly commits: readonly GitHistoryCommit[] | null;
+  readonly isLoadingMore: boolean;
+  readonly nextOffset: number | null;
+}
+
+const INITIAL_HISTORY_LIST_STATE: HistoryListState = {
+  commits: null,
+  isLoadingMore: false,
+  nextOffset: null,
+};
 
 const COMMIT_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
@@ -49,23 +61,62 @@ function resolveHistoricalDiffState(
   return { diff: resolvedDiff.diff, kind: 'loaded', path: selection.file.path };
 }
 
-export function GitHistoryView({ panel }: { readonly panel: UseGitPanelResult }): ReactElement {
-  const [commits, setCommits] = useState<readonly GitHistoryCommit[] | null>(null);
+function GitHistoryBrowser({ panel }: { readonly panel: UseGitPanelResult }): ReactElement {
+  const [historyList, setHistoryList] = useState<HistoryListState>(INITIAL_HISTORY_LIST_STATE);
   const [selection, setSelection] = useState<HistoricalSelection | null>(null);
   const [files, setFiles] = useState<readonly GitCommitFile[] | null>(null);
   const [resolvedDiff, setResolvedDiff] = useState<LoadedHistoricalDiff | null>(null);
+  const historyGenerationRef = useRef(0);
+  const { commits, isLoadingMore, nextOffset } = historyList;
 
   useEffect(() => {
+    historyGenerationRef.current += 1;
     let cancelled = false;
     void panel.loadHistory().then((page) => {
       if (!cancelled) {
-        setCommits(page?.commits ?? []);
+        setHistoryList({
+          commits: page?.commits ?? [],
+          isLoadingMore: false,
+          nextOffset: page?.hasMore ? page.offset + page.limit : null,
+        });
       }
     });
     return () => {
       cancelled = true;
+      historyGenerationRef.current += 1;
     };
-  }, [panel.activeRootId, panel.loadHistory]);
+  }, [panel.loadHistory]);
+
+  const loadOlderCommits = useCallback(async (): Promise<void> => {
+    if (nextOffset === null || isLoadingMore) {
+      return;
+    }
+    const generation = historyGenerationRef.current;
+    setHistoryList((current) => ({ ...current, isLoadingMore: true }));
+    const page = await panel.loadHistory({ offset: nextOffset });
+    if (historyGenerationRef.current !== generation) {
+      return;
+    }
+    if (!page) {
+      setHistoryList((current) => ({ ...current, isLoadingMore: false }));
+      return;
+    }
+    setHistoryList((current) => {
+      const combined = [...(current.commits ?? [])];
+      const seen = new Set(combined.map((commit) => commit.id));
+      for (const commit of page.commits) {
+        if (!seen.has(commit.id)) {
+          combined.push(commit);
+          seen.add(commit.id);
+        }
+      }
+      return {
+        commits: combined,
+        isLoadingMore: false,
+        nextOffset: page.hasMore ? page.offset + page.limit : null,
+      };
+    });
+  }, [isLoadingMore, nextOffset, panel.loadHistory]);
 
   useEffect(() => {
     const commitId = selection?.commit.id;
@@ -166,6 +217,27 @@ export function GitHistoryView({ panel }: { readonly panel: UseGitPanelResult })
                   </button>
                 </li>
               ))}
+              {nextOffset === null ? null : (
+                <li className="p-2">
+                  <Button
+                    className="w-full"
+                    disabled={isLoadingMore}
+                    onClick={() => void loadOlderCommits()}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <LoaderCircle aria-hidden="true" className="animate-spin" />
+                        Loading older commits…
+                      </>
+                    ) : (
+                      'Load older commits'
+                    )}
+                  </Button>
+                </li>
+              )}
             </ul>
           )}
         </ScrollArea>
@@ -236,4 +308,8 @@ export function GitHistoryView({ panel }: { readonly panel: UseGitPanelResult })
       </section>
     </div>
   );
+}
+
+export function GitHistoryView({ panel }: { readonly panel: UseGitPanelResult }): ReactElement {
+  return <GitHistoryBrowser key={panel.activeRootId ?? 'no-active-root'} panel={panel} />;
 }

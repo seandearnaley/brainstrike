@@ -43,7 +43,7 @@ export interface UseGitPanelResult {
     path: string,
     options: { staged: boolean; untracked: boolean }
   ) => Promise<LoadedDiff | null>;
-  readonly loadHistory: (ref?: string) => Promise<GitHistoryPage | null>;
+  readonly loadHistory: (options?: LoadHistoryOptions) => Promise<GitHistoryPage | null>;
   readonly pull: () => Promise<void>;
   readonly push: (remote?: string) => Promise<void>;
   readonly refresh: () => void;
@@ -52,6 +52,7 @@ export interface UseGitPanelResult {
   readonly repositoryError: string | null;
   readonly stageAll: () => Promise<void>;
   readonly stageFile: (path: string) => Promise<void>;
+  readonly stageFiles: (paths: readonly string[]) => Promise<void>;
   /** Parsed status for the active root; null until first load / when no root. */
   readonly status: GitStatus | null;
   /** A non-recoverable status-load error (e.g. bridge failure), else null. */
@@ -59,6 +60,12 @@ export interface UseGitPanelResult {
   readonly switchBranch: (branch: string) => Promise<void>;
   readonly unstageAll: () => Promise<void>;
   readonly unstageFile: (path: string) => Promise<void>;
+  readonly unstageFiles: (paths: readonly string[]) => Promise<void>;
+}
+
+interface LoadHistoryOptions {
+  readonly offset?: number;
+  readonly ref?: string;
 }
 
 export interface LoadedDiff {
@@ -305,6 +312,27 @@ export function useGitPanel(): UseGitPanelResult {
     await runMutation('Stage all', (b, rootId) => b.stage(rootId));
   }, [runMutation]);
 
+  const stageFiles = useCallback(
+    async (paths: readonly string[]): Promise<void> => {
+      if (paths.length === 0) {
+        return;
+      }
+      const succeeded = await runMutation('Stage visible files', async (b, rootId) => {
+        for (const path of paths) {
+          const result = await b.stage(rootId, { path });
+          if (!result.ok) {
+            return result;
+          }
+        }
+        return { ok: true };
+      });
+      if (!succeeded) {
+        refresh();
+      }
+    },
+    [refresh, runMutation]
+  );
+
   const unstageFile = useCallback(
     async (path: string): Promise<void> => {
       await runMutation('Unstage', (b, rootId) => b.unstage(rootId, { path }));
@@ -315,6 +343,27 @@ export function useGitPanel(): UseGitPanelResult {
   const unstageAll = useCallback(async (): Promise<void> => {
     await runMutation('Unstage all', (b, rootId) => b.unstage(rootId));
   }, [runMutation]);
+
+  const unstageFiles = useCallback(
+    async (paths: readonly string[]): Promise<void> => {
+      if (paths.length === 0) {
+        return;
+      }
+      const succeeded = await runMutation('Unstage visible files', async (b, rootId) => {
+        for (const path of paths) {
+          const result = await b.unstage(rootId, { path });
+          if (!result.ok) {
+            return result;
+          }
+        }
+        return { ok: true };
+      });
+      if (!succeeded) {
+        refresh();
+      }
+    },
+    [refresh, runMutation]
+  );
 
   const commit = useCallback(
     async (summary: string, description?: string): Promise<boolean> => {
@@ -446,14 +495,15 @@ export function useGitPanel(): UseGitPanelResult {
   );
 
   const loadHistory = useCallback(
-    async (ref?: string): Promise<GitHistoryPage | null> => {
+    async (options: LoadHistoryOptions = {}): Promise<GitHistoryPage | null> => {
       if (!(bridge && activeRootId)) {
         return null;
       }
+      const { offset = 0, ref } = options;
       try {
         const result = await bridge.history(activeRootId, {
           limit: 100,
-          offset: 0,
+          offset,
           ...(ref ? { ref } : {}),
         });
         if (result.ok) {
@@ -540,10 +590,12 @@ export function useGitPanel(): UseGitPanelResult {
     repositoryError,
     stageAll,
     stageFile,
+    stageFiles,
     status,
     statusError,
     switchBranch,
     unstageAll,
     unstageFile,
+    unstageFiles,
   };
 }

@@ -586,6 +586,47 @@ describe('GitPanel', () => {
     expect(bridge.stage).toHaveBeenCalledWith('root-1');
   });
 
+  it('stages only files visible through an active filter', async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge({});
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    await user.type(screen.getByPlaceholderText('Filter changed files'), 'unstaged');
+    await user.click(await screen.findByRole('checkbox', { name: 'Stage all 1 visible file' }));
+
+    await waitFor(() =>
+      expect(bridge.stage).toHaveBeenCalledWith('root-1', { path: 'unstaged.ts' })
+    );
+    expect(bridge.stage).not.toHaveBeenCalledWith('root-1');
+  });
+
+  it('unstages only files visible through an active filter', async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge({
+      status: vi.fn(async () =>
+        ok(
+          makeStatus({
+            files: [
+              { path: 'ready.ts', staged: true, status: 'M', unstaged: false, untracked: false },
+              { path: 'draft.ts', staged: false, status: 'M', unstaged: true, untracked: false },
+            ],
+          })
+        )
+      ),
+    });
+    render(<GitPanel />);
+
+    await screen.findByTestId('git-panel');
+    await user.type(screen.getByPlaceholderText('Filter changed files'), 'ready');
+    await user.click(await screen.findByRole('checkbox', { name: 'Stage all 1 visible file' }));
+
+    await waitFor(() =>
+      expect(bridge.unstage).toHaveBeenCalledWith('root-1', { path: 'ready.ts' })
+    );
+    expect(bridge.unstage).not.toHaveBeenCalledWith('root-1');
+  });
+
   it('fetches the configured remote explicitly', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({});
@@ -758,6 +799,35 @@ describe('GitPanel', () => {
       'data-filename',
       'src/app.ts'
     );
+  });
+
+  it('loads older commits without truncating history at the first page', async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge({
+      history: vi.fn(
+        async (_rootId: string, params: { limit: number; offset: number; ref?: string }) =>
+          ok({
+            commits: [
+              makeHistoryCommit(
+                (params.offset === 0 ? '1' : '2').repeat(40),
+                params.offset === 0 ? 'newer commit' : 'older commit'
+              ),
+            ],
+            hasMore: params.offset === 0,
+            limit: params.limit,
+            offset: params.offset,
+          })
+      ),
+    });
+    render(<GitPanel />);
+
+    await user.click(await screen.findByRole('tab', { name: 'History' }));
+    expect(await screen.findByRole('button', { name: /newer commit/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Load older commits' }));
+
+    expect(await screen.findByRole('button', { name: /older commit/ })).toBeInTheDocument();
+    expect(bridge.history).toHaveBeenLastCalledWith('root-1', { limit: 100, offset: 100 });
+    expect(screen.queryByRole('button', { name: 'Load older commits' })).not.toBeInTheDocument();
   });
 
   it('never lets a late commit-files response replace the current history selection', async () => {

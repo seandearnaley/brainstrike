@@ -287,10 +287,26 @@ export function GitChangesView({
     [deferredFilter, status.files]
   );
   const buckets = useMemo(() => partitionFiles(filteredFiles), [filteredFiles]);
-  const allStaged =
-    status.files.length > 0 &&
-    status.files.every((file) => file.staged && !(file.unstaged || file.untracked));
+  const allVisibleStaged =
+    filteredFiles.length > 0 &&
+    filteredFiles.every((file) => file.staged && !(file.unstaged || file.untracked));
+  const someVisibleStaged = filteredFiles.some((file) => file.staged);
+  const { visibleStagePaths, visibleUnstagePaths } = useMemo(() => {
+    const stagePaths: string[] = [];
+    const unstagePaths: string[] = [];
+    for (const file of filteredFiles) {
+      if (file.unstaged || file.untracked) {
+        stagePaths.push(file.path);
+      }
+      if (file.staged) {
+        unstagePaths.push(file.path);
+      }
+    }
+    return { visibleStagePaths: stagePaths, visibleUnstagePaths: unstagePaths };
+  }, [filteredFiles]);
   const someStaged = status.files.some((file) => file.staged);
+  const filterActive = deferredFilter.length > 0;
+  const visibleFileLabel = `${filteredFiles.length} visible ${filteredFiles.length === 1 ? 'file' : 'files'}`;
   const selectedPath = selected?.path ?? null;
   const selectedStaged = selected?.staged ?? false;
   const selectedUntracked = selected?.untracked ?? false;
@@ -334,15 +350,27 @@ export function GitChangesView({
       <aside className="flex w-[36%] min-w-80 max-w-[42rem] shrink-0 flex-col border-border border-r bg-card/15">
         <div className="flex h-11 shrink-0 items-center gap-2 border-border border-b px-2">
           <Checkbox
-            aria-label={`Stage all ${status.files.length} changed files`}
-            checked={allStaged ? true : someStaged ? 'indeterminate' : false}
-            disabled={status.files.length === 0}
+            aria-label={
+              filterActive
+                ? `Stage all ${visibleFileLabel}`
+                : `Stage all ${status.files.length} changed files`
+            }
+            checked={allVisibleStaged ? true : someVisibleStaged ? 'indeterminate' : false}
+            disabled={filteredFiles.length === 0}
             onCheckedChange={(checked) => {
               if (checked === true) {
-                void panel.stageAll();
+                if (filterActive) {
+                  void panel.stageFiles(visibleStagePaths);
+                } else {
+                  void panel.stageAll();
+                }
                 return;
               }
-              void panel.unstageAll();
+              if (filterActive) {
+                void panel.unstageFiles(visibleUnstagePaths);
+              } else {
+                void panel.unstageAll();
+              }
             }}
           />
           <div className="relative min-w-0 flex-1">
