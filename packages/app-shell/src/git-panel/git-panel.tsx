@@ -100,7 +100,9 @@ export function GitPanel(): ReactElement {
     >
       <GitWorkbenchHeader
         fetchRemote={panel.fetchRemote}
+        isLoading={panel.isLoading}
         isSyncing={panel.isSyncing}
+        refreshStatus={panel.refresh}
         repository={repository}
         status={status}
         switchBranch={panel.switchBranch}
@@ -112,19 +114,36 @@ export function GitPanel(): ReactElement {
         </div>
       ) : null}
       <GitWorkbenchTabs active={tab} changedFiles={status.files.length} onChange={setTab} />
-      {tab === 'changes' ? (
-        <GitChangesView
-          key={panel.activeRootId}
-          panel={panel}
-          repository={repository}
-          status={status}
-        />
-      ) : (
-        <GitHistoryView
-          key={`${panel.activeRootId ?? 'no-root'}:${repository.currentWorktree.branch ?? 'detached'}:${repository.currentWorktree.head ?? 'unborn'}`}
-          panel={panel}
-        />
-      )}
+      <div
+        aria-labelledby="git-workbench-changes-tab"
+        className="flex min-h-0 flex-1"
+        hidden={tab !== 'changes'}
+        id="git-workbench-changes-panel"
+        role="tabpanel"
+      >
+        {tab === 'changes' ? (
+          <GitChangesView
+            key={panel.activeRootId}
+            panel={panel}
+            repository={repository}
+            status={status}
+          />
+        ) : null}
+      </div>
+      <div
+        aria-labelledby="git-workbench-history-tab"
+        className="flex min-h-0 flex-1"
+        hidden={tab !== 'history'}
+        id="git-workbench-history-panel"
+        role="tabpanel"
+      >
+        {tab === 'history' ? (
+          <GitHistoryView
+            key={`${panel.activeRootId ?? 'no-root'}:${repository.currentWorktree.branch ?? 'detached'}:${repository.currentWorktree.head ?? 'unborn'}`}
+            panel={panel}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

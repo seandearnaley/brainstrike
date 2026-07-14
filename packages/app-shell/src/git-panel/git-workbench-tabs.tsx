@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { type KeyboardEvent, type ReactElement, useRef } from 'react';
 
 export type GitWorkbenchTab = 'changes' | 'history';
 
@@ -11,8 +11,40 @@ export function GitWorkbenchTabs({
   readonly changedFiles: number;
   readonly onChange: (tab: GitWorkbenchTab) => void;
 }): ReactElement {
+  const changesRef = useRef<HTMLButtonElement>(null);
+  const historyRef = useRef<HTMLButtonElement>(null);
+
+  const selectAndFocus = (tab: GitWorkbenchTab): void => {
+    onChange(tab);
+    (tab === 'changes' ? changesRef : historyRef).current?.focus();
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
+    let nextTab: GitWorkbenchTab;
+    switch (event.key) {
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        nextTab = active === 'changes' ? 'history' : 'changes';
+        break;
+      case 'End':
+        nextTab = 'history';
+        break;
+      case 'Home':
+        nextTab = 'changes';
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    selectAndFocus(nextTab);
+  };
+
   return (
-    <div className="grid h-10 shrink-0 grid-cols-2 border-border border-b" role="tablist">
+    <div
+      aria-orientation="horizontal"
+      className="grid h-10 shrink-0 grid-cols-2 border-border border-b"
+      role="tablist"
+    >
       <button
         aria-controls="git-workbench-changes-panel"
         aria-selected={active === 'changes'}
@@ -21,7 +53,10 @@ export function GitWorkbenchTabs({
         }`}
         id="git-workbench-changes-tab"
         onClick={() => onChange('changes')}
+        onKeyDown={handleKeyDown}
+        ref={changesRef}
         role="tab"
+        tabIndex={active === 'changes' ? 0 : -1}
         type="button"
       >
         Changes
@@ -42,7 +77,10 @@ export function GitWorkbenchTabs({
         }`}
         id="git-workbench-history-tab"
         onClick={() => onChange('history')}
+        onKeyDown={handleKeyDown}
+        ref={historyRef}
         role="tab"
+        tabIndex={active === 'history' ? 0 : -1}
         type="button"
       >
         History

@@ -593,6 +593,41 @@ describe('GitPanel', () => {
     expect(screen.getByRole('button', { name: 'Fetch origin' })).toBeInTheDocument();
   });
 
+  it('refreshes a successful clean workbench after an external file change', async () => {
+    const user = userEvent.setup();
+    let externalChange = false;
+    const bridge = installBridge({
+      repository: vi.fn(async () => ok(makeRepository({ defaultRemote: null, remotes: [] }))),
+      status: vi.fn(async () =>
+        ok(
+          makeStatus({
+            clean: !externalChange,
+            files: externalChange
+              ? [
+                  {
+                    path: 'external.ts',
+                    staged: false,
+                    status: 'M',
+                    unstaged: true,
+                    untracked: false,
+                  },
+                ]
+              : [],
+          })
+        )
+      ),
+    });
+    render(<GitPanel />);
+
+    expect(await screen.findByTestId('git-panel-clean')).toBeInTheDocument();
+    externalChange = true;
+    await user.click(screen.getByRole('button', { name: 'Refresh Git status' }));
+
+    expect(await screen.findByRole('button', { name: 'external.ts' })).toBeInTheDocument();
+    expect(bridge.status).toHaveBeenCalledTimes(2);
+    expect(bridge.repository).toHaveBeenCalledTimes(2);
+  });
+
   it('filters the changed-file list without changing the underlying status', async () => {
     const user = userEvent.setup();
     installBridge({});
@@ -783,27 +818,37 @@ describe('GitPanel', () => {
     expect(bridge.history).toHaveBeenCalledTimes(2);
   });
 
-  it('associates workbench tabs with labelled tab panels', async () => {
+  it('implements keyboard-operated tabs with persistent labelled panels', async () => {
     const user = userEvent.setup();
     installBridge({});
     render(<GitPanel />);
 
     const changesTab = await screen.findByRole('tab', { name: /Changes/ });
+    const historyTab = screen.getByRole('tab', { name: 'History' });
     expect(changesTab).toHaveAttribute('aria-controls', 'git-workbench-changes-panel');
-    expect(screen.getByRole('tabpanel', { name: /Changes/ })).toHaveAttribute(
-      'id',
-      'git-workbench-changes-panel'
-    );
+    expect(changesTab).toHaveAttribute('tabindex', '0');
+    expect(historyTab).toHaveAttribute('tabindex', '-1');
 
-    await user.click(screen.getByRole('tab', { name: 'History' }));
-    expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
-      'aria-controls',
-      'git-workbench-history-panel'
-    );
-    expect(screen.getByRole('tabpanel', { name: 'History' })).toHaveAttribute(
-      'id',
-      'git-workbench-history-panel'
-    );
+    const changesPanel = document.getElementById('git-workbench-changes-panel');
+    const historyPanel = document.getElementById('git-workbench-history-panel');
+    expect(changesPanel).toHaveAttribute('aria-labelledby', 'git-workbench-changes-tab');
+    expect(changesPanel).not.toHaveAttribute('hidden');
+    expect(historyPanel).toHaveAttribute('aria-labelledby', 'git-workbench-history-tab');
+    expect(historyPanel).toHaveAttribute('hidden');
+
+    changesTab.focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(historyTab).toHaveFocus();
+    expect(historyTab).toHaveAttribute('aria-selected', 'true');
+    expect(historyTab).toHaveAttribute('tabindex', '0');
+    expect(changesTab).toHaveAttribute('tabindex', '-1');
+    expect(changesPanel).toHaveAttribute('hidden');
+    expect(historyPanel).not.toHaveAttribute('hidden');
+
+    await user.keyboard('{Home}');
+    expect(changesTab).toHaveFocus();
+    expect(changesTab).toHaveAttribute('aria-selected', 'true');
   });
 
   it('provides a persistent accessible label for the commit summary', async () => {
@@ -926,6 +971,65 @@ describe('GitPanel', () => {
       'data-filename',
       'src/app.ts'
     );
+  });
+
+  it('keeps history-load failures distinct from an empty repository and allows retry', async () => {
+    const user = userEvent.setup();
+    let attempt = 0;
+    const bridge = installBridge({
+      history: vi.fn(async () => {
+        attempt += 1;
+        return attempt === 1
+          ? ({ error: 'history boom', ok: false } as const)
+          : ok({
+              commits: [makeHistoryCommit('a'.repeat(40), 'recovered history')],
+              hasMore: false,
+              limit: 100,
+              offset: 0,
+            });
+      }),
+    });
+    render(<GitPanel />);
+
+    await user.click(await screen.findByRole('tab', { name: 'History' }));
+    expect(await screen.findByText('Could not load commit history.')).toBeInTheDocument();
+    expect(screen.queryByText('No commits found.')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Retry history' }));
+    expect(await screen.findByRole('button', { name: /recovered history/ })).toBeInTheDocument();
+    expect(bridge.history).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps commit-file failures distinct from a commit with no changed files and allows retry', async () => {
+    const user = userEvent.setup();
+    const commitId = 'b'.repeat(40);
+    let attempt = 0;
+    const bridge = installBridge({
+      commitFiles: vi.fn(async () => {
+        attempt += 1;
+        return attempt === 1
+          ? ({ error: 'files boom', ok: false } as const)
+          : ok([{ path: 'recovered.ts', status: 'M' }]);
+      }),
+      history: vi.fn(async () =>
+        ok({
+          commits: [makeHistoryCommit(commitId, 'commit with files')],
+          hasMore: false,
+          limit: 100,
+          offset: 0,
+        })
+      ),
+    });
+    render(<GitPanel />);
+
+    await user.click(await screen.findByRole('tab', { name: 'History' }));
+    await user.click(await screen.findByRole('button', { name: /commit with files/ }));
+    expect(await screen.findByText('Could not load files for this commit.')).toBeInTheDocument();
+    expect(screen.queryByText('0 changed files')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Retry commit files' }));
+    expect(await screen.findByRole('button', { name: 'recovered.ts' })).toBeInTheDocument();
+    expect(bridge.commitFiles).toHaveBeenCalledTimes(2);
   });
 
   it('loads older commits without truncating history at the first page', async () => {

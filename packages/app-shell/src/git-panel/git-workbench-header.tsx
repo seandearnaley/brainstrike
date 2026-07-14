@@ -13,7 +13,9 @@ import type { GitRepository, GitStatus } from './git-bridge';
 
 interface GitWorkbenchHeaderProps {
   readonly fetchRemote: (remote: string) => Promise<void>;
+  readonly isLoading: boolean;
   readonly isSyncing: boolean;
+  readonly refreshStatus: () => void;
   readonly repository: GitRepository;
   readonly status: GitStatus;
   readonly switchBranch: (branch: string) => Promise<void>;
@@ -58,7 +60,9 @@ function HeaderControl({
 
 export function GitWorkbenchHeader({
   fetchRemote,
+  isLoading,
   isSyncing,
+  refreshStatus,
   repository,
   status,
   switchBranch,
@@ -208,6 +212,17 @@ export function GitWorkbenchHeader({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+      <Button
+        aria-label="Refresh Git status"
+        className="h-14 w-14 rounded-none border-border border-l shadow-none hover:bg-accent/50"
+        disabled={isLoading}
+        onClick={refreshStatus}
+        title="Refresh Git status"
+        type="button"
+        variant="ghost"
+      >
+        <RefreshCw aria-hidden="true" className={isLoading ? 'animate-spin' : ''} />
+      </Button>
     </div>
   );
 }
