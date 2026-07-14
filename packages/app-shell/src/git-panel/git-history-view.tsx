@@ -16,11 +16,13 @@ interface LoadedHistoricalDiff {
   readonly path: string;
 }
 
+const COMMIT_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
 function formatCommitDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
+  return COMMIT_DATE_FORMATTER.format(new Date(value));
 }
 
 function resolveHistoricalDiffState(
