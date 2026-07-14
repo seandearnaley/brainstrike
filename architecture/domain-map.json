@@ -102,7 +102,6 @@
         "@brainstrike/embeddings",
         "@brainstrike/file-import",
         "@brainstrike/pipeline",
-        "@brainstrike/queue-telemetry-collector",
         "@brainstrike/text-splitter",
         "@brainstrike/token-cache",
         "@brainstrike/worker-runtime",

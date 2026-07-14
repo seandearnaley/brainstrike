@@ -98,9 +98,6 @@
       "@brainstrike/file-tree-worker": [
         "./packages/file-tree-worker/src"
       ],
-      "@brainstrike/queue-telemetry-collector": [
-        "./packages/queue-telemetry-collector/src"
-      ],
       "@brainstrike/platform-utils": [
         "./packages/platform-utils/src"
       ],
@@ -235,9 +232,6 @@
     },
     {
       "path": "./packages/file-tree-worker/tsconfig.references.json"
-    },
-    {
-      "path": "./packages/queue-telemetry-collector"
     },
     {
       "path": "./packages/platform-utils"
