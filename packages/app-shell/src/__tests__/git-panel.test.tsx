@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GitBridge, GitResult, GitStatus } from '../git-panel/git-bridge';
+import type { GitBridge, GitDiffParams, GitResult, GitStatus } from '../git-panel/git-bridge';
 
 // ── Controllable active-root + toast spies ────────────────────────────────────
 const mockRoot: {
@@ -278,24 +278,19 @@ describe('GitPanel', () => {
         '',
       ].join('\n');
     installBridge({
-      diff: vi.fn(
-        async (
-          rootId: string,
-          params?: { path?: string; staged?: boolean; untracked?: boolean }
-        ) => {
-          // Hold root-2's diff so we can observe the window after the switch but
-          // before the new root's diff resolves — exactly where a stale diff leaks.
-          if (rootId === 'root-2') {
-            await root2Gate;
-          }
-          return ok({
-            path: params?.path ?? 'staged.ts',
-            staged: params?.staged ?? false,
-            truncated: false,
-            unifiedDiff: diffFor(rootId),
-          });
+      diff: vi.fn(async (rootId: string, params: GitDiffParams) => {
+        // Hold root-2's diff so we can observe the window after the switch but
+        // before the new root's diff resolves — exactly where a stale diff leaks.
+        if (rootId === 'root-2') {
+          await root2Gate;
         }
-      ),
+        return ok({
+          path: params?.path ?? 'staged.ts',
+          staged: params.mode === 'staged',
+          truncated: false,
+          unifiedDiff: diffFor(rootId),
+        });
+      }),
     });
 
     const { rerender } = render(<GitPanel />);
@@ -357,9 +352,8 @@ describe('GitPanel', () => {
     await user.click(screen.getByRole('button', { name: 'new.ts' }));
 
     expect(bridge.diff).toHaveBeenCalledWith('root-1', {
+      mode: 'untracked',
       path: 'new.ts',
-      staged: false,
-      untracked: true,
     });
     const diff = await screen.findByTestId('diff-view-stub');
     expect(diff).toHaveAttribute('data-modified', 'brand new line');

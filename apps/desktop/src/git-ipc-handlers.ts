@@ -27,6 +27,7 @@ import {
   GIT_MAX_BUFFER_BYTES,
   type GitCommandRun,
   type GitCommandRunner,
+  type GitDiffParams,
   type GitResult,
 } from './assistant-server/git-service';
 import {
@@ -82,6 +83,7 @@ export function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.Pr
     environment[key] = value;
   }
   environment['GIT_OPTIONAL_LOCKS'] = '0';
+  environment['GIT_LITERAL_PATHSPECS'] = '1';
   environment['GIT_TERMINAL_PROMPT'] = '0';
   return environment;
 }
@@ -225,13 +227,8 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
       ),
     commitFiles: (rootId: unknown, params: { commit: string }) =>
       withService(rootId, (service) => service.commitFiles({ commit: params?.commit })),
-    diff: (
-      rootId: unknown,
-      params: { path?: string; staged?: boolean; untracked?: boolean } = {}
-    ) =>
-      withService(rootId, (service) =>
-        service.diff({ path: params.path, staged: params.staged, untracked: params.untracked })
-      ),
+    diff: (rootId: unknown, params: unknown) =>
+      withService(rootId, (service) => service.diff(params as GitDiffParams)),
     fetch: (rootId: unknown, params: { remote: string }) =>
       withService(rootId, (service) => service.fetch({ remote: params?.remote })),
     history: (rootId: unknown, params: { limit: number; offset: number; ref?: string }) =>

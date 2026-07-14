@@ -19,6 +19,7 @@ import {
   GIT_MAX_OUTPUT_BYTES,
   type GitCommandRun,
   type GitCommandRunner,
+  type GitDiffParams,
   parsePorcelainV2,
 } from '../../assistant-server/git-service';
 import { execFileGitRunner } from '../../git-ipc-handlers';
@@ -175,7 +176,7 @@ describe('git service — status', () => {
     );
     expect(status.value.files.some((file) => file.path === 'nested/')).toBe(false);
 
-    const diff = await service.diff({ path: 'nested/deep/new-file.txt', untracked: true });
+    const diff = await service.diff({ mode: 'untracked', path: 'nested/deep/new-file.txt' });
     expect(diff.ok).toBe(true);
     if (diff.ok) {
       expect(diff.value.unifiedDiff).toContain('+nested content');
@@ -257,6 +258,29 @@ describe('git service — status', () => {
 });
 
 describe('git service — diff', () => {
+  it('rejects contradictory and incomplete diff modes instead of guessing', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'file.txt', 'content\n');
+
+    const contradictory = await serviceFor(repo).diff({
+      path: 'file.txt',
+      staged: true,
+      untracked: true,
+    } as unknown as GitDiffParams);
+    expect(contradictory).toEqual({
+      error: expect.stringMatching(/diff mode/i),
+      ok: false,
+    });
+
+    const untrackedWithoutPath = await serviceFor(repo).diff({
+      mode: 'untracked',
+    } as unknown as GitDiffParams);
+    expect(untrackedWithoutPath).toEqual({
+      error: expect.stringMatching(/untracked diff.*path/i),
+      ok: false,
+    });
+  });
+
   it('returns the unified diff for a modified file', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'file.txt', 'line1\nline2\n');
@@ -264,7 +288,7 @@ describe('git service — diff', () => {
     await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
     await writeFile(repo, 'file.txt', 'line1\nCHANGED\n');
 
-    const result = await serviceFor(repo).diff({ path: 'file.txt' });
+    const result = await serviceFor(repo).diff({ mode: 'working', path: 'file.txt' });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -283,7 +307,7 @@ describe('git service — diff', () => {
     await writeFile(repo, 'file.txt', 'staged-change\n');
     await execFileAsync('git', ['add', 'file.txt'], { cwd: repo });
 
-    const result = await serviceFor(repo).diff({ path: 'file.txt', staged: true });
+    const result = await serviceFor(repo).diff({ mode: 'staged', path: 'file.txt' });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -306,7 +330,7 @@ describe('git service — diff', () => {
     await writeFile(repo, 'big.txt', rewritten);
 
     // Whole-tree diff (no path) — the contract is that it does not fail.
-    const result = await serviceFor(repo).diff({});
+    const result = await serviceFor(repo).diff({ mode: 'working' });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -333,7 +357,7 @@ describe('git service — diff', () => {
         timedOut: false,
       } satisfies GitCommandRun);
     const service = createGitService({ cwd: '/tmp/whatever', run: overflowRunner });
-    const result = await service.diff({});
+    const result = await service.diff({ mode: 'working' });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -350,12 +374,12 @@ describe('git service — diff', () => {
     };
     const service = createGitService({ cwd: '/tmp/whatever', run: spyRunner });
 
-    const abs = await service.diff({ path: '/etc/passwd' });
+    const abs = await service.diff({ mode: 'working', path: '/etc/passwd' });
     expect(abs.ok).toBe(false);
     if (!abs.ok) {
       expect(abs.error).toMatch(/relative to the opened folder/);
     }
-    const escaping = await service.diff({ path: '../../sibling/file' });
+    const escaping = await service.diff({ mode: 'working', path: '../../sibling/file' });
     expect(escaping.ok).toBe(false);
     if (!escaping.ok) {
       expect(escaping.error).toMatch(/escapes the opened folder/);
@@ -364,18 +388,39 @@ describe('git service — diff', () => {
     expect(calls).toBe(0);
   });
 
+  it('CONTAINMENT: treats pathspec magic as a literal working-tree path', async () => {
+    const repo = await makeRepo('brainstrike-git-literal-diff-');
+    await fsPromises.mkdir(path.join(repo, 'opened'));
+    await fsPromises.mkdir(path.join(repo, 'sibling'));
+    await writeFile(repo, 'opened/inside.txt', 'inside\n');
+    await writeFile(repo, 'sibling/outside.txt', 'secret-before\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await writeFile(repo, 'sibling/outside.txt', 'secret-after\n');
+
+    const result = await serviceFor(path.join(repo, 'opened')).diff({
+      mode: 'working',
+      path: ':(top)sibling/outside.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.unifiedDiff).toBe('');
+    }
+  });
+
   it('UNTRACKED: shows whole-file additions via --no-index (not an empty diff)', async () => {
     const repo = await makeRepo();
     // A new, untracked file: a plain `git diff` reports nothing for it.
     await writeFile(repo, 'fresh.txt', 'alpha\nbeta\n');
 
-    const plain = await serviceFor(repo).diff({ path: 'fresh.txt' });
+    const plain = await serviceFor(repo).diff({ mode: 'working', path: 'fresh.txt' });
     expect(plain.ok).toBe(true);
     if (plain.ok) {
       expect(plain.value.unifiedDiff).toBe('');
     }
 
-    const untracked = await serviceFor(repo).diff({ path: 'fresh.txt', untracked: true });
+    const untracked = await serviceFor(repo).diff({ mode: 'untracked', path: 'fresh.txt' });
     expect(untracked.ok).toBe(true);
     if (untracked.ok) {
       // --no-index renders the file content as additions; exit 1 is success here.
@@ -394,7 +439,10 @@ describe('git service — diff', () => {
     // symlink and would render the out-of-root file's CONTENT (mode 100644).
     await fsPromises.symlink(outside, path.join(repo, 'evil-dir'));
 
-    const result = await serviceFor(repo).diff({ path: 'evil-dir/secret.txt', untracked: true });
+    const result = await serviceFor(repo).diff({
+      mode: 'untracked',
+      path: 'evil-dir/secret.txt',
+    });
 
     // Refused with a containment error — the out-of-root content never reaches git.
     expect(result.ok).toBe(false);
@@ -415,7 +463,7 @@ describe('git service — diff', () => {
     // review. The containment check must NOT dereference the leaf.
     await fsPromises.symlink(secret, path.join(repo, 'leaf-link'));
 
-    const result = await serviceFor(repo).diff({ path: 'leaf-link', untracked: true });
+    const result = await serviceFor(repo).diff({ mode: 'untracked', path: 'leaf-link' });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -436,7 +484,7 @@ describe('git service — diff', () => {
     await fsPromises.writeFile(path.join(outside, 'secret.txt'), 'TOP-SECRET-OUT-OF-ROOT', 'utf8');
     await fsPromises.symlink(outside, path.join(repo, 'dir-link'));
 
-    const result = await serviceFor(repo).diff({ path: 'dir-link', untracked: true });
+    const result = await serviceFor(repo).diff({ mode: 'untracked', path: 'dir-link' });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -466,6 +514,32 @@ describe('git service — git not installed', () => {
 });
 
 describe('git service — stage / unstage round-trip', () => {
+  it('CONTAINMENT: treats pathspec magic literally when staging and unstaging', async () => {
+    const repo = await makeRepo('brainstrike-git-literal-index-');
+    await fsPromises.mkdir(path.join(repo, 'opened'));
+    await fsPromises.mkdir(path.join(repo, 'sibling'));
+    await writeFile(repo, 'opened/inside.txt', 'inside\n');
+    await writeFile(repo, 'sibling/outside.txt', 'before\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await writeFile(repo, 'sibling/outside.txt', 'after\n');
+    const service = serviceFor(path.join(repo, 'opened'));
+    const magicPath = ':(top)sibling/outside.txt';
+
+    const staged = await service.stage({ path: magicPath });
+    expect(staged.ok).toBe(false);
+    expect(
+      (await execFileAsync('git', ['diff', '--cached', '--name-only'], { cwd: repo })).stdout
+    ).toBe('');
+
+    await execFileAsync('git', ['add', 'sibling/outside.txt'], { cwd: repo });
+    const unstaged = await service.unstage({ path: magicPath });
+    expect(unstaged.ok).toBe(false);
+    expect(
+      (await execFileAsync('git', ['diff', '--cached', '--name-only'], { cwd: repo })).stdout
+    ).toBe('sibling/outside.txt\n');
+  });
+
   it('stages and unstages an exact all-whitespace path without widening to the opened root', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'base.txt', 'base\n');
@@ -885,6 +959,27 @@ describe('git service — repository browser', () => {
     }
   });
 
+  it('CONTAINMENT: treats pathspec magic as a literal historical path', async () => {
+    const repo = await makeRepo('brainstrike-git-literal-history-');
+    await fsPromises.mkdir(path.join(repo, 'opened'));
+    await fsPromises.mkdir(path.join(repo, 'sibling'));
+    await writeFile(repo, 'opened/inside.txt', 'inside\n');
+    await writeFile(repo, 'sibling/outside.txt', 'historical-secret\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const oid = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
+
+    const result = await serviceFor(path.join(repo, 'opened')).commitDiff({
+      commit: oid,
+      path: ':(top)sibling/outside.txt',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.unifiedDiff).toBe('');
+    }
+  });
+
   it('scopes historical file paths to an opened repository subfolder', async () => {
     const repo = await makeRepo('brainstrike-git-history-scope-');
     await fsPromises.mkdir(path.join(repo, 'opened'));
@@ -939,6 +1034,24 @@ describe('git service — repository browser', () => {
     expect(switched).toEqual({ ok: true, value: { branch: '--detach' } });
     const current = await execFileAsync('git', ['branch', '--show-current'], { cwd: repo });
     expect(current.stdout.replace(/\r?\n$/, '')).toBe('--detach');
+  });
+
+  it('fails closed for the local branch named "-" instead of switching to the previous branch', async () => {
+    const repo = await makeRepo('brainstrike-git-switch-dash-');
+    await writeFile(repo, 'file.txt', 'main\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await execFileAsync('git', ['update-ref', 'refs/heads/-', 'HEAD'], { cwd: repo });
+    await execFileAsync('git', ['switch', '-qc', 'feature/current'], { cwd: repo });
+
+    const switched = await serviceFor(repo).switchBranch({ branch: '-' });
+
+    expect(switched).toEqual({
+      error: expect.stringMatching(/not supported/i),
+      ok: false,
+    });
+    const current = await execFileAsync('git', ['branch', '--show-current'], { cwd: repo });
+    expect(current.stdout.replace(/\r?\n$/, '')).toBe('feature/current');
   });
 
   it('fetches an explicit remote without changing HEAD or the working tree', async () => {

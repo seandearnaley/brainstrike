@@ -30,6 +30,12 @@ export interface GitDiff {
   readonly unifiedDiff: string;
 }
 
+/** Explicit diff source; invalid staged/untracked combinations are unrepresentable. */
+export type GitDiffParams =
+  | { readonly mode: 'staged'; readonly path?: string }
+  | { readonly mode: 'untracked'; readonly path: string }
+  | { readonly mode: 'working'; readonly path?: string };
+
 export interface GitAheadBehind {
   readonly ahead: number | null;
   readonly behind: number | null;

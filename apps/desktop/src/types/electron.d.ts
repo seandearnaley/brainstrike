@@ -15,6 +15,7 @@ import type {
   GitCommitFile,
   GitCommitResult,
   GitDiff,
+  GitDiffParams,
   GitHistoryPage,
   GitPushPullResult,
   GitRepository,
@@ -210,10 +211,7 @@ declare global {
      */
     git?: {
       status: (rootId: string) => Promise<GitResult<GitStatus>>;
-      diff: (
-        rootId: string,
-        params?: { path?: string; staged?: boolean; untracked?: boolean }
-      ) => Promise<GitResult<GitDiff>>;
+      diff: (rootId: string, params: GitDiffParams) => Promise<GitResult<GitDiff>>;
       stage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
       unstage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
       commit: (

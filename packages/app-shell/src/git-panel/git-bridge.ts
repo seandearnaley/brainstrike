@@ -14,6 +14,7 @@ import type {
   GitCommitFile,
   GitCommitResult,
   GitDiff,
+  GitDiffParams,
   GitHistoryPage,
   GitPushPullResult,
   GitRepository,
@@ -29,6 +30,7 @@ export type {
   GitCommitFile,
   GitCommitResult,
   GitDiff,
+  GitDiffParams,
   GitHistoryCommit,
   GitHistoryPage,
   GitPushPullResult,
@@ -56,10 +58,7 @@ export interface GitBridge {
     rootId: string,
     params: { commit: string }
   ) => Promise<GitResult<readonly GitCommitFile[]>>;
-  diff: (
-    rootId: string,
-    params?: { path?: string; staged?: boolean; untracked?: boolean }
-  ) => Promise<GitResult<GitDiff>>;
+  diff: (rootId: string, params: GitDiffParams) => Promise<GitResult<GitDiff>>;
   fetch: (rootId: string, params: { remote: string }) => Promise<GitResult<GitPushPullResult>>;
   history: (
     rootId: string,

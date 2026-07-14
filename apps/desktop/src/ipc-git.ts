@@ -1,3 +1,4 @@
+import type { GitDiffParams } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import { getDatabase } from './db-main';
 import {
@@ -29,11 +30,7 @@ export function registerGitIpcHandlers(
   registry.registerInvoke(
     'git',
     DESKTOP_IPC_CHANNELS.git.diff,
-    (
-      _event,
-      rootId: unknown,
-      params: { path?: string; staged?: boolean; untracked?: boolean } = {}
-    ) => handlers.diff(rootId, params)
+    (_event, rootId: unknown, params: GitDiffParams) => handlers.diff(rootId, params)
   );
   registry.registerInvoke(
     'git',

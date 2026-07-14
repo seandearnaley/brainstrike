@@ -26,6 +26,7 @@ import type {
   GitCommitFile,
   GitCommitResult,
   GitDiff,
+  GitDiffParams,
   GitHistoryPage,
   GitPushPullResult,
   GitRepository,
@@ -48,6 +49,7 @@ export type {
   GitCommitFile,
   GitCommitResult,
   GitDiff,
+  GitDiffParams,
   GitHistoryCommit,
   GitHistoryPage,
   GitPushPullResult,
@@ -460,6 +462,37 @@ function resolveContainedPathArg(
     return { error: `path "${rawPath}" escapes the opened folder`, ok: false };
   }
   return { ok: true, value: rawPath };
+}
+
+function validateDiffParams(params: GitDiffParams): GitResult<GitDiffParams> {
+  if (!(params && typeof params === 'object') || Array.isArray(params)) {
+    return { error: 'diff params must be an object with an explicit diff mode', ok: false };
+  }
+  const record = params as unknown as Record<string, unknown>;
+  const unsupportedKeys = Object.keys(record).filter((key) => key !== 'mode' && key !== 'path');
+  if (unsupportedKeys.length > 0) {
+    return {
+      error: `diff mode only accepts "mode" and "path"; received ${unsupportedKeys.join(', ')}`,
+      ok: false,
+    };
+  }
+  if (
+    record['mode'] !== 'working' &&
+    record['mode'] !== 'staged' &&
+    record['mode'] !== 'untracked'
+  ) {
+    return {
+      error: 'diff mode must be "working", "staged", or "untracked"',
+      ok: false,
+    };
+  }
+  if (record['path'] !== undefined && typeof record['path'] !== 'string') {
+    return { error: 'diff path must be a string', ok: false };
+  }
+  if (record['mode'] === 'untracked' && typeof record['path'] !== 'string') {
+    return { error: 'untracked diff requires a path', ok: false };
+  }
+  return { ok: true, value: params };
 }
 
 /**
@@ -1076,15 +1109,15 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
      * file as additions. `--no-index` intentionally exits 1 when the inputs
      * differ — that is the normal "there is a diff" outcome, NOT a failure.
      */
-    diff: async (params: {
-      path?: string | undefined;
-      staged?: boolean | undefined;
-      untracked?: boolean | undefined;
-    }): Promise<GitResult<GitDiff>> => {
+    diff: async (params: GitDiffParams): Promise<GitResult<GitDiff>> => {
       try {
-        const staged = params.staged === true;
-        const untracked = params.untracked === true;
-        const pathResult = resolveContainedPathArg(cwd, params.path);
+        const validated = validateDiffParams(params);
+        if (!validated.ok) {
+          return validated;
+        }
+        const staged = validated.value.mode === 'staged';
+        const untracked = validated.value.mode === 'untracked';
+        const pathResult = resolveContainedPathArg(cwd, validated.value.path);
         if (!pathResult.ok) {
           return pathResult;
         }
@@ -1329,6 +1362,9 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       try {
         if (typeof params.branch !== 'string' || params.branch.length === 0) {
           return { error: 'branch must be a non-empty string', ok: false };
+        }
+        if (params.branch === '-') {
+          return { error: 'local branch "-" is not supported', ok: false };
         }
         const scope = await requireFullWorktreeRoot('Branch switching');
         if (!scope.ok) {

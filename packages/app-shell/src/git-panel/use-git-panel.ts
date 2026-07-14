@@ -348,9 +348,8 @@ export function useGitPanel(): UseGitPanelResult {
       }
       try {
         const result = await bridge.diff(activeRootId, {
+          mode: options.untracked ? 'untracked' : options.staged ? 'staged' : 'working',
           path,
-          staged: options.staged,
-          untracked: options.untracked,
         });
         if (!result.ok) {
           logger.error('git diff failed', { error: result.error, path });

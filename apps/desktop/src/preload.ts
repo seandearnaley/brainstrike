@@ -1,5 +1,6 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer } = require('electron');
+type GitDiffParams = import('@brainstrike/types').GitDiffParams;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -1122,8 +1123,8 @@ if (shouldExposeBridge('git')) {
       ipcRenderer.invoke(GIT_COMMIT_DIFF_CHANNEL, rootId, params),
     commitFiles: (rootId: string, params: { commit: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
-    diff: (rootId: string, params?: { path?: string; staged?: boolean; untracked?: boolean }) =>
-      ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params ?? {}),
+    diff: (rootId: string, params: GitDiffParams) =>
+      ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params),
     fetch: (rootId: string, params: { remote: string }) =>
       ipcRenderer.invoke(GIT_FETCH_CHANNEL, rootId, params),
     history: (rootId: string, params: { limit: number; offset: number; ref?: string }) =>
