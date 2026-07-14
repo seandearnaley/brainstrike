@@ -1168,7 +1168,7 @@ describe('assistant-stream integration', () => {
     expect(onUsage).not.toHaveBeenCalled();
   });
 
-  it('forwards a cost-only zero-token finish from an OpenRouter approval pause', async () => {
+  it('forwards a cost-only zero-token finish when the transport supplies one', async () => {
     const onUsage = vi.fn();
     globalThis.fetch = vi.fn(
       async () =>

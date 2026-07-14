@@ -208,9 +208,10 @@ Runtime invariants:
   views use the provider amount for reported rows and registry pricing only for
   legacy/unreported rows. Mixed groups add both portions and retain estimated
   provenance; entirely provider-reported groups use `provider-reported`.
-  Approval/suspension pauses emit a cost-only zero-token finish, which the usage
-  tap persists; the resumed leg supplies cumulative tokens and only its newly
-  observed step costs, preventing both lost charges and token double-counting.
+  Approval/suspension pauses emit a zero-token finish without cost because
+  Mastra emits the pause before exposing that model step's `step-finish`. On
+  resume, Mastra emits the deferred pre-pause step finish and all subsequent
+  steps; the normal terminal usage tap persists their exact aggregate once.
   Missing or malformed cost metadata on a new OpenRouter completion fails
   visibly rather than being mislabeled as an exact or zero-cost run.
 

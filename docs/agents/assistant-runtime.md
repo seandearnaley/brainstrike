@@ -182,10 +182,10 @@ Flow (desktop assistant server → agent runtime):
    FIRST, then approve the pending call through the normal resume — the grant
    affects the NEXT request via the wrapper's reactive store subscription; the
    pending call still resolves through `streamMastraToolApprovalAction`.
-   An OpenRouter approval pause terminates its transport leg with a cost-only
-   finish carrying the exact accumulated step cost. The zero-token usage is
-   intentional: the resumed terminal usage is cumulative and must not count the
-   pre-pause tokens twice.
+   An OpenRouter approval pause terminates its transport leg with zero-token
+   usage and no claimed cost: Mastra emits the pause before that model step's
+   `step-finish`. Approval resume emits the deferred step finish before later
+   steps, so normal terminal aggregation records the exact total then.
    Management surface: Settings > Permissions lists per-tool overrides
    (change decision / remove via `setToolOverride(id,null)`) and active
    session grants (revoke via `revokeSessionCategory`). The chunk carries an optional
@@ -471,9 +471,10 @@ surfaced as a 400, never coerced).
 suspending tool calls `suspend()`. `makeToolSuspendRequiredChunks` turns it into
 a resumable `tool-suspend-required` chunk + a tool-calls finish and STOPS at the
 pause (this replaced the old `makeUnsupportedApprovalChunks` dead-end at ~936).
-A native OpenRouter pause finish includes the accumulated step cost with zero
-tokens, matching approval pauses and preserving exact billing across resume
-legs without duplicating Mastra's cumulative token usage.
+A native OpenRouter pause finish has zero tokens and no billed-cost field because
+Mastra has not exposed that step's `step-finish` yet. Resume emits the deferred
+step finish before continuing, so the resumed terminal finish aggregates the
+pre-pause and subsequent step costs.
 A malformed pause (missing toolCallId/runId) still falls back to the unsupported
 termination so it fails visibly. `DataStreamMapper.handleToolSuspendRequired`
 emits the `brainstrike.tool-suspend` data part, honoring the text-part deferral

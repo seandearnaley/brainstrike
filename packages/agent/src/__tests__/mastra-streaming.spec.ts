@@ -1269,17 +1269,8 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
-  it('preserves provider-reported OpenRouter cost when a tool approval pauses the run', async () => {
+  it('keeps an OpenRouter tool approval resumable before Mastra emits step-finish', async () => {
     setMockStreamParts([
-      {
-        payload: {
-          metadata: {
-            providerMetadata: { openrouter: { usage: { cost: 0.001_25 } } },
-          },
-        },
-        type: 'step-finish',
-        usage: { completionTokens: 8, promptTokens: 21 },
-      },
       {
         payload: {
           args: { path: 'src/index.ts' },
@@ -1305,50 +1296,11 @@ describe('mastra streaming integration', () => {
     }
 
     expect(chunks).toContainEqual({
-      billedCostUsd: 0.001_25,
       finishReason: 'tool-calls',
       path: [],
       type: 'message-finish',
       usage: { completionTokens: 0, promptTokens: 0 },
     });
-  });
-
-  it('rejects an OpenRouter approval pause whose model step omitted billed cost', async () => {
-    setMockStreamParts([
-      {
-        type: 'step-finish',
-        usage: { completionTokens: 8, promptTokens: 21 },
-      },
-      {
-        payload: {
-          toolCallId: 'approval-missing-cost-1',
-          toolName: 'brainstrike.writeWorkspaceFile',
-        },
-        runId: 'run-approval-missing-cost-1',
-        type: 'tool-call-approval',
-      },
-    ]);
-
-    const iterator = await streamMastraAgent(
-      [
-        {
-          id: 'u-approval-missing-cost',
-          parts: [{ text: 'edit the file', type: 'text' }],
-          role: 'user',
-        },
-      ],
-      {
-        requireToolApproval: true,
-        runtime: { apiKey: 'test-key', provider: 'openrouter' },
-      }
-    );
-
-    const drain = async () => {
-      for await (const _chunk of iterator) {
-        // drain
-      }
-    };
-    await expect(drain()).rejects.toThrow(/OpenRouter model step omitted.*billed cost/i);
   });
 
   it('flushes output-only tool completions before an approval pause', async () => {
@@ -1731,17 +1683,8 @@ describe('mastra streaming integration', () => {
     );
   });
 
-  it('preserves provider-reported OpenRouter cost when a suspending tool pauses the run', async () => {
+  it('keeps an OpenRouter suspending tool resumable before Mastra emits step-finish', async () => {
     setMockStreamParts([
-      {
-        payload: {
-          metadata: {
-            providerMetadata: { openrouter: { usage: { cost: 0.0025 } } },
-          },
-        },
-        type: 'step-finish',
-        usage: { completionTokens: 9, promptTokens: 34 },
-      },
       {
         payload: {
           suspendPayload: { question: 'Which city?' },
@@ -1764,7 +1707,6 @@ describe('mastra streaming integration', () => {
     }
 
     expect(chunks).toContainEqual({
-      billedCostUsd: 0.0025,
       finishReason: 'tool-calls',
       path: [],
       type: 'message-finish',

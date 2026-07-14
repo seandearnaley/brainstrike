@@ -24,13 +24,15 @@
   model-router IDs, not a generic `createOpenAI({ baseURL })` client. The
   official OpenRouter adapter preserves `providerMetadata.openrouter.usage.cost`;
   that exact billed amount is aggregated across `step-finish` parts and carried
-  on the terminal message. Approval and tool-suspension pauses carry the
-  accumulated amount on a cost-only `{inputTokens:0, outputTokens:0}` finish so
-  the pre-pause provider charge is durable without double-counting cumulative
-  tokens on resume. Mastra's terminal token usage is cumulative, but its
-  terminal provider metadata repeats only the final step, so every observed step
-  must report cost; a missing or malformed reported cost fails visibly rather
-  than silently undercounting.
+  on the terminal message. Mastra emits approval/tool-suspension parts before it
+  exposes that model step's `step-finish`, so a pause finish cannot claim an exact
+  cost. On resume Mastra emits the deferred pre-pause `step-finish` before later
+  model steps; the fresh resumed lifecycle aggregates all of them on the final
+  message without double-counting. An abandoned pause therefore has no billed
+  cost available through the observer stream. Mastra's terminal token usage is
+  cumulative, but its terminal provider metadata repeats only the final step, so
+  every observed step must report cost; a missing or malformed reported cost
+  fails visibly rather than silently undercounting.
 - OpenRouter request options use the native `providerOptions.openrouter`
   namespace. The shared reasoning controls map to
   `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case

@@ -808,23 +808,8 @@ function makeErrorFinishChunk(): StreamChunk {
   };
 }
 
-function readPausedOpenRouterBilledCost(lifecycleState: ToolLifecycleState): number | undefined {
-  if (!lifecycleState.requiresBilledCost) {
-    return;
-  }
-  if (lifecycleState.sawStepWithoutBilledCost) {
-    throw new Error('OpenRouter model step omitted required provider-reported billed cost.');
-  }
-  if (!lifecycleState.sawStepBilledCost) {
-    throw new Error('OpenRouter paused model step omitted required provider-reported billed cost.');
-  }
-  return lifecycleState.stepBilledCostUsd;
-}
-
-function makeToolCallsFinishChunk(lifecycleState: ToolLifecycleState): StreamChunk {
-  const billedCostUsd = readPausedOpenRouterBilledCost(lifecycleState);
+function makeToolCallsFinishChunk(): StreamChunk {
   return {
-    ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     finishReason: 'tool-calls',
     path: [],
     type: 'message-finish',
@@ -1146,8 +1131,7 @@ function makeApprovalRequiredChunks(
   part: unknown,
   toolNames: Map<string, string>,
   sanitizedNameMap: Map<string, string> | undefined,
-  askTools: ReadonlyMap<string, PermissionAskToolMetadata> | undefined,
-  lifecycleState: ToolLifecycleState
+  askTools: ReadonlyMap<string, PermissionAskToolMetadata> | undefined
 ): StreamChunk[] {
   const toolCallId =
     readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
@@ -1187,7 +1171,7 @@ function makeApprovalRequiredChunks(
       ...(args === undefined ? {} : { args }),
       ...(resumeSchema === undefined ? {} : { resumeSchema }),
     },
-    makeToolCallsFinishChunk(lifecycleState),
+    makeToolCallsFinishChunk(),
   ];
 }
 
@@ -1202,8 +1186,7 @@ function makeApprovalRequiredChunks(
 function makeToolSuspendRequiredChunks(
   part: unknown,
   toolNames: Map<string, string>,
-  sanitizedNameMap: Map<string, string> | undefined,
-  lifecycleState: ToolLifecycleState
+  sanitizedNameMap: Map<string, string> | undefined
 ): StreamChunk[] {
   const toolCallId =
     readMastraStreamPartString(part, 'toolCallId') ?? readMastraStreamPartString(part, 'id');
@@ -1237,7 +1220,7 @@ function makeToolSuspendRequiredChunks(
       ...(suspendPayload === undefined ? {} : { suspendPayload }),
       ...(resumeSchema === undefined ? {} : { resumeSchema }),
     },
-    makeToolCallsFinishChunk(lifecycleState),
+    makeToolCallsFinishChunk(),
   ];
 }
 
@@ -1520,13 +1503,7 @@ function processMastraStreamPart(
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
-          ...makeApprovalRequiredChunks(
-            part,
-            toolNames,
-            sanitizedNameMap,
-            askTools,
-            lifecycleState
-          ),
+          ...makeApprovalRequiredChunks(part, toolNames, sanitizedNameMap, askTools),
         ],
         finished: true,
       };
@@ -1537,7 +1514,7 @@ function processMastraStreamPart(
       return {
         chunks: [
           ...makePendingToolOutputRunEventChunks(lifecycleState),
-          ...makeToolSuspendRequiredChunks(part, toolNames, sanitizedNameMap, lifecycleState),
+          ...makeToolSuspendRequiredChunks(part, toolNames, sanitizedNameMap),
         ],
         finished: true,
       };
