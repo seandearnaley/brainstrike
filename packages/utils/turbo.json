@@ -1,0 +1,25 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // B4 build-edge exception. The root `test` task now `dependsOn: ["topo"]`
+      // (a no-op transit node that builds nothing — see turbo.jsonc). This
+      // package is the ONE case whose own tests need its OWN built `dist`:
+      // src/__tests__/logger-dist-singleton.test.ts deliberately imports
+      // ../../dist/index.mjs and ../../dist/logger.mjs by file URL to prove the
+      // built bundle keeps the logger a singleton (the tsup `splitting:false`
+      // dedupe contract — see MEMORY "utils self-import logger"). That is a
+      // genuine built-artifact regression test; vitest src-aliases do not (and
+      // must not) redirect it. `$TURBO_EXTENDS$` appends to the inherited
+      // `["topo"]` so the effective dependsOn is `["topo", "build"]` — without
+      // it the package config would REPLACE the inherited array (Turborepo docs)
+      // and drop the source-hash cascade.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    },
+    "test:coverage": {
+      // Coverage runs the same suite (`pnpm run test --coverage`), including the
+      // dist-singleton test, so it needs the same own-`build` edge.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    }
+  }
+}

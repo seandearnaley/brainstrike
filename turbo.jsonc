@@ -56,6 +56,59 @@
   ],
   // Defines the tasks that can be run via `turbo run <taskName>`
   "tasks": {
+    // --- Transit Node (Series B4) --- //
+    //
+    // `topo` is a SYNTHETIC no-op task: no package defines a `topo` script, so
+    // turbo never executes anything for it. It exists purely as a HASH-
+    // PROPAGATION node — Turborepo's canonical "Transit Node" pattern
+    // (https://turborepo.dev/docs/crafting-your-repository/configuring-tasks
+    // — "name the task anything that isn't already a script in your Workspace").
+    // Its whole job is to give the `test*` tasks below an upstream edge that
+    // carries the SOURCE hash of every workspace dependency WITHOUT forcing that
+    // dependency to `build` first.
+    //
+    // WHY THIS EXISTS (Series B4 payoff): `test`/`test:integration`/
+    // `test:coverage` used to `dependsOn: ["^build"]`. Since B3 (#1651) every
+    // package test lane resolves `@brainstrike/*` workspace imports to SOURCE
+    // (packages/test-utils/workspace-src-aliases.mjs), so tests no longer need a
+    // dependency's `dist` to exist — yet `^build` still rebuilt ~39 packages
+    // before a single test could run (a `packages/types` whitespace edit rebuilt
+    // the world). `dependsOn: ["topo"]` keeps the topological hash cascade (a
+    // dep's source change still re-hashes and re-runs dependents' tests) while
+    // building NOTHING.
+    //
+    // WHY PLAIN DELETION WOULD BE A STALE-GREEN LANDMINE (do not "simplify" this
+    // back to an empty dependsOn): `^build` was doing DOUBLE duty — (1) ensuring
+    // dist existed [no longer needed post-B3] and (2) making a dependent's
+    // cached `test` result depend on its upstreams' hashes. Because tests import
+    // upstream SOURCE, if you DELETE the edge instead of replacing it, editing
+    // `packages/utils/src` no longer moves `packages/hooks#test`'s hash — turbo
+    // replays hooks' stale-green cached test against the OLD utils source. That
+    // is the #1066/#1207 incident class in cache flavor (a broken upstream stays
+    // green for weeks). `topo` REPLACES the edge: it re-carries the cascade
+    // through a node that runs no script. See proof #2 in the B4 PR body.
+    //
+    // INPUTS narrowing (precision, not correctness): default inputs would hash
+    // ALL of a package's files into its topo node, so editing a dep's OWN test
+    // files would needlessly re-run every dependent's tests. A downstream
+    // package only ever imports an upstream through its `exports` map (→ `src`),
+    // NEVER the upstream's `*.test.*` files or `__tests__/` dirs (those are not
+    // exported and are not src-alias targets). Excluding them from the
+    // propagation hash is therefore SOUND (it can never hide a change a
+    // dependent could observe) and only removes over-invalidation.
+    // `package.json` is DELIBERATELY kept in the hash: it holds the `exports`
+    // map, a runtime input to the src-alias registry — an exports edit MUST
+    // cascade to dependents.
+    "topo": {
+      "dependsOn": [
+        "^topo"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.test.*",
+        "!**/__tests__/**"
+      ]
+    },
     // --- Build Task --- //
     "build": {
       // Ensures that the 'build' task for dependencies runs before this package's build.
@@ -73,10 +126,27 @@
     },
     // --- Test Task --- //
     "test": {
-      // Unit tests import package source directly, but workspace dependencies may
-      // still need their generated declarations/artifacts.
+      // Tests import workspace dependencies from SOURCE (B3, #1651), so they do
+      // NOT need a dependency's `dist`. `topo` (the transit node above) carries
+      // the upstream SOURCE-hash cascade WITHOUT building anything — replacing
+      // the old `^build` edge. Do NOT delete this to an empty dependsOn: that
+      // drops the cascade and replays stale-green cached tests against edited
+      // upstream source (see the topo comment for the full landmine rationale).
+      // Packages whose tests genuinely need a built artifact declare the exact
+      // edge in their own turbo.json (B4 exceptions): packages/utils#test needs
+      // its own `build` (logger-dist-singleton.test.ts imports utils' dist by
+      // file URL); packages/db#test needs `@brainstrike/utils#build`
+      // (migration-runner-types.test.ts runs a nested `ts.createProgram` whose
+      // compiler resolves @brainstrike/utils types from dist — vitest aliases
+      // cannot intercept tsc). apps/web + apps/desktop needed NO build edges:
+      // the gaps in their hand-maintained vitest alias maps (specifiers that
+      // fell through `exports` to dist) were closed in this change instead —
+      // web got the missing root aliases, desktop spreads the shared B3
+      // registry (+ an agent-root→src alias mirroring web). The one
+      // test-fixture consequence: desktop's agent-client-loader test keeps a
+      // fallback-list mirror that must stay in sync with the loader.
       "dependsOn": [
-        "^build"
+        "topo"
       ],
       // Tests can be sensitive to NODE_ENV, but build cache should not be globally invalidated by it.
       // TURBO_TEST_MODE differentiates plain test runs from coverage runs for cache keys.
@@ -144,8 +214,13 @@
       // differentiates unit vs coverage; CI/COVERAGE stay in passThroughEnv so
       // they never enter a hash — moot here since caching is off, but kept
       // identical so a file moving between lanes sees the same runtime env).
+      // dependsOn is `["topo"]` for parity with `test` (see that task + the topo
+      // transit-node comment). This lane is `cache: false`, so topo's cascade is
+      // moot for it, but keeping it identical means a file moving between the two
+      // lanes carries the same task graph. Integration tests also import
+      // workspace deps from SOURCE, so no `^build` is needed here either.
       "dependsOn": [
-        "^build"
+        "topo"
       ],
       "env": [
         "NODE_ENV",
@@ -276,8 +351,11 @@
     "test:coverage": {
       // Runs package-local Vitest coverage scripts. Keeping coverage flags inside
       // this task avoids Turborepo passthrough args invalidating dependency builds.
+      // `dependsOn: ["topo"]` mirrors `test` (same source-import graph, same
+      // transit-node cascade; see the topo comment). The same B4 build-edge
+      // exceptions apply per-package (utils' own build; db's @brainstrike/utils#build).
       "dependsOn": [
-        "^build"
+        "topo"
       ],
       // Coverage runs should hash NODE_ENV + explicit test mode without invalidating unrelated tasks globally.
       "env": [
@@ -302,9 +380,18 @@
       "outputs": [],
       "outputLogs": "new-only"
     },
+    // The db coverage lanes below run the SAME db test files as db#test, split
+    // across coverage buckets (coverage-lanes.mjs). Like `test`, they resolve
+    // workspace imports from SOURCE, so `^build` becomes `topo` (B4). They keep
+    // the explicit `@brainstrike/utils#build` edge because one of these lanes
+    // runs migration-runner-types.test.ts, whose nested `ts.createProgram`
+    // resolves @brainstrike/utils types from dist (see db/turbo.json). The edge
+    // is applied uniformly to all lanes for parity (utils builds cheaply and is
+    // a real db dependency) rather than tracking which bucket owns that file.
     "test:coverage:db:architecture": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -320,7 +407,8 @@
     },
     "test:coverage:db:chunking": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -336,7 +424,8 @@
     },
     "test:coverage:db:migrations": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -352,7 +441,8 @@
     },
     "test:coverage:db:queue": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -368,7 +458,8 @@
     },
     "test:coverage:db:repositories": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -384,7 +475,8 @@
     },
     "test:coverage:db:runtime": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -400,7 +492,8 @@
     },
     "test:coverage:db:search": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [

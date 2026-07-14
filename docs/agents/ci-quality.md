@@ -71,8 +71,36 @@ configs, and transitive src-graph gaps all FAIL. Because the guard imports the
 configs under plain node ESM, config-relative imports need explicit extensions
 (e.g. `../config/src/vitest-browser.ts`). Legitimate built-artifact consumers
 go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with a reason string (NO silent
-fallback). This is the R3 enabler for dropping `test.dependsOn: ["^build"]` —
-see the Series B turbo-monorepo architecture review.
+fallback). This was the R3 enabler for dropping `test.dependsOn: ["^build"]` —
+DONE in Series B4: `test`/`test:integration`/`test:coverage` now
+`dependsOn: ["topo"]`, a synthetic no-op **transit node** (`topo`,
+`dependsOn: ["^topo"]`) that carries the upstream SOURCE-hash cascade WITHOUT
+building anything, so a `packages/types` edit no longer rebuilds ~39 packages
+before a test runs. Plain deletion of the edge would be a stale-green landmine
+(tests import upstream source, so a cached dependent must still re-hash when an
+upstream's source changes); the transit node REPLACES the edge instead of
+removing it. `topo`'s inputs exclude `*.test.*`/`__tests__/**` (a dependent
+never imports an upstream's test files) but keep `package.json` (its `exports`
+map feeds the src-alias registry). Explicit build edges survive in per-package
+`turbo.json` where a test genuinely consumes a built artifact:
+`@brainstrike/utils#test` needs its own `build` (logger-dist-singleton test
+imports utils' `dist` by file URL); `@brainstrike/db#test`/`#test:coverage`
+need `@brainstrike/utils#build` (migration-runner-types test's nested
+`ts.createProgram` resolves utils types from `dist` — vitest aliases can't
+intercept tsc). The apps needed NO build edges: the B4 clean-state proof run
+exposed gaps in their hand-maintained vitest alias maps (specifiers falling
+through `exports` to dist — invisible while `^build` guaranteed dist existed),
+closed by aliasing instead: apps/web gained the missing root aliases
+(assistant-contract, chunking-worker, context-actions, file-system,
+indexing-contract, storage); apps/desktop now spreads this same
+`workspaceSrcAliases` registry (array-form alias, locals first) plus an
+agent-root→src alias mirroring web (the registry deliberately excludes agent).
+NOTE: this guard only checks `packages/*` — the app configs are outside its
+scope, so app alias gaps surface as loud clean-state resolution failures, not
+guard findings. Desktop's agent-client-loader test keeps a mirror of the
+loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
+bypasses vitest aliases and needs dist, absent by default post-B4). See the
+Series B turbo-monorepo architecture review.
 
 ---
 

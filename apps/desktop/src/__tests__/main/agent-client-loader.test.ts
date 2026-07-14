@@ -52,6 +52,11 @@ describe('agent-client-loader', () => {
       '../../agent-client-loader'
     );
     const requireForTest = createRequire(import.meta.url);
+    // Mirror of FALLBACK_PROVIDERS in src/agent-client-loader.ts. Used when
+    // @brainstrike/agent's dist is not built — the normal state since B4
+    // removed test.dependsOn ^build (the raw createRequire below bypasses
+    // vitest aliases, so it genuinely needs dist). Keep in sync with the
+    // loader.
     const fallbackProviders = [
       'openai',
       'anthropic',
@@ -60,6 +65,8 @@ describe('agent-client-loader', () => {
       'cohere',
       'voyage',
       'local',
+      'ollama',
+      'lmstudio',
     ];
     const fallbackOpenAiKeys = [
       'BRAINSTRIKE_OPENAI_API_KEY',
