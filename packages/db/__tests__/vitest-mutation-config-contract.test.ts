@@ -32,8 +32,11 @@ describe('db mutation (Stryker) vitest config contract', () => {
 
   it('keeps at least one *.browser.test.* fixture, so the exclude above stays load-bearing', () => {
     const testsDir = path.join(packageRoot, '__tests__');
-    const browserSpecs = readdirSync(testsDir).filter((name) =>
-      /\.browser\.test\.[jt]sx?$/u.test(name)
+    // Recursive: the `**/*.browser.test.{ts,tsx}` exclude glob matches at any
+    // depth, so a non-recursive scan here could silently pass with zero
+    // fixtures if a browser spec ever moved into a subdirectory.
+    const browserSpecs = readdirSync(testsDir, { recursive: true }).filter((name) =>
+      /\.browser\.test\.[jt]sx?$/u.test(name.toString())
     );
 
     expect(browserSpecs.length).toBeGreaterThan(0);
