@@ -13,7 +13,11 @@ export default defineConfig({
       TEST_PGLITE_MOCK: 'true',
     },
     environment: 'jsdom',
-    exclude: ['node_modules', 'dist'],
+    // Browser-only specs (real window/indexedDB/WASM assertions) can never pass
+    // under jsdom; partition them out exactly as the unit project in
+    // vitest.config.mts does. Without this, the include glob's `*` swallows the
+    // `.browser` stem and the Stryker lane is permanently red.
+    exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
     globals: true,
     hookTimeout: 30_000,
     include: ['__tests__/**/*.test.{ts,tsx}'],
