@@ -200,7 +200,16 @@ Runtime invariants:
   (`onUsage` in data-stream-runtime.ts), local via the llm-host result (`onUsage` in
   local-runtime-adapter.ts; `LocalLlmGenerationResult.usage` is optional at the IPC boundary — guard it).
 - The meter shows estimated (heuristic over thread messages) until exact usage lands; provenance
-  must never lie — wire-format usage is `{inputTokens, outputTokens}` (e2e mocks must use those names).
+  must never lie — wire-format usage is `{inputTokens, outputTokens, billedCostUsd?}` (e2e mocks
+  must use the token field names).
+- OpenRouter finish messages must additionally carry `billedCostUsd`, sourced
+  from Mastra's official OpenRouter provider metadata. Persist it in
+  `brainstrike_assistant_run_usage.billed_cost_usd`; cumulative and cross-root
+  views use the provider amount for reported rows and registry pricing only for
+  legacy/unreported rows. Mixed groups add both portions and retain estimated
+  provenance; entirely provider-reported groups use `provider-reported`.
+  Missing or malformed cost metadata on a new OpenRouter completion fails
+  visibly rather than being mislabeled as an exact or zero-cost run.
 
 ---
 

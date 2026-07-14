@@ -9,7 +9,7 @@ async function modelIds(db: PGlite): Promise<string[]> {
   return res.rows.map((r) => (r as { id: string }).id);
 }
 
-describe('frontier models migration (033)', () => {
+describe('frontier models migrations', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -33,6 +33,11 @@ describe('frontier models migration (033)', () => {
 
     // New hosted models present
     for (const id of [
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'claude-fable-5',
+      'claude-sonnet-5',
       'gpt-5.5',
       'gpt-5.4',
       'gpt-5.4-mini',
@@ -44,6 +49,21 @@ describe('frontier models migration (033)', () => {
       'gemini-2.5-pro',
       'gemini-2.5-flash',
       'gemini-embedding-2',
+      'openai/gpt-5.6-sol',
+      'openai/gpt-5.6-terra',
+      'openai/gpt-5.6-luna',
+      'anthropic/claude-fable-5',
+      'anthropic/claude-sonnet-5',
+      'z-ai/glm-5.2',
+      'minimax/minimax-m3',
+      'deepseek/deepseek-v4-pro',
+      'deepseek/deepseek-v4-flash',
+      'qwen/qwen3.7-max',
+      'qwen/qwen3.7-plus',
+      'qwen/qwen3.6-flash',
+      'qwen/qwen3-coder-next',
+      'moonshotai/kimi-k2.6',
+      'moonshotai/kimi-k2.7-code',
       'openai/gpt-5.5',
       'anthropic/claude-opus-4.8',
       'anthropic/claude-sonnet-4.6',
@@ -69,6 +89,10 @@ describe('frontier models migration (033)', () => {
     ]) {
       expect(ids).not.toContain(id);
     }
+
+    await expect(
+      db.query('SELECT billed_cost_usd FROM brainstrike_assistant_run_usage LIMIT 0')
+    ).resolves.toBeDefined();
   });
 
   it('rolls back faithfully: removes new rows, restores dropped ones, keeps gpt-5.2-pro', {
@@ -80,8 +104,11 @@ describe('frontier models migration (033)', () => {
 
     const ids = await modelIds(db);
 
-    // New 033 rows are gone.
+    // Rows introduced after version 32 are gone.
     for (const id of [
+      'gpt-5.6-sol',
+      'claude-sonnet-5',
+      'z-ai/glm-5.2',
       'gpt-5.5',
       'gpt-5.4',
       'claude-opus-4-8',
@@ -107,24 +134,46 @@ describe('frontier models migration (033)', () => {
     expect((proRow.rows[0] as { sort_order: number } | undefined)?.sort_order).toBe(3);
   });
 
-  it('preserves a user is_enabled choice on a kept model across the migration', {
+  it('preserves a user is_enabled choice across the July catalog migration', {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
-    // Apply everything up to (but not including) the new migration.
-    await runner.up(migrations.filter((m) => m.version <= 32));
+    await runner.up(migrations.filter((migration) => migration.version <= 56));
 
-    // Simulate a user who disabled an existing model.
-    await db.query("UPDATE models SET is_enabled = false WHERE id = 'gpt-5.2'");
+    await db.query("UPDATE models SET is_enabled = false WHERE id = 'gpt-5.4'");
 
-    // Apply the new migration.
     await runner.up(migrations);
 
-    const res = await db.query("SELECT is_enabled FROM models WHERE id = 'gpt-5.2'");
+    const res = await db.query("SELECT is_enabled FROM models WHERE id = 'gpt-5.4'");
     expect((res.rows[0] as { is_enabled: boolean } | undefined)?.is_enabled).toBe(false);
 
     // New models arrive enabled so users get the fresh selection.
-    const newModel = await db.query("SELECT is_enabled FROM models WHERE id = 'gpt-5.4'");
+    const newModel = await db.query("SELECT is_enabled FROM models WHERE id = 'gpt-5.6-terra'");
     expect((newModel.rows[0] as { is_enabled: boolean } | undefined)?.is_enabled).toBe(true);
+
+    const newGatewayModel = await db.query(
+      "SELECT is_enabled FROM models WHERE id = 'z-ai/glm-5.2'"
+    );
+    expect((newGatewayModel.rows[0] as { is_enabled: boolean } | undefined)?.is_enabled).toBe(
+      false
+    );
+  });
+
+  it('adds and rolls back the provider billed-cost column', { timeout: 60_000 }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.filter((migration) => migration.version <= 57));
+    await expect(
+      db.query('SELECT billed_cost_usd FROM brainstrike_assistant_run_usage LIMIT 0')
+    ).rejects.toThrow();
+
+    await runner.up(migrations);
+    await expect(
+      db.query('SELECT billed_cost_usd FROM brainstrike_assistant_run_usage LIMIT 0')
+    ).resolves.toBeDefined();
+
+    await runner.down(migrations, 57);
+    await expect(
+      db.query('SELECT billed_cost_usd FROM brainstrike_assistant_run_usage LIMIT 0')
+    ).rejects.toThrow();
   });
 });

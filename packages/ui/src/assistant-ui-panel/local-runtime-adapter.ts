@@ -157,7 +157,7 @@ export interface LocalRuntimeAdapterOptions {
    * reported — its prompt reflects the accumulated context including tool
    * results, consistent with the one-turn-lag meter semantics.
    */
-  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
+  onUsage?: (usage: { billedCostUsd?: number; inputTokens: number; outputTokens: number }) => void;
   prepareRuntimeData?: () => Promise<Record<string, unknown> | undefined>;
   runtimeData?: Record<string, unknown>;
   thinkingEnabled?: boolean;

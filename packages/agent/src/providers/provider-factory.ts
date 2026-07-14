@@ -113,12 +113,13 @@ export function createProvider(
     }
 
     case 'openrouter': {
-      // OpenRouter uses OpenAI-compatible API
-      const openrouterProvider = createOpenAI({
-        baseURL: 'https://openrouter.ai/api/v1',
+      // Route through Mastra's official OpenRouter model-router provider. Its
+      // stream schema preserves OpenRouter's providerMetadata (including exact
+      // billed cost); the generic OpenAI-compatible client discards that data.
+      return {
+        id: `openrouter/${modelName}`,
         ...(apiKey ? { apiKey } : {}),
-      });
-      return openrouterProvider(modelName);
+      };
     }
 
     case 'ollama': {
@@ -252,8 +253,11 @@ export function createEmbeddingProvider(
  * Get the default model name for a provider
  */
 export function getDefaultModel(provider: SupportedProvider | string): string {
-  if (isSupportedProvider(provider)) {
-    return PROVIDER_DEFAULT_MODELS[provider] ?? '';
+  if (!isSupportedProvider(provider)) {
+    throw createMastraAgentError('mastra_agent_unsupported_provider', {
+      context: { provider, supportedProviders: listProviders().map((entry) => entry.id) },
+      detail: `Unsupported provider: ${provider}`,
+    });
   }
-  return PROVIDER_DEFAULT_MODELS.openai ?? '';
+  return PROVIDER_DEFAULT_MODELS[provider] ?? '';
 }

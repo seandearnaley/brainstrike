@@ -77,13 +77,29 @@ vi.mock('@mastra/core/agent', () => ({
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
     tools: Record<string, unknown>;
     memory?: unknown;
-    model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
+    model?:
+      | {
+          apiKey?: string;
+          id?: string;
+          modelId?: string;
+          provider?: string;
+          specificationVersion?: string;
+        }
+      | undefined;
 
     constructor(config: {
       instructions?: string;
       memory?: unknown;
       tools?: Record<string, unknown>;
-      model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
+      model?:
+        | {
+            apiKey?: string;
+            id?: string;
+            modelId?: string;
+            provider?: string;
+            specificationVersion?: string;
+          }
+        | undefined;
     }) {
       const tools = (config.tools ?? {}) as Record<string, unknown>;
       this.config = {
@@ -227,6 +243,130 @@ describe('mastra streaming integration', () => {
         usage: { completionTokens: 11, promptTokens: 7 },
       },
     ]);
+  });
+
+  it('aggregates provider-reported OpenRouter cost across model steps', async () => {
+    setMockStreamParts([
+      {
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.001_25 } } },
+          },
+        },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      {
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'step-finish',
+        usage: { completionTokens: 5, promptTokens: 20 },
+      },
+      {
+        finishReason: 'stop',
+        // Mastra repeats the final step's metadata on finish; it must not be
+        // double-counted when step-finish parts were observed.
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'finish',
+        usage: { completionTokens: 7, promptTokens: 30 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-cost', parts: [{ text: 'use two model steps', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      billedCostUsd: 0.005,
+      finishReason: 'stop',
+      path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 7, promptTokens: 30 },
+    });
+  });
+
+  it('rejects malformed provider-reported OpenRouter cost', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'stop',
+        providerMetadata: { openrouter: { usage: { cost: -1 } } },
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-bad-cost', parts: [{ text: 'bad cost', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter.*cost/i);
+  });
+
+  it('rejects an OpenRouter completion that omits billed cost', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'stop',
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-missing-cost', parts: [{ text: 'missing cost', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
+  });
+
+  it('normalizes OpenRouter provider state before applying stream safeguards', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'stop',
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-normalized-provider', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: ' OpenRouter ' } }
+    );
+
+    expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 4096 },
+    });
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
   });
 
   it('propagates tool-call events as tool-event chunks', async () => {
@@ -1926,7 +2066,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('gpt-5.4');
+    expect(agent.model?.modelId).toBe('gpt-5.6-terra');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('openai');
   });
@@ -1939,7 +2079,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('claude-sonnet-4-6');
+    expect(agent.model?.modelId).toBe('claude-sonnet-5');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('anthropic');
   });
@@ -1965,9 +2105,69 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('openai/gpt-5.4');
+    expect(agent.model?.id).toBe('openrouter/openai/gpt-5.6-terra');
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.provider).toBe('openrouter');
+    expect(agent.model?.apiKey).toBe('test-key');
+  });
+
+  it('bounds OpenRouter output by default while preserving an explicit override', async () => {
+    setMockStreamParts([
+      {
+        providerMetadata: { openrouter: { usage: { cost: 0 } } },
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+    const defaultIterator = await streamMastraAgent(
+      [{ id: 'u-openrouter-default-cap', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+    for await (const _chunk of defaultIterator) {
+      // drain
+    }
+    expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 4096 },
+    });
+
+    const overrideIterator = await streamMastraAgent(
+      [{ id: 'u-openrouter-custom-cap', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          modelSettings: { maxOutputTokens: 512 },
+          provider: 'openrouter',
+        },
+      }
+    );
+    for await (const _chunk of overrideIterator) {
+      // drain
+    }
+    expect(agentInstances[1]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 512 },
+    });
+
+    const partialSettingsIterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-openrouter-partial-settings',
+          parts: [{ text: 'hello', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          modelSettings: { temperature: 0.2 },
+          provider: 'openrouter',
+        },
+      }
+    );
+    for await (const _chunk of partialSettingsIterator) {
+      // drain
+    }
+    expect(agentInstances[2]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 4096, temperature: 0.2 },
+    });
   });
 
   it('uses custom model when specified with provider', async () => {

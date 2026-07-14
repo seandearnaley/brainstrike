@@ -12,12 +12,15 @@ function llmIds(provider: Parameters<typeof listProviderLlmModels>[0]): string[]
   return listProviderLlmModels(provider).map((model) => model.id);
 }
 
-describe('frontier model refresh (2026-05)', () => {
+describe('frontier model refresh (2026-07)', () => {
   describe('OpenAI', () => {
     it('exposes the generous GPT-5.x lineup and drops the chat-latest API model', () => {
       const ids = llmIds('openai');
       expect(ids).toEqual(
         expect.arrayContaining([
+          'gpt-5.6-sol',
+          'gpt-5.6-terra',
+          'gpt-5.6-luna',
           'gpt-5.5',
           'gpt-5.5-pro',
           'gpt-5.4',
@@ -32,15 +35,21 @@ describe('frontier model refresh (2026-05)', () => {
       expect(ids).not.toContain('gpt-5.2-chat-latest');
     });
 
-    it('defaults to the cost-aware gpt-5.4', () => {
-      expect(resolveDefaultModel('openai')).toBe('gpt-5.4');
+    it('defaults to the balanced gpt-5.6-terra', () => {
+      expect(resolveDefaultModel('openai')).toBe('gpt-5.6-terra');
     });
   });
 
   describe('Anthropic', () => {
-    it('exposes the current Opus 4.8 / Sonnet 4.6 / Haiku 4.5 lineup', () => {
+    it('exposes Fable 5 / Sonnet 5 alongside the retained Opus and Haiku models', () => {
       const ids = llmIds('anthropic');
-      expect(ids).toEqual(['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5']);
+      expect(ids).toEqual([
+        'claude-fable-5',
+        'claude-opus-4-8',
+        'claude-sonnet-5',
+        'claude-sonnet-4-6',
+        'claude-haiku-4-5',
+      ]);
     });
 
     it('drops the superseded 4-5 generation aliases', () => {
@@ -49,8 +58,8 @@ describe('frontier model refresh (2026-05)', () => {
       expect(ids).not.toContain('claude-opus-4-5');
     });
 
-    it('defaults to Sonnet 4.6', () => {
-      expect(resolveDefaultModel('anthropic')).toBe('claude-sonnet-4-6');
+    it('defaults to Sonnet 5', () => {
+      expect(resolveDefaultModel('anthropic')).toBe('claude-sonnet-5');
     });
   });
 
@@ -94,10 +103,25 @@ describe('frontier model refresh (2026-05)', () => {
   });
 
   describe('OpenRouter', () => {
-    it('mirrors the frontier lineup with dotted slugs', () => {
+    it('includes current frontier and top tool-capable Chinese models', () => {
       const ids = llmIds('openrouter');
       expect(ids).toEqual(
         expect.arrayContaining([
+          'openai/gpt-5.6-sol',
+          'openai/gpt-5.6-terra',
+          'openai/gpt-5.6-luna',
+          'anthropic/claude-fable-5',
+          'anthropic/claude-sonnet-5',
+          'z-ai/glm-5.2',
+          'minimax/minimax-m3',
+          'deepseek/deepseek-v4-pro',
+          'deepseek/deepseek-v4-flash',
+          'qwen/qwen3.7-max',
+          'qwen/qwen3.7-plus',
+          'qwen/qwen3.6-flash',
+          'qwen/qwen3-coder-next',
+          'moonshotai/kimi-k2.6',
+          'moonshotai/kimi-k2.7-code',
           'openai/gpt-5.5',
           'openai/gpt-5.4',
           'openai/gpt-5.4-mini',
@@ -115,8 +139,8 @@ describe('frontier model refresh (2026-05)', () => {
       expect(ids).not.toContain('google/gemini-3-flash-preview');
     });
 
-    it('defaults to openai/gpt-5.4', () => {
-      expect(resolveDefaultModel('openrouter')).toBe('openai/gpt-5.4');
+    it('defaults to openai/gpt-5.6-terra', () => {
+      expect(resolveDefaultModel('openrouter')).toBe('openai/gpt-5.6-terra');
     });
   });
 });
@@ -136,7 +160,8 @@ describe('contextWindow metadata', () => {
   });
 
   it('getLlmModelDefinition resolves a known model and throws on unknown ids', () => {
-    expect(getLlmModelDefinition('anthropic', 'claude-sonnet-4-6').contextWindow).toBe(200_000);
+    expect(getLlmModelDefinition('anthropic', 'claude-sonnet-5').contextWindow).toBe(1_000_000);
+    expect(getLlmModelDefinition('openrouter', 'z-ai/glm-5.2').maxOutputTokens).toBe(128_000);
     expect(() => getLlmModelDefinition('anthropic', 'no-such-model')).toThrow(/Unknown LLM model/);
     expect(() => getLlmModelDefinition('openai', 'claude-sonnet-4-6')).toThrow(/Unknown LLM model/);
   });

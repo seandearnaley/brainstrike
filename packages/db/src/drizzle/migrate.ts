@@ -46,6 +46,8 @@ import { migration053Bm25ContentIndex } from '../migrations/053-bm25-content-ind
 import { migration054AssistantThreadGroups } from '../migrations/054-assistant-thread-groups.js';
 import { migration055AssistantMessageParents } from '../migrations/055-assistant-message-parents.js';
 import { migration056AssistantThreadGroupPresentation } from '../migrations/056-assistant-thread-group-presentation.js';
+import { migration057UpdateProviderModels202607 } from '../migrations/057-update-provider-models-2026-07.js';
+import { migration058ProviderBilledCost } from '../migrations/058-provider-billed-cost.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -197,6 +199,11 @@ const customMigrations: Migration[] = [
     'custom-056-assistant-thread-group-presentation',
     migration056AssistantThreadGroupPresentation
   ),
+  customMigration(
+    'custom-057-update-provider-models-2026-07',
+    migration057UpdateProviderModels202607
+  ),
+  customMigration('custom-058-provider-billed-cost', migration058ProviderBilledCost),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

@@ -702,8 +702,9 @@ interface MastraStreamPart {
     tripwireReason?: string;
     stepResult?: { reason?: unknown };
     output?: { usage?: UsageLike };
-    metadata?: { usage?: UsageLike };
+    metadata?: { providerMetadata?: unknown; usage?: UsageLike };
   };
+  providerMetadata?: unknown;
   runId?: unknown;
   text?: string;
   textDelta?: string;
@@ -719,7 +720,39 @@ function asMastraStreamPart(part: unknown): MastraStreamPart {
   return { type: 'unknown' };
 }
 
-function makeFinishChunk(part: unknown): StreamChunk {
+function readOpenRouterBilledCost(part: MastraStreamPart): number | undefined {
+  const providerMetadata = part.payload?.metadata?.providerMetadata ?? part.providerMetadata;
+  if (providerMetadata === undefined) {
+    return;
+  }
+  if (!providerMetadata || typeof providerMetadata !== 'object') {
+    throw new Error('OpenRouter provider metadata must be an object.');
+  }
+  const openrouter = (providerMetadata as Record<string, unknown>)['openrouter'];
+  if (openrouter === undefined) {
+    return;
+  }
+  if (!openrouter || typeof openrouter !== 'object') {
+    throw new Error('OpenRouter provider metadata must be an object.');
+  }
+  const usage = (openrouter as Record<string, unknown>)['usage'];
+  if (usage === undefined) {
+    return;
+  }
+  if (!usage || typeof usage !== 'object') {
+    throw new Error('OpenRouter usage metadata must be an object.');
+  }
+  const cost = (usage as Record<string, unknown>)['cost'];
+  if (cost === undefined) {
+    return;
+  }
+  if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) {
+    throw new Error('OpenRouter billed cost must be a finite, non-negative number.');
+  }
+  return cost;
+}
+
+function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
   const p = asMastraStreamPart(part);
   const usageCandidates: Array<UsageLike | undefined> = [
     p.usage,
@@ -731,7 +764,19 @@ function makeFinishChunk(part: unknown): StreamChunk {
   const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
   const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
   const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
+  const finishCost = readOpenRouterBilledCost(p);
+  if (
+    lifecycleState.requiresBilledCost &&
+    (lifecycleState.sawStepWithoutBilledCost ||
+      (!lifecycleState.sawStepBilledCost && finishCost === undefined))
+  ) {
+    throw new Error('OpenRouter completion omitted required provider-reported billed cost.');
+  }
+  const billedCostUsd = lifecycleState.sawStepBilledCost
+    ? lifecycleState.stepBilledCostUsd
+    : finishCost;
   return {
+    ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     finishReason: readFinishReason(part),
     path: [],
     type: 'message-finish',
@@ -858,6 +903,10 @@ interface OutputOnlyToolEvent {
 interface ToolLifecycleState {
   delegationLifecycle: DelegationLifecycleTracker;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
+  requiresBilledCost: boolean;
+  sawStepBilledCost: boolean;
+  sawStepWithoutBilledCost: boolean;
+  stepBilledCostUsd: number;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
 }
 
@@ -1373,7 +1422,14 @@ function processMastraStreamPart(
         ],
         finished: false,
       };
-    case 'step-finish':
+    case 'step-finish': {
+      const billedCostUsd = readOpenRouterBilledCost(p);
+      if (billedCostUsd === undefined) {
+        lifecycleState.sawStepWithoutBilledCost = true;
+      } else {
+        lifecycleState.sawStepBilledCost = true;
+        lifecycleState.stepBilledCostUsd += billedCostUsd;
+      }
       return {
         chunks: [
           makeRunEventChunk(
@@ -1385,6 +1441,7 @@ function processMastraStreamPart(
         ],
         finished: false,
       };
+    }
     case 'finish': {
       return {
         chunks: [
@@ -1395,7 +1452,7 @@ function processMastraStreamPart(
             'Assistant run completed',
             makeStepMetadata(part)
           ),
-          makeFinishChunk(part),
+          makeFinishChunk(part, lifecycleState),
         ],
         finished: true,
       };
@@ -1701,6 +1758,21 @@ interface BrainstrikeAgentStreamOptions {
   requireToolApproval?: ApprovalGate;
 }
 
+const DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS = 4096;
+
+function buildModelSettingsOption(
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'modelSettings'> {
+  const modelSettings =
+    runtimeData?.provider === 'openrouter'
+      ? {
+          maxOutputTokens: DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS,
+          ...runtimeData.modelSettings,
+        }
+      : runtimeData?.modelSettings;
+  return modelSettings ? { modelSettings } : {};
+}
+
 interface AssistantMessageIdGenerator {
   assertConsumed: () => void;
   generate: (context?: IdGeneratorContext) => string;
@@ -1866,6 +1938,10 @@ async function* streamChunksFromMastra({
   const lifecycleState: ToolLifecycleState = {
     delegationLifecycle: createDelegationLifecycleTracker(),
     outputOnlyToolEvents: new Map(),
+    requiresBilledCost: runtimeData?.provider === 'openrouter',
+    sawStepBilledCost: false,
+    sawStepWithoutBilledCost: false,
+    stepBilledCostUsd: 0,
     terminalToolCallStates: new Map(),
   };
 
@@ -1953,7 +2029,7 @@ async function createStreamIteratorFromRuntime({
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
-      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
+      ...buildModelSettingsOption(runtimeData),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
       // Delegation safety rails: per-run caps + maxSteps clamp + unknown-persona
       // rejection (only when the run has registered personas).
@@ -2046,7 +2122,7 @@ async function createToolApprovalIteratorFromRuntime({
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
-      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
+      ...buildModelSettingsOption(runtimeData),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
       // Resume keeps the delegation rails so a resumed run still caps/rejects
       // subagent delegations consistently with the initial turn.
@@ -2138,7 +2214,7 @@ export async function streamMastraAgent(
     runtime,
     ...(options.memory ? { memory: options.memory } : {}),
     ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
-    ...(runtimeData ? { runtimeData } : {}),
+    runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
 }
@@ -2208,7 +2284,7 @@ export async function streamMastraToolApprovalAction(
     ...(options.requireToolApproval === undefined
       ? {}
       : { requireToolApproval: options.requireToolApproval }),
-    ...(runtimeData ? { runtimeData } : {}),
+    runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
 }
@@ -2346,7 +2422,7 @@ async function createToolResumeIteratorFromRuntime({
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
-      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
+      ...buildModelSettingsOption(runtimeData),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
       // Resume keeps the delegation rails so a resumed run (e.g. an askUser
       // pause→answer that then delegates) still caps/rejects subagent
@@ -2421,7 +2497,7 @@ export async function streamMastraToolResumeAction(
     action,
     runtime,
     ...(options.memory ? { memory: options.memory } : {}),
-    ...(runtimeData ? { runtimeData } : {}),
+    runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
 }

@@ -279,6 +279,7 @@ export interface StreamChunkToolSuspendRequired extends AssistantToolSuspendRequ
   type: 'tool-suspend-required';
 }
 export interface StreamChunkFinish {
+  billedCostUsd?: number;
   type: 'finish';
   usage: { promptTokens: number; completionTokens: number };
 }
@@ -293,6 +294,7 @@ export type StreamFinishReason =
   | 'unknown';
 
 export interface StreamChunkMessageFinish {
+  billedCostUsd?: number;
   finishReason: StreamFinishReason;
   path: readonly number[];
   type: 'message-finish';

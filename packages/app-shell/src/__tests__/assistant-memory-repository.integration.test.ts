@@ -2059,6 +2059,47 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('persists provider-reported billed cost with run usage', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.recordRunUsage({
+      billedCostUsd: 0.0042,
+      inputTokens: 120,
+      model: 'z-ai/glm-5.2',
+      outputTokens: 45,
+      provider: 'openrouter',
+      resourceId: '/tmp/workspace-a',
+      rootId: 'root-a',
+      runId: 'run-cost',
+      threadId: 'thread-cost',
+    });
+
+    expect(db.exec).toHaveBeenCalledWith(expect.stringContaining('billed_cost_usd'));
+    const insert = db.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO brainstrike_assistant_run_usage')
+    );
+    expect(insert?.[1]).toContain(0.0042);
+  });
+
+  it('rejects malformed provider-reported billed cost before persistence', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.recordRunUsage({
+        billedCostUsd: Number.NaN,
+        inputTokens: 1,
+        model: 'z-ai/glm-5.2',
+        outputTokens: 1,
+        provider: 'openrouter',
+        resourceId: '/tmp/workspace-a',
+        runId: 'run-bad-cost',
+        threadId: 'thread-cost',
+      })
+    ).rejects.toThrow(/billedCostUsd/);
+  });
+
   it('persists a null root_id when no root is focused (honest unattributed)', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -3087,6 +3128,48 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       model: 'claude-opus-4-8',
       outputTokens: 300,
       provider: 'anthropic',
+    });
+  });
+
+  it('aggregates provider-reported and legacy usage separately in real PGlite', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-mixed-cost');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    await repository.recordRunUsage({
+      billedCostUsd: 0.0042,
+      inputTokens: 100,
+      model: 'z-ai/glm-5.2',
+      outputTokens: 20,
+      provider: 'openrouter',
+      resourceId: 'workspace-a',
+      runId: 'run-exact',
+      threadId: 'thread-mixed-cost',
+    });
+    await repository.recordRunUsage({
+      inputTokens: 50,
+      model: 'z-ai/glm-5.2',
+      outputTokens: 10,
+      provider: 'openrouter',
+      resourceId: 'workspace-a',
+      runId: 'run-legacy',
+      threadId: 'thread-mixed-cost',
+    });
+
+    await expect(repository.getThreadCumulativeUsage('thread-mixed-cost')).resolves.toEqual({
+      perModel: [
+        {
+          billedCostUsd: 0.0042,
+          estimatedInputTokens: 50,
+          estimatedOutputTokens: 10,
+          inputTokens: 150,
+          model: 'z-ai/glm-5.2',
+          outputTokens: 30,
+          provider: 'openrouter',
+        },
+      ],
+      totalInputTokens: 150,
+      totalOutputTokens: 30,
     });
   });
 

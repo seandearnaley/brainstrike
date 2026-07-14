@@ -25,8 +25,22 @@ describe('model pricing metadata', () => {
     }
   });
 
-  it('well-known hosted models carry a dated pricing estimate', () => {
-    const opus = listProviderLlmModels('anthropic').find((model) => model.id === 'claude-opus-4-8');
-    expect(opus?.pricing).toEqual({ inputPerMTok: 5, outputPerMTok: 25 });
+  it('new hosted models carry current base-rate estimates', () => {
+    const sol = listProviderLlmModels('openai').find((model) => model.id === 'gpt-5.6-sol');
+    const fable = listProviderLlmModels('anthropic').find((model) => model.id === 'claude-fable-5');
+    const sonnet = listProviderLlmModels('anthropic').find(
+      (model) => model.id === 'claude-sonnet-5'
+    );
+    expect(sol?.pricing).toEqual({ inputPerMTok: 5, outputPerMTok: 30 });
+    expect(fable?.pricing).toEqual({ inputPerMTok: 10, outputPerMTok: 50 });
+    expect(sonnet?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
+  });
+
+  it('tracks current OpenRouter base rates for Sonnet 5 and GLM-5.2', () => {
+    const models = listProviderLlmModels('openrouter');
+    const sonnet = models.find((model) => model.id === 'anthropic/claude-sonnet-5');
+    const glm = models.find((model) => model.id === 'z-ai/glm-5.2');
+    expect(sonnet?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
+    expect(glm?.pricing).toEqual({ inputPerMTok: 0.9296, outputPerMTok: 2.9216 });
   });
 });
