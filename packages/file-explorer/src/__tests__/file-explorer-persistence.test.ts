@@ -737,6 +737,10 @@ describe('file-explorer-persistence', () => {
         maxSelectionCount: 0,
         selectedFilePaths: [],
         useRegex: false,
+        // Deliberately missing devInlineFixtureEnabled/quickFilter/tokenBudget and
+        // the folder's own tokenBudget — this fixture intentionally models a
+        // pre-migration/incomplete persisted snapshot to exercise merge-with-
+        // unknown-shape handling, hence the `unknown` escape hatch below.
       } as unknown as SerializedState;
 
       const merged = mergeFn(persisted, initialCurrentState);
