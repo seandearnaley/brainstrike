@@ -1,15 +1,23 @@
 import path from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@brainstrike/workers': path.resolve(import.meta.dirname, '../workers'),
-      '@brainstrike/workers/file-content-worker': path.resolve(
-        import.meta.dirname,
-        '../workers/file-content-worker.ts'
-      ),
-    },
+    // Stryker mutation lane: workers has no src/ dir so it keeps its bespoke
+    // aliases; the registry resolves the remaining workspace deps from SOURCE,
+    // not dist. See workspace-src-aliases (incident #1066/#1207).
+    alias: [
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: path.resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
+      },
+      {
+        find: '@brainstrike/workers',
+        replacement: path.resolve(import.meta.dirname, '../workers'),
+      },
+      ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
+    ],
   },
   test: {
     environment: 'happy-dom',

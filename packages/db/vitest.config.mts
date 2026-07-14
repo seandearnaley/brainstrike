@@ -82,6 +82,12 @@ export default defineConfig({
         },
       },
       {
+        // Browser project: same source aliases as the unit project — inline
+        // projects do not inherit the top-level resolve.alias, and workspace
+        // imports must execute source, not dist (incident #1066/#1207).
+        resolve: {
+          alias: unitAliases,
+        },
         test: {
           browser: {
             enabled: true,

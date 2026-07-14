@@ -10,6 +10,7 @@
     "web-tree-sitter": "^0.25.10"
   },
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "@types/node": "^26.1.0",
     "oxc-parser": "^0.138.0",
     "tree-sitter-wasms": "^0.1.13",

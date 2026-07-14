@@ -32,6 +32,48 @@ it from `finishSendTasksUpdate` (newly exported). Regression guard:
 fails loudly if a vitest bump drops the patch. When bumping vitest, re-apply
 the patch (or verify upstream fixed the throttle) before deleting it.
 
+### Workspace-src alias guard (`pnpm test:scripts`)
+
+`scripts/verify-workspace-src-aliases.mjs` (guard test:
+`scripts/__tests__/verify-workspace-src-aliases.test.mjs`, run in the Static job
+via `pnpm test:scripts`) prevents the #1066/#1207 regression class: a package
+test lane importing another `@brainstrike/*` package at RUNTIME while its vitest
+config declares NO workspace-src aliasing resolves that dep from BUILT `dist`
+(via package `exports`) — stale/broken dist then silently passes.
+
+The shared registry `@brainstrike/test-utils/workspace-src-aliases`
+(`workspaceSrcAliases(packagesDir)`, a committed plain `.mjs` — no build step)
+derives EXACT aliases from each package's own `exports` map: regex-exact package
+root + each exported code subpath -> validated `src` file (missing source
+throws). Asset exports (css/json/icons), src-pointing exports, and prebuilt
+`*.worker` bundles get no alias; unexported subpaths are NOT captured (they fail
+loudly under node resolution); a same-name wildcard export (preferences `./*`)
+gets a validated narrow prefix. Package vitest configs spread it (config-local
+mocks/dedicated helpers go BEFORE the spread — vitest `resolve.alias` is
+first-match). `@brainstrike/agent` is excluded (Mastra/Node deps): consumers use
+`createAgentBrowserSafeAliasEntries`. `@brainstrike/workers` has no `src/` dir:
+consumers alias its subpaths explicitly.
+
+The guard EXECUTES each discovered vitest config (base + integration + mutation +
+models, and each inline project — projects do NOT inherit top-level
+`resolve.alias`). Discovery is the `vitest.*config*.*` filename convention made
+a CHECKED invariant: every vitest `--config`/`-c` reference in package scripts
+and every stryker `configFile:` must be in the discovered set, else the guard
+throws. Per config/project it closes the runtime `@brainstrike/*` specifier set
+to a FIXPOINT over the src-resolved graph (a specifier that resolves into
+another workspace package's source pulls in that package's non-test specifiers
+— so transitive chains like embeddings → embedding-worker(src) → worker-runtime
+are checked), then simulates vitest's first-match alias resolution: the winning
+entry must point at an existing non-dist source path, and an unaliased
+specifier must not resolve to `dist` via the dep's `exports` map. So dist-pin
+overrides, imported-but-unspread registries, per-dependency gaps, bare mutation
+configs, and transitive src-graph gaps all FAIL. Because the guard imports the
+configs under plain node ESM, config-relative imports need explicit extensions
+(e.g. `../config/src/vitest-browser.ts`). Legitimate built-artifact consumers
+go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with a reason string (NO silent
+fallback). This is the R3 enabler for dropping `test.dependsOn: ["^build"]` —
+see the Series B turbo-monorepo architecture review.
+
 ---
 
 ## REACT DOCTOR (LINT + DEAD CODE)

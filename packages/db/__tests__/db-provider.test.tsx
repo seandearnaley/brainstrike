@@ -47,9 +47,11 @@ function hasStructuredErrorArg(record: LogRecord, error: Error): boolean {
 
 describe('DbProvider', () => {
   beforeEach(() => {
-    // Reset logger configuration to defaults
-    const { resetLogger } = require('@brainstrike/utils');
-    resetLogger();
+    // Reset logger configuration to defaults. Use the ESM namespace import —
+    // a bare CJS require() bypasses vite aliases (native node resolution) and
+    // resets the DIST logger copy instead of the src instance under test
+    // (incident #1066 class; surfaced by the threads-pool mutation lane).
+    utilsModule.resetLogger();
   });
 
   afterEach(async () => {

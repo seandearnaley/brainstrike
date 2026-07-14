@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -28,6 +29,10 @@ export default defineConfig({
         find: '@brainstrike/workers/file-content-worker',
         replacement: path.resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
       },
+      // Registry fills the remaining workspace deps (types, hooks, storage,
+      // platform-utils, file-explorer, test-utils, …) from SOURCE. Hand-rolled
+      // entries above win by first-match. See workspace-src-aliases (#1066/#1207).
+      ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
     ],
   },
   test: {

@@ -93,8 +93,7 @@
     "./globals.css": "./dist/globals.css",
     "./styles.css": "./styles.css",
     "./icons": "./icons/index.ts",
-    "./icons/*": "./icons/*",
-    "./preflight.css": "./dist/preflight.css"
+    "./icons/*": "./icons/*"
   },
   "files": [
     "dist",

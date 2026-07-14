@@ -7,6 +7,7 @@
     "@brainstrike/worker-runtime": "workspace:*"
   },
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "@types/node": "^26.1.0",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",

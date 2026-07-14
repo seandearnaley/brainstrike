@@ -726,6 +726,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 0.5.4
         version: 0.5.4
@@ -838,6 +841,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
@@ -872,6 +878,9 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -915,6 +924,9 @@ importers:
         specifier: ^0.25.10
         version: 0.25.10
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
@@ -1040,6 +1052,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@stryker-mutator/api':
         specifier: ^9.6.1
         version: 9.6.1
@@ -1173,6 +1188,9 @@ importers:
         specifier: ^4.12.1
         version: 4.12.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
@@ -1271,6 +1289,9 @@ importers:
         specifier: ^19.2.4
         version: 19.2.7
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 0.5.4
         version: 0.5.4
@@ -1542,6 +1563,9 @@ importers:
         specifier: workspace:*
         version: link:../worker-runtime
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 0.5.4
         version: 0.5.4
@@ -1585,6 +1609,9 @@ importers:
         specifier: ^8.0.3
         version: 8.0.3
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@stryker-mutator/core':
         specifier: ^9.6.1
         version: 9.6.1(@types/node@26.1.0)
@@ -1629,6 +1656,9 @@ importers:
         specifier: workspace:*
         version: link:../worker-runtime
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
@@ -1724,6 +1754,9 @@ importers:
         specifier: workspace:*
         version: link:../types
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -1743,6 +1776,9 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -1804,6 +1840,9 @@ importers:
         specifier: ^19.2.4
         version: 19.2.7
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
@@ -1866,6 +1905,9 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
@@ -1945,6 +1987,9 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
@@ -2030,6 +2075,9 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@types/node':
         specifier: ^26.1.0
         version: 26.1.0
@@ -2067,6 +2115,9 @@ importers:
         specifier: ^1.1.0
         version: 1.1.0
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@testing-library/react':
         specifier: ^16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -2388,6 +2439,9 @@ importers:
         specifier: ^19.2.4
         version: 19.2.7
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1

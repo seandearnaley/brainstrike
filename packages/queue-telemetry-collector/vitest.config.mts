@@ -1,18 +1,13 @@
 /// <reference types="vitest" />
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@brainstrike/queue': resolve(import.meta.dirname, '../queue/src/index.ts'),
-      '@brainstrike/utils': resolve(import.meta.dirname, '../utils/src'),
-      '@brainstrike/utils/logger': resolve(import.meta.dirname, '../utils/src/logger.ts'),
-      '@brainstrike/utils/token-counting-runtime': resolve(
-        import.meta.dirname,
-        '../utils/src/token-counting-runtime.ts'
-      ),
-    },
+    // Resolve workspace deps (queue, utils) from SOURCE, not dist.
+    // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
+    alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
   },
   test: {
     clearMocks: true,
