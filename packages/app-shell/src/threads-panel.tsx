@@ -23,6 +23,7 @@ import {
   useContextMenuTarget,
 } from '@brainstrike/ui';
 import {
+  ArrowLeft,
   Bug,
   Check,
   ChevronDown,
@@ -41,6 +42,7 @@ import {
   Rocket,
   Search,
   SlidersHorizontal,
+  SwatchBook,
   Trash2,
   X,
 } from 'lucide-react';
@@ -575,7 +577,7 @@ function ThreadRowItem({
   ]);
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-md border px-2 py-1 text-left transition-[background-color,border-color] group-data-[focused=true]/thread-tree-row:outline group-data-[focused=true]/thread-tree-row:outline-2 group-data-[focused=true]/thread-tree-row:outline-primary group-data-[focused=true]/thread-tree-row:-outline-offset-2 motion-reduce:transition-none ${
+      className={`relative w-full overflow-hidden rounded-md border px-2 py-1 text-left transition-[background-color,border-color] motion-reduce:transition-none ${
         isSelected
           ? colorConfig.selectedClassName
           : 'border-transparent bg-transparent hover:border-border/60 hover:bg-accent/35'
@@ -761,6 +763,12 @@ function ThreadRowDisplay({
   readonly selected: boolean;
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
+  const [actionsOpen, setActionsOpen] = useState(false);
+
+  const closeActions = (): void => {
+    setActionsOpen(false);
+  };
+
   return (
     <>
       <div className="flex min-w-0 items-center justify-between gap-1.5">
@@ -785,11 +793,11 @@ function ThreadRowDisplay({
             </div>
           </div>
         </button>
-        <div className="-mr-px @[420px]/threads:flex hidden shrink-0 items-center gap-0.5">
+        <div className="-mr-px flex shrink-0 items-center gap-0.5">
           <Button
             aria-label={`${expanded ? 'Hide' : 'Show'} thread details ${thread.title}`}
             onClick={onExpandedThreadToggle}
-            size="icon"
+            size="icon-xs"
             type="button"
             variant="ghost"
           >
@@ -799,106 +807,88 @@ function ThreadRowDisplay({
               <ChevronDown className="h-3.5 w-3.5" />
             )}
           </Button>
-          <Button
-            aria-label={`Customize thread ${thread.title}`}
-            onClick={onCustomizeThreadToggle}
-            size="icon"
-            type="button"
-            variant="ghost"
+          <Popover
+            onOpenChange={(open) => {
+              setActionsOpen(open);
+              if (open || !customizing) {
+                return;
+              }
+              onCustomizeThreadToggle();
+            }}
+            open={actionsOpen || customizing}
           >
-            <Palette className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            aria-label={`Rename thread ${thread.title}`}
-            onClick={onRenameThreadStart}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            aria-label={`Delete thread ${thread.title}`}
-            onClick={onDeleteThreadStart}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              aria-label={`Thread actions ${thread.title}`}
-              className="-mr-px @[420px]/threads:hidden size-7 shrink-0 p-0"
-              size="sm"
-              type="button"
-              variant="ghost"
+            <PopoverTrigger asChild>
+              <Button
+                aria-label={`Thread actions ${thread.title}`}
+                size="icon-xs"
+                type="button"
+                variant="ghost"
+              >
+                <MoreHorizontal className="size-3.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className={
+                customizing
+                  ? 'w-64 max-w-[calc(var(--radix-popover-content-available-width)-0.5rem)] p-3'
+                  : 'w-48 p-1.5'
+              }
+              collisionPadding={8}
             >
-              <MoreHorizontal className="size-3.5" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-48 p-1.5">
-            <div className="grid gap-0.5">
-              <Button
-                className="h-8 justify-start gap-2 px-2 text-xs"
-                onClick={onExpandedThreadToggle}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                {expanded ? (
-                  <ChevronUp className="size-3.5" />
-                ) : (
-                  <ChevronDown className="size-3.5" />
-                )}
-                {expanded ? 'Hide details' : 'Show details'}
-              </Button>
-              <Button
-                className="h-8 justify-start gap-2 px-2 text-xs"
-                onClick={onCustomizeThreadToggle}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <Palette className="size-3.5" />
-                Customize
-              </Button>
-              <Button
-                className="h-8 justify-start gap-2 px-2 text-xs"
-                onClick={onRenameThreadStart}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <Pencil className="size-3.5" />
-                Rename
-              </Button>
-              <Button
-                className="h-8 justify-start gap-2 px-2 text-destructive text-xs hover:text-destructive"
-                onClick={onDeleteThreadStart}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <Trash2 className="size-3.5" />
-                Delete…
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
+              {customizing ? (
+                <ThreadCustomizationPanel
+                  metadataError={metadataError}
+                  metadataSaving={metadataSaving}
+                  onMetadataError={onMetadataError}
+                  onSavingMetadataThreadIdChange={onSavingMetadataThreadIdChange}
+                  onUpdateThreadMetadata={onUpdateThreadMetadata}
+                  thread={thread}
+                />
+              ) : (
+                <div className="grid gap-0.5">
+                  <Button
+                    className="h-8 justify-start gap-2 px-2 text-xs"
+                    onClick={onCustomizeThreadToggle}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <SwatchBook className="size-3.5" />
+                    Customize
+                  </Button>
+                  <Button
+                    className="h-8 justify-start gap-2 px-2 text-xs"
+                    onClick={() => {
+                      closeActions();
+                      onRenameThreadStart();
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Pencil className="size-3.5" />
+                    Rename
+                  </Button>
+                  <Button
+                    className="h-8 justify-start gap-2 px-2 text-destructive text-xs hover:text-destructive"
+                    onClick={() => {
+                      closeActions();
+                      onDeleteThreadStart();
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Trash2 className="size-3.5" />
+                    Delete…
+                  </Button>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
-      {customizing ? (
-        <ThreadCustomizationPanel
-          metadataError={metadataError}
-          metadataSaving={metadataSaving}
-          onMetadataError={onMetadataError}
-          onSavingMetadataThreadIdChange={onSavingMetadataThreadIdChange}
-          onUpdateThreadMetadata={onUpdateThreadMetadata}
-          thread={thread}
-        />
-      ) : null}
       {pendingDelete ? (
         <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
           <p className="text-[11px] text-destructive">
@@ -979,11 +969,15 @@ function ThreadCustomizationPanel({
       });
   };
   return (
-    <div className="mt-2 rounded-md border border-border bg-muted/30 p-2">
-      <div className="grid gap-2">
+    <div className="grid gap-3" data-testid="thread-customization-panel">
+      <div>
+        <div className="font-medium text-xs">Thread appearance</div>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">Choose an icon and accent.</p>
+      </div>
+      <div className="grid gap-3">
         <div>
-          <div className="mb-1 text-[11px] text-muted-foreground">Icon</div>
-          <div className="flex flex-wrap gap-1">
+          <div className="mb-1.5 text-[11px] text-muted-foreground">Icon</div>
+          <div className="grid grid-cols-6 gap-1">
             {ASSISTANT_THREAD_ICON_IDS.map((iconId) => {
               const Icon = THREAD_ICON_CONFIG[iconId].iconComponent;
               const label = THREAD_ICON_CONFIG[iconId].label;
@@ -991,43 +985,47 @@ function ThreadCustomizationPanel({
               return (
                 <Button
                   aria-label={`Use ${label} icon`}
-                  className={selected ? 'border-primary/50 bg-primary/10' : undefined}
+                  aria-pressed={selected}
+                  className={
+                    selected ? 'bg-accent shadow-inner ring-1 ring-border' : 'text-muted-foreground'
+                  }
                   disabled={metadataSaving}
                   key={iconId}
                   onClick={() => {
                     saveMetadata({ icon: iconId });
                   }}
-                  size="icon"
+                  size="icon-sm"
                   type="button"
                   variant="ghost"
                 >
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon className="size-4" />
                 </Button>
               );
             })}
           </div>
         </div>
         <div>
-          <div className="mb-1 text-[11px] text-muted-foreground">Color</div>
-          <div className="flex flex-wrap gap-1">
+          <div className="mb-1.5 text-[11px] text-muted-foreground">Color</div>
+          <div className="grid grid-cols-6 gap-1">
             {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => {
               const label = ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label;
               const selected = getThreadColorId(thread) === colorId;
               return (
                 <Button
                   aria-label={`Use ${label} color`}
-                  className={selected ? 'border-primary/50 bg-primary/10' : undefined}
+                  aria-pressed={selected}
+                  className={selected ? 'bg-accent shadow-inner ring-1 ring-border' : undefined}
                   disabled={metadataSaving}
                   key={colorId}
                   onClick={() => {
                     saveMetadata({ color: colorId });
                   }}
-                  size="icon"
+                  size="icon-sm"
                   type="button"
                   variant="ghost"
                 >
                   <span
-                    className={`h-3.5 w-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
+                    className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
                   />
                 </Button>
               );
@@ -1035,7 +1033,7 @@ function ThreadCustomizationPanel({
           </div>
         </div>
       </div>
-      {metadataError ? <p className="mt-2 text-[11px] text-destructive">{metadataError}</p> : null}
+      {metadataError ? <p className="text-[11px] text-destructive">{metadataError}</p> : null}
     </div>
   );
 }
@@ -1283,6 +1281,7 @@ function ThreadGroupHeader({
   readonly renameForm: ReactElement | null;
   readonly threadCount: number;
 }): ReactElement {
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const colorConfig = group.color
@@ -1306,141 +1305,147 @@ function ThreadGroupHeader({
             >
               {threadCount}
             </span>
-            <span className="@[420px]/threads:flex hidden shrink-0 items-center gap-0.5">
-              <Button
-                aria-label={`Customize group ${group.name}`}
-                className="h-6 w-6 p-0"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setCustomizing((current) => !current);
-                }}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <Palette className="size-3" />
-              </Button>
-              <Button
-                aria-label={`Rename group ${group.name}`}
-                className="h-6 w-6 p-0"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRenameGroupStart();
-                }}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <Pencil className="h-3 w-3" />
-              </Button>
-              <Button
-                aria-label={`Delete group ${group.name}`}
-                className="h-6 w-6 p-0"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setConfirmingDelete(true);
-                }}
-                size="sm"
-                title="Delete group (threads return to Ungrouped)"
-                type="button"
-                variant="ghost"
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </span>
-            <Popover>
+            <Popover
+              onOpenChange={(open) => {
+                setActionsOpen(open);
+                if (!open) {
+                  setCustomizing(false);
+                }
+              }}
+              open={actionsOpen || customizing}
+            >
               <PopoverTrigger asChild>
                 <Button
                   aria-label={`Group actions ${group.name}`}
-                  className="@[420px]/threads:hidden size-7 shrink-0 p-0"
                   onClick={(event) => event.stopPropagation()}
-                  size="sm"
+                  size="icon-xs"
                   type="button"
                   variant="ghost"
                 >
                   <MoreHorizontal className="size-3.5" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-44 p-1.5">
-                <div className="grid gap-0.5">
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={() => setCustomizing((current) => !current)}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Palette className="size-3.5" />
-                    Customize
-                  </Button>
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={onRenameGroupStart}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Pencil className="size-3.5" />
-                    Rename
-                  </Button>
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-destructive text-xs hover:text-destructive"
-                    onClick={() => setConfirmingDelete(true)}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Trash2 className="size-3.5" />
-                    Delete…
-                  </Button>
-                </div>
+              <PopoverContent
+                align="end"
+                className={customizing ? 'w-56 p-3' : 'w-44 p-1.5'}
+                collisionPadding={8}
+              >
+                {customizing ? (
+                  <div className="grid gap-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        aria-label={`Back to group actions for ${group.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setCustomizing(false);
+                        }}
+                        size="icon-xs"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <ArrowLeft className="size-3.5" />
+                      </Button>
+                      <div>
+                        <div className="font-medium text-xs">Folder appearance</div>
+                        <p className="text-[10px] text-muted-foreground">Choose an accent color.</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1" data-testid="thread-group-color-grid">
+                      {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
+                        <Button
+                          aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${group.name}`}
+                          aria-pressed={group.color === colorId}
+                          className={`justify-self-center ${
+                            group.color === colorId
+                              ? 'bg-accent shadow-inner ring-1 ring-border'
+                              : ''
+                          }`}
+                          key={colorId}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onColorChange(colorId);
+                          }}
+                          size="icon-sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
+                          />
+                        </Button>
+                      ))}
+                      <Button
+                        aria-label={`Clear color for ${group.name}`}
+                        aria-pressed={group.color === null}
+                        className={`justify-self-center ${
+                          group.color === null ? 'bg-accent shadow-inner ring-1 ring-border' : ''
+                        }`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onColorChange(null);
+                        }}
+                        size="icon-sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="size-4 rounded-full border border-border bg-muted"
+                        />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-0.5">
+                    <Button
+                      className="h-8 justify-start gap-2 px-2 text-xs"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setCustomizing(true);
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <SwatchBook className="size-3.5" />
+                      Customize
+                    </Button>
+                    <Button
+                      className="h-8 justify-start gap-2 px-2 text-xs"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setActionsOpen(false);
+                        onRenameGroupStart();
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Pencil className="size-3.5" />
+                      Rename
+                    </Button>
+                    <Button
+                      className="h-8 justify-start gap-2 px-2 text-destructive text-xs hover:text-destructive"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setActionsOpen(false);
+                        setConfirmingDelete(true);
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Trash2 className="size-3.5" />
+                      Delete…
+                    </Button>
+                  </div>
+                )}
               </PopoverContent>
             </Popover>
           </>
         )}
       </div>
-      {customizing ? (
-        <div className="mx-1 mb-1 rounded-lg border border-border/70 bg-background/80 p-2">
-          <div className="mb-1 px-1 text-[11px] text-muted-foreground">Folder color</div>
-          <div className="grid grid-cols-4 gap-1" data-testid="thread-group-color-grid">
-            {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
-              <Button
-                aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${group.name}`}
-                className={`justify-self-center ${group.color === colorId ? 'border-primary/50 bg-primary/10' : ''}`}
-                key={colorId}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onColorChange(colorId);
-                }}
-                size="icon-sm"
-                type="button"
-                variant="ghost"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`size-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
-                />
-              </Button>
-            ))}
-            <Button
-              aria-label={`Clear color for ${group.name}`}
-              className={`justify-self-center ${group.color === null ? 'border-primary/50 bg-primary/10' : ''}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onColorChange(null);
-              }}
-              size="icon-sm"
-              type="button"
-              variant="ghost"
-            >
-              <span
-                aria-hidden="true"
-                className="size-3.5 rounded-full border border-border bg-muted"
-              />
-            </Button>
-          </div>
-        </div>
-      ) : null}
       {confirmingDelete ? (
         <div className="mx-1 mb-1 rounded-lg border border-destructive/30 bg-destructive/5 p-2">
           <p className="text-[11px] text-destructive">Delete folder {group.name}?</p>
@@ -2028,7 +2033,7 @@ function ThreadPanelTree({
         ),
         className: 'p-0',
         id: 'thread',
-        indentWidth: 44,
+        indentWidth: 28,
         reserveToggleSpace: false,
       },
     ],
@@ -2136,14 +2141,14 @@ function ThreadPanelTree({
         }}
         rowClassName={(node) => {
           if (node.data.kind === 'thread') {
-            return 'group/thread-tree-row border-0 bg-transparent ring-0 hover:bg-transparent';
+            return 'group/thread-tree-row border-0 bg-transparent hover:bg-transparent';
           }
           if (node.data.kind === 'group' && node.data.group === null) {
             return 'border-0 bg-muted/20 hover:bg-muted/35';
           }
           return 'border-0 bg-muted/20 hover:bg-muted/35';
         }}
-        rowHeight={(node) => (node.data.kind === 'thread' ? 72 : 40)}
+        rowHeight={(node) => (node.data.kind === 'thread' ? 64 : 40)}
         selectionMode="multi"
         showCheckbox
         showHeader={false}

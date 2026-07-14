@@ -340,10 +340,9 @@ describe('ThreadsPanel', () => {
     const viewport = treegrid.parentElement;
     expect(viewport).toHaveClass('overflow-auto');
     expect(screen.getAllByTestId('thread-row')[0]?.closest('tr')).toHaveClass(
-      'ring-0',
       'group/thread-tree-row'
     );
-    expect(screen.getAllByTestId('thread-row')[0]).toHaveClass(
+    expect(screen.getAllByTestId('thread-row')[0]).not.toHaveClass(
       'group-data-[focused=true]/thread-tree-row:outline-2'
     );
     expect(viewport?.parentElement?.parentElement).not.toHaveClass('overflow-y-auto');
@@ -702,16 +701,21 @@ describe('ThreadsPanel', () => {
     );
   });
 
-  it('saves curated icon and color metadata through Mastra thread storage', async () => {
+  it('customizes thread identity in the stable row-actions popover', async () => {
     const user = userEvent.setup();
     renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Customize thread Second thread' }));
-    await user.click(screen.getByRole('button', { name: 'Use Bug icon' }));
-    await user.click(screen.getByRole('button', { name: 'Use Rose color' }));
+    expect(
+      screen.queryByRole('button', { name: 'Customize thread Second thread' })
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    const customizer = screen.getByRole('dialog');
+    await user.click(within(customizer).getByRole('button', { name: 'Use Bug icon' }));
+    await user.click(within(customizer).getByRole('button', { name: 'Use Rose color' }));
 
     await waitFor(() => {
       expect(screen.getByTestId('thread-icon-bug')).toBeVisible();
@@ -801,7 +805,8 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Rename thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
     const input = screen.getByRole('textbox', { name: 'Thread title' });
     await user.clear(input);
     await user.type(input, 'Deployment plan');
@@ -825,7 +830,8 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Rename thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
     const input = screen.getByRole('textbox', { name: 'Thread title' });
     await user.clear(input);
     await user.click(screen.getByRole('button', { name: 'Save thread title' }));
@@ -842,7 +848,8 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Delete thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Delete…' }));
     expect(
       screen.getByRole('button', { name: 'Confirm delete thread Second thread' })
     ).toBeVisible();
@@ -872,7 +879,8 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Delete thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Delete…' }));
     await user.click(screen.getByRole('button', { name: 'Confirm delete thread Second thread' }));
 
     expect(await screen.findByText('Delete failed in PGlite.')).toBeVisible();
@@ -907,7 +915,7 @@ describe('ThreadsPanel groups', () => {
     const nestedThreadRow = screen.getByText('Second thread').closest('tr');
     expect(nestedThreadRow).toHaveAttribute('data-depth', '1');
     expect(nestedThreadRow?.querySelector<HTMLElement>('td > div > span')).toHaveStyle({
-      width: '44px',
+      width: '28px',
     });
     const ungrouped = screen.getByTestId('threads-ungrouped-section');
     expect(ungrouped.closest('tr')).not.toHaveClass('[&_[role=gridcell]>div]:pl-7');
@@ -986,8 +994,13 @@ describe('ThreadsPanel groups', () => {
 
     renderThreadsPanel();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Customize group Research' }));
-    const folderColorGrid = await screen.findByTestId('thread-group-color-grid');
+    expect(
+      screen.queryByRole('button', { name: 'Customize group Research' })
+    ).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Group actions Research' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Customize' }));
+    const groupCustomizer = screen.getByRole('dialog');
+    const folderColorGrid = within(groupCustomizer).getByTestId('thread-group-color-grid');
     expect(folderColorGrid).toHaveClass('grid-cols-4');
     for (const button of within(folderColorGrid).getAllByRole('button')) {
       expect(button).toHaveClass('size-8', 'justify-self-center');
@@ -1095,7 +1108,8 @@ describe('ThreadsPanel groups', () => {
     renderThreadsPanel();
 
     await screen.findByTestId('thread-group-section');
-    fireEvent.click(screen.getByRole('button', { name: 'Rename group Research' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Group actions Research' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
     const nameInput = screen.getByRole('textbox', { name: 'Group name' });
     fireEvent.change(nameInput, { target: { value: 'Deep Work' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save group name' }));
@@ -1117,7 +1131,8 @@ describe('ThreadsPanel groups', () => {
     renderThreadsPanel();
 
     await screen.findByTestId('thread-group-section');
-    fireEvent.click(screen.getByRole('button', { name: 'Delete group Research' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Group actions Research' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete…' }));
 
     expect(screen.getByText('Delete folder Research?')).toBeVisible();
     expect(screen.getByTestId('thread-group-section')).toBeVisible();
