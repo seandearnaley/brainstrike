@@ -205,10 +205,13 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '__mocks__/worker-storage.worker.js'),
       },
       // Registry fills gaps (commands, file-system, file-explorer-hooks,
-      // file-explorer-ui root, etc. — previously resolved from built dist). The
-      // deliberate local overrides above (storage -> dist, embeddings -> mock,
-      // electron -> mock) win by first-match ordering. See workspace-src-aliases
-      // (incident #1066/#1207).
+      // file-explorer-ui root, etc. — previously resolved from built dist).
+      // @brainstrike/storage now also comes from the registry (source): its old
+      // `../storage/dist` pin traced to the #304 config standardization, not a
+      // behavioral fix, and the suite passes from src with no dist present.
+      // The deliberate local overrides above (embeddings -> mock, electron ->
+      // mock, worker-storage.worker.js -> mock) win by first-match ordering.
+      // See workspace-src-aliases (incident #1066/#1207).
       ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
     ],
   },

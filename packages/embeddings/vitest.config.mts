@@ -1,5 +1,6 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
@@ -9,22 +10,11 @@ const __dirname = dirname(__filename);
 
 export default defineConfig({
   resolve: {
-    alias: {
-      // Fix workspace resolution in tests: point directly to source to avoid build artifact issues
-      '@brainstrike/db': resolve(__dirname, '../db/src/index.ts'),
-      '@brainstrike/embedding-worker': resolve(__dirname, '../embedding-worker/src/index.ts'),
-      '@brainstrike/indexing-contract': resolve(__dirname, '../indexing-contract/src/index.ts'),
-      '@brainstrike/platform-utils': resolve(__dirname, '../platform-utils/src/index.ts'),
-      '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
-      '@brainstrike/queue/browser': resolve(__dirname, '../queue/src/browser.ts'),
-      '@brainstrike/types': resolve(__dirname, '../types/src/index.ts'),
-      '@brainstrike/utils': resolve(__dirname, '../utils/src'),
-      '@brainstrike/utils/logger': resolve(__dirname, '../utils/src/logger.ts'),
-      '@brainstrike/utils/token-counting-runtime': resolve(
-        __dirname,
-        '../utils/src/token-counting-runtime.ts'
-      ),
-    },
+    // Resolve workspace deps from SOURCE, not built dist — including
+    // TRANSITIVE ones reached through the src-resolved graph (e.g.
+    // @brainstrike/worker-runtime via embedding-worker src).
+    // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
+    alias: [...workspaceSrcAliases(resolve(__dirname, '..'))],
   },
   test: {
     coverage: {

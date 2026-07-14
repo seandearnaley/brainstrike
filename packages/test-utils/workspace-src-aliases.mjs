@@ -3,7 +3,7 @@
 //
 // WHY THIS EXISTS (incident #1066 / #1207): a package test lane that imports a
 // workspace package with NO `resolve.alias` entry resolves that specifier via
-// the package's `exports` map to its BUILT `dist`. When the dist was stale (or
+// the package's `exports` map to its BUILT dist. When the dist was stale (or
 // the emit silently broke), the test kept passing against old code and push-CI
 // stayed red for ~3 weeks unnoticed. apps/web and apps/desktop already carry
 // large hand-maintained `@brainstrike/* -> src` alias maps; the individual
@@ -13,17 +13,37 @@
 // It is a plain `.mjs` (no build step) loaded directly by vitest `.mts` configs
 // via the package.json `./workspace-src-aliases` export pointing at this file.
 //
+// DESIGN (exact aliases only — no blanket directory prefixes):
+// - package root  -> regex-EXACT alias (`/^@brainstrike\/pkg$/`) to the root
+//   export's source file;
+// - each exported code subpath -> regex-EXACT alias to its source file, derived
+//   from the package's own `exports` map (so renamed entries like
+//   `embeddings/backend` -> `src/backend-entry.ts` resolve correctly);
+// - a wildcard export (`./*`) -> a narrow string PREFIX alias, permitted ONLY
+//   when the wildcard maps same-name into `dist` (so `pkg/foo` == `src/foo`);
+// - EVERY emitted target is existence-validated at generation time — a missing
+//   source file throws (NO SILENT FALLBACKS);
+// - asset exports (`.css`, `.json`, `icons`), src-pointing exports, and
+//   prebuilt `*.worker` bundles get NO alias — they keep resolving through the
+//   `exports` map;
+// - UNLISTED subpaths are NOT captured: they fall through to node resolution so
+//   an unexported import fails loudly instead of silently landing somewhere.
+//
 // USAGE (config-local overrides WIN — vitest `resolve.alias` is first-match, so
 // put deliberate mocks / dist pins / dedicated helpers BEFORE the spread):
 //
 //   import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 //   resolve: {
 //     alias: [
-//       { find: '@brainstrike/storage', replacement: '.../storage/__mocks__' },
+//       { find: '@brainstrike/embeddings', replacement: '.../__mocks__/embeddings.ts' },
 //       ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
 //     ],
 //   }
 //
+// NOTE on @brainstrike/workers: it has no `src/` dir (worker files live at the
+// package root), so the registry skips it; consumers alias its subpaths
+// explicitly (e.g. `@brainstrike/workers/file-content-worker` ->
+// `../workers/file-content-worker.ts`).
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -32,23 +52,22 @@ import { join } from 'node:path';
 export const DEFAULT_SRC_ALIAS_EXCLUSIONS = Object.freeze([
   // @brainstrike/agent's root + most subpaths pull Mastra / Node-only deps that
   // cannot load in a browser/happy-dom test. Consumers that need agent code use
-  // the curated `createAgentBrowserSafeAliasEntries` helper (browser-safe
-  // subpaths only), placed as a local override before this spread.
+  // the curated `createAgentBrowserSafeAliasEntries` helper
+  // (packages/agent/config/browser-safe-subpath-aliases.mjs — browser-safe
+  // subpaths only), placed as a local override before this spread. A config
+  // WITHOUT that helper that runtime-imports agent falls through to node
+  // resolution (dist) — the workspace-src-alias guard
+  // (scripts/verify-workspace-src-aliases.mjs) flags exactly that case.
   '@brainstrike/agent',
 ]);
 
-// Packages that get ONLY a regex-exact root alias (`/^<name>$/` -> src/index),
-// never a directory prefix. @brainstrike/test-utils is this registry's own home:
-// its `vitest.base`/`workspace-src-aliases` exports are root-level `.mjs` files
-// (NOT under src/) and `vitest.setup` points at `src/vitest.setup.ts` directly.
-// A blanket `-> src` PREFIX would rewrite `@brainstrike/test-utils/vitest.base`
-// to a nonexistent `src/vitest.base`; a regex-exact root alias only rewrites the
-// bare specifier (the test helpers), leaving those subpaths to package exports.
-const ROOT_EXACT_ONLY_PACKAGES = Object.freeze(['@brainstrike/test-utils']);
-
 const SRC_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts'];
-
 const CODE_EXT_RE = /\.(d\.ts|d\.mts|d\.cts|mjs|cjs|js|tsx|ts)$/;
+
+/** Escape a specifier for embedding in a RegExp. */
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+}
 
 /**
  * Strip a `dist/`-backed export target down to its path stem, or return null
@@ -121,12 +140,7 @@ function readWorkspacePackage(packagesDir, dirName, exclude) {
   }
   const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf8'));
   const name = pkg.name;
-  if (
-    typeof name !== 'string' ||
-    !name.startsWith('@brainstrike/') ||
-    exclude.has(name) ||
-    ROOT_EXACT_ONLY_PACKAGES.includes(name)
-  ) {
+  if (typeof name !== 'string' || !name.startsWith('@brainstrike/') || exclude.has(name)) {
     return null;
   }
   const srcDir = join(pkgDir, 'src');
@@ -139,90 +153,89 @@ function readWorkspacePackage(packagesDir, dirName, exclude) {
   return { exportsMap: pkg.exports ?? {}, name, srcDir };
 }
 
-/**
- * Alias entries for a package ROOT.
- * `@brainstrike/<pkg>` -> `<pkg>/src` (directory prefix) covers the bare import
- * AND every same-named subpath (`@brainstrike/<pkg>/foo` -> `<pkg>/src/foo`)
- * because @rollup/plugin-alias only matches a string find on a `/` boundary —
- * sibling names like `file-explorer-ui` are NOT captured by `file-explorer`.
- */
-function rootAliasEntries({ name, srcDir, exportsMap }) {
-  const entries = { exact: [], prefix: [] };
-  const rootStem = distTargetToStem(pickTarget(exportsMap['.']));
-  if (rootStem && rootStem !== 'index') {
-    // Non-index root export: point the exact specifier at the real source file
-    // so the prefix (used for subpaths) can't mis-resolve the bare import.
-    const rootFile = resolveSrcFile(srcDir, rootStem);
-    if (!rootFile) {
-      throw new Error(
-        `workspaceSrcAliases: ${name} root export has no source file for stem '${rootStem}' under ${srcDir}`
-      );
-    }
-    entries.exact.push({ find: name, replacement: rootFile });
-  }
-  // Emit the directory-prefix alias only when the package has an importable
-  // source root.
-  if (rootStem || resolveSrcFile(srcDir, 'index')) {
-    entries.prefix.push({ find: name, replacement: srcDir });
-  }
-  return entries;
+/** Regex-exact alias for a validated source file. */
+function exactEntry(specifier, file) {
+  return { find: new RegExp(`^${escapeRegExp(specifier)}$`), replacement: file };
 }
 
-/** Exact alias entries for RENAMED subpath exports the root prefix can't cover. */
-function subpathAliasEntries({ name, srcDir, exportsMap }) {
-  const entries = [];
+/**
+ * Handle a wildcard export key. Permitted ONLY when the wildcard maps
+ * same-name into dist code (`./*` -> `./dist/*.js`), which makes a narrow
+ * string prefix (`@brainstrike/pkg` -> `pkg/src`) faithful. Any other
+ * dist-code wildcard shape throws (no silent fallback); asset/src wildcards
+ * (e.g. `./tsconfig/*.json`, `./icons/*`) are skipped.
+ */
+function wildcardEntry({ name, srcDir }, key, target) {
+  const t = typeof target === 'string' ? target.replace(/^\.\//, '') : null;
+  if (t === null || !t.startsWith('dist/') || !CODE_EXT_RE.test(t)) {
+    return null; // asset / src-pointing wildcard: exports map handles it
+  }
+  const keyBody = key.replace(/^\.\//, ''); // e.g. `*` or `stores/*`
+  const targetStem = t.slice('dist/'.length).replace(CODE_EXT_RE, ''); // e.g. `*`
+  if (keyBody !== targetStem) {
+    throw new Error(
+      `workspaceSrcAliases: ${name} wildcard export '${key}' -> '${target}' is not a ` +
+        'same-name-into-src mapping; add explicit handling instead of a blanket prefix'
+    );
+  }
+  const nsDir = keyBody === '*' ? srcDir : join(srcDir, keyBody.slice(0, -2));
+  if (!existsSync(nsDir)) {
+    throw new Error(
+      `workspaceSrcAliases: ${name} wildcard export '${key}' has no source dir at ${nsDir}`
+    );
+  }
+  const prefix = keyBody === '*' ? name : `${name}/${keyBody.slice(0, -2)}`;
+  return { find: prefix, replacement: nsDir };
+}
+
+/** Build alias entries for one workspace package: {exact: [], prefix: []}. */
+function packageAliasEntries(workspacePkg) {
+  const { name, srcDir, exportsMap } = workspacePkg;
+  const exact = [];
+  const prefix = [];
+
   for (const [key, value] of Object.entries(exportsMap)) {
-    if (key === '.') {
+    if (key.includes('*')) {
+      const wildcard = wildcardEntry(workspacePkg, key, pickTarget(value));
+      if (wildcard) {
+        prefix.push(wildcard);
+      }
       continue;
     }
     const stem = distTargetToStem(pickTarget(value));
-    // Skip non-code assets (css/json), src-pointing exports, wildcard patterns,
-    // and prebuilt worker bundles (`*.worker`, loaded as-is by worker consumers).
-    if (!stem || /\.worker$/.test(stem)) {
+    // Non-dist-code exports (css/json assets, src-pointing files like
+    // test-utils' vitest.setup / vitest.base) keep resolving via `exports`.
+    if (!stem) {
       continue;
     }
-    const sub = key.replace(/^\.\//, '');
-    // If the directory-prefix root alias already resolves this subpath to the
-    // same source file, skip the explicit entry (prefix covers it).
-    if (stem === sub || stem === `${sub}/index`) {
+    // Prebuilt worker bundles (`*.worker`) are loaded as-is by worker-URL /
+    // bundle consumers; they keep resolving to dist via `exports`.
+    if (/\.worker$/.test(stem)) {
       continue;
     }
     const file = resolveSrcFile(srcDir, stem);
     if (!file) {
       throw new Error(
-        `workspaceSrcAliases: ${name}${key} export has no source file for stem '${stem}' under ${srcDir}`
+        `workspaceSrcAliases: ${name} export '${key}' has no source file for stem '${stem}' under ${srcDir}`
       );
     }
-    entries.push({ find: `${name}/${sub}`, replacement: file });
+    exact.push(exactEntry(key === '.' ? name : `${name}/${key.replace(/^\.\//, '')}`, file));
   }
-  return entries;
-}
 
-/** Regex-exact root aliases (`/^<name>$/` -> src/index) for ROOT_EXACT_ONLY pkgs. */
-function rootExactOnlyEntries(packagesDir, exclude) {
-  const entries = [];
-  for (const name of ROOT_EXACT_ONLY_PACKAGES) {
-    if (exclude.has(name)) {
-      continue;
-    }
-    const dirName = name.slice('@brainstrike/'.length);
-    const srcDir = join(packagesDir, dirName, 'src');
+  // Package with no exports map (or none aliasable) but an importable source
+  // root: emit the bare-specifier alias so the root import executes source.
+  if (exact.length === 0 && prefix.length === 0) {
     const indexFile = resolveSrcFile(srcDir, 'index');
-    if (!indexFile) {
-      throw new Error(
-        `workspaceSrcAliases: ${name} has no source index under ${srcDir} (ROOT_EXACT_ONLY)`
-      );
+    if (indexFile) {
+      exact.push(exactEntry(name, indexFile));
     }
-    // Regex anchors to the BARE specifier only, so subpath exports
-    // (vitest.base/vitest.setup/workspace-src-aliases) are left untouched.
-    entries.push({ find: new RegExp(`^${name.replace(/\//g, '\\/')}$`), replacement: indexFile });
   }
-  return entries;
+  return { exact, prefix };
 }
 
 /**
  * Build Vitest-compatible `resolve.alias` entries mapping every `@brainstrike/*`
- * workspace package root AND its (renamed) subpath exports to source.
+ * workspace package root AND its exported code subpaths to source.
  *
  * @param {string} packagesDir Absolute path to the monorepo `packages/` dir
  *   (typically `resolve(import.meta.dirname, '..')` from a package config).
@@ -230,28 +243,27 @@ function rootExactOnlyEntries(packagesDir, exclude) {
  *   Config-local aliases placed BEFORE the spread already override the registry
  *   (first-match wins); `exclude` is for the rarer case of dropping an entry
  *   entirely.
- * @returns {{ find: string, replacement: string }[]}
+ * @returns {{ find: string | RegExp, replacement: string }[]}
  */
 export function workspaceSrcAliases(packagesDir, options = {}) {
   if (!(packagesDir && existsSync(packagesDir))) {
     throw new Error(`workspaceSrcAliases: packagesDir does not exist: ${String(packagesDir)}`);
   }
   const exclude = new Set([...DEFAULT_SRC_ALIAS_EXCLUSIONS, ...(options.exclude ?? [])]);
-  const rootPrefixEntries = [];
-  const subpathEntries = [];
+  const exactEntries = [];
+  const prefixEntries = [];
 
   for (const dirName of readdirSync(packagesDir)) {
     const workspacePkg = readWorkspacePackage(packagesDir, dirName, exclude);
     if (!workspacePkg) {
       continue;
     }
-    const root = rootAliasEntries(workspacePkg);
-    subpathEntries.push(...root.exact, ...subpathAliasEntries(workspacePkg));
-    rootPrefixEntries.push(...root.prefix);
+    const { exact, prefix } = packageAliasEntries(workspacePkg);
+    exactEntries.push(...exact);
+    prefixEntries.push(...prefix);
   }
 
-  // Regex-exact roots + subpath (more specific) entries first, then root
-  // directory prefixes, so a renamed subpath like `@brainstrike/embeddings/backend`
-  // wins over the `@brainstrike/embeddings` prefix (first-match).
-  return [...rootExactOnlyEntries(packagesDir, exclude), ...subpathEntries, ...rootPrefixEntries];
+  // Exact (anchored regex) entries first, then the few wildcard prefixes, so an
+  // explicit subpath export always wins over a wildcard namespace (first-match).
+  return [...exactEntries, ...prefixEntries];
 }

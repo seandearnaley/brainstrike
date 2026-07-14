@@ -1,3 +1,4 @@
+import { resetLogger } from '@brainstrike/utils';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
@@ -49,8 +50,10 @@ function wrapper({ children }: { children: React.ReactNode }) {
 
 describe('DbProvider initializing state', () => {
   beforeEach(() => {
-    // Reset logger configuration to defaults
-    const { resetLogger } = require('@brainstrike/utils');
+    // Reset logger configuration to defaults. Use the ESM import — a bare CJS
+    // require() bypasses vite aliases (native node resolution) and resets the
+    // DIST logger copy instead of the src instance under test (incident #1066
+    // class; surfaced by the threads-pool mutation lane).
     resetLogger();
   });
 

@@ -34,11 +34,7 @@
       "import": "./vitest.base.mjs",
       "require": "./dist/index.js"
     },
-    "./workspace-src-aliases": {
-      "types": "./dist/index.d.ts",
-      "import": "./workspace-src-aliases.mjs",
-      "require": "./dist/index.js"
-    },
+    "./workspace-src-aliases": "./workspace-src-aliases.mjs",
     "./electron": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",

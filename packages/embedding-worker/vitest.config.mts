@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
-import { createBrowserProject } from '../config/src/vitest-browser';
+import { createBrowserProject } from '../config/src/vitest-browser.ts';
 
 // Resolve workspace deps (worker-runtime, indexing-contract, types) from SOURCE,
 // not built dist. Applied per-project (vitest 4 does not inherit the root-level

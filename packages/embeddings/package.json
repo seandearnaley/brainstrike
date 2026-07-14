@@ -17,6 +17,7 @@
     "glob": "^13.0.6"
   },
   "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
     "@electric-sql/pglite": "0.5.4",
     "@types/node": "^26.1.0",
     "rimraf": "^6.1.3",

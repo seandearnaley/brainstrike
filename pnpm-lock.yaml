@@ -1055,6 +1055,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@stryker-mutator/api':
         specifier: ^9.6.1
         version: 9.6.1
@@ -1292,6 +1295,9 @@ importers:
         specifier: ^19.2.4
         version: 19.2.7
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 0.5.4
         version: 0.5.4

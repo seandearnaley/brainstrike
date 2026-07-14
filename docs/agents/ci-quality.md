@@ -43,12 +43,28 @@ config declares NO workspace-src aliasing resolves that dep from BUILT `dist`
 
 The shared registry `@brainstrike/test-utils/workspace-src-aliases`
 (`workspaceSrcAliases(packagesDir)`, a committed plain `.mjs` — no build step)
-maps every `@brainstrike/*` package root + renamed subpath exports to `src`.
-Package vitest configs spread it (config-local mocks/dist-pins/dedicated helpers
-go BEFORE the spread — vitest `resolve.alias` is first-match). The guard flags
-any importing package with neither the registry nor an explicit `../<pkg>/src`
-alias; legitimate built-artifact consumers go in `WORKSPACE_SRC_ALIAS_ALLOWLIST`
-with a reason (NO silent fallback). This is the R3 enabler for dropping
+derives EXACT aliases from each package's own `exports` map: regex-exact package
+root + each exported code subpath -> validated `src` file (missing source
+throws). Asset exports (css/json/icons), src-pointing exports, and prebuilt
+`*.worker` bundles get no alias; unexported subpaths are NOT captured (they fail
+loudly under node resolution); a same-name wildcard export (preferences `./*`)
+gets a validated narrow prefix. Package vitest configs spread it (config-local
+mocks/dedicated helpers go BEFORE the spread — vitest `resolve.alias` is
+first-match). `@brainstrike/agent` is excluded (Mastra/Node deps): consumers use
+`createAgentBrowserSafeAliasEntries`. `@brainstrike/workers` has no `src/` dir:
+consumers alias its subpaths explicitly.
+
+The guard EXECUTES every runnable vitest config (base + integration + mutation +
+models, and each inline project — projects do NOT inherit top-level
+`resolve.alias`), then per runtime `@brainstrike/*` import specifier simulates
+vitest's first-match alias resolution: the winning entry must point at an
+existing non-dist source path, and an unaliased specifier must not resolve to
+`dist` via the dep's `exports` map. So dist-pin overrides, imported-but-unspread
+registries, per-dependency gaps, and bare mutation configs all FAIL. Because the
+guard imports the configs under plain node ESM, config-relative imports need
+explicit extensions (e.g. `../config/src/vitest-browser.ts`). Legitimate
+built-artifact consumers go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with a reason
+string (NO silent fallback). This is the R3 enabler for dropping
 `test.dependsOn: ["^build"]` — see the Series B turbo-monorepo architecture
 review.
 
