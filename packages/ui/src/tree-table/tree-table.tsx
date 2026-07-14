@@ -1065,6 +1065,12 @@ export function TreeTable<T>({
   const handleTreePointerDown = React.useCallback(() => {
     setKeyboardFocusVisible(false);
   }, []);
+  const handleTreeBlur = React.useCallback((event: React.FocusEvent<HTMLTableElement>) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
+      return;
+    }
+    setKeyboardFocusVisible(false);
+  }, []);
 
   // The TanStack virtualizer instance is identity-stable, so this adapter
   // (and the measure callback ref derived from it) only changes when the
@@ -1218,6 +1224,7 @@ export function TreeTable<T>({
           aria-multiselectable={selectionMode === 'multi' || undefined}
           aria-rowcount={totalRowCount}
           className={className}
+          onBlur={handleTreeBlur}
           onKeyDown={handleTreeKeyDown}
           onPointerDownCapture={handleTreePointerDown}
           role={tableAriaRole}

@@ -187,6 +187,69 @@ describe('TreeTable', () => {
       );
     });
 
+    it('removes the roving row outline when focus leaves the tree', () => {
+      render(
+        <>
+          <TreeTable
+            columns={testColumns}
+            expandedIds={new Set()}
+            nodes={[createTestNode('1', 'File 1')]}
+            onToggleExpand={() => {}}
+          />
+          <button type="button">Outside</button>
+        </>
+      );
+
+      const treegrid = screen.getByRole('treegrid');
+      treegrid.focus();
+      fireEvent.keyDown(treegrid, { key: 'ArrowDown' });
+
+      const row = screen.getByText('File 1').closest('tr');
+      expect(row).toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2'
+      );
+
+      const outsideButton = screen.getByRole('button', { name: 'Outside' });
+      fireEvent.blur(treegrid, { relatedTarget: outsideButton });
+      outsideButton.focus();
+
+      expect(row).not.toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2'
+      );
+    });
+
+    it('keeps the roving row outline when focus moves within the tree', () => {
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'File 1', null, true)]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const treegrid = screen.getByRole('treegrid');
+      treegrid.focus();
+      fireEvent.keyDown(treegrid, { key: 'ArrowDown' });
+
+      const row = screen.getByText('File 1').closest('tr');
+      const expandButton = screen.getByRole('button', { name: 'Expand' });
+      fireEvent.blur(treegrid, { relatedTarget: expandButton });
+
+      expect(row).toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2'
+      );
+    });
+
     it('renders column headers', () => {
       const columns: TreeTableColumn<TestData>[] = [
         {
