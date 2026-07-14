@@ -323,9 +323,30 @@ compilers, because the code probes legacy adapter members lib.dom does not
 declare (`requestAdapterInfo`, `isFallbackAdapter`) — the shim exists for a
 reason. The surgical fix is to drop only the *unsound* `Navigator.gpu`
 augmentation (lib.dom already declares it) and augment `GPUAdapter` with just
-the legacy optional members:
+the legacy optional members.
+
+This is the **complete** change to
+`packages/embeddings/src/device-detection.ts` — all three parts are required.
+Applying only parts 1+2 leaves a dangling reference to the deleted `Gpu` type
+and fails with `src/device-detection.ts(123,40): error TS2552: Cannot find name
+'Gpu'. Did you mean 'GPU'?` (1 error, identical under both compilers). Part 3 is
+not optional.
+
+**Part 1 — delete** the entire hand-rolled shim block (everything from the
+comment `// WebGPU types for environments where @webgpu/types is not available`
+through the closing brace of the `declare global { interface Navigator { ... } }`
+block — the local `GPURequestAdapterOptions`, `GPUAdapterInfo`,
+`GPUSupportedLimits`, `GPUAdapter`, and `Gpu` interfaces, plus the `Navigator`
+augmentation). lib.dom.d.ts already provides all of these except the two legacy
+members re-added in part 2.
+
+**Part 2 — insert** in its place:
 
 ```ts
+// lib.dom.d.ts already declares `Navigator.gpu: GPU` (via NavigatorGPU) and the
+// GPU/GPUAdapter types. It does NOT declare the legacy adapter members this
+// module still probes, so augment ONLY those. Augmenting `Navigator.gpu` here
+// would be unsound (lib.dom has it required + typed `GPU`).
 declare global {
   interface GPUAdapter {
     readonly isFallbackAdapter?: boolean;
@@ -334,10 +355,24 @@ declare global {
 }
 ```
 
-Result: **0 errors under TS6 and 0 under TS7**, for both `tsconfig.json` and
-`tsconfig.test.json`. Reverted — it is not part of this PR (it is a real,
-standalone soundness fix that deserves its own change, and shipping it here
-would bundle unrelated work into a findings PR).
+**Part 3 — update the surviving call site.** Deleting the local `Gpu` interface
+orphans one reference to it (the only one outside the deleted block):
+
+```ts
+// before
+async function probeWebGPUAdapter(gpu: Gpu): Promise<WebGPUProbeResult> {
+// after
+async function probeWebGPUAdapter(gpu: GPU): Promise<WebGPUProbeResult> {
+```
+
+Result with all three parts applied: **0 errors under TS6 and 0 under TS7**, for
+both `tsconfig.json` and `tsconfig.test.json`. (Verified by applying the above
+verbatim to a clean tree, then reverting — this snippet is the tested artifact,
+not a paraphrase of one.)
+
+Reverted — it is not part of this PR (it is a real, standalone soundness fix
+that deserves its own change, and shipping it here would bundle unrelated work
+into a findings PR).
 
 **Net:** divergence 2 is a cheap pre-req; divergence 1 is the real blocker and
 is a project of its own.
