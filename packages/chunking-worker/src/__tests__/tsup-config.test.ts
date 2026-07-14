@@ -19,4 +19,16 @@ describe('chunking worker tsup config', () => {
     const targetConfig = Array.isArray(resolvedConfig) ? resolvedConfig[0] : resolvedConfig;
     expect(targetConfig.splitting).toBe(true);
   });
+
+  it('bundles the shared accurate token runtime from source', () => {
+    const resolvedConfig = resolveConfig();
+    const targetConfig = Array.isArray(resolvedConfig) ? resolvedConfig[0] : resolvedConfig;
+    const buildOptions: { alias?: Record<string, string> } = {};
+
+    targetConfig.esbuildOptions?.(buildOptions, { format: 'esm' });
+
+    expect(buildOptions.alias?.['@brainstrike/utils/token-utils-accurate-lite']).toMatch(
+      /packages\/utils\/src\/token-utils-accurate-lite\.ts$/
+    );
+  });
 });
