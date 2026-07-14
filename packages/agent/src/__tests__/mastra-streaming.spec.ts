@@ -298,6 +298,53 @@ describe('mastra streaming integration', () => {
     });
   });
 
+  it('rejects a cost-less OpenRouter step when finish repeats only the final step cost', async () => {
+    setMockStreamParts([
+      {
+        payload: { metadata: {} },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      {
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'step-finish',
+        usage: { completionTokens: 5, promptTokens: 20 },
+      },
+      {
+        finishReason: 'stop',
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'finish',
+        usage: { completionTokens: 7, promptTokens: 30 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-partial-cost',
+          parts: [{ text: 'use two model steps', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter model step omitted.*billed cost/i);
+  });
+
   it('rejects malformed provider-reported OpenRouter cost', async () => {
     setMockStreamParts([
       {

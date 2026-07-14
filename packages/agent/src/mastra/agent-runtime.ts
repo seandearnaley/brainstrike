@@ -765,10 +765,16 @@ function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): Str
   const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
   const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
   const finishCost = readOpenRouterBilledCost(p);
+  if (lifecycleState.requiresBilledCost && lifecycleState.sawStepWithoutBilledCost) {
+    // Mastra makes terminal token usage cumulative, but copies providerMetadata
+    // from only the final model step. A terminal cost therefore cannot repair a
+    // missing earlier step without silently undercounting the provider bill.
+    throw new Error('OpenRouter model step omitted required provider-reported billed cost.');
+  }
   if (
     lifecycleState.requiresBilledCost &&
-    (lifecycleState.sawStepWithoutBilledCost ||
-      (!lifecycleState.sawStepBilledCost && finishCost === undefined))
+    !lifecycleState.sawStepBilledCost &&
+    finishCost === undefined
   ) {
     throw new Error('OpenRouter completion omitted required provider-reported billed cost.');
   }
