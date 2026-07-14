@@ -6,6 +6,7 @@ export const dbUnitLaneDefinitions = [
       /^bootstrap\.test\.ts$/,
       /^db-migration-authority\.test\.ts$/,
       /^db-runtime-baseline\.test\.ts$/,
+      /^db-test-lane-manifest\.test\.ts$/,
       /^dimension-index-maintenance\.test\.ts$/,
       /^dimension-hnsw-indexes\.integration\.test\.ts$/,
       /^frontier-models-migration\.test\.ts$/,
@@ -107,6 +108,7 @@ export const dbCoverageLaneDefinitions = {
       'architecture-boundary.test.ts',
       'architecture-ownership.test.ts',
       'brainstrike-db-client-contract.test.ts',
+      'db-test-lane-manifest.test.ts',
       'runtime-import-extensions.test.ts',
     ],
     chunking: [
