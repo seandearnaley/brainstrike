@@ -102,6 +102,47 @@ describe('buildThreadListSections', () => {
     expect(view.ungrouped.map((thread) => thread.id)).toEqual(['thread-3']);
   });
 
+  it('buckets grouped threads without rescanning the full thread list per group', () => {
+    const groupCount = 12;
+    const threadCount = 120;
+    let idReads = 0;
+    const groups = Array.from({ length: groupCount }, (_, index) =>
+      makeGroup({ id: `group-${index}`, rank: index.toString().padStart(2, '0') })
+    );
+    const placements = Array.from({ length: threadCount }, (_, index) =>
+      makePlacement({
+        groupId: `group-${index % groupCount}`,
+        rank: index.toString().padStart(3, '0'),
+        threadId: `thread-${index}`,
+      })
+    );
+    const threads = Array.from({ length: threadCount }, (_, index) => {
+      const id = `thread-${index}`;
+      const thread = makeThread({
+        id,
+        updatedAt: new Date(Date.UTC(2026, 6, 1, 0, 0, 0, index)).toISOString(),
+      });
+      Object.defineProperty(thread, 'id', {
+        get: () => {
+          idReads += 1;
+          return id;
+        },
+      });
+      return thread;
+    });
+
+    const view = buildThreadListSections({
+      groupBy: 'custom-groups',
+      groups,
+      placements,
+      sortBy: 'recency',
+      threads,
+    });
+
+    expect(view.kind).toBe('grouped');
+    expect(idReads).toBeLessThan(threadCount * 8);
+  });
+
   it('keeps an empty group as an empty section', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
