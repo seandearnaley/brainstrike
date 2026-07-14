@@ -39,30 +39,18 @@ const logger = createLogger('GitIpc');
 
 export type { WorkspaceRootResolver } from './workspace-root-cwd';
 
-const GIT_ROUTING_ENV_KEYS = new Set([
-  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-  'GIT_CEILING_DIRECTORIES',
-  'GIT_COMMON_DIR',
-  'GIT_DIR',
-  'GIT_DISCOVERY_ACROSS_FILESYSTEM',
-  'GIT_EXEC_PATH',
-  'GIT_INDEX_FILE',
-  'GIT_NAMESPACE',
-  'GIT_OBJECT_DIRECTORY',
-  'GIT_PREFIX',
-  'GIT_TEMPLATE_DIR',
-  'GIT_WORK_TREE',
-]);
-
 /**
- * Remove inherited environment variables that can redirect Git away from the
- * DB-authorized cwd or inject per-command config. Authentication variables such
- * as SSH agent/socket configuration remain intact for explicit network actions.
+ * Remove every inherited `GIT_*` variable before pinning the small, explicit set
+ * this domain owns. Git's environment surface can redirect repositories,
+ * objects, indexes, config, grafts, shallow boundaries, replace refs, hooks,
+ * pagers, and network helpers; an allowlist would silently become incomplete as
+ * Git adds more variables. Ordinary environment, including SSH agent/socket
+ * configuration, remains intact for explicit network actions.
  */
 export function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const environment = { ...source };
   for (const key of Object.keys(environment)) {
-    if (GIT_ROUTING_ENV_KEYS.has(key) || key.startsWith('GIT_CONFIG_')) {
+    if (key.startsWith('GIT_')) {
       Reflect.deleteProperty(environment, key);
     }
   }

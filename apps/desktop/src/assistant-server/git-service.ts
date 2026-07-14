@@ -460,11 +460,11 @@ function resolveContainedPathArg(
  * `120000` addition whose body is the link TEXT (the target PATH, e.g.
  * `../outside/secret.txt`) — a benign, intentional disclosure already present in
  * the user's own working tree, not a content leak. A leaf symlink to a DIRECTORY
- * yields an EMPTY `--no-index` diff (git errors `Could not access '<link>/null'`,
- * which the runner maps to a benign empty result). EITHER way no out-of-root
- * CONTENT reaches the diff — that is the security property. `git status` lists
- * such untracked symlinks. Dereferencing the leaf would wrongly reject
- * valid symlink additions (and throw on a dangling target). Tracked diffs don't
+ * makes `git diff --no-index` fail (`Could not access '<link>/null'`), and the
+ * service surfaces that failure visibly. Either way no out-of-root CONTENT
+ * reaches the diff — that is the security property. `git status` lists such
+ * untracked symlinks. Dereferencing the leaf here would wrongly reject valid
+ * file-symlink additions (and throw on a dangling target). Tracked diffs don't
  * need this: they go through git's index, which never follows fs symlinks.
  */
 async function assertUntrackedDiffPathContained(
@@ -561,25 +561,24 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     }
     const remotes = run_.stdout
       .split('\n')
-      .map((remote) => remote.trim())
-      .filter(Boolean)
+      .map((remote) => remote.replace(/\r$/, ''))
+      .filter((remote) => remote.length > 0)
       .sort((left, right) => left.localeCompare(right));
     return { ok: true, value: remotes };
   }
 
   async function requireRemote(remote: unknown): Promise<GitResult<string>> {
-    if (typeof remote !== 'string' || remote.trim().length === 0) {
+    if (typeof remote !== 'string' || remote.length === 0) {
       return { error: 'remote must be a non-empty string', ok: false };
     }
-    const name = remote.trim();
     const remotes = await listRemoteNames();
     if (!remotes.ok) {
       return remotes;
     }
-    if (!remotes.value.includes(name)) {
-      return { error: `remote "${name}" does not exist`, ok: false };
+    if (!remotes.value.includes(remote)) {
+      return { error: `remote "${remote}" does not exist`, ok: false };
     }
-    return { ok: true, value: name };
+    return { ok: true, value: remote };
   }
 
   async function resolveHistoryCommit(ref: string | undefined): Promise<GitResult<string>> {
@@ -781,14 +780,14 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     if (tracking.value.upstream !== null) {
       return { ok: true, value: ['push'] };
     }
-    if (typeof remote !== 'string' || remote.trim().length === 0) {
+    if (typeof remote !== 'string' || remote.length === 0) {
       return { error: 'first push requires an explicit remote', ok: false };
     }
     const configuredRemote = await requireRemote(remote);
     if (!configuredRemote.ok) {
       return configuredRemote;
     }
-    return { ok: true, value: ['push', '-u', configuredRemote.value, 'HEAD'] };
+    return { ok: true, value: ['push', '-u', '--', configuredRemote.value, 'HEAD'] };
   }
 
   interface RepositoryInventory {
@@ -870,7 +869,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     if (remoteRun.exitCode !== 0) {
       return { error: describeFailure(remoteRun), ok: false };
     }
-    const configured = remoteRun.stdout.trim();
+    const configured = stripLineEnding(remoteRun.stdout);
     if (configured === '.') {
       return { ok: true, value: null };
     }
@@ -1130,7 +1129,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!remote.ok) {
           return remote;
         }
-        const run_ = await invoke(['fetch', '--prune', remote.value], GIT_NETWORK_TIMEOUT_MS);
+        const run_ = await invoke(['fetch', '--prune', '--', remote.value], GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1315,19 +1314,19 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     /** Switch the full opened worktree to an existing local branch. */
     switchBranch: async (params: { branch: string }): Promise<GitResult<GitSwitchBranchResult>> => {
       try {
-        if (typeof params.branch !== 'string' || params.branch.trim().length === 0) {
+        if (typeof params.branch !== 'string' || params.branch.length === 0) {
           return { error: 'branch must be a non-empty string', ok: false };
         }
         const scope = await requireFullWorktreeRoot('Branch switching');
         if (!scope.ok) {
           return scope;
         }
-        const branch = params.branch.trim();
+        const branch = params.branch;
         const exists = await invoke(['show-ref', '--verify', '--hash', `refs/heads/${branch}`]);
         if (exists.exitCode !== 0) {
           return { error: `local branch "${branch}" does not exist`, ok: false };
         }
-        const run_ = await invoke(['switch', '--no-guess', branch]);
+        const run_ = await invoke(['switch', '--no-guess', '--', branch]);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }

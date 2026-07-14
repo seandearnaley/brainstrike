@@ -216,7 +216,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
       'refs/heads/main',
     ]);
     expect(calls[2]?.args).toEqual(['remote']);
-    expect(calls[3]?.args).toEqual(['push', '-u', 'origin', 'HEAD']);
+    expect(calls[3]?.args).toEqual(['push', '-u', '--', 'origin', 'HEAD']);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toMatch(/could not read Username|terminal prompts disabled/);
@@ -338,28 +338,40 @@ describe('git IPC runner — pinned repository environment', () => {
     const environment = createPinnedGitEnvironment({
       GIT_ALTERNATE_OBJECT_DIRECTORIES: '/outside/objects',
       GIT_COMMON_DIR: '/outside/common',
+      GIT_CONFIG: '/outside/config',
       GIT_CONFIG_COUNT: '1',
       GIT_CONFIG_KEY_0: 'core.hooksPath',
       GIT_CONFIG_VALUE_0: '/outside/hooks',
       GIT_DIR: '/outside/repository',
+      GIT_GRAFT_FILE: '/outside/grafts',
       GIT_INDEX_FILE: '/outside/index',
+      GIT_REPLACE_REF_BASE: 'refs/replace-elsewhere/',
+      GIT_SHALLOW_FILE: '/outside/shallow',
+      GIT_SSH_COMMAND: 'ssh -F /outside/config',
       GIT_WORK_TREE: '/outside/worktree',
       HOME: '/Users/example',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
     });
 
     expect(environment).toMatchObject({
       GIT_OPTIONAL_LOCKS: '0',
       GIT_TERMINAL_PROMPT: '0',
       HOME: '/Users/example',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
     });
     expect(environment.GIT_DIR).toBeUndefined();
     expect(environment.GIT_WORK_TREE).toBeUndefined();
     expect(environment.GIT_COMMON_DIR).toBeUndefined();
     expect(environment.GIT_INDEX_FILE).toBeUndefined();
     expect(environment.GIT_ALTERNATE_OBJECT_DIRECTORIES).toBeUndefined();
+    expect(environment.GIT_CONFIG).toBeUndefined();
     expect(environment.GIT_CONFIG_COUNT).toBeUndefined();
     expect(environment.GIT_CONFIG_KEY_0).toBeUndefined();
     expect(environment.GIT_CONFIG_VALUE_0).toBeUndefined();
+    expect(environment.GIT_GRAFT_FILE).toBeUndefined();
+    expect(environment.GIT_REPLACE_REF_BASE).toBeUndefined();
+    expect(environment.GIT_SHALLOW_FILE).toBeUndefined();
+    expect(environment.GIT_SSH_COMMAND).toBeUndefined();
   });
 });
 

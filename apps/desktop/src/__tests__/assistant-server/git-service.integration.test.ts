@@ -776,6 +776,38 @@ describe('git service — repository browser', () => {
     expect(firstPage.value.commits[0]?.authoredAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
+  it('ignores an inherited graft file that would rewrite repository history', async () => {
+    const repo = await makeRepo('brainstrike-git-graft-env-');
+    await writeFile(repo, 'first.txt', 'first\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'first'], { cwd: repo });
+    await writeFile(repo, 'second.txt', 'second\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'second'], { cwd: repo });
+    const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.replace(
+      /\r?\n$/,
+      ''
+    );
+    const graftFile = path.join(repo, 'external-grafts');
+    await fsPromises.writeFile(graftFile, `${head}\n`, 'utf8');
+    const previous = process.env.GIT_GRAFT_FILE;
+    process.env.GIT_GRAFT_FILE = graftFile;
+    try {
+      const result = await serviceFor(repo).history({ limit: 10, offset: 0 });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.commits.map((commit) => commit.summary)).toEqual(['second', 'first']);
+      }
+    } finally {
+      if (previous === undefined) {
+        Reflect.deleteProperty(process.env, 'GIT_GRAFT_FILE');
+      } else {
+        process.env.GIT_GRAFT_FILE = previous;
+      }
+    }
+  });
+
   it('includes empty and merge commits and renders first-parent merge details', async () => {
     const repo = await makeRepo('brainstrike-git-merge-history-');
     await writeFile(repo, 'base.txt', 'base\n');
@@ -895,6 +927,20 @@ describe('git service — repository browser', () => {
     expect(missing.ok).toBe(false);
   });
 
+  it('switches to an option-looking local branch without detaching HEAD', async () => {
+    const repo = await makeRepo('brainstrike-git-switch-option-');
+    await writeFile(repo, 'file.txt', 'main\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await execFileAsync('git', ['update-ref', 'refs/heads/--detach', 'HEAD'], { cwd: repo });
+
+    const switched = await serviceFor(repo).switchBranch({ branch: '--detach' });
+
+    expect(switched).toEqual({ ok: true, value: { branch: '--detach' } });
+    const current = await execFileAsync('git', ['branch', '--show-current'], { cwd: repo });
+    expect(current.stdout.replace(/\r?\n$/, '')).toBe('--detach');
+  });
+
   it('fetches an explicit remote without changing HEAD or the working tree', async () => {
     const remote = await fsPromises.mkdtemp(
       path.join(os.tmpdir(), 'brainstrike-git-fetch-remote-')
@@ -973,6 +1019,53 @@ describe('git service — aheadBehind', () => {
 });
 
 describe('git service — push', () => {
+  it('preserves a whitespace-bearing configured remote name exactly', async () => {
+    const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
+    const remoteReal = await fsPromises.realpath(remote);
+    createdRoots.push(remoteReal);
+    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'x\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    const remoteName = ' origin ';
+    await execFileAsync('git', ['config', `remote.${remoteName}.url`, remoteReal], { cwd: repo });
+
+    const pushed = await serviceFor(repo).push({ remote: remoteName });
+
+    expect(pushed.ok).toBe(true);
+    const repository = await serviceFor(repo).repository();
+    expect(repository.ok).toBe(true);
+    if (repository.ok) {
+      expect(repository.value.remotes).toContain(remoteName);
+      expect(repository.value.defaultRemote).toBe(remoteName);
+    }
+  });
+
+  it('treats an option-looking configured remote as a fetch/push operand', async () => {
+    const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
+    const remoteReal = await fsPromises.realpath(remote);
+    createdRoots.push(remoteReal);
+    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+
+    const repo = await makeRepo();
+    await writeFile(repo, 'a.txt', 'x\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFileAsync('git', ['remote', 'add', '--', '--all', remoteReal], { cwd: repo });
+
+    const pushed = await serviceFor(repo).push({ remote: '--all' });
+    const fetched = await serviceFor(repo).fetch({ remote: '--all' });
+
+    expect(pushed.ok).toBe(true);
+    expect(fetched.ok).toBe(true);
+    const remoteHead = await execFileAsync('git', ['show-ref', '--verify', 'refs/heads/main'], {
+      cwd: remoteReal,
+    });
+    expect(remoteHead.stdout).toContain('refs/heads/main');
+  });
+
   it('sets the upstream on the first push of a branch with no upstream', async () => {
     const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
     const remoteReal = await fsPromises.realpath(remote);
