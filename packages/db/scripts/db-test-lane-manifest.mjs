@@ -1,3 +1,15 @@
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Absolute path to packages/db/__tests__, resolved from this module, not the caller's cwd. */
+export const dbTestsRoot = path.join(packageRoot, '__tests__');
+
+const TEST_FILE_PATTERN = /\.test\.(ts|tsx)$/;
+const BROWSER_TEST_FILE_PATTERN = /\.browser\.test\.(ts|tsx)$/;
+
 export const dbUnitLaneDefinitions = [
   {
     matches: [
@@ -6,6 +18,7 @@ export const dbUnitLaneDefinitions = [
       /^bootstrap\.test\.ts$/,
       /^db-migration-authority\.test\.ts$/,
       /^db-runtime-baseline\.test\.ts$/,
+      /^db-test-lane-manifest\.test\.ts$/,
       /^dimension-index-maintenance\.test\.ts$/,
       /^dimension-hnsw-indexes\.integration\.test\.ts$/,
       /^frontier-models-migration\.test\.ts$/,
@@ -107,6 +120,7 @@ export const dbCoverageLaneDefinitions = {
       'architecture-boundary.test.ts',
       'architecture-ownership.test.ts',
       'brainstrike-db-client-contract.test.ts',
+      'db-test-lane-manifest.test.ts',
       'runtime-import-extensions.test.ts',
     ],
     chunking: [
@@ -131,6 +145,67 @@ export const dbCoverageLaneDefinitions = {
   ],
   unitLaneDefinitions: dbUnitLaneDefinitions,
 };
+
+/**
+ * Collects DB test files under `packages/db/__tests__`, returning paths RELATIVE to that
+ * directory (POSIX-style `/`), sorted. This is the single collector shared by BOTH lane
+ * scripts and the manifest's guard test — do not hand-roll a second copy, or the two
+ * views of "all tests" can drift apart (the issue-#1101 class of bug, in miniature).
+ *
+ * `includeBrowserTests` is the ONE intentional difference between the two lane scripts'
+ * views, and it is structurally necessary. DO NOT collapse it:
+ *
+ * - `test-lanes.mjs` passes `true`. Unit lanes must account for EVERY test file in the
+ *   directory — browser-project ones included — so that no file silently escapes lane
+ *   assignment. It runs each lane's files through `vitest run --project unit`, but its
+ *   `check` command's job is total coverage of the directory.
+ * - `coverage-lanes.mjs` passes `false`. Coverage lanes also run `vitest run --project
+ *   unit`, which CANNOT execute browser-project files (`*.browser.test.ts` / `.tsx` run
+ *   under the separate `browser` project). Including them would hand the unit project
+ *   tests it physically cannot run.
+ *
+ * Net effect: the unit view is a strict superset of the coverage view, differing by
+ * exactly the `*.browser.test.*` files. `db-test-lane-manifest.test.ts` pins that.
+ *
+ * Recursion matters: a non-recursive readdir would let a test in a subdirectory (e.g.
+ * `repositories/drizzle/file-record-repository.test.ts`) silently escape every lane.
+ * Relative — not base — names also avoid a collision: a top-level
+ * `file-record-repository.test.ts` and the subdirectory one are distinct keys and must
+ * each be assigned to a lane independently.
+ *
+ * @param {{ includeBrowserTests: boolean, testsRoot?: string }} options
+ * @returns {string[]}
+ */
+export function collectDbTestFiles(options) {
+  const { includeBrowserTests, testsRoot = dbTestsRoot } = options ?? {};
+  if (typeof includeBrowserTests !== 'boolean') {
+    // No silent default: an implicit choice here is exactly how the two views drift.
+    throw new TypeError(
+      'collectDbTestFiles requires an explicit { includeBrowserTests: boolean } — pass true for unit lanes, false for coverage lanes.'
+    );
+  }
+
+  const collect = (dir, prefix) => {
+    const tests = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        tests.push(...collect(path.join(dir, entry.name), relativePath));
+        continue;
+      }
+      if (!TEST_FILE_PATTERN.test(entry.name)) {
+        continue;
+      }
+      if (!includeBrowserTests && BROWSER_TEST_FILE_PATTERN.test(entry.name)) {
+        continue;
+      }
+      tests.push(relativePath);
+    }
+    return tests;
+  };
+
+  return collect(testsRoot, '').sort();
+}
 
 export function buildDbUnitLaneMap(testFiles, laneDefinitions = dbUnitLaneDefinitions) {
   const laneMap = new Map(laneDefinitions.map((lane) => [lane.name, []]));

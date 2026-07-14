@@ -1,34 +1,17 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildDbUnitLaneMap } from './db-test-lane-manifest.mjs';
+import { buildDbUnitLaneMap, collectDbTestFiles } from './db-test-lane-manifest.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const testsRoot = path.join(packageRoot, '__tests__');
-
-function collectTests(dir = testsRoot, prefix = '') {
-  const entries = readdirSync(dir).sort();
-  const tests = [];
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry);
-    const relativePath = prefix ? `${prefix}/${entry}` : entry;
-    const stat = statSync(fullPath);
-    if (stat.isDirectory()) {
-      tests.push(...collectTests(fullPath, relativePath));
-      continue;
-    }
-    if (/\.(browser\.)?test\.(ts|tsx)$/.test(relativePath)) {
-      tests.push(relativePath);
-    }
-  }
-  return tests;
-}
 
 function getLaneMap() {
-  return buildDbUnitLaneMap(collectTests());
+  // includeBrowserTests: true — unit lanes must account for EVERY test file in the
+  // directory, browser-project ones included, so none escapes lane assignment.
+  // coverage-lanes.mjs deliberately passes false; see collectDbTestFiles' doc comment.
+  return buildDbUnitLaneMap(collectDbTestFiles({ includeBrowserTests: true }));
 }
 
 function validateLanes() {
