@@ -31,13 +31,13 @@ import {
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { DirectoryHandle, FileSystemChange } from '@brainstrike/types';
 import {
+  type BackgroundIndexingPolicyPreset,
   getBackgroundWorkArbiterSnapshot,
   getBackgroundWorkPauseReasonLabels,
   registerBackgroundWorkPauseHandler,
   setBackgroundWorkManualPause,
   subscribeToBackgroundWorkArbiter,
 } from '@brainstrike/utils';
-import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,

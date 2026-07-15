@@ -34,32 +34,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
+      # action is read off the runner's filesystem, so the repo has to be on
+      # disk before it can resolve. See setup-workspace/action.yml's header.
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-test-${{ github.job }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          turbo-cache: 'true'
 
       - name: Secret scan
         run: pnpm secrets:scan
 
+      # Includes scripts/__tests__/verify-playwright-pin-sync.test.mjs — the
+      # single-source guard that the Playwright container image tag pinned in
+      # test.yml/web-e2e.yml/performance.yml matches @playwright/test's
+      # installed version. `container.image:` cannot consume a workflow
+      # expression, so the tag stays a literal in all three files and this
+      # guard is the verification (throws on drift, and throws if it can no
+      # longer find a pin at all rather than passing vacuously).
       - name: Script tests
         run: pnpm test:scripts
 
@@ -95,30 +90,18 @@ jobs:
     # aligned with Coverage so broad but valid changes do not time out mid-run.
     timeout-minutes: 60
     steps:
+      # `fetch-depth: 0` is REQUIRED here: the turbo filter below diffs against
+      # `origin/$BASE_REF`, which needs full history. Checkout stays in the
+      # caller (not the composite) — see setup-workspace/action.yml's header.
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-test-${{ github.job }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          turbo-cache: 'true'
 
       # NO standalone build step (B4). Test lanes resolve workspace imports
       # from SOURCE (the B3 #1651 registry + the app vitest alias maps), so
@@ -252,25 +235,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-test-${{ github.job }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          turbo-cache: 'true'
 
       - name: Build
         run: TAILWIND_DEBUG=1 pnpm run build
@@ -312,17 +280,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      # No turbo-cache: this job doesn't route through turbo. `shell: bash` in
+      # the composite's install step works on windows-latest via the runner's
+      # bundled Git Bash, same as every other step in this composite already
+      # running fine cross-platform.
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
 
       - name: Build and test secure filesystem capability
         run: pnpm --filter @brainstrike/secure-fs-native test
@@ -335,17 +298,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
 
       - name: Build desktop dependency graph
         run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
@@ -368,9 +322,19 @@ jobs:
     # dependencies are baked in, so there is NO `playwright install` step and
     # NO download from cdn.playwright.dev at job time. This removes the CDN
     # browser download that was stalling at 100% and hanging the job to its
-    # timeout. KEEP IN SYNC: the image tag MUST equal @playwright/test (^1.59.1);
-    # the same pin is hard-coded in .github/workflows/{test.yml,web-e2e.yml,
-    # performance.yml} — bump all three together on a Playwright upgrade.
+    # timeout. KEEP IN SYNC: the image tag MUST equal @playwright/test's
+    # version; the same pin is hard-coded in .github/workflows/{test.yml,
+    # web-e2e.yml,performance.yml} — bump all three together on a Playwright
+    # upgrade. `container.image:` cannot consume a workflow expression, so this
+    # stays a literal; scripts/verify-playwright-pin-sync.mjs (run via
+    # `pnpm test:scripts` in the Static job) is the automated drift check.
+    #
+    # NOT folded into the setup-workspace composite (Series C R9a): this
+    # container has no C toolchain/sudo, so the install below excludes both
+    # native-build projects — a different `pnpm install` invocation than the
+    # composite's fixed `pnpm install --frozen-lockfile`. Parameterizing the
+    # composite's install command for this one caller is the documented trap;
+    # this job's setup stays bespoke literal YAML on purpose.
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
       # `--user 1001` (pwuser) is the configuration shown in Playwright's
@@ -433,6 +397,11 @@ jobs:
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
       ELECTRON_DISABLE_GPU: "1"
+    # NOT folded into the setup-workspace composite (Series C R9a): the
+    # Electron-version lookup + binary cache below must run BETWEEN Node setup
+    # and `pnpm install`, which the composite's fixed step order (checkout ->
+    # pnpm -> node -> turbo cache -> install, nothing injectable in the
+    # middle) cannot express. Bespoke literal YAML on purpose.
     steps:
       - name: Checkout
         uses: actions/checkout@v6
