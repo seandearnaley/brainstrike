@@ -377,6 +377,43 @@ into a findings PR).
 **Net:** divergence 2 is a cheap pre-req; divergence 1 is the real blocker and
 is a project of its own.
 
+### A near-miss worth recording: exit codes are NOT comparable raw
+
+When exit status was added to the comparison (so that a compiler crashing with
+no diagnostics could not read as agreement), it immediately produced an
+apparent **4th divergence**: `apps/web` reported identical diagnostics under
+both compilers but `TS6=2` vs `TS7=1`.
+
+It is not a divergence. Verified:
+
+```
+# apps/web, composite project, after deleting dist/tsconfig.tsbuildinfo
+TS6 run 1: 2      <- writes dist/tsconfig.tsbuildinfo, i.e. "outputs generated"
+TS6 run 2: 1
+TS6 run 3: 1
+TS7 run 1: 1      <- stable
+TS7 run 2: 1
+```
+
+tsc's exit codes are `0` Success, `1` DiagnosticsPresent_**OutputsSkipped**, `2`
+DiagnosticsPresent_**OutputsGenerated**. Both non-zero codes mean "diagnostics
+present"; they differ only on whether that run wrote anything. A composite
+project writes `dist/tsconfig.tsbuildinfo` **even under `--noEmit`**, so TS6
+returns 2 on the first run from a clean state and 1 on every run after. Swapping
+which compiler runs first does not change it (tested), so it is not a run-order
+artifact — it is tsbuildinfo freshness.
+
+Comparing raw exit integers therefore manufactures a **flaky** mismatch whose
+result depends on what ran before it. The guard compares the exit-status
+*equivalence class* (succeeded vs reported-diagnostics) instead, and a test pins
+that `1` vs `2` is NOT a mismatch so nobody "tightens" it back. The real
+protection — a compiler exiting non-zero while printing no parsable diagnostic —
+is a separate check, and it is the one that matters.
+
+Recorded because the wrong version of this was one commit from shipping as a
+finding, and it would have been wrong in the most expensive way: a plausible,
+concrete-looking claim backed by a real command output.
+
 ### Timing signal (directional, not a CI-validated number)
 
 Real recent `Static` job "Type check" step durations on this repo's `main`,
@@ -495,6 +532,15 @@ verification ran).
 - No API consumer resolves to TS7 (verified above; no devDependency change
   shipped in this PR at all). All **8** are enumerated by a grep that a reader
   can re-run — the census is reproducible, not hand-maintained.
+- **`apps/web`'s `tsc --build --force` step is NOT covered by this comparison,**
+  and the guard says so in its own verdict rather than quietly omitting it.
+  Build mode cannot be compared in place: `tsc -b --noEmit` fails
+  (`TS6310: Referenced project ... may not disable emit`), `--outDir` is
+  rejected under `--build` (`TS5094`), and `-b --dry` does not type-check — so
+  running it under TS7 would write TS7-generated declarations into the working
+  tree. Comparing it needs an isolated workspace copy. Until that exists, TS7's
+  behaviour in **build mode / declaration emit / project-reference checking** is
+  simply unknown here, and the guard refuses to claim parity while it is.
 - The parity script is retained (`scripts/ts7-parity-check.mjs`) as a
   re-runnable guard: `node scripts/ts7-parity-check.mjs --ts7-bin=<path>`
   against any future TS7.x/7.1 release once it ships a programmatic API and

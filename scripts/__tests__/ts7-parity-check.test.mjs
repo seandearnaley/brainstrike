@@ -1,6 +1,26 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { classifyCommand, extractProject, flattenScript } from '../ts7-parity-check.mjs';
+import {
+  canClaimParity,
+  classifyCommand,
+  compareRuns,
+  evaluateRun,
+  extractProject,
+  flattenScript,
+  OUTCOME,
+  outcomeForUncomparedKind,
+  succeeded,
+} from '../ts7-parity-check.mjs';
+
+// A clean run: exit 0, no diagnostics.
+const clean = () => ({ diagnostics: new Set(), exitCode: 0, output: '', signal: null });
+// A run reporting real type errors: non-zero exit WITH diagnostics.
+const withDiags = (...ids) => ({
+  diagnostics: new Set(ids),
+  exitCode: 2,
+  output: '',
+  signal: null,
+});
 
 // The parity guard's whole value is surviving a future repo restructuring
 // without silently mis-parsing. These tests pin the two parsing behaviours that
@@ -117,5 +137,133 @@ describe('classifyCommand', () => {
 
   it('tags a tsc command with no --noEmit as unrecognized rather than running it', () => {
     assert.equal(classifyCommand('tsc --emitDeclarationOnly').kind, 'unrecognized');
+  });
+});
+
+describe('evaluateRun — a crashing compiler must not look like a passing one', () => {
+  it('accepts a clean run and a run with real diagnostics', () => {
+    assert.equal(evaluateRun('TS7', clean()), null);
+    assert.equal(evaluateRun('TS7', withDiags('a.ts:1:1:TS1')), null);
+  });
+
+  it('THE MONEY CASE: non-zero exit with zero diagnostics is an error, not agreement', () => {
+    // A native crash / fatal CLI error prints no "error TSxxxx" line, so its
+    // diagnostic set is empty and compares EQUAL to a clean run's empty set.
+    // Without this check that reads as parity.
+    const crashed = {
+      diagnostics: new Set(),
+      exitCode: 1,
+      output: 'panic: runtime error',
+      signal: null,
+    };
+    assert.match(evaluateRun('TS7', crashed), /exited 1 but produced no parsable diagnostics/);
+  });
+
+  it('flags a run killed by a signal', () => {
+    const killed = { diagnostics: new Set(), exitCode: null, output: '', signal: 'SIGSEGV' };
+    assert.match(evaluateRun('TS7', killed), /terminated by signal SIGSEGV/);
+  });
+
+  it('flags a null exit status', () => {
+    const weird = { diagnostics: new Set(), exitCode: null, output: '', signal: null };
+    assert.match(evaluateRun('TS7', weird), /exited without a status code/);
+  });
+
+  it('flags exit 0 that nonetheless reported diagnostics', () => {
+    const inconsistent = {
+      diagnostics: new Set(['a.ts:1:1:TS1']),
+      exitCode: 0,
+      output: '',
+      signal: null,
+    };
+    assert.match(evaluateRun('TS6', inconsistent), /exited 0 despite reporting 1 diagnostic/);
+  });
+});
+
+describe('compareRuns — exit status is part of the comparison', () => {
+  it('matches two clean runs', () => {
+    assert.equal(compareRuns(clean(), clean()).outcome, OUTCOME.MATCHED);
+  });
+
+  it('matches two runs with identical diagnostics', () => {
+    const r = compareRuns(withDiags('a.ts:1:1:TS1'), withDiags('a.ts:1:1:TS1'));
+    assert.equal(r.outcome, OUTCOME.MATCHED);
+  });
+
+  it('reports a mismatch and names which side is extra', () => {
+    const r = compareRuns(clean(), withDiags('a.ts:44:13:TS2430'));
+    assert.equal(r.outcome, OUTCOME.MISMATCH);
+    assert.deepEqual(r.onlyInTs6, []);
+    assert.deepEqual(r.onlyInTs7, ['a.ts:44:13:TS2430']);
+  });
+
+  it('a crashed TS7 yields ERROR, never MATCHED, even against a clean TS6', () => {
+    const crashed = { diagnostics: new Set(), exitCode: 1, output: 'boom', signal: null };
+    const r = compareRuns(clean(), crashed);
+    assert.equal(r.outcome, OUTCOME.ERROR);
+    assert.match(r.errors.join(' '), /no parsable diagnostics/);
+  });
+
+  it('exit 1 vs exit 2 with identical diagnostics is NOT a mismatch', () => {
+    // Both mean DiagnosticsPresent (OutputsSkipped vs OutputsGenerated). TS6
+    // flips between them for composite projects depending on whether the run
+    // rewrote dist/tsconfig.tsbuildinfo — verified: exit 2 on the first run from
+    // a clean state, exit 1 on every subsequent run, while TS7 is stably 1.
+    // Comparing raw exit integers turns that stateful artifact into a flaky
+    // false mismatch. Do not "tighten" this back to raw equality.
+    const a = { diagnostics: new Set(['x.ts:1:1:TS1']), exitCode: 2, output: '', signal: null };
+    const b = { diagnostics: new Set(['x.ts:1:1:TS1']), exitCode: 1, output: '', signal: null };
+    assert.equal(compareRuns(a, b).outcome, OUTCOME.MATCHED);
+  });
+
+  it('success vs diagnostics-present IS a mismatch even if sets somehow agree', () => {
+    assert.equal(succeeded({ exitCode: 0 }), true);
+    assert.equal(succeeded({ exitCode: 2 }), false);
+  });
+});
+
+describe('canClaimParity — the single gate (absence of evidence is not agreement)', () => {
+  it('requires positive evidence: an empty result set cannot pass', () => {
+    assert.equal(canClaimParity([]), false);
+  });
+
+  it('passes only when every outcome is affirmatively matched', () => {
+    assert.equal(
+      canClaimParity([{ outcome: OUTCOME.MATCHED }, { outcome: OUTCOME.MATCHED }]),
+      true
+    );
+  });
+
+  it('an UNCOMPARED tsc invocation blocks parity even with zero mismatches', () => {
+    // The apps/web `tsc --build --force` shape: everything compared matched,
+    // but a tsc invocation went unverified. A mismatch COUNTER would say 0 and
+    // print PARITY HOLDS; the outcome gate refuses.
+    const results = [{ outcome: OUTCOME.MATCHED }, { outcome: OUTCOME.NOT_COMPARED }];
+    assert.equal(canClaimParity(results), false);
+  });
+
+  it('an ERRORED run blocks parity even with zero mismatches', () => {
+    assert.equal(canClaimParity([{ outcome: OUTCOME.MATCHED }, { outcome: OUTCOME.ERROR }]), false);
+  });
+
+  it('a mismatch blocks parity', () => {
+    assert.equal(canClaimParity([{ outcome: OUTCOME.MISMATCH }]), false);
+  });
+
+  it('out-of-scope (non-tsc) commands do not block parity', () => {
+    // `node --check index.cjs` cannot change behaviour with the tsc version.
+    const results = [{ outcome: OUTCOME.MATCHED }, { outcome: OUTCOME.OUT_OF_SCOPE }];
+    assert.equal(canClaimParity(results), true);
+  });
+});
+
+describe('outcomeForUncomparedKind — the tsc / not-tsc line', () => {
+  it('an uncompared tsc invocation is NOT_COMPARED (blocks parity)', () => {
+    assert.equal(outcomeForUncomparedKind('build'), OUTCOME.NOT_COMPARED);
+    assert.equal(outcomeForUncomparedKind('unrecognized'), OUTCOME.NOT_COMPARED);
+  });
+
+  it('a non-tsc command is OUT_OF_SCOPE (does not block)', () => {
+    assert.equal(outcomeForUncomparedKind('non-tsc'), OUTCOME.OUT_OF_SCOPE);
   });
 });

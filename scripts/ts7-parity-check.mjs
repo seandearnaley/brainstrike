@@ -244,6 +244,28 @@ export function classifyCommand(command) {
   return { command, kind: 'noEmit', project: extractProject(command) };
 }
 
+// The closed set of per-command outcomes. THE central invariant of this script:
+// "PARITY HOLDS" is renderable only when every recorded outcome is
+// affirmatively MATCHED (or OUT_OF_SCOPE — a command no TypeScript version can
+// affect). See canClaimParity.
+//
+// Why a closed set rather than a mismatch counter: every vacuous-pass hole
+// found in review so far was the same bug — the verdict was derived from the
+// ABSENCE of a counted mismatch, so anything that produced no count (an empty
+// discovery set, comparing a binary against itself, a skipped build command, a
+// compiler crash emitting no diagnostics) silently rendered as agreement.
+// Absence of evidence was being reported as evidence of absence. Making every
+// discovered command produce an explicit outcome, and requiring ALL of them to
+// be MATCHED, makes "we did not actually verify this" structurally impossible
+// to render as parity — instead of patching each new vector as it is found.
+export const OUTCOME = {
+  ERROR: 'error',
+  MATCHED: 'matched',
+  MISMATCH: 'mismatch',
+  NOT_COMPARED: 'not-compared',
+  OUT_OF_SCOPE: 'out-of-scope',
+};
+
 function runTsc(bin, cwd, project) {
   const args = project
     ? ['--noEmit', '--pretty', 'false', '--project', project]
@@ -256,7 +278,103 @@ function runTsc(bin, cwd, project) {
   }
   const combined = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
   const lines = combined.split('\n').filter((line) => DIAGNOSTIC_RE.test(line));
-  return { elapsedMs, exitCode: result.status, lines };
+  return {
+    elapsedMs,
+    exitCode: result.status,
+    lines,
+    output: combined.trim(),
+    signal: result.signal ?? null,
+  };
+}
+
+// tsc exit codes: 0 = Success; 1 = DiagnosticsPresent_OutputsSkipped;
+// 2 = DiagnosticsPresent_OutputsGenerated. Anything non-zero means the compiler
+// reported diagnostics, which is the only distinction that carries pass/fail
+// meaning to a `&&` chain or a CI step.
+export function succeeded(run) {
+  return run.exitCode === 0;
+}
+
+// Detects a run whose exit status is not explicable by its parsed diagnostics.
+// Without this, a compiler that dies without printing a single "error TSxxxx"
+// line — native crash, signal, fatal CLI/runtime failure — yields an EMPTY
+// diagnostic set, which compares equal to the other side's empty set and reads
+// as agreement. A crashing compiler must never look like a passing one.
+export function evaluateRun(label, run) {
+  if (run.signal) {
+    return `${label} was terminated by signal ${run.signal}`;
+  }
+  if (run.exitCode === null || run.exitCode === undefined) {
+    return `${label} exited without a status code`;
+  }
+  if (run.exitCode !== 0 && run.diagnostics.size === 0) {
+    return (
+      `${label} exited ${run.exitCode} but produced no parsable diagnostics ` +
+      `(likely a crash or fatal CLI error, not a type error). Raw output: ${
+        run.output ? JSON.stringify(run.output.slice(0, 300)) : '<empty>'
+      }`
+    );
+  }
+  if (run.exitCode === 0 && run.diagnostics.size > 0) {
+    return `${label} exited 0 despite reporting ${run.diagnostics.size} diagnostic(s)`;
+  }
+  return null;
+}
+
+// Compares two runs of the SAME project. Exit status is part of the comparison,
+// not just the diagnostic sets.
+export function compareRuns(ts6, ts7) {
+  const errors = [evaluateRun('TS6', ts6), evaluateRun('TS7', ts7)].filter((e) => e !== null);
+  if (errors.length > 0) {
+    return { errors, onlyInTs6: [], onlyInTs7: [], outcome: OUTCOME.ERROR };
+  }
+
+  const onlyInTs6 = [...ts6.diagnostics].filter((d) => !ts7.diagnostics.has(d)).sort();
+  const onlyInTs7 = [...ts7.diagnostics].filter((d) => !ts6.diagnostics.has(d)).sort();
+  if (onlyInTs6.length > 0 || onlyInTs7.length > 0) {
+    return { errors: [], onlyInTs6, onlyInTs7, outcome: OUTCOME.MISMATCH };
+  }
+  // Compare the exit-status EQUIVALENCE CLASS (succeeded vs reported
+  // diagnostics), not the raw integer. Raw equality is unsound here, verified:
+  // tsc's `1` (DiagnosticsPresent_OutputsSkipped) and `2`
+  // (DiagnosticsPresent_OutputsGenerated) both mean "diagnostics present", and
+  // TS6 flips between them for a composite project depending on whether that
+  // run happened to (re)write dist/tsconfig.tsbuildinfo — exit 2 on the first
+  // run from a clean state, exit 1 on every run after, while TS7 is stably 1.
+  // That is a stateful artifact of tsbuildinfo freshness, not a semantic
+  // divergence, and comparing raw codes reports it as a flaky mismatch whose
+  // result depends on what ran before it.
+  if (succeeded(ts6) !== succeeded(ts7)) {
+    return {
+      errors: [
+        `exit status class differs with identical diagnostics: TS6=${ts6.exitCode} (${
+          succeeded(ts6) ? 'success' : 'diagnostics'
+        }) TS7=${ts7.exitCode} (${succeeded(ts7) ? 'success' : 'diagnostics'})`,
+      ],
+      onlyInTs6: [],
+      onlyInTs7: [],
+      outcome: OUTCOME.MISMATCH,
+    };
+  }
+  return { errors: [], onlyInTs6: [], onlyInTs7: [], outcome: OUTCOME.MATCHED };
+}
+
+// The single gate. Parity requires POSITIVE evidence for every command:
+// an empty result set cannot pass, and any outcome that is not MATCHED (or
+// OUT_OF_SCOPE) blocks the claim.
+export function canClaimParity(results) {
+  if (results.length === 0) {
+    return false;
+  }
+  return results.every((r) => r.outcome === OUTCOME.MATCHED || r.outcome === OUTCOME.OUT_OF_SCOPE);
+}
+
+// Maps a classified command to the outcome it gets when we do NOT run it.
+// `non-tsc` is genuinely out of scope: `node --check index.cjs` cannot change
+// behaviour based on which TypeScript version is installed. A `tsc` invocation
+// we cannot compare is NOT out of scope — it is unverified, and blocks parity.
+export function outcomeForUncomparedKind(kind) {
+  return kind === 'non-tsc' ? OUTCOME.OUT_OF_SCOPE : OUTCOME.NOT_COMPARED;
 }
 
 // Normalizes a raw diagnostic line to a "relpath:line:col:TSxxxx" tuple. Lines
@@ -272,12 +390,6 @@ function normalizeDiagnostic(line, cwd) {
   const relPath = path.relative(REPO_ROOT, absPath);
   const codeOnly = code.replace('error ', '');
   return `${relPath}:${lineNo}:${colNo}:${codeOnly}`;
-}
-
-function diffSets(a, b) {
-  const onlyA = [...a].filter((x) => !b.has(x)).sort();
-  const onlyB = [...b].filter((x) => !a.has(x)).sort();
-  return { onlyA, onlyB };
 }
 
 function main() {
@@ -306,8 +418,6 @@ function main() {
   }
 
   const results = [];
-  let mismatchCount = 0;
-  let skippedCount = 0;
 
   for (const manifest of manifests) {
     if (
@@ -323,62 +433,90 @@ function main() {
       const classified = classifyCommand(command);
       const relDir = path.relative(REPO_ROOT, manifest.dir);
 
+      // Every discovered command produces a result — including the ones we do
+      // not run. A command we skip must still be visible to the verdict, or
+      // "not verified" silently becomes "verified fine".
       if (classified.kind !== 'noEmit') {
-        skippedCount += 1;
+        const outcome = outcomeForUncomparedKind(classified.kind);
+        const tag = outcome === OUTCOME.OUT_OF_SCOPE ? 'SKIP ' : 'UNVERIFIED';
         console.log(
-          `SKIP  [${relDir}] "${command}" (${classified.kind}, not a --noEmit diagnostic run)`
+          `${tag} [${relDir}] "${command}" (${classified.kind}` +
+            `${outcome === OUTCOME.NOT_COMPARED ? ' — a tsc invocation this guard cannot compare' : ' — not a tsc invocation'})`
         );
+        results.push({ command, kind: classified.kind, label: relDir, outcome });
         continue;
       }
 
       const label = `${relDir}${classified.project ? ` --project ${classified.project}` : ''}`;
       process.stdout.write(`RUN   [${label}] ... `);
 
-      const ts6 = runTsc(ts6Bin, manifest.dir, classified.project);
-      const ts7 = runTsc(ts7Bin, manifest.dir, classified.project);
+      const ts6Raw = runTsc(ts6Bin, manifest.dir, classified.project);
+      const ts7Raw = runTsc(ts7Bin, manifest.dir, classified.project);
+      const ts6 = {
+        ...ts6Raw,
+        diagnostics: new Set(ts6Raw.lines.map((l) => normalizeDiagnostic(l, manifest.dir))),
+      };
+      const ts7 = {
+        ...ts7Raw,
+        diagnostics: new Set(ts7Raw.lines.map((l) => normalizeDiagnostic(l, manifest.dir))),
+      };
 
-      const ts6Set = new Set(ts6.lines.map((l) => normalizeDiagnostic(l, manifest.dir)));
-      const ts7Set = new Set(ts7.lines.map((l) => normalizeDiagnostic(l, manifest.dir)));
-      const { onlyA, onlyB } = diffSets(ts6Set, ts7Set);
-      const matched = onlyA.length === 0 && onlyB.length === 0;
+      const comparison = compareRuns(ts6, ts7);
+      const verdictTag = {
+        [OUTCOME.ERROR]: 'ERROR',
+        [OUTCOME.MATCHED]: 'PARITY',
+        [OUTCOME.MISMATCH]: 'MISMATCH',
+      }[comparison.outcome];
 
       console.log(
-        `${matched ? 'PARITY' : 'MISMATCH'}  ts6=${ts6Set.size} diag/${ts6.elapsedMs.toFixed(0)}ms  ts7=${ts7Set.size} diag/${ts7.elapsedMs.toFixed(0)}ms`
+        `${verdictTag}  ts6=${ts6.diagnostics.size} diag/${ts6Raw.elapsedMs.toFixed(0)}ms  ts7=${ts7.diagnostics.size} diag/${ts7Raw.elapsedMs.toFixed(0)}ms`
       );
 
-      if (!matched) {
-        mismatchCount += 1;
-        console.log(`  only in TS6 (${onlyA.length}):`);
-        for (const line of onlyA) {
+      for (const error of comparison.errors) {
+        console.log(`  !! ${error}`);
+      }
+      if (comparison.outcome === OUTCOME.MISMATCH) {
+        console.log(`  only in TS6 (${comparison.onlyInTs6.length}):`);
+        for (const line of comparison.onlyInTs6) {
           console.log(`    - ${line}`);
         }
-        console.log(`  only in TS7 (${onlyB.length}):`);
-        for (const line of onlyB) {
+        console.log(`  only in TS7 (${comparison.onlyInTs7.length}):`);
+        for (const line of comparison.onlyInTs7) {
           console.log(`    + ${line}`);
         }
       }
 
       results.push({
         label,
-        matched,
-        onlyInTs6: onlyA,
-        onlyInTs7: onlyB,
-        ts6DiagCount: ts6Set.size,
-        ts6ElapsedMs: ts6.elapsedMs,
-        ts7DiagCount: ts7Set.size,
-        ts7ElapsedMs: ts7.elapsedMs,
+        onlyInTs6: comparison.onlyInTs6,
+        onlyInTs7: comparison.onlyInTs7,
+        outcome: comparison.outcome,
+        ts6DiagCount: ts6.diagnostics.size,
+        ts6ElapsedMs: ts6Raw.elapsedMs,
+        ts7DiagCount: ts7.diagnostics.size,
+        ts7ElapsedMs: ts7Raw.elapsedMs,
       });
     }
   }
+
+  const byOutcome = (outcome) => results.filter((r) => r.outcome === outcome);
+  // "Compared" = an actual comparison was ATTEMPTED, which includes runs that
+  // errored. Excluding errors here would let the compared-floor fire first and
+  // misreport a crashing compiler as "your filter matched nothing" — burying
+  // the real cause behind an unrelated message.
+  const compared = results.filter(
+    (r) =>
+      r.outcome === OUTCOME.MATCHED || r.outcome === OUTCOME.MISMATCH || r.outcome === OUTCOME.ERROR
+  );
 
   // Vacuous-pass guard #2: a run must actually have COMPARED something. An
   // unfiltered run is held to the full-sweep floor; a --filter run only has to
   // have matched a package and produced at least one comparison (a filter that
   // matches nothing is itself an error, not a pass).
   const comparedFloor = options.filter ? 1 : MIN_COMPARED_PROJECTS;
-  if (results.length < comparedFloor) {
+  if (compared.length < comparedFloor) {
     throw new Error(
-      `Compared only ${results.length} project(s), below the floor of ${comparedFloor}` +
+      `Compared only ${compared.length} project(s), below the floor of ${comparedFloor}` +
         (options.filter ? ` for --filter=${options.filter}` : '') +
         '. Refusing to report parity over a near-empty set. ' +
         (options.filter
@@ -388,14 +526,22 @@ function main() {
     );
   }
 
-  const totalTs6Ms = results.reduce((sum, r) => sum + r.ts6ElapsedMs, 0);
-  const totalTs7Ms = results.reduce((sum, r) => sum + r.ts7ElapsedMs, 0);
+  // Time only runs that actually completed a comparison. A crashed compiler
+  // "finishes" in milliseconds and would otherwise manufacture a spectacular
+  // speedup number out of a failure.
+  const timed = results.filter(
+    (r) => r.outcome === OUTCOME.MATCHED || r.outcome === OUTCOME.MISMATCH
+  );
+  const totalTs6Ms = timed.reduce((sum, r) => sum + r.ts6ElapsedMs, 0);
+  const totalTs7Ms = timed.reduce((sum, r) => sum + r.ts7ElapsedMs, 0);
 
   console.log('');
   console.log('=== Summary ===');
-  console.log(`Projects compared: ${results.length}`);
-  console.log(`Projects skipped (non --noEmit): ${skippedCount}`);
-  console.log(`Mismatches: ${mismatchCount}`);
+  console.log(`Compared and matched: ${byOutcome(OUTCOME.MATCHED).length}`);
+  console.log(`Mismatched:           ${byOutcome(OUTCOME.MISMATCH).length}`);
+  console.log(`Errored (crash/fatal):${byOutcome(OUTCOME.ERROR).length}`);
+  console.log(`NOT COMPARED:         ${byOutcome(OUTCOME.NOT_COMPARED).length}`);
+  console.log(`Out of scope:         ${byOutcome(OUTCOME.OUT_OF_SCOPE).length}`);
   console.log(
     `Total TS6 wall time (sum of per-project spawns): ${(totalTs6Ms / 1000).toFixed(1)}s`
   );
@@ -406,17 +552,49 @@ function main() {
     console.log(`Speedup: ${(totalTs6Ms / totalTs7Ms).toFixed(2)}x`);
   }
 
-  if (mismatchCount > 0) {
+  // Anything not affirmatively verified is named, every run, whether or not the
+  // verdict is already failing. A reader must never have to infer what was left
+  // out of the comparison.
+  const unverified = byOutcome(OUTCOME.NOT_COMPARED);
+  if (unverified.length > 0) {
     console.log('');
+    console.log('These tsc invocations were NOT compared — parity is NOT established for them:');
+    for (const r of unverified) {
+      console.log(`  - [${r.label}] "${r.command}" (${r.kind})`);
+    }
     console.log(
-      'PARITY FAILED. Do not switch the type-check binary. See docs/series-c-ts7-parity-findings.md.'
+      '  Build-mode (`tsc --build`) cannot be compared in place: it must emit (`tsc -b --noEmit` ' +
+        'fails with TS6310 on referenced projects) and its output cannot be redirected (`--outDir` ' +
+        'is rejected with TS5094 under `--build`), so running it under TS7 would write TS7-generated ' +
+        'declarations into the working tree. Comparing it needs an isolated workspace copy.'
     );
-    process.exitCode = 1;
-    return;
+  }
+  const outOfScope = byOutcome(OUTCOME.OUT_OF_SCOPE);
+  if (outOfScope.length > 0) {
+    console.log('');
+    console.log('Out of scope (not a tsc invocation; no TypeScript version can change these):');
+    for (const r of outOfScope) {
+      console.log(`  - [${r.label}] "${r.command}"`);
+    }
   }
 
   console.log('');
-  console.log('PARITY HOLDS across all compared projects.');
+  if (canClaimParity(results)) {
+    console.log('PARITY HOLDS: every discovered tsc invocation was compared and matched.');
+    return;
+  }
+
+  const blockers = [
+    byOutcome(OUTCOME.MISMATCH).length > 0 && `${byOutcome(OUTCOME.MISMATCH).length} mismatch(es)`,
+    byOutcome(OUTCOME.ERROR).length > 0 && `${byOutcome(OUTCOME.ERROR).length} errored run(s)`,
+    unverified.length > 0 && `${unverified.length} uncompared tsc invocation(s)`,
+  ].filter(Boolean);
+
+  console.log(
+    `PARITY NOT ESTABLISHED (${blockers.join('; ')}). Do not switch the type-check binary. ` +
+      'See docs/series-c-ts7-parity-findings.md.'
+  );
+  process.exitCode = 1;
 }
 
 // Only run when invoked directly, so the parsing helpers above can be imported
