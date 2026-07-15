@@ -133,6 +133,83 @@ test('RULE: peerDependencies keep literal broad floors and are NOT flagged', () 
     !CATALOG_CHECKED_FIELDS.includes('peerDependencies'),
     'peerDependencies must never be added to the checked fields'
   );
+  // …and the exempt list must be LOAD-BEARING, not decorative: every field on it
+  // is enforced in the inverse direction (no "catalog:" allowed). Proven by
+  // driving each exempt field through the real checker rather than trusting the
+  // constant to be wired up.
+  for (const field of CATALOG_EXEMPT_FIELDS) {
+    const probe = makeFixture({
+      catalog: bulkCatalog({ 'react-router-dom': '^7.18.1' }),
+      packages: bulkPackages({ drifted: { [field]: { 'react-router-dom': 'catalog:' } } }),
+    });
+    try {
+      const violations = findCatalogViolations({ repoRoot: probe });
+      assert.equal(violations.length, 1, `${field} is on the exempt list but is not enforced`);
+      assert.equal(violations[0].field, field);
+      assert.equal(violations[0].kind, 'catalog-in-exempt-field');
+    } finally {
+      rmSync(probe, { force: true, recursive: true });
+    }
+  }
+});
+
+test('MONEY TEST 2: pointing a PEER range at the catalog FAILS the guard', () => {
+  // The inverse direction. pnpm silently accepts this: it records
+  // `specifier: 'catalog:'` and resolves the peer to the catalog's single pin,
+  // ERASING the broad floor (verified live on packages/ui: ^7.14.1 -> 7.18.1).
+  // A plausible copy-paste from the dependencies block silently narrows a
+  // published contract.
+  const dir = makeFixture({
+    catalog: bulkCatalog({ 'react-router-dom': '^7.18.1' }),
+    packages: bulkPackages({
+      clean: { peerDependencies: { 'react-router-dom': '^7.14.1' } },
+      drifted: { peerDependencies: { 'react-router-dom': 'catalog:' } },
+    }),
+  });
+  try {
+    const violations = findCatalogViolations({ repoRoot: dir });
+    assert.equal(violations.length, 1, 'only the peer pointed at the catalog may be flagged');
+    assert.equal(violations[0].kind, 'catalog-in-exempt-field');
+    assert.equal(violations[0].field, 'peerDependencies');
+    assert.equal(violations[0].name, 'react-router-dom');
+    assert.equal(violations[0].manifest, path.join('packages', 'drifted', 'package.json'));
+    // The remedy must be the OPPOSITE of the other direction's.
+    const report = formatViolations(violations);
+    assert.match(report, /must keep a literal range/);
+    assert.match(report, /narrowing a published contract/);
+    assert.doesNotMatch(report, /Use "catalog:" instead/);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test('BLIND SPOT: catalog:default in a peer field is flagged too', () => {
+  const dir = makeFixture({
+    catalog: bulkCatalog({ 'react-router-dom': '^7.18.1' }),
+    packages: bulkPackages({
+      drifted: { peerDependencies: { 'react-router-dom': 'catalog:default' } },
+    }),
+  });
+  try {
+    const violations = findCatalogViolations({ repoRoot: dir });
+    assert.equal(violations.length, 1, 'catalog:default is still a catalog reference');
+    assert.equal(violations[0].kind, 'catalog-in-exempt-field');
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test('BLIND SPOT: a NON-catalogued peer may reference anything without being flagged', () => {
+  // The exempt-field check keys off the catalog, not off peer fields generally.
+  const dir = makeFixture({
+    catalog: bulkCatalog({ typescript: '^6.0.3' }),
+    packages: bulkPackages({ lib: { peerDependencies: { 'not-catalogued': '^1.2.3' } } }),
+  });
+  try {
+    assert.deepEqual(findCatalogViolations({ repoRoot: dir }), []);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
 
 test('BLIND SPOT: every checked field is actually checked (not just dependencies)', () => {

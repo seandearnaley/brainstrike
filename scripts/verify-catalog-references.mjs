@@ -361,8 +361,22 @@ function isDefaultCatalogReference(spec) {
 }
 
 /**
- * Every catalogued dependency referenced with anything other than "catalog:"
- * from a checked field. Returns an array of violation objects (empty = clean).
+ * Every catalog-reference violation, in BOTH directions:
+ *
+ *  - kind 'literal-in-checked-field' — a catalogued dep referenced by a literal
+ *    version from a version-resolving field. pnpm silently accepts this and
+ *    resolves a second parallel copy.
+ *  - kind 'catalog-in-exempt-field'  — a catalogued dep referenced via
+ *    "catalog:" from a peer field. pnpm silently accepts this too: it records
+ *    `specifier: 'catalog:'` and resolves the peer range to the catalog's single
+ *    pin, REPLACING the broad compatibility floor (verified live —
+ *    `peerDependencies: { react-router-dom: catalog: }` resolved 7.18.1, erasing
+ *    the ^7.14.1 floor). A plausible copy-paste from the dependencies block
+ *    silently narrows a published contract.
+ *
+ * Checking only the first direction would leave CATALOG_EXEMPT_FIELDS as
+ * documentation that nothing enforces — the rule stated in one place and
+ * enforced in another. Both lists are iterated here so both are load-bearing.
  */
 export function findCatalogViolations({ repoRoot }) {
   const catalog = readCatalogEntries(repoRoot);
@@ -401,19 +415,35 @@ export function findCatalogViolations({ repoRoot }) {
           'A manifest that does not parse cannot be certified catalog-clean; fix the JSON.'
       );
     }
+    const relManifest = path.relative(repoRoot, manifestPath);
+    // Direction 1: version-resolving fields must use "catalog:", never a literal.
     for (const field of CATALOG_CHECKED_FIELDS) {
-      const deps = manifest[field];
-      if (deps === undefined) {
-        continue;
-      }
-      for (const [name, spec] of Object.entries(deps)) {
+      for (const [name, spec] of Object.entries(manifest[field] ?? {})) {
         if (!catalog.has(name) || isDefaultCatalogReference(spec)) {
           continue;
         }
         violations.push({
           catalogVersion: catalog.get(name),
           field,
-          manifest: path.relative(repoRoot, manifestPath),
+          kind: 'literal-in-checked-field',
+          manifest: relManifest,
+          name,
+          spec,
+        });
+      }
+    }
+    // Direction 2: exempt (peer) fields must keep a literal range, never
+    // "catalog:" — which would swap the broad floor for the catalog's pin.
+    for (const field of CATALOG_EXEMPT_FIELDS) {
+      for (const [name, spec] of Object.entries(manifest[field] ?? {})) {
+        if (!(catalog.has(name) && isDefaultCatalogReference(spec))) {
+          continue;
+        }
+        violations.push({
+          catalogVersion: catalog.get(name),
+          field,
+          kind: 'catalog-in-exempt-field',
+          manifest: relManifest,
           name,
           spec,
         });
@@ -423,15 +453,28 @@ export function findCatalogViolations({ repoRoot }) {
   return violations;
 }
 
-/** Human-readable violation report used by the test's assertion message. */
+/**
+ * Human-readable violation report used by the test's assertion message. The
+ * remedy is per-kind and OPPOSITE in each direction — a single generic message
+ * would tell half the readers to do exactly the wrong thing.
+ */
 export function formatViolations(violations) {
   return violations
-    .map(
-      (v) =>
+    .map((v) => {
+      if (v.kind === 'catalog-in-exempt-field') {
+        return (
+          `${v.manifest} [${v.field}] declares "${v.name}": "${v.spec}", but ${v.field} must keep a literal ` +
+          `range. ${v.name} is catalogued as "${v.catalogVersion}", so "catalog:" here silently REPLACES this ` +
+          "package's broad compatibility floor with that exact pin — narrowing a published contract. A peer " +
+          'range is a contract, not a version selection. Restore an explicit range (e.g. the previous floor).'
+        );
+      }
+      return (
         `${v.manifest} [${v.field}] declares "${v.name}": "${v.spec}" but ${v.name} is catalogued in ` +
         `pnpm-workspace.yaml as "${v.catalogVersion}". Use "catalog:" instead — a literal here is silently accepted ` +
         `by pnpm install and resolves a SECOND parallel version of ${v.name}. If the version must change, bump the ` +
         'catalog entry.'
-    )
+      );
+    })
     .join('\n');
 }
