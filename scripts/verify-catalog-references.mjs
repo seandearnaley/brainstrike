@@ -360,6 +360,59 @@ function isDefaultCatalogReference(spec) {
   return spec === 'catalog:' || spec === 'catalog:default';
 }
 
+/** True when `spec` is any catalog reference (default or named). */
+function isCatalogReference(spec) {
+  return typeof spec === 'string' && spec.startsWith('catalog:');
+}
+
+/**
+ * Resolve a package.json dependency spec to a concrete version range, following
+ * a `catalog:` indirection when present. Literal ranges pass through unchanged.
+ *
+ * Shared entry point for OTHER guards that need a dep's real version out of a
+ * manifest (verify-playwright-pin-sync.mjs reads `@playwright/test` to compare
+ * against the hard-coded Playwright container pins). It exists so there is
+ * exactly ONE pnpm-workspace.yaml catalog parser in this repo: a second guard
+ * hand-rolling its own would be the same root shape this guard's own history
+ * kept producing — a rule stated in one place and enforced in another.
+ *
+ * The read is LAZY on purpose: a literal spec never touches pnpm-workspace.yaml,
+ * so callers with fixture repoRoots that have only a package.json keep working.
+ *
+ * NO SILENT FALLBACKS — a `catalog:` reference with no catalog entry THROWS
+ * rather than returning undefined or skipping. A caller that silently skipped
+ * would disable its own check, which is precisely the failure class these
+ * guards exist to prevent.
+ *
+ * @param {string} name dependency name (the catalog lookup key)
+ * @param {string} spec the raw package.json value (`^1.61.1`, `catalog:`, …)
+ * @param {{ repoRoot: string }} options
+ * @returns {string} a concrete version range
+ */
+export function resolveCatalogReference(name, spec, { repoRoot }) {
+  if (!isCatalogReference(spec)) {
+    return spec;
+  }
+  if (!isDefaultCatalogReference(spec)) {
+    throw new Error(
+      `resolveCatalogReference: "${name}" uses the named-catalog reference "${spec}", which this repo does not ` +
+        'model (readCatalogEntries rejects the `catalogs:` block for the same reason). Use the default catalog ' +
+        '("catalog:") or teach both functions the named-catalog shape.'
+    );
+  }
+  const catalog = readCatalogEntries(repoRoot);
+  const resolved = catalog.get(name);
+  if (resolved === undefined) {
+    throw new Error(
+      `resolveCatalogReference: "${name}" is declared as "${spec}" but has NO entry in the pnpm-workspace.yaml ` +
+        'catalog: block, so its version cannot be resolved. Add the catalog entry, or give the dependency a ' +
+        'literal version. (Refusing to skip: a guard that silently ignored this would stop checking the thing ' +
+        'it exists to check.)'
+    );
+  }
+  return resolved;
+}
+
 /**
  * Every catalog-reference violation, in BOTH directions:
  *

@@ -14,10 +14,23 @@
 //  - any of the three workflow files no longer contains a
 //    `mcr.microsoft.com/playwright:vX.Y.Z-noble` pin at all (a rename/removal
 //    this guard would otherwise silently miss by finding zero violations), or
-//  - a pin's version does not equal package.json's `@playwright/test` version.
+//  - a pin's version does not equal package.json's `@playwright/test` version, or
+//  - `@playwright/test` is declared as `catalog:` but has no catalog entry to
+//    resolve (skipping instead would silently disable this guard).
+//
+// `@playwright/test` is catalogued (Series C R8), so package.json declares
+// `"catalog:"` and the version is resolved through pnpm-workspace.yaml via the
+// shared resolveCatalogReference() — see verify-catalog-references.mjs. `bump the
+// catalog entry` is therefore the fix when this guard reports a mismatch.
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// Reuse the single tested pnpm-workspace.yaml catalog parser rather than
+// hand-rolling a second one here (Series C R8 catalogued `@playwright/test`, so
+// package.json now reads "catalog:" instead of a literal). Two independent
+// parsers of the same file is the drift shape both guards exist to prevent.
+import { resolveCatalogReference } from './verify-catalog-references.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -60,7 +73,14 @@ export function checkPlaywrightPinSync(options = {}) {
       'verify-playwright-pin-sync: package.json has no @playwright/test dependency to pin against'
     );
   }
-  const expectedVersion = bareVersion(rawRange);
+  // `@playwright/test` is catalogued, so rawRange is normally "catalog:" and the
+  // real range lives in pnpm-workspace.yaml. resolveCatalogReference() follows
+  // that indirection (and throws if the reference has no catalog entry rather
+  // than letting this guard skip silently); a literal range passes straight
+  // through without reading pnpm-workspace.yaml at all.
+  const expectedVersion = bareVersion(
+    resolveCatalogReference('@playwright/test', rawRange, { repoRoot })
+  );
 
   const mismatches = [];
   for (const relPath of PINNED_WORKFLOWS) {
