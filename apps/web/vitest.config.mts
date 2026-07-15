@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 
@@ -9,142 +10,49 @@ export default defineConfig({
     include: ['@brainstrike/hooks', '@brainstrike/ui'],
   },
   resolve: {
-    // biome-ignore assist/source/useSortedKeys: Vite object aliases are order-sensitive; subpath aliases must precede package-root aliases.
-    alias: {
-      '@brainstrike/agent': resolve(import.meta.dirname, '../../packages/agent/src'),
-      ...createAgentBrowserSafeAliasMap(resolve(import.meta.dirname, '../../packages/agent')),
-      '@brainstrike/app-shell': resolve(import.meta.dirname, '../../packages/app-shell/src'),
-      // B4 gap fills: these roots were missing from this hand-maintained map,
-      // so they resolved via package `exports` to dist — invisible while
-      // test.dependsOn ^build guaranteed dist existed, loud once B4 dropped it
-      // (agent src imports assistant-contract; db src imports indexing-contract;
-      // src/main.tsx imports the chunking-worker root).
-      '@brainstrike/assistant-contract': resolve(
-        import.meta.dirname,
-        '../../packages/assistant-contract/src'
-      ),
-      '@brainstrike/chunking-worker': resolve(
-        import.meta.dirname,
-        '../../packages/chunking-worker/src'
-      ),
-      '@brainstrike/context-actions': resolve(
-        import.meta.dirname,
-        '../../packages/context-actions/src'
-      ),
-      '@brainstrike/file-system': resolve(import.meta.dirname, '../../packages/file-system/src'),
-      '@brainstrike/indexing-contract': resolve(
-        import.meta.dirname,
-        '../../packages/indexing-contract/src/index.ts'
-      ),
-      '@brainstrike/storage': resolve(import.meta.dirname, '../../packages/storage/src'),
-      '@brainstrike/db': resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
-      '@brainstrike/db-explorer': resolve(import.meta.dirname, '../../packages/db-explorer/src'),
-      '@brainstrike/embeddings/backend': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/backend-entry.ts'
-      ),
-      '@brainstrike/embeddings/factory': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/factory-entry.ts'
-      ),
-      '@brainstrike/embeddings/provider-core': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/provider-core.ts'
-      ),
-      '@brainstrike/embeddings/runtime-config': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/runtime-config.ts'
-      ),
-      '@brainstrike/embeddings/service': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/service-entry.ts'
-      ),
-      '@brainstrike/embeddings/worker': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/worker-entry.ts'
-      ),
-      '@brainstrike/embeddings': resolve(import.meta.dirname, '../../packages/embeddings/src'),
-      '@brainstrike/file-explorer': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer/src'
-      ),
-      '@brainstrike/file-explorer-hooks': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-hooks/src'
-      ),
-      '@brainstrike/file-explorer-ui': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-ui/src'
-      ),
-      '@brainstrike/file-explorer-ui/indexing': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-ui/src/indexing'
-      ),
-      '@brainstrike/file-explorer-ui/shell': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-ui/src/shell'
-      ),
-      '@brainstrike/file-import/browser-queue-port': resolve(
-        import.meta.dirname,
-        '../../packages/file-import/src/browser-queue-port.ts'
-      ),
-      '@brainstrike/file-import/chunking-worker-context': resolve(
-        import.meta.dirname,
-        '../../packages/file-import/src/chunking-worker-context.tsx'
-      ),
-      '@brainstrike/file-import/enhanced-import': resolve(
-        import.meta.dirname,
-        '../../packages/file-import/src/enhanced-import.ts'
-      ),
-      '@brainstrike/file-import': resolve(import.meta.dirname, '../../packages/file-import/src'),
-      '@brainstrike/hooks': resolve(import.meta.dirname, '../../packages/hooks/src'),
-      '@brainstrike/platform-utils': resolve(
-        import.meta.dirname,
-        '../../packages/platform-utils/src'
-      ),
-      '@brainstrike/preferences': resolve(import.meta.dirname, '../../packages/preferences/src'),
-      '@brainstrike/queue/browser': resolve(
-        import.meta.dirname,
-        '../../packages/queue/src/browser.ts'
-      ),
-      '@brainstrike/queue': resolve(import.meta.dirname, '../../packages/queue/src'),
-      '@brainstrike/test-utils': resolve(
-        import.meta.dirname,
-        '../../packages/test-utils/src/index.ts'
-      ),
-      '@brainstrike/text-splitter/chunking-core': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/chunking-core.ts'
-      ),
-      '@brainstrike/text-splitter/token-constants': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/token-constants.ts'
-      ),
-      '@brainstrike/text-splitter/token-counting-heuristics': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/token-counting-heuristics.ts'
-      ),
-      '@brainstrike/text-splitter/token-utils-accurate-lite': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
-      ),
-      '@brainstrike/text-splitter': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/index.ts'
-      ),
-      '@brainstrike/types': resolve(import.meta.dirname, '../../packages/types/src'),
-      '@brainstrike/ui': resolve(import.meta.dirname, '../../packages/ui/src'),
-      '@brainstrike/utils': resolve(import.meta.dirname, '../../packages/utils/src'),
-      '@brainstrike/vector-management': resolve(
-        import.meta.dirname,
-        '../../packages/vector-management/src'
-      ),
-      '@brainstrike/workers': resolve(import.meta.dirname, '../../packages/workers'),
-      '@brainstrike/workers/file-content-worker': resolve(
-        import.meta.dirname,
-        '../../packages/workers/file-content-worker.ts'
-      ),
-    },
+    // Array form: first match wins, so config-local entries (deliberate
+    // overrides, curated subpath maps) come BEFORE the shared registry
+    // spread, mirroring the packages/* convention from B3 (#1651) and
+    // apps/desktop/vitest.config.mts (#1658).
+    alias: [
+      // Browser-safe agent subpath entries first (exact specifiers), then the
+      // agent ROOT as a plain prefix so `@brainstrike/agent` and its remaining
+      // node-only subpaths (`/pglite-mastra-memory`, …) resolve to SOURCE.
+      // The shared registry deliberately EXCLUDES agent (its root pulls
+      // Mastra/Node-only deps that cannot load in browser-only test lanes),
+      // but this app's src runtime-imports the agent root directly — a
+      // guarantee that vanished when B4 dropped `test.dependsOn: ["^build"]`.
+      // Aliasing the root to src keeps those lanes green without re-adding a
+      // build edge. Subpath entries MUST precede the root: a plain string
+      // `find` prefix-matches (`specifier.startsWith(find + '/')`), so
+      // `@brainstrike/agent` listed first would shadow every subpath below it.
+      ...Object.entries(
+        createAgentBrowserSafeAliasMap(resolve(import.meta.dirname, '../../packages/agent'))
+      ).map(([find, replacement]) => ({ find, replacement })),
+      {
+        find: '@brainstrike/agent',
+        replacement: resolve(import.meta.dirname, '../../packages/agent/src'),
+      },
+      // @brainstrike/workers has no `src/` dir (worker files live at the
+      // package root), so the registry skips it — alias its subpaths and root
+      // explicitly, subpath first for the same prefix-shadowing reason above.
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: resolve(import.meta.dirname, '../../packages/workers/file-content-worker.ts'),
+      },
+      {
+        find: '@brainstrike/workers',
+        replacement: resolve(import.meta.dirname, '../../packages/workers'),
+      },
+      // B3/B4: shared workspace source-alias registry (#1651/#1658), so every
+      // other `@brainstrike/*` runtime import in this app's test lanes
+      // executes SOURCE instead of resolving to built dist via package
+      // `exports`. Replaces the hand-maintained map this file used to carry
+      // (every entry it listed besides the two exceptions above was already
+      // an exact match for what this registry derives from each package's own
+      // `exports` map).
+      ...workspaceSrcAliases(resolve(import.meta.dirname, '../../packages')),
+    ],
     preserveSymlinks: true,
   },
   test: {

@@ -34,9 +34,17 @@
 //    with a reason string. NO silent fallbacks: anything else fails loudly.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 // Syntax-only parsing (ts.createSourceFile) to classify imports; no type check.
 import ts from 'typescript';
+// Real Vite config loader (esbuild-bundles the config file), not a plain
+// `import()`: apps/*/vitest.config.mts contain extensionless local imports
+// (e.g. '../../packages/test-utils/src/test-timeouts') that Vite/Vitest's own
+// bundler-based config loading tolerates but plain Node ESM resolution does
+// not. Using the same loader Vite/Vitest use for real keeps this guard's
+// "execute the real config" premise honest for apps/*, not just packages/*.
+import { loadConfigFromFile } from 'vite';
+import { resolveThroughAliases } from '../packages/test-utils/workspace-src-aliases.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -264,8 +272,12 @@ function normalizeAliasEntries(alias) {
  * top-level `resolve.alias`, so each project contributes ONLY its own aliases.
  */
 export async function loadConfigProjects(configPath) {
-  const mod = await import(pathToFileURL(configPath).href);
-  const cfg = mod.default;
+  const result = await loadConfigFromFile(
+    { command: 'serve', mode: 'test' },
+    configPath,
+    dirname(configPath)
+  );
+  const cfg = result?.config;
   if (!cfg || typeof cfg !== 'object') {
     throw new Error(`workspace-src-alias guard: ${configPath} has no default-export config`);
   }
@@ -281,19 +293,15 @@ export async function loadConfigProjects(configPath) {
   return [{ aliasEntries: normalizeAliasEntries(cfg.resolve?.alias), label: 'root' }];
 }
 
-/** Simulate vitest first-match alias resolution. Returns target path or null. */
-export function resolveThroughAliases(specifier, aliasEntries) {
-  for (const { find, replacement } of aliasEntries) {
-    if (typeof find === 'string') {
-      if (specifier === find || specifier.startsWith(`${find}/`)) {
-        return `${replacement}${specifier.slice(find.length)}`;
-      }
-    } else if (find instanceof RegExp && find.test(specifier)) {
-      return specifier.replace(find, replacement);
-    }
-  }
-  return null;
-}
+// Re-exported (not duplicated) from the registry module itself (imported
+// above): app-level vite-config alias-contract tests
+// (apps/*/src/__tests__/vite-config.test.ts, Series C R6 task 5) need the
+// exact same first-match simulation but cannot import from `scripts/`
+// (outside their tsconfig project's `rootDir`) — they import it from
+// `@brainstrike/test-utils/workspace-src-aliases` instead, where this guard
+// also gets it from. Re-exported here for this module's existing consumers
+// that still import it from this file.
+export { resolveThroughAliases };
 
 /** True if an alias target resolves to an existing file/dir (vite-style). */
 function aliasTargetExists(target) {
@@ -469,8 +477,13 @@ function checkProject({
 }
 
 /**
- * Scan `packagesRoot` and return violations:
- * `{ package, config, project, specifier, problem }[]`.
+ * Scan `packagesRoot` (and, when given, `appsRoot`) and return violations:
+ * `{ package, config, project, specifier, problem }[]`. `appsRoot` is OPT-IN
+ * (default: not scanned) so existing packagesRoot-only fixture tests keep
+ * their exact prior behavior; the real-tree "no package test lane resolves
+ * workspace imports from dist" test passes it explicitly to also cover
+ * apps/web and apps/desktop (Series C R6 task 5) — an app alias that drifts
+ * from source-resolution fails this guard exactly like a package's would.
  */
 export async function findWorkspaceSrcAliasViolations(options = {}) {
   const packagesRoot = options.packagesRoot ?? resolve(HERE, '..', 'packages');
@@ -481,6 +494,11 @@ export async function findWorkspaceSrcAliasViolations(options = {}) {
     }
   }
   const packageIndex = indexWorkspacePackages(packagesRoot);
+  if (options.appsRoot) {
+    for (const [name, entry] of indexWorkspacePackages(options.appsRoot)) {
+      packageIndex.set(name, entry);
+    }
+  }
   const violations = [];
 
   // Non-test specifiers per package, for transitive (src-graph) contributions.

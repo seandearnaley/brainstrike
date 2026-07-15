@@ -267,3 +267,34 @@ export function workspaceSrcAliases(packagesDir, options = {}) {
   // explicit subpath export always wins over a wildcard namespace (first-match).
   return [...exactEntries, ...prefixEntries];
 }
+
+/**
+ * Simulate Vite/Vitest's first-match `resolve.alias` resolution for one
+ * specifier against an alias entry list (this registry's output, or a
+ * config's full array including local overrides placed before the spread).
+ * Returns the resolved target path, or null when nothing matches (the
+ * specifier falls through to normal node/package `exports` resolution).
+ *
+ * Shared here (not duplicated per consumer) because both
+ * `scripts/verify-workspace-src-aliases.mjs` (the guard) and
+ * `apps/*\/src/__tests__/vite-config.test.ts` (behavioral alias-contract
+ * tests, Series C R6 task 5) need the exact same simulation — and app test
+ * files cannot reach into `scripts/` directly (it sits outside their
+ * tsconfig project's `rootDir`).
+ *
+ * @param {string} specifier
+ * @param {{ find: string | RegExp, replacement: string }[]} aliasEntries
+ * @returns {string | null}
+ */
+export function resolveThroughAliases(specifier, aliasEntries) {
+  for (const { find, replacement } of aliasEntries) {
+    if (typeof find === 'string') {
+      if (specifier === find || specifier.startsWith(`${find}/`)) {
+        return `${replacement}${specifier.slice(find.length)}`;
+      }
+    } else if (find instanceof RegExp && find.test(specifier)) {
+      return specifier.replace(find, replacement);
+    }
+  }
+  return null;
+}

@@ -1,8 +1,10 @@
 import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui/tree';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
-import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils/background-indexing-policy';
+import {
+  type BackgroundIndexingPolicyPreset,
+  createBackgroundIndexingEntryPolicy,
+} from '@brainstrike/utils';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { flattenFileNodes } from './workspace-collection-sync-import';
 import type {

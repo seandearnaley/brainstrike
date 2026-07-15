@@ -143,6 +143,15 @@
       "@brainstrike/embedding-worker": [
         "./packages/embedding-worker/src"
       ],
+      "@brainstrike/selection-rules": [
+        "./packages/selection-rules/src"
+      ],
+      "@brainstrike/worker-runtime": [
+        "./packages/worker-runtime/src"
+      ],
+      "@brainstrike/workspace-search": [
+        "./packages/workspace-search/src"
+      ],
       "@web/*": [
         "./apps/web/src/*"
       ],

@@ -13,6 +13,7 @@ import {
   getWorkerpoolBrowserStubAliases,
   isContextActionSystemModule,
 } from '@brainstrike/build-utils';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
 import react, { reactCompilerPreset } from '@vitejs/plugin-react';
@@ -134,9 +135,18 @@ export default defineConfig({
   ],
   publicDir: 'public',
   resolve: {
+    // Array form: first match wins, so deliberate overrides/exceptions come
+    // BEFORE the shared registry spread (B3/B4 convention, #1651/#1658). Every
+    // root/subpath alias the registry emits is an EXACT specifier match
+    // (derived from each package's own `exports` map), so — unlike the old
+    // hand-maintained list's mix of exact AND blanket string-prefix roots
+    // (e.g. the `@brainstrike/utils` exact+prefix pair this replaces) —
+    // subpath vs. root ordering can no longer shadow anything; only the
+    // exceptions below need to precede it.
     alias: [
       { find: '@', replacement: path.resolve(__dirname, './src') },
-      // Stylesheets
+      // Stylesheet/asset imports: the registry deliberately excludes non-code
+      // exports (css/json/icons), so these stay explicit.
       {
         find: '@brainstrike/app-shell/styles.css',
         replacement: path.resolve(__dirname, '../../packages/app-shell/styles.css'),
@@ -165,225 +175,20 @@ export default defineConfig({
         find: '@brainstrike/ui/globals.css',
         replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
       },
-      // Use source for consistent transforms and single React instance
-      {
-        find: '@brainstrike/file-explorer-ui',
-        replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/src'),
-      },
-      // Resolve dev/runtime imports from source so Vite never depends on workspace dist churn.
+      // @brainstrike/file-tree-worker's root `exports['.']` targets a
+      // Node-worker_threads entry (dist/index.js); the registry would derive
+      // that same Node-targeted src/index.ts. vite.ts is the deliberate
+      // browser-adapted implementation (Vite Worker URL syntax) this app
+      // needs instead, so it must precede the spread.
       {
         find: '@brainstrike/file-tree-worker',
         replacement: path.resolve(__dirname, '../../packages/file-tree-worker/src/vite.ts'),
       },
-      {
-        find: '@brainstrike/token-cache/cache-runtime',
-        replacement: path.resolve(__dirname, '../../packages/token-cache/src/cache-runtime.ts'),
-      },
-      {
-        find: '@brainstrike/token-cache/background-indexer',
-        replacement: path.resolve(
-          __dirname,
-          '../../packages/token-cache/src/background-indexer.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/selection-rules',
-        replacement: path.resolve(__dirname, '../../packages/selection-rules/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/file-explorer-hooks',
-        replacement: path.resolve(__dirname, '../../packages/file-explorer-hooks/src'),
-      },
-      {
-        find: '@brainstrike/file-explorer',
-        replacement: path.resolve(__dirname, '../../packages/file-explorer/src'),
-      },
-      {
-        find: '@brainstrike/db',
-        replacement: path.resolve(__dirname, '../../packages/db/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/utils/workspace-indexing-qos',
-        replacement: path.resolve(__dirname, '../../packages/utils/src/workspace-indexing-qos.ts'),
-      },
-      {
-        find: /^@brainstrike\/utils$/,
-        replacement: path.resolve(__dirname, '../../packages/utils/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/utils',
-        replacement: path.resolve(__dirname, '../../packages/utils/src'),
-      },
-      {
-        find: '@brainstrike/ui',
-        replacement: path.resolve(__dirname, '../../packages/ui/src'),
-      },
-      {
-        find: '@brainstrike/platform-utils',
-        replacement: path.resolve(__dirname, '../../packages/platform-utils/src'),
-      },
-      {
-        find: '@brainstrike/app-shell',
-        replacement: path.resolve(__dirname, '../../packages/app-shell/src'),
-      },
-      // Source-alias these two like every other @brainstrike package. Without
-      // it they resolve to their built `dist`, which lands `defineContextAction`
-      // in a separate (dist) chunk from the source feature `*/context-actions`
-      // that call it at module-init → circular chunk-init TDZ ("t is not a
-      // function") that hangs the BUILT renderer on startup (dev is unaffected).
-      {
-        find: '@brainstrike/commands',
-        replacement: path.resolve(__dirname, '../../packages/commands/src'),
-      },
-      {
-        find: '@brainstrike/context-actions',
-        replacement: path.resolve(__dirname, '../../packages/context-actions/src'),
-      },
-      {
-        // Subpath alias must precede the package-root alias: the `./embedding-models`
-        // export maps to `src/utils/embedding-models.ts`, but the prefix-replacing
-        // root alias would resolve it to the non-existent `src/embedding-models`.
-        find: '@brainstrike/db-explorer/embedding-models',
-        replacement: path.resolve(
-          __dirname,
-          '../../packages/db-explorer/src/utils/embedding-models.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/db-explorer',
-        replacement: path.resolve(__dirname, '../../packages/db-explorer/src'),
-      },
-      {
-        find: '@brainstrike/embedding-worker',
-        replacement: path.resolve(__dirname, '../../packages/embedding-worker/src'),
-      },
-      {
-        find: '@brainstrike/embeddings/runtime-config',
-        replacement: path.resolve(__dirname, '../../packages/embeddings/src/runtime-config.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/provider-core',
-        replacement: path.resolve(__dirname, '../../packages/embeddings/src/provider-core.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/backend',
-        replacement: path.resolve(__dirname, '../../packages/embeddings/src/backend-entry.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/factory',
-        replacement: path.resolve(__dirname, '../../packages/embeddings/src/factory-entry.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/service',
-        replacement: path.resolve(__dirname, '../../packages/embeddings/src/service-entry.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/worker',
-        replacement: path.resolve(__dirname, '../../packages/embeddings/src/worker-entry.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings',
-        replacement: path.resolve(__dirname, '../../packages/embeddings/src'),
-      },
-      {
-        find: '@brainstrike/worker-runtime',
-        replacement: path.resolve(__dirname, '../../packages/worker-runtime/src'),
-      },
-      {
-        find: '@brainstrike/queue/browser',
-        replacement: path.resolve(__dirname, '../../packages/queue/src/browser.ts'),
-      },
-      {
-        find: '@brainstrike/queue',
-        replacement: path.resolve(__dirname, '../../packages/queue/src'),
-      },
-      {
-        find: '@brainstrike/file-import/browser-queue-port',
-        replacement: path.resolve(
-          __dirname,
-          '../../packages/file-import/src/browser-queue-port.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/file-import/chunking-worker-context',
-        replacement: path.resolve(
-          __dirname,
-          '../../packages/file-import/src/chunking-worker-context.tsx'
-        ),
-      },
-      {
-        find: '@brainstrike/file-import/enhanced-import',
-        replacement: path.resolve(__dirname, '../../packages/file-import/src/enhanced-import.ts'),
-      },
-      {
-        find: '@brainstrike/file-import',
-        replacement: path.resolve(__dirname, '../../packages/file-import/src'),
-      },
-      {
-        find: '@brainstrike/chunking-worker',
-        replacement: path.resolve(__dirname, '../../packages/chunking-worker/src'),
-      },
-      {
-        find: '@brainstrike/preferences',
-        replacement: path.resolve(__dirname, '../../packages/preferences/src'),
-      },
-      {
-        find: '@brainstrike/text-splitter/chunking-core',
-        replacement: path.resolve(__dirname, '../../packages/text-splitter/src/chunking-core.ts'),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-counting-heuristics',
-        replacement: path.resolve(
-          __dirname,
-          '../../packages/text-splitter/src/token-counting-heuristics.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-constants',
-        replacement: path.resolve(__dirname, '../../packages/text-splitter/src/token-constants.ts'),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-utils-accurate-lite',
-        replacement: path.resolve(
-          __dirname,
-          '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/text-splitter',
-        replacement: path.resolve(__dirname, '../../packages/text-splitter/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/storage/electron',
-        replacement: path.resolve(__dirname, '../../packages/storage/src/electron.ts'),
-      },
-      {
-        find: '@brainstrike/storage',
-        replacement: path.resolve(__dirname, '../../packages/storage/src'),
-      },
-      {
-        find: '@brainstrike/file-system/path-validation',
-        replacement: path.resolve(__dirname, '../../packages/file-system/src/path-validation.ts'),
-      },
-      {
-        find: '@brainstrike/file-system/electron',
-        replacement: path.resolve(__dirname, '../../packages/file-system/src/electron.ts'),
-      },
-      {
-        find: '@brainstrike/file-system',
-        replacement: path.resolve(__dirname, '../../packages/file-system/src'),
-      },
-      {
-        find: '@brainstrike/types',
-        replacement: path.resolve(__dirname, '../../packages/types/src'),
-      },
+      // @brainstrike/workers has no `src/` dir (worker files live at the
+      // package root), so the registry skips it — alias explicitly.
       {
         find: '@brainstrike/workers',
         replacement: path.resolve(__dirname, '../../packages/workers'),
-      },
-      {
-        find: '@brainstrike/vector-management',
-        replacement: path.resolve(__dirname, '../../packages/vector-management/src'),
       },
       ...Object.entries(workerpoolBrowserStubAliases).map(([find, replacement]) => ({
         find,
@@ -398,7 +203,10 @@ export default defineConfig({
         find: 'pino/browser.js',
         replacement: pinoBrowserPath,
       },
-      // Agent browser-safe subpath exports (no Mastra dependencies)
+      // Agent browser-safe subpath exports (no Mastra dependencies). The
+      // registry EXCLUDES @brainstrike/agent's root by default
+      // (DEFAULT_SRC_ALIAS_EXCLUSIONS) — this app's renderer bundle only ever
+      // needs these browser-safe subpaths, so no root override is added here.
       ...createAgentBrowserSafeAliasEntries(path.resolve(__dirname, '../../packages/agent')),
       // Force PGlite to use browser FS implementation in renderer to avoid node:fs imports
       {
@@ -407,6 +215,13 @@ export default defineConfig({
       },
       // Fallback for relative import inside pglite dist
       { find: './fs/nodefs.js', replacement: './fs/opfs-ahp.js' },
+      // B3/B4: shared workspace source-alias registry (#1651/#1658). Replaces
+      // the hand-maintained map this file used to carry — every entry it
+      // listed besides the exceptions above (including the chunk-init-TDZ
+      // motivated commands/context-actions entries and the renamed
+      // db-explorer/embedding-models subpath) is an exact match for what this
+      // registry derives from each package's own `exports` map.
+      ...workspaceSrcAliases(path.resolve(__dirname, '../../packages')),
     ],
     dedupe: ['react', 'react-dom'],
   },

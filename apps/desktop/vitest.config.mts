@@ -126,10 +126,18 @@ export default defineConfig({
         find: '@brainstrike/queue/browser',
         replacement: path.resolve(import.meta.dirname, '../../packages/queue/src/browser.ts'),
       },
-      {
-        find: '@brainstrike/test-utils',
-        replacement: path.resolve(import.meta.dirname, '../../packages/test-utils/src'),
-      },
+      // NOTE: no explicit @brainstrike/test-utils entry — it was a blanket
+      // STRING prefix (`find: '@brainstrike/test-utils'`, not an anchored
+      // regex), which shadowed EVERY subpath under it, including ones that do
+      // NOT live under src/ (e.g. `/workspace-src-aliases` -> the package
+      // ROOT's workspace-src-aliases.mjs, `/electron` and `/worker` ->
+      // deliberately DIST). The registry already source-aliases the ROOT
+      // specifier correctly (exact match); subpaths now correctly fall
+      // through to test-utils' own `exports` map, which src-points or
+      // dist-points each one appropriately. Found via a real broken
+      // resolution while adding apps/*/src/__tests__/vite-config.test.ts's
+      // `@brainstrike/test-utils/workspace-src-aliases` import (Series C R6
+      // task 5).
       {
         find: '@brainstrike/text-splitter/chunking-core',
         replacement: path.resolve(
@@ -167,6 +175,26 @@ export default defineConfig({
         replacement: path.resolve(
           import.meta.dirname,
           '../../packages/utils/src/workspace-indexing-power-snapshot.ts'
+        ),
+      },
+      // @brainstrike/workers has no `src/` dir (worker files live at the
+      // package root), so the registry skips it — alias its subpaths
+      // explicitly. Surfaced by extending the workspace-src-alias guard to
+      // apps/* (Series C R6 task 5): file-explorer-hooks and
+      // file-explorer-ui/indexing (both src-aliased above/via the registry)
+      // import these transitively, and neither was previously aliased here.
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/workers/file-content-worker.ts'
+        ),
+      },
+      {
+        find: '@brainstrike/workers/report-generation-worker',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/workers/report-generation-worker.ts'
         ),
       },
       // B4: shared workspace source-alias registry (#1651), so every other
