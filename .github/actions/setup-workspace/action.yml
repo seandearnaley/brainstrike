@@ -1,0 +1,75 @@
+name: Setup workspace
+description: pnpm, Node (with pnpm cache), optional .turbo cache, and install deps. Callers MUST check out first.
+# Series C R9a: the pnpm->node->(turbo cache)->install block was duplicated
+# across every CI job that needs a plain `pnpm install --frozen-lockfile`
+# (static/unit/build/native-* in test.yml, coverage.yml, nightly-coverage.yml).
+# This composite is that block, parameterized on the one axis that actually
+# differs between callers: whether to restore the local `.turbo` cache layer
+# (native-windows/native-electron don't route through turbo).
+#
+# !! DO NOT ADD `actions/checkout` TO THIS COMPOSITE. !!
+# It was here in the first draft of this action and broke EVERY job:
+#
+#   ##[error]Can't find 'action.yml', 'action.yaml' or 'Dockerfile' under
+#   '/home/runner/work/<repo>/<repo>/.github/actions/setup-workspace'.
+#   Did you forget to run actions/checkout before running your local action?
+#
+# A LOCAL composite action (`uses: ./.github/actions/...`) is resolved by
+# reading action.yml off the runner's filesystem BEFORE any of its steps run.
+# If the composite's own first step is the checkout that would put that file
+# there, the action can never be found — the repo isn't on disk yet.
+# Chicken-and-egg, and it is structural: no local composite can ever contain
+# its own checkout. (A `uses: owner/repo@ref` remote action can, because
+# GitHub fetches it from the API rather than the workspace — that is NOT this.)
+# So `actions/checkout` stays in each caller, immediately ahead of the `uses:`
+# line, and `fetch-depth` is the caller's own checkout parameter rather than a
+# vestigial input threaded through here.
+#
+# This failure is invisible to every local instrument: actionlint resolves the
+# path against your working tree (where the repo obviously exists), and a
+# YAML-level equivalence check just re-asserts your own model of expansion.
+# Only an actual runner with an empty workspace reproduces it — hence this
+# repo's mandatory push-path validation for workflow PRs (#1066/#1207).
+#
+# NOT for every setup block in the repo: `web-e2e`/`desktop-e2e` (test.yml)
+# and their nightly counterparts (web-e2e.yml, desktop-e2e.yml) run a BESPOKE
+# install (Playwright-container `--filter` excludes, or steps injected between
+# Node setup and install for Electron-binary caching/provisioning) that this
+# composite's fixed final `pnpm install --frozen-lockfile` step cannot express.
+# Leave those jobs' setup steps as literal, uncomposited YAML — folding them in
+# here (or parameterizing the install command) is the trap this action exists
+# to avoid, not a gap to close later.
+inputs:
+  turbo-cache:
+    description: restore/save the local .turbo cache layer
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .nvmrc
+        cache: 'pnpm'
+    - if: ${{ inputs.turbo-cache == 'true' }}
+      uses: actions/cache@v5
+      with:
+        path: .turbo
+        # Re-key on lockfile + turbo.jsonc (performance.yml's established
+        # pattern) instead of the old per-job-per-sha key. Per-sha keys mint a
+        # brand-new cache entry on every commit, which pinned total actions
+        # cache storage at the repo's 10 GB ceiling and evicted older, still
+        # useful entries (LRU). This key only changes when dependencies or the
+        # turbo config change, so it stays warm across most of a day's commits.
+        # `runner.arch` is included even though every current runner is Linux
+        # x64: turbo's cache hash does not include CPU architecture, so an
+        # arch-blind key would let x64-built entries be restored on an ARM
+        # runner if a future lane moves there. With the remote Turbo cache
+        # (TURBO_TOKEN/TURBO_TEAM) live and doing the real work (measured:
+        # `Remote caching enabled`, `FULL TURBO`), this local layer is an
+        # outage hedge, not the primary cache — losing it to a re-key is cheap.
+        key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-turbo-
+    - run: pnpm install --frozen-lockfile
+      shell: bash

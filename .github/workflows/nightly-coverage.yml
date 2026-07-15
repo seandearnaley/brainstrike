@@ -28,25 +28,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      # Series C R9a: shares the setup-workspace composite's re-keyed local
+      # `.turbo` cache entry (lockfile+turbo.jsonc hash) with test.yml's
+      # static/unit/build and coverage.yml's coverage job, replacing this
+      # job's former private `turbo-coverage-${{ github.sha }}` key. Remote
+      # Turbo cache (TURBO_TOKEN/TURBO_TEAM) is doing the real work regardless
+      # (measured: `Remote caching enabled`, `FULL TURBO`); this local layer is
+      # an outage hedge.
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-coverage-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-coverage-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          turbo-cache: 'true'
 
       - name: Clear coverage directories
         run: |
