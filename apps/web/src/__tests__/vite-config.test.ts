@@ -1,53 +1,106 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+  resolveThroughAliases,
+  workspaceSrcAliases,
+} from '@brainstrike/test-utils/workspace-src-aliases';
 import { describe, expect, it } from 'vitest';
 
 function readWebViteConfig(): string {
   return readFileSync(path.resolve(process.cwd(), 'vite.config.mts'), 'utf8');
 }
 
+const PACKAGES_DIR = path.resolve(process.cwd(), '../../packages');
+
+/**
+ * Registry entries. Deliberately NOT loading the real vite.config.mts here
+ * (e.g. via Vite's `loadConfigFromFile`): that file's own top-level imports
+ * (`@brainstrike/build-utils`, `@brainstrike/utils`) require those packages'
+ * built `dist` to even load, which would make this test — unlike every other
+ * test in this suite since B4 dropped `test.dependsOn: ["^build"]` — silently
+ * require a prior build. Testing the shared registry function directly
+ * verifies the exact same resolution behavior this config spreads
+ * (`...workspaceSrcAliases(...)`) without that dependency; the text
+ * assertions below separately confirm the config actually spreads it and
+ * does not shadow these specifiers with a stale local override.
+ */
+const registryEntries = workspaceSrcAliases(PACKAGES_DIR);
+
 describe('web vite config alias contract', () => {
-  it('pins token-cache runtime imports to source entries', () => {
-    const config = readWebViteConfig();
-
-    expect(config).toContain("'@brainstrike/token-cache/cache-runtime': path.resolve(");
-    expect(config).toContain('../../packages/token-cache/src/cache-runtime.ts');
-    expect(config).toContain("'@brainstrike/token-cache/background-indexer': path.resolve(");
-    expect(config).toContain('../../packages/token-cache/src/background-indexer.ts');
+  it('spreads the shared workspace-src-alias registry', () => {
+    expect(readWebViteConfig()).toContain('workspaceSrcAliases(');
   });
 
-  it('pins selection-rules to the workspace source entry', () => {
-    const config = readWebViteConfig();
-
-    expect(config).toContain("'@brainstrike/selection-rules': path.resolve(");
-    expect(config).toContain('../../packages/selection-rules/src/index.ts');
+  it('resolves token-cache runtime imports to source entries via the registry', () => {
+    expect(resolveThroughAliases('@brainstrike/token-cache/cache-runtime', registryEntries)).toBe(
+      path.resolve(PACKAGES_DIR, 'token-cache/src/cache-runtime.ts')
+    );
+    expect(
+      resolveThroughAliases('@brainstrike/token-cache/background-indexer', registryEntries)
+    ).toBe(path.resolve(PACKAGES_DIR, 'token-cache/src/background-indexer.ts'));
+    expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/token-cache/);
   });
 
-  it('pins text-splitter subpath imports before the root source alias', () => {
-    const config = readWebViteConfig();
-    const rootAliasIndex = config.indexOf("'@brainstrike/text-splitter': path.resolve(");
+  it('resolves selection-rules to the workspace source entry via the registry', () => {
+    expect(resolveThroughAliases('@brainstrike/selection-rules', registryEntries)).toBe(
+      path.resolve(PACKAGES_DIR, 'selection-rules/src/index.ts')
+    );
+    expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/selection-rules'/);
+  });
 
+  it('resolves each text-splitter subpath to its own distinct source file via the registry', () => {
     for (const [specifier, sourcePath] of [
       ['@brainstrike/text-splitter/chunking-core', 'chunking-core.ts'],
       ['@brainstrike/text-splitter/token-counting-heuristics', 'token-counting-heuristics.ts'],
       ['@brainstrike/text-splitter/token-constants', 'token-constants.ts'],
       ['@brainstrike/text-splitter/token-utils-accurate-lite', 'token-utils-accurate-lite.ts'],
     ] as const) {
-      const aliasIndex = config.indexOf(`'${specifier}': path.resolve(`);
-      expect(aliasIndex).toBeGreaterThanOrEqual(0);
-      expect(aliasIndex).toBeLessThan(rootAliasIndex);
-      expect(config).toContain(`../../packages/text-splitter/src/${sourcePath}`);
+      expect(resolveThroughAliases(specifier, registryEntries)).toBe(
+        path.resolve(PACKAGES_DIR, `text-splitter/src/${sourcePath}`)
+      );
     }
+    expect(resolveThroughAliases('@brainstrike/text-splitter', registryEntries)).toBe(
+      path.resolve(PACKAGES_DIR, 'text-splitter/src/index.ts')
+    );
+    expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/text-splitter/);
   });
 
   it('pins file-tree-worker to source so renderer dev does not load stale dist workers', () => {
+    // Deliberate LOCAL override: file-tree-worker's package.json root export
+    // targets a Node-worker_threads dist entry, so the registry would derive
+    // that same Node-targeted src/index.ts — this app needs the
+    // browser-adapted vite.ts implementation instead. Text-checked (not
+    // execution-checked) since it is not registry-derived.
     const config = readWebViteConfig();
 
     expect(config).toMatch(
-      /'@brainstrike\/file-tree-worker':\s*path\.resolve\(\s*__dirname,\s*'\.\.\/\.\.\/packages\/file-tree-worker\/src\/vite\.ts'\s*\)/
+      /find:\s*'@brainstrike\/file-tree-worker'[\s\S]{0,120}replacement:\s*path\.resolve\(\s*__dirname,\s*'\.\.\/\.\.\/packages\/file-tree-worker\/src\/vite\.ts'\s*\)/
     );
     expect(config).not.toContain('../../packages/file-tree-worker/dist');
-    expect(config).toContain("'@brainstrike/file-tree-worker'");
+  });
+
+  it('pins file-explorer to DIST deliberately (worker-storage.worker.js must bundle from a built artifact)', () => {
+    // The single documented DIST exception: worker-storage.worker.js must
+    // resolve to a built artifact, not raw .ts, for the browser to execute
+    // it. The registry would otherwise source-alias this like every other
+    // package, so it MUST be a local override placed before the spread.
+    const config = readWebViteConfig();
+
+    expect(config).toMatch(
+      /find:\s*'@brainstrike\/file-explorer'[\s\S]{0,120}replacement:\s*path\.resolve\(\s*__dirname,\s*'\.\.\/\.\.\/packages\/file-explorer\/dist'\s*\)/
+    );
+    // And the registry-derived target (what it would resolve to WITHOUT the
+    // override) is src, confirming this really is an override, not a no-op.
+    expect(resolveThroughAliases('@brainstrike/file-explorer', registryEntries)).toBe(
+      path.resolve(PACKAGES_DIR, 'file-explorer/src/index.ts')
+    );
+  });
+
+  it('aliases @brainstrike/workers explicitly (no src/ dir, registry skips it)', () => {
+    const config = readWebViteConfig();
+
+    expect(config).toMatch(/find:\s*'@brainstrike\/workers'/);
+    expect(resolveThroughAliases('@brainstrike/workers', registryEntries)).toBeNull();
   });
 
   it('rewrites PGlite process.exitCode access in browser worker bundles', () => {
@@ -83,5 +136,13 @@ describe('web vite config alias contract', () => {
     // startup critical path. Default reachability-based splitting stays.
     expect(config).not.toContain('resolveVendorChunk');
     expect(config).not.toContain("return 'vendor'");
+
+    // context-actions/commands resolve to SOURCE via the shared registry
+    // (same TDZ-avoidance guarantee desktop's mirror test pins directly).
+    for (const pkg of ['context-actions', 'commands'] as const) {
+      const resolved = resolveThroughAliases(`@brainstrike/${pkg}`, registryEntries);
+      expect(resolved).toBe(path.resolve(PACKAGES_DIR, `${pkg}/src/index.ts`));
+      expect(resolved).not.toMatch(/dist/);
+    }
   });
 });

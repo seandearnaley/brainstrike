@@ -3,19 +3,26 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { findWorkspaceSrcAliasViolations } from '../verify-workspace-src-aliases.mjs';
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
 // Guard: every runnable vitest config (base/integration/mutation/models, and
-// every inline project) in every packages/* must resolve each runtime
-// @brainstrike/* import to an existing NON-dist source path. Prevents
-// #1066/#1207 (test lane silently executing built dist).
-test('real tree: no package test lane resolves workspace imports from dist', async () => {
-  const violations = await findWorkspaceSrcAliasViolations();
+// every inline project) in every packages/* AND apps/* must resolve each
+// runtime @brainstrike/* import to an existing NON-dist source path. Prevents
+// #1066/#1207 (test lane silently executing built dist) — extended to apps/*
+// for Series C R6 (task 5): an app alias that drifts from source-resolution
+// fails this guard exactly like a package's would.
+test('real tree: no package or app test lane resolves workspace imports from dist', async () => {
+  const violations = await findWorkspaceSrcAliasViolations({
+    appsRoot: path.join(REPO_ROOT, 'apps'),
+  });
   assert.deepEqual(
     violations,
     [],
-    'Package test lanes resolve @brainstrike/* imports from built dist ' +
+    'Package/app test lanes resolve @brainstrike/* imports from built dist ' +
       '(spread `...workspaceSrcAliases(...)` in the flagged config/project, or ' +
       'allowlist with a reason):\n' +
       violations
