@@ -751,7 +751,9 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     if (params.description !== undefined && typeof params.description !== 'string') {
       return { error: 'commit description must be a string', ok: false };
     }
-    const args = ['commit', '-m', params.summary.trim()];
+    // Repository hooks are untrusted executable code. The desktop commit action
+    // must never run them with the user's ambient desktop privileges.
+    const args = ['-c', 'core.hooksPath=/dev/null', 'commit', '-m', params.summary.trim()];
     const description = params.description?.trim() ?? '';
     if (description.length > 0) {
       args.push('-m', description);

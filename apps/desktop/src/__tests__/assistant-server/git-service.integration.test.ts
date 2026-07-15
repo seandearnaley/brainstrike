@@ -624,6 +624,34 @@ describe('git service — commit', () => {
     expect(body.stdout.trim()).toBe('A detailed body.\n\nWith a second paragraph.');
   });
 
+  it.skipIf(process.platform === 'win32')(
+    'SECURITY: commits do not execute repository-controlled hooks',
+    async () => {
+      const repo = await makeRepo();
+      const hooks = path.join(repo, '.git', 'hooks');
+      const preCommitMarker = path.join(repo, 'PRE_COMMIT_EXECUTED');
+      const postCommitMarker = path.join(repo, 'POST_COMMIT_EXECUTED');
+      await fsPromises.writeFile(
+        path.join(hooks, 'pre-commit'),
+        `#!/bin/sh\ntouch "${preCommitMarker}"\n`,
+        { mode: 0o755 }
+      );
+      await fsPromises.writeFile(
+        path.join(hooks, 'post-commit'),
+        `#!/bin/sh\ntouch "${postCommitMarker}"\n`,
+        { mode: 0o755 }
+      );
+      await writeFile(repo, 'safe.txt', 'safe\n');
+      await execFileAsync('git', ['add', '.'], { cwd: repo });
+
+      const result = await serviceFor(repo).commit({ summary: 'safe commit' });
+
+      expect(result.ok).toBe(true);
+      await expect(fsPromises.access(preCommitMarker)).rejects.toThrow();
+      await expect(fsPromises.access(postCommitMarker)).rejects.toThrow();
+    }
+  );
+
   it('returns a structured error (not a throw) when nothing is staged', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'init.txt', 'x\n');
