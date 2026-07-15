@@ -149,6 +149,7 @@ export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
   collectionCounts: DatabaseCollectionCounts;
   collectionCountsStatus: DatabaseCollectionCountsStatus;
   dbInfo: DatabaseInfo | null;
+  initialLoading: boolean;
   recordPagination: DatabaseRecordPagination;
   records: DatabaseFileRecordSummary[];
   refreshing: boolean;
@@ -1262,6 +1263,17 @@ export function useDatabaseDemoData({
   }, [database]);
 
   const refreshing = manualRefreshing || recordsLoading || totalRecordsLoading || fallbackLoading;
+  const hasCurrentPageSnapshot = Boolean(
+    activeCollectionId &&
+      globalCachedFileData?.collectionId === activeCollectionId &&
+      globalCachedFileData.page === normalizedRecordPage &&
+      globalCachedFileData.pageSize === normalizedRecordPageSize
+  );
+  const initialLoading = Boolean(
+    activeCollectionId &&
+      !hasCurrentPageSnapshot &&
+      (recordsLoading || totalRecordsLoading || fallbackLoading)
+  );
 
   // Sync local dbInfo state to global store for status bar
   useEffect(() => {
@@ -1280,6 +1292,7 @@ export function useDatabaseDemoData({
     collectionCounts: resolvedCollectionCounts,
     collectionCountsStatus: resolvedCollectionCountsStatus,
     dbInfo,
+    initialLoading,
     loadChunkDetail,
     loadChunks,
     loadCollectionExportData,
