@@ -83,12 +83,24 @@ async function startOpenAiCompatibleServer(): Promise<{
 
 describe('local runtime Mastra wire contract', () => {
   it.each([
-    { dummyApiKey: 'ollama', model: 'qwen3:latest', provider: 'ollama' as const },
-    { dummyApiKey: 'lmstudio', model: 'qwen2.5', provider: 'lmstudio' as const },
+    {
+      expectedAuthorization: 'Bearer ollama',
+      model: 'qwen3:latest',
+      provider: 'ollama' as const,
+    },
+    {
+      apiToken: 'lmstudio-token',
+      expectedAuthorization: 'Bearer lmstudio-token',
+      model: 'google/gemma-4-26b-a4b-qat',
+      provider: 'lmstudio' as const,
+    },
   ])('streams $provider through Mastra OpenAI-compatible chat completions', async (testCase) => {
     const server = await startOpenAiCompatibleServer();
     const providerOptions: NonNullable<RuntimeData['providerOptions']> = {
-      [testCase.provider]: { baseUrl: server.origin },
+      [testCase.provider]: {
+        ...(testCase.apiToken ? { apiToken: testCase.apiToken } : {}),
+        baseUrl: server.origin,
+      },
     };
     const iterator = await streamMastraAgent(
       [{ id: 'user-1', parts: [{ text: 'Reply briefly.', type: 'text' }], role: 'user' }],
@@ -112,9 +124,11 @@ describe('local runtime Mastra wire contract', () => {
     expect(text).toBe('local runtime ok');
     expect(server.requests).toHaveLength(1);
     expect(server.requests[0]).toMatchObject({
-      authorization: `Bearer ${testCase.dummyApiKey}`,
+      authorization: testCase.expectedAuthorization,
       body: { model: testCase.model, stream: true },
       url: '/v1/chat/completions',
     });
+    expect(server.requests[0]?.body).not.toHaveProperty('apiToken');
+    expect(server.requests[0]?.body).not.toHaveProperty('baseUrl');
   });
 });

@@ -14,7 +14,10 @@
   generic compatible-provider path. Brainstrike passes an explicit dummy key
   when local auth is disabled so `OPENAI_API_KEY` is never inherited and sent
   to a local or LAN server. Optional runtime tokens still come from the desktop
-  secrets bridge.
+  secrets bridge. The `providerOptions.ollama` and `.lmstudio` namespaces are
+  Brainstrike transport configuration, not generation options; strip both at
+  every Mastra stream/resume boundary so `baseUrl` and `apiToken` can never be
+  serialized into a chat request body.
 - Built-in local provider:
   - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
   - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.
