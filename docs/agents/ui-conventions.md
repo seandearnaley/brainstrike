@@ -38,6 +38,10 @@ Windowing and performance:
   the scroll/keyboard hot path for every tree surface.
 - Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
 - Consumers with per-row hidden checkboxes may set `reserveCheckboxSpace` on the tree column so empty/group rows stay aligned with selectable rows without rendering a misleading disabled checkbox. Checkbox-only multi-select surfaces set `selectOnRowClick={false}` so row chrome moves focus without mutating selection.
+- Keyboard events from interactive cell descendants (buttons, links, form
+  controls, and equivalent ARIA widgets) remain owned by that descendant.
+  TreeTable must not reinterpret their Space/Enter activation as row selection
+  or checkbox input.
 - Tree rows whose content can expand below their primary line must set the tree
   column's `treeControlsPosition` to `top`. This keeps disclosure and checkbox
   controls pinned to the first 40px row line instead of recentering when details
@@ -50,10 +54,12 @@ Windowing and performance:
   height, and compact toolbars must receive an explicit available width; an
   intrinsic-width compact toolbar creates a container-query feedback loop that
   collapses its labels and spacing.
-- A colored tree group may use a continuous gutter/frame across its disclosed
-  rows, but thread identity remains independently colorable inside that frame.
-  Compute frame start/end from the visible row model so collapsed, empty, and
-  disclosure-limited groups still close their visual boundary correctly.
+- A colored tree group may use a continuous bracket across its disclosed rows,
+  but keep it inside the aligned content lane rather than painting beneath the
+  disclosure/checkbox gutter. Thread identity remains independently colorable
+  inside that bracket. Compute bracket start/end from the visible row model so
+  collapsed, empty, and disclosure-limited groups still close their visual
+  boundary correctly.
 
 When modifying TreeTable strategy or pagination behavior:
 - Update the related collection browser/file explorer/context preview adapters.

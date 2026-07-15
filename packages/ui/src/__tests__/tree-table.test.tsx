@@ -1510,6 +1510,41 @@ describe('TreeTable', () => {
       expect(handleMultiSelect).not.toHaveBeenCalled();
     });
 
+    it('does not route keyboard activation from an interactive cell control to row selection', () => {
+      const handleCheckboxChange = vi.fn();
+      const interactiveColumns: TreeTableColumn<TestData>[] = [
+        {
+          cell: ({ node }) => <button type="button">Open {node.data.name}</button>,
+          header: 'Name',
+          id: 'name',
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={interactiveColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'unchecked'}
+          nodes={[createTestNode('file', 'File')]}
+          onCheckboxChange={handleCheckboxChange}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          selectOnRowClick={false}
+          showCheckbox
+          windowingStrategy="none"
+        />
+      );
+
+      const row = screen.getByText('Open File').closest('tr');
+      if (!row) {
+        throw new Error('Expected an interactive tree row.');
+      }
+      fireEvent.click(row);
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Open File' }), { key: ' ' });
+
+      expect(handleCheckboxChange).not.toHaveBeenCalled();
+    });
+
     it('calls onSelect when row clicked in single mode', () => {
       const handleSelect = vi.fn();
       const nodes: TreeNode<TestData>[] = [createTestNode('1', 'File 1')];

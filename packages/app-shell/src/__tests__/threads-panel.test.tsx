@@ -347,7 +347,7 @@ describe('ThreadsPanel', () => {
     expect(screen.getAllByTestId('thread-row')[0]?.closest('tr')).toHaveClass(
       'group/thread-tree-row'
     );
-    expect(screen.getAllByTestId('thread-row')[0]).toHaveClass('ring-1', 'ring-inset');
+    expect(screen.getAllByTestId('thread-row')[0]).toHaveClass('border');
     expect(screen.getAllByTestId('thread-row')[0]).not.toHaveClass(
       'group-data-[focused=true]/thread-tree-row:outline-2'
     );
@@ -356,11 +356,11 @@ describe('ThreadsPanel', () => {
 
     const idleThread = screen.getByText('First thread').closest('[data-testid="thread-row"]');
     expect(idleThread).toHaveClass(
-      'bg-emerald-50/20',
-      'ring-emerald-200/30',
-      'hover:bg-emerald-50/35'
+      'border-emerald-200/20',
+      'bg-transparent',
+      'hover:bg-emerald-50/25'
     );
-    expect(idleThread).not.toHaveClass('bg-transparent', 'hover:bg-accent/35');
+    expect(idleThread).not.toHaveClass('hover:bg-accent/35');
   });
 
   it('mounts only the virtual window for a large disclosed collection', async () => {
@@ -805,6 +805,28 @@ describe('ThreadsPanel', () => {
     expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
   });
 
+  it('keeps keyboard activation of a thread title out of explicit checkbox selection', async () => {
+    renderThreadsPanel();
+
+    const firstThreadCheckbox = await screen.findByRole('checkbox', {
+      name: 'Select thread First thread',
+    });
+    const firstThreadRow = screen
+      .getByText('First thread')
+      .closest<HTMLElement>('[data-testid="thread-row"]');
+    if (!firstThreadRow) {
+      throw new Error('Expected the first thread row to render.');
+    }
+
+    fireEvent.click(firstThreadRow);
+    fireEvent.keyDown(within(firstThreadRow).getByRole('button', { name: /^First thread/ }), {
+      key: ' ',
+    });
+
+    expect(firstThreadCheckbox).not.toBeChecked();
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+  });
+
   it('uses quiet idle pills, a strong active treatment, and breathing room around each thread', async () => {
     renderThreadsPanel();
 
@@ -813,9 +835,15 @@ describe('ThreadsPanel', () => {
     });
     const [activeThread, idleThread] = screen.getAllByTestId('thread-row');
 
-    expect(activeThread).toHaveClass('my-0.5', 'mr-1', 'ring-2', 'shadow-sm');
-    expect(idleThread).toHaveClass('my-0.5', 'mr-1', 'bg-emerald-50/20');
-    expect(idleThread).not.toHaveClass('ring-2', 'shadow-sm');
+    expect(activeThread).toHaveClass(
+      'my-0.5',
+      'min-h-9',
+      'border-sky-500',
+      'bg-sky-100/90',
+      'shadow-sm'
+    );
+    expect(idleThread).toHaveClass('my-0.5', 'min-h-9', 'border-emerald-200/20', 'bg-transparent');
+    expect(idleThread).not.toHaveClass('shadow-sm');
   });
 
   it('shows automatic expanded metadata and keeps diagnostics out of the primary row', async () => {
@@ -1079,7 +1107,7 @@ describe('ThreadsPanel groups', () => {
     );
   });
 
-  it('assigns group icon and color through the durable store without painting a section frame', async () => {
+  it('assigns group icon and color through the durable store and brackets only the aligned content lane', async () => {
     seedGroup('group-research', 'Research', 'a0');
     seedPlacement('thread-a', 'group-research', 'a0');
 
@@ -1119,6 +1147,23 @@ describe('ThreadsPanel groups', () => {
       'border-rose-300',
       'bg-rose-50'
     );
+    const groupContentLane = within(groupHeaderRow as HTMLElement).getByTestId(
+      'thread-panel-content-lane'
+    );
+    const threadContentLane = within(groupedThreadRow as HTMLElement).getByTestId(
+      'thread-panel-content-lane'
+    );
+    expect(groupContentLane).toHaveClass(
+      'mx-1',
+      'before:-left-1',
+      'before:bg-rose-500',
+      'after:bg-rose-500'
+    );
+    expect(threadContentLane).toHaveClass('mx-1', 'before:-left-1', 'before:bg-rose-500');
+    expect(groupContentLane).not.toHaveClass('pl-1.5');
+    expect(threadContentLane).not.toHaveClass('pl-1.5');
+    expect(groupContentLane).toHaveAttribute('data-group-chassis-position', 'start');
+    expect(threadContentLane).toHaveAttribute('data-group-chassis-position', 'end');
     expect(groupHeaderRow).not.toHaveClass('border-l-4', 'bg-rose-50/25');
     expect(groupedThreadRow).not.toHaveClass('border-l-4', 'bg-rose-50/25');
     expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET color'), [
@@ -1163,6 +1208,11 @@ describe('ThreadsPanel groups', () => {
     // hint area files the thread even without touching the header.
     const header = within(section).getByTestId('thread-group-header');
     expect(bodyDropTarget?.contains(header)).toBe(false);
+    const headerLane = header.closest<HTMLElement>('[data-testid="thread-panel-content-lane"]');
+    const hintLane = hint.closest<HTMLElement>('[data-testid="thread-panel-content-lane"]');
+    expect(headerLane).toHaveClass('mx-1');
+    expect(hintLane).toHaveClass('mx-1');
+    expect(hint.closest('[data-testid="thread-panel-drop-zone"]')).not.toBeNull();
   });
 
   it('collapses and expands a group', async () => {
@@ -1201,6 +1251,13 @@ describe('ThreadsPanel groups', () => {
 
     const nameInput = await screen.findByRole('textbox', { name: 'Group name' });
     expect(nameInput).toHaveValue('New group');
+    const newGroupHeader = nameInput.closest<HTMLElement>('[data-testid="thread-group-header"]');
+    const newGroupLane = nameInput.closest<HTMLElement>(
+      '[data-testid="thread-panel-content-lane"]'
+    );
+    expect(newGroupHeader).toHaveClass('min-w-0');
+    expect(newGroupLane).toHaveClass('mx-1');
+    expect(nameInput).toHaveClass('text-[13px]', 'leading-4');
     fireEvent.change(nameInput, { target: { value: 'Planning' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save group name' }));
 

@@ -47,7 +47,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ASSISTANT_THREAD_COLOR_IDS,
@@ -141,12 +141,12 @@ function getThreadColorId(thread: AssistantMemoryThread): AssistantThreadColorId
 const UNASSIGNED_THREAD_COLOR_CONFIG = {
   accentClassName: 'bg-transparent',
   idleClassName:
-    'bg-background/35 ring-border/25 hover:bg-muted/50 hover:ring-border/45 dark:bg-background/20',
+    'border-border/20 bg-transparent hover:border-border/45 hover:bg-muted/35 dark:border-border/30',
   label: 'Unassigned',
   markClassName:
     'border-border bg-muted/70 text-muted-foreground dark:border-border dark:bg-muted/45 dark:text-muted-foreground',
   selectedClassName:
-    'bg-primary/10 ring-2 ring-primary/50 shadow-sm dark:bg-primary/15 dark:ring-primary/60',
+    'border-primary bg-primary/20 shadow-sm dark:border-primary dark:bg-primary/25',
 } as const;
 
 function getThreadColorConfig(thread: AssistantMemoryThread) {
@@ -581,7 +581,7 @@ function ThreadRowItem({
   ]);
   return (
     <div
-      className={`relative my-0.5 mr-1 w-auto overflow-hidden rounded-md px-2 py-1 text-left ring-1 ring-inset transition-[background-color,box-shadow] motion-reduce:transition-none ${
+      className={`relative my-0.5 min-h-9 w-auto overflow-hidden rounded-md border px-2 py-0.5 text-left transition-[background-color,border-color,box-shadow] motion-reduce:transition-none ${
         isSelected ? colorConfig.selectedClassName : colorConfig.idleClassName
       }`}
       data-testid="thread-row"
@@ -784,10 +784,10 @@ function ThreadRowDisplay({
           type="button"
         >
           <div className="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-x-2">
-            <div className="flex min-h-8 items-center">
+            <div className="flex min-h-7 items-center">
               <ThreadIdentityMark thread={thread} />
             </div>
-            <div className="flex min-h-8 min-w-0 items-center gap-1.5">
+            <div className="flex min-h-7 min-w-0 items-center gap-1.5">
               <div className="min-w-0 truncate font-medium text-[13px] leading-4">
                 {thread.title}
               </div>
@@ -1245,7 +1245,7 @@ function ThreadGroupRenameForm({
       <input
         aria-label="Group name"
         autoFocus
-        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[13px] leading-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onChange={(event) => {
           onDraftNameChange(event.target.value);
         }}
@@ -1580,6 +1580,54 @@ function buildThreadPanelTreeNodes(
   }));
 }
 
+type ThreadGroupChassisPosition = 'end' | 'middle' | 'single' | 'start';
+
+interface ThreadGroupChassisPresentation {
+  readonly color: AssistantThreadColorId;
+  readonly position: ThreadGroupChassisPosition;
+}
+
+function getThreadPanelRowGroupId(row: ThreadPanelVisibleRow): string | null {
+  if (row.kind === 'group') {
+    return row.group?.id ?? null;
+  }
+  return row.groupId;
+}
+
+function buildThreadGroupChassisByRowId(
+  rows: readonly ThreadPanelVisibleRow[],
+  colorByGroupId: ReadonlyMap<string, AssistantThreadColorId>
+): ReadonlyMap<string, ThreadGroupChassisPresentation> {
+  const chassisByRowId = new Map<string, ThreadGroupChassisPresentation>();
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (!row) {
+      continue;
+    }
+    const groupId = getThreadPanelRowGroupId(row);
+    if (!groupId) {
+      continue;
+    }
+    const color = colorByGroupId.get(groupId);
+    if (!color) {
+      continue;
+    }
+    const previousRow = rows[index - 1];
+    const nextRow = rows[index + 1];
+    const startsGroup = !previousRow || getThreadPanelRowGroupId(previousRow) !== groupId;
+    const endsGroup = !nextRow || getThreadPanelRowGroupId(nextRow) !== groupId;
+    const position: ThreadGroupChassisPosition = startsGroup
+      ? endsGroup
+        ? 'single'
+        : 'start'
+      : endsGroup
+        ? 'end'
+        : 'middle';
+    chassisByRowId.set(row.id, { color, position });
+  }
+  return chassisByRowId;
+}
+
 function getGroupMemberIds(view: ThreadListView, groupId: string | null): readonly string[] {
   if (view.kind === 'flat') {
     return [];
@@ -1612,6 +1660,35 @@ function getSelectionState(
 
 type ThreadRowsProps = Parameters<typeof ThreadRows>[0];
 type ThreadPanelGroupRow = Extract<ThreadPanelVisibleRow, { readonly kind: 'group' }>;
+
+const THREAD_GROUP_CHASSIS_POSITION_CLASS_NAMES = {
+  end: 'before:top-0 before:bottom-1 before:rounded-b-full',
+  middle: 'before:inset-y-0',
+  single: 'before:inset-y-1 before:rounded-full after:top-1 after:block after:rounded-r-full',
+  start:
+    'before:top-1 before:bottom-0 before:rounded-t-full after:top-1 after:block after:rounded-r-full',
+} satisfies Record<ThreadGroupChassisPosition, string>;
+
+function ThreadPanelContentLane({
+  chassis,
+  children,
+}: {
+  readonly chassis: ThreadGroupChassisPresentation | undefined;
+  readonly children: ReactNode;
+}): ReactElement {
+  const chassisClassName = chassis
+    ? `before:pointer-events-none before:absolute before:-left-1 before:w-[3px] before:content-[''] after:pointer-events-none after:absolute after:-left-1 after:hidden after:h-[3px] after:w-2.5 after:content-[''] ${ASSISTANT_THREAD_COLOR_PRESENTATION[chassis.color].groupRailClassName} ${THREAD_GROUP_CHASSIS_POSITION_CLASS_NAMES[chassis.position]}`
+    : '';
+  return (
+    <div
+      className={`relative mx-1 min-w-0 ${chassisClassName}`}
+      data-group-chassis-position={chassis?.position}
+      data-testid="thread-panel-content-lane"
+    >
+      {children}
+    </div>
+  );
+}
 
 function ThreadPanelShowMoreCell({
   onShowMore,
@@ -1650,7 +1727,10 @@ function ThreadPanelEmptyCell({
 }): ReactElement {
   const hint = row.groupId ? 'Drop threads here' : 'Drop threads here to ungroup them';
   const content = (
-    <div className="my-1 mr-1 flex min-h-9 items-center rounded-md border border-border/45 border-dashed px-2 text-[11px] text-muted-foreground/80">
+    <div
+      className="my-0.5 flex min-h-9 items-center rounded-md border border-border/45 border-dashed px-2 text-[11px] text-muted-foreground/80"
+      data-testid="thread-panel-drop-zone"
+    >
       {hint}
     </div>
   );
@@ -1722,26 +1802,29 @@ function ThreadPanelGroupCell({
 }
 
 function ThreadPanelCell({
+  chassis,
   groupHandlers,
   onShowMore,
   row,
   rowsProps,
 }: {
+  readonly chassis: ThreadGroupChassisPresentation | undefined;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly onShowMore: (sectionKey: string) => void;
   readonly row: ThreadPanelVisibleRow;
   readonly rowsProps: Omit<ThreadRowsProps, 'threads'>;
 }): ReactElement {
+  let content: ReactElement;
   if (row.kind === 'thread') {
-    return <ThreadRows {...rowsProps} threads={[row.thread]} />;
+    content = <ThreadRows {...rowsProps} threads={[row.thread]} />;
+  } else if (row.kind === 'show-more') {
+    content = <ThreadPanelShowMoreCell onShowMore={onShowMore} row={row} />;
+  } else if (row.kind === 'empty') {
+    content = <ThreadPanelEmptyCell row={row} />;
+  } else {
+    content = <ThreadPanelGroupCell groupHandlers={groupHandlers} row={row} />;
   }
-  if (row.kind === 'show-more') {
-    return <ThreadPanelShowMoreCell onShowMore={onShowMore} row={row} />;
-  }
-  if (row.kind === 'empty') {
-    return <ThreadPanelEmptyCell row={row} />;
-  }
-  return <ThreadPanelGroupCell groupHandlers={groupHandlers} row={row} />;
+  return <ThreadPanelContentLane chassis={chassis}>{content}</ThreadPanelContentLane>;
 }
 
 interface ThreadBulkSelectionController {
@@ -2005,6 +2088,23 @@ function ThreadPanelTree({
     [groupHandlers.collapsedGroupIds, limitsBySectionKey, view]
   );
   const nodes = useMemo(() => buildThreadPanelTreeNodes(visibleRows.rows), [visibleRows.rows]);
+  const colorByGroupId = useMemo(
+    () =>
+      new Map(
+        view.kind === 'grouped'
+          ? view.sections.flatMap((section) =>
+              section.group.color
+                ? ([[section.group.id, section.group.color]] as const)
+                : ([] as const)
+            )
+          : []
+      ),
+    [view]
+  );
+  const groupChassisByRowId = useMemo(
+    () => buildThreadGroupChassisByRowId(visibleRows.rows, colorByGroupId),
+    [colorByGroupId, visibleRows.rows]
+  );
   const expandedGroupIds = useMemo(
     () =>
       new Set(
@@ -2091,6 +2191,7 @@ function ThreadPanelTree({
       {
         cell: ({ node }) => (
           <ThreadPanelCell
+            chassis={groupChassisByRowId.get(node.id)}
             groupHandlers={groupHandlers}
             onShowMore={handleShowMore}
             row={node.data}
@@ -2105,7 +2206,7 @@ function ThreadPanelTree({
         treeControlsPosition: 'top',
       },
     ],
-    [groupHandlers, handleShowMore, rowsProps]
+    [groupChassisByRowId, groupHandlers, handleShowMore, rowsProps]
   );
 
   const allVisibleSelected =
@@ -2213,12 +2314,9 @@ function ThreadPanelTree({
           if (row.kind === 'thread') {
             return 'group/thread-tree-row border-0 bg-transparent hover:bg-transparent';
           }
-          if (row.kind === 'group' && row.group === null) {
-            return 'border-0 bg-muted/20 hover:bg-muted/35';
-          }
-          return 'border-0 bg-muted/15 hover:bg-muted/25';
+          return 'border-0 bg-transparent hover:bg-muted/20';
         }}
-        rowHeight={(node) => (node.data.kind === 'thread' ? 42 : 40)}
+        rowHeight={() => 40}
         selectionMode="multi"
         selectOnRowClick={false}
         showCheckbox
