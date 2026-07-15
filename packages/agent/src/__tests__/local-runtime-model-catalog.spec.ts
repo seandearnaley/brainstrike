@@ -353,6 +353,56 @@ describe('local-runtime-model-catalog', () => {
     expect(second.message).toContain('503');
   });
 
+  it('forces fresh Ollama capability lookups when the model catalog is force-refreshed', async () => {
+    let capability: 'completion' | 'embedding' = 'completion';
+    let showCalls = 0;
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({ models: [{ name: 'mutable-model:latest' }] });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        showCalls += 1;
+        return jsonResponse({ capabilities: [capability] });
+      }
+      if (url.endsWith('/v1/models')) {
+        return jsonResponse({ data: [] });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 5000,
+      successTtlMs: 30_000,
+    });
+
+    const first = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+    expect(first.state).toBe('loaded_non_empty');
+    if (first.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    expect(first.models[0]?.capabilities).toMatchObject({
+      embeddings: 'unsupported',
+      llm: true,
+    });
+
+    capability = 'embedding';
+    const second = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+    expect(second.state).toBe('loaded_non_empty');
+    if (second.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    expect(second.models[0]?.capabilities).toMatchObject({ embeddings: 'supported', llm: false });
+    expect(showCalls).toBe(2);
+  });
+
   it('optionally verifies embedding dimensions through /v1/embeddings', async () => {
     const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       const url = getRequestUrl(input);

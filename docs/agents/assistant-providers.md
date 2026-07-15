@@ -28,6 +28,9 @@
   succeeded through `/v1/models`. When `/api/tags` itself is unsupported, the
   OpenAI-compatible `/v1/models` fallback remains valid and MUST NOT be followed
   by a native `/api/show` request; its capability source stays `inferred`.
+  A forced catalog refresh MUST also force every native `/api/show` lookup so
+  `Probe now` cannot reuse stale per-model capabilities after a pull or model
+  replacement.
 - Built-in local provider:
   - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
   - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.

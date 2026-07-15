@@ -919,6 +919,7 @@ export class LocalRuntimeModelCatalogService {
     const endpoints = buildRuntimeModelEndpoints(runtime, options.endpoint);
 
     const loaded = await this.fetchAndNormalizeModels(runtime, availability, endpoints, {
+      ...(options.force ? { force: true } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       maxVerificationModels: sanitizeVerificationLimit(options.maxVerificationModels),
       verifyEmbeddingDimensions: options.verifyEmbeddingDimensions ?? false,
@@ -1205,6 +1206,7 @@ export class LocalRuntimeModelCatalogService {
     endpoints: readonly RuntimeModelEndpointDefinition[],
     options: {
       readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly force?: boolean;
       readonly maxVerificationModels: number;
       readonly signal?: AbortSignal;
       readonly verifyEmbeddingDimensions: boolean;
@@ -1255,6 +1257,7 @@ export class LocalRuntimeModelCatalogService {
     endpoint: RuntimeModelEndpointDefinition,
     options: {
       readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly force?: boolean;
       readonly maxVerificationModels: number;
       readonly signal?: AbortSignal;
       readonly verifyEmbeddingDimensions: boolean;
@@ -1305,6 +1308,7 @@ export class LocalRuntimeModelCatalogService {
         const reportedCapabilities = await hydrateOllamaModelCapabilities(normalized, (modelId) =>
           this.resolveOllamaCapabilities(modelId, {
             ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+            ...(options.force ? { force: true } : {}),
             ...(options.signal ? { signal: options.signal } : {}),
           })
         );
