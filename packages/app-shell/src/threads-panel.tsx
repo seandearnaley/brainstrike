@@ -2189,7 +2189,7 @@ function ThreadPanelTree({
         treeControlsPosition: 'top',
       },
     ],
-    [groupChassisByRowId, groupHandlers, handleShowMore, rowsProps]
+    [groupHandlers, handleShowMore, rowsProps]
   );
 
   const allVisibleSelected =
