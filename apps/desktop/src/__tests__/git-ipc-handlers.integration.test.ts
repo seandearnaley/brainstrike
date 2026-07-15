@@ -332,8 +332,16 @@ describe('git IPC handlers — commit arg construction (no shell)', () => {
 
     const evil = 'msg; rm -rf / $(touch x)';
     await handlers.commit('r1', { description: 'Detailed body.', summary: evil });
-    const commitCall = calls.find((c) => c.args[0] === 'commit');
-    expect(commitCall?.args).toEqual(['commit', '-m', evil, '-m', 'Detailed body.']);
+    const commitCall = calls.find((c) => c.args.includes('commit'));
+    expect(commitCall?.args).toEqual([
+      '-c',
+      'core.hooksPath=/dev/null',
+      'commit',
+      '-m',
+      evil,
+      '-m',
+      'Detailed body.',
+    ]);
   });
 });
 
