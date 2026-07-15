@@ -1201,7 +1201,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!remote.ok) {
           return remote;
         }
-        const run_ = await invoke(['fetch', '--prune', '--', remote.value], GIT_NETWORK_TIMEOUT_MS);
+        const run_ = await invokeWithoutHooks(
+          ['fetch', '--prune', '--', remote.value],
+          GIT_NETWORK_TIMEOUT_MS
+        );
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1320,7 +1323,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           return pathResult;
         }
         // No path → scope to the opened root ('.'), never the whole worktree.
-        const run_ = await invoke(['add', '--', pathResult.value ?? '.']);
+        const run_ = await invokeWithoutHooks(['add', '--', pathResult.value ?? '.']);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1422,7 +1425,12 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!pathResult.ok) {
           return pathResult;
         }
-        const run_ = await invoke(['restore', '--staged', '--', pathResult.value ?? '.']);
+        const run_ = await invokeWithoutHooks([
+          'restore',
+          '--staged',
+          '--',
+          pathResult.value ?? '.',
+        ]);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
