@@ -22,7 +22,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIAGNOSTIC_RE = /error TS\d+/;
@@ -163,35 +163,75 @@ function splitChain(command) {
 // shell command strings, following `pnpm <script-name>` references within the
 // SAME package (e.g. apps/desktop's `type-check` -> `type-check:main` +
 // `type-check:e2e`).
-function flattenScript(manifest, scriptName, seen = new Set()) {
+//
+// `inProgress` tracks the CURRENT RECURSION PATH, not every script ever seen.
+// The distinction matters: a diamond (`type-check` -> a -> shared, and
+// `type-check` -> b -> shared) legitimately reaches `shared` twice via two
+// sibling branches, and visited-semantics would misreport that as a cycle. The
+// `finally` removes the key on the way out, so only a script that is its own
+// ancestor — a real cycle — is still present when re-entered.
+export function flattenScript(manifest, scriptName, inProgress = new Set()) {
   const key = `${manifest.dir}#${scriptName}`;
-  if (seen.has(key)) {
+  if (inProgress.has(key)) {
     throw new Error(`Cycle detected resolving script chain at ${key}`);
   }
-  seen.add(key);
 
   const command = manifest.scripts[scriptName];
   if (!command) {
     throw new Error(`Package ${manifest.name} has no script named "${scriptName}"`);
   }
 
-  const out = [];
-  for (const part of splitChain(command)) {
-    const pnpmMatch = part.match(/^pnpm (?:run )?([\w:-]+)$/);
-    if (pnpmMatch) {
-      out.push(...flattenScript(manifest, pnpmMatch[1], seen));
-    } else {
-      out.push(part);
+  inProgress.add(key);
+  try {
+    const out = [];
+    for (const part of splitChain(command)) {
+      const pnpmMatch = part.match(/^pnpm (?:run )?([\w:-]+)$/);
+      if (pnpmMatch) {
+        out.push(...flattenScript(manifest, pnpmMatch[1], inProgress));
+      } else {
+        out.push(part);
+      }
     }
+    return out;
+  } finally {
+    inProgress.delete(key);
   }
-  return out;
+}
+
+// tsc accepts the project path as `--project <file>`, `--project=<file>`,
+// `-p <file>`, or `-p=<file>`. All four must be recognized: a project flag we
+// fail to parse would leave `project: null`, and runTsc would then silently
+// check the package's DEFAULT tsconfig.json under BOTH compilers — reporting
+// parity while verifying a project CI never runs. That is the exact
+// silent-substitution class this script exists to catch, so an unparseable
+// project flag throws instead (NO SILENT FALLBACKS).
+//
+// `-p` cannot collide with `--pretty`: the `(?:^|\s)` prefix means the `-p`
+// inside `--pretty` (preceded by `-`, not whitespace) never matches.
+const PROJECT_VALUE_RE = /(?:^|\s)(?:--project|-p)(?:\s+|=)(\S+)/;
+const PROJECT_FLAG_PRESENT_RE = /(?:^|\s)(?:--project|-p)(?:\s|=|$)/;
+
+export function extractProject(command) {
+  const match = command.match(PROJECT_VALUE_RE);
+  if (match) {
+    return match[1];
+  }
+  if (PROJECT_FLAG_PRESENT_RE.test(command)) {
+    throw new Error(
+      `Could not parse a project path out of the tsc command: "${command}". ` +
+        'A project flag is present but its value was not extractable. Refusing to fall back to the ' +
+        'default tsconfig.json, which would compare the wrong project under both compilers and ' +
+        'report parity vacuously.'
+    );
+  }
+  return null;
 }
 
 // Extracts { project } for each `tsc --noEmit [--project <file>]` command.
 // Non-tsc commands and `tsc --build` commands are returned with a `kind` tag
 // so the caller can report/skip them explicitly instead of silently dropping
 // them.
-function classifyCommand(command) {
+export function classifyCommand(command) {
   if (!command.startsWith('tsc')) {
     return { command, kind: 'non-tsc' };
   }
@@ -201,8 +241,7 @@ function classifyCommand(command) {
   if (!/--noEmit\b/.test(command)) {
     return { command, kind: 'unrecognized' };
   }
-  const projectMatch = command.match(/--project\s+(\S+)/);
-  return { command, kind: 'noEmit', project: projectMatch ? projectMatch[1] : null };
+  return { command, kind: 'noEmit', project: extractProject(command) };
 }
 
 function runTsc(bin, cwd, project) {
@@ -380,4 +419,10 @@ function main() {
   console.log('PARITY HOLDS across all compared projects.');
 }
 
-main();
+// Only run when invoked directly, so the parsing helpers above can be imported
+// by scripts/__tests__/ts7-parity-check.test.mjs without executing a full
+// 67-project parity sweep as an import side effect (same convention as
+// scripts/run-turbo-command.mjs).
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main();
+}
