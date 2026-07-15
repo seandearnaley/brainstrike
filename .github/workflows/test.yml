@@ -31,7 +31,17 @@ env:
 jobs:
   static:
     name: Static
-    runs-on: ubuntu-latest
+    # Series C R9b: arm64 runners became available for private repos on
+    # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
+    # Probe P1 measured this job's full step suite (install, secret scan,
+    # script tests, lane-manifest checks, lint, type-check) GENUINELY
+    # RUNNING and PASSING on ubuntu-24.04-arm, with wall-clock parity to x64
+    # (~3.0m either arch — arm64 is NOT faster, only cheaper per minute).
+    # See docs/agents/ci-quality.md / the Series C design doc for the probe
+    # results. `.turbo` cache key (setup-workspace/action.yml) already
+    # includes `runner.arch`, so this move cannot cross-restore an
+    # incompatible cache layer.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:
       # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
@@ -84,7 +94,16 @@ jobs:
 
   unit:
     name: Unit
-    runs-on: ubuntu-latest
+    # Series C R9b: arm64 runners became available for private repos on
+    # 2026-01-29, and cost 37% less per minute than ubuntu-latest (x64).
+    # Probe P1 measured this job's full suite — including the 6 `cache: false`
+    # `test:integration` lanes (real PGlite, embeddings: the heaviest,
+    # most native-dependent work in this workflow) — GENUINELY RUNNING and
+    # PASSING on ubuntu-24.04-arm, with wall-clock parity to x64 (arm64 is
+    # NOT faster, only cheaper per minute). `.turbo` cache key
+    # (setup-workspace/action.yml) already includes `runner.arch`, so this
+    # move cannot cross-restore an incompatible cache layer.
+    runs-on: ubuntu-24.04-arm
     # Foundational PRs (e.g. changes to @brainstrike/utils or lint presets)
     # pull in many dependent packages via pnpm's `...[ref]` filter. Keep Unit
     # aligned with Coverage so broad but valid changes do not time out mid-run.
