@@ -6,7 +6,7 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^26.1.0"
+    "@types/node": "catalog:"
   },
   "engines": {
     "node": ">=22"

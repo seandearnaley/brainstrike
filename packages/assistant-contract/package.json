@@ -6,8 +6,8 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

@@ -12,11 +12,11 @@
   "devDependencies": {
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^26.1.0",
+    "@types/node": "catalog:",
     "esbuild": "^0.28.1",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "exports": {
     ".": {

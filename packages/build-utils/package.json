@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^26.1.0",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

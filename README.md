@@ -177,30 +177,20 @@ CI details: `.github/workflows/test.yml` runs lint → type‑check → build (w
 
 ### Dependency Updates
 
-Check for dependency drift and outdated packages across all workspaces:
+Shared dependency versions (React, TypeScript, Vitest, and other high-fan-out deps) are pinned once in the `catalog:` block in `pnpm-workspace.yaml`; consuming `package.json` files reference them via `"catalog:"` instead of a literal version. `catalogMode: strict` makes `pnpm install` fail if any package declares a literal version for a catalogued dependency instead of `"catalog:"` — that's the enforcement that replaced `syncpack`.
+
+Check for outdated packages across all workspaces:
 
 ```bash
-pnpm deps:lint
-pnpm deps:update:check
 pnpm outdated -r
 ```
 
-Normalize mismatched version ranges across the monorepo:
+Update a catalogued dependency: bump its version in the `catalog:` block in `pnpm-workspace.yaml`, then run `pnpm install`.
 
-```bash
-pnpm deps:fix
-```
-
-Update a specific dependency in a package:
+Update a specific non-catalogued dependency in a package:
 
 ```bash
 pnpm update <dep> --filter @brainstrike/<pkg>
-```
-
-Update all dependencies with syncpack (writes package.json files; review diffs, then run `pnpm install`):
-
-```bash
-pnpm deps:update
 ```
 
 Helpful docs: `onboarding.md`, `AGENTS.md`, `monorepo-docs.md`.
