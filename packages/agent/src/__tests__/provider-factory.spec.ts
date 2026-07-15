@@ -64,15 +64,19 @@ describe('provider-factory', () => {
     });
 
     it('creates Ollama provider with custom model', () => {
-      const model = createProvider('ollama', undefined, 'qwen2.5:latest') as { modelId: string };
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('qwen2.5:latest');
+      expect(createProvider('ollama', undefined, 'qwen2.5:latest')).toEqual({
+        apiKey: 'ollama',
+        id: 'ollama/qwen2.5:latest',
+        url: 'http://127.0.0.1:11434/v1',
+      });
     });
 
     it('creates LM Studio provider with custom model', () => {
-      const model = createProvider('lmstudio', undefined, 'qwen2.5') as { modelId: string };
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('qwen2.5');
+      expect(createProvider('lmstudio', undefined, 'qwen2.5')).toEqual({
+        apiKey: 'lmstudio',
+        id: 'lmstudio/qwen2.5',
+        url: 'http://127.0.0.1:1234/v1',
+      });
     });
 
     it('throws when local runtime provider has no selected model', () => {

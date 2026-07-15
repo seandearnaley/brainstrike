@@ -4,7 +4,17 @@
 
 ## AI ASSISTANT INTEGRATION
 
-- Supports: OpenAI, Anthropic, Google, OpenRouter.
+- Supports hosted providers OpenAI, Anthropic, Google, and OpenRouter, plus the
+  Ollama and LM Studio local servers.
+- Ollama and LM Studio chat use Mastra's first-class OpenAI-compatible model
+  config (`{ id: "provider/model", url, apiKey }`). The configured origin is
+  normalized to a `/v1` base URL and Mastra owns the chat-completions adapter.
+  Do not route these providers through `@ai-sdk/openai`: its default callable
+  selects OpenAI's provider-specific Responses model instead of Mastra's
+  generic compatible-provider path. Brainstrike passes an explicit dummy key
+  when local auth is disabled so `OPENAI_API_KEY` is never inherited and sent
+  to a local or LAN server. Optional runtime tokens still come from the desktop
+  secrets bridge.
 - Built-in local provider:
   - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
   - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.
@@ -20,6 +30,7 @@
   - packages/agent/src/providers/registry.ts
   - packages/agent/src/providers/key-resolver.ts
   - packages/agent/src/providers/provider-factory.ts
+  - User setup: docs/local-model-servers.md
 - OpenRouter is configured through Mastra's `openrouter/<provider>/<model>`
   model-router IDs, not a generic `createOpenAI({ baseURL })` client. The
   official OpenRouter adapter preserves `providerMetadata.openrouter.usage.cost`;
