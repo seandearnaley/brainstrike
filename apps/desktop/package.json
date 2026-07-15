@@ -63,8 +63,8 @@
     "lucide-react": "^1.23.0",
     "node-pty": "^1.1.0",
     "oxc-parser": "^0.138.0",
-    "react": "catalog:",
-    "react-dom": "catalog:",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "strip-ansi": "7.2.0",
     "tree-kill": "1.2.2",
     "zod": "^4.4.3"

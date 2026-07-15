@@ -16,7 +16,7 @@
     "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
-    "react": "catalog:",
+    "react": "^19.2.7",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

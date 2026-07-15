@@ -40,7 +40,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "jsdom": "catalog:",
-    "react-dom": "catalog:",
+    "react-dom": "^19.2.7",
     "vitest": "catalog:",
     "zustand": "catalog:"
   },

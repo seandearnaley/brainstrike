@@ -22,8 +22,8 @@
     "@fontsource-variable/geist-mono": "^5.2.8",
     "dompurify": "^3.4.11",
     "lucide-react": "^1.23.0",
-    "react": "catalog:",
-    "react-dom": "catalog:",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "react-helmet-async": "^2.0.5",
     "react-router-dom": "catalog:",
     "zod": "^4.4.3"

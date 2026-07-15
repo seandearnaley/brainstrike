@@ -16,7 +16,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "jsdom": "catalog:",
-    "react": "catalog:",
+    "react": "^19.2.7",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

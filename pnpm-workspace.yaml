@@ -4,6 +4,20 @@ packages:
   - packages/config/*
 catalogMode: strict
 cleanupUnusedCatalogs: true
+# NOTE: react and react-dom are deliberately NOT catalogued — see the `overrides`
+# block below, which is their SINGLE governor. A bare override SHADOWS a catalog
+# entry completely: measured live, with `overrides: react: ^19.2.4` in place a
+# `catalog: react: ^19.9.9` (a version that does not exist) still installs clean
+# and resolves 19.2.7, and the lockfile's `catalogs: default:` block omits react
+# entirely. Such an entry governs nothing and rots silently the moment the
+# override is bumped. The override has to stay because it also constrains the
+# ~157 third-party packages that depend on react/react-dom directly — transitive
+# scope a catalog does NOT have, and what guarantees ONE react instance.
+# scripts/verify-catalog-references.mjs enforces this "never both" rule.
+#
+# Comments must stay at column 0: `cleanupUnusedCatalogs: true` lets pnpm rewrite
+# this file, and a rewrite DELETES comments indented inside the catalog: block
+# (verified). Column-0 comments above a block survive.
 catalog:
   '@playwright/test': ^1.61.1
   '@testing-library/jest-dom': ^6.9.1
@@ -15,8 +29,6 @@ catalog:
   happy-dom: ^20.10.6
   jsdom: 29.1.1
   playwright: ^1.61.1
-  react: ^19.2.7
-  react-dom: ^19.2.7
   react-router-dom: ^7.18.1
   tsup: ^8.5.1
   typescript: ^6.0.3

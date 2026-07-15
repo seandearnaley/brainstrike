@@ -76,6 +76,49 @@ export const MIN_PACKAGE_MANIFESTS = 30;
 const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
 
 /**
+ * A dependency must never be governed by BOTH `catalog:` and a bare `overrides:`
+ * entry — a bare override SHADOWS the catalog completely, making the catalog
+ * value inert AND unvalidated.
+ *
+ * Measured, not assumed: with `overrides: react: ^19.2.4` in place, setting
+ * `catalog: react: ^19.9.9` (a version that DOES NOT EXIST) still lets
+ * `pnpm install` exit 0 and resolve react 19.2.7. Structural confirmation: the
+ * lockfile's `catalogs: default:` block omits react/react-dom entirely while
+ * listing every other catalogued dep. So an override-shadowed catalog entry is
+ * decorative — it can hold any value at all and rots silently the moment
+ * someone bumps the override (e.g. for a security fix), with nothing anywhere
+ * reporting the divergence.
+ *
+ * Which mechanism should win is a real decision, not a formality: `overrides`
+ * additionally constrains TRANSITIVE dependencies (157 third-party packages
+ * depend on react/react-dom directly in this repo) — scope a catalog does not
+ * have. For react/react-dom the override is therefore load-bearing (it is what
+ * guarantees ONE react instance), so they are deliberately NOT catalogued.
+ *
+ * SUBTREE-SCOPED overrides (`react-helmet-async>react`) are NOT a conflict: they
+ * retarget one dep inside one subtree and leave the catalog governing everywhere
+ * else. Only bare, global override keys shadow a catalog entry.
+ */
+
+/**
+ * The package name a bare override key targets, or `null` if the key is
+ * subtree-scoped (`parent>child`) and therefore does not globally shadow.
+ *
+ * Only `>` denotes subtree scoping. `@` does NOT: it appears in ordinary bare
+ * keys both as an npm scope (`@types/node`) and as a version selector
+ * (`react@^19`), so keying off `@` would misclassify every scoped package.
+ */
+export function bareOverrideTarget(key) {
+  if (key.includes('>')) {
+    return null; // subtree-scoped — narrow, leaves the catalog governing elsewhere
+  }
+  // Strip an optional trailing version selector, preserving a leading @scope.
+  const at = key.lastIndexOf('@');
+  const name = at > 0 ? key.slice(0, at) : key;
+  return name;
+}
+
+/**
  * Parse the default `catalog:` block from pnpm-workspace.yaml.
  *
  * Hand-parsed rather than via the `yaml` package on purpose: `yaml` is a
@@ -149,6 +192,59 @@ export function readCatalogEntries(repoRoot) {
     entries.set(name, version);
   }
   return entries;
+}
+
+/**
+ * Parse the `overrides:` block from pnpm-workspace.yaml. Same hand-parse
+ * rationale and same strictness as readCatalogEntries().
+ */
+export function readOverrideKeys(repoRoot) {
+  const yaml = readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
+  const keys = [];
+  let inOverrides = false;
+  for (const rawLine of yaml.split('\n')) {
+    if (/^overrides:\s*$/.test(rawLine)) {
+      inOverrides = true;
+      continue;
+    }
+    if (!inOverrides) {
+      continue;
+    }
+    if (rawLine.trim() === '' || /^\s*#/.test(rawLine)) {
+      continue;
+    }
+    if (/^\S/.test(rawLine)) {
+      break; // next top-level key ends the block
+    }
+    const item = rawLine.match(/^\s+(?:'([^']+)'|"([^"]+)"|([^\s:'"]+))\s*:\s*\S.*$/);
+    if (!item) {
+      // NO SILENT FALLBACK: an unparsed override line could hide a bare override
+      // that silently shadows a catalog entry — the exact defect this guards.
+      throw new Error(
+        'verify-catalog-references.mjs could not parse this line inside the pnpm-workspace.yaml overrides: block:\n' +
+          `  ${rawLine}\n` +
+          'Teach readOverrideKeys() the new shape rather than letting an override escape the catalog-conflict check.'
+      );
+    }
+    keys.push(item[1] ?? item[2] ?? item[3]);
+  }
+  return keys;
+}
+
+/**
+ * Catalogued names that a bare `overrides:` entry silently shadows. A non-empty
+ * result means the catalog is lying: those entries do not govern anything.
+ */
+export function findCatalogOverrideConflicts({ repoRoot }) {
+  const catalog = readCatalogEntries(repoRoot);
+  const conflicts = [];
+  for (const key of readOverrideKeys(repoRoot)) {
+    const target = bareOverrideTarget(key);
+    if (target !== null && catalog.has(target)) {
+      conflicts.push({ catalogVersion: catalog.get(target), name: target, overrideKey: key });
+    }
+  }
+  return conflicts;
 }
 
 /**
