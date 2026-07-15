@@ -24,6 +24,35 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+### Static and Unit run on arm64 (Series C R9b)
+
+`static` and `unit` in `test.yml` run on `ubuntu-24.04-arm`, not
+`ubuntu-latest` (x64). arm64 runners became available for private repos on
+2026-01-29 and cost 37% less per minute than x64. Probe P1 measured this
+specific: `pnpm install --frozen-lockfile` (the native-deps/node-gyp set,
+the main risk), lint, script tests, secret scan, and the 6 `cache: false`
+`test:integration` suites (real PGlite, embeddings — the heaviest,
+native-dependent work in the workflow) all genuinely ran and passed on
+arm64. Wall-clock was AT PARITY with x64 (~3.0m either arch) — arm64 is
+**not** faster here, only cheaper per minute; do not claim a speedup.
+`build`, `native-windows`, `native-electron`, `web-e2e`, and `desktop-e2e`
+stay on x64: P1 did not test them, and they are inherently
+Electron/Playwright/Windows-bound work.
+
+**Non-obvious trap for future maintainers:** the turbo *remote* cache
+(`TURBO_TOKEN`/`TURBO_TEAM`) is arch-agnostic — turbo's cache hash does not
+include CPU architecture, and `runner.os` reports `"Linux"` on both x64 and
+arm64 GitHub-hosted runners. So an arm64 lane will mostly **replay**
+x64-produced remote-cache entries rather than independently validate on
+arm64 (benign for this repo's JS/dts/log outputs, which are
+arch-independent, but worth knowing before treating a green arm64 run as
+proof of arch-independent correctness for something that isn't). Whichever
+arch runs first populates the shared remote cache for both. The *local*
+`.turbo` `actions/cache` layer (`setup-workspace/action.yml`) is correctly
+arch-namespaced (`${{ runner.os }}-${{ runner.arch }}-turbo-...`, added in
+C2/#1668) so it cannot cross-restore an incompatible entry — that guard
+just doesn't extend to the remote cache.
+
 ### Coverage is a separate workflow (`.github/workflows/coverage.yml`)
 
 Coverage used to be a job inside `test.yml` running on every `synchronize` —
