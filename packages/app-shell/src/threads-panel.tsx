@@ -1661,30 +1661,16 @@ function getSelectionState(
 type ThreadRowsProps = Parameters<typeof ThreadRows>[0];
 type ThreadPanelGroupRow = Extract<ThreadPanelVisibleRow, { readonly kind: 'group' }>;
 
-const THREAD_GROUP_CHASSIS_POSITION_CLASS_NAMES = {
-  end: 'before:top-0 before:bottom-1 before:rounded-b-full',
-  middle: 'before:inset-y-0',
-  single: 'before:inset-y-1 before:rounded-full after:top-1 after:block after:rounded-r-full',
-  start:
-    'before:top-1 before:bottom-0 before:rounded-t-full after:top-1 after:block after:rounded-r-full',
+const THREAD_GROUP_SURFACE_POSITION_CLASS_NAMES = {
+  end: '[&>td]:border-x [&>td]:border-b [&>td]:rounded-b-lg',
+  middle: '[&>td]:border-x',
+  single: '[&>td]:border [&>td]:rounded-lg',
+  start: '[&>td]:border-x [&>td]:border-t [&>td]:rounded-t-lg',
 } satisfies Record<ThreadGroupChassisPosition, string>;
 
-function ThreadPanelContentLane({
-  chassis,
-  children,
-}: {
-  readonly chassis: ThreadGroupChassisPresentation | undefined;
-  readonly children: ReactNode;
-}): ReactElement {
-  const chassisClassName = chassis
-    ? `before:pointer-events-none before:absolute before:-left-1 before:w-[3px] before:content-[''] after:pointer-events-none after:absolute after:-left-1 after:hidden after:h-[3px] after:w-2.5 after:content-[''] ${ASSISTANT_THREAD_COLOR_PRESENTATION[chassis.color].groupRailClassName} ${THREAD_GROUP_CHASSIS_POSITION_CLASS_NAMES[chassis.position]}`
-    : '';
+function ThreadPanelContentLane({ children }: { readonly children: ReactNode }): ReactElement {
   return (
-    <div
-      className={`relative mx-1 min-w-0 ${chassisClassName}`}
-      data-group-chassis-position={chassis?.position}
-      data-testid="thread-panel-content-lane"
-    >
+    <div className="relative mx-1 min-w-0" data-testid="thread-panel-content-lane">
       {children}
     </div>
   );
@@ -1802,13 +1788,11 @@ function ThreadPanelGroupCell({
 }
 
 function ThreadPanelCell({
-  chassis,
   groupHandlers,
   onShowMore,
   row,
   rowsProps,
 }: {
-  readonly chassis: ThreadGroupChassisPresentation | undefined;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly onShowMore: (sectionKey: string) => void;
   readonly row: ThreadPanelVisibleRow;
@@ -1824,7 +1808,7 @@ function ThreadPanelCell({
   } else {
     content = <ThreadPanelGroupCell groupHandlers={groupHandlers} row={row} />;
   }
-  return <ThreadPanelContentLane chassis={chassis}>{content}</ThreadPanelContentLane>;
+  return <ThreadPanelContentLane>{content}</ThreadPanelContentLane>;
 }
 
 interface ThreadBulkSelectionController {
@@ -2191,7 +2175,6 @@ function ThreadPanelTree({
       {
         cell: ({ node }) => (
           <ThreadPanelCell
-            chassis={groupChassisByRowId.get(node.id)}
             groupHandlers={groupHandlers}
             onShowMore={handleShowMore}
             row={node.data}
@@ -2311,6 +2294,11 @@ function ThreadPanelTree({
         }}
         rowClassName={(node) => {
           const row = node.data;
+          const chassis = groupChassisByRowId.get(row.id);
+          if (chassis) {
+            const threadClassName = row.kind === 'thread' ? 'group/thread-tree-row' : '';
+            return `thread-group-surface ${threadClassName} border-0 bg-transparent ${ASSISTANT_THREAD_COLOR_PRESENTATION[chassis.color].groupSurfaceClassName} ${THREAD_GROUP_SURFACE_POSITION_CLASS_NAMES[chassis.position]}`;
+          }
           if (row.kind === 'thread') {
             return 'group/thread-tree-row border-0 bg-transparent hover:bg-transparent';
           }

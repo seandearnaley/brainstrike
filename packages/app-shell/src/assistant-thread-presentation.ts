@@ -2,7 +2,7 @@ import type { AssistantThreadColorId } from './assistant-memory-repository';
 
 export interface AssistantThreadColorPresentation {
   readonly accentClassName: string;
-  readonly groupRailClassName: string;
+  readonly groupSurfaceClassName: string;
   readonly iconClassName: string;
   readonly idleClassName: string;
   readonly label: string;
@@ -13,7 +13,8 @@ export interface AssistantThreadColorPresentation {
 export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   amber: {
     accentClassName: 'bg-amber-500',
-    groupRailClassName: 'before:bg-amber-500 after:bg-amber-500',
+    groupSurfaceClassName:
+      '[&>td]:border-amber-200/60 [&>td]:bg-amber-50/60 hover:[&>td]:bg-amber-50/80 dark:[&>td]:border-amber-800/50 dark:[&>td]:bg-amber-950/20 dark:hover:[&>td]:bg-amber-950/30',
     iconClassName:
       'bg-amber-50 text-amber-700 ring-amber-200/80 dark:bg-amber-950/55 dark:text-amber-300 dark:ring-amber-800/80',
     idleClassName:
@@ -26,7 +27,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   blue: {
     accentClassName: 'bg-sky-500',
-    groupRailClassName: 'before:bg-sky-500 after:bg-sky-500',
+    groupSurfaceClassName:
+      '[&>td]:border-sky-200/60 [&>td]:bg-sky-50/60 hover:[&>td]:bg-sky-50/80 dark:[&>td]:border-sky-800/50 dark:[&>td]:bg-sky-950/20 dark:hover:[&>td]:bg-sky-950/30',
     iconClassName:
       'bg-sky-50 text-sky-700 ring-sky-200/80 dark:bg-sky-950/55 dark:text-sky-300 dark:ring-sky-800/80',
     idleClassName:
@@ -39,7 +41,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   emerald: {
     accentClassName: 'bg-emerald-500',
-    groupRailClassName: 'before:bg-emerald-500 after:bg-emerald-500',
+    groupSurfaceClassName:
+      '[&>td]:border-emerald-200/60 [&>td]:bg-emerald-50/60 hover:[&>td]:bg-emerald-50/80 dark:[&>td]:border-emerald-800/50 dark:[&>td]:bg-emerald-950/20 dark:hover:[&>td]:bg-emerald-950/30',
     iconClassName:
       'bg-emerald-50 text-emerald-700 ring-emerald-200/80 dark:bg-emerald-950/55 dark:text-emerald-300 dark:ring-emerald-800/80',
     idleClassName:
@@ -52,7 +55,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   rose: {
     accentClassName: 'bg-rose-500',
-    groupRailClassName: 'before:bg-rose-500 after:bg-rose-500',
+    groupSurfaceClassName:
+      '[&>td]:border-rose-200/60 [&>td]:bg-rose-50/60 hover:[&>td]:bg-rose-50/80 dark:[&>td]:border-rose-800/50 dark:[&>td]:bg-rose-950/20 dark:hover:[&>td]:bg-rose-950/30',
     iconClassName:
       'bg-rose-50 text-rose-700 ring-rose-200/80 dark:bg-rose-950/55 dark:text-rose-300 dark:ring-rose-800/80',
     idleClassName:
@@ -65,7 +69,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   slate: {
     accentClassName: 'bg-slate-500',
-    groupRailClassName: 'before:bg-slate-500 after:bg-slate-500',
+    groupSurfaceClassName:
+      '[&>td]:border-slate-200/60 [&>td]:bg-slate-100/55 hover:[&>td]:bg-slate-100/75 dark:[&>td]:border-slate-700/55 dark:[&>td]:bg-slate-900/25 dark:hover:[&>td]:bg-slate-900/35',
     iconClassName:
       'bg-slate-100 text-slate-700 ring-slate-300/80 dark:bg-slate-900/70 dark:text-slate-300 dark:ring-slate-700/80',
     idleClassName:
@@ -78,7 +83,8 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   violet: {
     accentClassName: 'bg-violet-500',
-    groupRailClassName: 'before:bg-violet-500 after:bg-violet-500',
+    groupSurfaceClassName:
+      '[&>td]:border-violet-200/60 [&>td]:bg-violet-50/60 hover:[&>td]:bg-violet-50/80 dark:[&>td]:border-violet-800/50 dark:[&>td]:bg-violet-950/20 dark:hover:[&>td]:bg-violet-950/30',
     iconClassName:
       'bg-violet-50 text-violet-700 ring-violet-200/80 dark:bg-violet-950/55 dark:text-violet-300 dark:ring-violet-800/80',
     idleClassName:

@@ -1107,7 +1107,7 @@ describe('ThreadsPanel groups', () => {
     );
   });
 
-  it('assigns group icon and color through the durable store and brackets only the aligned content lane', async () => {
+  it('assigns group icon and color through the durable store and wraps the entire grouped surface', async () => {
     seedGroup('group-research', 'Research', 'a0');
     seedPlacement('thread-a', 'group-research', 'a0');
 
@@ -1147,25 +1147,28 @@ describe('ThreadsPanel groups', () => {
       'border-rose-300',
       'bg-rose-50'
     );
+    expect(groupHeaderRow).toHaveClass(
+      'thread-group-surface',
+      '[&>td]:bg-rose-50/60',
+      '[&>td]:border-rose-200/60',
+      '[&>td]:rounded-t-lg'
+    );
+    expect(groupedThreadRow).toHaveClass(
+      'thread-group-surface',
+      '[&>td]:bg-rose-50/60',
+      '[&>td]:border-rose-200/60',
+      '[&>td]:rounded-b-lg'
+    );
     const groupContentLane = within(groupHeaderRow as HTMLElement).getByTestId(
       'thread-panel-content-lane'
     );
     const threadContentLane = within(groupedThreadRow as HTMLElement).getByTestId(
       'thread-panel-content-lane'
     );
-    expect(groupContentLane).toHaveClass(
-      'mx-1',
-      'before:-left-1',
-      'before:bg-rose-500',
-      'after:bg-rose-500'
-    );
-    expect(threadContentLane).toHaveClass('mx-1', 'before:-left-1', 'before:bg-rose-500');
-    expect(groupContentLane).not.toHaveClass('pl-1.5');
-    expect(threadContentLane).not.toHaveClass('pl-1.5');
-    expect(groupContentLane).toHaveAttribute('data-group-chassis-position', 'start');
-    expect(threadContentLane).toHaveAttribute('data-group-chassis-position', 'end');
-    expect(groupHeaderRow).not.toHaveClass('border-l-4', 'bg-rose-50/25');
-    expect(groupedThreadRow).not.toHaveClass('border-l-4', 'bg-rose-50/25');
+    expect(groupContentLane).toHaveClass('mx-1');
+    expect(threadContentLane).toHaveClass('mx-1');
+    expect(groupContentLane).not.toHaveClass('before:-left-1', 'before:bg-rose-500');
+    expect(threadContentLane).not.toHaveClass('before:-left-1', 'before:bg-rose-500');
     expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET color'), [
       'group-research',
       'rose',

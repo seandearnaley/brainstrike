@@ -54,11 +54,11 @@ Windowing and performance:
   height, and compact toolbars must receive an explicit available width; an
   intrinsic-width compact toolbar creates a container-query feedback loop that
   collapses its labels and spacing.
-- A colored tree group may use a continuous bracket across its disclosed rows,
-  but keep it inside the aligned content lane rather than painting beneath the
-  disclosure/checkbox gutter. Thread identity remains independently colorable
-  inside that bracket. Compute bracket start/end from the visible row model so
-  collapsed, empty, and disclosure-limited groups still close their visual
+- A colored tree group may use one continuous, softly tinted surface across its
+  header and disclosed rows. The surface must cover the full row, including the
+  disclosure and checkbox gutter, while thread identity remains independently
+  colorable inside it. Compute surface start/end from the visible row model so
+  collapsed, empty, and disclosure-limited groups still close their rounded
   boundary correctly.
 
 When modifying TreeTable strategy or pagination behavior:
