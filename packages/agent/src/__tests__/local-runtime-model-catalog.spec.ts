@@ -30,7 +30,7 @@ describe('local-runtime-model-catalog', () => {
   });
 
   it('lists and normalizes Ollama models from /api/tags with family hints', async () => {
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       const url = getRequestUrl(input);
       if (url.endsWith('/api/tags')) {
         return jsonResponse({
@@ -44,6 +44,12 @@ describe('local-runtime-model-catalog', () => {
               name: 'qwen2.5:latest',
             },
           ],
+        });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        return jsonResponse({
+          capabilities: body.model === 'nomic-embed-text:latest' ? ['embedding'] : ['completion'],
         });
       }
       if (url.endsWith('/v1/models')) {
@@ -78,11 +84,89 @@ describe('local-runtime-model-catalog', () => {
     expect(result.models[0]?.capabilitySource).toBe('provider_reported');
     expect(result.models[0]?.modelType).toBe('embeddings');
     expect(result.models[1]?.capabilities.embeddings).toBe('unsupported');
-    expect(result.models[1]?.capabilitySource).toBe('inferred');
+    expect(result.models[1]?.capabilitySource).toBe('provider_reported');
+  });
+
+  it('uses Ollama /api/show capabilities so image-only models are not exposed as LLMs', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({
+          models: [{ name: 'qwen3:30b' }, { name: 'x/flux2-klein:9b' }],
+        });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        return jsonResponse({
+          capabilities: body.model === 'x/flux2-klein:9b' ? ['image'] : ['completion', 'tools'],
+        });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1250,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('loaded_non_empty');
+    if (result.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    expect(result.models).toEqual([
+      expect.objectContaining({
+        capabilities: expect.objectContaining({ llm: true }),
+        capabilitySource: 'provider_reported',
+        modelId: 'qwen3:30b',
+      }),
+      expect.objectContaining({
+        capabilities: expect.objectContaining({ embeddings: 'unsupported', llm: false }),
+        capabilitySource: 'provider_reported',
+        modelId: 'x/flux2-klein:9b',
+      }),
+    ]);
+  });
+
+  it('fails the Ollama catalog visibly when authoritative capabilities cannot be resolved', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({ models: [{ name: 'qwen3:30b' }] });
+      }
+      if (url.endsWith('/v1/models')) {
+        return jsonResponse({ data: [{ id: 'qwen3:30b' }] });
+      }
+      if (url.endsWith('/api/show')) {
+        return new Response('server error', { status: 500 });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1300,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('failed');
+    if (result.state !== 'failed') {
+      throw new Error('Expected failed state');
+    }
+    expect(result.message).toContain('/api/show');
+    expect(result.message).toContain('500');
   });
 
   it('falls back to Ollama /v1/models when /api/tags is unavailable', async () => {
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       const url = getRequestUrl(input);
       if (url.endsWith('/api/tags')) {
         return new Response('not found', { status: 404 });
@@ -90,6 +174,12 @@ describe('local-runtime-model-catalog', () => {
       if (url.endsWith('/v1/models')) {
         return jsonResponse({
           data: [{ id: 'nomic-embed-text' }, { id: 'qwen2.5:latest' }],
+        });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        return jsonResponse({
+          capabilities: body.model === 'nomic-embed-text' ? ['embedding'] : ['completion'],
         });
       }
       return jsonResponse({});
@@ -112,8 +202,7 @@ describe('local-runtime-model-catalog', () => {
 
     expect(result.endpoint).toBe('http://127.0.0.1:11434/v1/models');
     expect(result.source).toBe('openai_v1_models');
-    // Without a family hint, embedding classification falls back to name regex.
-    expect(result.models[0]?.capabilitySource).toBe('inferred');
+    expect(result.models[0]?.capabilitySource).toBe('provider_reported');
   });
 
   it('uses LM Studio native /api/v1/models with authoritative type discriminant', async () => {
@@ -174,7 +263,7 @@ describe('local-runtime-model-catalog', () => {
   it('returns stale_cached when model list probing fails after a prior success', async () => {
     let phase: 'ok' | 'fail' = 'ok';
 
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       const url = getRequestUrl(input);
       if (url.endsWith('/api/version')) {
         return jsonResponse({ version: '0.6.1' });
@@ -194,6 +283,9 @@ describe('local-runtime-model-catalog', () => {
         // In the failing phase, both catalog endpoints are down; mirror the
         // realistic case so the stale fallback surfaces a useful error message.
         return new Response('down', { status: 503 });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST' && phase === 'ok') {
+        return jsonResponse({ capabilities: ['embedding'] });
       }
       return jsonResponse({});
     });
@@ -409,6 +501,9 @@ describe('local-runtime-model-catalog', () => {
         return jsonResponse({
           models: [{ details: { families: ['phi4'] }, name: 'phi4:latest' }],
         });
+      }
+      if (url === 'https://gpu.lan:11434/api/show' && init?.method === 'POST') {
+        return jsonResponse({ capabilities: ['completion'] });
       }
       return new Response('missing', { status: 404 });
     });

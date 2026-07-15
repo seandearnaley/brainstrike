@@ -823,6 +823,8 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     const abortController = new AbortController();
     process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS = '20';
     process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = '30';
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
     try {
       modelHolder.current = {
         doGenerate: () => Promise.reject(new Error('unused')),
@@ -845,7 +847,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         {
           runtime: {
             apiKey: 'test-key',
-            provider: 'openai',
+            model: 'lfm2.5-thinking:latest',
+            provider: 'ollama',
+            providerOptions: {
+              ollama: { baseUrl: 'http://127.0.0.1:11434' },
+            },
             signal: abortController.signal,
           },
         }
@@ -871,7 +877,9 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         )
         .map((chunk) => chunk.value)
         .join('');
-      expect(text).toContain('model stream stalled');
+      expect(text).toContain('Ollama model "lfm2.5-thinking:latest"');
+      expect(text).toContain('produced no stream output');
+      expect(text).toContain('Verify the Ollama server and model runner');
 
       const runEventKinds = chunks
         .filter(
@@ -883,7 +891,37 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
       const finish = chunks.find((chunk) => chunk.type === 'message-finish');
       expect(finish).toMatchObject({ finishReason: 'error' });
+
+      const stallLog = logRecords.find((record) =>
+        record.args.some(
+          (arg) =>
+            typeof arg === 'object' &&
+            arg !== null &&
+            (arg as { code?: unknown }).code === 'mastra_agent_stream_inactivity_timeout'
+        )
+      );
+      expect(stallLog?.args).toContainEqual(
+        expect.objectContaining({
+          model: 'lfm2.5-thinking:latest',
+          provider: 'ollama',
+        })
+      );
+      const initializationLog = logRecords.find((record) =>
+        record.args.some(
+          (arg) =>
+            typeof arg === 'object' &&
+            arg !== null &&
+            (arg as { code?: unknown }).code === 'mastra_agent_runtime_initialized'
+        )
+      );
+      expect(initializationLog?.args).toContainEqual(
+        expect.objectContaining({
+          model: 'lfm2.5-thinking:latest',
+          provider: 'ollama',
+        })
+      );
     } finally {
+      removeLogListener();
       abortController.abort();
       if (previousToolTimeout === undefined) {
         delete process.env.BRAINSTRIKE_TOOL_TIMEOUT_MS;

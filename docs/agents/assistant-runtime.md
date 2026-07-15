@@ -70,6 +70,9 @@ Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rul
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
+- A local-runtime inactivity termination includes the normalized provider and
+  selected model in both the structured error log and visible run failure. Do
+  not include bearer tokens or silently restart/unload the external server.
 - Invariant: tool timeout < stream inactivity.
 - `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
   which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced

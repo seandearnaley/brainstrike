@@ -27,6 +27,7 @@ import type {
   LocalRuntimeOllamaCapabilitiesResult,
   OllamaModelCapability,
 } from './local-runtime-model-catalog-types.js';
+import { hydrateOllamaModelCapabilities } from './local-runtime-ollama-capabilities.js';
 import {
   buildRuntimeAuthHeaders,
   buildRuntimeEndpoint,
@@ -738,6 +739,16 @@ export class LocalRuntimeModelCatalogService {
         };
       }
 
+      if (!(isRecord(result.payload) && Array.isArray(result.payload['capabilities']))) {
+        return {
+          checkedAt,
+          endpoint: showEndpoint,
+          message: 'Ollama /api/show returned no capabilities array',
+          modelId: trimmed,
+          state: 'unavailable',
+        };
+      }
+
       const capabilities = parseOllamaCapabilityList(result.payload);
       const resolved: LocalRuntimeOllamaCapabilitiesResolved = {
         capabilities,
@@ -1299,6 +1310,19 @@ export class LocalRuntimeModelCatalogService {
 
       const dedupedCandidates = this.dedupeCandidates(parsed);
       let normalized = this.normalizeModels(runtime, endpoint, dedupedCandidates);
+
+      if (runtime === 'ollama') {
+        const reportedCapabilities = await hydrateOllamaModelCapabilities(normalized, (modelId) =>
+          this.resolveOllamaCapabilities(modelId, {
+            ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+            ...(options.signal ? { signal: options.signal } : {}),
+          })
+        );
+        if (!reportedCapabilities.ok) {
+          return reportedCapabilities;
+        }
+        normalized = reportedCapabilities.models;
+      }
 
       if (options.verifyEmbeddingDimensions) {
         normalized = await this.applyEmbeddingVerification(runtime, normalized, {

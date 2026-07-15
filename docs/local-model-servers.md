@@ -28,6 +28,16 @@ status is a server networking policy problem, not an unavailable model.
    curl http://127.0.0.1:11434/v1/models
    ```
 
+   Ollama's model list includes image generators as well as chat models.
+   Brainstrike checks each model with `POST /api/show` and only offers models
+   whose reported capabilities include `completion`. You can inspect one
+   yourself with:
+
+   ```bash
+   curl http://127.0.0.1:11434/api/show \
+     -d '{"model":"qwen3"}'
+   ```
+
 4. In Brainstrike, open **Settings → Local Runtimes → Ollama**.
 5. Leave **Activation** on **Auto** and the base URL empty to use
    `http://127.0.0.1:11434`. For another machine, enter its origin, such as
@@ -40,14 +50,17 @@ Ollama's local server ignores bearer credentials. If a remote Ollama-compatible
 server requires a token, store it in the card's optional token field; Brainstrike
 keeps it in the desktop secrets store. Never put a token in the base URL.
 
-Official references: [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility)
-and [tool calling](https://docs.ollama.com/capabilities/tool-calling).
+Official references: [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility),
+[show model information](https://docs.ollama.com/api-reference/show-model-details),
+[thinking](https://docs.ollama.com/capabilities/thinking), and
+[tool calling](https://docs.ollama.com/capabilities/tool-calling).
 
 ## LM Studio
 
 1. Install and open LM Studio, then download at least one chat model.
-2. Open LM Studio's **Developer** tab and start the API server. The CLI
-   equivalent is:
+2. Open LM Studio's **Developer** tab and start the API server. The app being
+   open is not sufficient: the Developer page must show **Status: Running** and
+   **Reachable at `http://127.0.0.1:1234`**. The CLI equivalent is:
 
    ```bash
    lms server start
@@ -95,7 +108,28 @@ and [tool use](https://lmstudio.ai/docs/developer/openai-compat/tools).
   Do not substitute an OpenAI key.
 - **Available, but the model is absent**: confirm the model appears in the
   runtime's catalog command above, then select **Probe now** again. Ollama models
-  must be pulled; LM Studio models must be downloaded.
+  must be pulled and report the `completion` capability; image-only Ollama
+  models are deliberately excluded. LM Studio models must be downloaded and
+  report native type `llm` or `vlm`.
+- **The stream stalls without producing output**: first test the selected model
+  directly through the same compatible endpoint Brainstrike uses:
+
+  ```bash
+  curl -N http://127.0.0.1:11434/v1/chat/completions \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"qwen3","messages":[{"role":"user","content":"Reply OK"}],"stream":true}'
+  ```
+
+  For Ollama, `ollama ps` shows active runners. If the direct request also emits
+  no bytes, the runner/server is stalled rather than Brainstrike's transport;
+  stop only the affected model with `ollama stop MODEL`, then retry. For LM
+  Studio, inspect the Developer server logs and verify Just-In-Time loading can
+  load the selected model. Brainstrike does not unload models, restart either
+  server, or silently switch models on your behalf.
+- **The run finishes at the output limit with reasoning but no answer**:
+  reasoning-enabled local models can consume a very small custom max-output
+  limit before emitting final text. Clear the custom limit or raise it; this is
+  distinct from a stream stall because the run finishes with reason `length`.
 - **Model replies but tools are unreliable**: choose a model advertised as
   tool-capable by the runtime. Server reachability and model tool proficiency
   are separate capabilities.
