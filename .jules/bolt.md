@@ -122,3 +122,7 @@
 ## 2026-07-13 - Grouped thread lists bucket threads once
 **Learning:** `packages/app-shell/src/thread-list-sections.ts` rebuilt grouped thread sections by filtering the complete thread list once per group, making panel preparation O(groups x threads). Across five Node 24.16.0 trials with 100 groups and 10,000 threads x 40 rounds, the old repeated scans took a median 872.63ms while one-pass bucketing took 13.33ms with identical membership checksums.
 **Action:** Keep grouped thread-list construction on one-pass group buckets; do not reintroduce per-group full-list filters.
+
+## 2026-07-15 - Import completion summaries use one result pass
+**Learning:** `packages/db-explorer/src/hooks/use-import-completion.ts` built one completion summary with four full-array filters and two reductions. Over 100,000 representative import results x 100 rounds on Node 24.16.0, repeated passes took a 305.63ms median while one-pass accumulation took 29.37ms with identical count checksums.
+**Action:** Keep import completion outcome and chunk counts in one accumulation pass; do not reintroduce independent filters or reductions for each summary field.

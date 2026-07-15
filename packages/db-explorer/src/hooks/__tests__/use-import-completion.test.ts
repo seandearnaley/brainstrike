@@ -3,6 +3,31 @@ import type { EnhancedImportResult } from '../../types';
 import { createImportCompletionHandler } from '../use-import-completion';
 
 describe('createImportCompletionHandler', () => {
+  it('reads each import result once while building the completion summary', async () => {
+    const mockToast = vi.fn();
+    const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
+    const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
+    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const rawResults: EnhancedImportResult[] = [
+      { chunksCreated: 3, existed: false, id: 'new.txt', imported: true },
+      { chunksCreated: 2, existed: true, id: 'existing.txt', imported: false },
+      { chunksCreated: 0, existed: false, id: 'failed.txt', imported: false },
+    ];
+    let resultReads = 0;
+    const results = new Proxy(rawResults, {
+      get(target, property, receiver) {
+        if (typeof property === 'string' && /^\d+$/.test(property)) {
+          resultReads += 1;
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    await handler(results);
+
+    expect(resultReads).toBe(rawResults.length);
+  });
+
   it('handles successful imports with chunks and embeddings', async () => {
     const mockToast = vi.fn();
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
