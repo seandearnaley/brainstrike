@@ -202,7 +202,40 @@ describe('local-runtime-model-catalog', () => {
 
     expect(result.endpoint).toBe('http://127.0.0.1:11434/v1/models');
     expect(result.source).toBe('openai_v1_models');
-    expect(result.models[0]?.capabilitySource).toBe('provider_reported');
+    expect(result.models[0]?.capabilitySource).toBe('inferred');
+    expect(fetchMock.mock.calls.some(([input]) => getRequestUrl(input).endsWith('/api/show'))).toBe(
+      false
+    );
+  });
+
+  it('explains that Ollama must expose documented capabilities when /api/show omits them', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({ models: [{ name: 'qwen3:30b' }] });
+      }
+      if (url.endsWith('/api/show')) {
+        return jsonResponse({ details: { family: 'qwen3' } });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1400,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('failed');
+    if (result.state !== 'failed') {
+      throw new Error('Expected failed state');
+    }
+    expect(result.message).toContain('capabilities array');
+    expect(result.message).toContain('Update Ollama');
   });
 
   it('uses LM Studio native /api/v1/models with authoritative type discriminant', async () => {

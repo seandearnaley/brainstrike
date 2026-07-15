@@ -38,6 +38,13 @@ status is a server networking policy problem, not an unavailable model.
      -d '{"model":"qwen3"}'
    ```
 
+   If `/api/tags` works but `/api/show` omits the documented `capabilities`
+   array, Brainstrike fails model discovery with an update instruction instead
+   of guessing from model names. OpenAI-compatible servers configured as
+   Ollama that do not implement the native API remain supported through
+   `/v1/models`; those capability labels are explicitly marked as inferred and
+   Brainstrike does not call `/api/show` on that fallback path.
+
 4. In Brainstrike, open **Settings → Local Runtimes → Ollama**.
 5. Leave **Activation** on **Auto** and the base URL empty to use
    `http://127.0.0.1:11434`. For another machine, enter its origin, such as

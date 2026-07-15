@@ -24,6 +24,10 @@
   capability lookup fails the catalog visibly; never infer chat support from a
   model name after Ollama is reachable. Only `completion` models enter the
   Assistant picker, while `embedding` remains available to embedding settings.
+  Preserve native-first catalog endpoint order even when the availability probe
+  succeeded through `/v1/models`. When `/api/tags` itself is unsupported, the
+  OpenAI-compatible `/v1/models` fallback remains valid and MUST NOT be followed
+  by a native `/api/show` request; its capability source stays `inferred`.
 - Built-in local provider:
   - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
   - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.

@@ -135,6 +135,7 @@ type ModelEndpointAttemptOutcome =
   | {
       readonly ok: false;
       readonly message: string;
+      readonly terminal?: boolean;
     };
 
 const DEFAULT_SUCCESS_TTL_MS = 30_000;
@@ -743,7 +744,8 @@ export class LocalRuntimeModelCatalogService {
         return {
           checkedAt,
           endpoint: showEndpoint,
-          message: 'Ollama /api/show returned no capabilities array',
+          message:
+            'Ollama /api/show returned no capabilities array. Update Ollama to a version that exposes the documented capabilities field, then retry discovery.',
           modelId: trimmed,
           state: 'unavailable',
         };
@@ -911,8 +913,10 @@ export class LocalRuntimeModelCatalogService {
       );
     }
 
-    const candidateEndpoints = buildRuntimeModelEndpoints(runtime, options.endpoint);
-    const endpoints = this.resolveEndpointOrder(candidateEndpoints, availability);
+    // Keep model endpoints in adapter authority order. Discovery may succeed
+    // first through an OpenAI-compatible health probe, but that must not demote
+    // richer native catalog endpoints that expose model type/capabilities.
+    const endpoints = buildRuntimeModelEndpoints(runtime, options.endpoint);
 
     const loaded = await this.fetchAndNormalizeModels(runtime, availability, endpoints, {
       ...(options.signal ? { signal: options.signal } : {}),
@@ -1195,23 +1199,6 @@ export class LocalRuntimeModelCatalogService {
     };
   }
 
-  private resolveEndpointOrder(
-    endpoints: readonly RuntimeModelEndpointDefinition[],
-    availability: LocalRuntimeAvailabilityState
-  ): readonly RuntimeModelEndpointDefinition[] {
-    if (!('endpoint' in availability && availability.endpoint)) {
-      return endpoints;
-    }
-
-    const preferred = endpoints.find((endpoint) => endpoint.endpoint === availability.endpoint);
-
-    if (!preferred) {
-      return endpoints;
-    }
-
-    return [preferred, ...endpoints.filter((endpoint) => endpoint !== preferred)];
-  }
-
   private async fetchAndNormalizeModels(
     runtime: LocalRuntimeId,
     availability: LocalRuntimeAvailabilityState,
@@ -1252,6 +1239,9 @@ export class LocalRuntimeModelCatalogService {
         };
       }
       errors.push(attempt.message);
+      if (attempt.terminal) {
+        return attempt;
+      }
     }
 
     return {
@@ -1311,7 +1301,7 @@ export class LocalRuntimeModelCatalogService {
       const dedupedCandidates = this.dedupeCandidates(parsed);
       let normalized = this.normalizeModels(runtime, endpoint, dedupedCandidates);
 
-      if (runtime === 'ollama') {
+      if (runtime === 'ollama' && endpoint.source === 'ollama_api_tags') {
         const reportedCapabilities = await hydrateOllamaModelCapabilities(normalized, (modelId) =>
           this.resolveOllamaCapabilities(modelId, {
             ...(options.endpoint ? { endpoint: options.endpoint } : {}),
@@ -1319,7 +1309,7 @@ export class LocalRuntimeModelCatalogService {
           })
         );
         if (!reportedCapabilities.ok) {
-          return reportedCapabilities;
+          return { ...reportedCapabilities, terminal: true };
         }
         normalized = reportedCapabilities.models;
       }
