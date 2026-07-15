@@ -193,6 +193,7 @@ const setupLiveQueries = (
   return {
     collectionCountsRefresh,
     recordRefresh,
+    recordResult,
     totalRecordsRefresh,
   };
 };
@@ -794,6 +795,60 @@ describe('useDatabaseDemoData', () => {
         totalRecords: 1,
       })
     );
+  });
+
+  it('treats a previously loaded local page as cached after another page replaces the global snapshot', async () => {
+    mockVectorStatusUIStore.schemaVerified = true;
+    const liveQueries = setupLiveQueries({
+      records: [
+        {
+          chunkingStrategy: null,
+          chunksCount: 0,
+          chunksProcessedAt: null,
+          contentHash: 'cached-page-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 0,
+          embeddingSetId: 'set-1',
+          hasEmbedding: false,
+          id: 'cached-page-record',
+          name: 'cached-page.ts',
+          path: '/cached-page.ts',
+          processedAt: null,
+          size: 12,
+          tokenCount: 1,
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+      totalRecords: [{ embeddingSetId: 'set-1', totalRecords: 51 }],
+    });
+    const database = createMockDatabase();
+
+    const { result, rerender } = renderHook(
+      ({ page }: { page: number }) =>
+        useDatabaseDemoData({
+          activeCollectionId: 'set-1',
+          chunkRepository: createChunkRepository([]),
+          database,
+          recordPage: page,
+          repository: createRepository(),
+          toast: vi.fn(),
+        }),
+      { initialProps: { page: 0 } }
+    );
+
+    await waitFor(() => {
+      expect(mockVectorStatusUIStore.cachedFileData?.page).toBe(0);
+    });
+    rerender({ page: 1 });
+    await waitFor(() => {
+      expect(mockVectorStatusUIStore.cachedFileData?.page).toBe(1);
+    });
+
+    liveQueries.recordResult.loading = true;
+    rerender({ page: 0 });
+
+    expect(result.current.records.map((record) => record.id)).toEqual(['cached-page-record']);
+    expect(result.current.initialLoading).toBe(false);
   });
 
   it('computes active-collection counts live from file_records/file_chunks so indexing progress is visible', async () => {

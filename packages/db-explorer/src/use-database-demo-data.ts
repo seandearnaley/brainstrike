@@ -14,7 +14,7 @@ import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   buildCollectionFileDataSnapshot,
   buildRecordPageCacheKey,
@@ -40,6 +40,40 @@ import {
 } from './database-demo-data-mappers';
 
 const logger = createLogger('DatabaseDemoData');
+
+interface PageSnapshotIdentity {
+  collectionId: string;
+  page: number;
+  pageSize: number;
+}
+
+function pageHasSnapshot({
+  activeCollectionId,
+  globalSnapshot,
+  loadedPageKeys,
+  page,
+  pageCacheKey,
+  pageSize,
+}: {
+  activeCollectionId: string | null;
+  globalSnapshot: PageSnapshotIdentity | null;
+  loadedPageKeys: ReadonlySet<string>;
+  page: number;
+  pageCacheKey: string | null;
+  pageSize: number;
+}): boolean {
+  if (pageCacheKey && loadedPageKeys.has(pageCacheKey)) {
+    return true;
+  }
+  if (!(activeCollectionId && globalSnapshot)) {
+    return false;
+  }
+  return (
+    globalSnapshot.collectionId === activeCollectionId &&
+    globalSnapshot.page === page &&
+    globalSnapshot.pageSize === pageSize
+  );
+}
 
 /**
  * Resolve the storage location label based on the repository type.
@@ -297,7 +331,8 @@ export function useDatabaseDemoData({
   const cachedLoadedChunksRef = useRef<Map<string, Map<string, DatabaseFileChunkSummary[]>>>(
     new Map()
   );
-  const loadedRecordPagesRef = useRef<Set<string>>(new Set());
+  const loadedRecordPageKeysRef = useRef<ReadonlySet<string>>(new Set());
+  const loadedRecordPageListenersRef = useRef<Set<() => void>>(new Set());
   const [cacheVersion, setCacheVersion] = useState(0);
   const [fallbackLoading, setFallbackLoading] = useState(false);
   const [fallbackError, setFallbackError] = useState<Error | null>(null);
@@ -319,6 +354,30 @@ export function useDatabaseDemoData({
   const recordPageCacheKey = activeCollectionId
     ? buildRecordPageCacheKey(activeCollectionId, normalizedRecordPage, normalizedRecordPageSize)
     : null;
+
+  const subscribeToLoadedRecordPages = useCallback((listener: () => void) => {
+    loadedRecordPageListenersRef.current.add(listener);
+    return () => {
+      loadedRecordPageListenersRef.current.delete(listener);
+    };
+  }, []);
+  const getLoadedRecordPagesSnapshot = useCallback(() => loadedRecordPageKeysRef.current, []);
+  const loadedRecordPageKeys = useSyncExternalStore(
+    subscribeToLoadedRecordPages,
+    getLoadedRecordPagesSnapshot,
+    getLoadedRecordPagesSnapshot
+  );
+  const markRecordPageLoaded = useCallback((pageCacheKey: string): void => {
+    if (loadedRecordPageKeysRef.current.has(pageCacheKey)) {
+      return;
+    }
+    const nextPageKeys = new Set(loadedRecordPageKeysRef.current);
+    nextPageKeys.add(pageCacheKey);
+    loadedRecordPageKeysRef.current = nextPageKeys;
+    for (const listener of loadedRecordPageListenersRef.current) {
+      listener();
+    }
+  }, []);
 
   const publishCachedPageSnapshot = useCallback(
     (collectionId: string, pageCacheKey: string): void => {
@@ -369,7 +428,7 @@ export function useDatabaseDemoData({
 
     let didRestoreFromGlobalCache = false;
 
-    if (!loadedRecordPagesRef.current.has(recordPageCacheKey)) {
+    if (!loadedRecordPageKeys.has(recordPageCacheKey)) {
       cachedRecordsRef.current.set(
         recordPageCacheKey,
         globalCachedFileData.records.map(restoreCachedRecord)
@@ -379,7 +438,7 @@ export function useDatabaseDemoData({
         activeCollectionId,
         globalCachedFileData.collectionCounts
       );
-      loadedRecordPagesRef.current.add(recordPageCacheKey);
+      markRecordPageLoaded(recordPageCacheKey);
       didRestoreFromGlobalCache = true;
     }
 
@@ -398,8 +457,10 @@ export function useDatabaseDemoData({
   }, [
     activeCollectionId,
     globalCachedFileData,
+    loadedRecordPageKeys,
     normalizedRecordPage,
     normalizedRecordPageSize,
+    markRecordPageLoaded,
     recordPageCacheKey,
   ]);
 
@@ -557,7 +618,7 @@ export function useDatabaseDemoData({
     cachedRecordsRef.current.set(recordPageCacheKey, records);
     cachedRecordTotalsRef.current.set(activeCollectionId, liveTotalRecords);
     cachedCollectionCountsRef.current.set(activeCollectionId, liveCollectionCounts);
-    loadedRecordPagesRef.current.add(recordPageCacheKey);
+    markRecordPageLoaded(recordPageCacheKey);
     setCacheVersion((prev) => prev + 1);
     setFallbackError(null);
     publishCachedPageSnapshot(activeCollectionId, recordPageCacheKey);
@@ -569,6 +630,7 @@ export function useDatabaseDemoData({
     liveQueryEnabled,
     liveTotalRecords,
     liveTotalRecordsReady,
+    markRecordPageLoaded,
     publishCachedPageSnapshot,
     recordPageCacheKey,
     records,
@@ -642,7 +704,7 @@ export function useDatabaseDemoData({
 
       if (recordsResult) {
         cachedRecordsRef.current.set(recordPageCacheKey, recordsResult.rows.map(mapRecordRow));
-        loadedRecordPagesRef.current.add(recordPageCacheKey);
+        markRecordPageLoaded(recordPageCacheKey);
       }
       if (totalRecordsResult) {
         cacheTotalRecordsForCollection({
@@ -665,6 +727,7 @@ export function useDatabaseDemoData({
     [
       activeCollectionId,
       database,
+      markRecordPageLoaded,
       normalizedRecordPageSize,
       publishCachedPageSnapshot,
       recordOffset,
@@ -685,9 +748,7 @@ export function useDatabaseDemoData({
     if (fallbackLoading) {
       return;
     }
-    const needsRecords = recordPageCacheKey
-      ? !loadedRecordPagesRef.current.has(recordPageCacheKey)
-      : false;
+    const needsRecords = recordPageCacheKey ? !loadedRecordPageKeys.has(recordPageCacheKey) : false;
     const needsTotalRecords = cachedRecordTotalsRef.current.get(activeCollectionId) === undefined;
     const needsCollectionCounts =
       cachedCollectionCountsRef.current.get(activeCollectionId) === undefined;
@@ -731,6 +792,7 @@ export function useDatabaseDemoData({
     fallbackLoading,
     fetchSnapshot,
     liveQueryEnabled,
+    loadedRecordPageKeys,
     recordPageCacheKey,
     schemaReady,
   ]);
@@ -996,7 +1058,7 @@ export function useDatabaseDemoData({
       resolvedCollectionCounts.records,
       resolvedCollectionCounts.chunks,
       embeddingCountBucket,
-      loadedRecordPagesRef.current.size,
+      loadedRecordPageKeys.size,
       loadedChunkGroups,
       totalLoadedChunks,
       fallbackLoading ? 'loading' : 'idle',
@@ -1021,7 +1083,7 @@ export function useDatabaseDemoData({
       isImporting,
       loadedChunkCount: totalLoadedChunks,
       loadedChunkGroupCount: loadedChunkGroups,
-      loadedRecordPageCount: loadedRecordPagesRef.current.size,
+      loadedRecordPageCount: loadedRecordPageKeys.size,
       manualRefreshing,
       page: normalizedRecordPage,
       pageSize: normalizedRecordPageSize,
@@ -1037,6 +1099,7 @@ export function useDatabaseDemoData({
     isEmbeddingActive,
     isImporting,
     liveQueryEnabled,
+    loadedRecordPageKeys.size,
     manualRefreshing,
     normalizedRecordPage,
     normalizedRecordPageSize,
@@ -1249,12 +1312,14 @@ export function useDatabaseDemoData({
   }, [database]);
 
   const refreshing = manualRefreshing || recordsLoading || totalRecordsLoading || fallbackLoading;
-  const hasCurrentPageSnapshot = Boolean(
-    activeCollectionId &&
-      globalCachedFileData?.collectionId === activeCollectionId &&
-      globalCachedFileData.page === normalizedRecordPage &&
-      globalCachedFileData.pageSize === normalizedRecordPageSize
-  );
+  const hasCurrentPageSnapshot = pageHasSnapshot({
+    activeCollectionId,
+    globalSnapshot: globalCachedFileData,
+    loadedPageKeys: loadedRecordPageKeys,
+    page: normalizedRecordPage,
+    pageCacheKey: recordPageCacheKey,
+    pageSize: normalizedRecordPageSize,
+  });
   const initialLoading = Boolean(
     activeCollectionId &&
       !hasCurrentPageSnapshot &&
