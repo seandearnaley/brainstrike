@@ -44,7 +44,7 @@
 **Learning:** Brainstrike's transports and main/renderer log viewers consume different record paths, so redaction at only one sink creates a bypass.
 **Prevention:** Redact structured values before transport and listener fan-out, honor configured paths at that shared boundary, and regression-test the listener payload.
 
-## 2026-07-15 - Desktop Git mutations must disable both hook systems
-**Vulnerability:** The Git workbench's commit, pull, push, and switch actions could execute repository-controlled hooks with the desktop user's privileges.
-**Learning:** `core.hooksPath` blocks traditional hook files, but Git 2.54 config-managed `hook.<name>.command` hooks bypass it unless each configured hook is disabled.
-**Prevention:** Before desktop-managed mutations, enumerate configured hook names, disable them at command scope, redirect the traditional hook directory, and regression-test both hook systems.
+## 2026-07-15 - Hook-triggering Git commands must disable both hook systems
+**Vulnerability:** Git workbench mutations and working-tree diffs could execute repository-controlled hooks with the desktop user's privileges.
+**Learning:** `core.hooksPath` blocks traditional hook files, but Git 2.54 config-managed `hook.<name>.command` hooks bypass it; nominally read-only diffs can also refresh the index and trigger them.
+**Prevention:** Before hook-triggering Git commands, enumerate and disable configured hooks, redirect the traditional hook directory, and regression-test both hook systems, including index-refresh paths.

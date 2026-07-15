@@ -258,6 +258,31 @@ describe('git service — status', () => {
 });
 
 describe('git service — diff', () => {
+  it.skipIf(process.platform === 'win32')(
+    'SECURITY: working diff does not execute configured index hooks while refreshing stat data',
+    async () => {
+      const repo = await makeRepo();
+      const file = path.join(repo, 'tracked.txt');
+      await writeFile(repo, 'tracked.txt', 'base\n');
+      await execFileAsync('git', ['add', '.'], { cwd: repo });
+      await execFileAsync('git', ['commit', '-qm', 'base'], { cwd: repo });
+      const marker = path.join(repo, 'DIFF_HOOK_EXECUTED');
+      await execFileAsync('git', ['config', 'hook.sentinel-diff.command', `touch "${marker}"`], {
+        cwd: repo,
+      });
+      await execFileAsync(
+        'git',
+        ['config', '--add', 'hook.sentinel-diff.event', 'post-index-change'],
+        { cwd: repo }
+      );
+      const stat = await fsPromises.stat(file);
+      await fsPromises.utimes(file, stat.atime, new Date(stat.mtimeMs + 2000));
+
+      expect((await serviceFor(repo).diff({ mode: 'working' })).ok).toBe(true);
+      await expect(fsPromises.access(marker)).rejects.toThrow();
+    }
+  );
+
   it('rejects contradictory and incomplete diff modes instead of guessing', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'file.txt', 'content\n');

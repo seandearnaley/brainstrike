@@ -1169,7 +1169,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           args.push('--', pathArg ?? '.');
         }
 
-        const run_ = await invoke(args);
+        const run_ = await (untracked ? invoke : invokeWithoutHooks)(args);
         // An oversized diff overflows `maxBuffer` (failureReason 'maxBuffer'):
         // the partial stdout is still a valid prefix of the diff, so bound it and
         // report a `truncated: true` SUCCESS rather than a failure. With
