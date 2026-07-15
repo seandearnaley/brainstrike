@@ -557,6 +557,33 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return await run({ args, cwd, signal, timeoutMs });
   }
 
+  async function invokeHookFree(
+    args: readonly string[],
+    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
+  ): Promise<GitCommandRun> {
+    // Git 2.54 added config-managed hooks that bypass core.hooksPath. Enumerate
+    // their friendly names and disable them at command scope before mutations.
+    const configuredHooks = await invoke([
+      'config',
+      '--null',
+      '--name-only',
+      '--get-regexp',
+      '^hook\\..*\\.command$',
+    ]);
+    if (configuredHooks.exitCode !== 0 && configuredHooks.exitCode !== 1) {
+      return configuredHooks;
+    }
+    const disabledConfiguredHooks = configuredHooks.stdout
+      .split('\0')
+      .filter(Boolean)
+      .flatMap((key) => ['-c', `${key.slice(0, -'.command'.length)}.enabled=false`]);
+    const hookConfig = ['core.fsmonitor=false', 'core.hooksPath=/dev/null'].flatMap((value) => [
+      '-c',
+      value,
+    ]);
+    return await invoke([...hookConfig, ...disabledConfiguredHooks, ...args], timeoutMs);
+  }
+
   async function resolveWorktreeRoot(): Promise<GitResult<string>> {
     const run_ = await invoke(['rev-parse', '--path-format=absolute', '--show-toplevel']);
     if (run_.exitCode !== 0) {
@@ -1016,7 +1043,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!scope.ok) {
           return scope;
         }
-        const run_ = await invoke(args.value);
+        const run_ = await invokeHookFree(args.value);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1143,7 +1170,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           args.push('--', pathArg ?? '.');
         }
 
-        const run_ = await invoke(args);
+        const run_ = await (untracked ? invoke : invokeHookFree)(args);
         // An oversized diff overflows `maxBuffer` (failureReason 'maxBuffer'):
         // the partial stdout is still a valid prefix of the diff, so bound it and
         // report a `truncated: true` SUCCESS rather than a failure. With
@@ -1175,7 +1202,10 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!remote.ok) {
           return remote;
         }
-        const run_ = await invoke(['fetch', '--prune', '--', remote.value], GIT_NETWORK_TIMEOUT_MS);
+        const run_ = await invokeHookFree(
+          ['fetch', '--prune', '--', remote.value],
+          GIT_NETWORK_TIMEOUT_MS
+        );
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1237,7 +1267,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!scope.ok) {
           return scope;
         }
-        const run_ = await invoke(['pull'], GIT_NETWORK_TIMEOUT_MS);
+        const run_ = await invokeHookFree(['pull'], GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1266,7 +1296,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!args.ok) {
           return args;
         }
-        const run_ = await invoke(args.value, GIT_NETWORK_TIMEOUT_MS);
+        const run_ = await invokeHookFree(args.value, GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1294,7 +1324,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           return pathResult;
         }
         // No path → scope to the opened root ('.'), never the whole worktree.
-        const run_ = await invoke(['add', '--', pathResult.value ?? '.']);
+        const run_ = await invokeHookFree(['add', '--', pathResult.value ?? '.']);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1313,6 +1343,8 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         // header (ahead/behind), which is what the meter wants.
         const [run_, prefixRun] = await Promise.all([
           invoke([
+            '-c',
+            'core.fsmonitor=false',
             'status',
             '--porcelain=v2',
             '--branch',
@@ -1379,7 +1411,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (exists.exitCode !== 0) {
           return { error: `local branch "${branch}" does not exist`, ok: false };
         }
-        const run_ = await invoke(['switch', '--no-guess', '--', branch]);
+        const run_ = await invokeHookFree(['switch', '--no-guess', '--', branch]);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1396,7 +1428,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!pathResult.ok) {
           return pathResult;
         }
-        const run_ = await invoke(['restore', '--staged', '--', pathResult.value ?? '.']);
+        const run_ = await invokeHookFree(['restore', '--staged', '--', pathResult.value ?? '.']);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
