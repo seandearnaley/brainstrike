@@ -29,10 +29,13 @@ name: Coverage
 # guard-every-job design, any NEW job added to test.yml would have to remember
 # its own `if:` guard or silently start running on label churn.
 #
-# The cost is the duplicated setup block below (~30 lines: checkout / pnpm /
-# node / turbo cache / install). That is the accepted trade — and Series C's
-# next PR (C2) introduces a composite setup action that will deduplicate it
-# across test.yml, nightly-coverage.yml, and this file.
+# The setup block below (checkout / pnpm / node / turbo cache / install) is
+# the `./.github/actions/setup-workspace` composite (Series C R9a) — the same
+# composite test.yml and nightly-coverage.yml use. The duplicated TRIGGER /
+# concurrency / permissions plumbing above this comment is NOT deduplicated by
+# that composite (composite actions can't express `on:`/`concurrency:`), and
+# stays hand-synced across the three workflow-level blocks; that's the
+# accepted remaining cost of keeping this trigger split out of test.yml.
 #
 # Coverage is ADVISORY: it is deliberately NOT in the required-status-check
 # ruleset (verified against the live ruleset). `nightly-coverage.yml` remains
@@ -84,10 +87,12 @@ env:
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 jobs:
-  # Job id stays `coverage` and job name stays exactly `Coverage`:
-  #  - the NAME is the check-run name Codecov's flags/history key off;
-  #  - the ID feeds `github.job` in the turbo cache key below, so keeping it
-  #    identical to test.yml's preserves the existing warm cache.
+  # Job id stays `coverage` and job name stays exactly `Coverage`: the NAME is
+  # the check-run name Codecov's flags/history key off. (The ID previously fed
+  # `github.job` into a per-job turbo cache key; Series C R9a's composite
+  # re-keys the local `.turbo` cache on lockfile+turbo.jsonc content instead —
+  # see setup-workspace/action.yml — so this job now SHARES that cache entry
+  # with static/unit/build/nightly-coverage rather than owning a private one.)
   coverage:
     name: Coverage
     # Runs once per PR lifecycle: on a non-draft `opened`, on
@@ -112,30 +117,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      # `fetch-depth: 0` is REQUIRED: the affected-only coverage filter below
+      # diffs against `origin/$BASE_REF`. Checkout stays in the caller (not the
+      # composite) — see .github/actions/setup-workspace/action.yml's header.
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-test-${{ github.job }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          turbo-cache: 'true'
 
       - name: Clear coverage directories
         run: |
