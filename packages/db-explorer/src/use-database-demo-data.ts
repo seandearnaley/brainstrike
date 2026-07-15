@@ -320,6 +320,30 @@ export function useDatabaseDemoData({
     ? buildRecordPageCacheKey(activeCollectionId, normalizedRecordPage, normalizedRecordPageSize)
     : null;
 
+  const publishCachedPageSnapshot = useCallback(
+    (collectionId: string, pageCacheKey: string): void => {
+      const cachedChunks = Array.from(
+        cachedLoadedChunksRef.current.get(pageCacheKey)?.values() ?? []
+      ).flat();
+      setGlobalCachedFileData(
+        buildCollectionFileDataSnapshot(
+          collectionId,
+          normalizedRecordPage,
+          normalizedRecordPageSize,
+          cachedRecordTotalsRef.current.get(collectionId) ?? 0,
+          cachedCollectionCountsRef.current.get(collectionId) ?? {
+            chunks: 0,
+            embeddings: 0,
+            records: 0,
+          },
+          cachedRecordsRef.current.get(pageCacheKey) ?? [],
+          cachedChunks
+        )
+      );
+    },
+    [normalizedRecordPage, normalizedRecordPageSize, setGlobalCachedFileData]
+  );
+
   useEffect(() => {
     if (!database) {
       setSchemaReady(false);
@@ -518,7 +542,6 @@ export function useDatabaseDemoData({
     });
   }, [refreshCollectionCountsQuery]);
 
-  // biome-ignore lint/plugin: This syncs live query results to cache, not fetching data
   useEffect(() => {
     if (
       !(liveQueryEnabled && activeCollectionId && recordPageCacheKey) ||
@@ -537,20 +560,7 @@ export function useDatabaseDemoData({
     loadedRecordPagesRef.current.add(recordPageCacheKey);
     setCacheVersion((prev) => prev + 1);
     setFallbackError(null);
-    const cachedChunksForCollection = Array.from(
-      cachedLoadedChunksRef.current.get(recordPageCacheKey)?.values() ?? []
-    ).flat();
-    setGlobalCachedFileData(
-      buildCollectionFileDataSnapshot(
-        activeCollectionId,
-        normalizedRecordPage,
-        normalizedRecordPageSize,
-        liveTotalRecords,
-        liveCollectionCounts,
-        records,
-        cachedChunksForCollection
-      )
-    );
+    publishCachedPageSnapshot(activeCollectionId, recordPageCacheKey);
   }, [
     activeCollectionId,
     liveCollectionCounts,
@@ -559,14 +569,12 @@ export function useDatabaseDemoData({
     liveQueryEnabled,
     liveTotalRecords,
     liveTotalRecordsReady,
-    normalizedRecordPage,
-    normalizedRecordPageSize,
+    publishCachedPageSnapshot,
     recordPageCacheKey,
     records,
     totalRecordsLoading,
     collectionCountsLoading,
     recordsLoading,
-    setGlobalCachedFileData,
   ]);
 
   const cachedRecords = useMemo<DatabaseFileRecordSummary[]>(() => {
@@ -651,12 +659,14 @@ export function useDatabaseDemoData({
         });
       }
 
+      publishCachedPageSnapshot(activeCollectionId, recordPageCacheKey);
       setCacheVersion((prev) => prev + 1);
     },
     [
       activeCollectionId,
       database,
       normalizedRecordPageSize,
+      publishCachedPageSnapshot,
       recordOffset,
       recordPageCacheKey,
       recordQueryParams,
@@ -773,35 +783,11 @@ export function useDatabaseDemoData({
       cachedLoadedChunksRef.current.set(recordPageCacheKey, collectionChunks);
       setCacheVersion((prev) => prev + 1);
 
-      const cachedRecordsForCollection = cachedRecordsRef.current.get(recordPageCacheKey) ?? [];
-      const cachedChunksForCollection = Array.from(collectionChunks.values()).flat();
-      setGlobalCachedFileData(
-        buildCollectionFileDataSnapshot(
-          activeCollectionId,
-          normalizedRecordPage,
-          normalizedRecordPageSize,
-          cachedRecordTotalsRef.current.get(activeCollectionId) ?? 0,
-          cachedCollectionCountsRef.current.get(activeCollectionId) ?? {
-            chunks: 0,
-            embeddings: 0,
-            records: 0,
-          },
-          cachedRecordsForCollection,
-          cachedChunksForCollection
-        )
-      );
+      publishCachedPageSnapshot(activeCollectionId, recordPageCacheKey);
 
       return summaries;
     },
-    [
-      activeCollectionId,
-      database,
-      normalizedRecordPage,
-      normalizedRecordPageSize,
-      recordPageCacheKey,
-      schemaReady,
-      setGlobalCachedFileData,
-    ]
+    [activeCollectionId, database, publishCachedPageSnapshot, recordPageCacheKey, schemaReady]
   );
 
   const loadRecords = useCallback(async () => {
