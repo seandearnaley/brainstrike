@@ -631,6 +631,7 @@ describe('git service — commit', () => {
       const hooks = path.join(repo, '.git', 'hooks');
       const preCommitMarker = path.join(repo, 'PRE_COMMIT_EXECUTED');
       const postCommitMarker = path.join(repo, 'POST_COMMIT_EXECUTED');
+      const configuredHookMarker = path.join(repo, 'CONFIGURED_HOOK_EXECUTED');
       await fsPromises.writeFile(
         path.join(hooks, 'pre-commit'),
         `#!/bin/sh\ntouch "${preCommitMarker}"\n`,
@@ -641,6 +642,16 @@ describe('git service — commit', () => {
         `#!/bin/sh\ntouch "${postCommitMarker}"\n`,
         { mode: 0o755 }
       );
+      await execFileAsync(
+        'git',
+        ['config', '--local', 'hook.sentinel.command', `touch "${configuredHookMarker}"`],
+        { cwd: repo }
+      );
+      await execFileAsync(
+        'git',
+        ['config', '--local', '--add', 'hook.sentinel.event', 'pre-commit'],
+        { cwd: repo }
+      );
       await writeFile(repo, 'safe.txt', 'safe\n');
       await execFileAsync('git', ['add', '.'], { cwd: repo });
 
@@ -649,6 +660,7 @@ describe('git service — commit', () => {
       expect(result.ok).toBe(true);
       await expect(fsPromises.access(preCommitMarker)).rejects.toThrow();
       await expect(fsPromises.access(postCommitMarker)).rejects.toThrow();
+      await expect(fsPromises.access(configuredHookMarker)).rejects.toThrow();
     }
   );
 
@@ -1355,28 +1367,48 @@ describe('git service — push', () => {
     expect(remoteHead).toBeInstanceOf(Error);
   });
 
-  it('pushes normally when an upstream already exists', async () => {
-    const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
-    const remoteReal = await fsPromises.realpath(remote);
-    createdRoots.push(remoteReal);
-    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+  it.skipIf(process.platform === 'win32')(
+    'SECURITY: pushes do not execute repository-controlled hooks',
+    async () => {
+      const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
+      const remoteReal = await fsPromises.realpath(remote);
+      createdRoots.push(remoteReal);
+      await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
 
-    const repo = await makeRepo();
-    await writeFile(repo, 'a.txt', 'x\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-    await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
-    await execFileAsync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
+      const repo = await makeRepo();
+      await writeFile(repo, 'a.txt', 'x\n');
+      await execFileAsync('git', ['add', '.'], { cwd: repo });
+      await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+      await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
+      await execFileAsync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
 
-    // A second local commit, then push through the service with the upstream set.
-    await writeFile(repo, 'b.txt', 'y\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'second'], { cwd: repo });
+      // A second local commit, then push through the service with the upstream set.
+      await writeFile(repo, 'b.txt', 'y\n');
+      await execFileAsync('git', ['add', '.'], { cwd: repo });
+      await execFileAsync('git', ['commit', '-qm', 'second'], { cwd: repo });
+      const hookMarker = path.join(repo, 'PRE_PUSH_EXECUTED');
+      const configuredHookMarker = path.join(repo, 'CONFIGURED_PRE_PUSH_EXECUTED');
+      await fsPromises.writeFile(
+        path.join(repo, '.git', 'hooks', 'pre-push'),
+        `#!/bin/sh\ntouch "${hookMarker}"\n`,
+        { mode: 0o755 }
+      );
+      await execFileAsync(
+        'git',
+        ['config', 'hook.sentinel-push.command', `touch "${configuredHookMarker}"`],
+        { cwd: repo }
+      );
+      await execFileAsync('git', ['config', '--add', 'hook.sentinel-push.event', 'pre-push'], {
+        cwd: repo,
+      });
 
-    const pushed = await serviceFor(repo).push();
-    expect(pushed.ok).toBe(true);
+      const pushed = await serviceFor(repo).push();
+      expect(pushed.ok).toBe(true);
+      await expect(fsPromises.access(hookMarker)).rejects.toThrow();
+      await expect(fsPromises.access(configuredHookMarker)).rejects.toThrow();
 
-    const after = await serviceFor(repo).aheadBehind();
-    expect(after.ok && after.value.ahead).toBe(0);
-  });
+      const after = await serviceFor(repo).aheadBehind();
+      expect(after.ok && after.value.ahead).toBe(0);
+    }
+  );
 });

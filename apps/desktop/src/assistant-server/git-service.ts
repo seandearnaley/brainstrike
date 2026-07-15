@@ -557,6 +557,32 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return await run({ args, cwd, signal, timeoutMs });
   }
 
+  async function invokeWithoutHooks(
+    args: readonly string[],
+    timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
+  ): Promise<GitCommandRun> {
+    // Git 2.54 added config-managed hooks that bypass core.hooksPath. Enumerate
+    // their friendly names and disable them at command scope before mutations.
+    const configuredHooks = await invoke([
+      'config',
+      '--null',
+      '--name-only',
+      '--get-regexp',
+      '^hook\\..*\\.command$',
+    ]);
+    if (configuredHooks.exitCode !== 0 && configuredHooks.exitCode !== 1) {
+      return configuredHooks;
+    }
+    const disabledConfiguredHooks = configuredHooks.stdout
+      .split('\0')
+      .filter(Boolean)
+      .flatMap((key) => ['-c', `${key.slice(0, -'.command'.length)}.enabled=false`]);
+    return await invoke(
+      ['-c', 'core.hooksPath=/dev/null', ...disabledConfiguredHooks, ...args],
+      timeoutMs
+    );
+  }
+
   async function resolveWorktreeRoot(): Promise<GitResult<string>> {
     const run_ = await invoke(['rev-parse', '--path-format=absolute', '--show-toplevel']);
     if (run_.exitCode !== 0) {
@@ -751,9 +777,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     if (params.description !== undefined && typeof params.description !== 'string') {
       return { error: 'commit description must be a string', ok: false };
     }
-    // Repository hooks are untrusted executable code. The desktop commit action
-    // must never run them with the user's ambient desktop privileges.
-    const args = ['-c', 'core.hooksPath=/dev/null', 'commit', '-m', params.summary.trim()];
+    const args = ['commit', '-m', params.summary.trim()];
     const description = params.description?.trim() ?? '';
     if (description.length > 0) {
       args.push('-m', description);
@@ -1018,7 +1042,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!scope.ok) {
           return scope;
         }
-        const run_ = await invoke(args.value);
+        const run_ = await invokeWithoutHooks(args.value);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1239,7 +1263,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!scope.ok) {
           return scope;
         }
-        const run_ = await invoke(['pull'], GIT_NETWORK_TIMEOUT_MS);
+        const run_ = await invokeWithoutHooks(['pull'], GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1268,7 +1292,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!args.ok) {
           return args;
         }
-        const run_ = await invoke(args.value, GIT_NETWORK_TIMEOUT_MS);
+        const run_ = await invokeWithoutHooks(args.value, GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1381,7 +1405,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (exists.exitCode !== 0) {
           return { error: `local branch "${branch}" does not exist`, ok: false };
         }
-        const run_ = await invoke(['switch', '--no-guess', '--', branch]);
+        const run_ = await invokeWithoutHooks(['switch', '--no-guess', '--', branch]);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }

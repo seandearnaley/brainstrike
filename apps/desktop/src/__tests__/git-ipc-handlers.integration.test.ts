@@ -39,6 +39,9 @@ function recordingRunner(canned: GitCommandRun): {
   const calls: { args: readonly string[]; cwd: string }[] = [];
   const runner: GitCommandRunner = ({ args, cwd }) => {
     calls.push({ args, cwd });
+    if (args[0] === 'config') {
+      return Promise.resolve({ ...canned, exitCode: 1, stdout: '' });
+    }
     return Promise.resolve(canned);
   };
   return { calls, runner };
@@ -187,6 +190,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
       { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: '\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'origin\n', timedOut: false },
+      { exitCode: 1, stderr: '', stdout: '', timedOut: false },
       {
         exitCode: 128,
         stderr: 'fatal: could not read Username for https://example.com: terminal prompts disabled',
@@ -209,7 +213,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     const result = await handlers.push('r1', { remote: 'origin' });
     // Push first verifies that the authorized root is the full worktree. It
     // then probes the upstream and validates the renderer-selected remote.
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(6);
     expect(calls[0]?.args).toEqual(['rev-parse', '--path-format=absolute', '--show-toplevel']);
     expect(calls[1]?.args).toEqual(['symbolic-ref', '--quiet', '--short', 'HEAD']);
     expect(calls[2]?.args).toEqual([
@@ -218,7 +222,16 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
       'refs/heads/main',
     ]);
     expect(calls[3]?.args).toEqual(['remote']);
-    expect(calls[4]?.args).toEqual(['push', '-u', '--', 'origin', 'HEAD']);
+    expect(calls[4]?.args[0]).toBe('config');
+    expect(calls[5]?.args).toEqual([
+      '-c',
+      'core.hooksPath=/dev/null',
+      'push',
+      '-u',
+      '--',
+      'origin',
+      'HEAD',
+    ]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toMatch(/could not read Username|terminal prompts disabled/);
@@ -232,6 +245,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
       { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'origin/main\n', timedOut: false },
+      { exitCode: 1, stderr: '', stdout: '', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'Everything up-to-date\n', timedOut: false },
     ];
     let index = 0;
@@ -252,8 +266,8 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     });
 
     const result = await handlers.push('r1');
-    expect(calls).toHaveLength(4);
-    expect(calls[3]?.args).toEqual(['push']);
+    expect(calls).toHaveLength(5);
+    expect(calls[4]?.args).toEqual(['-c', 'core.hooksPath=/dev/null', 'push']);
     expect(result.ok).toBe(true);
   });
 
@@ -264,6 +278,9 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
       resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
       run: ({ args, cwd }) => {
         calls.push({ args, cwd });
+        if (args[0] === 'config') {
+          return Promise.resolve({ exitCode: 1, stderr: '', stdout: '', timedOut: false });
+        }
         return Promise.resolve({
           exitCode: 0,
           stderr: '',
@@ -276,7 +293,8 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     const result = await handlers.pull('r1');
     expect(calls.map((call) => call.args)).toEqual([
       ['rev-parse', '--path-format=absolute', '--show-toplevel'],
-      ['pull'],
+      ['config', '--null', '--name-only', '--get-regexp', '^hook\\..*\\.command$'],
+      ['-c', 'core.hooksPath=/dev/null', 'pull'],
     ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -290,6 +308,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
       { exitCode: 0, stderr: '', stdout: `${dir}\n`, timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false },
       { exitCode: 0, stderr: '', stdout: 'origin/main\n', timedOut: false },
+      { exitCode: 1, stderr: '', stdout: '', timedOut: false },
       {
         exitCode: null,
         failureReason: 'timeout' as const,
@@ -319,12 +338,16 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
 describe('git IPC handlers — commit arg construction (no shell)', () => {
   it('passes summary and description as separate literal -m arguments', async () => {
     const dir = await makeDir();
-    const { runner, calls } = recordingRunner({
-      exitCode: 0,
-      stderr: '',
-      stdout: 'abc1234',
-      timedOut: false,
-    });
+    const calls: { args: readonly string[]; cwd: string }[] = [];
+    const runner: GitCommandRunner = ({ args, cwd }) => {
+      calls.push({ args, cwd });
+      return Promise.resolve({
+        exitCode: 0,
+        stderr: '',
+        stdout: args[0] === 'config' ? 'hook.sentinel.command\0' : 'abc1234',
+        timedOut: false,
+      });
+    };
     const handlers = createGitIpcHandlers({
       resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
       run: runner,
@@ -336,6 +359,8 @@ describe('git IPC handlers — commit arg construction (no shell)', () => {
     expect(commitCall?.args).toEqual([
       '-c',
       'core.hooksPath=/dev/null',
+      '-c',
+      'hook.sentinel.enabled=false',
       'commit',
       '-m',
       evil,
