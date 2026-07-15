@@ -21,6 +21,8 @@ Future‑ready, AI‑assisted productivity apps built with React 19, Vite, Turbo
 
 Tip: Use `--filter <workspace>` to scope any script to a single app/package.
 
+To use a locally hosted chat model, see [Ollama and LM Studio setup](docs/local-model-servers.md).
+
 ---
 
 ## Monorepo Layout

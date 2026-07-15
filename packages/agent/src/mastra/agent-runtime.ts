@@ -1779,6 +1779,34 @@ function buildModelSettingsOption(
   return modelSettings ? { modelSettings } : {};
 }
 
+/**
+ * Keep Brainstrike's local-server transport settings out of Mastra generation
+ * options. Mastra namespaces compatible-provider options by the model id's
+ * first segment, so forwarding `providerOptions.ollama` or `.lmstudio` would
+ * serialize `baseUrl` and `apiToken` into the chat-completions request body.
+ */
+function buildGenerationProviderOptionsOption(
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'providerOptions'> {
+  const providerOptions = runtimeData?.providerOptions;
+  if (!providerOptions) {
+    return {};
+  }
+  if (providerOptions.ollama === undefined && providerOptions.lmstudio === undefined) {
+    return { providerOptions };
+  }
+
+  const generationProviderOptions = Object.fromEntries(
+    Object.entries(providerOptions).filter(
+      ([namespace]) => namespace !== 'ollama' && namespace !== 'lmstudio'
+    )
+  ) as NonNullable<RuntimeData['providerOptions']>;
+  if (Object.keys(generationProviderOptions).length === 0) {
+    return {};
+  }
+  return { providerOptions: generationProviderOptions };
+}
+
 interface AssistantMessageIdGenerator {
   assertConsumed: () => void;
   generate: (context?: IdGeneratorContext) => string;
@@ -2036,7 +2064,7 @@ async function createStreamIteratorFromRuntime({
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...buildModelSettingsOption(runtimeData),
-      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      ...buildGenerationProviderOptionsOption(runtimeData),
       // Delegation safety rails: per-run caps + maxSteps clamp + unknown-persona
       // rejection (only when the run has registered personas).
       ...(runtime.personasById.size > 0
@@ -2129,7 +2157,7 @@ async function createToolApprovalIteratorFromRuntime({
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...buildModelSettingsOption(runtimeData),
-      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      ...buildGenerationProviderOptionsOption(runtimeData),
       // Resume keeps the delegation rails so a resumed run still caps/rejects
       // subagent delegations consistently with the initial turn.
       ...(runtime.personasById.size > 0
@@ -2429,7 +2457,7 @@ async function createToolResumeIteratorFromRuntime({
       ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...buildModelSettingsOption(runtimeData),
-      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      ...buildGenerationProviderOptionsOption(runtimeData),
       // Resume keeps the delegation rails so a resumed run (e.g. an askUser
       // pause→answer that then delegates) still caps/rejects subagent
       // delegations consistently with the initial + approval-resume iterators.

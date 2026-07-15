@@ -234,6 +234,9 @@ export interface LocalProviderOptions extends JSONObject {
  * `baseUrl` points the factory at a non-default host (e.g. a LAN GPU box) and
  * `apiToken` is sent as `Authorization: Bearer <token>` — used for Ollama
  * Turbo/Cloud and for LM Studio 0.4.0+ servers that opted into token auth.
+ * These namespaces are transport-only and must be stripped before Mastra
+ * receives per-generation `providerOptions`; otherwise their fields become
+ * chat-completions request parameters.
  */
 export interface LocalRuntimeProviderOptions extends JSONObject {
   apiToken?: string;
