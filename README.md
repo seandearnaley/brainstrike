@@ -177,31 +177,32 @@ CI details: `.github/workflows/test.yml` runs lint → type‑check → build (w
 
 ### Dependency Updates
 
-Check for dependency drift and outdated packages across all workspaces:
+Shared dependency versions (TypeScript, Vitest, the testing-library family, and other high-fan-out deps) are pinned once in the `catalog:` block in `pnpm-workspace.yaml`; consuming `package.json` files reference them via `"catalog:"` instead of a literal version.
+
+**`react` and `react-dom` are the exception — they are governed by `overrides`, not the catalog.** A bare `overrides` entry shadows a catalog entry completely, and `overrides` is what constrains *transitive* dependencies (the ~157 third-party packages that depend on React), which is what guarantees a single React instance. Bump `overrides` for those two; a catalog entry would govern nothing.
+
+How this is enforced (two layers — read this before assuming `pnpm install` protects you):
+
+- **`pnpm add` / `pnpm update`** — pnpm rejects an off-catalog version itself, via `catalogMode: strict`: `ERR_PNPM_CATALOG_VERSION_MISMATCH`, exit 1.
+- **Hand edits** — **plain `pnpm install` does NOT reject drift.** If you hand-edit a catalogued dep to a literal version, `pnpm install` exits 0 and quietly resolves a *second, parallel* copy of that package; `--frozen-lockfile` then passes too. That path is caught in CI by `scripts/verify-catalog-references.mjs` (runs in `pnpm test:scripts`), which fails if any catalogued dep is referenced by a literal version, or if a catalog entry is shadowed by a bare override.
+
+So: a green local `pnpm install` is *not* evidence your version change is legal. Run `pnpm test:scripts` for that.
+
+Check for outdated packages across all workspaces:
 
 ```bash
-pnpm deps:lint
-pnpm deps:update:check
 pnpm outdated -r
 ```
 
-Normalize mismatched version ranges across the monorepo:
+Update a catalogued dependency: bump its version in the `catalog:` block in `pnpm-workspace.yaml` (not in the consuming `package.json`), then run `pnpm install`.
 
-```bash
-pnpm deps:fix
-```
-
-Update a specific dependency in a package:
+Update a specific non-catalogued dependency in a package:
 
 ```bash
 pnpm update <dep> --filter @brainstrike/<pkg>
 ```
 
-Update all dependencies with syncpack (writes package.json files; review diffs, then run `pnpm install`):
-
-```bash
-pnpm deps:update
-```
+`peerDependencies` deliberately keep literal, broad ranges (a compatibility floor is a contract, not a version selection) and are exempt from the catalog.
 
 Helpful docs: `onboarding.md`, `AGENTS.md`, `monorepo-docs.md`.
 

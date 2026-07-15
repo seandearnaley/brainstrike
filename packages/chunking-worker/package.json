@@ -11,12 +11,12 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^26.1.0",
+    "@types/node": "catalog:",
     "oxc-parser": "^0.138.0",
     "tree-sitter-wasms": "^0.1.13",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "exports": {
     ".": {
