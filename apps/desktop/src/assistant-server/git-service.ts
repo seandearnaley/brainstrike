@@ -1343,6 +1343,8 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         // header (ahead/behind), which is what the meter wants.
         const [run_, prefixRun] = await Promise.all([
           invoke([
+            '-c',
+            'core.fsmonitor=false',
             'status',
             '--porcelain=v2',
             '--branch',

@@ -116,6 +116,20 @@ describe('parsePorcelainV2', () => {
 });
 
 describe('git service — status', () => {
+  it.skipIf(process.platform === 'win32')(
+    'SECURITY: status does not execute a configured filesystem monitor',
+    async () => {
+      const repo = await makeRepo();
+      const marker = path.join(repo, 'FSMONITOR_EXECUTED');
+      const fsmonitor = path.join(repo, 'fsmonitor.sh');
+      await fsPromises.writeFile(fsmonitor, `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
+      await execFileAsync('git', ['config', 'core.fsmonitor', fsmonitor], { cwd: repo });
+
+      expect((await serviceFor(repo).status()).ok).toBe(true);
+      await expect(fsPromises.access(marker)).rejects.toThrow();
+    }
+  );
+
   it('reports a clean repo after an initial commit', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'hello\n');

@@ -116,6 +116,8 @@ describe('git IPC handlers — root resolution + containment', () => {
     expect(calls[0]?.cwd).toBe(dir);
     // Scoped to the opened root ('-- .') for subdir-of-worktree containment.
     expect(calls[0]?.args).toEqual([
+      '-c',
+      'core.fsmonitor=false',
       'status',
       '--porcelain=v2',
       '--branch',

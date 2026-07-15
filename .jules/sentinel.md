@@ -45,6 +45,6 @@
 **Prevention:** Redact structured values before transport and listener fan-out, honor configured paths at that shared boundary, and regression-test the listener payload.
 
 ## 2026-07-15 - Hook-triggering Git commands must disable both hook systems
-**Vulnerability:** Git workbench mutations and working-tree diffs could execute repository-controlled hooks with the desktop user's privileges.
-**Learning:** `core.hooksPath` blocks traditional hook files, but Git 2.54 config-managed hooks and executable `core.fsmonitor` bypass it; nominally read-only diffs can invoke them while refreshing the index.
-**Prevention:** Before hook-triggering Git commands, disable `core.fsmonitor`, enumerate and disable configured hooks, redirect the traditional hook directory, and regression-test every execution surface on index-refresh paths.
+**Vulnerability:** Git workbench mutations, status, and working-tree diffs could execute repository-controlled hooks with the desktop user's privileges.
+**Learning:** `core.hooksPath` blocks traditional hook files, but Git 2.54 config-managed hooks and executable `core.fsmonitor` bypass it; nominally read-only status and diffs can invoke them while inspecting the index.
+**Prevention:** Disable `core.fsmonitor` for status and, before hook-triggering Git commands, also enumerate and disable configured hooks, redirect the traditional hook directory, and regression-test every execution surface that consults the index.
