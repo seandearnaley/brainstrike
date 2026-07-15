@@ -225,6 +225,8 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     expect(calls[4]?.args[0]).toBe('config');
     expect(calls[5]?.args).toEqual([
       '-c',
+      'core.fsmonitor=false',
+      '-c',
       'core.hooksPath=/dev/null',
       'push',
       '-u',
@@ -267,7 +269,13 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
 
     const result = await handlers.push('r1');
     expect(calls).toHaveLength(5);
-    expect(calls[4]?.args).toEqual(['-c', 'core.hooksPath=/dev/null', 'push']);
+    expect(calls[4]?.args).toEqual([
+      '-c',
+      'core.fsmonitor=false',
+      '-c',
+      'core.hooksPath=/dev/null',
+      'push',
+    ]);
     expect(result.ok).toBe(true);
   });
 
@@ -294,7 +302,7 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     expect(calls.map((call) => call.args)).toEqual([
       ['rev-parse', '--path-format=absolute', '--show-toplevel'],
       ['config', '--null', '--name-only', '--get-regexp', '^hook\\..*\\.command$'],
-      ['-c', 'core.hooksPath=/dev/null', 'pull'],
+      ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', 'pull'],
     ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -357,6 +365,8 @@ describe('git IPC handlers — commit arg construction (no shell)', () => {
     await handlers.commit('r1', { description: 'Detailed body.', summary: evil });
     const commitCall = calls.find((c) => c.args.includes('commit'));
     expect(commitCall?.args).toEqual([
+      '-c',
+      'core.fsmonitor=false',
       '-c',
       'core.hooksPath=/dev/null',
       '-c',

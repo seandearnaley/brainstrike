@@ -557,7 +557,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return await run({ args, cwd, signal, timeoutMs });
   }
 
-  async function invokeWithoutHooks(
+  async function invokeHookFree(
     args: readonly string[],
     timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
   ): Promise<GitCommandRun> {
@@ -577,10 +577,11 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       .split('\0')
       .filter(Boolean)
       .flatMap((key) => ['-c', `${key.slice(0, -'.command'.length)}.enabled=false`]);
-    return await invoke(
-      ['-c', 'core.hooksPath=/dev/null', ...disabledConfiguredHooks, ...args],
-      timeoutMs
-    );
+    const hookConfig = ['core.fsmonitor=false', 'core.hooksPath=/dev/null'].flatMap((value) => [
+      '-c',
+      value,
+    ]);
+    return await invoke([...hookConfig, ...disabledConfiguredHooks, ...args], timeoutMs);
   }
 
   async function resolveWorktreeRoot(): Promise<GitResult<string>> {
@@ -1042,7 +1043,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!scope.ok) {
           return scope;
         }
-        const run_ = await invokeWithoutHooks(args.value);
+        const run_ = await invokeHookFree(args.value);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1169,7 +1170,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           args.push('--', pathArg ?? '.');
         }
 
-        const run_ = await (untracked ? invoke : invokeWithoutHooks)(args);
+        const run_ = await (untracked ? invoke : invokeHookFree)(args);
         // An oversized diff overflows `maxBuffer` (failureReason 'maxBuffer'):
         // the partial stdout is still a valid prefix of the diff, so bound it and
         // report a `truncated: true` SUCCESS rather than a failure. With
@@ -1201,7 +1202,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!remote.ok) {
           return remote;
         }
-        const run_ = await invokeWithoutHooks(
+        const run_ = await invokeHookFree(
           ['fetch', '--prune', '--', remote.value],
           GIT_NETWORK_TIMEOUT_MS
         );
@@ -1266,7 +1267,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!scope.ok) {
           return scope;
         }
-        const run_ = await invokeWithoutHooks(['pull'], GIT_NETWORK_TIMEOUT_MS);
+        const run_ = await invokeHookFree(['pull'], GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1295,7 +1296,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!args.ok) {
           return args;
         }
-        const run_ = await invokeWithoutHooks(args.value, GIT_NETWORK_TIMEOUT_MS);
+        const run_ = await invokeHookFree(args.value, GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1323,7 +1324,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           return pathResult;
         }
         // No path → scope to the opened root ('.'), never the whole worktree.
-        const run_ = await invokeWithoutHooks(['add', '--', pathResult.value ?? '.']);
+        const run_ = await invokeHookFree(['add', '--', pathResult.value ?? '.']);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1408,7 +1409,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (exists.exitCode !== 0) {
           return { error: `local branch "${branch}" does not exist`, ok: false };
         }
-        const run_ = await invokeWithoutHooks(['switch', '--no-guess', '--', branch]);
+        const run_ = await invokeHookFree(['switch', '--no-guess', '--', branch]);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1425,12 +1426,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (!pathResult.ok) {
           return pathResult;
         }
-        const run_ = await invokeWithoutHooks([
-          'restore',
-          '--staged',
-          '--',
-          pathResult.value ?? '.',
-        ]);
+        const run_ = await invokeHookFree(['restore', '--staged', '--', pathResult.value ?? '.']);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }

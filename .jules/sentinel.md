@@ -46,5 +46,5 @@
 
 ## 2026-07-15 - Hook-triggering Git commands must disable both hook systems
 **Vulnerability:** Git workbench mutations and working-tree diffs could execute repository-controlled hooks with the desktop user's privileges.
-**Learning:** `core.hooksPath` blocks traditional hook files, but Git 2.54 config-managed `hook.<name>.command` hooks bypass it; nominally read-only diffs can also refresh the index and trigger them.
-**Prevention:** Before hook-triggering Git commands, enumerate and disable configured hooks, redirect the traditional hook directory, and regression-test both hook systems, including index-refresh paths.
+**Learning:** `core.hooksPath` blocks traditional hook files, but Git 2.54 config-managed hooks and executable `core.fsmonitor` bypass it; nominally read-only diffs can invoke them while refreshing the index.
+**Prevention:** Before hook-triggering Git commands, disable `core.fsmonitor`, enumerate and disable configured hooks, redirect the traditional hook directory, and regression-test every execution surface on index-refresh paths.

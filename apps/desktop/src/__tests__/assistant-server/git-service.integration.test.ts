@@ -263,6 +263,8 @@ describe('git service — diff', () => {
     async () => {
       const repo = await makeRepo();
       const file = path.join(repo, 'tracked.txt');
+      const fsmonitorMarker = path.join(repo, 'FSMONITOR_EXECUTED');
+      const fsmonitor = path.join(repo, 'fsmonitor.sh');
       await writeFile(repo, 'tracked.txt', 'base\n');
       await execFileAsync('git', ['add', '.'], { cwd: repo });
       await execFileAsync('git', ['commit', '-qm', 'base'], { cwd: repo });
@@ -275,11 +277,16 @@ describe('git service — diff', () => {
         ['config', '--add', 'hook.sentinel-diff.event', 'post-index-change'],
         { cwd: repo }
       );
+      await fsPromises.writeFile(fsmonitor, `#!/bin/sh\ntouch "${fsmonitorMarker}"\n`, {
+        mode: 0o755,
+      });
+      await execFileAsync('git', ['config', 'core.fsmonitor', fsmonitor], { cwd: repo });
       const stat = await fsPromises.stat(file);
       await fsPromises.utimes(file, stat.atime, new Date(stat.mtimeMs + 2000));
 
       expect((await serviceFor(repo).diff({ mode: 'working' })).ok).toBe(true);
       await expect(fsPromises.access(marker)).rejects.toThrow();
+      await expect(fsPromises.access(fsmonitorMarker)).rejects.toThrow();
     }
   );
 
