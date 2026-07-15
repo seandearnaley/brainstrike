@@ -26,6 +26,16 @@ When changing the model catalog:
 
 ---
 
+## ASSISTANT THREAD GROUP PRESENTATION
+
+Thread group structure and presentation are local-first Brainstrike state in
+`brainstrike_assistant_thread_groups`, not Mastra thread metadata. Migration 056
+owns group color and split flat/grouped rank; migration 059 owns the nullable,
+validated group icon. The repository must reject unsupported color/icon values
+at both read and write boundaries, and every new presentation column must be
+registered in the numbered runner plus Drizzle's append-only
+`customMigrations` ledger.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the
@@ -124,5 +134,3 @@ reopen, strict post-ready writes, torn-store recovery),
 `db-provider-first-run-bootstrap.test.tsx` (wiring order + error surfacing).
 
 ---
-
-

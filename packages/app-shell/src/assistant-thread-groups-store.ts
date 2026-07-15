@@ -1,7 +1,7 @@
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AssistantThreadColorId } from './assistant-memory-repository';
+import type { AssistantThreadColorId, AssistantThreadIconId } from './assistant-memory-repository';
 import type {
   AssistantThreadGroup,
   AssistantThreadGroupsRepository,
@@ -93,6 +93,12 @@ interface AssistantThreadGroupsState {
     resourceId: string,
     groupId: string,
     color: AssistantThreadColorId | null
+  ) => Promise<void>;
+  setGroupIcon: (
+    repository: AssistantThreadGroupsRepository,
+    resourceId: string,
+    groupId: string,
+    icon: AssistantThreadIconId | null
   ) => Promise<void>;
   setSortBy: (presentation: ThreadOrderPresentation, sortBy: ThreadsPanelSortBy) => void;
   toggleGroupCollapsed: (groupId: string) => void;
@@ -533,6 +539,22 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
             ...state.groupsByResourceId,
             [resourceId]: (state.groupsByResourceId[resourceId] ?? []).map((group) =>
               group.id === groupId ? { ...group, color } : group
+            ),
+          },
+        }));
+      },
+      setGroupIcon: async (
+        repository: AssistantThreadGroupsRepository,
+        resourceId: string,
+        groupId: string,
+        icon: AssistantThreadIconId | null
+      ): Promise<void> => {
+        await repository.setGroupIcon(groupId, icon);
+        set((state) => ({
+          groupsByResourceId: {
+            ...state.groupsByResourceId,
+            [resourceId]: (state.groupsByResourceId[resourceId] ?? []).map((group) =>
+              group.id === groupId ? { ...group, icon } : group
             ),
           },
         }));

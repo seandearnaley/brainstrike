@@ -23,6 +23,7 @@ function makeThread(overrides: {
 function makeGroup(overrides: { id: string; name?: string; rank: string }): AssistantThreadGroup {
   return {
     color: null,
+    icon: null,
     id: overrides.id,
     name: overrides.name ?? overrides.id,
     rank: overrides.rank,

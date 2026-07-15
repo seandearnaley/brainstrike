@@ -45,6 +45,32 @@ describe('AgentSidebarPanel', () => {
     expect(await screen.findByText('Database content')).toBeVisible();
   });
 
+  it('uses a restrained primary tint for whichever Library tab is active', async () => {
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        promptsContent={<div>Prompts content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    const threadsTab = screen.getByRole('tab', { name: 'Threads' });
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    const promptsTab = screen.getByRole('tab', { name: 'Prompts' });
+    for (const tab of [threadsTab, databaseTab, promptsTab]) {
+      expect(tab).toHaveClass(
+        'data-[state=active]:bg-primary/10',
+        'data-[state=active]:text-primary'
+      );
+    }
+    expect(threadsTab).toHaveAttribute('data-state', 'active');
+
+    fireEvent.mouseDown(promptsTab, { button: 0, ctrlKey: false });
+    await waitFor(() => {
+      expect(promptsTab).toHaveAttribute('data-state', 'active');
+    });
+  });
+
   it('preloads the database chunk when requested', async () => {
     render(
       <AgentSidebarPanel

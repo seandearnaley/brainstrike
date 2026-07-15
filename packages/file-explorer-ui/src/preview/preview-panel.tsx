@@ -6,6 +6,7 @@ import {
   Button,
   type CollectionNodeType,
   EmptyState,
+  SelectionActionBarOverlay,
   TablePagination,
   Tabs,
   TabsContent,
@@ -1060,13 +1061,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             )}
 
             {previewSelections.size > 0 && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
+              <SelectionActionBarOverlay className="flex justify-center px-3">
                 <output aria-atomic="true" aria-live="polite" className="sr-only">
                   {contextSelectionSummaryText}
                 </output>
                 <BulkActionBar
                   actions={contextSelectionActions}
-                  className="pointer-events-auto"
+                  className="pointer-events-auto w-full max-w-3xl"
                   clearButtonAriaLabel="Clear context selection"
                   clearButtonLabel="Clear Selection"
                   compact
@@ -1076,7 +1077,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                   summarySubtext={null}
                   summaryText={contextSelectionSummaryText}
                 />
-              </div>
+              </SelectionActionBarOverlay>
             )}
           </div>
 

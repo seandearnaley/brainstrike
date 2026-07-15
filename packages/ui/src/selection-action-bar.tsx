@@ -45,6 +45,32 @@ export interface SelectionActionBarProps {
   summaryDetailTitle?: string;
 }
 
+export interface SelectionActionBarOverlayProps {
+  /** Selection controls and any directly related transient panels. */
+  children: React.ReactNode;
+  /** Consumer layout refinements such as centering or horizontal inset. */
+  className?: string;
+}
+
+/**
+ * Shared bottom-floating layer for tree and collection selection controls.
+ * The overlay itself ignores pointer input so content below remains usable;
+ * interactive children opt back in with `pointer-events-auto`.
+ */
+export function SelectionActionBarOverlay({
+  children,
+  className,
+}: SelectionActionBarOverlayProps): React.JSX.Element {
+  return (
+    <div
+      className={cn('pointer-events-none absolute inset-x-0 bottom-3 z-20', className)}
+      data-testid="selection-action-overlay"
+    >
+      {children}
+    </div>
+  );
+}
+
 /**
  * A collection-agnostic floating toolbar for actions against an ephemeral selection.
  */
@@ -153,3 +179,4 @@ export function SelectionActionBar({
 }
 
 SelectionActionBar.displayName = 'SelectionActionBar';
+SelectionActionBarOverlay.displayName = 'SelectionActionBarOverlay';

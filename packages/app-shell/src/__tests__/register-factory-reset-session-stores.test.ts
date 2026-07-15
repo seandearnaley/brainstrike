@@ -62,6 +62,7 @@ describe('register-factory-reset-session-stores', () => {
         'workspace-a': [
           {
             color: null,
+            icon: null,
             id: 'group-1',
             name: 'Research',
             rank: 'a0',

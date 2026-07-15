@@ -15,7 +15,7 @@ function makeThread(id: string): AssistantMemoryThread {
 }
 
 function makeGroup(id: string, rank: string): AssistantThreadGroup {
-  return { color: null, id, name: id, rank, resourceId: 'workspace-a' };
+  return { color: null, icon: null, id, name: id, rank, resourceId: 'workspace-a' };
 }
 
 const GROUP_A = makeGroup('group-a', 'a0');

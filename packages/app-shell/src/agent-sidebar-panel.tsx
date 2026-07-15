@@ -15,6 +15,8 @@ type AgentSidebarTab = 'database' | 'prompts' | 'threads';
 
 const AGENT_SIDEBAR_TAB_STORAGE_KEY = 'brainstrike.agent-sidebar-tab.v1';
 const LEGACY_TOOLS_PANEL_STORAGE_KEY = 'tools-panel.v1';
+const LIBRARY_TAB_TRIGGER_CLASS_NAME =
+  'min-w-0 gap-1 px-1.5 text-xs data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none dark:data-[state=active]:bg-primary/15';
 const agentSidebarTabStorage = createSafeJsonStorageAdapter();
 
 function isAgentSidebarTab(value: string): value is AgentSidebarTab {
@@ -146,7 +148,7 @@ export function AgentSidebarPanel({
           data-testid="agent-sidebar-tabs"
         >
           <TabsTrigger
-            className="min-w-0 gap-1 px-1.5 text-xs"
+            className={LIBRARY_TAB_TRIGGER_CLASS_NAME}
             data-testid="threads-tab-trigger"
             value="threads"
           >
@@ -154,7 +156,7 @@ export function AgentSidebarPanel({
             <span className="truncate">Threads</span>
           </TabsTrigger>
           <TabsTrigger
-            className="min-w-0 gap-1 px-1.5 text-xs"
+            className={LIBRARY_TAB_TRIGGER_CLASS_NAME}
             data-testid="database-tab-trigger"
             onFocus={requestDatabaseTabPrefetch}
             onPointerEnter={requestDatabaseTabPrefetch}
@@ -164,7 +166,7 @@ export function AgentSidebarPanel({
             <span className="truncate">Database</span>
           </TabsTrigger>
           <TabsTrigger
-            className="min-w-0 gap-1 px-1.5 text-xs"
+            className={LIBRARY_TAB_TRIGGER_CLASS_NAME}
             data-testid="prompts-tab-trigger"
             value="prompts"
           >

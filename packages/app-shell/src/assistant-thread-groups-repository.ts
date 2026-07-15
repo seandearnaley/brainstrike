@@ -1,21 +1,24 @@
 import type { DbHandle } from '@brainstrike/db';
 import {
   ASSISTANT_THREAD_COLOR_IDS,
+  ASSISTANT_THREAD_ICON_IDS,
   type AssistantThreadColorId,
+  type AssistantThreadIconId,
 } from './assistant-memory-repository';
 
 /**
  * User-defined thread groups (folders) for the Threads panel.
  *
- * Groups and placements live in Brainstrike-owned tables (migrations 054 and
- * 056) — NOT in `mastra_threads.metadata`, because grouping, folder color, and
- * manual order are Brainstrike-owned presentation state. A placement row whose
+ * Groups and placements live in Brainstrike-owned tables (migrations 054, 056,
+ * and 059) — NOT in `mastra_threads.metadata`, because grouping, group identity,
+ * and manual order are Brainstrike-owned presentation state. A placement row whose
  * thread no longer exists is inert: the panel joins placements to loaded
  * threads by id. `rank` values are fractional-index keys (`fractional-indexing`
  * `generateKeyBetween`), lexicographically ordered as text.
  */
 export interface AssistantThreadGroup {
   readonly color: AssistantThreadColorId | null;
+  readonly icon: AssistantThreadIconId | null;
   readonly id: string;
   readonly name: string;
   readonly rank: string;
@@ -44,6 +47,7 @@ export interface AssistantThreadGroupsRepository {
   listPlacements: (resourceId: string) => Promise<readonly AssistantThreadPlacement[]>;
   renameGroup: (groupId: string, name: string) => Promise<void>;
   setGroupColor: (groupId: string, color: AssistantThreadColorId | null) => Promise<void>;
+  setGroupIcon: (groupId: string, icon: AssistantThreadIconId | null) => Promise<void>;
   setGroupRank: (groupId: string, rank: string) => Promise<void>;
   setGroupRanks: (entries: readonly AssistantThreadGroupRankEntry[]) => Promise<void>;
   setThreadPlacement: (placement: AssistantThreadPlacement) => Promise<void>;
@@ -55,6 +59,7 @@ const PLACEMENTS_TABLE = 'brainstrike_assistant_thread_placements';
 
 const repositoryCache = new WeakMap<DbHandle, AssistantThreadGroupsRepository>();
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
+const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 
 function createThreadGroupId(): string {
   return `thread-group-${crypto.randomUUID()}`;
@@ -116,6 +121,16 @@ function requireNullableGroupColor(value: unknown): AssistantThreadColorId | nul
   throw new Error('Invalid thread group row: color is not a supported color or null.');
 }
 
+function requireNullableGroupIcon(value: unknown): AssistantThreadIconId | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === 'string' && ASSISTANT_THREAD_ICON_ID_SET.has(value)) {
+    return value as AssistantThreadIconId;
+  }
+  throw new Error('Invalid thread group row: icon is not a supported icon or null.');
+}
+
 function requireNullableRank(value: unknown, fieldName: string): string | null {
   if (value === null) {
     return null;
@@ -132,9 +147,16 @@ function requireGroupColor(color: AssistantThreadColorId | null): void {
   }
 }
 
+function requireGroupIcon(icon: AssistantThreadIconId | null): void {
+  if (icon !== null && !ASSISTANT_THREAD_ICON_ID_SET.has(icon)) {
+    throw new Error('Invalid thread group icon.');
+  }
+}
+
 function toGroup(row: Record<string, unknown>): AssistantThreadGroup {
   return {
     color: requireNullableGroupColor(row['color']),
+    icon: requireNullableGroupIcon(row['icon']),
     id: requireString(row['id'], 'id'),
     name: requireString(row['name'], 'name'),
     rank: requireString(row['rank'], 'rank'),
@@ -185,14 +207,15 @@ export function createPgliteAssistantThreadGroupsRepository(
       requireRank(rank, 'group');
       const group: AssistantThreadGroup = {
         color: null,
+        icon: null,
         id: createThreadGroupId(),
         name: normalizedName,
         rank,
         resourceId,
       };
       await database.query(
-        `INSERT INTO ${GROUPS_TABLE} (id, resource_id, name, rank, color)
-         VALUES ($1, $2, $3, $4, NULL)`,
+        `INSERT INTO ${GROUPS_TABLE} (id, resource_id, name, rank, color, icon)
+         VALUES ($1, $2, $3, $4, NULL, NULL)`,
         [group.id, group.resourceId, group.name, group.rank]
       );
       return group;
@@ -218,7 +241,7 @@ export function createPgliteAssistantThreadGroupsRepository(
     },
     async listGroups(resourceId: string): Promise<readonly AssistantThreadGroup[]> {
       const result = await database.query<Record<string, unknown>>(
-        `SELECT id, resource_id AS "resourceId", name, rank, color
+        `SELECT id, resource_id AS "resourceId", name, rank, color, icon
          FROM ${GROUPS_TABLE}
          WHERE resource_id = $1
          ORDER BY rank ASC, id ASC`,
@@ -248,6 +271,13 @@ export function createPgliteAssistantThreadGroupsRepository(
       await database.query(
         `UPDATE ${GROUPS_TABLE} SET color = $2, updated_at = NOW() WHERE id = $1`,
         [groupId, color]
+      );
+    },
+    async setGroupIcon(groupId: string, icon: AssistantThreadIconId | null): Promise<void> {
+      requireGroupIcon(icon);
+      await database.query(
+        `UPDATE ${GROUPS_TABLE} SET icon = $2, updated_at = NOW() WHERE id = $1`,
+        [groupId, icon]
       );
     },
     async setGroupRank(groupId: string, rank: string): Promise<void> {

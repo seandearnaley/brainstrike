@@ -204,6 +204,7 @@ beforeEach(() => {
     if (sql.includes('INSERT INTO brainstrike_assistant_thread_groups')) {
       groupRows.push({
         color: null,
+        icon: null,
         id: String(params?.[0]),
         name: String(params?.[2]),
         rank: String(params?.[3]),
@@ -222,6 +223,9 @@ beforeEach(() => {
         }
         if (sql.includes('SET color')) {
           row['color'] = params?.[1] ?? null;
+        }
+        if (sql.includes('SET icon')) {
+          row['icon'] = params?.[1] ?? null;
         }
       }
       return { rows: [] };
@@ -339,15 +343,24 @@ describe('ThreadsPanel', () => {
 
     const viewport = treegrid.parentElement;
     expect(viewport).toHaveClass('overflow-auto');
+    expect(viewport).toHaveStyle({ maxHeight: 'none' });
     expect(screen.getAllByTestId('thread-row')[0]?.closest('tr')).toHaveClass(
-      'ring-0',
       'group/thread-tree-row'
     );
-    expect(screen.getAllByTestId('thread-row')[0]).toHaveClass(
+    expect(screen.getAllByTestId('thread-row')[0]).toHaveClass('border');
+    expect(screen.getAllByTestId('thread-row')[0]).not.toHaveClass(
       'group-data-[focused=true]/thread-tree-row:outline-2'
     );
     expect(viewport?.parentElement?.parentElement).not.toHaveClass('overflow-y-auto');
-    expect(screen.getByTestId('threads-panel')).toHaveClass('@container/threads');
+    expect(screen.getByTestId('threads-panel')).toHaveClass('@container/threads', 'h-full');
+
+    const idleThread = screen.getByText('First thread').closest('[data-testid="thread-row"]');
+    expect(idleThread).toHaveClass(
+      'border-emerald-200/20',
+      'bg-transparent',
+      'hover:bg-emerald-50/25'
+    );
+    expect(idleThread).not.toHaveClass('hover:bg-accent/35');
   });
 
   it('mounts only the virtual window for a large disclosed collection', async () => {
@@ -441,7 +454,14 @@ describe('ThreadsPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Select 2 visible threads' }));
     const toolbar = screen.getByRole('toolbar', { name: 'Thread selection actions' });
-    expect(toolbar.parentElement).toHaveClass('top-12');
+    const overlay = screen.getByTestId('selection-action-overlay');
+    expect(overlay).toHaveClass('bottom-3');
+    expect(overlay).not.toHaveClass('top-12');
+    expect(toolbar.parentElement).toBe(overlay);
+    expect(toolbar).toHaveClass('w-full');
+    expect(screen.getByRole('treegrid', { name: 'Workspace threads' }).parentElement).toHaveClass(
+      'pb-20'
+    );
     expect(within(toolbar).getByRole('button', { name: 'Move' })).toBeVisible();
     expect(within(toolbar).getByRole('button', { name: 'Color' })).toBeVisible();
     expect(within(toolbar).getByRole('button', { name: 'Delete' })).toBeVisible();
@@ -702,16 +722,21 @@ describe('ThreadsPanel', () => {
     );
   });
 
-  it('saves curated icon and color metadata through Mastra thread storage', async () => {
+  it('customizes thread identity in the stable row-actions popover', async () => {
     const user = userEvent.setup();
     renderThreadsPanel();
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Customize thread Second thread' }));
-    await user.click(screen.getByRole('button', { name: 'Use Bug icon' }));
-    await user.click(screen.getByRole('button', { name: 'Use Rose color' }));
+    expect(
+      screen.queryByRole('button', { name: 'Customize thread Second thread' })
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    const customizer = screen.getByRole('dialog');
+    await user.click(within(customizer).getByRole('button', { name: 'Use Bug icon' }));
+    await user.click(within(customizer).getByRole('button', { name: 'Use Rose color' }));
 
     await waitFor(() => {
       expect(screen.getByTestId('thread-icon-bug')).toBeVisible();
@@ -731,6 +756,94 @@ describe('ThreadsPanel', () => {
       icon: 'bug',
     });
     expect(persistedRow?.['updatedAt']).toEqual(new Date('2026-04-22T11:00:00Z'));
+  });
+
+  it('keeps thread detail and action controls out of row selection', async () => {
+    const user = userEvent.setup();
+    renderThreadsPanel();
+
+    const checkbox = await screen.findByRole('checkbox', {
+      name: 'Select thread Second thread',
+    });
+    expect(checkbox.parentElement).toHaveAttribute('data-tree-controls-position', 'top');
+
+    await user.click(screen.getByRole('button', { name: 'Show thread details Second thread' }));
+    expect(checkbox).not.toBeChecked();
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    expect(checkbox).not.toBeChecked();
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    await user.click(screen.getByRole('button', { name: 'Use Bug icon' }));
+    expect(checkbox).not.toBeChecked();
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+  });
+
+  it('opens a thread without implicitly adding it to bulk selection', async () => {
+    const user = userEvent.setup();
+    renderThreadsPanel();
+
+    const firstThreadCheckbox = await screen.findByRole('checkbox', {
+      name: 'Select thread First thread',
+    });
+    const firstThreadRow = screen
+      .getByText('First thread')
+      .closest<HTMLElement>('[data-testid="thread-row"]');
+    if (!firstThreadRow) {
+      throw new Error('Expected the first thread row to render.');
+    }
+
+    await user.click(within(firstThreadRow).getByRole('button', { name: /^First thread/ }));
+    fireEvent.click(firstThreadRow);
+
+    expect(
+      useAssistantThreadStore.getState().selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-a');
+    expect(firstThreadCheckbox).not.toBeChecked();
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+  });
+
+  it('keeps keyboard activation of a thread title out of explicit checkbox selection', async () => {
+    renderThreadsPanel();
+
+    const firstThreadCheckbox = await screen.findByRole('checkbox', {
+      name: 'Select thread First thread',
+    });
+    const firstThreadRow = screen
+      .getByText('First thread')
+      .closest<HTMLElement>('[data-testid="thread-row"]');
+    if (!firstThreadRow) {
+      throw new Error('Expected the first thread row to render.');
+    }
+
+    fireEvent.click(firstThreadRow);
+    fireEvent.keyDown(within(firstThreadRow).getByRole('button', { name: /^First thread/ }), {
+      key: ' ',
+    });
+
+    expect(firstThreadCheckbox).not.toBeChecked();
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+  });
+
+  it('uses quiet idle pills, a strong active treatment, and breathing room around each thread', async () => {
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    const [activeThread, idleThread] = screen.getAllByTestId('thread-row');
+
+    expect(activeThread).toHaveClass(
+      'my-0.5',
+      'min-h-9',
+      'border-sky-500',
+      'bg-sky-100/90',
+      'shadow-sm'
+    );
+    expect(idleThread).toHaveClass('my-0.5', 'min-h-9', 'border-emerald-200/20', 'bg-transparent');
+    expect(idleThread).not.toHaveClass('shadow-sm');
   });
 
   it('shows automatic expanded metadata and keeps diagnostics out of the primary row', async () => {
@@ -801,7 +914,8 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Rename thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
     const input = screen.getByRole('textbox', { name: 'Thread title' });
     await user.clear(input);
     await user.type(input, 'Deployment plan');
@@ -825,7 +939,8 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Rename thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
     const input = screen.getByRole('textbox', { name: 'Thread title' });
     await user.clear(input);
     await user.click(screen.getByRole('button', { name: 'Save thread title' }));
@@ -842,7 +957,8 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Delete thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Delete…' }));
     expect(
       screen.getByRole('button', { name: 'Confirm delete thread Second thread' })
     ).toBeVisible();
@@ -872,7 +988,8 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: 'Delete thread Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Thread actions Second thread' }));
+    await user.click(screen.getByRole('button', { name: 'Delete…' }));
     await user.click(screen.getByRole('button', { name: 'Confirm delete thread Second thread' }));
 
     expect(await screen.findByText('Delete failed in PGlite.')).toBeVisible();
@@ -883,7 +1000,14 @@ describe('ThreadsPanel', () => {
 
 describe('ThreadsPanel groups', () => {
   function seedGroup(id: string, name: string, rank: string): void {
-    groupRows.push({ color: null, id, name, rank, resourceId: WORKSPACE_MEMORY_RESOURCE_ID });
+    groupRows.push({
+      color: null,
+      icon: null,
+      id,
+      name,
+      rank,
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+    });
   }
 
   function seedPlacement(threadId: string, groupId: string | null, rank: string): void {
@@ -904,10 +1028,11 @@ describe('ThreadsPanel groups', () => {
 
     const section = await screen.findByTestId('thread-group-section');
     expect(within(section).getByText('Research')).toBeVisible();
+    expect(within(section).getByText('Research')).toHaveClass('text-[13px]', 'leading-4');
     const nestedThreadRow = screen.getByText('Second thread').closest('tr');
     expect(nestedThreadRow).toHaveAttribute('data-depth', '1');
     expect(nestedThreadRow?.querySelector<HTMLElement>('td > div > span')).toHaveStyle({
-      width: '44px',
+      width: '28px',
     });
     const ungrouped = screen.getByTestId('threads-ungrouped-section');
     expect(ungrouped.closest('tr')).not.toHaveClass('[&_[role=gridcell]>div]:pl-7');
@@ -972,6 +1097,7 @@ describe('ThreadsPanel groups', () => {
     const groupCheckbox = await screen.findByRole('checkbox', {
       name: 'Select all 52 threads in Research',
     });
+    expect(groupCheckbox.parentElement).toHaveAttribute('data-tree-controls-position', 'top');
     expect(groupCheckbox).toHaveAttribute('data-state', 'unchecked');
     fireEvent.click(groupCheckbox);
 
@@ -981,13 +1107,32 @@ describe('ThreadsPanel groups', () => {
     );
   });
 
-  it('assigns and clears a folder color through the durable group store', async () => {
+  it('assigns group icon and color through the durable store and wraps the entire grouped surface', async () => {
     seedGroup('group-research', 'Research', 'a0');
+    seedPlacement('thread-a', 'group-research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a1');
 
     renderThreadsPanel();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Customize group Research' }));
-    const folderColorGrid = await screen.findByTestId('thread-group-color-grid');
+    expect(
+      screen.queryByRole('button', { name: 'Customize group Research' })
+    ).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Group actions Research' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Customize' }));
+    const groupCustomizer = screen.getByRole('dialog');
+    const groupIconGrid = within(groupCustomizer).getByTestId('thread-group-icon-grid');
+    expect(groupIconGrid).toHaveClass('grid-cols-6');
+    fireEvent.click(
+      within(groupCustomizer).getByRole('button', { name: 'Use Research icon for Research' })
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('thread-group-icon-research')).toBeVisible();
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET icon'), [
+      'group-research',
+      'research',
+    ]);
+    const folderColorGrid = within(groupCustomizer).getByTestId('thread-group-color-grid');
     expect(folderColorGrid).toHaveClass('grid-cols-4');
     for (const button of within(folderColorGrid).getAllByRole('button')) {
       expect(button).toHaveClass('size-8', 'justify-self-center');
@@ -997,10 +1142,64 @@ describe('ThreadsPanel groups', () => {
     await waitFor(() => {
       expect(screen.getByTestId('thread-group-color-rose')).toBeVisible();
     });
+    const groupHeaderRow = screen.getByText('Research').closest('tr');
+    const firstGroupedThreadRow = screen.getByText('First thread').closest('tr');
+    const groupSurfaceRows = Array.from(document.querySelectorAll('tr.thread-group-surface'));
+    const lastGroupSurfaceRow = groupSurfaceRows.at(-1);
+    expect(groupSurfaceRows).toHaveLength(3);
+    expect(screen.getByRole('treegrid', { name: 'Workspace threads' })).toHaveClass(
+      'border-separate',
+      'border-spacing-0'
+    );
+    expect(screen.getByTestId('thread-group-color-rose')).toHaveClass(
+      'border-rose-300',
+      'bg-rose-50'
+    );
+    expect(groupHeaderRow).toHaveClass(
+      'thread-group-surface',
+      '[&>td]:bg-rose-50/60',
+      '[&>td]:border-rose-200/60',
+      '[&>td]:rounded-t-lg'
+    );
+    expect(firstGroupedThreadRow).toHaveClass(
+      'thread-group-surface',
+      '[&>td]:bg-rose-50/60',
+      '[&>td]:border-rose-200/60',
+      '[&>td]:border-x'
+    );
+    expect(firstGroupedThreadRow).not.toHaveClass('[&>td]:rounded-t-lg', '[&>td]:rounded-b-lg');
+    expect(lastGroupSurfaceRow).toHaveClass(
+      'thread-group-surface',
+      '[&>td]:bg-rose-50/60',
+      '[&>td]:border-rose-200/60',
+      '[&>td]:rounded-b-lg'
+    );
+    const groupContentLane = within(groupHeaderRow as HTMLElement).getByTestId(
+      'thread-panel-content-lane'
+    );
+    const threadContentLane = within(firstGroupedThreadRow as HTMLElement).getByTestId(
+      'thread-panel-content-lane'
+    );
+    expect(groupContentLane).toHaveClass('mx-1');
+    expect(threadContentLane).toHaveClass('mx-1');
+    expect(groupContentLane).not.toHaveClass('before:-left-1', 'before:bg-rose-500');
+    expect(threadContentLane).not.toHaveClass('before:-left-1', 'before:bg-rose-500');
     expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('SET color'), [
       'group-research',
       'rose',
     ]);
+
+    fireEvent.click(
+      within(groupHeaderRow as HTMLElement).getByRole('button', { name: 'Collapse' })
+    );
+    await waitFor(() => {
+      expect(screen.queryByText('First thread')).not.toBeInTheDocument();
+      expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
+      expect(screen.getByText('Research').closest('tr')).toHaveClass(
+        'thread-group-surface',
+        '[&>td]:rounded-lg'
+      );
+    });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Clear color for Research' }));
     await waitFor(() => {
@@ -1039,6 +1238,11 @@ describe('ThreadsPanel groups', () => {
     // hint area files the thread even without touching the header.
     const header = within(section).getByTestId('thread-group-header');
     expect(bodyDropTarget?.contains(header)).toBe(false);
+    const headerLane = header.closest<HTMLElement>('[data-testid="thread-panel-content-lane"]');
+    const hintLane = hint.closest<HTMLElement>('[data-testid="thread-panel-content-lane"]');
+    expect(headerLane).toHaveClass('mx-1');
+    expect(hintLane).toHaveClass('mx-1');
+    expect(hint.closest('[data-testid="thread-panel-drop-zone"]')).not.toBeNull();
   });
 
   it('collapses and expands a group', async () => {
@@ -1077,6 +1281,13 @@ describe('ThreadsPanel groups', () => {
 
     const nameInput = await screen.findByRole('textbox', { name: 'Group name' });
     expect(nameInput).toHaveValue('New group');
+    const newGroupHeader = nameInput.closest<HTMLElement>('[data-testid="thread-group-header"]');
+    const newGroupLane = nameInput.closest<HTMLElement>(
+      '[data-testid="thread-panel-content-lane"]'
+    );
+    expect(newGroupHeader).toHaveClass('min-w-0');
+    expect(newGroupLane).toHaveClass('mx-1');
+    expect(nameInput).toHaveClass('text-[13px]', 'leading-4');
     fireEvent.change(nameInput, { target: { value: 'Planning' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save group name' }));
 
@@ -1095,7 +1306,8 @@ describe('ThreadsPanel groups', () => {
     renderThreadsPanel();
 
     await screen.findByTestId('thread-group-section');
-    fireEvent.click(screen.getByRole('button', { name: 'Rename group Research' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Group actions Research' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
     const nameInput = screen.getByRole('textbox', { name: 'Group name' });
     fireEvent.change(nameInput, { target: { value: 'Deep Work' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save group name' }));
@@ -1117,7 +1329,8 @@ describe('ThreadsPanel groups', () => {
     renderThreadsPanel();
 
     await screen.findByTestId('thread-group-section');
-    fireEvent.click(screen.getByRole('button', { name: 'Delete group Research' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Group actions Research' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete…' }));
 
     expect(screen.getByText('Delete folder Research?')).toBeVisible();
     expect(screen.getByTestId('thread-group-section')).toBeVisible();

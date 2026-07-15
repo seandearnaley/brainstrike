@@ -13,6 +13,12 @@ Rules:
   - File explorer tree (left nav).
   - Context explorer grouped preview tree (main panel).
 - Preserve WAI-ARIA treegrid semantics (`role="treegrid"`, row/level metadata, keyboard traversal).
+- Roving row focus and selection are independent. Keep `data-focused`/`tabIndex`
+  for keyboard ownership. Paint the row affordance from `:focus-visible` when the
+  row owns DOM focus and from TreeTable's keyboard-modality state while focus
+  remains on the treegrid container; pointer-focused rows must not receive a
+  persistent ring. Focus tokens are neutral so focus is distinguishable from
+  brand/selection color.
 - Keep the shared `TreeTableViewport` as the sole two-axis scroll owner and the
   virtualizer's scroll element. Consumer wrappers must remain layout-only
   (`overflow-hidden`); do not reintroduce nested `overflow-auto` wrappers or a
@@ -31,6 +37,29 @@ Windowing and performance:
   per-render object/function identities into `TreeTableRow` — the row memo is
   the scroll/keyboard hot path for every tree surface.
 - Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
+- Consumers with per-row hidden checkboxes may set `reserveCheckboxSpace` on the tree column so empty/group rows stay aligned with selectable rows without rendering a misleading disabled checkbox. Checkbox-only multi-select surfaces set `selectOnRowClick={false}` so row chrome moves focus without mutating selection.
+- Keyboard events from interactive cell descendants (buttons, links, form
+  controls, and equivalent ARIA widgets) remain owned by that descendant.
+  TreeTable must not reinterpret their Space/Enter activation as row selection
+  or checkbox input.
+- Tree rows whose content can expand below their primary line must set the tree
+  column's `treeControlsPosition` to `top`. This keeps disclosure and checkbox
+  controls pinned to the first 40px row line instead of recentering when details
+  appear below it.
+- Ephemeral selection actions float at the bottom through
+  `SelectionActionBarOverlay` + `SelectionActionBar`. Keep the scroll owner
+  padded at the bottom while the overlay is present; never insert the toolbar in
+  normal flow or compensate with top padding, because selection must not shift
+  the tree. The overlay's positioned ancestor must own the full available panel
+  height, and compact toolbars must receive an explicit available width; an
+  intrinsic-width compact toolbar creates a container-query feedback loop that
+  collapses its labels and spacing.
+- A colored tree group may use one continuous, softly tinted surface across its
+  header and disclosed rows. The surface must cover the full row, including the
+  disclosure and checkbox gutter, while thread identity remains independently
+  colorable inside it. Compute surface start/end from the visible row model so
+  collapsed, empty, and disclosure-limited groups still close their rounded
+  boundary correctly.
 
 When modifying TreeTable strategy or pagination behavior:
 - Update the related collection browser/file explorer/context preview adapters.
@@ -119,5 +148,3 @@ Rules:
 When changing this flow, update this section and the related tests.
 
 ---
-
-

@@ -19,7 +19,7 @@ function thread(id: string): AssistantMemoryThread {
 }
 
 function group(id: string): AssistantThreadGroup {
-  return { color: null, id, name: id, rank: id, resourceId: 'workspace-a' };
+  return { color: null, icon: null, id, name: id, rank: id, resourceId: 'workspace-a' };
 }
 
 describe('buildThreadPanelVisibleRows', () => {

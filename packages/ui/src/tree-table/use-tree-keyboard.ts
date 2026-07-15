@@ -439,7 +439,12 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   // Keyboard event handler
   const onKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      if (
+        event.target instanceof Element &&
+        event.target.closest(
+          'button, a[href], input, select, textarea, [contenteditable="true"], [role="button"], [role="checkbox"], [role="menuitem"], [role="option"], [role="switch"], [role="tab"]'
+        )
+      ) {
         return;
       }
 
