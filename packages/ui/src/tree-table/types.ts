@@ -107,6 +107,8 @@ export interface TreeTableColumn<T> {
   maxWidth?: number;
   /** Minimum width in pixels */
   minWidth?: number;
+  /** Keep row content aligned when a consumer hides selected row checkboxes. */
+  reserveCheckboxSpace?: boolean;
   /** When false, leaf rows do not reserve empty expand-toggle space in the tree column. */
   reserveToggleSpace?: boolean;
   /**
@@ -367,6 +369,8 @@ export interface TreeTableProps<T> {
   selectedId?: string | null;
   /** Selection mode */
   selectionMode?: SelectionMode;
+  /** Whether clicking row chrome changes selection. Disable for checkbox-only multi-selection. */
+  selectOnRowClick?: boolean;
   /** Whether to show checkboxes for row selection */
   showCheckbox?: boolean;
   /** Whether to render the header row. Prefer this prop over CSS-only header hiding. */

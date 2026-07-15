@@ -37,6 +37,7 @@ Windowing and performance:
   per-render object/function identities into `TreeTableRow` — the row memo is
   the scroll/keyboard hot path for every tree surface.
 - Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
+- Consumers with per-row hidden checkboxes may set `reserveCheckboxSpace` on the tree column so empty/group rows stay aligned with selectable rows without rendering a misleading disabled checkbox. Checkbox-only multi-select surfaces set `selectOnRowClick={false}` so row chrome moves focus without mutating selection.
 - Tree rows whose content can expand below their primary line must set the tree
   column's `treeControlsPosition` to `top`. This keeps disclosure and checkbox
   controls pinned to the first 40px row line instead of recentering when details

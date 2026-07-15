@@ -1259,6 +1259,31 @@ describe('TreeTable', () => {
       expect(screen.queryByLabelText('Select match')).not.toBeInTheDocument();
     });
 
+    it('can reserve checkbox space when a consumer hides a row checkbox', () => {
+      const alignedColumns: TreeTableColumn<TestData>[] = [
+        {
+          cell: ({ node }) => node.data.name,
+          id: 'name',
+          reserveCheckboxSpace: true,
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={alignedColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'hidden'}
+          nodes={[createTestNode('empty-group', 'Empty group')]}
+          onCheckboxChange={() => {}}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(screen.getByTestId('tree-checkbox-spacer')).toBeInTheDocument();
+    });
+
     it('hides the checkbox when getCheckboxState returns undefined', () => {
       const nodes: TreeNode<TestData>[] = [
         createTestNode('file', 'File', null, true, 0),
@@ -1461,6 +1486,30 @@ describe('TreeTable', () => {
   });
 
   describe('selection', () => {
+    it('can keep multi-selection checkbox-only while row clicks only move focus', () => {
+      const handleMultiSelect = vi.fn();
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'unchecked'}
+          multiSelectedIds={new Set()}
+          nodes={[createTestNode('file', 'File')]}
+          onCheckboxChange={() => {}}
+          onMultiSelectChange={handleMultiSelect}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          selectOnRowClick={false}
+          windowingStrategy="none"
+        />
+      );
+
+      fireEvent.click(screen.getByText('File'));
+
+      expect(handleMultiSelect).not.toHaveBeenCalled();
+    });
+
     it('calls onSelect when row clicked in single mode', () => {
       const handleSelect = vi.fn();
       const nodes: TreeNode<TestData>[] = [createTestNode('1', 'File 1')];

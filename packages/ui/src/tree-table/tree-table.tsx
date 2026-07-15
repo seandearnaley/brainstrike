@@ -610,6 +610,7 @@ export function TreeTable<T>({
   multiSelectedIds = DEFAULT_MULTI_SELECTED,
   onMultiSelectChange,
   selectionMode = 'single',
+  selectOnRowClick = true,
   highlightedIds = DEFAULT_HIGHLIGHTED,
   contextNodeIds = DEFAULT_CONTEXT_NODE_IDS,
   nodesArePreFlattened = false,
@@ -1110,6 +1111,7 @@ export function TreeTable<T>({
     rowVirtualizer: measureAdapter,
     selectedId,
     selectionMode,
+    selectOnRowClick,
     sortState,
   });
   const getResolvedRowClassName = React.useCallback(

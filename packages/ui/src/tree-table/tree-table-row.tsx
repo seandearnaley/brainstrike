@@ -333,6 +333,42 @@ function TreeExpandControl({
   );
 }
 
+interface TreeCheckboxControlProps {
+  ariaLabel: string;
+  checkboxState: 'checked' | 'unchecked' | 'indeterminate';
+  onCheckboxChange: (() => void) | undefined;
+  pinnedToTop: boolean;
+  reserveSpace: boolean;
+  showCheckbox: boolean;
+}
+
+function TreeCheckboxControl({
+  ariaLabel,
+  checkboxState,
+  onCheckboxChange,
+  pinnedToTop,
+  reserveSpace,
+  showCheckbox,
+}: TreeCheckboxControlProps): React.ReactElement | null {
+  const className = cn('ml-1.5 h-4 w-4 flex-shrink-0', pinnedToTop && 'mt-3');
+  if (showCheckbox) {
+    return (
+      <Checkbox
+        aria-label={ariaLabel}
+        checked={checkboxState === 'indeterminate' ? 'indeterminate' : checkboxState === 'checked'}
+        className={className}
+        data-state={checkboxState}
+        onCheckedChange={() => onCheckboxChange?.()}
+        onClick={(event) => event.stopPropagation()}
+      />
+    );
+  }
+  if (!reserveSpace) {
+    return null;
+  }
+  return <span aria-hidden="true" className={className} data-testid="tree-checkbox-spacer" />;
+}
+
 function TreeTableCellComponent<T>({
   row,
   colSpan,
@@ -391,19 +427,14 @@ function TreeTableCellComponent<T>({
             <span className="h-7 w-7 flex-shrink-0" />
           ) : null}
 
-          {/* Checkbox for multi-select */}
-          {showCheckbox && (
-            <Checkbox
-              aria-label={checkboxAriaLabel ?? `Select ${node.id}`}
-              checked={
-                checkboxState === 'indeterminate' ? 'indeterminate' : checkboxState === 'checked'
-              }
-              className={cn('ml-1.5 h-4 w-4 flex-shrink-0', controlsPinnedToTop && 'mt-3')}
-              data-state={checkboxState}
-              onCheckedChange={() => onCheckboxChange?.()}
-              onClick={(e) => e.stopPropagation()}
-            />
-          )}
+          <TreeCheckboxControl
+            ariaLabel={checkboxAriaLabel ?? `Select ${node.id}`}
+            checkboxState={checkboxState}
+            onCheckboxChange={onCheckboxChange}
+            pinnedToTop={controlsPinnedToTop}
+            reserveSpace={column.reserveCheckboxSpace === true}
+            showCheckbox={showCheckbox}
+          />
 
           {/* Context indicator dot */}
           {isInContext && (

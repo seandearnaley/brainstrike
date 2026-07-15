@@ -26,6 +26,7 @@ interface UseTreeTableHandlersOptions<T> {
   rowVirtualizer: { measureElement: (el: HTMLTableRowElement | null) => void };
   selectedId: string | null;
   selectionMode: 'single' | 'multi' | 'none';
+  selectOnRowClick: boolean;
   sortState?: SortState | undefined;
 }
 
@@ -43,6 +44,7 @@ export function useTreeTableHandlers<T>({
   rowIndexById,
   nodeById,
   keyboard,
+  selectOnRowClick,
   selectionMode,
   selectedId,
   multiSelectedIds,
@@ -127,7 +129,7 @@ export function useTreeTableHandlers<T>({
   const handleRowClick = useEventCallback((nodeId: string, event: React.MouseEvent) => {
     keyboard.actions.setFocus(nodeId);
 
-    if (selectionMode === 'none') {
+    if (!selectOnRowClick || selectionMode === 'none') {
       return;
     }
     if (selectionMode === 'single') {
