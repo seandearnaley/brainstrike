@@ -1110,6 +1110,7 @@ describe('ThreadsPanel groups', () => {
   it('assigns group icon and color through the durable store and wraps the entire grouped surface', async () => {
     seedGroup('group-research', 'Research', 'a0');
     seedPlacement('thread-a', 'group-research', 'a0');
+    seedPlacement('thread-b', 'group-research', 'a1');
 
     renderThreadsPanel();
 
@@ -1142,7 +1143,14 @@ describe('ThreadsPanel groups', () => {
       expect(screen.getByTestId('thread-group-color-rose')).toBeVisible();
     });
     const groupHeaderRow = screen.getByText('Research').closest('tr');
-    const groupedThreadRow = screen.getByText('First thread').closest('tr');
+    const firstGroupedThreadRow = screen.getByText('First thread').closest('tr');
+    const groupSurfaceRows = Array.from(document.querySelectorAll('tr.thread-group-surface'));
+    const lastGroupSurfaceRow = groupSurfaceRows.at(-1);
+    expect(groupSurfaceRows).toHaveLength(3);
+    expect(screen.getByRole('treegrid', { name: 'Workspace threads' })).toHaveClass(
+      'border-separate',
+      'border-spacing-0'
+    );
     expect(screen.getByTestId('thread-group-color-rose')).toHaveClass(
       'border-rose-300',
       'bg-rose-50'
@@ -1153,7 +1161,14 @@ describe('ThreadsPanel groups', () => {
       '[&>td]:border-rose-200/60',
       '[&>td]:rounded-t-lg'
     );
-    expect(groupedThreadRow).toHaveClass(
+    expect(firstGroupedThreadRow).toHaveClass(
+      'thread-group-surface',
+      '[&>td]:bg-rose-50/60',
+      '[&>td]:border-rose-200/60',
+      '[&>td]:border-x'
+    );
+    expect(firstGroupedThreadRow).not.toHaveClass('[&>td]:rounded-t-lg', '[&>td]:rounded-b-lg');
+    expect(lastGroupSurfaceRow).toHaveClass(
       'thread-group-surface',
       '[&>td]:bg-rose-50/60',
       '[&>td]:border-rose-200/60',
@@ -1162,7 +1177,7 @@ describe('ThreadsPanel groups', () => {
     const groupContentLane = within(groupHeaderRow as HTMLElement).getByTestId(
       'thread-panel-content-lane'
     );
-    const threadContentLane = within(groupedThreadRow as HTMLElement).getByTestId(
+    const threadContentLane = within(firstGroupedThreadRow as HTMLElement).getByTestId(
       'thread-panel-content-lane'
     );
     expect(groupContentLane).toHaveClass('mx-1');
@@ -1173,6 +1188,18 @@ describe('ThreadsPanel groups', () => {
       'group-research',
       'rose',
     ]);
+
+    fireEvent.click(
+      within(groupHeaderRow as HTMLElement).getByRole('button', { name: 'Collapse' })
+    );
+    await waitFor(() => {
+      expect(screen.queryByText('First thread')).not.toBeInTheDocument();
+      expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
+      expect(screen.getByText('Research').closest('tr')).toHaveClass(
+        'thread-group-surface',
+        '[&>td]:rounded-lg'
+      );
+    });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Clear color for Research' }));
     await waitFor(() => {

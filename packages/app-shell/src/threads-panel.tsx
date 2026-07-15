@@ -2237,7 +2237,7 @@ function ThreadPanelTree({
       </div>
       <TreeTable
         ariaLabel="Workspace threads"
-        className="table-fixed outline-none"
+        className="table-fixed border-separate border-spacing-0 outline-none"
         columns={columns}
         expandedIds={expandedGroupIds}
         getCheckboxAriaLabel={(node) => {
