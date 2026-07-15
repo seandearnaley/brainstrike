@@ -112,10 +112,48 @@ export function bareOverrideTarget(key) {
   if (key.includes('>')) {
     return null; // subtree-scoped — narrow, leaves the catalog governing elsewhere
   }
-  // Strip an optional trailing version selector, preserving a leading @scope.
-  const at = key.lastIndexOf('@');
-  const name = at > 0 ? key.slice(0, at) : key;
-  return name;
+  return overrideSegmentName(key);
+}
+
+/**
+ * The package name inside one override key segment, with any trailing version
+ * selector stripped and a leading @scope preserved:
+ *   react → react | react@^19 → react | @types/node → @types/node
+ *   @types/node@^26 → @types/node
+ * `at > 0` (not `>= 0`) is what preserves a leading scope `@`.
+ */
+function overrideSegmentName(segment) {
+  const at = segment.lastIndexOf('@');
+  return at > 0 ? segment.slice(0, at) : segment;
+}
+
+/**
+ * Throw unless every `>`-separated segment of an override key carries a real npm
+ * package name.
+ *
+ * NO SILENT FALLBACK — and specifically the SAME bug class already fixed in
+ * readCatalogEntries(): the line-shape regex alone is too permissive, so an
+ * unexpected YAML construct (`{weird: shape}`) satisfies `<token>: <token>` and
+ * would be recorded as the override key "{weird". A bogus key silently produces
+ * a bogus (or missing) conflict verdict — the catalog-shadowing defect this
+ * check exists to catch could then hide behind a malformed line. The catalog
+ * parser's own version of this hole was only caught because a failure-path test
+ * existed; this twin gets the same validation AND the same test.
+ */
+function validateOverrideKey(key, rawLine) {
+  for (const segment of key.split('>')) {
+    const name = overrideSegmentName(segment);
+    if (!NPM_NAME_RE.test(name)) {
+      throw new Error(
+        'verify-catalog-references.mjs could not parse this line inside the pnpm-workspace.yaml overrides: block:\n' +
+          `  ${rawLine}\n` +
+          `It yielded the override key "${key}", whose segment "${segment}" is not a valid npm package name ` +
+          `(parsed as "${name}"), so this is not a plain \`name: version\` override. Teach readOverrideKeys() the ` +
+          'new shape rather than letting a malformed key escape the catalog-conflict check.'
+      );
+    }
+  }
+  return key;
 }
 
 /**
@@ -226,7 +264,7 @@ export function readOverrideKeys(repoRoot) {
           'Teach readOverrideKeys() the new shape rather than letting an override escape the catalog-conflict check.'
       );
     }
-    keys.push(item[1] ?? item[2] ?? item[3]);
+    keys.push(validateOverrideKey(item[1] ?? item[2] ?? item[3], rawLine));
   }
   return keys;
 }

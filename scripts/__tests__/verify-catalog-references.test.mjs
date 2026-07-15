@@ -247,6 +247,65 @@ test('NO SILENT FALLBACK: an unparseable catalog line THROWS', () => {
   }
 });
 
+test('NO SILENT FALLBACK: an unparseable overrides line THROWS', () => {
+  // The twin of the catalog-parser hole. The line-shape regex alone accepts
+  // `{weird: shape}` as the key "{weird"; a bogus key yields a bogus conflict
+  // verdict, letting the catalog-shadowing defect hide behind malformed YAML.
+  // Before the fix this returned ['react', '{weird'] silently.
+  const dir = makeFixture({ catalog: bulkCatalog(), packages: bulkPackages() });
+  writeFileSync(
+    path.join(dir, 'pnpm-workspace.yaml'),
+    'packages:\n  - packages/*\noverrides:\n  react: ^19.2.4\n  {weird: shape}\n'
+  );
+  try {
+    assert.throws(
+      () => readOverrideKeys(dir),
+      /not a valid npm package name/,
+      'a malformed override key must throw, not be recorded as a bogus package name'
+    );
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test('every real override key survives validation (the 6 classification cases)', () => {
+  // Drives the REAL parser, not just bareOverrideTarget() in isolation: proves
+  // the new validation admits every legitimate override shape and does not
+  // regress the bare-vs-subtree-scoped classification.
+  const dir = makeFixture({
+    catalog: bulkCatalog({ react: '^19.2.7' }),
+    extraYaml:
+      'overrides:\n' +
+      '  react: ^19.2.4\n' +
+      '  "@types/node": ^26.1.0\n' +
+      '  react@^19: ^19.2.4\n' +
+      '  "@types/node@^26": ^26.1.0\n' +
+      '  react-helmet-async>react: ^19.0.0\n' +
+      '  foo@1.0.0>bar: ^2.0.0\n',
+    packages: bulkPackages(),
+  });
+  try {
+    assert.deepEqual(readOverrideKeys(dir), [
+      'react',
+      '@types/node',
+      'react@^19',
+      '@types/node@^26',
+      'react-helmet-async>react',
+      'foo@1.0.0>bar',
+    ]);
+    // Only the three BARE keys targeting react shadow it; the subtree-scoped
+    // ones must not produce a conflict.
+    const conflicts = findCatalogOverrideConflicts({ repoRoot: dir });
+    assert.deepEqual(
+      conflicts.map((c) => c.overrideKey),
+      ['react', 'react@^19'],
+      'bare react keys conflict; @types/node is not catalogued here; a>b keys never conflict'
+    );
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 test('NO SILENT FALLBACK: a named-catalog block (catalogs:) THROWS as unmodelled', () => {
   const dir = makeFixture({
     catalog: bulkCatalog(),
