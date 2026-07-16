@@ -16,6 +16,7 @@ import {
   buildAssistantErrorProcessors,
   buildProviderHistoryCompatInputProcessor,
   isEconnResetStreamError,
+  STREAM_ERROR_MAX_RETRY_AFTER_MS,
 } from '../mastra/error-processors';
 
 describe('error-processor builders', () => {
@@ -24,6 +25,12 @@ describe('error-processor builders', () => {
     // 10; we pin a bounded, observable ceiling.
     expect(ASSISTANT_MAX_PROCESSOR_RETRIES).toBe(3);
     expect(ASSISTANT_MAX_PROCESSOR_RETRIES).toBeLessThan(10);
+  });
+
+  it('pins the provider Retry-After cap explicitly (never trust a moving default)', () => {
+    // 1.51's maxRetryAfterMs defaults to 30s; we pass it explicitly so a future
+    // default change upstream cannot silently stretch a run's wall-clock stall.
+    expect(STREAM_ERROR_MAX_RETRY_AFTER_MS).toBe(30_000);
   });
 
   it('builds the three-processor error stack for hosted providers in order', () => {

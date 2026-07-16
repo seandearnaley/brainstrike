@@ -294,6 +294,71 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
     expect(config.maxProcessorRetries).toBeUndefined();
   });
 
+  it('retries an unknown transient stream error and completes (resilient retries)', async () => {
+    // NOT ECONNRESET-shaped, no status code, matched by no custom matcher — the
+    // 1.51 `retryUnknownErrors` path. On the pre-1.51 config this was terminal
+    // on the first attempt.
+    const unknownError = new Error('provider stream degraded unexpectedly');
+    const model = createScriptedModel({
+      attempts: [{ error: unknownError, kind: 'error' }],
+      finalText: 'recovered after unknown error',
+    });
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const { text } = await drain(iterator);
+
+    // One failed attempt + one retry that succeeds = two model calls.
+    expect(model.calls).toBe(2);
+    expect(text).toContain('recovered after unknown error');
+  });
+
+  it('surfaces a known authorization failure immediately (no unknown-error retry)', async () => {
+    // 401/403 are excluded from `retryUnknownErrors` inside the processor —
+    // a bad key must fail fast and visibly, never burn the retry budget.
+    const authError = Object.assign(new Error('Incorrect API key provided'), {
+      statusCode: 401,
+    });
+    const model = createScriptedModel({
+      attempts: Array.from({ length: 5 }, () => ({ error: authError, kind: 'error' as const })),
+      finalText: 'never reached',
+    });
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'bad-key', provider: 'openai' } }
+    );
+    const { text } = await drain(iterator);
+
+    expect(model.calls).toBe(1);
+    expect(text).not.toContain('never reached');
+  });
+
+  it('bounds persistently-failing unknown errors and terminates (no infinite loop)', async () => {
+    const unknownError = new Error('provider stream degraded unexpectedly');
+    const model = createScriptedModel({
+      attempts: Array.from({ length: 20 }, () => ({ error: unknownError, kind: 'error' as const })),
+      finalText: 'never reached',
+    });
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const { text } = await drain(iterator);
+
+    // Retried (unknown errors are now transient-retryable) but BOUNDED by the
+    // same pinned agent-level budget as the matched-error path, then terminal.
+    expect(model.calls).toBeGreaterThan(1);
+    expect(model.calls).toBeLessThanOrEqual(1 + ASSISTANT_MAX_PROCESSOR_RETRIES);
+    expect(text).not.toContain('never reached');
+  });
+
   it('bounds a persistently-failing retryable stream and terminates (no infinite loop)', async () => {
     const econnreset = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
     // Enough error attempts to exceed any bounded retry budget.

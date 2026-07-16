@@ -25,6 +25,12 @@ export const ASSISTANT_MAX_PROCESSOR_RETRIES = 3;
 const STREAM_ERROR_MAX_RETRIES = 2;
 /** Exponential-backoff ceiling for a transient network reset retry. */
 const STREAM_ERROR_BACKOFF_CAP_MS = 30_000;
+/**
+ * Cap on provider-controlled `Retry-After` waits (core 1.51's default, pinned
+ * explicitly so an upstream default change cannot silently stretch a run's
+ * wall-clock stall past the value this layer was tuned against).
+ */
+export const STREAM_ERROR_MAX_RETRY_AFTER_MS = 30_000;
 
 function normalizeProvider(provider: string): string {
   return provider.trim().toLowerCase();
@@ -40,9 +46,10 @@ function isLocalProvider(provider: string): boolean {
 
 /**
  * Matches ECONNRESET-class transient stream errors so StreamErrorRetry waits
- * (rather than immediately re-failing) before retrying. Deliberately narrow —
- * only genuine socket resets, never a generic error — so a real terminal
- * failure is not retried into a hidden stall.
+ * (rather than immediately re-failing) before retrying. Kept narrow — genuine
+ * socket resets only. Errors this matcher misses fall through to the bounded
+ * `retryUnknownErrors` path (core 1.51), which excludes known authorization
+ * failures (401/403) so a bad key still fails fast and visibly.
  */
 export function isEconnResetStreamError(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
@@ -80,6 +87,12 @@ export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[
       delayMs: ({ retryCount }) => Math.min(1000 * 2 ** retryCount, STREAM_ERROR_BACKOFF_CAP_MS),
       matchers: [isEconnResetStreamError],
       maxRetries: STREAM_ERROR_MAX_RETRIES,
+      maxRetryAfterMs: STREAM_ERROR_MAX_RETRY_AFTER_MS,
+      // Retry unmatched transient failures with the SAME bounded budget +
+      // backoff; the processor surfaces known auth failures (401/403)
+      // immediately. Still no silent fallback: budget exhaustion is a real
+      // terminal error the watchdog + renderer boundary surface.
+      retryUnknownErrors: true,
     }),
     new PrefillErrorHandler(),
     new ProviderHistoryCompat(),
