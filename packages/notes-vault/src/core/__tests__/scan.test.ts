@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fakeDir, fakeNote } from '../../__tests__/support/fake-handles';
 import { scanVaultDirectory } from '../scan';
 import type { VaultFolderNode, VaultNoteNode } from '../types';
@@ -84,6 +84,19 @@ describe('scanVaultDirectory', () => {
     expect(archive?.id).toBe(`${ROOT_ID}:projects/archive`);
     const old = archive?.children[0];
     expect(old?.pathSegments).toEqual(['projects', 'archive', 'old.md']);
+  });
+
+  it('prefers a cheap stat() over getFile() when the handle provides one', async () => {
+    const note = fakeNote('remote.md', { content: 'irrelevant', lastModified: 42 });
+    const statted = Object.assign(note, {
+      stat: () => Promise.resolve({ lastModified: 777, size: 9 }),
+    });
+    const getFile = vi.spyOn(statted, 'getFile');
+
+    const result = await scanVaultDirectory(fakeDir('vault', [statted]), ROOT_ID);
+
+    expect(result.nodes[0]).toMatchObject({ lastModified: 777, size: 9 });
+    expect(getFile).not.toHaveBeenCalled();
   });
 
   it('supports aborting a scan in progress', async () => {

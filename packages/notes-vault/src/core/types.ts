@@ -29,6 +29,9 @@ export interface VaultFileHandleLike {
   isSameEntry(other: VaultHandleLike): Promise<boolean>;
   readonly kind: 'file';
   readonly name: string;
+  /** Cheap metadata probe. Backends where getFile() is expensive (desktop
+   * IPC reads full content) provide this; scans prefer it when present. */
+  stat?(): Promise<{ lastModified: number; size: number }>;
 }
 
 export interface VaultDirectoryHandleLike {

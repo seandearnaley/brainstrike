@@ -31,15 +31,17 @@ async function scanNote(
   rootId: VaultRootId,
   pathSegments: readonly string[]
 ): Promise<VaultTreeNode> {
-  const file = await handle.getFile();
+  // stat() is the cheap path (desktop bridge carries metadata in listings);
+  // getFile() is the web FSA path where metadata rides on the File object.
+  const meta = handle.stat ? await handle.stat() : await handle.getFile();
   return {
     handle,
     id: makeVaultNodeId(rootId, pathSegments),
-    lastModified: file.lastModified,
+    lastModified: meta.lastModified,
     name: handle.name,
     pathSegments,
     rootId,
-    size: file.size,
+    size: meta.size,
     type: 'note',
   };
 }

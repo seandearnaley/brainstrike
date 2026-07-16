@@ -15,6 +15,7 @@ export type DesktopIpcDomain =
   | 'llm-host'
   | 'logging'
   | 'mcp'
+  | 'notesVault'
   | 'preferences'
   | 'runtime'
   | 'shell'

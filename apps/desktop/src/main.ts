@@ -66,6 +66,7 @@ import {
 import { registerHooksIpcHandlers } from './ipc-hooks';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from './ipc-mcp';
+import { registerNotesVaultIpc } from './ipc-notes-vault';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
@@ -677,6 +678,7 @@ let unregisterContextFilesIpcHandlers: null | (() => void) = null;
 let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
 let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
+let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
@@ -993,6 +995,7 @@ unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
 unregisterUserCommandsIpcHandlers = registerUserCommandsIpcHandlers();
 unregisterUserPersonasIpcHandlers = registerUserPersonasIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
+unregisterNotesVaultIpcHandlers = registerNotesVaultIpc();
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1627,6 +1630,11 @@ app.on('will-quit', () => {
     // Disposer also reaps every live pty (no orphaned shell survives quit).
     unregisterTerminalIpcHandlers();
     unregisterTerminalIpcHandlers = null;
+  }
+  if (unregisterNotesVaultIpcHandlers) {
+    // Disposer also stops every live notes vault watcher.
+    unregisterNotesVaultIpcHandlers();
+    unregisterNotesVaultIpcHandlers = null;
   }
   removeLogBufferListener();
 });
