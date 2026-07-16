@@ -70,7 +70,9 @@ vi.mock('@mastra/core/agent', async (importActual) => {
 });
 
 const { streamMastraAgent } = await import('../mastra/agent-runtime');
-const { ASSISTANT_MAX_PROCESSOR_RETRIES } = await import('../mastra/error-processors');
+const { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } = await import(
+  '../mastra/error-processors'
+);
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
@@ -130,6 +132,35 @@ function createScriptedModel(args: {
   return model as unknown as LanguageModelV2 & { calls: number };
 }
 
+/**
+ * A provider-faithful prefill model: rejects with `error` on EVERY attempt
+ * whose prompt still ends with an assistant message (the prefill shape), and
+ * answers only once the history mutation removed the trailing prefill.
+ */
+function createPrefillSensitiveModel(args: {
+  error: unknown;
+  finalText: string;
+}): LanguageModelV2 & { calls: number } {
+  const model = {
+    calls: 0,
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: (options: LanguageModelV2CallOptions) => {
+      model.calls += 1;
+      const prompt = options.prompt;
+      const last = Array.isArray(prompt) ? prompt.at(-1) : undefined;
+      if (last && (last as { role?: string }).role === 'assistant') {
+        return Promise.resolve({ stream: enqueue(errorParts(args.error)) });
+      }
+      return Promise.resolve({ stream: enqueue(successParts(args.finalText)) });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2' as const,
+    supportedUrls: {},
+  };
+  return model as unknown as LanguageModelV2 & { calls: number };
+}
+
 async function drain(iterator: AsyncIterable<StreamChunk>): Promise<{
   text: string;
   runEventKinds: string[];
@@ -176,27 +207,98 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
     expect(text).toContain('recovered after reset');
   });
 
-  it('recovers a reloaded-thread assistant-prefill rejection', async () => {
-    // The REAL Mastra PrefillErrorHandler pattern (confirmed against the compiled
-    // processor) requires "does not support assistant message prefill" — NOT the
-    // looser phrasing the reference doc's prose implies.
-    const prefillError = new Error('This request does not support assistant message prefill.');
+  it('retries an UNKNOWN transient mid-stream error and completes the run', async () => {
+    // No `code`, no ECONNRESET phrasing, no provider `isRetryable` flag — an
+    // error our matcher does NOT know. @mastra/core 1.51's
+    // `retryUnknownErrors` retries these while still surfacing known
+    // authorization failures immediately (see the paired test below).
+    const unknownError = new Error('provider stream dropped unexpectedly');
     const model = createScriptedModel({
-      attempts: [{ error: prefillError, kind: 'error' }],
-      finalText: 'continued past prefill',
+      attempts: [{ error: unknownError, kind: 'error' }],
+      finalText: 'recovered after unknown error',
     });
     modelHolder.current = model;
 
     const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const { text } = await drain(iterator);
+
+    // One failed attempt + one retry that succeeds = two model calls.
+    expect(model.calls).toBe(2);
+    expect(text).toContain('recovered after unknown error');
+  });
+
+  // Boundary pin for `retryUnknownErrors`: authorization failures are exactly
+  // the errors that option must NOT retry. Parametrized over every shape the
+  // code comment claims @mastra/core 1.51's isKnownTerminalAuthorizationError
+  // covers — statusCode 401, status 403, an invalid_api_key CODE with no
+  // status at all, and an auth error nested in `cause` (as several provider
+  // SDKs emit). A bad key fails loudly on the FIRST attempt in every shape.
+  it.each([
+    ['statusCode 401', Object.assign(new Error('Incorrect API key provided'), { statusCode: 401 })],
+    ['status 403', Object.assign(new Error('Permission denied for model'), { status: 403 })],
+    [
+      'code invalid_api_key (no status)',
+      Object.assign(new Error('Incorrect API key provided'), { code: 'invalid_api_key' }),
+    ],
+    [
+      'cause-nested 401',
+      Object.assign(new Error('Request failed'), {
+        cause: Object.assign(new Error('Unauthorized'), { statusCode: 401 }),
+      }),
+    ],
+  ] as const)('surfaces a known authorization failure immediately — %s', async (_label, authError) => {
+    const model = createScriptedModel({
+      attempts: Array.from({ length: 5 }, () => ({ error: authError, kind: 'error' as const })),
+      finalText: 'never reached',
+    });
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'bad-key', provider: 'openai' } }
+    );
+    const { text } = await drain(iterator);
+
+    expect(model.calls).toBe(1);
+    expect(text).not.toContain('never reached');
+  });
+
+  it('recovers a reloaded-thread assistant-prefill rejection (fixup, not blind retry)', async () => {
+    // The REAL Mastra PrefillErrorHandler pattern (confirmed against the compiled
+    // processor) requires "does not support assistant message prefill" — NOT the
+    // looser phrasing the reference doc's prose implies.
+    //
+    // PROMPT-SENSITIVE model: like a real provider, it keeps rejecting for as
+    // long as the outbound prompt still ends with an assistant prefill, and
+    // succeeds only once PrefillErrorHandler has MUTATED the history. A blind
+    // StreamErrorRetry (same prompt re-sent) can never turn this green — the
+    // runner returns at the FIRST processor that requests a retry, so the
+    // fixup processors must be ordered BEFORE the unknown-error retry.
+    const prefillError = new Error('This request does not support assistant message prefill.');
+    const model = createPrefillSensitiveModel({
+      error: prefillError,
+      finalText: 'continued past prefill',
+    });
+    modelHolder.current = model;
+
+    // The prefill shape: the reloaded thread ends with an ASSISTANT message
+    // (continuation without a fresh user turn), so the outbound prompt's last
+    // entry is an assistant prefill until PrefillErrorHandler mutates it.
+    const iterator = await streamMastraAgent(
       [
         { id: 'u1', parts: [{ text: 'summarize', type: 'text' }], role: 'user' },
         { id: 'a1', parts: [{ text: 'Earlier answer.', type: 'text' }], role: 'assistant' },
-        { id: 'u2', parts: [{ text: 'continue', type: 'text' }], role: 'user' },
       ],
       { runtime: { apiKey: 'test-key', provider: 'anthropic' } }
     );
     const { text } = await drain(iterator);
 
+    // One rejected prefill attempt + one FIXED attempt. A blind retry would
+    // re-send the same assistant-terminated prompt and burn the whole budget
+    // (calls = 1 + ASSISTANT_MAX_PROCESSOR_RETRIES) without ever recovering.
     expect(model.calls).toBe(2);
     expect(text).toContain('continued past prefill');
   });
@@ -270,10 +372,13 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
     };
     expect(config.maxProcessorRetries).toBe(ASSISTANT_MAX_PROCESSOR_RETRIES);
     expect(config.maxProcessorRetries).not.toBe(10);
+    // ORDER PIN: fixup processors BEFORE the unknown-error retry — the runner
+    // returns at the first processor that requests a retry (see the
+    // prompt-sensitive prefill test above for the regression this prevents).
     expect(config.errorProcessors?.map((processor) => processor.id)).toEqual([
-      'stream-error-retry-processor',
       'prefill-error-handler',
       'provider-history-compat',
+      'stream-error-retry-processor',
     ]);
   });
 
@@ -292,6 +397,80 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
     };
     expect(config.errorProcessors).toBeUndefined();
     expect(config.maxProcessorRetries).toBeUndefined();
+  });
+
+  it('clamps a provider Retry-After wait to the backoff ceiling (direct processor)', async () => {
+    // Unit pin on the REAL processor our builder configures: an hour-long
+    // provider `retry-after` header must wait exactly maxRetryAfterMs (30s),
+    // never the header's demand. Fake timers keep the pin fast.
+    vi.useFakeTimers();
+    try {
+      const retryProcessor = (buildAssistantErrorProcessors('openai') ?? []).find(
+        (processor) => processor.id === 'stream-error-retry-processor'
+      );
+      if (!retryProcessor?.processAPIError) {
+        throw new Error('stream-error retry processor missing from the builder output');
+      }
+      const error = Object.assign(new Error('rate limited upstream'), {
+        responseHeaders: { 'retry-after': '3600' },
+      });
+      let resolved = false;
+      // The implementation reads only { error, retryCount, abortSignal } from
+      // its args (verified against the installed 1.51 dist); the cast supplies
+      // the minimal shape without fabricating a full processor context.
+      const pending = Promise.resolve(
+        retryProcessor.processAPIError({ error, retryCount: 0 } as Parameters<
+          NonNullable<(typeof retryProcessor)['processAPIError']>
+        >[0])
+      ).then((result) => {
+        resolved = true;
+        return result;
+      });
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(resolved).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await pending;
+      expect(resolved).toBe(true);
+      expect(result).toEqual({ retry: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let a Retry-After wait outlive an abort (direct processor)', async () => {
+    vi.useFakeTimers();
+    try {
+      const retryProcessor = (buildAssistantErrorProcessors('openai') ?? []).find(
+        (processor) => processor.id === 'stream-error-retry-processor'
+      );
+      if (!retryProcessor?.processAPIError) {
+        throw new Error('stream-error retry processor missing from the builder output');
+      }
+      const error = Object.assign(new Error('rate limited upstream'), {
+        responseHeaders: { 'retry-after': '3600' },
+      });
+      const controller = new AbortController();
+      let resolved = false;
+      const pending = Promise.resolve(
+        retryProcessor.processAPIError({
+          abortSignal: controller.signal,
+          error,
+          retryCount: 0,
+        } as Parameters<NonNullable<(typeof retryProcessor)['processAPIError']>>[0])
+      ).then(() => {
+        resolved = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(resolved).toBe(false);
+      controller.abort();
+      // No further timer advance: the abort alone must release the wait.
+      await pending;
+      expect(resolved).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('bounds a persistently-failing retryable stream and terminates (no infinite loop)', async () => {

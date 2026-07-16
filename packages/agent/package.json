@@ -11,7 +11,7 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "^4.2.0",
-    "@mastra/core": "^1.50.0",
+    "@mastra/core": "^1.51.0",
     "@mastra/mcp": "^1.13.1",
     "@mastra/memory": "1.22.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
