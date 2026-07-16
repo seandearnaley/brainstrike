@@ -8,7 +8,14 @@ export interface RuntimeAgentLoopSettings {
   maxSteps?: number;
 }
 
-export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type OpenAiReasoningEffort =
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 
 export interface OpenAiProviderOptions extends RuntimeJsonObject {

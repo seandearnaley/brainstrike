@@ -95,6 +95,7 @@ import {
   resolveAssistantProviderDisabledReason,
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
+  resolveProviderFromComposite,
   resolveProviderModelSelection,
   type SelectedModelBudgetDef,
   toLocalRuntimeInputSchema,
@@ -104,6 +105,7 @@ import {
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
+import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
@@ -133,18 +135,6 @@ declare global {
         }
       | undefined;
   }
-}
-
-// App-shell wrapper wires DB/preferences state into the shared UI-only AssistantUiPanel.
-function resolveProviderFromComposite(
-  composite: string | null | undefined
-): SupportedProvider | null {
-  if (!composite) {
-    return null;
-  }
-  const parts = composite.split('::');
-  const candidate = parts.length === 2 ? parts[0] : null;
-  return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
 function hasDesktopRuntimeBridge(): boolean {
@@ -1111,31 +1101,14 @@ export function AssistantUiPanelWrapper({
     shouldSkipSelectionReconcile,
   ]);
 
-  const handleModelChange = useCallback(
-    (compositeKey: string) => {
-      const provider = resolveProviderFromComposite(compositeKey);
-      const model = resolveModelNameFromComposite(compositeKey);
-      if (memoryThreadId && provider && model) {
-        // The thread keeps its own runtime, while global preferences remember
-        // the most recently chosen assistant model for the next new thread.
-        setModel(compositeKey);
-        const draftProviderSettings = draftRuntimeByThreadId[memoryThreadId]?.providerSettings;
-        const providerSettingsMap =
-          copyProviderSettingsMap(draftProviderSettings) ??
-          (providerSettings[provider] ? { [provider]: { ...providerSettings[provider] } } : {});
-        setThreadDraftRuntime(memoryThreadId, {
-          ...buildDraftRuntimeForProvider({
-            model,
-            provider,
-            providerSettingsMap,
-          }),
-        });
-        return;
-      }
-      setModel(compositeKey);
-    },
-    [draftRuntimeByThreadId, memoryThreadId, providerSettings, setModel, setThreadDraftRuntime]
-  );
+  const handleModelChange = useAssistantModelChange({
+    draftRuntimeByThreadId,
+    memoryThreadId,
+    providerSettings,
+    setModel,
+    setProviderSettings,
+    setThreadDraftRuntime,
+  });
 
   const handleModelToggle = useCallback(
     (providerId: string, modelId: string, enabled: boolean) => {

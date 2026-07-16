@@ -1,4 +1,5 @@
 import { GEMMA4_E2B_MODEL_ID } from './local-llm.js';
+import type { OpenAiReasoningEffort } from './runtime-data.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = 768;
 
@@ -46,6 +47,16 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * or $0 (local/keyless) pricing — unknown pricing must render "cost unavailable", never $0.
    */
   pricing?: { inputPerMTok: number; outputPerMTok: number };
+  /**
+   * Authoritative per-model reasoning controls when the provider publishes
+   * them. The UI and request boundary both enforce these values so a
+   * provider-wide saved setting cannot become an invalid model request.
+   */
+  reasoning?: {
+    defaultEffort?: OpenAiReasoningEffort;
+    mandatory: boolean;
+    supportedEfforts: readonly OpenAiReasoningEffort[];
+  };
   /**
    * Some providers restrict streaming; surface this so the UI can badge support.
    */
@@ -425,6 +436,32 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // Curated current subset from OpenRouter's model catalog. Provider-reported
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
+      {
+        contextWindow: 1_048_576,
+        id: 'meta/muse-spark-1.1',
+        label: 'Muse Spark 1.1 (OpenRouter)',
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
+        reasoning: {
+          defaultEffort: 'medium',
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_048_576,
+        id: 'moonshotai/kimi-k3',
+        label: 'Kimi K3 (OpenRouter)',
+        pricing: { inputPerMTok: 3, outputPerMTok: 15 },
+        reasoning: {
+          defaultEffort: 'max',
+          mandatory: true,
+          supportedEfforts: ['max'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+      },
       {
         contextWindow: 1_050_000,
         id: 'openai/gpt-5.6-sol',
