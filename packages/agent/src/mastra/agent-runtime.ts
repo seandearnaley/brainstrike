@@ -1611,12 +1611,29 @@ function makeProviderErrorTermination(
 
 function makeStreamStalledTermination(
   error: StreamStalledError,
-  lifecycleState: ToolLifecycleState
+  lifecycleState: ToolLifecycleState,
+  runtimeData: RuntimeData | undefined
 ): StreamChunk[] {
-  logger.error('mastra stream stalled by inactivity timeout', {
-    code: 'mastra_agent_stream_inactivity_timeout',
+  const provider = runtimeData?.provider?.trim().toLowerCase();
+  const model = runtimeData?.model?.trim();
+  const localRuntimeName =
+    provider === 'ollama' ? 'Ollama' : provider === 'lmstudio' ? 'LM Studio' : null;
+  const diagnosticContext = {
     inactivityMs: error.inactivityMs,
-  });
+    ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
+  };
+  logger.error(
+    {
+      code: 'mastra_agent_stream_inactivity_timeout',
+      ...diagnosticContext,
+    },
+    'mastra stream stalled by inactivity timeout'
+  );
+  const visibleMessage =
+    localRuntimeName && model
+      ? `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`
+      : `The model stream stalled after ${error.inactivityMs}ms without output.`;
   return [
     // A stall mid-delegation must never leave an orphaned `subagent.started`
     // with no terminal counterpart — mirror the abort branches' drain.
@@ -1624,11 +1641,11 @@ function makeStreamStalledTermination(
     ...makePendingToolOutputRunEventChunks(lifecycleState),
     {
       type: 'text-delta',
-      value: `The model stream stalled after ${error.inactivityMs}ms without output.`,
+      value: visibleMessage,
     },
     makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', {
       code: error.code,
-      inactivityMs: error.inactivityMs,
+      ...diagnosticContext,
     }),
     makeErrorFinishChunk(),
   ];
@@ -1675,16 +1692,19 @@ async function initializeMastraRuntime(
     const resolvedModel =
       options.model && options.model.length > 0
         ? options.model
-        : (getDefaultModel(runtimeResolution.provider) ?? '');
-    logger.info('mastra runtime initialized', {
-      code: 'mastra_agent_runtime_initialized',
-      // Empty string means the caller did not specify a model AND the
-      // provider has no static default (e.g. local runtimes whose models are
-      // discovered dynamically). This is a real failure mode worth logging.
-      model: resolvedModel.length > 0 ? resolvedModel : '<unset>',
-      provider: runtimeResolution.provider,
-      toolCount: Object.keys(options.tools ?? {}).length,
-    });
+        : (runtimeResolution.runtime.model ?? getDefaultModel(runtimeResolution.provider) ?? '');
+    logger.info(
+      {
+        code: 'mastra_agent_runtime_initialized',
+        // Empty string means the caller did not specify a model AND the
+        // provider has no static default (e.g. local runtimes whose models are
+        // discovered dynamically). This is a real failure mode worth logging.
+        model: resolvedModel.length > 0 ? resolvedModel : '<unset>',
+        provider: runtimeResolution.provider,
+        toolCount: Object.keys(options.tools ?? {}).length,
+      },
+      'mastra runtime initialized'
+    );
     return { runtime: instance, sanitizedNameMap: instance.toolNameMap };
   } catch (err) {
     logger.error('mastra runtime init failed', {
@@ -2017,7 +2037,7 @@ async function* streamChunksFromMastra({
     }
     const stalledChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
-      : makeStreamStalledTermination(error, lifecycleState);
+      : makeStreamStalledTermination(error, lifecycleState, runtimeData);
     for (const chunk of stalledChunks) {
       yield chunk;
     }
@@ -2079,7 +2099,14 @@ async function createStreamIteratorFromRuntime({
     const streamResult = resolvedStreamOptions
       ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
       : await runtime.agent.stream(streamInput);
-    logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
+    logger.info(
+      {
+        code: 'mastra_agent_stream_started',
+        ...(runtimeData?.model ? { model: runtimeData.model } : {}),
+        ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
+      },
+      'mastra stream started'
+    );
 
     const fullStream = resolveFullStream(streamResult);
     if (!fullStream) {

@@ -121,6 +121,9 @@ export function useAssistantLocalRuntimeCatalog({
       if (modelState?.state === 'loaded_empty') {
         return `${labelByRuntime[runtimeId]} (no models)`;
       }
+      if (modelState?.state === 'failed') {
+        return `${labelByRuntime[runtimeId]} (model discovery failed: ${modelState.message})`;
+      }
       return labelByRuntime[runtimeId];
     });
 

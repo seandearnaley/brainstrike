@@ -104,4 +104,34 @@ describe('useAssistantLocalRuntimeCatalog', () => {
     expect(getLocalRuntimeStatuses).toHaveBeenCalledWith({ diagnosticLogLevel: 'debug' });
     expect(result.current.localRuntimeModels).toBeNull();
   });
+
+  it('surfaces a reachable runtime model-catalog failure instead of hiding the reason', async () => {
+    const getLocalRuntimeStatuses = vi.fn().mockResolvedValue(availableOllamaStatus);
+    const failedCatalog: LocalRuntimeModelCatalogMap = {
+      ollama: {
+        availability: availableOllamaStatus.ollama,
+        checkedAt: 20,
+        message:
+          'Ollama capability lookup failed for "qwen3:30b": Update Ollama and retry discovery.',
+        runtime: 'ollama',
+        state: 'failed',
+      },
+    };
+    const getLocalRuntimeModels = vi.fn().mockResolvedValue(failedCatalog);
+
+    const { result } = renderHook(() =>
+      useAssistantLocalRuntimeCatalog({
+        getLocalRuntimeModels,
+        getLocalRuntimeStatuses,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.localRuntimeModels).toBe(failedCatalog);
+    });
+
+    expect(result.current.localRuntimeHint).toBe(
+      'Detected local runtime: Ollama (model discovery failed: Ollama capability lookup failed for "qwen3:30b": Update Ollama and retry discovery.) on localhost.'
+    );
+  });
 });
