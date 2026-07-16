@@ -178,6 +178,10 @@ vi.mock('@assistant-ui/react', () => {
       Root: Primitive,
     },
     AssistantRuntimeProvider: ({ children }: ProviderProps) => <>{children}</>,
+    AttachmentPrimitive: {
+      Remove: Primitive,
+      Root: Primitive,
+    },
     BranchPickerPrimitive: {
       Count: ({ children }: CounterProps) => (
         <span data-testid="branch-count">{children ?? '1'}</span>
@@ -195,6 +199,15 @@ vi.mock('@assistant-ui/react', () => {
       Root: Primitive,
     },
     ComposerPrimitive: {
+      // The real primitive is a button wired to the registered attachment
+      // adapter; the composer passes its own data-testid through props.
+      AddAttachment: ({ children, asChild: _asChild, ...props }: ButtonPrimitiveProps) => (
+        <button type="button" {...props}>
+          {children}
+        </button>
+      ),
+      // Renders no children for an empty attachment list, like the real one.
+      Attachments: () => null,
       Cancel: ({ children, asChild: _asChild, ...props }: ButtonPrimitiveProps) => (
         <button data-testid="composer-cancel" type="button" {...props}>
           {children}
@@ -275,13 +288,16 @@ vi.mock('@assistant-ui/react', () => {
       search: () => [],
     }),
     useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
+    useAttachment: () => ({ content: undefined, file: undefined, name: 'attachment' }),
     useAui: () => ({
       chainOfThought: () => ({
         setCollapsed: setCollapsedMock,
       }),
       composer: () => ({ setText: vi.fn() }),
     }),
+    useAuiEvent: () => undefined,
     useAuiState: <T,>(selector: (state: MockAuiState) => T) => selector(mockAuiState),
+    useComposerRuntime: () => ({ addAttachment: async () => undefined }),
     useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
     useMessagePartReasoning: () => ({
       status: { type: 'complete' as const },
@@ -1357,5 +1373,57 @@ describe('AssistantUiPanel model picker', () => {
   it('returns nothing for unsupported provider settings panels', () => {
     const { container } = render(<ProviderSettingsPanel providerId="unsupported" settings={{}} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('AssistantUiPanel composer attachments availability', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders the attach affordance and registers the attachment adapter when enabled', () => {
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        attachmentsAvailability={{ state: 'enabled' }}
+        onModelChange={() => {}}
+      />
+    );
+
+    expect(screen.getByTestId('assistant-attach-image')).toBeEnabled();
+    expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapters: expect.objectContaining({ attachments: expect.anything() }),
+      })
+    );
+  });
+
+  it('renders a visibly disabled attach button carrying the reason when the model lacks vision', () => {
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        attachmentsAvailability={{
+          reason: 'GPT-Text cannot read images. Switch to a vision-capable model to attach images.',
+          state: 'disabled',
+        }}
+        onModelChange={() => {}}
+      />
+    );
+
+    const attach = screen.getByTestId('assistant-attach-image');
+    expect(attach).toBeDisabled();
+    expect(attach).toHaveAttribute('title', expect.stringContaining('GPT-Text cannot read images'));
+    // Disabled must not register an adapter: paste/add is rejected by
+    // assistant-ui with a visible no-adapter error, never silently accepted.
+    const lastRuntimeOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as
+      | { adapters?: { attachments?: unknown } }
+      | undefined;
+    expect(lastRuntimeOptions?.adapters?.attachments).toBeUndefined();
+  });
+
+  it('renders no attachment affordance at all when availability is absent (provider-gated)', () => {
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    expect(screen.queryByTestId('assistant-attach-image')).toBeNull();
   });
 });

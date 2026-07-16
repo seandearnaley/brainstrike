@@ -16,6 +16,17 @@ export interface PlanModeComposerControls {
 }
 
 /**
+ * Composer image-attachment availability, resolved by the app-shell wrapper.
+ * Absent means the affordance is not offered at all (provider gate: the
+ * text-only built-in local provider). 'disabled' renders the attach button
+ * visibly disabled with `reason` (per-model vision gate) — never a silent
+ * hide — and registers no attachment adapter, so image paste is rejected too.
+ */
+export type ComposerAttachmentsAvailability =
+  | { readonly state: 'enabled' }
+  | { readonly reason: string; readonly state: 'disabled' };
+
+/**
  * The composer input row (textarea + Send/Cancel), defined ONCE so both the
  * trigger-enabled and plain composer paths share it — only the optional
  * `slashPopover`/`mentionPopover` differ. Send / Cancel are unchanged
@@ -31,14 +42,14 @@ export interface PlanModeComposerControls {
  * `ComposerInputWithTriggers` below).
  */
 const ComposerInputRow = ({
-  attachmentsEnabled,
+  attachmentsAvailability,
   isComposerDisabled,
   mentionPopover,
   planMode,
   queueControl,
   slashPopover,
 }: {
-  attachmentsEnabled?: boolean;
+  attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
@@ -48,7 +59,9 @@ const ComposerInputRow = ({
   slashPopover?: ReactNode;
 }) => {
   const InputFrame =
-    attachmentsEnabled && !isComposerDisabled ? AttachmentPasteFrame : PlainInputFrame;
+    attachmentsAvailability?.state === 'enabled' && !isComposerDisabled
+      ? AttachmentPasteFrame
+      : PlainInputFrame;
 
   return (
     <InputFrame>
@@ -63,7 +76,7 @@ const ComposerInputRow = ({
       {slashPopover}
       {mentionPopover}
       <div className="bs-composer-primary-actions">
-        {attachmentsEnabled ? (
+        {attachmentsAvailability?.state === 'enabled' ? (
           <ComposerPrimitive.AddAttachment
             aria-label="Attach image"
             className="aui-button aui-button-ghost"
@@ -74,6 +87,21 @@ const ComposerInputRow = ({
           >
             <ImageIcon className="size-4" />
           </ComposerPrimitive.AddAttachment>
+        ) : null}
+        {attachmentsAvailability?.state === 'disabled' ? (
+          // A plain disabled button (not the AddAttachment primitive): no
+          // attachment adapter is registered in this state, and the reason
+          // must stay visible rather than the affordance silently vanishing.
+          <button
+            aria-label="Attach image (unavailable)"
+            className="aui-button aui-button-ghost"
+            data-testid="assistant-attach-image"
+            disabled
+            title={attachmentsAvailability.reason}
+            type="button"
+          >
+            <ImageIcon className="size-4" />
+          </button>
         ) : null}
         {planMode ? (
           <button
@@ -169,14 +197,14 @@ const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
  * empty menu).
  */
 export const ComposerInputWithTriggers = ({
-  attachmentsEnabled,
+  attachmentsAvailability,
   isComposerDisabled,
   slashPopover,
   mentionPopover,
   planMode,
   queueControl,
 }: {
-  attachmentsEnabled?: boolean;
+  attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
@@ -186,7 +214,7 @@ export const ComposerInputWithTriggers = ({
   const row = (
     <ComposerInputRow
       isComposerDisabled={isComposerDisabled}
-      {...(attachmentsEnabled ? { attachmentsEnabled } : {})}
+      {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
       {...(slashPopover ? { slashPopover } : {})}
       {...(mentionPopover ? { mentionPopover } : {})}
       {...(planMode ? { planMode } : {})}

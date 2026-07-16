@@ -31,6 +31,14 @@
   A forced catalog refresh MUST also force every native `/api/show` lookup so
   `Probe now` cannot reuse stale per-model capabilities after a pull or model
   replacement.
+- Per-model vision: `LocalRuntimeNormalizedModel.capabilities.vision` is
+  tri-state ('supported' | 'unsupported' | 'unknown'). Ollama `/api/show`
+  capabilities and LM Studio's native `type` discriminant ('vlm' vs 'llm')
+  resolve it authoritatively; the name-inferred OpenAI-compat path stays
+  'unknown' — never coerce unknown to unsupported. It rides through
+  `toRuntimeProviderModels` into the picker metadata and the composer
+  attachment gate (see docs/agents/assistant-persistence.md, image
+  attachments).
 - Built-in local provider:
   - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
   - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.

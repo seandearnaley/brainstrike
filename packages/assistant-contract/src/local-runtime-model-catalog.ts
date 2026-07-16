@@ -38,6 +38,7 @@ import {
   noopLocalRuntimeLogger,
   sanitizeDuration,
 } from './local-runtime-utils.js';
+import type { ModelVisionSupport } from './provider-registry.js';
 
 export {
   isLoadedRuntimeModelCatalogState,
@@ -435,6 +436,7 @@ interface ResolvedCapabilities {
   readonly dimensionsKnown: LocalRuntimeDimensionsState;
   readonly embeddings: LocalRuntimeEmbeddingCapability;
   readonly llm: boolean;
+  readonly vision: ModelVisionSupport;
 }
 
 function resolveReportedCapabilities(
@@ -449,14 +451,25 @@ function resolveReportedCapabilities(
         dimensionsKnown: { state: 'needs_verification' },
         embeddings: 'supported',
         llm: false,
+        vision: 'unsupported',
       };
+    // LM Studio's native type discriminant separates text-only 'llm' from
+    // vision-language 'vlm' models, so both classifications are authoritative.
     case 'llm':
+      return {
+        capabilitySource: 'provider_reported',
+        dimensionsKnown: { state: 'not_applicable' },
+        embeddings: 'unsupported',
+        llm: true,
+        vision: 'unsupported',
+      };
     case 'vlm':
       return {
         capabilitySource: 'provider_reported',
         dimensionsKnown: { state: 'not_applicable' },
         embeddings: 'unsupported',
         llm: true,
+        vision: 'supported',
       };
   }
 }
@@ -466,6 +479,8 @@ function inferCapabilitiesFromName(modelId: string, displayName: string): Resolv
   const hasEmbeddingHint = EMBEDDING_NAME_PATTERN.test(searchable);
   const hasChatHint = CHAT_NAME_PATTERN.test(searchable);
 
+  // Name inference carries no vision signal, so every inferred branch keeps
+  // vision 'unknown' — never a silent unsupported.
   if (hasEmbeddingHint) {
     // Prefer embedding classification when both patterns match so "embedding"-labeled
     // models remain actionable for this catalog even if names also contain chat terms.
@@ -474,6 +489,7 @@ function inferCapabilitiesFromName(modelId: string, displayName: string): Resolv
       dimensionsKnown: { state: 'needs_verification' },
       embeddings: 'supported',
       llm: hasChatHint,
+      vision: 'unknown',
     };
   }
 
@@ -483,6 +499,7 @@ function inferCapabilitiesFromName(modelId: string, displayName: string): Resolv
       dimensionsKnown: { state: 'not_applicable' },
       embeddings: 'unsupported',
       llm: true,
+      vision: 'unknown',
     };
   }
 
@@ -493,6 +510,7 @@ function inferCapabilitiesFromName(modelId: string, displayName: string): Resolv
     dimensionsKnown: { state: 'needs_verification' },
     embeddings: 'needs_verification',
     llm: true,
+    vision: 'unknown',
   };
 }
 
@@ -1380,6 +1398,7 @@ export class LocalRuntimeModelCatalogService {
         capabilities: {
           embeddings: resolved.embeddings,
           llm: resolved.llm,
+          vision: resolved.vision,
         },
         capabilitySource: resolved.capabilitySource,
         dimensionsKnown: resolved.dimensionsKnown,

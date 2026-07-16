@@ -159,6 +159,47 @@ describe('frontier models migrations', () => {
     );
   });
 
+  it('patches vision into every LLM catalog row and rolls back cleanly', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations);
+
+    const vision = async (id: string): Promise<string | null | undefined> => {
+      const res = await db.query(
+        "SELECT capabilities->>'vision' AS vision FROM models WHERE id = $1",
+        [id]
+      );
+      return (res.rows[0] as { vision: string | null } | undefined)?.vision;
+    };
+
+    // Multimodal hosted/gateway families are vision-capable.
+    expect(await vision('claude-sonnet-5')).toBe('true');
+    expect(await vision('gpt-5.6-terra')).toBe('true');
+    expect(await vision('gemini-3.5-flash')).toBe('true');
+    expect(await vision('anthropic/claude-sonnet-5')).toBe('true');
+
+    // Text-only models (vision ships as separate -V/-VL variants; the
+    // built-in Gemma runtime is a text-only pipeline).
+    expect(await vision('qwen/qwen3-coder-next')).toBe('false');
+    expect(await vision('moonshotai/kimi-k2.6')).toBe('false');
+    expect(await vision('onnx-community/gemma-4-E2B-it-ONNX')).toBe('false');
+
+    // Embedding rows are untouched — vision is an LLM-only capability.
+    expect(await vision('text-embedding-3-small')).toBeNull();
+
+    // No LLM row escapes the patch: an id the migration forgot would leave
+    // the composer gate guessing.
+    const unpatched = await db.query(
+      "SELECT id FROM models WHERE capabilities->>'type' = 'llm' AND capabilities->>'vision' IS NULL"
+    );
+    expect(unpatched.rows).toEqual([]);
+
+    await runner.down(migrations, 59);
+    expect(await vision('claude-sonnet-5')).toBeNull();
+    expect(await vision('onnx-community/gemma-4-E2B-it-ONNX')).toBeNull();
+  });
+
   it('adds and rolls back the provider billed-cost column', { timeout: 60_000 }, async () => {
     await runner.initialize();
     await runner.up(migrations.filter((migration) => migration.version <= 57));
