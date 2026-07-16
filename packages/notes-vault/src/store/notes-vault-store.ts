@@ -218,9 +218,17 @@ export function createNotesVaultStore(services: NotesVaultServices) {
       return true;
     }
 
-    async function restoreStoredRoot(stored: StoredVaultRoot): Promise<void> {
+    async function restoreStoredRoot(
+      stored: StoredVaultRoot,
+      isCurrentEpoch: () => boolean
+    ): Promise<void> {
       try {
         const permission = await queryVaultPermission(stored.handle);
+        // A factory reset can land while the permission query is pending;
+        // mounting afterwards would resurrect vault access post-reset.
+        if (!isCurrentEpoch()) {
+          return;
+        }
         if (permission === 'granted') {
           await mountRoot(stored.rootId, stored.handle, { expand: true });
           return;
@@ -240,6 +248,9 @@ export function createNotesVaultStore(services: NotesVaultServices) {
         }));
       } catch (error) {
         logger.error('Vault root restore failed', { error, rootId: stored.rootId });
+        if (!isCurrentEpoch()) {
+          return;
+        }
         set((state) => ({
           roots: [
             ...state.roots,
@@ -276,7 +287,7 @@ export function createNotesVaultStore(services: NotesVaultServices) {
             return;
           }
           if (!mounted.has(root.rootId)) {
-            await restoreStoredRoot(root);
+            await restoreStoredRoot(root, () => epoch === sessionEpoch);
           }
         }
       } finally {

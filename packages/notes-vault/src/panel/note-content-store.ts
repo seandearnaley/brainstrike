@@ -35,6 +35,17 @@ function evictOldest(): void {
   }
 }
 
+/**
+ * FACTORY RESET CONTRACT: drops all cached note plaintext. Wired into
+ * resetNotesVaultSessionState — the zustand store reset alone would leave up
+ * to MAX_CACHED_NOTES notes' content in memory on the reset-without-reload
+ * web path.
+ */
+export function clearNoteContentCache(): void {
+  entries.clear();
+  emit();
+}
+
 export function subscribeNoteContent(listener: () => void): () => void {
   listeners.add(listener);
   return () => {

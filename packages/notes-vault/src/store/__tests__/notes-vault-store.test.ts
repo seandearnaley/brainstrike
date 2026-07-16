@@ -328,6 +328,30 @@ describe('lifecycle races', () => {
     expect(h.watches).toHaveLength(0);
   });
 
+  it('reset() during a pending permission query cannot mount the root afterwards', async () => {
+    const h = harness();
+    const dir = fakeDir('vault', [fakeNote('a.md')]);
+    let releaseQuery: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseQuery = resolve;
+    });
+    dir.queryPermission = async () => {
+      await gate;
+      return 'granted';
+    };
+    await h.handleStore.put({ addedAt: 1, handle: dir, name: 'vault', rootId: 'r1' });
+
+    const started = h.store.getState().initialize();
+    // Let initialize reach the permission query, then reset mid-await.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    h.store.getState().reset();
+    releaseQuery();
+    await started;
+
+    expect(h.store.getState().roots).toEqual([]);
+    expect(h.watches).toHaveLength(0);
+  });
+
   it('a superseding scan wins over a slower stale one (generation guard)', async () => {
     const h = harness();
     const slow = gatedDir('vault', [fakeNote('stale.md')]);

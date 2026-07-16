@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeNote } from '../../__tests__/support/fake-handles';
 import type { VaultFileHandleLike } from '../../core/types';
 import {
+  clearNoteContentCache,
   ensureNoteContent,
   getNoteContentSnapshot,
   subscribeNoteContent,
@@ -72,6 +73,17 @@ describe('note-content-store', () => {
     await vi.waitFor(() => {
       expect(getNoteContentSnapshot('evict@0').status).toBe('loading');
     });
+  });
+
+  it('clearNoteContentCache drops cached plaintext (factory-reset contract)', async () => {
+    const handle = fakeNote('reset.md', { content: 'sensitive' });
+    ensureNoteContent('k6@1', handle);
+    await settled('k6@1');
+    expect(getNoteContentSnapshot('k6@1').status).toBe('ready');
+
+    clearNoteContentCache();
+
+    expect(getNoteContentSnapshot('k6@1').status).toBe('loading');
   });
 
   it('notifies subscribers when a load settles', async () => {
