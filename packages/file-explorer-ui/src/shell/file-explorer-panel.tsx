@@ -998,6 +998,19 @@ const FileExplorerPanelInner = React.memo(() => {
                 </div>
               </div>
             }
+            treeActionsControl={
+              rootDirectoryHandle ? (
+                <TreeActionButtons
+                  isExpandingAll={isExpandingAll || isForestExpandingAll}
+                  isLoading={isLoading}
+                  isRefreshing={isRefreshing}
+                  onCollapseAll={collapseAll}
+                  onExpandAll={expandAll}
+                  onRefresh={handleRefresh}
+                  scanningStatus={scanningStatusProps}
+                />
+              ) : null
+            }
           />
           {/* Filter section: one toggled block (driven from the toolbar's
               view-filters button) hosting the preset row, the filter chips, and
@@ -1049,24 +1062,13 @@ const FileExplorerPanelInner = React.memo(() => {
                       />
                     </div>
                   </div>
-                  {/* Quick filter input. The tree action buttons
-                      (refresh / expand / collapse) live inline in this row, next
-                      to the syntax-help button, instead of floating over the tree. */}
+                  {/* Quick filter input. The tree action buttons live on the
+                      toolbar so they stay reachable while this block is
+                      collapsed. */}
                   <FileFilterBar
                     isFiltering={isQuickFiltering}
                     onChange={setQuickFilter}
                     onClear={clearQuickFilter}
-                    trailing={
-                      <TreeActionButtons
-                        isExpandingAll={isExpandingAll || isForestExpandingAll}
-                        isLoading={isLoading}
-                        isRefreshing={isRefreshing}
-                        onCollapseAll={collapseAll}
-                        onExpandAll={expandAll}
-                        onRefresh={handleRefresh}
-                        scanningStatus={scanningStatusProps}
-                      />
-                    }
                     value={quickFilter}
                   />
                 </div>

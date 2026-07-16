@@ -31,12 +31,14 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
     onDirectorySelect,
     isLoading,
     selectionStatusControl,
+    treeActionsControl,
   }: {
     bulkSelectionControl?: ReactNode;
     filtersControl?: ReactNode;
     onDirectorySelect: () => void;
     isLoading: boolean;
     selectionStatusControl?: ReactNode;
+    treeActionsControl?: ReactNode;
   }) => (
     <div data-testid="file-explorer-toolbar">
       <div data-testid="toolbar">
@@ -46,6 +48,7 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
         </button>
         {bulkSelectionControl}
         {selectionStatusControl}
+        {treeActionsControl}
         {filtersControl}
       </div>
     </div>
@@ -1577,6 +1580,22 @@ describe('FileExplorerPanel', () => {
       const collapsible = document.getElementById('view-filters-content');
       expect(collapsible).not.toBeNull();
       expect(collapsible).toContainElement(screen.getByTestId('file-filter-input'));
+    });
+
+    it('hosts refresh/expand/collapse on the toolbar so tree actions survive collapsing filters', async () => {
+      renderWithProviders(<FileExplorerPanel />);
+
+      const toolbar = await screen.findByTestId('file-explorer-toolbar');
+      const collapsible = document.getElementById('view-filters-content');
+      for (const testId of [
+        'refresh-button-small',
+        'expand-all-button-small',
+        'collapse-all-button-small',
+      ]) {
+        const button = screen.getByTestId(testId);
+        expect(toolbar).toContainElement(button);
+        expect(collapsible).not.toContainElement(button);
+      }
     });
 
     it('marks the collapsed toggle when a quick filter is still narrowing the tree', async () => {
