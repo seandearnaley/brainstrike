@@ -172,6 +172,57 @@ async function estimateEmbeddedRowCount(db: Pick<DimensionIndexDb, 'query'>): Pr
   }
 }
 
+/**
+ * Run an HNSW index build with maintenance_work_mem sized for the estimated
+ * graph (embedded row count x dimension, see
+ * resolveIndexBuildMaintenanceWorkMemMb). The SET only fires when the resolved
+ * value exceeds the 64MB default, and the RESET always runs in a finally:
+ * PGlite is one shared connection, so a leaked setting would ride along in
+ * every subsequent query's session. `db.exec` MUST be the same channel/session
+ * that executes the build itself (see the desktop maintenance scheduler and
+ * embedding backfill), or the session-scoped SET silently would not apply.
+ */
+export async function withIndexBuildMaintenanceWorkMem(
+  db: DimensionIndexDb,
+  dimension: number,
+  build: () => Promise<void>
+): Promise<void> {
+  const workMemMb = resolveIndexBuildMaintenanceWorkMemMb(
+    await estimateEmbeddedRowCount(db),
+    dimension
+  );
+  // Defense-in-depth before SQL interpolation: the resolver clamps to
+  // [default, cap], so anything else is a bug.
+  if (
+    !Number.isInteger(workMemMb) ||
+    workMemMb < DEFAULT_MAINTENANCE_WORK_MEM_MB ||
+    workMemMb > MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB
+  ) {
+    throw new Error(
+      `withIndexBuildMaintenanceWorkMem: Invalid maintenance_work_mem value: ${workMemMb}`
+    );
+  }
+  const tuneBuildMemory = workMemMb > DEFAULT_MAINTENANCE_WORK_MEM_MB;
+
+  try {
+    if (tuneBuildMemory) {
+      await db.exec(`SET maintenance_work_mem = '${workMemMb}MB'`);
+    }
+    await build();
+  } finally {
+    if (tuneBuildMemory) {
+      try {
+        await db.exec('RESET maintenance_work_mem');
+      } catch (resetError) {
+        logger.error('Failed to reset maintenance_work_mem after HNSW index build', {
+          dimension,
+          error: resetError instanceof Error ? resetError.message : String(resetError),
+        });
+      }
+    }
+  }
+}
+
 const DIMENSION_INDEX_SUSPENSIONS_TABLE = 'embedding_dimension_index_suspensions';
 
 /**
@@ -258,45 +309,17 @@ export async function createDimensionIndex(
 
   // A graph larger than maintenance_work_mem forces pgvector's slow disk-based
   // build phase (benchmarked 5x slower at 100k chunks x 1024 dims — see
-  // MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB). Raise the setting for the build
-  // only; PGlite is one shared connection, so it MUST be reset afterwards or
-  // it leaks into every subsequent query's session.
-  const workMemMb = resolveIndexBuildMaintenanceWorkMemMb(
-    await estimateEmbeddedRowCount(db),
-    dimension
-  );
-  // Defense-in-depth before SQL interpolation, mirroring the checks above:
-  // the resolver clamps to [default, cap], so anything else is a bug.
-  if (
-    !Number.isInteger(workMemMb) ||
-    workMemMb < DEFAULT_MAINTENANCE_WORK_MEM_MB ||
-    workMemMb > MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB
-  ) {
-    throw new Error(`createDimensionIndex: Invalid maintenance_work_mem value: ${workMemMb}`);
-  }
-  const tuneBuildMemory = workMemMb > DEFAULT_MAINTENANCE_WORK_MEM_MB;
-
+  // MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB). withIndexBuildMaintenanceWorkMem
+  // raises the setting for the build only and always resets it afterwards.
   try {
-    if (tuneBuildMemory) {
-      await db.exec(`SET maintenance_work_mem = '${workMemMb}MB'`);
-    }
-    await db.exec(sqlStatement);
+    await withIndexBuildMaintenanceWorkMem(db, dimension, async () => {
+      await db.exec(sqlStatement);
+    });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     // Ignore "already exists" errors for idempotency
     if (!msg.includes('already exists')) {
       throw new Error(`Failed to create HNSW index for ${dimension}D: ${msg}`);
-    }
-  } finally {
-    if (tuneBuildMemory) {
-      try {
-        await db.exec('RESET maintenance_work_mem');
-      } catch (resetError) {
-        logger.error('Failed to reset maintenance_work_mem after HNSW index build', {
-          dimension,
-          error: resetError instanceof Error ? resetError.message : String(resetError),
-        });
-      }
     }
   }
 }

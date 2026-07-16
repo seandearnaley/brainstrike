@@ -5,6 +5,7 @@ import {
   type RunDimensionIndexMaintenanceOptions,
   type RunDimensionIndexMaintenanceResult,
   runNextDimensionIndexMaintenance,
+  withIndexBuildMaintenanceWorkMem,
 } from '@brainstrike/db';
 import type { WorkspaceIndexingPowerSnapshot } from '@brainstrike/utils/workspace-indexing-power-snapshot';
 import type { DimensionIndexStrategySelection } from './dimension-index-maintenance-capabilities';
@@ -168,10 +169,30 @@ async function createDimensionIndexWithMaintenanceExec(
     readonly strategy: DimensionIndexStrategySelection['strategy'];
   }
 ): Promise<void> {
-  if (!db.maintenance?.exec) {
+  const maintenanceExec = db.maintenance?.exec;
+  if (!maintenanceExec) {
     throw new Error('Dimension index maintenance requires DB maintenance exec support.');
   }
-  await db.maintenance.exec(createDimensionIndexSql(request.dimension, request.strategy), []);
+  const sql = createDimensionIndexSql(request.dimension, request.strategy);
+  // The maintenance_work_mem SET/RESET around the build MUST ride the SAME
+  // maintenance channel as the CREATE INDEX: the setting is session-local, so
+  // split routing would silently leave the build untuned at the 64MB default
+  // (benchmarked 5x slower at 100k chunks x 1024 dims — see
+  // MAX_INDEX_BUILD_MAINTENANCE_WORK_MEM_MB in @brainstrike/db).
+  await withIndexBuildMaintenanceWorkMem(
+    {
+      exec: async (sqlStatement: string): Promise<unknown> =>
+        await maintenanceExec(sqlStatement, []),
+      query: async <TRecord = unknown>(sqlStatement: string): Promise<{ rows: TRecord[] }> => {
+        const result = await db.query<TRecord>(sqlStatement);
+        return { rows: [...result.rows] };
+      },
+    },
+    request.dimension,
+    async () => {
+      await maintenanceExec(sql, []);
+    }
+  );
 }
 
 function isCompletedResult(
