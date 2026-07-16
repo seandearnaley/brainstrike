@@ -845,6 +845,12 @@ describe('ThreadsPanel', () => {
     expect(activeThread).not.toHaveClass('border', 'border-sky-500');
     expect(idleThread).toHaveClass('my-0.5', 'min-h-9', 'bg-emerald-100/45');
     expect(idleThread).not.toHaveClass('shadow-xs', 'border');
+
+    // The content stack is shorter than the row's min-height; the row must
+    // center it vertically so the icon/title never pin to the top edge.
+    for (const thread of [activeThread, idleThread]) {
+      expect(thread).toHaveClass('flex', 'flex-col', 'justify-center');
+    }
   });
 
   it('shows automatic expanded metadata and keeps diagnostics out of the primary row', async () => {

@@ -579,7 +579,7 @@ function ThreadRowItem({
   ]);
   return (
     <div
-      className={`my-0.5 min-h-9 w-auto overflow-hidden rounded-md px-2 py-0.5 text-left transition-[background-color,box-shadow] motion-reduce:transition-none ${
+      className={`my-0.5 flex min-h-9 w-auto flex-col justify-center overflow-hidden rounded-md px-2 py-0.5 text-left transition-[background-color,box-shadow] motion-reduce:transition-none ${
         isSelected ? colorConfig.selectedClassName : colorConfig.idleClassName
       }`}
       data-testid="thread-row"
