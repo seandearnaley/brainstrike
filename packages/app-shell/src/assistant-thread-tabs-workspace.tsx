@@ -647,7 +647,7 @@ export function AssistantThreadTabsWorkspace({
           <div
             aria-label="Open assistant threads"
             aria-orientation="horizontal"
-            className="scrollbar-thin min-w-0 flex-1 overflow-x-auto overflow-y-hidden py-1 [scrollbar-gutter:stable]"
+            className="flex h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             data-testid="assistant-thread-tab-scroll"
             onContextMenuCapture={() => setContextMenuTarget(null)}
             onScroll={updateTabScrollState}

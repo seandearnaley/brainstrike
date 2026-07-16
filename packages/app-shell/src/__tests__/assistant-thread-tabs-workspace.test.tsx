@@ -186,6 +186,11 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     expect(tabStrip).toContainElement(tabScroll);
     expect(tabStrip).toContainElement(newThreadButton);
+    // The tab lane hides its scrollbar (chevrons + wheel scroll it) and
+    // centers tabs in the full strip height — no scrollbar track may render
+    // under the tab bottoms and no vertical padding may offset them.
+    expect(tabScroll).toHaveClass('h-full', 'items-center', '[scrollbar-width:none]');
+    expect(tabScroll).not.toHaveClass('scrollbar-thin', 'py-1', '[scrollbar-gutter:stable]');
     expect(tabList).toContainElement(firstTab);
     expect(within(tabList).queryByRole('button', { name: 'New assistant thread' })).toBeNull();
     expect(
