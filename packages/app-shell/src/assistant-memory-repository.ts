@@ -301,8 +301,16 @@ const ASSISTANT_RUN_OUTCOME_VERDICTS: readonly AssistantRunOutcomeVerdict[] = [
  * only top-level `tool.*` events (subagent.tool.* belongs to the child run's
  * story, not the parent's v1 ledger). Outcome detail is display-bounded like
  * root display names.
+ *
+ * PARAM-REUSE CONSTRAINT: each bind parameter must appear EXACTLY ONCE. The
+ * Task Ledger panel consumes this SQL through PGlite's live extension, whose
+ * internal format() rewrite fails with "too few arguments for format()" when
+ * a parameter is repeated — so the resource scope binds once in the `scope`
+ * CTE and every fact table joins it. Regression-pinned by the live-query case
+ * in assistant-memory-repository.integration.test.ts.
  */
 export const RUN_LEDGER_AGGREGATION_SQL = `
+  WITH scope AS (SELECT $1::text AS resource_id)
   SELECT
     tr.id AS "runId",
     tr.thread_id AS "threadId",
@@ -326,13 +334,14 @@ export const RUN_LEDGER_AGGREGATION_SQL = `
     o.source AS "outcomeSource",
     SUBSTR(o.detail, 1, 512) AS "outcomeDetail"
   FROM brainstrike_assistant_thread_runs tr
+  JOIN scope ON tr.resource_id = scope.resource_id
   LEFT JOIN (
     SELECT run_id,
       SUM(input_tokens) AS input_tokens,
       SUM(output_tokens) AS output_tokens,
       SUM(billed_cost_usd) AS billed_cost_usd
     FROM brainstrike_assistant_run_usage
-    WHERE resource_id = $1
+    JOIN scope ON brainstrike_assistant_run_usage.resource_id = scope.resource_id
     GROUP BY run_id
   ) u ON u.run_id = tr.id
   LEFT JOIN (
@@ -340,7 +349,7 @@ export const RUN_LEDGER_AGGREGATION_SQL = `
       COUNT(*) FILTER (WHERE kind IN ('tool.completed', 'tool.failed')) AS tool_call_count,
       COUNT(*) FILTER (WHERE kind = 'tool.failed') AS failed_tool_call_count
     FROM brainstrike_assistant_run_events
-    WHERE resource_id = $1
+    JOIN scope ON brainstrike_assistant_run_events.resource_id = scope.resource_id
     GROUP BY run_id
   ) e ON e.run_id = tr.id
   LEFT JOIN (
@@ -348,11 +357,10 @@ export const RUN_LEDGER_AGGREGATION_SQL = `
       COUNT(*) AS edit_count,
       COUNT(*) FILTER (WHERE reverted_at IS NOT NULL) AS reverted_edit_count
     FROM brainstrike_assistant_edit_checkpoints
-    WHERE resource_id = $1
+    JOIN scope ON brainstrike_assistant_edit_checkpoints.resource_id = scope.resource_id
     GROUP BY run_id
   ) c ON c.run_id = tr.id
   LEFT JOIN brainstrike_assistant_run_outcomes o ON o.run_id = tr.id
-  WHERE tr.resource_id = $1
   ORDER BY tr.started_at DESC, tr.id DESC
   LIMIT $2
 `;

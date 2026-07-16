@@ -10,6 +10,8 @@ import {
   type AssistantThreadRepository,
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
+  mapRunLedgerRow,
+  RUN_LEDGER_AGGREGATION_SQL,
 } from '../assistant-memory-repository';
 
 function makeMessagesOnlyRepository(): AssistantThreadRepository {
@@ -3495,6 +3497,50 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // limitLatest bounds the ledger to the newest runs.
     const limited = await repository.getRunLedger('workspace-a', { limitLatest: 1 });
     expect(limited.map((row) => row.runId)).toEqual(['run-2']);
+  });
+
+  it('keeps the ledger aggregation consumable by a PGlite live query (param-reuse regression)', async () => {
+    // PGlite's live extension rewrites queries through format(), and REUSING a
+    // bind parameter ($1 appearing more than once) breaks its arity with
+    // "too few arguments for format()". The Task Ledger panel consumes
+    // RUN_LEDGER_AGGREGATION_SQL through live.query, so the shared SQL must
+    // bind each parameter exactly once. Caught live on desktop (2026-07-16).
+    pgliteDataDir = createPgliteTestDataDir('assistant-run-ledger-live');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+    await repository.createThreadRun({
+      id: 'run-live',
+      model: 'claude-sonnet-5',
+      provider: 'anthropic',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-07-16T10:00:00Z'),
+      status: 'running',
+      threadId: thread.id,
+    });
+
+    const liveSurface = db as unknown as {
+      live?: {
+        query: (options: { params: readonly unknown[]; query: string }) => Promise<{
+          initialResults: { rows: Record<string, unknown>[] };
+          unsubscribe: () => Promise<void>;
+        }>;
+      };
+    };
+    if (!liveSurface.live) {
+      throw new Error('Test PGlite is missing the live extension');
+    }
+    const handle = await liveSurface.live.query({
+      params: ['workspace-a', 50],
+      query: RUN_LEDGER_AGGREGATION_SQL,
+    });
+    try {
+      const rows = handle.initialResults.rows.map(mapRunLedgerRow);
+      expect(rows.map((row) => row.runId)).toEqual(['run-live']);
+    } finally {
+      await handle.unsubscribe();
+    }
   });
 });
 
