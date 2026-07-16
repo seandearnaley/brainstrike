@@ -941,6 +941,9 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   // in-renderer transport; tests flip the mock to cover the data-stream route.
   hasDesktopLlmHost: hasDesktopLlmHostMock,
   // Same passthrough rationale as EditCheckpointProvider: the mocked panel
+  // never renders a verdict control, so the verdict context is never read.
+  RunVerdictProvider: ({ children }: { children: ReactNode }) => children,
+  // Same passthrough rationale as EditCheckpointProvider: the mocked panel
   // never renders an approval notice, so the grant context is never read.
   ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,
   // The wrapper reads the usage store both as a hook (selector at render time)

@@ -51,7 +51,11 @@ describe('app-shell assistant contract boundary', () => {
     // Bumped 1500 → 1520 to acknowledge the workspace-instructions context
     // wiring (#1566) that grew the wrapper to 1518 lines, plus the
     // user-slash-commands thread-scoped `useAssistantSlashCommands` wiring.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1520);
+    // Bumped 1520 → 1530 for the Task Ledger run-verdict binding: the wrapper
+    // only calls useRunVerdictBinding and mounts <RunVerdictProvider>; the
+    // phase machine and runId detection live in packages/ui
+    // (run-verdict-control.tsx / run-verdict-context.tsx).
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1530);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

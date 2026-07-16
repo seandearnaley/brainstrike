@@ -113,6 +113,23 @@ describe('assistant UI panel architecture', () => {
     );
   });
 
+  it('mounts the per-run verdict footer as an owned module on assistant messages', () => {
+    // Task Ledger 👍/👎 (source 'user'): the runId detection, phase machine,
+    // and context seam all live in run-verdict-control.tsx /
+    // run-verdict-context.tsx; this file only imports + renders the control.
+    const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
+    expect(source).toContain("from './run-verdict-control'");
+
+    const assistantMessageStart = source.indexOf('const AssistantMessage =');
+    const assistantActionBarStart = source.indexOf('const AssistantActionBar =');
+    const assistantMessageSource = source.slice(assistantMessageStart, assistantActionBarStart);
+    expect(assistantMessageSource).toContain('<RunVerdictControl />');
+
+    expect(readSource('assistant-ui-panel/run-verdict-control.tsx')).toContain(
+      'export function RunVerdictControl'
+    );
+  });
+
   it('renders assistant tool-call parts through the chain-of-thought tool fallback', () => {
     const source = readSource('assistant-ui-panel/assistant-ui-panel.tsx');
     const assistantMessageStart = source.indexOf('const AssistantMessage =');

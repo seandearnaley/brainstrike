@@ -21,6 +21,12 @@ export {
 } from './edit-checkpoint-context';
 export type { FileMention } from './file-mentions';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
+export {
+  type RunVerdictContextValue,
+  RunVerdictProvider,
+  type RunVerdictValue,
+  useRunVerdictContext,
+} from './run-verdict-context';
 export type { SlashCommand } from './slash-commands';
 export {
   type ToolApprovalGrantHandlers,
