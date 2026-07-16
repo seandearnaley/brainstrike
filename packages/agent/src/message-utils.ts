@@ -1,6 +1,8 @@
 import {
+  ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   AssistantAttachmentValidationError,
+  dataUrlByteLength,
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract';
 import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
@@ -114,8 +116,16 @@ function collectFileAttachmentParts(
       `Message carries ${collected.length} attachments; the limit is ${ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE} per message.`
     );
   }
+  let combinedBytes = 0;
   for (const part of collected) {
     validateImageAttachmentPart(part);
+    combinedBytes += dataUrlByteLength(part.data);
+  }
+  if (combinedBytes > ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES) {
+    throw new AssistantAttachmentValidationError(
+      'oversized-combined',
+      `Combined attachments are ${combinedBytes} bytes; the limit is ${ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES} bytes per message.`
+    );
   }
   return collected;
 }

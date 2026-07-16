@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES,
   AssistantAttachmentValidationError,
@@ -15,6 +16,8 @@ describe('assistant attachment limits', () => {
   it('pins the shared caps (client and server enforce the SAME numbers)', () => {
     expect(ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES).toBe(5 * 1024 * 1024);
     expect(ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE).toBe(4);
+    // Combined must base64-fit inside the 16MB request body with headroom.
+    expect(ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES).toBe(10 * 1024 * 1024);
     expect(SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES).toEqual([
       'image/gif',
       'image/jpeg',

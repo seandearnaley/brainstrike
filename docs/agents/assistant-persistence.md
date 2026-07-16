@@ -88,6 +88,42 @@ contracts keep reloaded threads identical to live ones:
    This end-to-end identity alignment is what lets a later edited prompt point
    to its durable assistant parent without correlation heuristics.
 
+Image attachments (composer → model → persistence → reload):
+- The composer's attachment adapter (packages/ui assistant-ui-panel/
+  attachment-adapter.ts) accepts IMAGES ONLY and enforces the shared caps in
+  `@brainstrike/assistant-contract` assistant-attachments (allowlisted media
+  types; 5MB/image; 4/message; 10MB combined) — the SAME module the server
+  validates with, so client and server can never drift. Validation failures
+  THROW (surfaced via the `composer.attachmentAddError` alert), never a
+  silent drop/resize. The 16MB default request body limit is sized against
+  the combined cap (base64 ≈ 13.4MB + prompt headroom).
+- assistant-stream merges attachment content into the outgoing user message
+  as `{type:'file', data:<base64 data URL>, mediaType}` parts; the agent's
+  `convertAssistantUiMessages` intercepts file parts BEFORE the text walk
+  (the base64 body must never flatten into prompt text), validates them, and
+  `convertMessagesToMastra` emits an AI-SDK content ARRAY with a canonical
+  user-message ImagePart (text-only messages keep the legacy string join).
+- Mastra persists the user row with the v2 FILE dialect
+  `{type:'file', data, mimeType}` (NOTE: `mimeType`, not `mediaType`) plus a
+  flattened `content` text string and an `experimental_attachments` mirror —
+  pinned from a REAL captured row in
+  packages/agent mastra-memory-persistence.integration.spec.ts.
+- Hydration (assistant-memory-repository `toUserHistoryAttachments`) rebuilds
+  `message.attachments` from the persisted file dialect (image/* only);
+  image-only user messages survive reload. Hydrated attachments render
+  through the same user-bubble strip as live sends, and their content
+  re-merges into later outbound turns so the model keeps seeing the image.
+- Availability gating lives in the app-shell wrapper: data-stream transport
+  only, never the text-only built-in local provider. Per-model vision
+  capability gating is a documented FOLLOW-UP (the model catalog has no
+  vision field yet); a non-vision hosted model rejects the image with a
+  visible provider error.
+Paired tests: assistant-attachments.test.ts (contract),
+assistant-messages.spec.ts + mastra-image-input.spec.ts (agent, incl. the
+live-loop prompt proof), mastra-memory-persistence.integration.spec.ts
+(persisted dialect pin), assistant-memory-repository.integration.test.ts
+(hydration), attachment-adapter.test.ts (composer adapter).
+
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,
 run events, and reload hydration behave exactly like hosted providers.

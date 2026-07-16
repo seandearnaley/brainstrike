@@ -14,6 +14,14 @@ export const ASSISTANT_IMAGE_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 
 export const ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE = 4;
 
+/**
+ * Combined decoded-byte cap across ALL attachments on one message. Sized so
+ * the base64 encoding (~4/3×, ≈13.4MB) plus prompt/history headroom fits the
+ * 16MB default assistant request body limit — a max-loaded message fails on
+ * THIS precise error, never the generic body-too-large one.
+ */
+export const ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES = 10 * 1024 * 1024;
+
 export const SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES = [
   'image/gif',
   'image/jpeg',
@@ -27,6 +35,7 @@ export type SupportedImageAttachmentMediaType =
 export type AssistantAttachmentValidationReason =
   | 'not-a-data-url'
   | 'oversized'
+  | 'oversized-combined'
   | 'too-many-attachments'
   | 'unsupported-media-type';
 

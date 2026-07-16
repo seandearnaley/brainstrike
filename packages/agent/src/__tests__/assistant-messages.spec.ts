@@ -110,6 +110,20 @@ describe('convertAssistantUiMessages image attachments', () => {
     ).toThrow(/attachment/i);
   });
 
+  it('throws loudly when the combined attachment payload exceeds the shared cap', () => {
+    // Three ~4MB images: each under the 5MB per-image cap, combined 12MB over
+    // the 10MB combined cap.
+    const fourMbBody = 'A'.repeat(Math.ceil((4 * 1024 * 1024) / 3) * 4);
+    const parts = Array.from({ length: 3 }, () => ({
+      data: `data:image/png;base64,${fourMbBody}`,
+      mediaType: 'image/png',
+      type: 'file',
+    }));
+    expect(() => convertAssistantUiMessages([{ content: parts, id: 'u1', role: 'user' }])).toThrow(
+      /combined/i
+    );
+  });
+
   it('ignores file parts on assistant messages without leaking them as text', () => {
     const messages = convertAssistantUiMessages([
       { content: [{ text: 'earlier answer', type: 'text' }], id: 'a1', role: 'assistant' },
