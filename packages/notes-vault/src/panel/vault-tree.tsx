@@ -37,17 +37,24 @@ function RootRow({
         </span>
       ) : null}
       {root.status === 'permission-required' ? (
-        <Button
-          className="h-6 shrink-0 px-2 text-xs"
-          onClick={(event) => {
-            event.stopPropagation();
-            onReconnect(root.rootId);
-          }}
-          size="sm"
-          variant="outline"
-        >
-          Reconnect
-        </Button>
+        <>
+          {root.error ? (
+            <span className="truncate text-destructive text-xs" title={root.error}>
+              {root.error}
+            </span>
+          ) : null}
+          <Button
+            className="h-6 shrink-0 px-2 text-xs"
+            onClick={(event) => {
+              event.stopPropagation();
+              onReconnect(root.rootId);
+            }}
+            size="sm"
+            variant="outline"
+          >
+            Reconnect
+          </Button>
+        </>
       ) : null}
       <span className="flex-1" />
       <Button

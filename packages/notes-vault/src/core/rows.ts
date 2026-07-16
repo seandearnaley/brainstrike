@@ -61,12 +61,38 @@ function appendNodeRows(
   }
 }
 
+// Per-root descendant-row cache keyed by the root's immutable nodes array
+// (a rescan replaces the array; status-only patches keep it). Reusing the
+// exact row objects lets TreeTable's reuseEqualFlattenedRows (a.node === b.node)
+// bail out of re-rendering untouched rows — the pinned TREEGRID
+// render-stability contract ("avoid full-tree rematerialization").
+const descendantRowsCache = new WeakMap<
+  readonly VaultTreeNode[],
+  Map<VaultSortMode, VaultTreeRow[]>
+>();
+
+function descendantRowsFor(root: VaultRootState, sortMode: VaultSortMode): VaultTreeRow[] {
+  let bySort = descendantRowsCache.get(root.nodes);
+  if (!bySort) {
+    bySort = new Map();
+    descendantRowsCache.set(root.nodes, bySort);
+  }
+  let rows = bySort.get(sortMode);
+  if (!rows) {
+    rows = [];
+    appendNodeRows(rows, sortVaultTree(root.nodes, sortMode), root.rootId, 1);
+    bySort.set(sortMode, rows);
+  }
+  return rows;
+}
+
 /**
  * Converts vault roots into the flat, DFS-ordered TreeNode row array the
  * shared TreeTable consumes (it derives expand/collapse visibility itself
  * from parentId links + expandedIds). Sibling order is the sorted order, so
  * sorting is applied here — TreeTable's sort props are presentation-only by
- * contract.
+ * contract. Descendant rows are cached per (nodes, sortMode) so one root's
+ * rescan never rematerializes the other roots' rows.
  */
 export function buildVaultTreeRows(
   roots: readonly VaultRootState[],
@@ -74,18 +100,19 @@ export function buildVaultTreeRows(
 ): VaultTreeRow[] {
   const rows: VaultTreeRow[] = [];
   for (const root of roots) {
-    const sorted = sortVaultTree(root.nodes, sortMode);
+    const descendants = descendantRowsFor(root, sortMode);
+    const childCount = descendants.filter((row) => row.parentId === root.rootId).length;
     rows.push({
-      childCount: sorted.length,
+      childCount,
       data: { kind: 'root', root },
       depth: 0,
-      hasChildren: sorted.length > 0,
+      hasChildren: childCount > 0,
       id: root.rootId,
       isLoading: root.status === 'scanning',
       parentId: null,
       type: VAULT_ROOT_ROW_TYPE,
     });
-    appendNodeRows(rows, sorted, root.rootId, 1);
+    rows.push(...descendants);
   }
   return rows;
 }

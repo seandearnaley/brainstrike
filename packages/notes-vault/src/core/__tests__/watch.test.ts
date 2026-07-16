@@ -24,8 +24,9 @@ function fakeObserverWorld(): {
     }
     observe(handle: unknown, options: unknown): Promise<void> {
       observed.push({ handle, options });
-      return Promise.resolve();
+      return FakeObserver.observeResult;
     }
+    static observeResult: Promise<void> = Promise.resolve();
     disconnect(): void {
       disconnects.push(1);
     }
@@ -43,7 +44,7 @@ describe('createVaultWatcher', () => {
     const onChange = vi.fn();
     const dir = fakeDir('vault');
 
-    const watcher = createVaultWatcher(dir, onChange, world.ctor);
+    const watcher = createVaultWatcher(dir, onChange, world.ctor, vi.fn());
     expect(watcher).not.toBeNull();
     await Promise.resolve();
 
@@ -53,5 +54,21 @@ describe('createVaultWatcher', () => {
 
     watcher?.disconnect();
     expect(world.disconnects).toHaveLength(1);
+  });
+});
+
+describe('observe failure surfacing', () => {
+  it('reports observe() rejection through onError instead of pretending to watch', async () => {
+    const world = fakeObserverWorld();
+    const failure = new DOMException('revoked', 'NotAllowedError');
+    (world.ctor as unknown as { observeResult: Promise<void> }).observeResult =
+      Promise.reject(failure);
+    const onError = vi.fn();
+
+    const watcher = createVaultWatcher(fakeDir('vault'), vi.fn(), world.ctor, onError);
+    expect(watcher).not.toBeNull();
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(failure);
+    });
   });
 });

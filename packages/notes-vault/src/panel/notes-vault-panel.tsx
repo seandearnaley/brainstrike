@@ -74,7 +74,11 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
   const handleRefreshAll = useCallback(() => {
     const state = store.getState();
     for (const root of state.roots) {
-      void state.refreshRoot(root.rootId);
+      // Never scan an ungranted root: that would throw NotAllowedError and
+      // trade the Reconnect affordance for a generic error row.
+      if (root.status === 'ready' || root.status === 'error') {
+        void state.refreshRoot(root.rootId);
+      }
     }
   }, [store]);
 
@@ -95,9 +99,13 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
       state.selectNote(noteIdForSegments(root.rootId, [...parentSegments, created.name]));
     } catch (error) {
       logger.error('Creating note failed', { error, rootId: root.rootId });
-      setDropNotice(
-        `Could not create a note: ${error instanceof Error ? error.message : String(error)}`
-      );
+      // A failed user action belongs in the role="alert" banner, not the
+      // polite informational notice slot.
+      store
+        .getState()
+        .reportGlobalError(
+          `Could not create a note: ${error instanceof Error ? error.message : String(error)}`
+        );
     }
   }, [store]);
 
@@ -113,19 +121,37 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
       setIsDragOver(false);
       // Handle promises must be collected synchronously in the drop tick.
       const extraction = extractDroppedVaultDirectories(event.dataTransfer.items);
-      void extraction.then((result) => {
-        if (result.unsupported) {
-          setDropNotice('This browser cannot mount dropped folders — use Open Folder instead.');
-          return;
+      extraction.then(
+        (result) => {
+          if (result.unsupported) {
+            setDropNotice('This browser cannot mount dropped folders — use Open Folder instead.');
+            return;
+          }
+          const notices: string[] = [];
+          if (result.skippedFileCount > 0) {
+            notices.push('Only folders can be mounted as vaults — single files were skipped.');
+          }
+          if (result.failedCount > 0) {
+            notices.push(
+              `${result.failedCount} dropped item${result.failedCount === 1 ? '' : 's'} could not be read.`
+            );
+          }
+          // One combined message: mounting folders must not erase the
+          // skipped/failed feedback from the same drop.
+          setDropNotice(notices.length > 0 ? notices.join(' ') : null);
+          if (result.directories.length > 0) {
+            void store.getState().addDroppedDirectories(result.directories);
+          }
+        },
+        (error: unknown) => {
+          logger.error('Reading dropped items failed', { error });
+          store
+            .getState()
+            .reportGlobalError(
+              `Could not read the dropped items: ${error instanceof Error ? error.message : String(error)}`
+            );
         }
-        if (result.skippedFileCount > 0) {
-          setDropNotice('Only folders can be mounted as vaults — single files were skipped.');
-        }
-        if (result.directories.length > 0) {
-          setDropNotice(null);
-          void store.getState().addDroppedDirectories(result.directories);
-        }
-      });
+      );
     },
     [store]
   );

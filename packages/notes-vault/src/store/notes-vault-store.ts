@@ -10,7 +10,13 @@ import type { VaultWatcher } from '../core/watch';
 const logger = createLogger('NotesVault');
 
 export interface NotesVaultServices {
-  createWatcher: (handle: VaultDirectoryHandleLike, onChange: () => void) => VaultWatcher | null;
+  /** onError fires when a watcher that attached successfully later fails to
+   * observe — the store downgrades to the manual-refresh affordance. */
+  createWatcher: (
+    handle: VaultDirectoryHandleLike,
+    onChange: () => void,
+    onError?: (error: unknown) => void
+  ) => VaultWatcher | null;
   handleStore: VaultHandleStore;
   newRootId: () => VaultRootId;
   now: () => number;
@@ -33,6 +39,8 @@ export interface NotesVaultState {
   reconnectRoot: (rootId: VaultRootId) => Promise<void>;
   refreshRoot: (rootId: VaultRootId) => Promise<void>;
   removeRoot: (rootId: VaultRootId) => Promise<void>;
+  /** Surfaces a panel-level failure in the alert banner (user-initiated actions). */
+  reportGlobalError: (message: string) => void;
   reset: () => void;
   roots: VaultRootState[];
   selectedNoteId: string | null;
@@ -61,6 +69,10 @@ export function createNotesVaultStore(services: NotesVaultServices) {
   // Coalesces concurrent initialize() calls (React StrictMode double-effects):
   // both callers share one restore pass instead of double-mounting every root.
   let initializeInFlight: Promise<void> | null = null;
+  // Bumped by reset(): an initialize() continuation that resumes after a
+  // factory reset must not resurrect roots or watchers (FACTORY RESET
+  // CONTRACT — vault access may not survive a reset).
+  let sessionEpoch = 0;
 
   // Vanilla store (not the `create` hook): components subscribe via
   // `useStore(store, selector)` so the injected store is never called as a
@@ -91,6 +103,15 @@ export function createNotesVaultStore(services: NotesVaultServices) {
           return;
         }
         logger.error('Vault scan failed', { error, rootId });
+        if (error instanceof DOMException && error.name === 'NotAllowedError') {
+          // Permission was revoked, not a broken disk: keep the Reconnect
+          // affordance instead of dead-ending in a generic error state.
+          patchRoot(rootId, {
+            error: 'Folder permission was revoked by the browser',
+            status: 'permission-required',
+          });
+          return;
+        }
         patchRoot(rootId, { error: errorMessage(error), status: 'error' });
       }
     }
@@ -115,10 +136,28 @@ export function createNotesVaultStore(services: NotesVaultServices) {
     }
 
     function startWatching(rootId: VaultRootId, handle: VaultDirectoryHandleLike): void {
-      const watcher = services.createWatcher(handle, () => scheduleRescan(rootId, handle));
-      if (watcher) {
-        watchers.set(rootId, watcher);
-      } else {
+      // Re-entry safe (e.g. double-clicked Reconnect): the previous watcher
+      // must be disconnected or it leaks and keeps firing rescans forever.
+      disposeWatchers(rootId);
+      try {
+        const watcher = services.createWatcher(
+          handle,
+          () => scheduleRescan(rootId, handle),
+          (error) => {
+            logger.error('Vault watcher failed after attach', { error, rootId });
+            disposeWatchers(rootId);
+            set({ watchSupported: false });
+          }
+        );
+        if (watcher) {
+          watchers.set(rootId, watcher);
+        } else {
+          set({ watchSupported: false });
+        }
+      } catch (error) {
+        // A watcher failure must not strand the root mid-mount — downgrade
+        // to manual refresh visibly.
+        logger.error('Vault watcher construction failed', { error, rootId });
         set({ watchSupported: false });
       }
     }
@@ -218,15 +257,53 @@ export function createNotesVaultStore(services: NotesVaultServices) {
       }
     }
 
+    async function runInitialize(): Promise<void> {
+      const epoch = sessionEpoch;
+      try {
+        let stored: StoredVaultRoot[];
+        try {
+          stored = await services.handleStore.list();
+        } catch (error) {
+          logger.error('Listing persisted vault roots failed', { error });
+          set({ globalError: errorMessage(error) });
+          return;
+        }
+        const mounted = new Set(get().roots.map((root) => root.rootId));
+        for (const root of stored) {
+          // A factory reset that raced this restore invalidates the pass:
+          // resuming would resurrect roots and watchers post-reset.
+          if (epoch !== sessionEpoch) {
+            return;
+          }
+          if (!mounted.has(root.rootId)) {
+            await restoreStoredRoot(root);
+          }
+        }
+      } finally {
+        initializeInFlight = null;
+        if (epoch === sessionEpoch) {
+          // Marked AFTER restore completes so the onboarding empty state
+          // never flashes while persisted vaults are still loading.
+          set({ initialized: true });
+        }
+      }
+    }
+
     return {
       addDroppedDirectories: async (handles) => {
+        const failures: string[] = [];
         for (const handle of handles) {
           try {
             await addDirectory(handle);
           } catch (error) {
             logger.error('Mounting dropped vault failed', { error, name: handle.name });
-            set({ globalError: errorMessage(error) });
+            failures.push(`${handle.name}: ${errorMessage(error)}`);
           }
+        }
+        if (failures.length > 0) {
+          set({
+            globalError: `${failures.length} of ${handles.length} dropped folders could not be mounted — ${failures.join('; ')}`,
+          });
         }
       },
 
@@ -261,27 +338,7 @@ export function createNotesVaultStore(services: NotesVaultServices) {
       // without disturbing live ones. Concurrent calls coalesce onto the
       // in-flight pass.
       initialize: () => {
-        initializeInFlight ??= (async () => {
-          try {
-            set({ initialized: true });
-            let stored: StoredVaultRoot[];
-            try {
-              stored = await services.handleStore.list();
-            } catch (error) {
-              logger.error('Listing persisted vault roots failed', { error });
-              set({ globalError: errorMessage(error) });
-              return;
-            }
-            const mounted = new Set(get().roots.map((root) => root.rootId));
-            for (const root of stored) {
-              if (!mounted.has(root.rootId)) {
-                await restoreStoredRoot(root);
-              }
-            }
-          } finally {
-            initializeInFlight = null;
-          }
-        })();
+        initializeInFlight ??= runInitialize();
         return initializeInFlight;
       },
 
@@ -319,7 +376,9 @@ export function createNotesVaultStore(services: NotesVaultServices) {
 
       removeRoot: async (rootId) => {
         disposeWatchers(rootId);
-        scanGenerations.set(rootId, (scanGenerations.get(rootId) ?? 0) + 1);
+        // Invalidate any in-flight scan; the entry itself can go (rootIds are
+        // fresh UUIDs, and patchRoot no-ops for filtered-out roots anyway).
+        scanGenerations.delete(rootId);
         try {
           await services.handleStore.remove(rootId);
         } catch (error) {
@@ -339,7 +398,10 @@ export function createNotesVaultStore(services: NotesVaultServices) {
         }));
       },
 
+      reportGlobalError: (message) => set({ globalError: message }),
+
       reset: () => {
+        sessionEpoch += 1;
         disposeWatchers();
         scanGenerations.clear();
         set({

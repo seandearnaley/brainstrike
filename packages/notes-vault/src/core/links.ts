@@ -14,8 +14,12 @@ export function resolveRelativeNoteSegments(
   if (href.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(href)) {
     return null;
   }
+  // URL semantics: a raw '#' starts a fragment and '?' a query — files whose
+  // names contain them must percent-encode. Heading links (note.md#section)
+  // therefore resolve to the note itself.
+  const path = href.split(/[#?]/, 1)[0] ?? '';
   const resolved = baseSegments.slice(0, -1);
-  for (const rawSegment of href.split('/')) {
+  for (const rawSegment of path.split('/')) {
     if (rawSegment === '' || rawSegment === '.') {
       continue;
     }

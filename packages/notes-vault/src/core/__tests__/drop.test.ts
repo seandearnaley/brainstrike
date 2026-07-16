@@ -48,14 +48,34 @@ describe('extractDroppedVaultDirectories', () => {
     expect(result.skippedFileCount).toBe(1);
   });
 
-  it('ignores non-file items (e.g. dragged text) and null handles', async () => {
-    const result = await extractDroppedVaultDirectories([
-      { getAsFileSystemHandle: () => Promise.resolve(null), kind: 'file' },
-      { kind: 'string' },
-    ]);
+  it('ignores non-file items (e.g. dragged text)', async () => {
+    const result = await extractDroppedVaultDirectories([{ kind: 'string' }]);
 
     expect(result.directories).toEqual([]);
     expect(result.skippedFileCount).toBe(0);
+    expect(result.failedCount).toBe(0);
+  });
+
+  it('keeps good folders when another item rejects, counting the failure', async () => {
+    const good = fakeDir('good-vault');
+    const result = await extractDroppedVaultDirectories([
+      {
+        getAsFileSystemHandle: () => Promise.reject(new DOMException('gone', 'InvalidStateError')),
+        kind: 'file',
+      },
+      directoryItem(good),
+    ]);
+
+    expect(result.directories).toEqual([good]);
+    expect(result.failedCount).toBe(1);
+  });
+
+  it('counts null handles as skipped so a drop never dissolves silently', async () => {
+    const result = await extractDroppedVaultDirectories([
+      { getAsFileSystemHandle: () => Promise.resolve(null), kind: 'file' },
+    ]);
+
+    expect(result.skippedFileCount).toBe(1);
   });
 
   it('reports the capability as unsupported when items lack getAsFileSystemHandle', async () => {

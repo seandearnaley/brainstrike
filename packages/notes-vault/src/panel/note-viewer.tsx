@@ -76,6 +76,24 @@ export function NoteViewer({ store }: NoteViewerProps): React.ReactNode {
   const selectedNoteId = useStore(store, (state) => state.selectedNoteId);
   const selectNote = useStore(store, (state) => state.selectNote);
   const [mode, setMode] = useState<ViewMode>('preview');
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
+  const linkNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showLinkNotice = useCallback((message: string) => {
+    setLinkNotice(message);
+    if (linkNoticeTimerRef.current) {
+      clearTimeout(linkNoticeTimerRef.current);
+    }
+    linkNoticeTimerRef.current = setTimeout(() => setLinkNotice(null), 4000);
+  }, []);
+  // biome-ignore lint/plugin: unmount-only timer cleanup, not state-as-event-handler
+  useEffect(
+    () => () => {
+      if (linkNoticeTimerRef.current) {
+        clearTimeout(linkNoticeTimerRef.current);
+      }
+    },
+    []
+  );
 
   const note = selectedNoteId ? findVaultNote(roots, selectedNoteId) : null;
   const content = useNoteContent(note);
@@ -97,6 +115,12 @@ export function NoteViewer({ store }: NoteViewerProps): React.ReactNode {
     async (src: string): Promise<string> => {
       if (!note) {
         throw new Error('No note selected');
+      }
+      // Inline data: URIs are self-contained and safe — same contract as the
+      // workspace file-tab markdown preview. Remote http(s) images stay
+      // blocked (they reject below as "outside the vault").
+      if (/^data:/i.test(src)) {
+        return src;
       }
       const segments = resolveRelativeNoteSegments(note.pathSegments, src);
       const root = rootForNote(roots, note);
@@ -128,9 +152,11 @@ export function NoteViewer({ store }: NoteViewerProps): React.ReactNode {
         window.open(href, '_blank', 'noopener,noreferrer');
         return;
       }
+      // A clicked link must never be a silent no-op.
       logger.warn('Unresolvable note link', { href });
+      showLinkNotice(`Couldn't find "${href}" in this vault.`);
     },
-    [note, roots, selectNote]
+    [note, roots, selectNote, showLinkNotice]
   );
 
   if (!note) {
@@ -165,6 +191,14 @@ export function NoteViewer({ store }: NoteViewerProps): React.ReactNode {
           {mode === 'preview' ? 'Source' : 'Preview'}
         </Button>
       </header>
+      {linkNotice ? (
+        <p
+          className="shrink-0 border-b bg-muted px-3 py-1 text-muted-foreground text-xs"
+          role="status"
+        >
+          {linkNotice}
+        </p>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         {content.status === 'loading' ? (
           <div className="flex h-full items-center justify-center">

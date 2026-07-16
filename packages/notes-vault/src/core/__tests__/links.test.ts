@@ -24,6 +24,14 @@ describe('resolveRelativeNoteSegments', () => {
   it('decodes percent-encoded segments', () => {
     expect(resolveRelativeNoteSegments(['note.md'], 'My%20Notes.md')).toEqual(['My Notes.md']);
   });
+
+  it('strips fragment anchors and queries so heading links resolve to the note', () => {
+    expect(resolveRelativeNoteSegments(['note.md'], 'other.md#heading')).toEqual(['other.md']);
+    expect(resolveRelativeNoteSegments(['a', 'note.md'], '../top.md#x?y')).toEqual(['top.md']);
+    expect(resolveRelativeNoteSegments(['note.md'], 'other.md?query')).toEqual(['other.md']);
+    // A pure in-page anchor never resolves to a note (MarkdownSurface handles it).
+    expect(resolveRelativeNoteSegments(['note.md'], '#heading')).toBeNull();
+  });
 });
 
 describe('findVaultNote', () => {

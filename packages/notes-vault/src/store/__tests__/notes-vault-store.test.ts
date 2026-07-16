@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type FakeDirectoryHandle, fakeDir, fakeNote } from '../../__tests__/support/fake-handles';
+import { FakeDirectoryHandle, fakeDir, fakeNote } from '../../__tests__/support/fake-handles';
 import type { StoredVaultRoot, VaultHandleStore } from '../../core/handle-store';
 import type { VaultDirectoryHandleLike } from '../../core/types';
 import type { VaultWatcher } from '../../core/watch';
@@ -272,5 +272,199 @@ describe('initialize concurrency', () => {
 
     expect(h.store.getState().roots).toHaveLength(1);
     expect(h.watches).toHaveLength(1);
+  });
+});
+
+/** A directory whose scan blocks until release() is called. */
+function gatedDir(
+  name: string,
+  children: readonly (ReturnType<typeof fakeNote> | FakeDirectoryHandle)[]
+): { dir: FakeDirectoryHandle; release: () => void } {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const dir = new FakeDirectoryHandle(name, children);
+  let firstCall = true;
+  // First scan snapshots the entries THEN blocks, so a superseding scan that
+  // runs after a mutation sees fresh content while the stale scan does not.
+  dir.values = async function* values() {
+    const snapshot = [...dir.entries.values()];
+    if (firstCall) {
+      firstCall = false;
+      await gate;
+    }
+    yield* snapshot;
+  };
+  return { dir, release };
+}
+
+describe('lifecycle races', () => {
+  it('reset() during an in-flight initialize keeps the store empty (factory-reset contract)', async () => {
+    const h = harness();
+    let releaseList: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    const stored = [
+      { addedAt: 1, handle: fakeDir('vault', [fakeNote('a.md')]), name: 'vault', rootId: 'r1' },
+    ];
+    const initPromise = createNotesVaultStore({
+      ...h.services,
+      handleStore: {
+        ...h.services.handleStore,
+        list: async () => {
+          await gate;
+          return stored;
+        },
+      },
+    });
+    const started = initPromise.getState().initialize();
+    initPromise.getState().reset();
+    releaseList();
+    await started;
+
+    expect(initPromise.getState().roots).toEqual([]);
+    expect(h.watches).toHaveLength(0);
+  });
+
+  it('a superseding scan wins over a slower stale one (generation guard)', async () => {
+    const h = harness();
+    const slow = gatedDir('vault', [fakeNote('stale.md')]);
+    h.setNextPick(slow.dir as FakeDirectoryHandle);
+    const mountPromise = h.store.getState().addVaultFromPicker();
+
+    // Wait for the root row to appear (scan blocked on the gate).
+    await vi.waitFor(() => {
+      expect(h.store.getState().roots).toHaveLength(1);
+    });
+    // Supersede: unblock content swap then refresh with fresh entries.
+    slow.dir.entries.set('fresh.md', fakeNote('fresh.md'));
+    slow.dir.entries.delete('stale.md');
+    const refresh = h.store.getState().refreshRoot('root-1');
+    slow.release();
+    await Promise.all([mountPromise, refresh]);
+
+    const root = h.store.getState().roots[0];
+    expect(root?.nodes.map((n) => n.name)).toEqual(['fresh.md']);
+    expect(root?.status).toBe('ready');
+  });
+
+  it('removeRoot during an in-flight scan never resurrects the root', async () => {
+    const h = harness();
+    const slow = gatedDir('vault', [fakeNote('a.md')]);
+    h.setNextPick(slow.dir as FakeDirectoryHandle);
+    const mountPromise = h.store.getState().addVaultFromPicker();
+    await vi.waitFor(() => {
+      expect(h.store.getState().roots).toHaveLength(1);
+    });
+
+    await h.store.getState().removeRoot('root-1');
+    slow.release();
+    await mountPromise;
+
+    expect(h.store.getState().roots).toEqual([]);
+  });
+
+  it('re-watching a root disconnects the previous watcher (no observer leak)', async () => {
+    const h = harness();
+    const locked = fakeDir('locked', [fakeNote('a.md')]);
+    locked.permissionState = 'prompt';
+    locked.requestOutcome = 'granted';
+    await h.handleStore.put({ addedAt: 1, handle: locked, name: 'locked', rootId: 'p1' });
+    await h.store.getState().initialize();
+
+    await Promise.all([
+      h.store.getState().reconnectRoot('p1'),
+      h.store.getState().reconnectRoot('p1'),
+    ]);
+
+    const active = h.watches.filter((w) => !w.watcher.disconnected);
+    expect(active).toHaveLength(1);
+  });
+});
+
+describe('error classification and surfacing', () => {
+  it('maps NotAllowedError during scan back to permission-required (keeps Reconnect)', async () => {
+    const h = harness();
+    const revoked = fakeDir('revoked');
+    revoked.values = () => {
+      throw new DOMException('permission revoked', 'NotAllowedError');
+    };
+    h.setNextPick(revoked);
+
+    await h.store.getState().addVaultFromPicker();
+
+    const root = h.store.getState().roots[0];
+    expect(root?.status).toBe('permission-required');
+    expect(root?.error).toMatch(/permission/i);
+  });
+
+  it('mounts remaining dropped folders when one fails, aggregating the error', async () => {
+    const h = harness();
+    let putCalls = 0;
+    const failingServices = {
+      ...h.services,
+      handleStore: {
+        ...h.services.handleStore,
+        put: (root: StoredVaultRoot) => {
+          putCalls += 1;
+          if (putCalls === 1) {
+            return Promise.reject(new Error('quota exceeded'));
+          }
+          return h.services.handleStore.put(root);
+        },
+      },
+    };
+    const store = createNotesVaultStore(failingServices);
+
+    await store
+      .getState()
+      .addDroppedDirectories([fakeDir('broken'), fakeDir('good', [fakeNote('g.md')])]);
+
+    const state = store.getState();
+    expect(state.roots.map((root) => [root.name, root.status])).toEqual([['good', 'ready']]);
+    expect(state.globalError).toMatch(/1 of 2/);
+    expect(state.globalError).toMatch(/quota exceeded/);
+  });
+
+  it('downgrades to manual refresh when the observer fails after attach', async () => {
+    const h = harness({
+      createWatcher: (_handle, _onChange, onError) => {
+        setTimeout(() => onError?.(new DOMException('revoked', 'NotAllowedError')), 0);
+        return { disconnect: () => undefined };
+      },
+    });
+    h.setNextPick(fakeDir('vault'));
+
+    await h.store.getState().addVaultFromPicker();
+
+    await vi.waitFor(() => {
+      expect(h.store.getState().watchSupported).toBe(false);
+    });
+  });
+
+  it('keeps initialized=false until restore has actually completed (no empty-state flash)', async () => {
+    const h = harness();
+    let releaseList: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    const store = createNotesVaultStore({
+      ...h.services,
+      handleStore: {
+        ...h.services.handleStore,
+        list: async () => {
+          await gate;
+          return [];
+        },
+      },
+    });
+
+    const pending = store.getState().initialize();
+    expect(store.getState().initialized).toBe(false);
+    releaseList();
+    await pending;
+    expect(store.getState().initialized).toBe(true);
   });
 });

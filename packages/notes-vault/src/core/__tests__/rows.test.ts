@@ -79,3 +79,41 @@ describe('buildVaultTreeRows', () => {
     expect(rows[0]).toMatchObject({ hasChildren: false, isLoading: true });
   });
 });
+
+describe('row identity reuse (TREEGRID render-stability contract)', () => {
+  it('keeps child row identities when a root status changes but its nodes do not', async () => {
+    const first = await readyRoot('a', fakeDir('alpha', [fakeNote('x.md')]));
+    const second = await readyRoot('b', fakeDir('beta', [fakeNote('y.md')]));
+
+    const before = buildVaultTreeRows([first, second], 'name-asc');
+    const patched: VaultRootState = { ...first, status: 'scanning' };
+    const after = buildVaultTreeRows([patched, second], 'name-asc');
+
+    // Same nodes array reference => identical row objects, so TreeTable's
+    // reuseEqualFlattenedRows can bail out of re-rendering untouched rows.
+    expect(after.find((row) => row.id === 'a:x.md')).toBe(
+      before.find((row) => row.id === 'a:x.md')
+    );
+    expect(after.find((row) => row.id === 'b:y.md')).toBe(
+      before.find((row) => row.id === 'b:y.md')
+    );
+    // The patched root's own row is fresh (its data really changed).
+    expect(after.find((row) => row.id === 'a')).not.toBe(before.find((row) => row.id === 'a'));
+  });
+
+  it('rebuilds rows when the sort mode or the nodes array actually change', async () => {
+    const root = await readyRoot(
+      'r',
+      fakeDir('vault', [
+        fakeNote('a.md', { lastModified: 1 }),
+        fakeNote('b.md', { lastModified: 2 }),
+      ])
+    );
+
+    const byName = buildVaultTreeRows([root], 'name-asc');
+    const byRecency = buildVaultTreeRows([root], 'modified-desc');
+
+    expect(byName.map((row) => row.id)).toEqual(['r', 'r:a.md', 'r:b.md']);
+    expect(byRecency.map((row) => row.id)).toEqual(['r', 'r:b.md', 'r:a.md']);
+  });
+});

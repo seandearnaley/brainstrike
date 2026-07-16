@@ -49,9 +49,15 @@ export function getNoteContentSnapshot(contentKey: string | null): NoteContentSt
   return entries.get(contentKey) ?? NOTE_CONTENT_LOADING;
 }
 
-/** Idempotent load kick-off: first caller for a key starts the file read. */
+/**
+ * Idempotent load kick-off: the first caller for a key starts the file read.
+ * Error entries are NOT sticky — a later ensure for the same key retries, so
+ * a transient failure (file briefly locked) recovers on the next selection
+ * instead of pinning until lastModified changes.
+ */
 export function ensureNoteContent(contentKey: string, handle: VaultFileHandleLike): void {
-  if (entries.has(contentKey)) {
+  const existing = entries.get(contentKey);
+  if (existing && existing.status !== 'error') {
     return;
   }
   entries.set(contentKey, NOTE_CONTENT_LOADING);
@@ -70,6 +76,9 @@ export function ensureNoteContent(contentKey: string, handle: VaultFileHandleLik
           error: error instanceof Error ? error.message : String(error),
           status: 'error',
         });
+        // Failed reads count against the bound too — errors must not grow
+        // the cache past MAX_CACHED_NOTES.
+        evictOldest();
         emit();
       }
     );

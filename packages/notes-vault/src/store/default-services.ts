@@ -18,7 +18,8 @@ interface DirectoryPickerWindow {
  */
 export function createDefaultNotesVaultServices(): NotesVaultServices {
   return {
-    createWatcher: (handle, onChange) => createVaultWatcher(handle, onChange),
+    createWatcher: (handle, onChange, onError) =>
+      createVaultWatcher(handle, onChange, undefined, onError),
     handleStore: createVaultHandleStore(),
     newRootId: () => crypto.randomUUID(),
     now: () => Date.now(),

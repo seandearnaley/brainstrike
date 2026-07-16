@@ -185,3 +185,75 @@ describe('drop-zone gating', () => {
     expect(store.getState().roots).toHaveLength(0);
   });
 });
+
+describe('review findings: error surfacing', () => {
+  it('shows the denial message when reconnect is refused', async () => {
+    const user = userEvent.setup();
+    const locked = fakeDir('locked-vault');
+    locked.permissionState = 'prompt';
+    locked.requestOutcome = 'denied';
+    const handleStore = memoryHandleStore();
+    await handleStore.put({ addedAt: 1, handle: locked, name: 'locked-vault', rootId: 'r1' });
+    const services: NotesVaultServices = {
+      createWatcher: () => ({ disconnect: () => undefined }),
+      handleStore,
+      newRootId: () => 'unused',
+      now: () => 0,
+      pickDirectory: () => Promise.reject(new DOMException('canceled', 'AbortError')),
+      rescanDebounceMs: 0,
+    };
+    render(<NotesVaultPanel store={createNotesVaultStore(services)} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
+
+    expect(await screen.findByText(/denied/i)).toBeInTheDocument();
+    // The Reconnect affordance survives the denial.
+    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
+  });
+
+  it('routes New Note failures to the alert banner', async () => {
+    const user = userEvent.setup();
+    const vault = fakeDir('vault', [fakeNote('existing.md')]);
+    vault.getFileHandle = () =>
+      Promise.reject(new DOMException('write access lost', 'NotAllowedError'));
+    setup({ pick: vault });
+    await user.click((await screen.findAllByRole('button', { name: /open folder/i }))[0]!);
+    await screen.findByText('existing');
+
+    await user.click(screen.getByRole('button', { name: /new note/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/write access lost/);
+  });
+
+  it('keeps the skipped-files notice when a mixed drop also mounts a folder', async () => {
+    setup();
+    const dropped = fakeDir('mixed-vault', [fakeNote('n.md')]);
+
+    fireEvent.drop(await screen.findByTestId('notes-vault-panel'), {
+      dataTransfer: {
+        items: [
+          { getAsFileSystemHandle: () => Promise.resolve(fakeNote('loose.md')), kind: 'file' },
+          { getAsFileSystemHandle: () => Promise.resolve(dropped), kind: 'file' },
+        ],
+        types: ['Files'],
+      },
+    });
+
+    expect(await screen.findByText('mixed-vault')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/skipped/i);
+  });
+
+  it('tells the user when a clicked note link cannot be resolved', async () => {
+    const user = userEvent.setup();
+    setup({
+      pick: fakeDir('vault', [fakeNote('note.md', { content: '[broken](missing.md)' })]),
+    });
+    await user.click((await screen.findAllByRole('button', { name: /open folder/i }))[0]!);
+    await user.click(await screen.findByText('note'));
+
+    await user.click(await screen.findByRole('link', { name: 'broken' }));
+
+    expect(await screen.findByText(/couldn.t find|not found/i)).toBeInTheDocument();
+  });
+});

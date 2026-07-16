@@ -8,7 +8,9 @@ export interface DroppableItem {
 
 export interface DroppedVaultDirectories {
   readonly directories: VaultDirectoryHandleLike[];
-  /** Dropped items that resolved to plain files (not mountable as vaults). */
+  /** Items whose handle materialization rejected — surfaced, never swallowed. */
+  readonly failedCount: number;
+  /** Dropped items that resolved to plain files or null (not mountable as vaults). */
   readonly skippedFileCount: number;
   /** True when no dropped item exposed getAsFileSystemHandle (non-Chromium). */
   readonly unsupported: boolean;
@@ -40,15 +42,21 @@ export async function extractDroppedVaultDirectories(
     pending.push(item.getAsFileSystemHandle());
   }
 
-  const handles = await Promise.all(pending);
+  // allSettled: one item's handle failing must not discard the folders that
+  // resolved successfully alongside it.
+  const settled = await Promise.allSettled(pending);
   const directories: VaultDirectoryHandleLike[] = [];
   let skippedFileCount = 0;
-  for (const handle of handles) {
-    if (handle?.kind === 'directory') {
-      directories.push(handle);
-    } else if (handle?.kind === 'file') {
+  let failedCount = 0;
+  for (const outcome of settled) {
+    if (outcome.status === 'rejected') {
+      failedCount += 1;
+    } else if (outcome.value?.kind === 'directory') {
+      directories.push(outcome.value);
+    } else {
+      // Plain files and null handles alike: present but not mountable.
       skippedFileCount += 1;
     }
   }
-  return { directories, skippedFileCount, unsupported: sawFileItem && !supported };
+  return { directories, failedCount, skippedFileCount, unsupported: sawFileItem && !supported };
 }
