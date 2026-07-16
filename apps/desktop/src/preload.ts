@@ -100,6 +100,16 @@ const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
 const TERMINAL_DESTROY_CHANNEL = 'terminal:destroy' as const;
 const TERMINAL_DATA_EVENT = 'terminal:data' as const;
 const TERMINAL_EXIT_EVENT = 'terminal:exit' as const;
+const NOTES_VAULT_ENSURE_DEFAULT_VAULT_CHANNEL = 'notes-vault:ensure-default-vault' as const;
+const NOTES_VAULT_PICK_DIRECTORY_CHANNEL = 'notes-vault:pick-directory' as const;
+const NOTES_VAULT_REGISTER_ROOT_CHANNEL = 'notes-vault:register-root' as const;
+const NOTES_VAULT_LIST_DIRECTORY_CHANNEL = 'notes-vault:list-directory' as const;
+const NOTES_VAULT_STAT_ENTRY_CHANNEL = 'notes-vault:stat-entry' as const;
+const NOTES_VAULT_READ_FILE_CHANNEL = 'notes-vault:read-file' as const;
+const NOTES_VAULT_WRITE_FILE_CHANNEL = 'notes-vault:write-file' as const;
+const NOTES_VAULT_WATCH_CHANNEL = 'notes-vault:watch' as const;
+const NOTES_VAULT_UNWATCH_CHANNEL = 'notes-vault:unwatch' as const;
+const NOTES_VAULT_CHANGED_EVENT = 'notes-vault:changed' as const;
 
 import type {
   ApplyManagedCacheBatchArgs,
@@ -1227,5 +1237,40 @@ if (shouldExposeBridge('terminal')) {
       ipcRenderer.invoke(TERMINAL_RESIZE_CHANNEL, params),
     write: (params: { terminalId: string; data: string }) =>
       ipcRenderer.invoke(TERMINAL_WRITE_CHANNEL, params),
+  });
+}
+
+// Notes vault bridge (desktop-only): Node-fs backend for the markdown notes
+// vault, per packages/notes-vault/src/desktop/bridge-contract.ts. Every path is
+// containment-checked in main against the APPROVED vault roots; every method
+// resolves to a structured NotesVaultResult (never throws across IPC).
+// pickDirectory resolves { ok: true, value: null } when the user cancels the
+// native dialog. Watch change pushes arrive one-way on `notes-vault:changed`
+// for THIS renderer only; `onChanged` registers a listener and returns an
+// unsubscribe fn. Web never constructs this bridge (no preload), so consumers
+// must capability-check `window.notesVault` rather than `isElectron()`.
+if (shouldExposeBridge('notesVault')) {
+  contextBridge.exposeInMainWorld('notesVault', {
+    ensureDefaultVault: () => ipcRenderer.invoke(NOTES_VAULT_ENSURE_DEFAULT_VAULT_CHANNEL),
+    listDirectory: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_LIST_DIRECTORY_CHANNEL, absolutePath),
+    onChanged: (callback: (event: { watchId: string }) => void) => {
+      const listener = (_event: unknown, payload: { watchId: string }) => callback(payload);
+      ipcRenderer.on(NOTES_VAULT_CHANGED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(NOTES_VAULT_CHANGED_EVENT, listener);
+      };
+    },
+    pickDirectory: () => ipcRenderer.invoke(NOTES_VAULT_PICK_DIRECTORY_CHANNEL),
+    readFile: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_READ_FILE_CHANNEL, absolutePath),
+    registerRoot: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_REGISTER_ROOT_CHANNEL, absolutePath),
+    statEntry: (absolutePath: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_STAT_ENTRY_CHANNEL, absolutePath),
+    unwatch: (watchId: string) => ipcRenderer.invoke(NOTES_VAULT_UNWATCH_CHANNEL, watchId),
+    watch: (absolutePath: string) => ipcRenderer.invoke(NOTES_VAULT_WATCH_CHANNEL, absolutePath),
+    writeFile: (absolutePath: string, content: string) =>
+      ipcRenderer.invoke(NOTES_VAULT_WRITE_FILE_CHANNEL, absolutePath, content),
   });
 }

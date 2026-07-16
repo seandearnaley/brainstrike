@@ -59,6 +59,12 @@ import type {
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type {
+  NotesVaultChangedEvent,
+  NotesVaultEntry,
+  NotesVaultResult,
+  NotesVaultRoot,
+} from '../notes-vault-ipc-handlers';
+import type {
   TerminalCreateResult,
   TerminalDataEvent,
   TerminalExitEvent,
@@ -339,6 +345,31 @@ declare global {
           }>;
         }) => void
       ) => () => void;
+    };
+    /**
+     * Desktop-only notes vault bridge (see
+     * packages/notes-vault/src/desktop/bridge-contract.ts). Absent on web (no
+     * preload) — consumers MUST capability-check `window.notesVault`. Every
+     * path is containment-checked in main against the APPROVED vault roots;
+     * every method resolves to a structured `NotesVaultResult` (never throws
+     * across IPC). `pickDirectory` resolves `{ ok: true, value: null }` when
+     * the user cancels. `onChanged` registers a listener for one-way
+     * `notes-vault:changed` pushes and returns an unsubscribe fn.
+     */
+    notesVault?: {
+      ensureDefaultVault: () => Promise<NotesVaultResult<NotesVaultRoot>>;
+      pickDirectory: () => Promise<NotesVaultResult<NotesVaultRoot | null>>;
+      registerRoot: (path: string) => Promise<NotesVaultResult<NotesVaultRoot>>;
+      listDirectory: (path: string) => Promise<NotesVaultResult<NotesVaultEntry[]>>;
+      statEntry: (path: string) => Promise<NotesVaultResult<NotesVaultEntry | null>>;
+      readFile: (path: string) => Promise<NotesVaultResult<string>>;
+      writeFile: (
+        path: string,
+        content: string
+      ) => Promise<NotesVaultResult<{ lastModified: number }>>;
+      watch: (path: string) => Promise<NotesVaultResult<{ watchId: string }>>;
+      unwatch: (watchId: string) => Promise<NotesVaultResult<null>>;
+      onChanged: (callback: (event: NotesVaultChangedEvent) => void) => () => void;
     };
     platform?: {
       openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;

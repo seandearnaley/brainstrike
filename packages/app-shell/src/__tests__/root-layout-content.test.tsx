@@ -355,6 +355,52 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
   });
 
+  it('mounts the notes route when the notes nav item is selected', () => {
+    renderComponent({ notesPageContent: <div data-testid="notes-page">Notes</div> });
+
+    // Lazily mounted: not in the DOM until the tab is first opened.
+    expect(screen.queryByTestId('notes-route')).not.toBeInTheDocument();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/notes');
+    });
+
+    const notesRoute = screen.getByTestId('notes-route');
+    expect(notesRoute).not.toHaveClass('hidden');
+    expect(notesRoute).toHaveAttribute('aria-hidden', 'false');
+    expect(screen.getByTestId('notes-page')).toBeInTheDocument();
+  });
+
+  it('keeps the notes route mounted but hidden after switching to another tab', () => {
+    renderComponent({ notesPageContent: <div data-testid="notes-page">Notes</div> });
+
+    act(() => {
+      mockHandlers.onNavigationClick('/notes');
+    });
+    act(() => {
+      mockHandlers.onNavigationClick('/');
+    });
+
+    // Keep-mounted contract: the vault surface only toggles hidden so
+    // watchers, scan state, and scroll position survive tab switches.
+    const notesRoute = screen.getByTestId('notes-route');
+    expect(notesRoute).toBeInTheDocument();
+    expect(notesRoute).toHaveClass('hidden');
+    expect(notesRoute).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('notes-page')).toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+  });
+
+  it('renders no notes route when notesPageContent is absent', () => {
+    renderComponent();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/notes');
+    });
+
+    expect(screen.queryByTestId('notes-route')).not.toBeInTheDocument();
+  });
+
   it('disables prompt suggestions on every hidden outer route without unmounting prompts', async () => {
     const user = userEvent.setup();
     renderComponent({

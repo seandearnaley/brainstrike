@@ -97,6 +97,21 @@ export const DESKTOP_IPC_CHANNELS = {
     toolsReset: 'mcp:tools:reset',
     toolsUpdated: 'mcp:tools:updated',
   },
+  notesVault: {
+    // One-way main→renderer push: a watched vault directory changed. Pushed to
+    // the OWNING renderer's WebContents only — NOT an ipcMain.handle channel,
+    // so it is never registered on the registry (see notes-vault-ipc-handlers.ts).
+    changed: 'notes-vault:changed',
+    ensureDefaultVault: 'notes-vault:ensure-default-vault',
+    listDirectory: 'notes-vault:list-directory',
+    pickDirectory: 'notes-vault:pick-directory',
+    readFile: 'notes-vault:read-file',
+    registerRoot: 'notes-vault:register-root',
+    statEntry: 'notes-vault:stat-entry',
+    unwatch: 'notes-vault:unwatch',
+    watch: 'notes-vault:watch',
+    writeFile: 'notes-vault:write-file',
+  },
   preferences: {
     layoutLoad: 'layout:load',
     layoutSave: 'layout:save',

@@ -1,0 +1,66 @@
+{
+  "name": "@brainstrike/notes-vault",
+  "description": "Markdown notes vault: File System Access-backed note tree and viewer",
+  "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "lucide-react": "^1.23.0",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "catalog:",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./availability": {
+      "types": "./dist/availability.d.ts",
+      "import": "./dist/availability.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./desktop-contract": {
+      "types": "./dist/desktop/bridge-contract.d.ts",
+      "import": "./dist/desktop/bridge-contract.js"
+    },
+    "./panel": {
+      "types": "./dist/panel/index.d.ts",
+      "import": "./dist/panel/index.js"
+    },
+    "./store-reset": {
+      "types": "./dist/store/session-reset.d.ts",
+      "import": "./dist/store/session-reset.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "peerDependencies": {
+    "react": "^19.2.4"
+  },
+  "scripts": {
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b .",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "test": "vitest run",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts"
+}

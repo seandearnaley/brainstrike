@@ -1,4 +1,5 @@
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
+import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { clearPersistentUiStateWithResult } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import {
   resetContextUsageStore,
@@ -6,9 +7,17 @@ import {
 } from '@brainstrike/ui/assistant-ui-panel/context-usage-store';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
+
+// The real notes-vault store's default services require indexedDB (handle
+// persistence), which this vitest environment does not provide. The reset
+// entry point is mocked so registration can be asserted without booting the
+// vault store graph.
+vi.mock('@brainstrike/notes-vault/store-reset', () => ({
+  resetNotesVaultSessionState: vi.fn(),
+}));
 
 // Import for side-effect registration (same path root-layout-content uses).
 import '../register-factory-reset-session-stores';
@@ -21,6 +30,16 @@ describe('register-factory-reset-session-stores', () => {
     useWorkspaceContextCurationStore.getState().reset();
     useAssistantComposerCommandStore.getState().reset();
     useAssistantThreadGroupsStore.getState().reset();
+    vi.mocked(resetNotesVaultSessionState).mockClear();
+  });
+
+  it('registers the notes-vault session reset with the factory-reset pipeline', async () => {
+    expect(resetNotesVaultSessionState).not.toHaveBeenCalled();
+
+    const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    expect(result.success).toBe(true);
+
+    expect(resetNotesVaultSessionState).toHaveBeenCalledTimes(1);
   });
 
   it('clears sibling session stores when factory reset drains registered resetters', async () => {
