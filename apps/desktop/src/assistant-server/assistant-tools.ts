@@ -12,10 +12,12 @@ import {
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
   fitItemsToCharBudget,
+  forgetKnownFile,
   type GlobWorkspaceInput,
   GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
+  getKnownFileMtime,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
@@ -37,6 +39,7 @@ import {
   type RuntimeWorkspaceContextMetadata,
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
+  recordKnownFileMtime,
   type StringReplaceMatchType,
   type StringReplaceWorkspaceFileInput,
   StringReplaceWorkspaceFileInputSchema,
@@ -406,7 +409,9 @@ export async function readWorkspaceTextFile(args: {
   requestedPath: string;
   rootPath: string;
 }): Promise<{
+  absolutePath: string;
   content: string;
+  mtimeMs: number;
   path: string;
   size: number;
 }> {
@@ -431,10 +436,105 @@ export async function readWorkspaceTextFile(args: {
   }
 
   return {
+    absolutePath: resolved.absolutePath,
     content: fileBuffer.toString('utf8'),
+    mtimeMs: stat.mtimeMs,
     path: resolved.workspacePath,
     size: Number(stat.size),
   };
+}
+
+/**
+ * Scope key for the read-before-write staleness tracker: one thread's
+ * observations never vouch for another's (a subagent thread must read a file
+ * itself before its knowledge of it counts as fresh). The DB-less unit tests
+ * and any pre-memory call sites fall back to a single shared sentinel scope.
+ */
+function readStateScope(runtimeData: RuntimeData | undefined): string {
+  return runtimeData?.memory?.threadId ?? '__no-thread__';
+}
+
+/**
+ * Read-before-write staleness compare (report R8), inside the per-file lock.
+ * When `scope` previously observed this file (content-bearing read or its own
+ * successful write) and disk now carries a DIFFERENT mtime, someone else
+ * changed the file since — refuse with an actionable error instead of
+ * overwriting their work (lost-update guard). Never guards a file this scope
+ * has no observation for (compare-only contract), and an observed file that
+ * has since VANISHED is treated as new — recreating it loses nothing, so the
+ * stale observation is dropped and the write proceeds.
+ */
+async function assertNoExternalEditSinceObserved(args: {
+  scope: string;
+  absolutePath: string;
+  requestedPath: string;
+}): Promise<void> {
+  const known = getKnownFileMtime(args.scope, args.absolutePath);
+  if (known === undefined) {
+    return;
+  }
+  let stat: import('node:fs').Stats;
+  try {
+    stat = await fsPromises.stat(args.absolutePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      forgetKnownFile(args.scope, args.absolutePath);
+      return;
+    }
+    throw error;
+  }
+  if (stat.mtimeMs !== known) {
+    throw buildStaleFileError(args.requestedPath);
+  }
+}
+
+/** The single actionable staleness refusal every edit tool throws (the model's
+ * recovery path is always the same: re-read, then retry with fresh content). */
+function buildStaleFileError(requestedPath: string): Error {
+  return new Error(
+    `File "${requestedPath}" changed on disk since you last read it (someone else edited it). ` +
+      'Re-read the file and retry the edit against its current content.'
+  );
+}
+
+/** Record the post-mutation mtime as this scope's fresh observation, inside the
+ * same lock as the write so no concurrent edit can slip between write and stat. */
+async function recordOwnWriteObservation(scope: string, absolutePath: string): Promise<void> {
+  const stat = await fsPromises.stat(absolutePath);
+  recordKnownFileMtime(scope, absolutePath, stat.mtimeMs);
+}
+
+/**
+ * Rename-source staleness compare (report R8), inside the rename's two-lock
+ * critical section. IDENTITY MATTERS: reads record under the realpath'd
+ * TARGET, so a symlink source compares the target's key + stat (the link's
+ * own path is never recorded); a regular file compares its own lstat. A
+ * DANGLING link has no target to compare — nothing observed, nothing guarded.
+ */
+async function assertRenameSourceUnchangedSinceObserved(args: {
+  fromMutationPath: string;
+  fromStats: import('node:fs').Stats;
+  requestedFromPath: string;
+  runtimeData: RuntimeData | undefined;
+  targetAbsolutePath: string;
+}): Promise<void> {
+  let compareKey = args.fromMutationPath;
+  let sourceMtimeMs: number | undefined = args.fromStats.mtimeMs;
+  if (args.fromStats.isSymbolicLink()) {
+    compareKey = args.targetAbsolutePath;
+    try {
+      sourceMtimeMs = (await fsPromises.stat(args.targetAbsolutePath)).mtimeMs;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      sourceMtimeMs = undefined;
+    }
+  }
+  const known = getKnownFileMtime(readStateScope(args.runtimeData), compareKey);
+  if (known !== undefined && sourceMtimeMs !== undefined && known !== sourceMtimeMs) {
+    throw buildStaleFileError(args.requestedFromPath);
+  }
 }
 
 async function runFindWorkspaceSymbol(
@@ -478,7 +578,20 @@ async function runReadWorkspaceFile(
 }> {
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const requestedPath = input.path;
-  const file = await readWorkspaceTextFile({ requestedPath, rootPath: root.path });
+  // Resolve first so the read + tracker record can run INSIDE the same
+  // per-file lock the write tools use. An unlocked read could stat the OLD
+  // mtime, lose the race to a concurrent locked write (which records the
+  // fresh post-write mtime), then clobber the tracker back to the stale value
+  // — making the next legitimate write falsely refuse. Never nested inside
+  // another holder of this key, so no deadlock.
+  const resolvedForLock = await resolveWorkspaceAbsolutePath(root.path, requestedPath);
+  const file = await withFileLock(resolvedForLock.absolutePath, async () => {
+    const read = await readWorkspaceTextFile({ requestedPath, rootPath: root.path });
+    // A content-bearing read is this scope's fresh observation of the file —
+    // the baseline the edit tools' staleness compare refuses against (R8).
+    recordKnownFileMtime(readStateScope(runtimeData), read.absolutePath, read.mtimeMs);
+    return read;
+  });
   const ranged = sliceContentByLineRange(file.content, input.startLine, input.endLine);
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
   const truncated = truncateContent(ranged.content, maxChars);
@@ -598,7 +711,17 @@ async function runWriteWorkspaceFile(
   // RAG row stale relative to disk. `triggerEditedFileReindex` is already
   // non-fatal (it catches+logs internally), so it never extends the lock's
   // failure surface.
+  const scope = readStateScope(runtimeData);
   const { created } = await withFileLock(resolved.absolutePath, async () => {
+    // Staleness compare INSIDE the lock (report R8): if this scope observed the
+    // file at a different mtime than disk carries now, someone else edited it
+    // since — refuse instead of overwriting their work. New/unobserved files
+    // pass untouched.
+    await assertNoExternalEditSinceObserved({
+      absolutePath: resolved.absolutePath,
+      requestedPath: input.path,
+      scope,
+    });
     // Snapshot the before-state for the undo journal INSIDE the lock so no
     // concurrent same-file edit can slip newer bytes between capture and write.
     const beforeState = await captureBeforeState(
@@ -610,6 +733,9 @@ async function runWriteWorkspaceFile(
       requestedPath: input.path,
       resolved,
     });
+    // Our own write is the scope's freshest observation — consecutive writes
+    // must never trip the guard on themselves.
+    await recordOwnWriteObservation(scope, resolved.absolutePath);
     await triggerEditedFileReindex({
       absolutePath: resolved.absolutePath,
       content: input.content,
@@ -661,6 +787,7 @@ async function runStringReplaceWorkspaceFile(
   // a concurrent edit (another stringReplace, or a writeWorkspaceFile) to the
   // SAME file cannot interleave and drop an update or stale the RAG row. Edits to
   // different files still run in parallel.
+  const scope = readStateScope(runtimeData);
   const result = await withFileLock(resolved.absolutePath, async () => {
     // Read through the SAME checked read path the read tools use (isFile, 2 MB
     // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
@@ -669,6 +796,15 @@ async function runStringReplaceWorkspaceFile(
       requestedPath: input.path,
       rootPath: root.path,
     });
+
+    // Staleness compare (report R8): oldStr/newStr were crafted from what this
+    // scope last observed. If disk moved past that observation, applying the
+    // replacement risks semantically clobbering someone else's edit — refuse
+    // and make the model re-read. Unobserved files pass (compare-only).
+    const known = getKnownFileMtime(scope, resolved.absolutePath);
+    if (known !== undefined && known !== file.mtimeMs) {
+      throw buildStaleFileError(input.path);
+    }
 
     // Pure fuzzy-match cascade. THROWS StringReplaceError on ambiguous/not-found
     // matches — never applies a low-confidence edit (no silent fallbacks).
@@ -686,6 +822,9 @@ async function runStringReplaceWorkspaceFile(
     }
 
     await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
+    // Our own write is the scope's freshest observation — a follow-up edit in
+    // the same thread must never trip the guard on it.
+    await recordOwnWriteObservation(scope, resolved.absolutePath);
 
     // Journal the undo: the before-content was just read as `file.content` (the
     // checked reader guarantees text — binary/oversized already threw), so this
@@ -921,6 +1060,9 @@ async function runDeleteWorkspaceFile(
     // delete can be reverted by recreating the file with its prior content.
     const beforeState = await captureBeforeState(mutationPath, MAX_WRITE_WORKSPACE_FILE_BYTES);
     await fsPromises.unlink(mutationPath);
+    // Drop the staleness observation with the file so a later re-creation at
+    // this path is treated as new, not compared against a ghost.
+    forgetKnownFile(readStateScope(runtimeData), mutationPath);
     const { invalidated } = await triggerFileDeletionInvalidation({
       rootId: root.rootId,
       runtimeData,
@@ -1007,6 +1149,18 @@ async function runRenameWorkspaceFile(
       );
     }
 
+    // Staleness compare (report R8): a rename decided against a stale view of
+    // the source (someone rewrote it since this scope read it) is refused the
+    // same way an edit is. Unobserved sources pass (compare-only).
+    const sourceIsSymlink = fromStats.isSymbolicLink();
+    await assertRenameSourceUnchangedSinceObserved({
+      fromMutationPath,
+      fromStats,
+      requestedFromPath: input.fromPath,
+      runtimeData,
+      targetAbsolutePath: fromResolved.absolutePath,
+    });
+
     // Destination must NOT already exist (no overwrite in v1). lstat so a symlink
     // at the destination also counts as "exists".
     let destinationExists = true;
@@ -1032,6 +1186,17 @@ async function runRenameWorkspaceFile(
     );
 
     await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
+
+    // Move the observation with the file. Regular file: the source path is
+    // gone; the destination (content unchanged — rename preserves mtime) is
+    // this scope's freshest view of it. Symlink: only the LINK moved — the
+    // target file and its (realpath-keyed) observation stay valid, and the
+    // destination stat would follow the link (or throw on a dangling one), so
+    // no destination record is made.
+    forgetKnownFile(readStateScope(runtimeData), fromMutationPath);
+    if (!sourceIsSymlink) {
+      await recordOwnWriteObservation(readStateScope(runtimeData), toResolved.absolutePath);
+    }
 
     // Index coherence: invalidate the SOURCE rows immediately (the differentiator
     // vs a shell mv). `indexInvalidated` reflects that source removal. The

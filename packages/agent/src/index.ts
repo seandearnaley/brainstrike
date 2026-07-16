@@ -375,6 +375,13 @@ export {
   type ListEmbeddingSetsToolResult,
   SAFE_EMBEDDING_SETS_ERRORS,
 } from './tools/embedding-sets-tool';
+export {
+  FILE_READ_STATE_MAX_ENTRIES,
+  forgetKnownFile,
+  getKnownFileMtime,
+  recordKnownFileMtime,
+  resetFileReadState,
+} from './tools/file-read-state';
 // File tree tool factory (Tier 2)
 export {
   buildToolsWithFileTree,
