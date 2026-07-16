@@ -207,7 +207,10 @@ describe('AssistantThreadTabsWorkspace', () => {
       'hidden',
       '@[380px]/assistant-tabs:inline'
     );
-    expect(firstTab).toHaveClass('pr-8');
+    // Symmetric padding: the close affordance sits in flow after the tab
+    // button, so no oversized right padding is reserved for an overlay.
+    expect(firstTab).toHaveClass('pl-2');
+    expect(firstTab).not.toHaveClass('pr-8');
     expect(firstTab).toHaveAttribute('aria-haspopup', 'menu');
   });
 
@@ -236,7 +239,9 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     const coloredTab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
     expect(coloredTab.closest('[data-thread-color]')).toHaveAttribute('data-thread-color', 'rose');
-    expect(screen.getByTestId('assistant-thread-tab-accent-rose')).toBeVisible();
+    // Color lives on the leading icon chip; the old top accent stripe is gone.
+    expect(screen.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
+    expect(screen.queryByTestId('assistant-thread-tab-accent-rose')).not.toBeInTheDocument();
 
     act(() => {
       useAssistantThreadStore.getState().openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, 'thread-b');
@@ -246,6 +251,28 @@ describe('AssistantThreadTabsWorkspace', () => {
       'data-thread-color',
       'unassigned'
     );
+    expect(screen.getByTestId('assistant-thread-tab-icon-unassigned')).toBeVisible();
+  });
+
+  it('keeps the close affordance in flow and optically matched with the leading icon', async () => {
+    renderWorkspace();
+
+    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const closeButton = screen.getByRole('button', {
+      name: 'Close thread Purchasing app search log',
+    });
+
+    // The close button is a flex sibling of the tab button (vertically centered
+    // by the row), not an absolutely positioned overlay pinned to a corner.
+    expect(closeButton.className).not.toMatch(/absolute/);
+    expect(closeButton.parentElement).toBe(tab.parentElement);
+    expect(closeButton).toHaveClass('h-5', 'w-5');
+
+    // Leading and close glyphs share one optical size (12px in a 20px box).
+    const leadingIcon = screen.getByTestId('assistant-thread-tab-icon-rose');
+    expect(leadingIcon).toHaveClass('h-5', 'w-5');
+    expect(leadingIcon.querySelector('svg')).toHaveClass('h-3', 'w-3');
+    expect(closeButton.querySelector('svg')).toHaveClass('h-3', 'w-3');
   });
 
   it('supports automatic Arrow, Home, and End tab activation with roving focus', async () => {

@@ -347,7 +347,7 @@ describe('ThreadsPanel', () => {
     expect(screen.getAllByTestId('thread-row')[0]?.closest('tr')).toHaveClass(
       'group/thread-tree-row'
     );
-    expect(screen.getAllByTestId('thread-row')[0]).toHaveClass('border');
+    expect(screen.getAllByTestId('thread-row')[0]).not.toHaveClass('border');
     expect(screen.getAllByTestId('thread-row')[0]).not.toHaveClass(
       'group-data-[focused=true]/thread-tree-row:outline-2'
     );
@@ -355,11 +355,7 @@ describe('ThreadsPanel', () => {
     expect(screen.getByTestId('threads-panel')).toHaveClass('@container/threads', 'h-full');
 
     const idleThread = screen.getByText('First thread').closest('[data-testid="thread-row"]');
-    expect(idleThread).toHaveClass(
-      'border-emerald-200/20',
-      'bg-transparent',
-      'hover:bg-emerald-50/25'
-    );
+    expect(idleThread).toHaveClass('bg-emerald-100/45', 'hover:bg-emerald-100/75');
     expect(idleThread).not.toHaveClass('hover:bg-accent/35');
   });
 
@@ -827,7 +823,7 @@ describe('ThreadsPanel', () => {
     expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
   });
 
-  it('uses quiet idle pills, a strong active treatment, and breathing room around each thread', async () => {
+  it('uses tinted idle pills, an inset-ring active treatment, and breathing room around each thread', async () => {
     renderThreadsPanel();
 
     await waitFor(() => {
@@ -835,15 +831,20 @@ describe('ThreadsPanel', () => {
     });
     const [activeThread, idleThread] = screen.getAllByTestId('thread-row');
 
+    // Selected rows read through a stronger fill plus an inset ring — no border,
+    // no accent stripe. Idle rows keep a visible tint of their thread color.
     expect(activeThread).toHaveClass(
       'my-0.5',
       'min-h-9',
-      'border-sky-500',
-      'bg-sky-100/90',
-      'shadow-sm'
+      'bg-sky-100',
+      'ring-1',
+      'ring-inset',
+      'ring-sky-500/80',
+      'shadow-xs'
     );
-    expect(idleThread).toHaveClass('my-0.5', 'min-h-9', 'border-emerald-200/20', 'bg-transparent');
-    expect(idleThread).not.toHaveClass('shadow-sm');
+    expect(activeThread).not.toHaveClass('border', 'border-sky-500');
+    expect(idleThread).toHaveClass('my-0.5', 'min-h-9', 'bg-emerald-100/45');
+    expect(idleThread).not.toHaveClass('shadow-xs', 'border');
   });
 
   it('shows automatic expanded metadata and keeps diagnostics out of the primary row', async () => {
@@ -1155,25 +1156,27 @@ describe('ThreadsPanel groups', () => {
       'border-rose-300',
       'bg-rose-50'
     );
+    // Group surfaces are soft tinted fills only — the hairline outline borders
+    // are gone so grouped threads read as one calm slab.
     expect(groupHeaderRow).toHaveClass(
       'thread-group-surface',
       '[&>td]:bg-rose-50/60',
-      '[&>td]:border-rose-200/60',
       '[&>td]:rounded-t-lg'
     );
-    expect(firstGroupedThreadRow).toHaveClass(
-      'thread-group-surface',
-      '[&>td]:bg-rose-50/60',
-      '[&>td]:border-rose-200/60',
-      '[&>td]:border-x'
+    expect(groupHeaderRow).not.toHaveClass('[&>td]:border-rose-200/60', '[&>td]:border-t');
+    expect(firstGroupedThreadRow).toHaveClass('thread-group-surface', '[&>td]:bg-rose-50/60');
+    expect(firstGroupedThreadRow).not.toHaveClass(
+      '[&>td]:rounded-t-lg',
+      '[&>td]:rounded-b-lg',
+      '[&>td]:border-x',
+      '[&>td]:border-rose-200/60'
     );
-    expect(firstGroupedThreadRow).not.toHaveClass('[&>td]:rounded-t-lg', '[&>td]:rounded-b-lg');
     expect(lastGroupSurfaceRow).toHaveClass(
       'thread-group-surface',
       '[&>td]:bg-rose-50/60',
-      '[&>td]:border-rose-200/60',
       '[&>td]:rounded-b-lg'
     );
+    expect(lastGroupSurfaceRow).not.toHaveClass('[&>td]:border-rose-200/60', '[&>td]:border-b');
     const groupContentLane = within(groupHeaderRow as HTMLElement).getByTestId(
       'thread-panel-content-lane'
     );

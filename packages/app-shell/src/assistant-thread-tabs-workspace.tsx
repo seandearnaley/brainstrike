@@ -625,7 +625,7 @@ export function AssistantThreadTabsWorkspace({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="assistant-thread-tabs-workspace">
       <div
-        className="@container/assistant-tabs flex h-12 flex-shrink-0 items-center gap-1 border-border border-b bg-muted/20 px-1.5"
+        className="@container/assistant-tabs flex h-12 flex-shrink-0 items-center gap-1 border-border border-b bg-muted/20 px-2"
         data-testid="assistant-thread-tab-strip"
       >
         <Button
@@ -664,27 +664,20 @@ export function AssistantThreadTabsWorkspace({
                     {(dragHandleRef) => (
                       // biome-ignore lint/a11y/noStaticElementInteractions: composite tab shell claims context-menu identity for its focusable controls
                       <div
-                        className={`group relative flex h-8 min-w-0 items-center overflow-hidden rounded-md border text-sm transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${
+                        className={`group flex h-8 min-w-0 items-center overflow-hidden rounded-md border pr-1.5 text-sm transition-[color,background-color,border-color,box-shadow,opacity] duration-150 motion-reduce:transition-none ${
                           isActive
                             ? 'border-border/90 bg-background text-foreground shadow-xs'
-                            : 'border-transparent bg-muted/30 text-muted-foreground hover:border-border/60 hover:bg-background/65 hover:text-foreground'
+                            : 'border-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground'
                         }`}
                         data-thread-color={colorId ?? 'unassigned'}
                         onContextMenu={() => handleThreadTabContextMenu(threadId)}
                         role="presentation"
                       >
-                        {colorPresentation ? (
-                          <span
-                            aria-hidden="true"
-                            className={`absolute inset-x-1.5 top-0 h-0.5 rounded-b-full opacity-90 ${colorPresentation.accentClassName}`}
-                            data-testid={`assistant-thread-tab-accent-${colorId}`}
-                          />
-                        ) : null}
                         <button
                           aria-controls={getTabPanelId(threadId)}
                           aria-haspopup="menu"
                           aria-selected={isActive}
-                          className="flex h-full min-w-0 flex-1 cursor-grab items-center gap-2 py-0 pr-8 pl-2 text-left outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:cursor-grabbing motion-reduce:transition-none"
+                          className="flex h-full min-w-0 flex-1 cursor-grab items-center gap-2 py-0 pl-2 text-left outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:cursor-grabbing motion-reduce:transition-none"
                           id={getTabId(threadId)}
                           onClick={() => openThreadTab(resourceId, threadId)}
                           onKeyDown={(event) => handleTabKeyDown(event, threadId)}
@@ -699,6 +692,7 @@ export function AssistantThreadTabsWorkspace({
                               colorPresentation?.iconClassName ??
                               'bg-muted/70 text-muted-foreground ring-border/70'
                             }`}
+                            data-testid={`assistant-thread-tab-icon-${colorId ?? 'unassigned'}`}
                           >
                             <MessageSquare className="h-3 w-3" />
                           </span>
@@ -708,16 +702,16 @@ export function AssistantThreadTabsWorkspace({
                         </button>
                         <button
                           aria-label={`Close thread ${title}`}
-                          className={`absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-sm bg-background/90 text-muted-foreground shadow-sm ring-1 ring-border/60 backdrop-blur-sm transition-[color,background-color,box-shadow,opacity,transform] duration-150 hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+                          className={`ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-[color,background-color,opacity] duration-150 hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
                             isActive
                               ? 'opacity-70 hover:opacity-100'
-                              : 'pointer-events-none translate-x-1 opacity-0 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100'
+                              : 'pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100'
                           }`}
                           onClick={() => handleCloseThreadTab(threadId)}
                           tabIndex={-1}
                           type="button"
                         >
-                          <X className="h-3.5 w-3.5" />
+                          <X className="h-3 w-3" />
                         </button>
                       </div>
                     )}

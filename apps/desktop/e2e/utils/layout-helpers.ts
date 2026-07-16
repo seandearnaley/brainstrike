@@ -135,7 +135,7 @@ export async function showDatabaseDemoPanel(
 
     const databaseTabTrigger = activePage
       .getByTestId('database-tab-trigger')
-      .or(activePage.getByRole('tab', { name: 'Database' }));
+      .or(activePage.getByRole('tab', { name: 'Collections' }));
     await databaseTabTrigger.waitFor({ state: 'visible', timeout: tabTimeoutMs });
     await databaseTabTrigger.click();
 

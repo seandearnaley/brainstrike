@@ -139,14 +139,12 @@ function getThreadColorId(thread: AssistantMemoryThread): AssistantThreadColorId
 }
 
 const UNASSIGNED_THREAD_COLOR_CONFIG = {
-  accentClassName: 'bg-transparent',
-  idleClassName:
-    'border-border/20 bg-transparent hover:border-border/45 hover:bg-muted/35 dark:border-border/30',
+  idleClassName: 'bg-muted/45 hover:bg-muted/70 dark:bg-muted/30 dark:hover:bg-muted/50',
   label: 'Unassigned',
   markClassName:
     'border-border bg-muted/70 text-muted-foreground dark:border-border dark:bg-muted/45 dark:text-muted-foreground',
   selectedClassName:
-    'border-primary bg-primary/20 shadow-sm dark:border-primary dark:bg-primary/25',
+    'bg-primary/15 shadow-xs ring-1 ring-inset ring-primary/60 dark:bg-primary/20 dark:ring-primary/70',
 } as const;
 
 function getThreadColorConfig(thread: AssistantMemoryThread) {
@@ -581,15 +579,11 @@ function ThreadRowItem({
   ]);
   return (
     <div
-      className={`relative my-0.5 min-h-9 w-auto overflow-hidden rounded-md border px-2 py-0.5 text-left transition-[background-color,border-color,box-shadow] motion-reduce:transition-none ${
+      className={`my-0.5 min-h-9 w-auto overflow-hidden rounded-md px-2 py-0.5 text-left transition-[background-color,box-shadow] motion-reduce:transition-none ${
         isSelected ? colorConfig.selectedClassName : colorConfig.idleClassName
       }`}
       data-testid="thread-row"
     >
-      <div
-        aria-hidden="true"
-        className={`absolute inset-y-1 left-0 w-0.5 rounded-full ${colorConfig.accentClassName}`}
-      />
       {isEditing ? (
         <ThreadRenameForm
           draftTitle={draftTitle}
@@ -1661,11 +1655,13 @@ function getSelectionState(
 type ThreadRowsProps = Parameters<typeof ThreadRows>[0];
 type ThreadPanelGroupRow = Extract<ThreadPanelVisibleRow, { readonly kind: 'group' }>;
 
+// Group surfaces are borderless tinted slabs; only the rounded caps vary by
+// the row's position inside the visible chassis.
 const THREAD_GROUP_SURFACE_POSITION_CLASS_NAMES = {
-  end: '[&>td]:border-x [&>td]:border-b [&>td]:rounded-b-lg',
-  middle: '[&>td]:border-x',
-  single: '[&>td]:border [&>td]:rounded-lg',
-  start: '[&>td]:border-x [&>td]:border-t [&>td]:rounded-t-lg',
+  end: '[&>td]:rounded-b-lg',
+  middle: '',
+  single: '[&>td]:rounded-lg',
+  start: '[&>td]:rounded-t-lg',
 } satisfies Record<ThreadGroupChassisPosition, string>;
 
 function ThreadPanelContentLane({ children }: { readonly children: ReactNode }): ReactElement {

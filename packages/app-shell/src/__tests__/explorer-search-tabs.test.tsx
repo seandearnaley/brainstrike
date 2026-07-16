@@ -28,12 +28,19 @@ describe('ExplorerSearchTabs', () => {
     useContextExplorerLayoutStore.getState().setExplorerActiveTab('explorer');
   });
 
-  it('renders both tabs with Explorer selected by default and Search not yet mounted', () => {
+  it('renders both tabs through the shared Tabs primitive with Explorer selected by default and Search not yet mounted', () => {
     render(<ExplorerSearchTabs />);
 
     const explorerTab = screen.getByRole('tab', { name: 'Explorer' });
     const searchTab = screen.getByRole('tab', { name: 'Search' });
     expect(screen.getByTestId('explorer-search-tab-strip')).toHaveClass('h-12');
+    // Converged on the same shared segmented Tabs primitive the Library uses.
+    expect(explorerTab).toHaveAttribute('data-slot', 'tabs-trigger');
+    expect(searchTab).toHaveAttribute('data-slot', 'tabs-trigger');
+    expect(screen.getByRole('tablist', { name: 'Explorer and search' })).toHaveAttribute(
+      'data-slot',
+      'tabs-list'
+    );
     expect(explorerTab).toHaveAttribute('aria-selected', 'true');
     expect(searchTab).toHaveAttribute('aria-selected', 'false');
 
@@ -56,14 +63,8 @@ describe('ExplorerSearchTabs', () => {
     expect(screen.getByRole('tab', { name: 'Search' })).toHaveAttribute('aria-selected', 'true');
     // Explorer STAYS mounted (only hidden) so its tree state survives.
     expect(screen.getByTestId('file-explorer-panel-mock')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-search-panel-explorer')).toHaveAttribute(
-      'aria-hidden',
-      'true'
-    );
-    expect(screen.getByTestId('explorer-search-panel-search')).toHaveAttribute(
-      'aria-hidden',
-      'false'
-    );
+    expect(screen.getByTestId('explorer-search-panel-explorer')).not.toBeVisible();
+    expect(screen.getByTestId('explorer-search-panel-search')).toBeVisible();
 
     // Persisted through the layout store.
     expect(useContextExplorerLayoutStore.getState().explorerActiveTab).toBe('search');
@@ -83,9 +84,7 @@ describe('ExplorerSearchTabs', () => {
     expect(screen.getByRole('tab', { name: 'Explorer' })).toHaveAttribute('aria-selected', 'true');
     // Search panel remains mounted (mounted-once latch), just hidden.
     expect(screen.getByTestId('workspace-search-panel-mock')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-search-panel-search')).toHaveAttribute(
-      'aria-hidden',
-      'true'
-    );
+    expect(screen.getByTestId('explorer-search-panel-search')).not.toBeVisible();
+    expect(screen.getByTestId('explorer-search-panel-explorer')).toBeVisible();
   });
 });

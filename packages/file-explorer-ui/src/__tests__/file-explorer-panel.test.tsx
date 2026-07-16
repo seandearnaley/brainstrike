@@ -27,22 +27,27 @@ var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
 vi.mock('../shell/file-explorer-toolbar', () => ({
   FileExplorerToolbar: ({
     bulkSelectionControl,
+    filtersControl,
     onDirectorySelect,
     isLoading,
     selectionStatusControl,
   }: {
     bulkSelectionControl?: ReactNode;
+    filtersControl?: ReactNode;
     onDirectorySelect: () => void;
     isLoading: boolean;
     selectionStatusControl?: ReactNode;
   }) => (
-    <div data-testid="toolbar">
-      Toolbar
-      <button disabled={isLoading} onClick={onDirectorySelect} type="button">
-        Select Directory
-      </button>
-      {bulkSelectionControl}
-      {selectionStatusControl}
+    <div data-testid="file-explorer-toolbar">
+      <div data-testid="toolbar">
+        Toolbar
+        <button disabled={isLoading} onClick={onDirectorySelect} type="button">
+          Select Directory
+        </button>
+        {bulkSelectionControl}
+        {selectionStatusControl}
+        {filtersControl}
+      </div>
     </div>
   ),
 }));
@@ -1555,6 +1560,23 @@ describe('FileExplorerPanel', () => {
       renderWithProviders(<FileExplorerPanel />);
 
       expect(await screen.findByRole('button', { name: /view filters/i })).toBeInTheDocument();
+    });
+
+    it('hosts the view-filters toggle on the toolbar next to the bulk selection control', async () => {
+      renderWithProviders(<FileExplorerPanel />);
+
+      const toggle = await screen.findByRole('button', { name: /view filters/i });
+      expect(screen.getByTestId('file-explorer-toolbar')).toContainElement(toggle);
+      expect(toggle).toHaveAttribute('aria-controls', 'view-filters-content');
+    });
+
+    it('keeps the quick filter row inside the toggled view-filters block', async () => {
+      renderWithProviders(<FileExplorerPanel />);
+
+      await screen.findByRole('button', { name: /view filters/i });
+      const collapsible = document.getElementById('view-filters-content');
+      expect(collapsible).not.toBeNull();
+      expect(collapsible).toContainElement(screen.getByTestId('file-filter-input'));
     });
 
     it('does not render View Filters toggle when no root directory is selected', async () => {

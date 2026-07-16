@@ -5,6 +5,8 @@ import * as React from 'react';
 
 interface FileExplorerToolbarProps {
   bulkSelectionControl?: React.ReactNode;
+  /** Filter visibility toggle rendered at the toolbar's right edge, next to the bulk selection control. */
+  filtersControl?: React.ReactNode;
   isLoading: boolean;
   onDirectorySelect: () => Promise<void>;
   selectionStatusControl?: React.ReactNode;
@@ -13,6 +15,7 @@ interface FileExplorerToolbarProps {
 const FileExplorerToolbar = React.memo(
   ({
     bulkSelectionControl,
+    filtersControl,
     onDirectorySelect,
     isLoading,
     selectionStatusControl,
@@ -50,8 +53,9 @@ const FileExplorerToolbar = React.memo(
             </span>
           </Button>
           <div className="@container/explorer-bulk flex min-w-0 items-center justify-end">
-            <div className="flex w-full min-w-0 items-center justify-end @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
+            <div className="flex w-full min-w-0 items-center justify-end @[128px]/explorer-toolbar:gap-1 gap-0.5 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
               {bulkSelectionControl}
+              {filtersControl}
             </div>
           </div>
         </div>

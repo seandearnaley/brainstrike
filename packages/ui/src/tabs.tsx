@@ -5,6 +5,13 @@ import { cn } from './lib/utils';
 
 const Tabs = TabsPrimitive.Root;
 
+/**
+ * Compact trigger sizing shared by panel-header tab strips (Library,
+ * Explorer|Search). Keeps every left/right panel on one segmented idiom
+ * instead of per-surface bespoke tab styles.
+ */
+const PANEL_TAB_TRIGGER_CLASS_NAME = 'min-w-0 gap-1.5 px-2 text-xs';
+
 const TabsList = ({
   className,
   ref,
@@ -62,4 +69,4 @@ const TabsContent = ({
 );
 TabsContent.displayName = TabsPrimitive.Content.displayName;
 
-export { Tabs, TabsContent, TabsList, TabsTrigger };
+export { PANEL_TAB_TRIGGER_CLASS_NAME, Tabs, TabsContent, TabsList, TabsTrigger };

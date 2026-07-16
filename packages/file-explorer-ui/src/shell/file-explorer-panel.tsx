@@ -10,7 +10,7 @@ import {
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { ChevronDown, ChevronUp, Eye, EyeOff, SlidersHorizontal } from 'lucide-react';
+import { Eye, EyeOff, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
@@ -97,6 +97,41 @@ function FilterChipsToggleButton({
           variant="ghost"
         >
           {isFilterChipsVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{label}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Toolbar toggle for the whole view-filters block (presets, chips, quick filter). */
+function ViewFiltersToggleButton({
+  isFiltersExpanded,
+  setFiltersExpanded,
+}: {
+  isFiltersExpanded: boolean;
+  setFiltersExpanded: (expanded: boolean) => void;
+}) {
+  const label = isFiltersExpanded ? 'Hide view filters' : 'Show view filters';
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          aria-controls="view-filters-content"
+          aria-expanded={isFiltersExpanded}
+          aria-label={label}
+          className={cn(
+            '@[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6 shrink-0 p-0',
+            isFiltersExpanded && 'bg-muted text-foreground'
+          )}
+          data-testid="toggle-view-filters-button"
+          onClick={() => setFiltersExpanded(!isFiltersExpanded)}
+          size="icon"
+          variant="ghost"
+        >
+          <SlidersHorizontal className="size-4" />
         </Button>
       </TooltipTrigger>
       <TooltipContent>
@@ -914,6 +949,14 @@ const FileExplorerPanelInner = React.memo(() => {
                 visibleFilePaths={visibleFilePaths}
               />
             }
+            filtersControl={
+              rootDirectoryHandle ? (
+                <ViewFiltersToggleButton
+                  isFiltersExpanded={isFiltersExpanded}
+                  setFiltersExpanded={setFiltersExpanded}
+                />
+              ) : null
+            }
             isLoading={isLoading}
             onDirectorySelect={handleToolbarDirectorySelect}
             selectionStatusControl={
@@ -943,103 +986,77 @@ const FileExplorerPanelInner = React.memo(() => {
               </div>
             }
           />
-          {/* Filter section: Collapsible view filters + Quick filter input */}
+          {/* Filter section: one toggled block (driven from the toolbar's
+              view-filters button) hosting the preset row, the filter chips, and
+              the quick-filter row. grid-rows 0fr->1fr animates to natural
+              content height (unlike a max-height cap, which clips when many
+              filter chips wrap). */}
           {rootDirectoryHandle && (
-            <div className="border-b">
-              {/* View Filters - Collapsible toggle button */}
-              <Button
-                aria-controls="view-filters-content"
-                aria-expanded={isFiltersExpanded}
-                aria-label={`${isFiltersExpanded ? 'Collapse' : 'Expand'} view filters`}
-                className="h-auto w-full justify-between rounded-none px-3 py-2 hover:bg-muted/50"
-                depress={false}
-                onClick={() => setFiltersExpanded(!isFiltersExpanded)}
-                size="sm"
-                variant="ghost"
-              >
-                <span className="flex items-center gap-2 text-muted-foreground text-xs">
-                  <SlidersHorizontal className="h-3 w-3" />
-                  View Filters
-                </span>
-                {isFiltersExpanded ? (
-                  <ChevronUp className="h-3 w-3 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                )}
-              </Button>
-
-              {/* Collapsible content - Preset selector + Filter chips.
-                  grid-rows 0fr->1fr animates to natural content height (unlike a
-                  max-height cap, which clips when many filter chips wrap). */}
-              <div
-                className={cn(
-                  'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
-                  isFiltersExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-                )}
-                id="view-filters-content"
-                inert={!isFiltersExpanded}
-              >
-                <div className="overflow-hidden">
-                  <div className="px-2 py-2">
-                    <div className="flex items-center gap-1.5">
-                      <ToolbarPresetSelector
-                        className="@[300px]:h-9 h-8 min-w-0 flex-1"
-                        onFilterChange={handleFilterChange}
+            <div
+              className={cn(
+                'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                isFiltersExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+              )}
+              id="view-filters-content"
+              inert={!isFiltersExpanded}
+            >
+              <div className="overflow-hidden">
+                <div className="space-y-2 border-b px-2 py-2">
+                  <div className="flex items-center gap-1.5">
+                    <ToolbarPresetSelector
+                      className="@[300px]:h-9 h-8 min-w-0 flex-1"
+                      onFilterChange={handleFilterChange}
+                    />
+                    <FilterChipsToggleButton
+                      isFilterChipsVisible={isFilterChipsVisible}
+                      setFilterChipsVisible={setFilterChipsVisible}
+                    />
+                  </div>
+                  {/* Filter chips - independently collapsible to reclaim vertical
+                      space. Same grid-rows technique as the section collapse so
+                      toggling animates to natural height without clipping. */}
+                  <div
+                    className={cn(
+                      'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                      isFilterChipsVisible
+                        ? 'grid-rows-[1fr] opacity-100'
+                        : 'grid-rows-[0fr] opacity-0'
+                    )}
+                    inert={!isFilterChipsVisible}
+                  >
+                    <div className="overflow-hidden">
+                      <FilterStatus
+                        disabledExcludeFilters={disabledExcludeFilters}
+                        disabledIncludeFilters={disabledIncludeFilters}
+                        excludeFilters={excludeFilters}
+                        includeFilters={includeFilters}
+                        onToggleFilter={toggleFilterEnabled}
+                        quickFilter={quickFilter}
+                        useRegex={useRegex}
                       />
-                      <FilterChipsToggleButton
-                        isFilterChipsVisible={isFilterChipsVisible}
-                        setFilterChipsVisible={setFilterChipsVisible}
-                      />
-                    </div>
-                    {/* Filter chips - independently collapsible to reclaim vertical
-                        space. Same grid-rows technique as the section collapse so
-                        toggling animates to natural height without clipping. */}
-                    <div
-                      className={cn(
-                        'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
-                        isFilterChipsVisible
-                          ? 'grid-rows-[1fr] opacity-100'
-                          : 'grid-rows-[0fr] opacity-0'
-                      )}
-                      inert={!isFilterChipsVisible}
-                    >
-                      <div className="overflow-hidden">
-                        <FilterStatus
-                          disabledExcludeFilters={disabledExcludeFilters}
-                          disabledIncludeFilters={disabledIncludeFilters}
-                          excludeFilters={excludeFilters}
-                          includeFilters={includeFilters}
-                          onToggleFilter={toggleFilterEnabled}
-                          quickFilter={quickFilter}
-                          useRegex={useRegex}
-                        />
-                      </div>
                     </div>
                   </div>
+                  {/* Quick filter input. The tree action buttons
+                      (refresh / expand / collapse) live inline in this row, next
+                      to the syntax-help button, instead of floating over the tree. */}
+                  <FileFilterBar
+                    isFiltering={isQuickFiltering}
+                    onChange={setQuickFilter}
+                    onClear={clearQuickFilter}
+                    trailing={
+                      <TreeActionButtons
+                        isExpandingAll={isExpandingAll || isForestExpandingAll}
+                        isLoading={isLoading}
+                        isRefreshing={isRefreshing}
+                        onCollapseAll={collapseAll}
+                        onExpandAll={expandAll}
+                        onRefresh={handleRefresh}
+                        scanningStatus={scanningStatusProps}
+                      />
+                    }
+                    value={quickFilter}
+                  />
                 </div>
-              </div>
-
-              {/* Quick filter input - always visible. The tree action buttons
-                  (refresh / expand / collapse) live inline in this row, next to
-                  the syntax-help button, instead of floating over the tree. */}
-              <div className="px-2 py-2">
-                <FileFilterBar
-                  isFiltering={isQuickFiltering}
-                  onChange={setQuickFilter}
-                  onClear={clearQuickFilter}
-                  trailing={
-                    <TreeActionButtons
-                      isExpandingAll={isExpandingAll || isForestExpandingAll}
-                      isLoading={isLoading}
-                      isRefreshing={isRefreshing}
-                      onCollapseAll={collapseAll}
-                      onExpandAll={expandAll}
-                      onRefresh={handleRefresh}
-                      scanningStatus={scanningStatusProps}
-                    />
-                  }
-                  value={quickFilter}
-                />
               </div>
             </div>
           )}

@@ -25,11 +25,11 @@ test.describe('Embedding Worker Telemetry @stateful @web-db-startup', () => {
     await ensureRightPanelVisible(page);
 
     // Navigate to Database tab (BST-311: Vectors tab merged into Database)
-    const databaseTab = page.getByRole('tab', { name: /database/i });
+    const databaseTab = page.getByRole('tab', { name: /collections/i });
     await expect(databaseTab).toBeVisible({ timeout: panelTimeout });
     await databaseTab.click();
 
-    const databasePanel = page.getByRole('tabpanel', { name: /database/i });
+    const databasePanel = page.getByRole('tabpanel', { name: /collections/i });
     await expect(databasePanel).toBeVisible({ timeout: panelTimeout });
 
     const indexingStatusItem = page.getByTestId('indexing-status-item');
