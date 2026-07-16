@@ -27,22 +27,27 @@ var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
 vi.mock('../shell/file-explorer-toolbar', () => ({
   FileExplorerToolbar: ({
     bulkSelectionControl,
+    filtersControl,
     onDirectorySelect,
     isLoading,
     selectionStatusControl,
   }: {
     bulkSelectionControl?: ReactNode;
+    filtersControl?: ReactNode;
     onDirectorySelect: () => void;
     isLoading: boolean;
     selectionStatusControl?: ReactNode;
   }) => (
-    <div data-testid="toolbar">
-      Toolbar
-      <button disabled={isLoading} onClick={onDirectorySelect} type="button">
-        Select Directory
-      </button>
-      {bulkSelectionControl}
-      {selectionStatusControl}
+    <div data-testid="file-explorer-toolbar">
+      <div data-testid="toolbar">
+        Toolbar
+        <button disabled={isLoading} onClick={onDirectorySelect} type="button">
+          Select Directory
+        </button>
+        {bulkSelectionControl}
+        {selectionStatusControl}
+        {filtersControl}
+      </div>
     </div>
   ),
 }));
@@ -1555,6 +1560,81 @@ describe('FileExplorerPanel', () => {
       renderWithProviders(<FileExplorerPanel />);
 
       expect(await screen.findByRole('button', { name: /view filters/i })).toBeInTheDocument();
+    });
+
+    it('hosts the view-filters toggle on the toolbar next to the bulk selection control', async () => {
+      renderWithProviders(<FileExplorerPanel />);
+
+      const toggle = await screen.findByRole('button', { name: /view filters/i });
+      expect(screen.getByTestId('file-explorer-toolbar')).toContainElement(toggle);
+      expect(toggle).toHaveAttribute('aria-controls', 'view-filters-content');
+    });
+
+    it('keeps the quick filter row inside the toggled view-filters block', async () => {
+      renderWithProviders(<FileExplorerPanel />);
+
+      await screen.findByRole('button', { name: /view filters/i });
+      const collapsible = document.getElementById('view-filters-content');
+      expect(collapsible).not.toBeNull();
+      expect(collapsible).toContainElement(screen.getByTestId('file-filter-input'));
+    });
+
+    it('marks the collapsed toggle when a quick filter is still narrowing the tree', async () => {
+      const storeState = {
+        clearQuickFilter: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        currentFolderId: 'root',
+        disabledExcludeFilters: new Set<string>(),
+        disabledIncludeFilters: new Set<string>(),
+        excludeFilters: [],
+        expandAllDirectories: vi.fn(),
+        folderSummaryThreshold: 5,
+        includeFilters: [],
+        includeProjectTree: true,
+        isFiltersExpanded: false,
+        maxSelectionCount: 5,
+        quickFilter: 'button',
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit' as const,
+          ruleSetJson: null,
+        },
+        setCurrentFolderId: vi.fn(),
+        setFilters: vi.fn(),
+        setFiltersExpanded: vi.fn(),
+        setIncludeProjectTree: vi.fn(),
+        setMaterializedPaths: vi.fn(),
+        setQuickFilter: vi.fn(),
+        setUseRegex: vi.fn(),
+        setViewFilterPresetId: vi.fn(),
+        toggleFilterEnabled: vi.fn(),
+        useRegex: false,
+        viewFilterPresetId: null,
+      };
+
+      const mockStore = Object.assign(
+        (selector?: (s: typeof storeState) => unknown) =>
+          typeof selector === 'function' ? selector(storeState) : storeState,
+        { getState: () => storeState }
+      );
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(
+        mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
+      );
+
+      renderWithProviders(<FileExplorerPanel />);
+
+      // A hidden-but-active quick filter must stay visible as state: the
+      // toolbar toggle carries an indicator dot while collapsed.
+      expect(await screen.findByTestId('view-filters-active-indicator')).toBeInTheDocument();
+    });
+
+    it('shows no active-filter indicator while the filter block is expanded', async () => {
+      renderWithProviders(<FileExplorerPanel />);
+
+      await screen.findByRole('button', { name: /view filters/i });
+      expect(screen.queryByTestId('view-filters-active-indicator')).not.toBeInTheDocument();
     });
 
     it('does not render View Filters toggle when no root directory is selected', async () => {
