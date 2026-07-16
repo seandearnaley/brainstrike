@@ -205,6 +205,9 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     modelHolder.current = undefined;
   });
 
+  // The heaviest case in this suite (fresh PGlite + memory + full
+  // suspend/approve/resume roundtrip): observed 45s+ under CI parallel load
+  // (PR #1682 run 29515911801), breaching the suite-wide 30s timeout.
   it('submitPlan SUSPENDS with the plan payload, then APPROVE re-runs it and the run continues', async () => {
     const database = new PGlite();
     const { memory, storage } = await makeMemory(database);
@@ -274,7 +277,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
 
     await database.close();
-  });
+  }, 120_000);
 
   it('REJECT-with-feedback re-runs submitPlan and the feedback reaches the tool result', async () => {
     const database = new PGlite();
