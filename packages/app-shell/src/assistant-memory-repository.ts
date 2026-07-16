@@ -227,6 +227,202 @@ export function mapCrossRootUsageRow(row: Record<string, unknown>): CrossRootUsa
   };
 }
 
+/** Provenance of a run outcome label — never lost, so "who said it failed" is always answerable. */
+export type AssistantRunOutcomeSource = 'edit_revert' | 'hook' | 'user';
+
+/** The outcome label itself: did the run's WORK succeed (vs transport status). */
+export type AssistantRunOutcomeVerdict = 'failed' | 'mixed' | 'succeeded';
+
+export interface RecordRunOutcomeInput {
+  readonly detail?: string;
+  readonly labeledAt?: Date;
+  readonly resourceId: string;
+  readonly runId: string;
+  readonly source: AssistantRunOutcomeSource;
+  readonly threadId: string;
+  readonly verdict: AssistantRunOutcomeVerdict;
+}
+
+export interface RunLedgerListOptions {
+  /** Newest-first bound on returned runs; defaults to RUN_LEDGER_DEFAULT_LIMIT. */
+  readonly limitLatest?: number;
+}
+
+/**
+ * One Task Ledger row: a run joined with its usage totals, tool-call counts,
+ * edit-checkpoint revert signals, and outcome label. `billedCostUsd` is absent
+ * (never fabricated 0) when no usage row carried an exact provider-reported
+ * cost. `durationMs` is null while the run is still open.
+ */
+export interface RunLedgerRow {
+  readonly billedCostUsd?: number;
+  readonly completedAt: Date | null;
+  readonly durationMs: number | null;
+  readonly editCount: number;
+  readonly failedToolCallCount: number;
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outcomeDetail: string | null;
+  readonly outcomeSource: AssistantRunOutcomeSource | null;
+  readonly outcomeVerdict: AssistantRunOutcomeVerdict | null;
+  readonly outputTokens: number;
+  readonly provider: string;
+  readonly revertedEditCount: number;
+  readonly runId: string;
+  readonly startedAt: Date;
+  readonly status: AssistantThreadRunStatus;
+  readonly threadId: string;
+  readonly toolCallCount: number;
+}
+
+export const RUN_LEDGER_DEFAULT_LIMIT = 200;
+const RUN_LEDGER_MAX_LIMIT = 1000;
+const RUN_OUTCOME_DETAIL_MAX_CHARS = 2000;
+
+const ASSISTANT_RUN_OUTCOME_SOURCES: readonly AssistantRunOutcomeSource[] = [
+  'edit_revert',
+  'hook',
+  'user',
+];
+const ASSISTANT_RUN_OUTCOME_VERDICTS: readonly AssistantRunOutcomeVerdict[] = [
+  'failed',
+  'mixed',
+  'succeeded',
+];
+
+/**
+ * Single source of truth for the Task Ledger aggregation (mirrors the
+ * CROSS_ROOT_USAGE_AGGREGATION_SQL convention so a future reactive live-query
+ * hook can never drift from the validated repo method).
+ *
+ * `$1` = resourceId, `$2` = limit. Each LEFT-JOINed subquery pre-groups its
+ * fact table by run_id so one run yields exactly one row regardless of how
+ * many usage/event/checkpoint rows it produced. Tool counts deliberately cover
+ * only top-level `tool.*` events (subagent.tool.* belongs to the child run's
+ * story, not the parent's v1 ledger). Outcome detail is display-bounded like
+ * root display names.
+ */
+export const RUN_LEDGER_AGGREGATION_SQL = `
+  SELECT
+    tr.id AS "runId",
+    tr.thread_id AS "threadId",
+    tr.provider AS provider,
+    tr.model AS model,
+    tr.status AS status,
+    tr.started_at AS "startedAt",
+    tr.completed_at AS "completedAt",
+    CASE
+      WHEN tr.completed_at IS NULL THEN NULL
+      ELSE ROUND(EXTRACT(EPOCH FROM (tr.completed_at - tr.started_at)) * 1000)::bigint
+    END AS "durationMs",
+    COALESCE(u.input_tokens, 0)::bigint AS "inputTokens",
+    COALESCE(u.output_tokens, 0)::bigint AS "outputTokens",
+    u.billed_cost_usd AS "billedCostUsd",
+    COALESCE(e.tool_call_count, 0)::bigint AS "toolCallCount",
+    COALESCE(e.failed_tool_call_count, 0)::bigint AS "failedToolCallCount",
+    COALESCE(c.edit_count, 0)::bigint AS "editCount",
+    COALESCE(c.reverted_edit_count, 0)::bigint AS "revertedEditCount",
+    o.verdict AS "outcomeVerdict",
+    o.source AS "outcomeSource",
+    SUBSTR(o.detail, 1, 512) AS "outcomeDetail"
+  FROM brainstrike_assistant_thread_runs tr
+  LEFT JOIN (
+    SELECT run_id,
+      SUM(input_tokens) AS input_tokens,
+      SUM(output_tokens) AS output_tokens,
+      SUM(billed_cost_usd) AS billed_cost_usd
+    FROM brainstrike_assistant_run_usage
+    WHERE resource_id = $1
+    GROUP BY run_id
+  ) u ON u.run_id = tr.id
+  LEFT JOIN (
+    SELECT run_id,
+      COUNT(*) FILTER (WHERE kind IN ('tool.completed', 'tool.failed')) AS tool_call_count,
+      COUNT(*) FILTER (WHERE kind = 'tool.failed') AS failed_tool_call_count
+    FROM brainstrike_assistant_run_events
+    WHERE resource_id = $1
+    GROUP BY run_id
+  ) e ON e.run_id = tr.id
+  LEFT JOIN (
+    SELECT run_id,
+      COUNT(*) AS edit_count,
+      COUNT(*) FILTER (WHERE reverted_at IS NOT NULL) AS reverted_edit_count
+    FROM brainstrike_assistant_edit_checkpoints
+    WHERE resource_id = $1
+    GROUP BY run_id
+  ) c ON c.run_id = tr.id
+  LEFT JOIN brainstrike_assistant_run_outcomes o ON o.run_id = tr.id
+  WHERE tr.resource_id = $1
+  ORDER BY tr.started_at DESC, tr.id DESC
+  LIMIT $2
+`;
+
+function nullableOutcomeSource(value: unknown): AssistantRunOutcomeSource | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (
+    typeof value === 'string' &&
+    (ASSISTANT_RUN_OUTCOME_SOURCES as readonly string[]).includes(value)
+  ) {
+    return value as AssistantRunOutcomeSource;
+  }
+  throw new Error(`Invalid run outcome source: ${String(value)}`);
+}
+
+function nullableOutcomeVerdict(value: unknown): AssistantRunOutcomeVerdict | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (
+    typeof value === 'string' &&
+    (ASSISTANT_RUN_OUTCOME_VERDICTS as readonly string[]).includes(value)
+  ) {
+    return value as AssistantRunOutcomeVerdict;
+  }
+  throw new Error(`Invalid run outcome verdict: ${String(value)}`);
+}
+
+function nullableNonNegativeInteger(value: unknown, fieldName: string): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return requireNonNegativeInteger(value, fieldName);
+}
+
+/**
+ * Strict parser for one RUN_LEDGER_AGGREGATION_SQL row. Shared for the same
+ * reason as mapCrossRootUsageRow: no silent fallbacks on ANY consumer — a
+ * malformed aggregate throws rather than fabricating zeros, and callers must
+ * surface a visible "couldn't load" state.
+ */
+export function mapRunLedgerRow(row: Record<string, unknown>): RunLedgerRow {
+  const billedCostUsd = optionalNonNegativeFiniteNumber(row['billedCostUsd'], 'billedCostUsd');
+  return {
+    ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
+    completedAt: normalizeNullableDate(row['completedAt']),
+    durationMs: nullableNonNegativeInteger(row['durationMs'], 'durationMs'),
+    editCount: requireNonNegativeInteger(row['editCount'], 'editCount'),
+    failedToolCallCount: requireNonNegativeInteger(
+      row['failedToolCallCount'],
+      'failedToolCallCount'
+    ),
+    inputTokens: requireNonNegativeInteger(row['inputTokens'], 'inputTokens'),
+    model: requireString(row['model'], 'model'),
+    outcomeDetail: nullableString(row['outcomeDetail']),
+    outcomeSource: nullableOutcomeSource(row['outcomeSource']),
+    outcomeVerdict: nullableOutcomeVerdict(row['outcomeVerdict']),
+    outputTokens: requireNonNegativeInteger(row['outputTokens'], 'outputTokens'),
+    provider: requireString(row['provider'], 'provider'),
+    revertedEditCount: requireNonNegativeInteger(row['revertedEditCount'], 'revertedEditCount'),
+    runId: requireString(row['runId'], 'runId'),
+    startedAt: normalizeDate(row['startedAt']),
+    status: requireRunStatus(row['status']),
+    threadId: requireString(row['threadId'], 'threadId'),
+    toolCallCount: requireNonNegativeInteger(row['toolCallCount'], 'toolCallCount'),
+  };
+}
+
 /** Per-model token subtotal for a single thread. */
 export interface ThreadModelUsageSubtotal {
   readonly billedCostUsd?: number;
@@ -258,6 +454,11 @@ export interface AssistantThreadRepository {
   deleteThread: (threadId: string) => Promise<void>;
   deleteThreads?: (threadIds: readonly string[]) => Promise<void>;
   getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
+  /** Task Ledger read model. Optional only for read-only/test repositories. */
+  getRunLedger?: (
+    resourceId: string,
+    options?: RunLedgerListOptions
+  ) => Promise<readonly RunLedgerRow[]>;
   getThreadCumulativeUsage: (threadId: string) => Promise<ThreadCumulativeUsage | null>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
@@ -274,6 +475,8 @@ export interface AssistantThreadRepository {
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
   /** Required by history-adapter append; optional only for read-only/test repositories. */
   recordMessageParent?: (input: RecordAssistantMessageParentInput) => Promise<void>;
+  /** Task Ledger: upsert the per-run outcome label. Optional only for read-only/test repositories. */
+  recordRunOutcome?: (input: RecordRunOutcomeInput) => Promise<void>;
   recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
@@ -285,6 +488,11 @@ export interface AssistantThreadRepository {
 
 export interface BulkAssistantThreadRepository extends AssistantThreadRepository {
   deleteThreads: (threadIds: readonly string[]) => Promise<void>;
+  getRunLedger: (
+    resourceId: string,
+    options?: RunLedgerListOptions
+  ) => Promise<readonly RunLedgerRow[]>;
+  recordRunOutcome: (input: RecordRunOutcomeInput) => Promise<void>;
   updateThreadsMetadata: (
     threadIds: readonly string[],
     metadata: AssistantThreadMetadata
@@ -2291,6 +2499,24 @@ export function createPgliteAssistantThreadRepository(
       );
       return result.rows.map(mapCrossRootUsageRow);
     },
+    async getRunLedger(
+      resourceId: string,
+      options?: RunLedgerListOptions
+    ): Promise<readonly RunLedgerRow[]> {
+      const limit = options?.limitLatest ?? RUN_LEDGER_DEFAULT_LIMIT;
+      if (!Number.isSafeInteger(limit) || limit <= 0 || limit > RUN_LEDGER_MAX_LIMIT) {
+        throw new Error(`Run ledger limitLatest must be between 1 and ${RUN_LEDGER_MAX_LIMIT}.`);
+      }
+      await initialize();
+      // Single source of truth shared with any future reactive consumer
+      // (RUN_LEDGER_AGGREGATION_SQL + mapRunLedgerRow) — same convention as
+      // getCrossRootUsage.
+      const result = await database.query<Record<string, unknown>>(RUN_LEDGER_AGGREGATION_SQL, [
+        resourceId,
+        limit,
+      ]);
+      return result.rows.map(mapRunLedgerRow);
+    },
     async getThreadCumulativeUsage(threadId: string): Promise<ThreadCumulativeUsage | null> {
       await initialize();
       const result = await database.query<Record<string, unknown>>(
@@ -2443,6 +2669,46 @@ export function createPgliteAssistantThreadRepository(
       if (result.rows.length !== 1) {
         throw new Error(`Assistant message ${messageId} has conflicting branch topology.`);
       }
+    },
+    async recordRunOutcome(input: RecordRunOutcomeInput): Promise<void> {
+      requireString(input.runId, 'runId');
+      requireString(input.threadId, 'threadId');
+      requireString(input.resourceId, 'resourceId');
+      if (!ASSISTANT_RUN_OUTCOME_VERDICTS.includes(input.verdict)) {
+        throw new Error(`Invalid run outcome verdict: ${String(input.verdict)}`);
+      }
+      if (!ASSISTANT_RUN_OUTCOME_SOURCES.includes(input.source)) {
+        throw new Error(`Invalid run outcome source: ${String(input.source)}`);
+      }
+      if (input.detail !== undefined && input.detail.length > RUN_OUTCOME_DETAIL_MAX_CHARS) {
+        // Bounded storage, never silent truncation: the caller owns shortening.
+        throw new Error(`Run outcome detail exceeds ${RUN_OUTCOME_DETAIL_MAX_CHARS} characters.`);
+      }
+      await initialize();
+      // One label per run: a later verdict replaces the earlier one (a user
+      // verdict overriding a derived edit_revert label is the intended flow).
+      await database.query(
+        `INSERT INTO ${ASSISTANT_RUN_OUTCOMES_TABLE}
+          (run_id, thread_id, resource_id, verdict, source, detail, labeled_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+         ON CONFLICT (run_id) DO UPDATE SET
+          thread_id = EXCLUDED.thread_id,
+          resource_id = EXCLUDED.resource_id,
+          verdict = EXCLUDED.verdict,
+          source = EXCLUDED.source,
+          detail = EXCLUDED.detail,
+          labeled_at = EXCLUDED.labeled_at,
+          updated_at = NOW()`,
+        [
+          input.runId,
+          input.threadId,
+          input.resourceId,
+          input.verdict,
+          input.source,
+          input.detail ?? null,
+          input.labeledAt ?? new Date(),
+        ]
+      );
     },
     async recordRunUsage(input: RecordRunUsageInput): Promise<void> {
       assertUsageTokenCount(input.inputTokens, 'inputTokens');
