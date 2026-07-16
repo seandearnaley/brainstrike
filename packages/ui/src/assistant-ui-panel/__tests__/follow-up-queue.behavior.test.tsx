@@ -44,11 +44,19 @@ function createControllableAdapter() {
   };
 }
 
-function Harness({ adapter, threadKey }: { adapter: ChatModelAdapter; threadKey: string }) {
+function Harness({
+  adapter,
+  threadKey,
+  bridgeMounted = true,
+}: {
+  adapter: ChatModelAdapter;
+  threadKey: string;
+  bridgeMounted?: boolean;
+}) {
   const runtime = useLocalRuntime(adapter);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <FollowUpQueueBridge threadKey={threadKey} />
+      {bridgeMounted ? <FollowUpQueueBridge threadKey={threadKey} /> : null}
       <FollowUpQueueChips threadKey={threadKey} />
       <ComposerPrimitive.Root>
         <ComposerPrimitive.Input aria-label="Message input" />
@@ -155,6 +163,44 @@ describe('follow-up queue behavior (real local runtime)', () => {
       expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
     });
     expect(runInputs).toEqual(['first message']);
+  });
+
+  it('dispatches a queued message whose run ended while the bridge was unmounted (missed run end)', async () => {
+    // The bridge lives inside a threadKey-keyed subtree: switching threads
+    // unmounts it, so a run that ends off-screen produces NO observable
+    // transition. On (re)mount over an IDLE thread with a non-empty queue,
+    // the bridge must treat that as a missed run end and dispatch — the chip
+    // promised "sends when the current run ends", and the run HAS ended.
+    const user = userEvent.setup();
+    const { adapter, release, runInputs } = createControllableAdapter();
+    const view = render(<Harness adapter={adapter} threadKey="t-missed" />);
+
+    const input = screen.getByRole('textbox', { name: 'Message input' });
+    await user.type(input, 'first message');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    const queueButton = await screen.findByTestId('assistant-queue-follow-up');
+    await user.type(input, 'queued while away');
+    await user.click(queueButton);
+
+    // "Thread switch": the bridge unmounts while the run is still active…
+    view.rerender(<Harness adapter={adapter} bridgeMounted={false} threadKey="t-missed" />);
+    // …the run ends with no bridge watching…
+    release();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    });
+    expect(runInputs).toEqual(['first message']);
+
+    // …and the user switches back: the remounted bridge catches up.
+    view.rerender(<Harness adapter={adapter} bridgeMounted={true} threadKey="t-missed" />);
+    await waitFor(() => {
+      expect(runInputs).toEqual(['first message', 'queued while away']);
+    });
+    release();
+    await waitFor(() => {
+      expect(screen.queryByTestId('assistant-follow-up-chip')).not.toBeInTheDocument();
+    });
   });
 
   it('disables the queue control for whitespace-only drafts', async () => {

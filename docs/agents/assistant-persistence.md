@@ -237,8 +237,16 @@ Settled semantics (v1 — revisit only with the steering stage):
   dispatch while `state.thread.isLoading`; a `threadKey` change reseeds the
   transition baseline (a switch is never a run end).
 - FIFO one-per-run-end: the next queued item waits for the dispatched run to
-  end (natural steering loop). Dispatch failures requeue at the FRONT and log
-  — never a silent drop.
+  end (natural steering loop). A synchronous `append` throw requeues at the
+  FRONT and logs (`append` returns void in the installed assistant-ui — there
+  is no async failure channel; a run that starts and then fails is a normal
+  `run.failed`, not a dispatch failure).
+- **Missed-run-end catch-up:** the bridge lives inside the threadKey-keyed
+  runtime subtree, so a thread switch unmounts it and a run ending off-screen
+  produces no observable transition. Once per (re)mounted key, an idle
+  non-loading thread with a non-empty queue is treated as that missed run end
+  and dispatched — the chip's promise ("sends when the current run ends")
+  holds across thread switches.
 - Session-lived, deliberately NOT persisted (a queued message surviving a
   reload would be a surprise send); registered with factory reset in
   app-shell's `register-factory-reset-session-stores.ts`.

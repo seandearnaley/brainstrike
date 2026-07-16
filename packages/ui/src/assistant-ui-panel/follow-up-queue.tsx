@@ -41,22 +41,34 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
 
   const wasRunningRef = useRef(false);
   const seededKeyRef = useRef(queueKey);
+  // The bridge lives inside a threadKey-keyed subtree, so a thread switch
+  // UNMOUNTS it — a run that ends off-screen produces no observable
+  // transition. Once per (re)mounted key, an IDLE thread with a non-empty
+  // queue is treated as exactly that missed run end and dispatched (the chip
+  // promised "sends when the current run ends"; the run HAS ended). false
+  // until the first settled (non-loading) observation.
+  const caughtUpKeyRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (seededKeyRef.current !== queueKey) {
-      // Thread switch: reseed the baseline from the NEW thread's live state —
-      // a switch is not a run end and must not dispatch.
+      // Thread switch WITHIN one mounted bridge: reseed the baseline from the
+      // NEW thread's live state — a switch is not a run end — and let the
+      // catch-up below re-evaluate for the new key.
       seededKeyRef.current = queueKey;
       wasRunningRef.current = isRunning;
+      caughtUpKeyRef.current = undefined;
       return;
     }
     if (isHistoryLoading) {
       // Reload hydration; defer any observation until the real state is in.
       return;
     }
+    const isCatchUp = caughtUpKeyRef.current !== queueKey;
+    caughtUpKeyRef.current = queueKey;
     const wasRunning = wasRunningRef.current;
     wasRunningRef.current = isRunning;
-    if (!wasRunning || isRunning || queueLength === 0) {
+    const isRunEndTransition = wasRunning && !isRunning;
+    if (isRunning || queueLength === 0 || !(isRunEndTransition || isCatchUp)) {
       return;
     }
 
@@ -64,15 +76,14 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
     if (!item) {
       return;
     }
+    // `append` is synchronous (returns void) in the installed assistant-ui;
+    // the guard covers a synchronous throw from the runtime binding. A run
+    // that STARTS and then fails is a normal run.failed, not a dispatch
+    // failure — it is not requeued.
     try {
-      void Promise.resolve(
-        aui.thread().append({
-          content: [{ text: item.text, type: 'text' }],
-          role: 'user',
-        })
-      ).catch((error: unknown) => {
-        useFollowUpQueueStore.getState().requeueFront(queueKey, item);
-        logger.warn('Failed to dispatch queued follow-up; requeued at front', { error });
+      aui.thread().append({
+        content: [{ text: item.text, type: 'text' }],
+        role: 'user',
       });
     } catch (error) {
       useFollowUpQueueStore.getState().requeueFront(queueKey, item);
