@@ -61,6 +61,52 @@ describe('createAssistantImageAttachmentAdapter', () => {
   });
 });
 
+describe('adapter-level staging caps (count + combined bytes)', () => {
+  it('rejects the fifth staged image with a count error', async () => {
+    const adapter = createAssistantImageAttachmentAdapter();
+    for (let index = 0; index < 4; index += 1) {
+      await adapter.add({ file: makePngFile(`shot-${index}.png`) });
+    }
+    await expect(adapter.add({ file: makePngFile('shot-4.png') })).rejects.toThrow(/attachment/i);
+  });
+
+  it('rejects an image that would push the COMBINED staged bytes over the cap', async () => {
+    const adapter = createAssistantImageAttachmentAdapter();
+    // Three 4MB images: each under the 5MB per-image cap; the third pushes the
+    // combined total (12MB) over the 10MB combined cap.
+    const fourMb = new Uint8Array(4 * 1024 * 1024);
+    await adapter.add({ file: makePngFile('a.png', fourMb) });
+    await adapter.add({ file: makePngFile('b.png', fourMb) });
+    await expect(adapter.add({ file: makePngFile('c.png', fourMb) })).rejects.toThrow(/combined/i);
+  });
+
+  it('frees a staged slot when an attachment is removed', async () => {
+    const adapter = createAssistantImageAttachmentAdapter();
+    const staged: PendingAttachment[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      staged.push(
+        (await adapter.add({ file: makePngFile(`shot-${index}.png`) })) as PendingAttachment
+      );
+    }
+    await adapter.remove(staged[0] as PendingAttachment);
+    await expect(adapter.add({ file: makePngFile('replacement.png') })).resolves.toBeDefined();
+  });
+
+  it('frees a staged slot when an attachment is sent', async () => {
+    const adapter = createAssistantImageAttachmentAdapter();
+    const staged: PendingAttachment[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      staged.push(
+        (await adapter.add({ file: makePngFile(`shot-${index}.png`) })) as PendingAttachment
+      );
+    }
+    for (const attachment of staged) {
+      await adapter.send(attachment);
+    }
+    await expect(adapter.add({ file: makePngFile('next-turn.png') })).resolves.toBeDefined();
+  });
+});
+
 describe('collectImageFilesFromClipboard', () => {
   it('collects only allowlisted image files from clipboard items', () => {
     const png = makePngFile();

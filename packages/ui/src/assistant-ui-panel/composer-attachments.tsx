@@ -7,13 +7,14 @@ import {
   useAuiEvent,
 } from '@assistant-ui/react';
 import { XIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 /**
  * Preview URL for an attachment in either lifecycle state: a COMPLETE
  * attachment carries its data URL in the image content part; a PENDING one
- * (added, not yet sent) only has the `File`, previewed via an object URL that
- * is revoked on cleanup.
+ * (added, not yet sent) only has the `File`, previewed via an object URL.
+ * The URL is DERIVED from the file (useMemo — no state adjustment on prop
+ * change, no setState in an effect); the effect owns only revocation.
  */
 function useAttachmentPreviewUrl(attachment: Attachment): string | undefined {
   const contentImage = attachment.content?.find(
@@ -21,19 +22,16 @@ function useAttachmentPreviewUrl(attachment: Attachment): string | undefined {
       part.type === 'image' && typeof (part as { image?: unknown }).image === 'string'
   )?.image;
   const file = contentImage ? undefined : attachment.file;
-  const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined);
+  const objectUrl = useMemo(() => (file ? URL.createObjectURL(file) : undefined), [file]);
 
   useEffect(() => {
-    if (!file) {
-      setObjectUrl(undefined);
+    if (!objectUrl) {
       return;
     }
-    const url = URL.createObjectURL(file);
-    setObjectUrl(url);
     return () => {
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objectUrl);
     };
-  }, [file]);
+  }, [objectUrl]);
 
   return contentImage ?? objectUrl;
 }
