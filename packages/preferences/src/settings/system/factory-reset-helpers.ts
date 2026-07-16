@@ -204,7 +204,13 @@ async function clearIndexedDbDatabases(): Promise<void> {
  * stores under the BARE data-dir name at the OPFS root, so these are bare.
  * Keep in sync with `getOpfsAhpBrowserPGliteDataDir` and engine-version bumps.
  */
-export const FALLBACK_OPFS_DIR_NAMES = ['app-pg18', 'web-pg18', 'app', 'web'] as const;
+export const FALLBACK_OPFS_DIR_NAMES = [
+  'app-pg18',
+  'web-pg18',
+  'app',
+  'web',
+  'brainstrike-notes', // Notes vault default "My Notes" (@brainstrike/notes-vault default-vault.ts)
+] as const;
 
 // Matches the pglite OPFS-AHP root dirs for our db names (`app`/`web`), versioned
 // or not, so enumeration-based clearing never touches an unrelated OPFS consumer.

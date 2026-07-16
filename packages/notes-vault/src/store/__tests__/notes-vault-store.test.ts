@@ -258,6 +258,66 @@ describe('notes-vault-store', () => {
   });
 });
 
+describe('default vault', () => {
+  it('mounts the built-in vault first on initialize, unpersisted and expanded', async () => {
+    const h = harness({
+      getDefaultVault: () =>
+        Promise.resolve({
+          handle: fakeDir('brainstrike-notes', [fakeNote('Welcome.md')]),
+          name: 'My Notes',
+        }),
+    });
+    await h.handleStore.put({
+      addedAt: 1,
+      handle: fakeDir('user-vault'),
+      name: 'user-vault',
+      rootId: 'u1',
+    });
+
+    await h.store.getState().initialize();
+
+    const state = h.store.getState();
+    expect(state.roots.map((root) => [root.name, root.builtIn ?? false])).toEqual([
+      ['My Notes', true],
+      ['user-vault', false],
+    ]);
+    expect(state.roots[0]).toMatchObject({ noteCount: 1, status: 'ready' });
+    expect(state.expandedIds.has(state.roots[0]?.rootId ?? '')).toBe(true);
+    // The built-in vault is derived each boot, never written to persistence.
+    expect(h.handleStore.rows.size).toBe(1);
+  });
+
+  it('does not duplicate the built-in vault across repeated initializes', async () => {
+    const h = harness({
+      getDefaultVault: () =>
+        Promise.resolve({ handle: fakeDir('brainstrike-notes'), name: 'My Notes' }),
+    });
+
+    await h.store.getState().initialize();
+    await h.store.getState().initialize();
+
+    expect(h.store.getState().roots).toHaveLength(1);
+  });
+
+  it('surfaces default-vault provisioning failures without blocking stored roots', async () => {
+    const h = harness({
+      getDefaultVault: () => Promise.reject(new Error('opfs unavailable')),
+    });
+    await h.handleStore.put({
+      addedAt: 1,
+      handle: fakeDir('user-vault', [fakeNote('a.md')]),
+      name: 'user-vault',
+      rootId: 'u1',
+    });
+
+    await h.store.getState().initialize();
+
+    const state = h.store.getState();
+    expect(state.globalError).toMatch(/opfs unavailable/);
+    expect(state.roots.map((root) => root.name)).toEqual(['user-vault']);
+  });
+});
+
 describe('edit request handshake', () => {
   it('selectNoteForEditing selects the note and arms a one-shot edit request', async () => {
     const h = harness();

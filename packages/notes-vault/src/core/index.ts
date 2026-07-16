@@ -1,4 +1,5 @@
 export * from './create-note';
+export * from './default-vault';
 export * from './drop';
 export * from './handle-store';
 export * from './links';

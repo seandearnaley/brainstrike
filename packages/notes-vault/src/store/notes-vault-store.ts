@@ -17,6 +17,9 @@ export interface NotesVaultServices {
     onChange: () => void,
     onError?: (error: unknown) => void
   ) => VaultWatcher | null;
+  /** Provisions the app's built-in vault (e.g. OPFS "My Notes" on web,
+   * ~/Documents/Brainstrike Notes on desktop). Absent = no default vault. */
+  getDefaultVault?: () => Promise<{ handle: VaultDirectoryHandleLike; name: string } | null>;
   handleStore: VaultHandleStore;
   newRootId: () => VaultRootId;
   now: () => number;
@@ -185,15 +188,16 @@ export function createNotesVaultStore(services: NotesVaultServices) {
     async function mountRoot(
       rootId: VaultRootId,
       handle: VaultDirectoryHandleLike,
-      options: { expand: boolean }
+      options: { expand: boolean; builtIn?: boolean; name?: string }
     ): Promise<void> {
       set((state) => ({
         expandedIds: options.expand ? new Set([...state.expandedIds, rootId]) : state.expandedIds,
         roots: [
           ...state.roots,
           {
+            builtIn: options.builtIn ?? false,
             handle,
-            name: handle.name,
+            name: options.name ?? handle.name,
             nodes: [],
             noteCount: 0,
             rootId,
@@ -273,9 +277,35 @@ export function createNotesVaultStore(services: NotesVaultServices) {
       }
     }
 
+    const DefaultVaultRootId = 'built-in-default-vault';
+
+    async function mountDefaultVault(epoch: number): Promise<void> {
+      if (!services.getDefaultVault) {
+        return;
+      }
+      if (get().roots.some((root) => root.rootId === DefaultVaultRootId)) {
+        return;
+      }
+      try {
+        const defaultVault = await services.getDefaultVault();
+        if (!defaultVault || epoch !== sessionEpoch) {
+          return;
+        }
+        await mountRoot(DefaultVaultRootId, defaultVault.handle, {
+          builtIn: true,
+          expand: true,
+          name: defaultVault.name,
+        });
+      } catch (error) {
+        logger.error('Provisioning the default vault failed', { error });
+        set({ globalError: errorMessage(error) });
+      }
+    }
+
     async function runInitialize(): Promise<void> {
       const epoch = sessionEpoch;
       try {
+        await mountDefaultVault(epoch);
         let stored: StoredVaultRoot[];
         try {
           stored = await services.handleStore.list();

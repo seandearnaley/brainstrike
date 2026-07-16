@@ -1,3 +1,4 @@
+import { DEFAULT_VAULT_DISPLAY_NAME, ensureDefaultVault } from '../core/default-vault';
 import { createVaultHandleStore } from '../core/handle-store';
 import type { VaultDirectoryHandleLike } from '../core/types';
 import { createVaultWatcher } from '../core/watch';
@@ -20,6 +21,20 @@ export function createDefaultNotesVaultServices(): NotesVaultServices {
   return {
     createWatcher: (handle, onChange, onError) =>
       createVaultWatcher(handle, onChange, undefined, onError),
+    // The built-in "My Notes" vault lives in OPFS (origin-private browser
+    // storage) — instantly available with zero prompts. Absent OPFS = no
+    // default vault (capability gating; picker-mounted vaults still work).
+    getDefaultVault: async () => {
+      if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) {
+        return null;
+      }
+      const storageRoot =
+        (await navigator.storage.getDirectory()) as unknown as VaultDirectoryHandleLike;
+      return {
+        handle: await ensureDefaultVault(storageRoot),
+        name: DEFAULT_VAULT_DISPLAY_NAME,
+      };
+    },
     handleStore: createVaultHandleStore(),
     newRootId: () => crypto.randomUUID(),
     now: () => Date.now(),

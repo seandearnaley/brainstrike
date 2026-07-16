@@ -12,6 +12,9 @@ import type {
 export type VaultRootStatus = 'scanning' | 'ready' | 'error' | 'permission-required';
 
 export interface VaultRootState {
+  /** True for the app-provisioned default vault: derived each boot, never
+   * persisted, and not removable from the tree. */
+  readonly builtIn?: boolean | undefined;
   readonly error?: string | undefined;
   readonly handle: VaultDirectoryHandleLike;
   readonly name: string;

@@ -57,18 +57,20 @@ function RootRow({
         </>
       ) : null}
       <span className="flex-1" />
-      <Button
-        aria-label={`Remove vault ${root.name}`}
-        className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-destructive"
-        onClick={(event) => {
-          event.stopPropagation();
-          onRemove(root.rootId);
-        }}
-        size="sm"
-        variant="ghost"
-      >
-        <X aria-hidden="true" className="h-3.5 w-3.5" />
-      </Button>
+      {root.builtIn ? null : (
+        <Button
+          aria-label={`Remove vault ${root.name}`}
+          className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove(root.rootId);
+          }}
+          size="sm"
+          variant="ghost"
+        >
+          <X aria-hidden="true" className="h-3.5 w-3.5" />
+        </Button>
+      )}
     </span>
   );
 }

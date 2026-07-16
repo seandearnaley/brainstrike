@@ -286,6 +286,32 @@ describe('review findings: error surfacing', () => {
   });
 });
 
+describe('default vault', () => {
+  it('mounts My Notes automatically with no Remove affordance', async () => {
+    let idCounter = 0;
+    const services: NotesVaultServices = {
+      createWatcher: () => ({ disconnect: () => undefined }),
+      getDefaultVault: () =>
+        Promise.resolve({
+          handle: fakeDir('brainstrike-notes', [fakeNote('Welcome.md', { content: '# Welcome' })]),
+          name: 'My Notes',
+        }),
+      handleStore: memoryHandleStore(),
+      newRootId: () => `root-${++idCounter}`,
+      now: () => idCounter,
+      pickDirectory: () => Promise.reject(new DOMException('canceled', 'AbortError')),
+      rescanDebounceMs: 0,
+    };
+    render(<NotesVaultPanel store={createNotesVaultStore(services)} />);
+
+    expect(await screen.findByText('My Notes')).toBeInTheDocument();
+    expect(await screen.findByText('Welcome')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /remove vault my notes/i })
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe('editing', () => {
   it('Edit opens the editor; typing and Done saves to disk', async () => {
     const user = userEvent.setup();
