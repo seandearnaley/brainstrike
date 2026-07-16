@@ -209,9 +209,17 @@ export function NoteViewer({ store }: NoteViewerProps): React.ReactNode {
       void refreshRoot(note.rootId);
     }
   }, [note, refreshRoot]);
+  const reportGlobalError = useStore(store, (state) => state.reportGlobalError);
+  const handleDetachedSaveError = useCallback(
+    (noteName: string, message: string) => {
+      reportGlobalError(`Unsaved changes to "${noteName}" could not be saved: ${message}`);
+    },
+    [reportGlobalError]
+  );
   const editor = useNoteEditor({
     diskContent: content.status === 'ready' ? content.content : null,
     note,
+    onDetachedSaveError: handleDetachedSaveError,
     onSaved: handleSaved,
   });
   const { beginEdit } = editor;

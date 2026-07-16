@@ -5,6 +5,7 @@ import { app, dialog } from 'electron';
 import {
   createNotesVaultIpcHandlers,
   type NotesVaultIpcHandlers,
+  type NotesVaultRootsStorage,
   registerNotesVaultIpcHandlers,
 } from './notes-vault-ipc-handlers';
 
@@ -47,13 +48,17 @@ async function pickDirectoryPathWithNativeDialog(): Promise<string | null> {
  * Approved-roots security model + handler behavior live in
  * `notes-vault-ipc-handlers.ts`; this registrar wires the production
  * dependencies: `app.getPath` for the default vault location, the native
- * directory picker, and the shared chokidar-backed recursive watcher from
- * `@brainstrike/file-system/electron` (`watchDirectory` — batched at 150 ms,
- * `ignoreInitial`, symlinks not followed; falls back to native `fs.watch` only
- * if chokidar cannot load, logging the failure). The returned disposer
- * unregisters the channels and reaps every live watcher.
+ * directory picker, the shared `ElectronStorageAdapter` (passed by main.ts)
+ * for the persisted approved-roots list, and the shared chokidar-backed
+ * recursive watcher from `@brainstrike/file-system/electron` (`watchDirectory`
+ * — batched at 150 ms, `ignoreInitial`, symlinks not followed; falls back to
+ * native `fs.watch` only if chokidar cannot load, logging the failure). The
+ * returned disposer unregisters the channels and reaps every live watcher.
  */
-export function registerNotesVaultIpc(handlers?: NotesVaultIpcHandlers): () => void {
+export function registerNotesVaultIpc(
+  storage: NotesVaultRootsStorage,
+  handlers?: NotesVaultIpcHandlers
+): () => void {
   if (handlers) {
     return registerNotesVaultIpcHandlers(handlers);
   }
@@ -72,6 +77,7 @@ export function registerNotesVaultIpc(handlers?: NotesVaultIpcHandlers): () => v
           },
           () => onChange()
         ),
+      storage,
     })
   );
 }

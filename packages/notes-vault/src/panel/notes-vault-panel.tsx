@@ -15,7 +15,7 @@ import { createVaultNote } from '../core/create-note';
 import { extractDroppedVaultDirectories } from '../core/drop';
 import { findVaultNote, noteIdForSegments } from '../core/links';
 import { getDirectoryHandleAt } from '../core/resolve';
-import type { VaultSortMode } from '../core/types';
+import { VAULT_SORT_MODES, type VaultSortMode } from '../core/types';
 import type { NotesVaultStore } from '../store/notes-vault-store';
 import { getNotesVaultStore } from '../store/singleton';
 import { NoteViewer } from './note-viewer';
@@ -39,6 +39,38 @@ const SORT_LABELS: Record<VaultSortMode, string> = {
   'name-asc': 'Name A–Z',
   'name-desc': 'Name Z–A',
 };
+
+function DismissibleNotice({
+  dismissLabel,
+  message,
+  onDismiss,
+  tone,
+}: {
+  dismissLabel: string;
+  message: string;
+  onDismiss: () => void;
+  tone: 'alert' | 'status';
+}): React.ReactNode {
+  return (
+    <div
+      className={`flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-xs ${
+        tone === 'alert' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'
+      }`}
+      role={tone}
+    >
+      <span className="min-w-0 flex-1 truncate">{message}</span>
+      <Button
+        aria-label={dismissLabel}
+        className="h-5 w-5 p-0"
+        onClick={onDismiss}
+        size="sm"
+        variant="ghost"
+      >
+        <X aria-hidden="true" className="h-3 w-3" />
+      </Button>
+    </div>
+  );
+}
 
 export interface NotesVaultPanelProps {
   /** Injectable for tests; defaults to the app-wide singleton. */
@@ -228,9 +260,9 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {Object.entries(SORT_LABELS).map(([mode, label]) => (
+            {VAULT_SORT_MODES.map((mode) => (
               <SelectItem className="text-xs" key={mode} value={mode}>
-                {label}
+                {SORT_LABELS[mode]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -238,38 +270,20 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
       </div>
 
       {globalError ? (
-        <div
-          className="flex shrink-0 items-center gap-2 border-b bg-destructive/10 px-3 py-1.5 text-destructive text-xs"
-          role="alert"
-        >
-          <span className="min-w-0 flex-1 truncate">{globalError}</span>
-          <Button
-            aria-label="Dismiss error"
-            className="h-5 w-5 p-0"
-            onClick={clearGlobalError}
-            size="sm"
-            variant="ghost"
-          >
-            <X aria-hidden="true" className="h-3 w-3" />
-          </Button>
-        </div>
+        <DismissibleNotice
+          dismissLabel="Dismiss error"
+          message={globalError}
+          onDismiss={clearGlobalError}
+          tone="alert"
+        />
       ) : null}
       {dropNotice ? (
-        <div
-          className="flex shrink-0 items-center gap-2 border-b bg-muted px-3 py-1.5 text-muted-foreground text-xs"
-          role="status"
-        >
-          <span className="min-w-0 flex-1 truncate">{dropNotice}</span>
-          <Button
-            aria-label="Dismiss notice"
-            className="h-5 w-5 p-0"
-            onClick={() => setDropNotice(null)}
-            size="sm"
-            variant="ghost"
-          >
-            <X aria-hidden="true" className="h-3 w-3" />
-          </Button>
-        </div>
+        <DismissibleNotice
+          dismissLabel="Dismiss notice"
+          message={dropNotice}
+          onDismiss={() => setDropNotice(null)}
+          tone="status"
+        />
       ) : null}
 
       {showEmptyState ? (

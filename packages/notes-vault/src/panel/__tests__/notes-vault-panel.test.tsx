@@ -30,30 +30,15 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 });
 
 import { type FakeDirectoryHandle, fakeDir, fakeNote } from '../../__tests__/support/fake-handles';
-import type { StoredVaultRoot, VaultHandleStore } from '../../core/handle-store';
+import { createMemoryHandleStore } from '../../__tests__/support/memory-handle-store';
 import { createNotesVaultStore, type NotesVaultServices } from '../../store/notes-vault-store';
 import { NotesVaultPanel } from '../notes-vault-panel';
-
-function memoryHandleStore(): VaultHandleStore {
-  const rows = new Map<string, StoredVaultRoot>();
-  return {
-    list: () => Promise.resolve([...rows.values()].sort((a, b) => a.addedAt - b.addedAt)),
-    put: (root) => {
-      rows.set(root.rootId, root);
-      return Promise.resolve();
-    },
-    remove: (rootId) => {
-      rows.delete(rootId);
-      return Promise.resolve();
-    },
-  };
-}
 
 function setup(options: { pick?: FakeDirectoryHandle } = {}) {
   let idCounter = 0;
   const services: NotesVaultServices = {
     createWatcher: () => ({ disconnect: () => undefined }),
-    handleStore: memoryHandleStore(),
+    handleStore: createMemoryHandleStore(),
     newRootId: () => `root-${++idCounter}`,
     now: () => idCounter,
     pickDirectory: () =>
@@ -141,7 +126,7 @@ describe('NotesVaultPanel', () => {
     const locked = fakeDir('locked-vault', [fakeNote('secret.md')]);
     locked.permissionState = 'prompt';
     locked.requestOutcome = 'granted';
-    const handleStore = memoryHandleStore();
+    const handleStore = createMemoryHandleStore();
     await handleStore.put({ addedAt: 1, handle: locked, name: 'locked-vault', rootId: 'r1' });
     const services: NotesVaultServices = {
       createWatcher: () => ({ disconnect: () => undefined }),
@@ -220,7 +205,7 @@ describe('review findings: error surfacing', () => {
     const locked = fakeDir('locked-vault');
     locked.permissionState = 'prompt';
     locked.requestOutcome = 'denied';
-    const handleStore = memoryHandleStore();
+    const handleStore = createMemoryHandleStore();
     await handleStore.put({ addedAt: 1, handle: locked, name: 'locked-vault', rootId: 'r1' });
     const services: NotesVaultServices = {
       createWatcher: () => ({ disconnect: () => undefined }),
@@ -296,7 +281,7 @@ describe('default vault', () => {
           handle: fakeDir('brainstrike-notes', [fakeNote('Welcome.md', { content: '# Welcome' })]),
           name: 'My Notes',
         }),
-      handleStore: memoryHandleStore(),
+      handleStore: createMemoryHandleStore(),
       newRootId: () => `root-${++idCounter}`,
       now: () => idCounter,
       pickDirectory: () => Promise.reject(new DOMException('canceled', 'AbortError')),

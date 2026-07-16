@@ -31,7 +31,7 @@ export type VaultRowData =
 
 export type VaultTreeRow = TreeNode<VaultRowData>;
 
-export const VAULT_ROOT_ROW_TYPE = 'vault-root';
+const VAULT_ROOT_ROW_TYPE = 'vault-root';
 
 function appendNodeRows(
   rows: VaultTreeRow[],

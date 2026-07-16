@@ -21,7 +21,7 @@ function compareWithinKind(a: VaultTreeNode, b: VaultTreeNode, mode: VaultSortMo
   }
 }
 
-export function compareVaultNodes(a: VaultTreeNode, b: VaultTreeNode, mode: VaultSortMode): number {
+function compareVaultNodes(a: VaultTreeNode, b: VaultTreeNode, mode: VaultSortMode): number {
   if (a.type !== b.type) {
     return a.type === 'folder' ? -1 : 1;
   }

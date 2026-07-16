@@ -2,8 +2,33 @@ import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VaultNoteNode } from '../core/types';
 import { writeNoteFile } from '../core/write-note';
+import { invalidateNoteContent } from './note-content-store';
 
 const logger = createLogger('NotesVaultEditor');
+
+/**
+ * Per-note write serialization (module scope: detached flushes outlive the
+ * component). writeNoteFile is atomic-replace, so without ordering a slow
+ * detached flush from a previous edit session could close LAST and clobber a
+ * newer save on the same note. Chaining per noteId makes the last-initiated
+ * write the last to close.
+ */
+const pendingWritesByNoteId = new Map<string, Promise<void>>();
+
+function enqueueNoteWrite(noteId: string, write: () => Promise<void>): Promise<void> {
+  const previous = pendingWritesByNoteId.get(noteId) ?? Promise.resolve();
+  // Run regardless of the previous write's outcome; each caller observes only
+  // its own failure.
+  const next = previous.then(write, write);
+  pendingWritesByNoteId.set(noteId, next);
+  const cleanup = () => {
+    if (pendingWritesByNoteId.get(noteId) === next) {
+      pendingWritesByNoteId.delete(noteId);
+    }
+  };
+  next.then(cleanup, cleanup);
+  return next;
+}
 
 export type NoteSaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
@@ -13,6 +38,9 @@ export interface UseNoteEditorArgs {
   /** The note's on-disk content once loaded; null while loading/absent. */
   diskContent: string | null;
   note: VaultNoteNode | null;
+  /** Fired when a detached flush (note switch/unmount) fails — the editor UI
+   * is already gone, so the host must surface it (e.g. the alert banner). */
+  onDetachedSaveError?: (noteName: string, message: string) => void;
   /** Fired after every successful write (e.g. refresh the tree's mtimes). */
   onSaved?: () => void;
 }
@@ -36,6 +64,7 @@ interface EditorBuffer {
   draft: string;
   handle: VaultNoteNode['handle'];
   noteId: string;
+  noteName: string;
 }
 
 /**
@@ -50,6 +79,7 @@ export function useNoteEditor({
   note,
   diskContent,
   autosaveMs = 1000,
+  onDetachedSaveError,
   onSaved,
 }: UseNoteEditorArgs): NoteEditorApi {
   const [editing, setEditing] = useState(false);
@@ -62,6 +92,8 @@ export function useNoteEditor({
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSavedRef = useRef(onSaved);
   onSavedRef.current = onSaved;
+  const onDetachedSaveErrorRef = useRef(onDetachedSaveError);
+  onDetachedSaveErrorRef.current = onDetachedSaveError;
 
   const clearAutosaveTimer = useCallback(() => {
     if (autosaveTimerRef.current) {
@@ -74,8 +106,11 @@ export function useNoteEditor({
    * Returns null on success, the failure message otherwise. */
   const writeBuffer = useCallback(async (buffer: EditorBuffer): Promise<string | null> => {
     try {
-      await writeNoteFile(buffer.handle, buffer.draft);
+      await enqueueNoteWrite(buffer.noteId, () => writeNoteFile(buffer.handle, buffer.draft));
       buffer.baseline = buffer.draft;
+      // Coarse-mtime filesystems can bucket two saves under one lastModified;
+      // dropping the cached entry guarantees the next read hits disk.
+      invalidateNoteContent(buffer.noteId);
       onSavedRef.current?.();
       return null;
     } catch (writeError) {
@@ -117,6 +152,7 @@ export function useNoteEditor({
       draft: diskContent,
       handle: note.handle,
       noteId: note.id,
+      noteName: note.name,
     };
     setDraft(diskContent);
     setError(null);
@@ -170,7 +206,12 @@ export function useNoteEditor({
       setSaveState('idle');
       setExternallyChanged(false);
       if (buffer.draft !== buffer.baseline) {
-        void writeBuffer(buffer);
+        void writeBuffer(buffer).then((failure) => {
+          if (failure !== null) {
+            // The editor UI for this note is gone — surface through the host.
+            onDetachedSaveErrorRef.current?.(buffer.noteName, failure);
+          }
+        });
       }
     }
   }, [noteId, clearAutosaveTimer, writeBuffer]);
@@ -198,7 +239,11 @@ export function useNoteEditor({
       clearAutosaveTimer();
       const buffer = bufferRef.current;
       if (buffer && buffer.draft !== buffer.baseline) {
-        void writeBuffer(buffer);
+        void writeBuffer(buffer).then((failure) => {
+          if (failure !== null) {
+            onDetachedSaveErrorRef.current?.(buffer.noteName, failure);
+          }
+        });
       }
     },
     [clearAutosaveTimer, writeBuffer]

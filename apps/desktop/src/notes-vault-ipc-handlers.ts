@@ -3,12 +3,20 @@
  * backend for the markdown notes vault (no File System Access API in the
  * renderer; the OS grants access).
  *
- * Security model — APPROVED ROOTS. A module-level map holds the canonical
- * (realpath'd) directory paths the user has approved as vault roots:
- *   - `ensureDefaultVault` approves the app-chosen default vault directory,
- *   - `pickDirectory` approves what the user picked in the native dialog,
- *   - `registerRoot` re-approves a persisted root after restart (validated:
- *     must exist, be a directory, and pass the sensitive-path checks).
+ * Security model — APPROVED ROOTS, OWNED BY MAIN. A module-level map holds the
+ * canonical (realpath'd) directory paths the user has approved as vault roots,
+ * and main ALSO persists that list durably (storage key
+ * {@link NOTES_VAULT_ROOTS_STORAGE_KEY}, mirroring the files domain's
+ * `rootsList`) so approval survives restart without trusting the renderer:
+ *   - `ensureDefaultVault` approves the app-chosen default vault directory
+ *     (in-memory + persisted),
+ *   - `pickDirectory` approves what the user picked in the native dialog
+ *     (in-memory + persisted),
+ *   - `registerRoot` only RE-approves a path that is already in main's
+ *     persisted list (after validation: must exist, be a directory, and pass
+ *     the sensitive-path checks). A renderer can therefore never self-approve
+ *     an arbitrary path — new roots enter the list solely via the native
+ *     picker or the default vault.
  * Every read (listDirectory/statEntry/readFile) resolves the renderer-supplied
  * absolute path lexically AND canonically (realpath) and requires containment
  * inside SOME approved root — a symlink whose target escapes every approved
@@ -34,6 +42,12 @@ import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
+import { WELCOME_NOTE_CONTENT, WELCOME_NOTE_NAME } from '@brainstrike/notes-vault/core';
+import type {
+  NotesVaultBridgeEntry,
+  NotesVaultBridgeRoot,
+  NotesVaultResult,
+} from '@brainstrike/notes-vault/desktop-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
@@ -50,39 +64,17 @@ export const DEFAULT_NOTES_VAULT_DIRECTORY_NAME = 'Brainstrike Notes';
 /** Explicit read ceiling so a renderer cannot pull an arbitrarily large file over IPC. */
 export const MAX_NOTES_VAULT_READ_BYTES = 10 * 1024 * 1024;
 
-const WELCOME_NOTE_NAME = 'Welcome.md';
-// The vault package's welcome constant is not exported from
-// '@brainstrike/notes-vault/core', so the desktop backend seeds its own short
-// welcome note (only on FIRST creation of the default vault directory).
-const WELCOME_NOTE_CONTENT = `# Welcome to Notes
+/**
+ * Durable storage key for main's approved-roots list: a JSON array of
+ * canonical absolute paths. The single source of truth for which roots
+ * `registerRoot` may re-approve after a restart.
+ */
+export const NOTES_VAULT_ROOTS_STORAGE_KEY = 'notesVaultRoots';
 
-Your notes live here as plain markdown files — no import, no lock-in.
-
-- Click **Edit** (or create a note with **New Note**) to start writing. Changes save automatically; **⌘S** saves immediately.
-- Add any folder of markdown as another vault to browse it here.
-- Link between notes with relative links like [Welcome](Welcome.md); headings, code fences, tasks, and math all render.
-
-Delete this note whenever you like.
-`;
-
-/** Mirrors NotesVaultResult in packages/notes-vault/src/desktop/bridge-contract.ts. */
-export type NotesVaultResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
-/** Mirrors NotesVaultBridgeEntry in the bridge contract. */
-export interface NotesVaultEntry {
-  readonly kind: 'file' | 'directory';
-  readonly lastModified: number;
-  readonly name: string;
-  readonly size: number;
-}
-
-/** Mirrors NotesVaultBridgeRoot in the bridge contract. */
-export interface NotesVaultRoot {
-  /** Display name (directory basename). */
-  readonly name: string;
-  /** Canonical absolute path on disk. */
-  readonly path: string;
-}
+/** Local aliases for the shared bridge-contract types (single source of truth). */
+export type { NotesVaultResult } from '@brainstrike/notes-vault/desktop-contract';
+export type NotesVaultEntry = NotesVaultBridgeEntry;
+export type NotesVaultRoot = NotesVaultBridgeRoot;
 
 /** One-way payload pushed to the owning renderer when a watched vault changes. */
 export interface NotesVaultChangedEvent {
@@ -128,6 +120,71 @@ function failure<T>(
   const message = toErrorMessage(error);
   logger.warn('Notes vault operation failed', { ...context, error: message, operation });
   return { error: message, ok: false };
+}
+
+/**
+ * Minimal durable-storage surface the registrar needs for the approved-roots
+ * list. Production injects the shared `ElectronStorageAdapter` (same DI style
+ * as the files domain); tests inject an in-memory fake.
+ */
+export interface NotesVaultRootsStorage {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+}
+
+/**
+ * Read main's persisted approved-roots list. Malformed storage is logged and
+ * treated as empty (mirrors the files domain's `readRootsList` — loud, never
+ * silent), so one corrupt value cannot brick every vault restore.
+ */
+async function readPersistedRoots(storage: NotesVaultRootsStorage): Promise<string[]> {
+  const raw = await storage.getItem(NOTES_VAULT_ROOTS_STORAGE_KEY);
+  if (!raw) {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    logger.warn('Failed to parse persisted notes vault roots — treating as empty', {
+      error: toErrorMessage(error),
+      key: NOTES_VAULT_ROOTS_STORAGE_KEY,
+    });
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    logger.warn('Persisted notes vault roots value is not an array — treating as empty', {
+      key: NOTES_VAULT_ROOTS_STORAGE_KEY,
+    });
+    return [];
+  }
+  const valid = parsed.filter((entry): entry is string => typeof entry === 'string');
+  if (valid.length !== parsed.length) {
+    logger.warn('Persisted notes vault roots contained malformed entries — discarding them', {
+      total: parsed.length,
+      valid: valid.length,
+    });
+  }
+  return valid;
+}
+
+/**
+ * Add a canonical path to the persisted approved-roots list (idempotent).
+ * No mutex: approvals are user-gesture-driven (one native dialog at a time),
+ * same reasoning as the files domain's `addRoot`.
+ */
+async function persistApprovedRoot(
+  storage: NotesVaultRootsStorage,
+  canonicalPath: string
+): Promise<void> {
+  const existing = await readPersistedRoots(storage);
+  if (existing.includes(canonicalPath)) {
+    return;
+  }
+  await storage.setItem(
+    NOTES_VAULT_ROOTS_STORAGE_KEY,
+    JSON.stringify([...existing, canonicalPath])
+  );
 }
 
 function registerApprovedRoot(canonicalPath: string): NotesVaultRoot {
@@ -257,6 +314,12 @@ export interface NotesVaultIpcHandlersOptions {
    * any change under `directoryPath`; the return value stops the watcher.
    */
   readonly startWatch: (directoryPath: string, onChange: () => void) => () => void;
+  /**
+   * Durable storage for main's approved-roots list ({@link
+   * NOTES_VAULT_ROOTS_STORAGE_KEY}). Production: the shared
+   * `ElectronStorageAdapter`; tests: an in-memory fake.
+   */
+  readonly storage: NotesVaultRootsStorage;
 }
 
 export interface NotesVaultIpcHandlers {
@@ -287,14 +350,15 @@ export function createNotesVaultIpcHandlers(
 ): NotesVaultIpcHandlers {
   /**
    * Validate an on-disk directory (exists, is a directory, passes the
-   * sensitive-path checks, realpath'd) and register it as an approved root.
+   * sensitive-path checks, realpath'd). Returns the CANONICAL path — approval
+   * and persistence are the caller's decision.
    */
-  async function validateAndRegisterRoot(
+  async function validateRootDirectory(
     requestedPath: unknown
-  ): Promise<NotesVaultResult<NotesVaultRoot>> {
+  ): Promise<{ canonicalPath: string } | { error: string }> {
     const raw = validateRawVaultPath(requestedPath);
     if ('error' in raw) {
-      return { error: raw.error, ok: false };
+      return { error: raw.error };
     }
     // blockSensitiveDirectories + allowMissing:false → the path must exist and
     // the returned path is canonical (realpath'd), with the sensitive check
@@ -310,17 +374,43 @@ export function createNotesVaultIpcHandlers(
         error: validated.error.message,
         path: raw.lexicalPath,
       });
-      return { error: validated.error.message, ok: false };
+      return { error: validated.error.message };
     }
     try {
       const stats = await fsPromises.stat(validated.path);
       if (!stats.isDirectory()) {
-        return { error: `Path "${raw.lexicalPath}" is not a directory.`, ok: false };
+        return { error: `Path "${raw.lexicalPath}" is not a directory.` };
       }
     } catch (error) {
-      return failure('registerRoot', error, { path: raw.lexicalPath });
+      const message = toErrorMessage(error);
+      logger.warn('Notes vault operation failed', {
+        error: message,
+        operation: 'validateRootDirectory',
+        path: raw.lexicalPath,
+      });
+      return { error: message };
     }
-    return { ok: true, value: registerApprovedRoot(validated.path) };
+    return { canonicalPath: validated.path };
+  }
+
+  /**
+   * Approve a validated canonical path in-memory AND persist it into main's
+   * durable approved-roots list, so `registerRoot` can re-approve it after a
+   * restart. A failed persist write is loud but non-fatal (the root still
+   * works this session; the next restart's `registerRoot` fails visibly) —
+   * same posture as the files domain's `addRoot`.
+   */
+  async function approveAndPersistRoot(canonicalPath: string): Promise<NotesVaultRoot> {
+    const root = registerApprovedRoot(canonicalPath);
+    try {
+      await persistApprovedRoot(options.storage, canonicalPath);
+    } catch (error) {
+      logger.warn('Failed to persist notes vault root approval', {
+        error: toErrorMessage(error),
+        path: canonicalPath,
+      });
+    }
+    return root;
   }
 
   async function ensureDefaultVault(): Promise<NotesVaultResult<NotesVaultRoot>> {
@@ -363,7 +453,7 @@ export function createNotesVaultIpcHandlers(
         });
         logger.info('Seeded default notes vault', { path: canonicalPath });
       }
-      return { ok: true, value: registerApprovedRoot(canonicalPath) };
+      return { ok: true, value: await approveAndPersistRoot(canonicalPath) };
     } catch (error) {
       return failure('ensureDefaultVault', error);
     }
@@ -380,11 +470,40 @@ export function createNotesVaultIpcHandlers(
       // User cancelled — a normal outcome, not an error.
       return { ok: true, value: null };
     }
-    return await validateAndRegisterRoot(picked);
+    const validated = await validateRootDirectory(picked);
+    if ('error' in validated) {
+      return { error: validated.error, ok: false };
+    }
+    return { ok: true, value: await approveAndPersistRoot(validated.canonicalPath) };
   }
 
-  function registerRoot(requestedPath: unknown): Promise<NotesVaultResult<NotesVaultRoot>> {
-    return validateAndRegisterRoot(requestedPath);
+  /**
+   * Re-approve a root after restart. The renderer supplies the path it
+   * persisted, but MAIN's durable list is the authority: only paths that were
+   * previously approved via the picker or the default vault are accepted —
+   * a renderer can never self-approve an arbitrary directory.
+   */
+  async function registerRoot(requestedPath: unknown): Promise<NotesVaultResult<NotesVaultRoot>> {
+    const validated = await validateRootDirectory(requestedPath);
+    if ('error' in validated) {
+      return { error: validated.error, ok: false };
+    }
+    let persistedRoots: string[];
+    try {
+      persistedRoots = await readPersistedRoots(options.storage);
+    } catch (error) {
+      return failure('registerRoot', error, { path: validated.canonicalPath });
+    }
+    if (!persistedRoots.includes(validated.canonicalPath)) {
+      logger.warn('Rejected notes vault root not in the persisted approved list', {
+        path: validated.canonicalPath,
+      });
+      return {
+        error: `Path "${validated.canonicalPath}" is not an approved notes vault root. Add it via the vault directory picker.`,
+        ok: false,
+      };
+    }
+    return { ok: true, value: registerApprovedRoot(validated.canonicalPath) };
   }
 
   async function listDirectory(
@@ -643,8 +762,9 @@ export function resetNotesVaultIpcStateForTest(): void {
 
 /**
  * Register the desktop `notesVault` IPC domain. Returns a disposer that
- * unregisters the channels, reaps every live watcher, AND forgets the approved
- * roots (a host re-init must re-approve). The `notes-vault:changed` event
+ * unregisters the channels, reaps every live watcher, AND forgets the
+ * IN-MEMORY approved roots (a host re-init must re-approve; the persisted
+ * list survives so `registerRoot` can do so). The `notes-vault:changed` event
  * channel is NOT an `ipcMain.handle` registration — it is a one-way
  * main→renderer push, so it is never registered here; the registry owns only
  * the nine invoke channels.

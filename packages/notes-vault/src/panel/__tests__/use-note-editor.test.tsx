@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { type FakeFileHandle, fakeNote } from '../../__tests__/support/fake-handles';
-import type { VaultNoteNode } from '../../core/types';
+import type { VaultNoteNode, VaultWritableLike } from '../../core/types';
+import { ensureNoteContent, getNoteContentSnapshot } from '../note-content-store';
 import { useNoteEditor } from '../use-note-editor';
 
 function noteFor(handle: FakeFileHandle, id = `r1:${handle.name}`): VaultNoteNode {
@@ -128,5 +129,97 @@ describe('useNoteEditor', () => {
 
     expect(handle.state.content).toBe('final');
     expect(result.current.editing).toBe(false);
+  });
+});
+
+describe('write ordering and detached-flush safety', () => {
+  it('a slow detached flush cannot clobber a newer save on the same note (per-note serialization)', async () => {
+    const handle = fakeNote('a.md', { content: 'A1' });
+    let releaseFirstClose: () => void = () => undefined;
+    const firstCloseGate = new Promise<void>((resolve) => {
+      releaseFirstClose = resolve;
+    });
+    const realCreateWritable = handle.createWritable.bind(handle);
+    let writableCount = 0;
+    handle.createWritable = async (): Promise<VaultWritableLike> => {
+      const writable = await realCreateWritable();
+      writableCount += 1;
+      if (writableCount === 1) {
+        const realClose = writable.close.bind(writable);
+        writable.close = async () => {
+          await firstCloseGate;
+          await realClose();
+        };
+      }
+      return writable;
+    };
+    const noteA = noteFor(handle);
+    const noteB = noteFor(fakeNote('b.md', { content: 'B1' }));
+
+    const { rerender, result } = renderHook(
+      ({ note, diskContent }: { note: VaultNoteNode; diskContent: string }) =>
+        useNoteEditor({ autosaveMs: 60_000, diskContent, note, onSaved: vi.fn() }),
+      { initialProps: { diskContent: 'A1', note: noteA } }
+    );
+    act(() => result.current.beginEdit());
+    act(() => result.current.updateDraft('A2 (stale flush)'));
+
+    // Switch away: the detached flush of A2 starts but its close() is gated.
+    rerender({ diskContent: 'B1', note: noteB });
+    // Switch back and write newer content.
+    rerender({ diskContent: 'A1', note: noteA });
+    act(() => result.current.beginEdit());
+    act(() => result.current.updateDraft('A3 (newer)'));
+    const savePromise = result.current.save();
+
+    releaseFirstClose();
+    await act(() => savePromise);
+
+    await waitFor(() => {
+      expect(handle.state.content).toBe('A3 (newer)');
+    });
+  });
+
+  it('surfaces a failed note-switch flush through onDetachedSaveError', async () => {
+    const broken = fakeNote('a.md', { content: 'v1' });
+    broken.createWritable = () => Promise.reject(new DOMException('disk gone', 'NotAllowedError'));
+    const onDetachedSaveError = vi.fn();
+    const { rerender, result } = renderHook(
+      ({ note, diskContent }: { note: VaultNoteNode; diskContent: string }) =>
+        useNoteEditor({
+          autosaveMs: 60_000,
+          diskContent,
+          note,
+          onDetachedSaveError,
+          onSaved: vi.fn(),
+        }),
+      { initialProps: { diskContent: 'v1', note: noteFor(broken) } }
+    );
+    act(() => result.current.beginEdit());
+    act(() => result.current.updateDraft('unsaved'));
+
+    rerender({ diskContent: 'B1', note: noteFor(fakeNote('b.md', { content: 'B1' })) });
+
+    await waitFor(() => {
+      expect(onDetachedSaveError).toHaveBeenCalledWith('a.md', expect.stringMatching(/disk gone/));
+    });
+  });
+
+  it('invalidates the note content cache after a successful save (coarse-mtime safety)', async () => {
+    const handle = fakeNote('a.md', { content: 'v1', lastModified: 500 });
+    const note = noteFor(handle, 'cache:a.md');
+    ensureNoteContent('cache:a.md@500', handle);
+    await waitFor(() => {
+      expect(getNoteContentSnapshot('cache:a.md@500').status).toBe('ready');
+    });
+
+    const { result } = renderHook(() =>
+      useNoteEditor({ autosaveMs: 0, diskContent: 'v1', note, onSaved: vi.fn() })
+    );
+    act(() => result.current.beginEdit());
+    act(() => result.current.updateDraft('v2'));
+    await act(() => result.current.save());
+
+    expect(getNoteContentSnapshot('cache:a.md@500').status).toBe('loading');
   });
 });

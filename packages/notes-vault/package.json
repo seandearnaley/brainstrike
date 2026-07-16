@@ -35,6 +35,10 @@
       "types": "./dist/core/index.d.ts",
       "import": "./dist/core/index.js"
     },
+    "./desktop-contract": {
+      "types": "./dist/desktop/bridge-contract.d.ts",
+      "import": "./dist/desktop/bridge-contract.js"
+    },
     "./panel": {
       "types": "./dist/panel/index.d.ts",
       "import": "./dist/panel/index.js"

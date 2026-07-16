@@ -216,6 +216,13 @@ export const FALLBACK_OPFS_DIR_NAMES = [
 // or not, so enumeration-based clearing never touches an unrelated OPFS consumer.
 const OPFS_PGLITE_DIR_RE = /^(?:app|web)(?:-pg\d+)?$/;
 
+// Non-pglite Brainstrike OPFS dirs that a reset must also wipe when enumerating.
+// (The fallback list alone is NOT enough: it only applies when enumeration
+// finds nothing, so a matching pglite dir would otherwise shield these.)
+const OPFS_NON_PGLITE_RESET_DIRS: ReadonlySet<string> = new Set([
+  'brainstrike-notes', // Notes vault default "My Notes" (@brainstrike/notes-vault default-vault.ts)
+]);
+
 /**
  * Removes Brainstrike's PGlite OPFS-AHP stores so a factory reset is a true fresh
  * start for users who opted into OPFS storage. The rest of this module is
@@ -250,7 +257,7 @@ async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]>
   if (typeof root.keys === 'function') {
     try {
       for await (const name of root.keys()) {
-        if (OPFS_PGLITE_DIR_RE.test(name)) {
+        if (OPFS_PGLITE_DIR_RE.test(name) || OPFS_NON_PGLITE_RESET_DIRS.has(name)) {
           names.push(name);
         }
       }

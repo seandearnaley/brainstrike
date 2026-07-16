@@ -40,9 +40,11 @@ import {
   DEFAULT_NOTES_VAULT_DIRECTORY_NAME,
   disposeAllNotesVaultWatchers,
   liveNotesVaultWatcherCountForTest,
+  NOTES_VAULT_ROOTS_STORAGE_KEY,
   type NotesVaultChangedEvent,
   type NotesVaultIpcHandlers,
   type NotesVaultIpcHandlersOptions,
+  type NotesVaultRootsStorage,
   registerNotesVaultIpcHandlers,
   resetNotesVaultIpcStateForTest,
 } from '../../notes-vault-ipc-handlers';
@@ -131,23 +133,67 @@ function createWatchHarness(): WatchHarness {
   };
 }
 
+/** In-memory NotesVaultRootsStorage fake exposing its backing map to assertions. */
+interface FakeRootsStorage extends NotesVaultRootsStorage {
+  readonly data: Map<string, string>;
+}
+
+function createFakeRootsStorage(): FakeRootsStorage {
+  const data = new Map<string, string>();
+  return {
+    data,
+    getItem: (key: string) => Promise.resolve(data.get(key) ?? null),
+    setItem: (key: string, value: string) => {
+      data.set(key, value);
+      return Promise.resolve();
+    },
+  };
+}
+
+/** Read the persisted approved-roots list straight out of the fake storage. */
+function persistedRoots(storage: FakeRootsStorage): string[] {
+  const raw = storage.data.get(NOTES_VAULT_ROOTS_STORAGE_KEY);
+  return raw ? (JSON.parse(raw) as string[]) : [];
+}
+
+/** Seed a path into main's persisted list, simulating a prior picker approval. */
+function seedPersistedRoot(storage: FakeRootsStorage, rootPath: string): void {
+  storage.data.set(
+    NOTES_VAULT_ROOTS_STORAGE_KEY,
+    JSON.stringify([...persistedRoots(storage), rootPath])
+  );
+}
+
 function createHandlers(overrides: Partial<NotesVaultIpcHandlersOptions> = {}): {
   handlers: NotesVaultIpcHandlers;
+  storage: FakeRootsStorage;
   watchHarness: WatchHarness;
 } {
   const watchHarness = createWatchHarness();
+  const storage = createFakeRootsStorage();
   const handlers = createNotesVaultIpcHandlers({
     getDefaultVaultParentPath: () => {
       throw new Error('getDefaultVaultParentPath not configured for this test');
     },
     pickDirectoryPath: () => Promise.resolve(null),
     startWatch: watchHarness.startWatch,
+    storage,
     ...overrides,
   });
-  return { handlers, watchHarness };
+  return { handlers, storage: (overrides.storage as FakeRootsStorage) ?? storage, watchHarness };
 }
 
-async function approveRoot(handlers: NotesVaultIpcHandlers, rootPath: string): Promise<void> {
+/**
+ * Approve a root the way a restart-restore does: the path is ALREADY in
+ * main's persisted list (picker-approved in a prior session), and registerRoot
+ * re-approves it in memory.
+ */
+async function approveRoot(
+  handlers: NotesVaultIpcHandlers,
+  storage: FakeRootsStorage,
+  rootPath: string
+): Promise<void> {
+  seedPersistedRoot(storage, rootPath);
   const result = await handlers.registerRoot(rootPath);
   expect(result).toMatchObject({ ok: true });
 }
@@ -167,9 +213,10 @@ afterEach(async () => {
 
 describe('notes vault IPC handlers', () => {
   describe('root approval', () => {
-    it('registers a valid directory root with basename display name', async () => {
-      const { handlers } = createHandlers();
+    it('registerRoot re-approves a persisted root with basename display name', async () => {
+      const { handlers, storage } = createHandlers();
       const root = await makeDir();
+      seedPersistedRoot(storage, root);
       const result = await handlers.registerRoot(root);
       expect(result).toEqual({
         ok: true,
@@ -178,11 +225,27 @@ describe('notes vault IPC handlers', () => {
       expect(approvedNotesVaultRootCountForTest()).toBe(1);
     });
 
-    it('rejects a missing path, a relative path, and a file root', async () => {
+    it('registerRoot REJECTS an existing non-sensitive directory never approved by picker/default', async () => {
       const { handlers } = createHandlers();
+      const root = await makeDir();
+      const result = await handlers.registerRoot(root);
+      expect(result).toMatchObject({ ok: false });
+      expect((result as { error: string }).error).toContain('not an approved notes vault root');
+      expect((result as { error: string }).error).toContain('picker');
+      expect(approvedNotesVaultRootCountForTest()).toBe(0);
+      // A renderer that could not self-approve also gets no read access.
+      expect(await handlers.listDirectory(root)).toMatchObject({ ok: false });
+    });
+
+    it('rejects a missing path, a relative path, and a file root even when persisted', async () => {
+      const { handlers, storage } = createHandlers();
       const root = await makeDir();
       const filePath = path.join(root, 'note.md');
       await fsPromises.writeFile(filePath, 'hi', 'utf8');
+      // Validation runs BEFORE the persisted-list check: even seeded entries
+      // must exist, be absolute, and be directories.
+      seedPersistedRoot(storage, path.join(root, 'missing'));
+      seedPersistedRoot(storage, filePath);
 
       expect(await handlers.registerRoot(path.join(root, 'missing'))).toMatchObject({ ok: false });
       expect(await handlers.registerRoot('relative/path')).toMatchObject({ ok: false });
@@ -192,14 +255,17 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('pickDirectory resolves { ok: true, value: null } on user cancel', async () => {
-      const { handlers } = createHandlers({ pickDirectoryPath: () => Promise.resolve(null) });
+      const { handlers, storage } = createHandlers({
+        pickDirectoryPath: () => Promise.resolve(null),
+      });
       expect(await handlers.pickDirectory()).toEqual({ ok: true, value: null });
       expect(approvedNotesVaultRootCountForTest()).toBe(0);
+      expect(persistedRoots(storage)).toEqual([]);
     });
 
-    it('pickDirectory registers the picked directory as an approved root', async () => {
+    it('pickDirectory registers the picked directory as an approved root and persists it', async () => {
       const picked = await makeDir();
-      const { handlers } = createHandlers({
+      const { handlers, storage } = createHandlers({
         pickDirectoryPath: () => Promise.resolve(picked),
       });
       expect(await handlers.pickDirectory()).toEqual({
@@ -207,17 +273,60 @@ describe('notes vault IPC handlers', () => {
         value: { name: path.basename(picked), path: picked },
       });
       expect(approvedNotesVaultRootCountForTest()).toBe(1);
+      expect(persistedRoots(storage)).toEqual([picked]);
+    });
+
+    it('registerRoot re-approves a picker-approved path after an app restart (same storage, fresh registrar)', async () => {
+      const picked = await makeDir();
+      const first = createHandlers({ pickDirectoryPath: () => Promise.resolve(picked) });
+      expect(await first.handlers.pickDirectory()).toMatchObject({ ok: true });
+      expect(approvedNotesVaultRootCountForTest()).toBe(1);
+
+      // Simulate an app restart: the in-memory approved map is gone, the
+      // durable storage survives.
+      resetNotesVaultIpcStateForTest();
+      expect(approvedNotesVaultRootCountForTest()).toBe(0);
+      const second = createHandlers({ storage: first.storage });
+
+      expect(await second.handlers.registerRoot(picked)).toEqual({
+        ok: true,
+        value: { name: path.basename(picked), path: picked },
+      });
+      expect(approvedNotesVaultRootCountForTest()).toBe(1);
+      expect(await second.handlers.listDirectory(picked)).toMatchObject({ ok: true });
+    });
+
+    it('round-trips approvals through the injected storage without duplicates', async () => {
+      const picked = await makeDir();
+      const parent = await makeDir();
+      const { handlers, storage } = createHandlers({
+        getDefaultVaultParentPath: () => parent,
+        pickDirectoryPath: () => Promise.resolve(picked),
+      });
+
+      expect(await handlers.pickDirectory()).toMatchObject({ ok: true });
+      expect(persistedRoots(storage)).toEqual([picked]);
+
+      expect(await handlers.ensureDefaultVault()).toMatchObject({ ok: true });
+      const vaultPath = path.join(parent, DEFAULT_NOTES_VAULT_DIRECTORY_NAME);
+      expect(persistedRoots(storage)).toEqual([picked, vaultPath]);
+
+      // Re-approving is idempotent: no duplicate persisted entries.
+      expect(await handlers.pickDirectory()).toMatchObject({ ok: true });
+      expect(await handlers.ensureDefaultVault()).toMatchObject({ ok: true });
+      expect(await handlers.registerRoot(picked)).toMatchObject({ ok: true });
+      expect(persistedRoots(storage)).toEqual([picked, vaultPath]);
     });
   });
 
   describe('read containment', () => {
     it('rejects listDirectory/statEntry/readFile for paths outside every approved root', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
       const outside = await makeDir();
       const outsideFile = path.join(outside, 'secret.md');
       await fsPromises.writeFile(outsideFile, 'secret', 'utf8');
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
 
       expect(await handlers.listDirectory(outside)).toMatchObject({ ok: false });
       expect(await handlers.statEntry(outsideFile)).toMatchObject({ ok: false });
@@ -228,13 +337,13 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('rejects a read through an in-root symlink whose target escapes the root', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
       const outside = await makeDir();
       const outsideFile = path.join(outside, 'secret.md');
       await fsPromises.writeFile(outsideFile, 'secret', 'utf8');
       await fsPromises.symlink(outsideFile, path.join(approved, 'escape.md'));
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
 
       const result = await handlers.readFile(path.join(approved, 'escape.md'));
       expect(result).toMatchObject({ ok: false });
@@ -242,14 +351,14 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('lists immediate children with entry metadata and SKIPS symlink children', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
       await fsPromises.writeFile(path.join(approved, 'note.md'), '# hi', 'utf8');
       await fsPromises.mkdir(path.join(approved, 'sub'));
       // Both a live and a dangling symlink child must be skipped.
       await fsPromises.symlink(path.join(approved, 'note.md'), path.join(approved, 'live-link.md'));
       await fsPromises.symlink(path.join(approved, 'missing'), path.join(approved, 'dangling'));
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
 
       const result = await handlers.listDirectory(approved);
       if (!result.ok) {
@@ -265,9 +374,9 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('statEntry returns null for a missing entry inside an approved root', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
       expect(await handlers.statEntry(path.join(approved, 'nope.md'))).toEqual({
         ok: true,
         value: null,
@@ -275,21 +384,21 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('reads a contained file as utf8', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
       const filePath = path.join(approved, 'note.md');
       await fsPromises.writeFile(filePath, '# hello vault', 'utf8');
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
       expect(await handlers.readFile(filePath)).toEqual({ ok: true, value: '# hello vault' });
     });
   });
 
   describe('writeFile', () => {
     it('refuses a write outside every approved root', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
       const outside = await makeDir();
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
 
       const target = path.join(outside, 'evil.md');
       const result = await handlers.writeFile(target, 'nope');
@@ -299,10 +408,10 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('refuses a traversal escape and the vault root itself', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
       const outside = await makeDir();
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
 
       expect(
         await handlers.writeFile(path.join(approved, '..', path.basename(outside), 'evil.md'), 'x')
@@ -314,9 +423,9 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('writes a contained file (creating parents) and returns its lastModified', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
 
       const target = path.join(approved, 'folder', 'note.md');
       const result = await handlers.writeFile(target, '# body');
@@ -333,13 +442,13 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('refuses to write through a symlink leaf', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
       const outside = await makeDir();
       const outsideFile = path.join(outside, 'target.md');
       await fsPromises.writeFile(outsideFile, 'original', 'utf8');
       await fsPromises.symlink(outsideFile, path.join(approved, 'link.md'));
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
 
       expect(await handlers.writeFile(path.join(approved, 'link.md'), 'evil')).toMatchObject({
         ok: false,
@@ -384,9 +493,9 @@ describe('notes vault IPC handlers', () => {
 
   describe('watch lifecycle', () => {
     it('watches an approved directory and pushes { watchId } to the OWNING renderer only', async () => {
-      const { handlers, watchHarness } = createHandlers();
+      const { handlers, storage, watchHarness } = createHandlers();
       const approved = await makeDir();
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
       const owner = new FakeWebContents(11);
 
       const result = await handlers.watch(castOwner(owner), approved);
@@ -415,9 +524,9 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('unwatch stops the watcher for the owner and rejects non-owners with the same error', async () => {
-      const { handlers, watchHarness } = createHandlers();
+      const { handlers, storage, watchHarness } = createHandlers();
       const approved = await makeDir();
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
       const owner = new FakeWebContents(21);
 
       const watched = await handlers.watch(castOwner(owner), approved);
@@ -441,11 +550,11 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('reaps every watcher owned by a destroyed WebContents', async () => {
-      const { handlers, watchHarness } = createHandlers();
+      const { handlers, storage, watchHarness } = createHandlers();
       const approvedA = await makeDir();
       const approvedB = await makeDir();
-      await approveRoot(handlers, approvedA);
-      await approveRoot(handlers, approvedB);
+      await approveRoot(handlers, storage, approvedA);
+      await approveRoot(handlers, storage, approvedB);
       const owner = new FakeWebContents(31);
       const survivor = new FakeWebContents(32);
 
@@ -462,9 +571,9 @@ describe('notes vault IPC handlers', () => {
     });
 
     it('disposeAllNotesVaultWatchers reaps every live watcher', async () => {
-      const { handlers, watchHarness } = createHandlers();
+      const { handlers, storage, watchHarness } = createHandlers();
       const approved = await makeDir();
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
       const owner = new FakeWebContents(41);
       expect(await handlers.watch(castOwner(owner), approved)).toMatchObject({ ok: true });
       expect(await handlers.watch(castOwner(owner), approved)).toMatchObject({ ok: true });
@@ -479,9 +588,9 @@ describe('notes vault IPC handlers', () => {
 
   describe('registration', () => {
     it('registers the nine invoke channels (NOT the changed push) and the disposer reaps state', async () => {
-      const { handlers } = createHandlers();
+      const { handlers, storage } = createHandlers();
       const approved = await makeDir();
-      await approveRoot(handlers, approved);
+      await approveRoot(handlers, storage, approved);
       const owner = new FakeWebContents(51);
       expect(await handlers.watch(castOwner(owner), approved)).toMatchObject({ ok: true });
 

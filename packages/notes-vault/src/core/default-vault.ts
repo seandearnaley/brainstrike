@@ -11,13 +11,13 @@ export const DEFAULT_VAULT_DIR_NAME = 'brainstrike-notes';
 /** Display name for the built-in vault root. */
 export const DEFAULT_VAULT_DISPLAY_NAME = 'My Notes';
 
-const WELCOME_NOTE_NAME = 'Welcome.md';
-const WELCOME_NOTE_CONTENT = `# Welcome to Notes
+export const WELCOME_NOTE_NAME = 'Welcome.md';
+export const WELCOME_NOTE_CONTENT = `# Welcome to Notes
 
 Your notes live here as plain markdown files — no import, no lock-in.
 
 - Click **Edit** (or create a note with **New Note**) to start writing. Changes save automatically; **⌘S** saves immediately.
-- Drag any folder of markdown onto this panel to mount it as another vault.
+- Add any folder of markdown as another vault — Open Folder, or drag it onto this panel.
 - Link between notes with relative links like [Welcome](Welcome.md); headings, code fences, tasks, and math all render.
 
 Delete this note whenever you like.

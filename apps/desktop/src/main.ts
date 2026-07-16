@@ -995,7 +995,7 @@ unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
 unregisterUserCommandsIpcHandlers = registerUserCommandsIpcHandlers();
 unregisterUserPersonasIpcHandlers = registerUserPersonasIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
-unregisterNotesVaultIpcHandlers = registerNotesVaultIpc();
+unregisterNotesVaultIpcHandlers = registerNotesVaultIpc(storage);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {

@@ -53,6 +53,12 @@
       "@brainstrike/file-system/path-validation": [
         "../../packages/file-system/dist/path-validation.d.ts"
       ],
+      "@brainstrike/notes-vault/core": [
+        "../../packages/notes-vault/dist/core/index.d.ts"
+      ],
+      "@brainstrike/notes-vault/desktop-contract": [
+        "../../packages/notes-vault/dist/desktop/bridge-contract.d.ts"
+      ],
       "@brainstrike/utils/logger": [
         "../../packages/utils/dist/logger.d.ts"
       ],

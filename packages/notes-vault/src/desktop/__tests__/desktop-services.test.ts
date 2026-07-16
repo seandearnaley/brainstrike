@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { StoredVaultRoot, VaultHandleStore } from '../../core/handle-store';
+import { createMemoryHandleStore } from '../../__tests__/support/memory-handle-store';
 import type { NotesVaultBridge, NotesVaultChangeEvent, NotesVaultResult } from '../bridge-contract';
 import { createDesktopNotesVaultServices } from '../desktop-services';
 import { createNodeVaultDirectoryHandle, nodeVaultHandlePath } from '../node-vault-handles';
@@ -49,26 +49,12 @@ function stubBridge(overrides: Partial<NotesVaultBridge> = {}): NotesVaultBridge
   };
 }
 
-function memoryStore(): VaultHandleStore & { rows: Map<string, StoredVaultRoot> } {
-  const rows = new Map<string, StoredVaultRoot>();
-  return {
-    list: () => Promise.resolve([...rows.values()]),
-    put: (root) => {
-      rows.set(root.rootId, root);
-      return Promise.resolve();
-    },
-    remove: (rootId) => {
-      rows.delete(rootId);
-      return Promise.resolve();
-    },
-    rows,
-  };
-}
-
 describe('createDesktopNotesVaultServices', () => {
   it('maps picker cancellation to AbortError and picks to node handles', async () => {
     const bridge = stubBridge();
-    const services = createDesktopNotesVaultServices(bridge, { handleStore: memoryStore() });
+    const services = createDesktopNotesVaultServices(bridge, {
+      handleStore: createMemoryHandleStore(),
+    });
 
     await expect(services.pickDirectory()).rejects.toMatchObject({ name: 'AbortError' });
 
@@ -80,7 +66,7 @@ describe('createDesktopNotesVaultServices', () => {
 
   it('provisions the default vault through the bridge', async () => {
     const services = createDesktopNotesVaultServices(stubBridge(), {
-      handleStore: memoryStore(),
+      handleStore: createMemoryHandleStore(),
     });
 
     const vault = await services.getDefaultVault?.();
@@ -91,7 +77,7 @@ describe('createDesktopNotesVaultServices', () => {
 
   it('persists node handles as path markers and rehydrates them with re-approval', async () => {
     const bridge = stubBridge();
-    const inner = memoryStore();
+    const inner = createMemoryHandleStore();
     const services = createDesktopNotesVaultServices(bridge, { handleStore: inner });
     const handle = createNodeVaultDirectoryHandle(bridge, '/home/vault', 'vault');
 
@@ -109,7 +95,9 @@ describe('createDesktopNotesVaultServices', () => {
 
   it('wires watching through the bridge with id-filtered change events', async () => {
     const bridge = stubBridge();
-    const services = createDesktopNotesVaultServices(bridge, { handleStore: memoryStore() });
+    const services = createDesktopNotesVaultServices(bridge, {
+      handleStore: createMemoryHandleStore(),
+    });
     const handle = createNodeVaultDirectoryHandle(bridge, '/home/vault', 'vault');
     const onChange = vi.fn();
 
@@ -137,7 +125,9 @@ describe('createDesktopNotesVaultServices', () => {
     const bridge = stubBridge({
       watch: () => Promise.resolve({ error: 'chokidar exploded', ok: false }),
     });
-    const services = createDesktopNotesVaultServices(bridge, { handleStore: memoryStore() });
+    const services = createDesktopNotesVaultServices(bridge, {
+      handleStore: createMemoryHandleStore(),
+    });
     const handle = createNodeVaultDirectoryHandle(bridge, '/home/vault', 'vault');
     const onError = vi.fn();
 

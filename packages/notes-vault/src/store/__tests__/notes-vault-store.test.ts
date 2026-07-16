@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { FakeDirectoryHandle, fakeDir, fakeNote } from '../../__tests__/support/fake-handles';
-import type { StoredVaultRoot, VaultHandleStore } from '../../core/handle-store';
+import { createMemoryHandleStore } from '../../__tests__/support/memory-handle-store';
+import type { StoredVaultRoot } from '../../core/handle-store';
 import type { VaultDirectoryHandleLike } from '../../core/types';
 import type { VaultWatcher } from '../../core/watch';
 import { createNotesVaultStore, type NotesVaultServices } from '../notes-vault-store';
@@ -11,24 +12,8 @@ interface WatchRecord {
   watcher: VaultWatcher & { disconnected: boolean };
 }
 
-function memoryHandleStore(): VaultHandleStore & { rows: Map<string, StoredVaultRoot> } {
-  const rows = new Map<string, StoredVaultRoot>();
-  return {
-    list: () => Promise.resolve([...rows.values()].sort((a, b) => a.addedAt - b.addedAt)),
-    put: (root) => {
-      rows.set(root.rootId, root);
-      return Promise.resolve();
-    },
-    remove: (rootId) => {
-      rows.delete(rootId);
-      return Promise.resolve();
-    },
-    rows,
-  };
-}
-
 interface Harness {
-  handleStore: ReturnType<typeof memoryHandleStore>;
+  handleStore: ReturnType<typeof createMemoryHandleStore>;
   services: NotesVaultServices;
   setNextPick: (dir: FakeDirectoryHandle | (() => Promise<FakeDirectoryHandle>)) => void;
   store: ReturnType<typeof createNotesVaultStore>;
@@ -36,7 +21,7 @@ interface Harness {
 }
 
 function harness(overrides: Partial<NotesVaultServices> = {}): Harness {
-  const handleStore = memoryHandleStore();
+  const handleStore = createMemoryHandleStore();
   const watches: WatchRecord[] = [];
   let nextPick: () => Promise<FakeDirectoryHandle> = () =>
     Promise.reject(new DOMException('canceled', 'AbortError'));
@@ -315,6 +300,25 @@ describe('default vault', () => {
     const state = h.store.getState();
     expect(state.globalError).toMatch(/opfs unavailable/);
     expect(state.roots.map((root) => root.name)).toEqual(['user-vault']);
+  });
+});
+
+describe('built-in root protection', () => {
+  it('removeRoot is a guarded no-op for the built-in default vault', async () => {
+    const h = harness({
+      getDefaultVault: () =>
+        Promise.resolve({
+          handle: fakeDir('brainstrike-notes', [fakeNote('w.md')]),
+          name: 'My Notes',
+        }),
+    });
+    await h.store.getState().initialize();
+    const builtInId = h.store.getState().roots[0]?.rootId ?? '';
+
+    await h.store.getState().removeRoot(builtInId);
+
+    expect(h.store.getState().roots).toHaveLength(1);
+    expect(h.watches[0]?.watcher.disconnected).toBe(false);
   });
 });
 

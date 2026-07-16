@@ -46,6 +46,21 @@ export function clearNoteContentCache(): void {
   emit();
 }
 
+/** Drops every cached entry for a note (all lastModified keys) so the next
+ * read hits disk — used after our own saves (coarse-mtime safety). */
+export function invalidateNoteContent(noteId: string): void {
+  let changed = false;
+  for (const key of entries.keys()) {
+    if (key.startsWith(`${noteId}@`)) {
+      entries.delete(key);
+      changed = true;
+    }
+  }
+  if (changed) {
+    emit();
+  }
+}
+
 export function subscribeNoteContent(listener: () => void): () => void {
   listeners.add(listener);
   return () => {

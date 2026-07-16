@@ -425,6 +425,13 @@ export function createNotesVaultStore(services: NotesVaultServices) {
       },
 
       removeRoot: async (rootId) => {
+        const target = get().roots.find((root) => root.rootId === rootId);
+        if (target?.builtIn) {
+          // The UI never offers this; guard the store API so a stray caller
+          // cannot strand the session without its default vault.
+          logger.warn('Ignoring removeRoot for the built-in default vault', { rootId });
+          return;
+        }
         disposeWatchers(rootId);
         // Invalidate any in-flight scan; the entry itself can go (rootIds are
         // fresh UUIDs, and patchRoot no-ops for filtered-out roots anyway).
