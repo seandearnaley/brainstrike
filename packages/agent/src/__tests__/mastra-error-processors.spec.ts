@@ -66,6 +66,8 @@ vi.mock('@mastra/core/agent', async (importActual) => {
       super(config);
       agentConfigs.push(config as Record<string, unknown>);
     }
+    // The trailing `as MastraAgent['stream']` cast is load-bearing: it bridges
+    // the single-signature arrow back to the base's overload set.
     override stream: MastraAgent['stream'] = ((
       messages: Parameters<MastraAgent['stream']>[0],
       options?: AgentExecutionOptionsBase<unknown> & { structuredOutput?: never }
