@@ -1230,6 +1230,25 @@ describe('AssistantUiPanel model picker', () => {
     expect(onSettingsChange).toHaveBeenCalledWith('google', { googleIncludeThoughts: true });
   });
 
+  it('only offers Kimi K3 reasoning efforts reported by OpenRouter', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="moonshotai/kimi-k3"
+        onSettingsChange={vi.fn()}
+        providerId="openrouter"
+        settings={{}}
+      />
+    );
+
+    const effortSelect = screen.getByRole('combobox', { name: 'Reasoning effort' });
+    expect(effortSelect).toHaveTextContent('Auto (max)');
+    fireEvent.click(effortSelect);
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Auto (max)',
+      'Max',
+    ]);
+  });
+
   it('renders anthropic settings and updates the thinking budget input', () => {
     const onSettingsChange = vi.fn();
 

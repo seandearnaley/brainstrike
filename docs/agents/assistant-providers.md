@@ -65,6 +65,12 @@
   `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
   adapter ignores.
+- OpenRouter reasoning controls are model-capability-aware when the Models API
+  publishes `reasoning.supported_efforts`. Declare those efforts on the static
+  model definition, filter the picker control to the declared set, and reject
+  incompatible settings at request construction. On an explicit model switch,
+  clear an incompatible provider-wide effort override so the newly selected
+  model uses its documented default; do not map it to a guessed nearest level.
 - Static OpenRouter prices are estimates for pre-existing/unreported usage.
   Exact provider-reported cost is authoritative because routing, caching, BYOK,
   and provider tiers can make the catalog rate differ from the billed amount.

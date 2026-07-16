@@ -17,6 +17,7 @@ import {
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LocalRuntimeModelCatalogMap,
+  reconcileProviderSettingsForModel,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
   resolveLocalRuntimeSelection,
@@ -635,6 +636,32 @@ describe('assistant runtime helpers', () => {
     ).toEqual({
       openrouter: { reasoning: { effort: 'high', summary: 'detailed' } },
     });
+    expect(
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ openrouter: { reasoning: { effort: 'max' } } });
+    expect(() =>
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'high',
+      })
+    ).toThrow(/Kimi K3.*does not support.*high/i);
+    expect(() =>
+      buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
+        reasoningEffort: 'none',
+      })
+    ).toThrow(/Muse Spark 1\.1.*does not support.*none/i);
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
+        maxOutputTokens: 2048,
+        reasoningEffort: 'high',
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ reasoningEffort: 'max' });
     expect(
       buildProviderOptions('ollama', 'llama', {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
