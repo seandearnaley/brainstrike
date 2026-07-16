@@ -1,4 +1,4 @@
-import { createPriorityDbHandle } from '@brainstrike/db';
+import { createEmbeddingCacheRepository, createPriorityDbHandle } from '@brainstrike/db';
 import { getRegisteredEmbeddingRuntimeConfig } from '@brainstrike/embeddings/runtime-config';
 import type {
   EmbeddingWorkerController,
@@ -360,9 +360,15 @@ export function useEmbeddingRuntimeController(
 
       try {
         const startEmbeddingWorker = await loadStartEmbeddingWorker();
+        // Same content-level dedup the desktop embedding host gets (#928).
+        // Without this, the in-tab (web) worker silently re-embeds
+        // byte-identical content on every pass — the cache table exists on
+        // both platforms, so wire it on both.
+        const backgroundDb = createPriorityDbHandle(db, 'background');
         const controller = await startEmbeddingWorker({
-          db: createPriorityDbHandle(db, 'background'),
+          db: backgroundDb,
           device: devicePreference,
+          embeddingCache: createEmbeddingCacheRepository(backgroundDb),
           enable: true,
           onFatalError: (error: Error) => {
             updateLocalStatus(

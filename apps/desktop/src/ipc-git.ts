@@ -1,3 +1,4 @@
+import type { GitDiffParams } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import { getDatabase } from './db-main';
 import {
@@ -29,11 +30,7 @@ export function registerGitIpcHandlers(
   registry.registerInvoke(
     'git',
     DESKTOP_IPC_CHANNELS.git.diff,
-    (
-      _event,
-      rootId: unknown,
-      params: { path?: string; staged?: boolean; untracked?: boolean } = {}
-    ) => handlers.diff(rootId, params)
+    (_event, rootId: unknown, params: GitDiffParams) => handlers.diff(rootId, params)
   );
   registry.registerInvoke(
     'git',
@@ -48,16 +45,49 @@ export function registerGitIpcHandlers(
   registry.registerInvoke(
     'git',
     DESKTOP_IPC_CHANNELS.git.commit,
-    (_event, rootId: unknown, params: { message: string }) => handlers.commit(rootId, params)
+    (_event, rootId: unknown, params: { description?: string; summary: string }) =>
+      handlers.commit(rootId, params)
+  );
+  registry.registerInvoke(
+    'git',
+    DESKTOP_IPC_CHANNELS.git.commitDiff,
+    (_event, rootId: unknown, params: { commit: string; originalPath?: string; path: string }) =>
+      handlers.commitDiff(rootId, params)
+  );
+  registry.registerInvoke(
+    'git',
+    DESKTOP_IPC_CHANNELS.git.commitFiles,
+    (_event, rootId: unknown, params: { commit: string }) => handlers.commitFiles(rootId, params)
   );
   registry.registerInvoke('git', DESKTOP_IPC_CHANNELS.git.aheadBehind, (_event, rootId: unknown) =>
     handlers.aheadBehind(rootId)
   );
-  registry.registerInvoke('git', DESKTOP_IPC_CHANNELS.git.push, (_event, rootId: unknown) =>
-    handlers.push(rootId)
+  registry.registerInvoke(
+    'git',
+    DESKTOP_IPC_CHANNELS.git.fetch,
+    (_event, rootId: unknown, params: { remote: string }) => handlers.fetch(rootId, params)
+  );
+  registry.registerInvoke(
+    'git',
+    DESKTOP_IPC_CHANNELS.git.history,
+    (_event, rootId: unknown, params: { limit: number; offset: number; ref?: string }) =>
+      handlers.history(rootId, params)
+  );
+  registry.registerInvoke(
+    'git',
+    DESKTOP_IPC_CHANNELS.git.push,
+    (_event, rootId: unknown, params: { remote?: string }) => handlers.push(rootId, params)
   );
   registry.registerInvoke('git', DESKTOP_IPC_CHANNELS.git.pull, (_event, rootId: unknown) =>
     handlers.pull(rootId)
+  );
+  registry.registerInvoke('git', DESKTOP_IPC_CHANNELS.git.repository, (_event, rootId: unknown) =>
+    handlers.repository(rootId)
+  );
+  registry.registerInvoke(
+    'git',
+    DESKTOP_IPC_CHANNELS.git.switchBranch,
+    (_event, rootId: unknown, params: { branch: string }) => handlers.switchBranch(rootId, params)
   );
 
   return () => {

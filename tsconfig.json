@@ -98,9 +98,6 @@
       "@brainstrike/file-tree-worker": [
         "./packages/file-tree-worker/src"
       ],
-      "@brainstrike/queue-telemetry-collector": [
-        "./packages/queue-telemetry-collector/src"
-      ],
       "@brainstrike/platform-utils": [
         "./packages/platform-utils/src"
       ],
@@ -145,6 +142,15 @@
       ],
       "@brainstrike/embedding-worker": [
         "./packages/embedding-worker/src"
+      ],
+      "@brainstrike/selection-rules": [
+        "./packages/selection-rules/src"
+      ],
+      "@brainstrike/worker-runtime": [
+        "./packages/worker-runtime/src"
+      ],
+      "@brainstrike/workspace-search": [
+        "./packages/workspace-search/src"
       ],
       "@web/*": [
         "./apps/web/src/*"
@@ -235,9 +241,6 @@
     },
     {
       "path": "./packages/file-tree-worker/tsconfig.references.json"
-    },
-    {
-      "path": "./packages/queue-telemetry-collector"
     },
     {
       "path": "./packages/platform-utils"

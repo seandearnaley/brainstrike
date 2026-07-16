@@ -62,7 +62,7 @@ below are LIVE.
 > stopped executing) while mocked tests stayed green. Future changes to these
 > layers MUST preserve coverage that runs the actual Mastra agent loop end to end
 > with real tool `execute`, not only mocked stream parts. The current proofs live
-> in `packages/agent/src/__tests__/mastra-tool-execution.spec.ts` and
+> in `packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts` and
 > `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
 > clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
 
@@ -70,6 +70,9 @@ Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rul
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
+- A local-runtime inactivity termination includes the normalized provider and
+  selected model in both the structured error log and visible run failure. Do
+  not include bearer tokens or silently restart/unload the external server.
 - Invariant: tool timeout < stream inactivity.
 - `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
   which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced
@@ -112,11 +115,18 @@ process flooding the stream: at the cap one truncation notice is emitted,
 streaming stops, and teardown/capture continue unchanged. Mastra hands a plain
 tool OBJECT the raw `outputWriter` fn + top-level `toolCallId` (a `createTool`
 instance gets `writer.custom` + `agent.toolCallId`); the desktop wiring accepts
-both. The renderer accumulates slices per toolCallId
-(`collectShellOutputs` + `ShellOutputProvider`) into the live tool card
-(`LiveShellOutputPane`, shown only while running). background:true (run the tool
-as a Mastra background task) is a documented FOLLOW-UP, not in v1. Proofs:
-mastra-tool-execution.spec ('streams incremental shell-output …'),
+both. The renderer accumulates slices per toolCallId INCREMENTALLY
+(`createShellOutputAccumulator` + `ShellOutputProvider`, via
+`useChainActivityDerivations`) into the live tool card (`LiveShellOutputPane`,
+shown only while running). The accumulator is O(new parts) per streamed update
+and keeps record identity stable when no shell slice arrived — do NOT replace
+it with a full rescan per update (`collectShellOutputs` is the pure/batch
+variant): the full rebuild is quadratic over a chatty command and its
+per-chunk fresh record identity re-renders every tool card in the turn. Same
+rule for `ToolDurationProvider` (value-stable via `useStableRecord`).
+background:true (run the tool as a Mastra background task) is a documented
+FOLLOW-UP, not in v1. Proofs:
+mastra-tool-execution.integration.spec ('streams incremental shell-output …'),
 execute-command-tool.test / execute-command-live-loop.test, shell-output-parts.test.
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently
@@ -164,7 +174,24 @@ Flow (desktop assistant server → agent runtime):
 4. The approval UI + resume chain (`makeApprovalRequiredChunks` →
    `tool-approval-required` chunk → `DataStreamMapper.handleToolApprovalRequired`
    → `TOOL_APPROVAL_DATA_NAME` data part → `assistant-tool-approval-notice.tsx`)
-   prompts the user; approve→execute, decline→skip. The chunk carries an optional
+   prompts the user; approve→execute, decline→skip. Alongside Approve/Decline
+   the notice offers two GRANT actions when (a) a `ToolApprovalGrantProvider`
+   is mounted above it (app-shell wraps the panel, same outside-in pattern as
+   `EditCheckpointProvider`; no provider → no buttons, capability gating) and
+   (b) the approval carries a valid `riskCategory` (policy-driven ask —
+   non-policy pauses never over-promise a grant): "Always allow <tool>" →
+   `setToolOverride(toolId,'allow')` (persisted), "Allow <category> this
+   session" → `grantSessionCategory` (session-lived). Both record the grant
+   FIRST, then approve the pending call through the normal resume — the grant
+   affects the NEXT request via the wrapper's reactive store subscription; the
+   pending call still resolves through `streamMastraToolApprovalAction`.
+   An OpenRouter approval pause terminates its transport leg with zero-token
+   usage and no claimed cost: Mastra emits the pause before that model step's
+   `step-finish`. Approval resume emits the deferred step finish before later
+   steps, so normal terminal aggregation records the exact total then.
+   Management surface: Settings > Permissions lists per-tool overrides
+   (change decision / remove via `setToolOverride(id,null)`) and active
+   session grants (revoke via `revokeSessionCategory`). The chunk carries an optional
    `riskCategory`/`policyDecision` so the notice can name the reason. The
    data-stream mapper correlates Mastra's transient tool error emitted before a
    deliberate `suspend()` and suppresses only that call's false failure fallback;
@@ -194,7 +221,7 @@ assistant server / storage), so ask tools are fail-safe-omitted there and web
 local chat is unaffected (desktop-first).
 
 Live-loop proof (real Agent + real PGlite workflow storage, no agent mock):
-`packages/agent/src/__tests__/mastra-tool-approval-suspend.spec.ts` —
+`packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts` —
 suspend→approve→execute, suspend→decline→skip, AND an allowed read tool runs
 FREE while an ask tool is in the map (the per-tool-not-global guard). NOTE: the
 scripted model's synchronous stream starves the event loop during the
@@ -397,7 +424,7 @@ server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
   permission-policy v2 security bump). Factory reset clears the store unchanged.
 
 Live-loop proofs (real Agent + real `applyToolHooks`, no stream mocks):
-`packages/agent/src/__tests__/mastra-tool-execution.spec.ts` (block / allow +
+`packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts` (block / allow +
 PostToolUse context / runtime-threaded / no-runner regression / runner-fault).
 Server composition: `apps/desktop/src/__tests__/assistant-server/hooks/`.
 
@@ -447,6 +474,10 @@ surfaced as a 400, never coerced).
 suspending tool calls `suspend()`. `makeToolSuspendRequiredChunks` turns it into
 a resumable `tool-suspend-required` chunk + a tool-calls finish and STOPS at the
 pause (this replaced the old `makeUnsupportedApprovalChunks` dead-end at ~936).
+A native OpenRouter pause finish has zero tokens and no billed-cost field because
+Mastra has not exposed that step's `step-finish` yet. Resume emits the deferred
+step finish before continuing, so the resumed terminal finish aggregates the
+pre-pause and subsequent step costs.
 A malformed pause (missing toolCallId/runId) still falls back to the unsupported
 termination so it fails visibly. `DataStreamMapper.handleToolSuspendRequired`
 emits the `brainstrike.tool-suspend` data part, honoring the text-part deferral
@@ -492,7 +523,7 @@ waits on the separate `listSuspendedRuns` feature (the data part is transient).
 `AssistantToolResumeAction`'s fields are all recoverable from
 `listSuspendedRuns().runs[].toolCalls[]`, so nothing here blocks it.
 
-Paired tests: packages/agent/src/__tests__/mastra-tool-suspend-resume.spec.ts
+Paired tests: packages/agent/src/__tests__/mastra-tool-suspend-resume.integration.spec.ts
 (real Agent + real PGlite: suspend→approve, reject-with-feedback, askUser
 free-text + multi-select, no-storage fail-safe omit + resume-throws, plan-mode
 drops edit / keeps submitPlan); plan-mode-tool-gate.spec.ts; the streaming +

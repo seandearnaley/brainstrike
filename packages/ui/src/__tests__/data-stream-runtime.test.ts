@@ -456,6 +456,7 @@ describe('assistant-stream integration', () => {
         content: [
           { data: 'data:text/plain;base64,SGVsbG8=', mediaType: 'text/plain', type: 'file' },
         ],
+        id: 'file-user',
         role: 'user',
       },
       {
@@ -648,6 +649,13 @@ describe('assistant-stream integration', () => {
     expect(
       (requestBody?.['messages'] as unknown[]).map((item) => (item as { role: string }).role)
     ).toEqual(['user']);
+    expect(requestBody?.['messages']).toEqual([
+      {
+        content: [{ text: 'current-user' }],
+        id: 'current-user',
+        role: 'user',
+      },
+    ]);
   });
 
   it('reports null response bodies as transport failures', async () => {
@@ -1053,6 +1061,40 @@ describe('assistant-stream integration', () => {
     expect(usageEvents).toEqual([{ inputTokens: 123, outputTokens: 45 }]);
   });
 
+  it('forwards provider-reported billed cost with token usage', async () => {
+    const usageEvents: Array<{
+      billedCostUsd?: number;
+      inputTokens: number;
+      outputTokens: number;
+    }> = [];
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-cost"}',
+            '0:"Hello"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":123,"outputTokens":45},"billedCostUsd":0.0042,"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage: (usage) => usageEvents.push(usage),
+    });
+
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      // drain
+    }
+
+    expect(usageEvents).toEqual([{ billedCostUsd: 0.0042, inputTokens: 123, outputTokens: 45 }]);
+  });
+
   it('completes normally and does not call onUsage when finish-message chunk has no usage field', async () => {
     // Guard: buildUsageTap must handle a chunk where `usage` is null/undefined.
     // Without the guard the destructure throws, erroring the whole stream.
@@ -1124,6 +1166,39 @@ describe('assistant-stream integration', () => {
     expect(yielded.length).toBeGreaterThan(0);
     // The stream still completes (pass-through tap), it just skips the {0,0} usage.
     expect(onUsage).not.toHaveBeenCalled();
+  });
+
+  it('forwards a cost-only zero-token finish when the transport supplies one', async () => {
+    const onUsage = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-cost-pause"}',
+            'd:{"finishReason":"tool-calls","usage":{"inputTokens":0,"outputTokens":0},"billedCostUsd":0.00125,"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage,
+    });
+
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      // drain
+    }
+
+    expect(onUsage).toHaveBeenCalledWith({
+      billedCostUsd: 0.001_25,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
   });
 
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {

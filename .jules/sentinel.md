@@ -38,3 +38,13 @@
 **Vulnerability:** Slash-command traversal applied its entry cap only after the native addon had synchronously materialized an entire untrusted directory in Electron main.
 **Learning:** A JavaScript traversal budget cannot bound work already performed across a native boundary; skipped symlinks and unsupported entries must also consume the native enumeration allowance.
 **Prevention:** Pass the remaining budget into native directory APIs, stop enumeration at that limit, and return both the raw inspected count and an explicit truncation signal for caller accounting and visible warnings.
+
+## 2026-07-13 - Log listeners must redact before buffering
+**Vulnerability:** Structured log arguments and bindings could bypass Pino's top-level serializers and enter desktop diagnostic buffers with nested or operator-configured secrets intact.
+**Learning:** Brainstrike's transports and main/renderer log viewers consume different record paths, so redaction at only one sink creates a bypass.
+**Prevention:** Redact structured values before transport and listener fan-out, honor configured paths at that shared boundary, and regression-test the listener payload.
+
+## 2026-07-15 - Hook-triggering Git commands must disable both hook systems
+**Vulnerability:** Git workbench mutations, status, and working-tree diffs could execute repository-controlled hooks with the desktop user's privileges.
+**Learning:** `core.hooksPath` blocks traditional hook files, but Git 2.54 config-managed hooks and executable `core.fsmonitor` bypass it; nominally read-only status and diffs can invoke them while inspecting the index.
+**Prevention:** Disable `core.fsmonitor` for status and, before hook-triggering Git commands, also enumerate and disable configured hooks, redirect the traditional hook directory, and regression-test every execution surface that consults the index.

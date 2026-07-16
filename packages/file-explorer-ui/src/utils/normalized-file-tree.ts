@@ -174,9 +174,67 @@ export function createNormalizedFileTreeState(nodes: IFileNode[]): NormalizedFil
   return state;
 }
 
+const EMPTY_CHILD_PATHS: readonly string[] = [];
+
+interface MaterializedDirectoryCacheEntry {
+  childPaths: readonly string[];
+  result: IFileNode;
+}
+
+// Structural-sharing caches for materialization, keyed by the normalized node
+// objects — which are IMMUTABLE once stored (every field change replaces the
+// object, see setNormalizedNodeLoadState / replaceDirectoryChildrenInPlace).
+// A directory's cached materialization is valid iff its childPaths array
+// identity AND every child's materialized result identity are unchanged; the
+// same rule applied recursively means an untouched subtree materializes to
+// the exact same object graph across commits (memo'd rows bail out, WeakMap-
+// keyed derivation caches stay warm) instead of N fresh allocations per
+// commit. Consumers must treat materialized nodes as immutable — they are
+// shared across successive trees.
+const materializedFileNodeCache = new WeakMap<NormalizedFileTreeNode, IFileNode>();
+const materializedDirectoryCache = new WeakMap<
+  NormalizedFileTreeNode,
+  MaterializedDirectoryCacheEntry
+>();
+
 function materializeFileNode(state: NormalizedFileTreeState, path: string): IFileNode | undefined {
   const node = state.nodeByPath.get(path);
-  return node?.type === 'file' ? { ...node } : undefined;
+  if (node?.type !== 'file') {
+    return;
+  }
+  const cached = materializedFileNodeCache.get(node);
+  if (cached) {
+    return cached;
+  }
+  const result = { ...node };
+  materializedFileNodeCache.set(node, result);
+  return result;
+}
+
+/**
+ * True when the cached directory result's children are identical (by object
+ * identity, per index) to the freshly materialized children for `childPaths`.
+ * Single pass, no allocation — the common "nothing under this dir changed"
+ * case costs pointer comparisons only.
+ */
+function directoryChildrenUnchanged(
+  cachedResult: IFileNode,
+  childPaths: readonly string[],
+  materializedNodes: Map<string, IFileNode>
+): boolean {
+  const cachedChildren = cachedResult.children ?? [];
+  let index = 0;
+  for (const childPath of childPaths) {
+    const child = materializedNodes.get(childPath);
+    if (child === undefined) {
+      continue;
+    }
+    if (cachedChildren[index] !== child) {
+      return false;
+    }
+    index += 1;
+  }
+  return index === cachedChildren.length;
 }
 
 function materializeDirectoryNode(
@@ -189,12 +247,23 @@ function materializeDirectoryNode(
     return;
   }
 
-  const childPaths = state.childPathsByPath.get(path) ?? [];
+  const childPaths = state.childPathsByPath.get(path) ?? EMPTY_CHILD_PATHS;
+  const cached = materializedDirectoryCache.get(node);
+  if (
+    cached &&
+    cached.childPaths === childPaths &&
+    directoryChildrenUnchanged(cached.result, childPaths, materializedNodes)
+  ) {
+    return cached.result;
+  }
+
   const children = childPaths
     .map((childPath) => materializedNodes.get(childPath))
     .filter((child): child is IFileNode => child !== undefined);
 
-  return children.length > 0 ? { ...node, children } : { ...node };
+  const result = children.length > 0 ? { ...node, children } : { ...node };
+  materializedDirectoryCache.set(node, { childPaths, result });
+  return result;
 }
 
 function queueDirectoryChildrenForMaterialization(
@@ -390,9 +459,12 @@ function recomputeDescendantFileCountsFrom(
 
 function cloneState(state: NormalizedFileTreeState): NormalizedFileTreeState {
   return {
-    childPathsByPath: new Map(
-      Array.from(state.childPathsByPath.entries(), ([path, childPaths]) => [path, [...childPaths]])
-    ),
+    // Child arrays are SHARED, not copied: no code path mutates a stored
+    // array in place (updates always .set() a fresh array), and array
+    // identity doubles as the materialization cache key — copying here would
+    // both cost O(total children) per update and invalidate the structural-
+    // sharing cache for every directory.
+    childPathsByPath: new Map(state.childPathsByPath),
     descendantFileCountByPath: new Map(state.descendantFileCountByPath),
     incompleteDirCountByPath: new Map(state.incompleteDirCountByPath),
     nodeByPath: new Map(state.nodeByPath),

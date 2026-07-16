@@ -1,6 +1,6 @@
 # PRD: Replace `@babel/parser` with native Rust parser in chunking pipeline (hybrid)
 
-**Status**: Draft — under review (Phase 1 spike complete; Phases 2–8 implemented in stacked PRs #988–#994; PRD §13 approval still pending)
+**Status**: Shipped — Phases 2–8 landed in stacked PRs #988–#994; oxc is default-on in the desktop chunking-host since 2026-05-17 (#994). A §13 sign-off was never recorded — the rollout shipped ahead of the paperwork; this line is the record that the shipped defaults are intentional.
 **Owner**: Sean Dearnaley
 **Created**: 2026-05-15
 **Last revised**: 2026-05-16 (v2.1 — Cycle 3.1 stdin/stdout plan replaced with parentPort; TDD rule §5.2 relaxed post-implementation)

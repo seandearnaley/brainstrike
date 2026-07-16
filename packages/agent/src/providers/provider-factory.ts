@@ -23,8 +23,8 @@ function resolveLocalRuntimeBaseUrl(
   runtime: 'ollama' | 'lmstudio',
   override: string | undefined
 ): string {
-  // The `createOpenAI` client expects a `/v1`-suffixed base URL; the shared
-  // resolver returns a canonical origin without `/v1`, so append it here.
+  // Mastra's OpenAI-compatible model config expects a `/v1`-suffixed URL; the
+  // shared resolver returns a canonical origin without `/v1`, so append it here.
   // `resolveRuntimeBaseUrl` already normalizes the override internally, so we
   // pass the raw input through without an extra normalization pass.
   const origin = resolveRuntimeBaseUrl(runtime, override);
@@ -36,8 +36,8 @@ function resolveLocalRuntimeBaseUrl(
  *
  * Both the explicit `apiKey` argument and the runtime-options `apiToken` are
  * routed through `assertSafeBearerToken` so a token containing CR/LF/NUL is
- * rejected at this boundary rather than flowing into the OpenAI SDK's HTTP
- * client (header-injection hardening — keeps parity with
+ * rejected at this boundary rather than flowing into Mastra's compatible HTTP
+ * adapter (header-injection hardening — keeps parity with
  * `buildRuntimeAuthHeaders`).
  */
 function pickApiKey(
@@ -113,12 +113,13 @@ export function createProvider(
     }
 
     case 'openrouter': {
-      // OpenRouter uses OpenAI-compatible API
-      const openrouterProvider = createOpenAI({
-        baseURL: 'https://openrouter.ai/api/v1',
+      // Route through Mastra's official OpenRouter model-router provider. Its
+      // stream schema preserves OpenRouter's providerMetadata (including exact
+      // billed cost); the generic OpenAI-compatible client discards that data.
+      return {
+        id: `openrouter/${modelName}`,
         ...(apiKey ? { apiKey } : {}),
-      });
-      return openrouterProvider(modelName);
+      };
     }
 
     case 'ollama': {
@@ -128,20 +129,20 @@ export function createProvider(
       //
       // Always pass an explicit `apiKey`. When the user has not configured a
       // token we substitute the conventional dummy value `'ollama'` so the
-      // OpenAI SDK does NOT fall back to `process.env.OPENAI_API_KEY`. Without
+      // compatible adapter does NOT fall back to `process.env.OPENAI_API_KEY`. Without
       // this substitution a user with `OPENAI_API_KEY` set in their
       // environment and a remote `baseUrl` (LAN GPU box, tunnel, etc.) would
       // silently leak their OpenAI key as a `Bearer` header to that remote
       // host. Ollama and LM Studio ignore the bearer value when auth is
       // disabled, so the dummy is harmless on the wire.
       const ollamaOptions = runtime?.providerOptions?.ollama;
-      const baseURL = resolveLocalRuntimeBaseUrl('ollama', ollamaOptions?.baseUrl);
+      const url = resolveLocalRuntimeBaseUrl('ollama', ollamaOptions?.baseUrl);
       const resolvedKey = pickApiKey(apiKey, ollamaOptions);
-      const ollamaProvider = createOpenAI({
+      return {
         apiKey: resolvedKey ?? 'ollama',
-        baseURL,
-      });
-      return ollamaProvider(modelName);
+        id: `ollama/${modelName}`,
+        url,
+      };
     }
 
     case 'lmstudio': {
@@ -152,13 +153,13 @@ export function createProvider(
       // See the `ollama` case above for why we always pass an explicit
       // `apiKey` (preventing OPENAI_API_KEY env-var leakage to remote hosts).
       const lmStudioOptions = runtime?.providerOptions?.lmstudio;
-      const baseURL = resolveLocalRuntimeBaseUrl('lmstudio', lmStudioOptions?.baseUrl);
+      const url = resolveLocalRuntimeBaseUrl('lmstudio', lmStudioOptions?.baseUrl);
       const resolvedKey = pickApiKey(apiKey, lmStudioOptions);
-      const lmStudioProvider = createOpenAI({
+      return {
         apiKey: resolvedKey ?? 'lmstudio',
-        baseURL,
-      });
-      return lmStudioProvider(modelName);
+        id: `lmstudio/${modelName}`,
+        url,
+      };
     }
 
     case 'local': {
@@ -252,8 +253,11 @@ export function createEmbeddingProvider(
  * Get the default model name for a provider
  */
 export function getDefaultModel(provider: SupportedProvider | string): string {
-  if (isSupportedProvider(provider)) {
-    return PROVIDER_DEFAULT_MODELS[provider] ?? '';
+  if (!isSupportedProvider(provider)) {
+    throw createMastraAgentError('mastra_agent_unsupported_provider', {
+      context: { provider, supportedProviders: listProviders().map((entry) => entry.id) },
+      detail: `Unsupported provider: ${provider}`,
+    });
   }
-  return PROVIDER_DEFAULT_MODELS.openai ?? '';
+  return PROVIDER_DEFAULT_MODELS[provider] ?? '';
 }

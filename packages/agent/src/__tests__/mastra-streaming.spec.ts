@@ -5,6 +5,7 @@ import {
   createMastraAgentRuntime,
   streamMastraAgent,
   streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
 } from '../mastra/agent-runtime';
 import { MastraAgentError, type MastraAgentErrorCode } from '../mastra/mastra-agent-error';
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
@@ -14,6 +15,7 @@ const agentInstances: Array<{
   config: { instructions?: string; memory?: unknown; tools: Record<string, unknown> };
   declineToolCallCalls: unknown[];
   registeredMastra?: unknown;
+  resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }>;
   streamCalls: Array<{ input: unknown; options: unknown }>;
   tools: Record<string, unknown>;
 }> = [];
@@ -71,16 +73,33 @@ vi.mock('@mastra/core/agent', () => ({
     approveToolCallCalls: unknown[] = [];
     declineToolCallCalls: unknown[] = [];
     registeredMastra?: unknown;
+    resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }> = [];
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
     tools: Record<string, unknown>;
     memory?: unknown;
-    model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
+    model?:
+      | {
+          apiKey?: string;
+          id?: string;
+          modelId?: string;
+          provider?: string;
+          specificationVersion?: string;
+        }
+      | undefined;
 
     constructor(config: {
       instructions?: string;
       memory?: unknown;
       tools?: Record<string, unknown>;
-      model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
+      model?:
+        | {
+            apiKey?: string;
+            id?: string;
+            modelId?: string;
+            provider?: string;
+            specificationVersion?: string;
+          }
+        | undefined;
     }) {
       const tools = (config.tools ?? {}) as Record<string, unknown>;
       this.config = {
@@ -106,6 +125,11 @@ vi.mock('@mastra/core/agent', () => ({
 
     async declineToolCall(options: unknown) {
       this.declineToolCallCalls.push(options);
+      return createMockMastraOutput();
+    }
+
+    async resumeStream(resumeData: unknown, options: unknown) {
+      this.resumeStreamCalls.push({ options, resumeData });
       return createMockMastraOutput();
     }
 
@@ -219,6 +243,177 @@ describe('mastra streaming integration', () => {
         usage: { completionTokens: 11, promptTokens: 7 },
       },
     ]);
+  });
+
+  it('aggregates provider-reported OpenRouter cost across model steps', async () => {
+    setMockStreamParts([
+      {
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.001_25 } } },
+          },
+        },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      {
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'step-finish',
+        usage: { completionTokens: 5, promptTokens: 20 },
+      },
+      {
+        finishReason: 'stop',
+        // Mastra repeats the final step's metadata on finish; it must not be
+        // double-counted when step-finish parts were observed.
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'finish',
+        usage: { completionTokens: 7, promptTokens: 30 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-cost', parts: [{ text: 'use two model steps', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      billedCostUsd: 0.005,
+      finishReason: 'stop',
+      path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 7, promptTokens: 30 },
+    });
+  });
+
+  it('rejects a cost-less OpenRouter step when finish repeats only the final step cost', async () => {
+    setMockStreamParts([
+      {
+        payload: { metadata: {} },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      {
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'step-finish',
+        usage: { completionTokens: 5, promptTokens: 20 },
+      },
+      {
+        finishReason: 'stop',
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'finish',
+        usage: { completionTokens: 7, promptTokens: 30 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-partial-cost',
+          parts: [{ text: 'use two model steps', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter model step omitted.*billed cost/i);
+  });
+
+  it('rejects malformed provider-reported OpenRouter cost', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'stop',
+        providerMetadata: { openrouter: { usage: { cost: -1 } } },
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-bad-cost', parts: [{ text: 'bad cost', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter.*cost/i);
+  });
+
+  it('rejects an OpenRouter completion that omits billed cost', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'stop',
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-missing-cost', parts: [{ text: 'missing cost', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
+  });
+
+  it('normalizes OpenRouter provider state before applying stream safeguards', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'stop',
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-normalized-provider', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: ' OpenRouter ' } }
+    );
+
+    expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 4096 },
+    });
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
   });
 
   it('propagates tool-call events as tool-event chunks', async () => {
@@ -851,6 +1046,31 @@ describe('mastra streaming integration', () => {
     expect(agentInstances.at(-1)?.registeredMastra).toBe(mastraInstances[0]);
   });
 
+  it('surfaces Mastra persisted-message ID context drift before losing the assistant-ui ID', async () => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: {
+        apiKey: 'key',
+        assistantMessageId: 'assistant-client-id',
+        provider: 'openai',
+      },
+      storage: { id: 'storage-with-workflows' } as never,
+    });
+
+    const config = mastraInstances[0]?.config as {
+      idGenerator?: (context?: { idType: 'message'; source: 'agent' | 'memory' }) => string;
+    };
+    expect(config.idGenerator?.({ idType: 'message', source: 'agent' })).not.toBe(
+      'assistant-client-id'
+    );
+    expect(() => runtime.assertAssistantMessageIdPersisted?.()).toThrow(
+      'Mastra completed without persisting assistant message ID "assistant-client-id" through its memory ID context.'
+    );
+    expect(config.idGenerator?.({ idType: 'message', source: 'memory' })).toBe(
+      'assistant-client-id'
+    );
+    expect(() => runtime.assertAssistantMessageIdPersisted?.()).not.toThrow();
+  });
+
   it('shuts down the Mastra instance when disposing a storage-backed runtime', async () => {
     const runtime = await createMastraAgentRuntime({
       runtime: { apiKey: 'key', provider: 'openai' },
@@ -894,6 +1114,32 @@ describe('mastra streaming integration', () => {
         thread: 'thread-1',
       },
     });
+  });
+
+  it('uses the assistant-ui message id for the first persisted assistant message', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'remember this', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          assistantMessageId: 'assistant-client-id',
+          provider: 'openai',
+        } as never,
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain stream
+    }
+
+    const options = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
+      experimental_generateMessageId?: () => string;
+    };
+    expect(options.experimental_generateMessageId).toBeTypeOf('function');
+    expect(options.experimental_generateMessageId?.()).toBe('assistant-client-id');
+    expect(options.experimental_generateMessageId?.()).not.toBe('assistant-client-id');
   });
 
   it('uses Brainstrike default stream step cap for native tool loops', async () => {
@@ -1023,6 +1269,40 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('keeps an OpenRouter tool approval resumable before Mastra emits step-finish', async () => {
+    setMockStreamParts([
+      {
+        payload: {
+          args: { path: 'src/index.ts' },
+          toolCallId: 'approval-cost-1',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        },
+        runId: 'run-approval-cost-1',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-cost-approval', parts: [{ text: 'edit the file', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openrouter' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      finishReason: 'tool-calls',
+      path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 0, promptTokens: 0 },
+    });
+  });
+
   it('flushes output-only tool completions before an approval pause', async () => {
     setMockStreamParts([
       {
@@ -1130,6 +1410,7 @@ describe('mastra streaming integration', () => {
         requireToolApproval: true,
         runtime: {
           apiKey: 'test-key',
+          assistantMessageId: 'assistant-resume-id',
           memory: {
             memoryOptions: { lastMessages: 5 },
             resourceId: 'workspace-a',
@@ -1141,12 +1422,22 @@ describe('mastra streaming integration', () => {
       }
     );
 
+    const agent = agentInstances.at(-1);
+    const approvalOptions = agent?.approveToolCallCalls[0] as {
+      experimental_generateMessageId?: () => string;
+    };
+    const mastraConfig = mastraInstances.at(-1)?.config as {
+      idGenerator?: () => string;
+    };
+    expect(approvalOptions.experimental_generateMessageId).toBeTypeOf('function');
+    expect(approvalOptions.experimental_generateMessageId?.()).toBe('assistant-resume-id');
+    expect(mastraConfig.idGenerator?.()).toBe('assistant-resume-id');
+
     const chunks: unknown[] = [];
     for await (const chunk of iterator) {
       chunks.push(chunk);
     }
 
-    const agent = agentInstances.at(-1);
     expect(agent?.approveToolCallCalls).toHaveLength(1);
     expect(agent?.declineToolCallCalls).toHaveLength(0);
     expect(agent?.approveToolCallCalls[0]).toMatchObject({
@@ -1175,6 +1466,59 @@ describe('mastra streaming integration', () => {
       type: 'message-finish',
       usage: { completionTokens: 3, promptTokens: 2 },
     });
+  });
+
+  it('keeps a suspended-tool resume stream ID independent from its persisted ID', async () => {
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { textDelta: 'Resumed and continued.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { answer: 'Paris' },
+        runId: 'run-suspended-1',
+        toolCallId: 'tool-call-suspended-1',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          assistantMessageId: 'assistant-suspend-resume-id',
+          provider: 'openai',
+        },
+        storage: storage as never,
+      }
+    );
+
+    const agent = agentInstances.at(-1);
+    const resumeOptions = agent?.resumeStreamCalls[0]?.options as {
+      experimental_generateMessageId?: () => string;
+    };
+    const mastraConfig = mastraInstances.at(-1)?.config as {
+      idGenerator?: () => string;
+    };
+    expect(resumeOptions.experimental_generateMessageId).toBeTypeOf('function');
+    expect(resumeOptions.experimental_generateMessageId?.()).toBe('assistant-suspend-resume-id');
+    expect(mastraConfig.idGenerator?.()).toBe('assistant-suspend-resume-id');
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(agent?.resumeStreamCalls[0]).toMatchObject({
+      options: {
+        maxSteps: 20,
+        runId: 'run-suspended-1',
+        toolCallId: 'tool-call-suspended-1',
+      },
+      resumeData: { answer: 'Paris' },
+    });
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'Resumed and continued.' });
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+    );
   });
 
   it('resumes a declined Mastra tool call through the official decline API', async () => {
@@ -1337,6 +1681,37 @@ describe('mastra streaming integration', () => {
     expect(chunks).not.toContainEqual(
       expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
     );
+  });
+
+  it('keeps an OpenRouter suspending tool resumable before Mastra emits step-finish', async () => {
+    setMockStreamParts([
+      {
+        payload: {
+          suspendPayload: { question: 'Which city?' },
+          toolCallId: 'suspended-cost-1',
+          toolName: 'brainstrike.askUser',
+        },
+        runId: 'run-suspended-cost-1',
+        type: 'tool-call-suspended',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-cost-suspend', parts: [{ text: 'ask me something', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      finishReason: 'tool-calls',
+      path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 0, promptTokens: 0 },
+    });
   });
 
   it('keeps a malformed suspend pause (missing tool call id) a visible terminal error', async () => {
@@ -1803,7 +2178,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('gpt-5.4');
+    expect(agent.model?.modelId).toBe('gpt-5.6-terra');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('openai');
   });
@@ -1816,7 +2191,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('claude-sonnet-4-6');
+    expect(agent.model?.modelId).toBe('claude-sonnet-5');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('anthropic');
   });
@@ -1842,9 +2217,69 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('openai/gpt-5.4');
+    expect(agent.model?.id).toBe('openrouter/openai/gpt-5.6-terra');
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.provider).toBe('openrouter');
+    expect(agent.model?.apiKey).toBe('test-key');
+  });
+
+  it('bounds OpenRouter output by default while preserving an explicit override', async () => {
+    setMockStreamParts([
+      {
+        providerMetadata: { openrouter: { usage: { cost: 0 } } },
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+    const defaultIterator = await streamMastraAgent(
+      [{ id: 'u-openrouter-default-cap', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+    for await (const _chunk of defaultIterator) {
+      // drain
+    }
+    expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 4096 },
+    });
+
+    const overrideIterator = await streamMastraAgent(
+      [{ id: 'u-openrouter-custom-cap', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          modelSettings: { maxOutputTokens: 512 },
+          provider: 'openrouter',
+        },
+      }
+    );
+    for await (const _chunk of overrideIterator) {
+      // drain
+    }
+    expect(agentInstances[1]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 512 },
+    });
+
+    const partialSettingsIterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-openrouter-partial-settings',
+          parts: [{ text: 'hello', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          modelSettings: { temperature: 0.2 },
+          provider: 'openrouter',
+        },
+      }
+    );
+    for await (const _chunk of partialSettingsIterator) {
+      // drain
+    }
+    expect(agentInstances[2]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 4096, temperature: 0.2 },
+    });
   });
 
   it('uses custom model when specified with provider', async () => {

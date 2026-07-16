@@ -24,37 +24,39 @@ describe('provider-factory local-runtime endpoint overrides', () => {
     fakeProvider.mockClear();
   });
 
-  it('defaults Ollama to 127.0.0.1:11434/v1 with the dummy key when no overrides are given', async () => {
+  it('returns Mastra OpenAI-compatible config for Ollama', async () => {
     const { createProvider } = await import('../providers/provider-factory');
 
-    createProvider('ollama', undefined, 'qwen3:latest');
+    const model = createProvider('ollama', undefined, 'qwen3:latest');
 
-    expect(capturedOpenAiCalls).toHaveLength(1);
+    expect(capturedOpenAiCalls).toHaveLength(0);
     // The dummy `apiKey: 'ollama'` is intentional: it suppresses the
-    // OpenAI SDK's `OPENAI_API_KEY` env-var fallback so we never leak a real
+    // compatible adapter's `OPENAI_API_KEY` env-var fallback so we never leak a real
     // OpenAI key to a (potentially remote) Ollama host.
-    expect(capturedOpenAiCalls[0]).toEqual({
+    expect(model).toEqual({
       apiKey: 'ollama',
-      baseURL: 'http://127.0.0.1:11434/v1',
+      id: 'ollama/qwen3:latest',
+      url: 'http://127.0.0.1:11434/v1',
     });
   });
 
-  it('defaults LM Studio to 127.0.0.1:1234/v1 with the dummy key', async () => {
+  it('returns Mastra OpenAI-compatible config for LM Studio', async () => {
     const { createProvider } = await import('../providers/provider-factory');
 
-    createProvider('lmstudio', undefined, 'qwen2.5');
+    const model = createProvider('lmstudio', undefined, 'qwen2.5');
 
-    expect(capturedOpenAiCalls).toHaveLength(1);
-    expect(capturedOpenAiCalls[0]).toEqual({
+    expect(capturedOpenAiCalls).toHaveLength(0);
+    expect(model).toEqual({
       apiKey: 'lmstudio',
-      baseURL: 'http://127.0.0.1:1234/v1',
+      id: 'lmstudio/qwen2.5',
+      url: 'http://127.0.0.1:1234/v1',
     });
   });
 
-  it('rewrites Ollama baseURL and forwards apiToken from runtime options', async () => {
+  it('normalizes the Ollama URL and forwards apiToken from runtime options', async () => {
     const { createProvider } = await import('../providers/provider-factory');
 
-    createProvider('ollama', undefined, 'qwen3:latest', {
+    const model = createProvider('ollama', undefined, 'qwen3:latest', {
       providerOptions: {
         ollama: {
           apiToken: 'tok_abc',
@@ -63,37 +65,43 @@ describe('provider-factory local-runtime endpoint overrides', () => {
       },
     });
 
-    expect(capturedOpenAiCalls[0]).toEqual({
+    expect(model).toEqual({
       apiKey: 'tok_abc',
-      baseURL: 'https://gpu.lan:11434/v1',
+      id: 'ollama/qwen3:latest',
+      url: 'https://gpu.lan:11434/v1',
     });
   });
 
   it('prefers explicit apiKey argument over runtime-option apiToken', async () => {
     const { createProvider } = await import('../providers/provider-factory');
 
-    createProvider('lmstudio', 'from-arg', 'qwen2.5', {
+    const model = createProvider('lmstudio', 'from-arg', 'qwen2.5', {
       providerOptions: {
         lmstudio: { apiToken: 'from-runtime' },
       },
     });
 
-    expect(capturedOpenAiCalls[0]).toEqual({
+    expect(model).toEqual({
       apiKey: 'from-arg',
-      baseURL: 'http://127.0.0.1:1234/v1',
+      id: 'lmstudio/qwen2.5',
+      url: 'http://127.0.0.1:1234/v1',
     });
   });
 
   it('accepts host:port shorthand and canonicalizes the baseURL', async () => {
     const { createProvider } = await import('../providers/provider-factory');
 
-    createProvider('ollama', undefined, 'qwen3:latest', {
+    const model = createProvider('ollama', undefined, 'qwen3:latest', {
       providerOptions: {
         ollama: { baseUrl: 'remote.box:11434' },
       },
     });
 
-    expect(capturedOpenAiCalls[0]?.baseURL).toBe('http://remote.box:11434/v1');
+    expect(model).toEqual({
+      apiKey: 'ollama',
+      id: 'ollama/qwen3:latest',
+      url: 'http://remote.box:11434/v1',
+    });
   });
 
   it('does NOT forward OPENAI_API_KEY env var to a remote Ollama host', async () => {
@@ -106,11 +114,14 @@ describe('provider-factory local-runtime endpoint overrides', () => {
     process.env.OPENAI_API_KEY = 'sk-real-secret-do-not-leak';
     try {
       const { createProvider } = await import('../providers/provider-factory');
-      createProvider('ollama', undefined, 'qwen3:latest', {
+      const model = createProvider('ollama', undefined, 'qwen3:latest', {
         providerOptions: { ollama: { baseUrl: 'https://gpu.lan:11434' } },
       });
-      expect(capturedOpenAiCalls[0]?.apiKey).toBe('ollama');
-      expect(capturedOpenAiCalls[0]?.apiKey).not.toBe('sk-real-secret-do-not-leak');
+      expect(model).toEqual({
+        apiKey: 'ollama',
+        id: 'ollama/qwen3:latest',
+        url: 'https://gpu.lan:11434/v1',
+      });
     } finally {
       // Restore prior env state. Assigning `undefined` is preferred over
       // `delete` (lint rule `noDelete`); it produces an equivalent

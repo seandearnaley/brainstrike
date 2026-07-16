@@ -351,10 +351,14 @@ vi.mock('@brainstrike/preferences', async () => {
 
   const usePanelLayoutStore = create<{
     activeTab: string;
+    openSettings: () => void;
     setActiveTab: (tab: string) => void;
+    settingsOpen: boolean;
   }>((set) => ({
     activeTab: 'explorer',
+    openSettings: () => set({ settingsOpen: true }),
     setActiveTab: (tab: string) => set({ activeTab: tab }),
+    settingsOpen: false,
   }));
 
   return {
@@ -936,6 +940,9 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   // Defaults to no desktop llm-host bridge, so local chat resolves to the
   // in-renderer transport; tests flip the mock to cover the data-stream route.
   hasDesktopLlmHost: hasDesktopLlmHostMock,
+  // Same passthrough rationale as EditCheckpointProvider: the mocked panel
+  // never renders an approval notice, so the grant context is never read.
+  ToolApprovalGrantProvider: ({ children }: { children: ReactNode }) => children,
   // The wrapper reads the usage store both as a hook (selector at render time)
   // and via getState() inside the usage callback. The mock supports both: the
   // selector receives an empty usage map and getState exposes recordUsage.

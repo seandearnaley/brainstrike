@@ -1,4 +1,4 @@
-import type { FileExplorerState } from '@brainstrike/types';
+import type { FileExplorerState, SelectionModel } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileSelectionActions } from '../file-selection-actions';
 import { consoleSpy, createMockState, mockSet } from './file-selection-actions-test-support';
@@ -767,8 +767,9 @@ describe('file-selection-actions', () => {
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
       // Check that set was called with a function that clears files and increments version
-      const setCallback = mockSet.mock.calls[0][0] as (state: typeof mockState) => {
+      const setCallback = mockSet.mock.calls[0]?.[0] as (state: typeof mockState) => {
         selectedFilePaths: Set<string>;
+        selectionModel: SelectionModel;
         selectionVersion: number;
       };
       const result = setCallback(mockState);

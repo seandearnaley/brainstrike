@@ -439,7 +439,12 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   // Keyboard event handler
   const onKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      if (
+        event.target instanceof Element &&
+        event.target.closest(
+          'button, a[href], input, select, textarea, [contenteditable="true"], [role="button"], [role="checkbox"], [role="menuitem"], [role="option"], [role="switch"], [role="tab"]'
+        )
+      ) {
         return;
       }
 
@@ -522,17 +527,32 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     isActive,
   };
 
-  // Actions
-  const actions: KeyboardNavigationActions = {
-    collapseOrMoveLeft,
-    expandOrMoveRight,
-    moveDown,
-    moveUp,
-    reset,
-    selectFocused,
-    setFocus,
-    toggleFocused,
-  };
+  // Actions — identity-stable across renders. Row click handlers list this
+  // object in their dependency chain; a per-render literal would give every
+  // TreeTableRow a fresh onClick and defeat the row memo (see
+  // tree-table-render-stability.test.tsx).
+  const actions: KeyboardNavigationActions = React.useMemo(
+    () => ({
+      collapseOrMoveLeft,
+      expandOrMoveRight,
+      moveDown,
+      moveUp,
+      reset,
+      selectFocused,
+      setFocus,
+      toggleFocused,
+    }),
+    [
+      collapseOrMoveLeft,
+      expandOrMoveRight,
+      moveDown,
+      moveUp,
+      reset,
+      selectFocused,
+      setFocus,
+      toggleFocused,
+    ]
+  );
 
   return {
     actions,

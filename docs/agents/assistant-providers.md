@@ -4,7 +4,33 @@
 
 ## AI ASSISTANT INTEGRATION
 
-- Supports: OpenAI, Anthropic, Google, OpenRouter.
+- Supports hosted providers OpenAI, Anthropic, Google, and OpenRouter, plus the
+  Ollama and LM Studio local servers.
+- Ollama and LM Studio chat use Mastra's first-class OpenAI-compatible model
+  config (`{ id: "provider/model", url, apiKey }`). The configured origin is
+  normalized to a `/v1` base URL and Mastra owns the chat-completions adapter.
+  Do not route these providers through `@ai-sdk/openai`: its default callable
+  selects OpenAI's provider-specific Responses model instead of Mastra's
+  generic compatible-provider path. Brainstrike passes an explicit dummy key
+  when local auth is disabled so `OPENAI_API_KEY` is never inherited and sent
+  to a local or LAN server. Optional runtime tokens still come from the desktop
+  secrets bridge. The `providerOptions.ollama` and `.lmstudio` namespaces are
+  Brainstrike transport configuration, not generation options; strip both at
+  every Mastra stream/resume boundary so `baseUrl` and `apiToken` can never be
+  serialized into a chat request body.
+- Ollama `/api/tags` is a mixed catalog: completion, embedding, and image-only
+  models can all appear. Catalog hydration MUST resolve every candidate through
+  authoritative `POST /api/show` capabilities before exposing it. A failed
+  capability lookup fails the catalog visibly; never infer chat support from a
+  model name after Ollama is reachable. Only `completion` models enter the
+  Assistant picker, while `embedding` remains available to embedding settings.
+  Preserve native-first catalog endpoint order even when the availability probe
+  succeeded through `/v1/models`. When `/api/tags` itself is unsupported, the
+  OpenAI-compatible `/v1/models` fallback remains valid and MUST NOT be followed
+  by a native `/api/show` request; its capability source stays `inferred`.
+  A forced catalog refresh MUST also force every native `/api/show` lookup so
+  `Probe now` cannot reuse stale per-model capabilities after a pull or model
+  replacement.
 - Built-in local provider:
   - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
   - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.
@@ -20,6 +46,32 @@
   - packages/agent/src/providers/registry.ts
   - packages/agent/src/providers/key-resolver.ts
   - packages/agent/src/providers/provider-factory.ts
+  - User setup: docs/local-model-servers.md
+- OpenRouter is configured through Mastra's `openrouter/<provider>/<model>`
+  model-router IDs, not a generic `createOpenAI({ baseURL })` client. The
+  official OpenRouter adapter preserves `providerMetadata.openrouter.usage.cost`;
+  that exact billed amount is aggregated across `step-finish` parts and carried
+  on the terminal message. Mastra emits approval/tool-suspension parts before it
+  exposes that model step's `step-finish`, so a pause finish cannot claim an exact
+  cost. On resume Mastra emits the deferred pre-pause `step-finish` before later
+  model steps; the fresh resumed lifecycle aggregates all of them on the final
+  message without double-counting. An abandoned pause therefore has no billed
+  cost available through the observer stream. Mastra's terminal token usage is
+  cumulative, but its terminal provider metadata repeats only the final step, so
+  every observed step must report cost; a missing or malformed reported cost
+  fails visibly rather than silently undercounting.
+- OpenRouter request options use the native `providerOptions.openrouter`
+  namespace. The shared reasoning controls map to
+  `{openrouter:{reasoning:{effort,summary}}}`; never reuse the OpenAI camel-case
+  `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
+  adapter ignores.
+- Static OpenRouter prices are estimates for pre-existing/unreported usage.
+  Exact provider-reported cost is authoritative because routing, caching, BYOK,
+  and provider tiers can make the catalog rate differ from the billed amount.
+- When the user has not set an output limit, OpenRouter requests use a 4,096
+  token per-step default. Mastra's provider otherwise expands an omitted limit
+  to the model's full output ceiling, which can make OpenRouter reject even a
+  tiny prompt during credit preflight. Explicit user limits remain authoritative.
 - State:
   - packages/preferences/src/stores/assistant-preferences-store.ts
   - packages/app-shell/src/assistant-thread-store.ts
@@ -109,4 +161,3 @@ Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIV
 Adding/renaming an assistant native tool is multi-registry: zod schema + schemaMap in packages/agent/src/tools/schemas.ts, agent package exports, NATIVE_TOOL_DEFAULTS (tool-categories.ts), TOOL_DESCRIPTIONS, NATIVE_TOOL_SCHEMAS (tool-schemas-display.ts) — all in packages/assistant-contract — plus the live registry in apps/desktop/src/assistant-server/assistant-tools.ts and the model-facing guidance in packages/agent/src/mastra/default-instructions.ts.
 
 ---
-

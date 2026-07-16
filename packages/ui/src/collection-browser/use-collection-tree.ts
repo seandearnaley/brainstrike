@@ -424,13 +424,10 @@ function sortNodes(
 /**
  * Check if a node matches the current search query
  */
-function matchesSearch(node: TreeNode<BrowserNodeData>, searchQuery: string): boolean {
-  if (!searchQuery) {
-    return true;
-  }
-  const query = searchQuery.toLowerCase();
-  const fields = getSearchableFields(node);
-  return fields.some((field) => field.toLowerCase().includes(query));
+function getSearchableText(node: TreeNode<BrowserNodeData>): string {
+  return getSearchableFields(node)
+    .map((field) => field.toLowerCase())
+    .join('\n');
 }
 
 /**
@@ -589,14 +586,15 @@ function matchesEmbeddingStatus(
  */
 function matchesStandardNodeFilters(
   node: TreeNode<BrowserNodeData>,
-  filters: CollectionBrowserFilters
+  filters: CollectionBrowserFilters,
+  searchMatchIds: ReadonlySet<string>
 ): boolean {
   const nodeType = node.type as CollectionNodeType;
   const typeMatches = filters.nodeTypes.has(nodeType);
   if (!typeMatches) {
     return false;
   }
-  if (!matchesSearch(node, filters.searchQuery)) {
+  if (filters.searchQuery && !searchMatchIds.has(node.id)) {
     return false;
   }
   return matchesEmbeddingStatus(node, filters.embeddingStatus);
@@ -608,6 +606,7 @@ function matchesStandardNodeFilters(
 interface FilterContext {
   childrenMap: Map<string, TreeNode<BrowserNodeData>[]>;
   filters: CollectionBrowserFilters;
+  searchMatchIds: ReadonlySet<string>;
 }
 
 /**
@@ -641,7 +640,7 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
 
     visiting.add(node.id);
     try {
-      const selfMatches = matchesStandardNodeFilters(node, ctx.filters);
+      const selfMatches = matchesStandardNodeFilters(node, ctx.filters, ctx.searchMatchIds);
 
       const children = ctx.childrenMap.get(node.id) ?? [];
       // Keep parent nodes visible when descendants match, even if the parent
@@ -1156,6 +1155,49 @@ export function useCollectionTree({
     };
   }, [rawRootNodes, rawAllNodes, rawChildrenMap, groupBy]);
 
+  const searchableTextByNode = React.useMemo(() => {
+    const searchableText = new WeakMap<TreeNode<BrowserNodeData>, string>();
+    for (const node of allNodes) {
+      searchableText.set(node, getSearchableText(node));
+    }
+    return searchableText;
+  }, [allNodes]);
+
+  // Compute text matches once so filtering, counting, and highlighting share
+  // the same result instead of rescanning large chunk content independently.
+  const { searchMatchIds, searchExpandIds } = React.useMemo(() => {
+    const matchIds = new Set<string>();
+    const expandIds = new Set<string>();
+    if (!filters.searchQuery) {
+      return { searchExpandIds: expandIds, searchMatchIds: matchIds };
+    }
+
+    const query = filters.searchQuery.toLowerCase();
+    const nodeParentMap = new Map<string, string | null>();
+    for (const node of allNodes) {
+      nodeParentMap.set(node.id, node.parentId);
+    }
+
+    for (const node of allNodes) {
+      const searchableText = searchableTextByNode.get(node);
+      if (searchableText === undefined) {
+        throw new Error(`Missing search index entry for collection node "${node.id}".`);
+      }
+      if (!searchableText.includes(query)) {
+        continue;
+      }
+      matchIds.add(node.id);
+
+      let currentParentId = node.parentId;
+      while (currentParentId) {
+        expandIds.add(currentParentId);
+        currentParentId = nodeParentMap.get(currentParentId) ?? null;
+      }
+    }
+
+    return { searchExpandIds: expandIds, searchMatchIds: matchIds };
+  }, [allNodes, filters.searchQuery, searchableTextByNode]);
+
   // Compute semantic search match IDs and scores
   const { semanticMatchIds, similarityScores, semanticExpandIds } = React.useMemo(() => {
     const matchIds = new Set<string>();
@@ -1247,8 +1289,9 @@ export function useCollectionTree({
     () => ({
       childrenMap: sortedChildrenMap,
       filters,
+      searchMatchIds,
     }),
-    [filters, sortedChildrenMap]
+    [filters, searchMatchIds, sortedChildrenMap]
   );
 
   const matchesStandardFilters = React.useMemo(
@@ -1256,8 +1299,8 @@ export function useCollectionTree({
     [filterContext]
   );
   const matchesDirectNodeFilters = React.useCallback(
-    (node: TreeNode<BrowserNodeData>) => matchesStandardNodeFilters(node, filters),
-    [filters]
+    (node: TreeNode<BrowserNodeData>) => matchesStandardNodeFilters(node, filters, searchMatchIds),
+    [filters, searchMatchIds]
   );
 
   // Apply filters (use sorted versions)
@@ -1346,39 +1389,6 @@ export function useCollectionTree({
     },
     [sortedChildrenMap, semanticVisibleNodeIds, matchesStandardFilters]
   );
-
-  // Compute search match IDs and nodes to auto-expand (text search)
-  const { searchMatchIds, searchExpandIds } = React.useMemo(() => {
-    const matchIds = new Set<string>();
-    const expandIds = new Set<string>();
-
-    // No search query means no matches to highlight
-    if (!filters.searchQuery) {
-      return { searchExpandIds: expandIds, searchMatchIds: matchIds };
-    }
-
-    // Build a map from node ID to parent ID for traversal
-    const nodeParentMap = new Map<string, string | null>();
-    for (const node of allNodes) {
-      nodeParentMap.set(node.id, node.parentId);
-    }
-
-    // Find all nodes that match the search query
-    for (const node of allNodes) {
-      if (matchesSearch(node, filters.searchQuery)) {
-        matchIds.add(node.id);
-
-        // Walk up the tree and mark all ancestors for expansion
-        let currentParentId = node.parentId;
-        while (currentParentId) {
-          expandIds.add(currentParentId);
-          currentParentId = nodeParentMap.get(currentParentId) ?? null;
-        }
-      }
-    }
-
-    return { searchExpandIds: expandIds, searchMatchIds: matchIds };
-  }, [allNodes, filters.searchQuery]);
 
   return {
     filteredCount,

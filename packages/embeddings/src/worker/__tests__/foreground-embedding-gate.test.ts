@@ -1,4 +1,14 @@
-// packages/embeddings/src/worker/__tests__/foreground-embedding-gate.spec.ts
+// packages/embeddings/src/worker/__tests__/foreground-embedding-gate.test.ts
+//
+// PURE (cacheable `test`) lane. This suite exercises an in-memory ref-counting
+// gate with FAKE timers (vi.useFakeTimers / advanceTimersByTimeAsync for the
+// reopen debounce) and injected `isActive` callbacks — a mocked-harness
+// watchdog. Per the root turbo.jsonc boundary, "watchdog timeouts and polling
+// budgets over fully MOCKED subsystems do not qualify" as env-sensitive: their
+// only nondeterminism is a false red under load, which caching a green cannot
+// cause, and any product change re-hashes the entry. No real PGlite/WASM, no
+// network, no native binary — so it stays in the cacheable pure lane, NOT the
+// uncached integration lane.
 import { describe, expect, it, vi } from 'vitest';
 import {
   createForegroundEmbeddingGate,

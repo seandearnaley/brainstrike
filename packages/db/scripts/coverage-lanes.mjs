@@ -1,40 +1,19 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildDbCoverageLaneMap } from './db-test-lane-manifest.mjs';
+import { buildDbCoverageLaneMap, collectDbTestFiles } from './db-test-lane-manifest.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const testsRoot = path.join(packageRoot, '__tests__');
-
-// Recurses into subdirectories (mirroring test-lanes.mjs `collectTests`) and returns
-// paths RELATIVE to __tests__ (POSIX-style `/`). A non-recursive readdir would let a
-// test under a subdirectory (e.g. repositories/drizzle/file-record-repository.test.ts)
-// silently escape BOTH this orphan check and every coverage lane. Relative paths also
-// avoid a basename collision: the top-level file-record-repository.test.ts and the
-// subdir one are distinct keys, so each must be assigned to a lane independently.
-function collectUnitTests(dir = testsRoot, prefix = '') {
-  const tests = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      tests.push(...collectUnitTests(path.join(dir, entry.name), relativePath));
-      continue;
-    }
-    if (
-      (entry.name.endsWith('.test.ts') || entry.name.endsWith('.test.tsx')) &&
-      !(entry.name.endsWith('.browser.test.ts') || entry.name.endsWith('.browser.test.tsx'))
-    ) {
-      tests.push(relativePath);
-    }
-  }
-  return tests.sort();
-}
 
 function validateLanes() {
-  const { failures, laneMap } = buildDbCoverageLaneMap(collectUnitTests());
+  // includeBrowserTests: false — coverage lanes run `vitest --project unit`, which cannot
+  // execute browser-project files. test-lanes.mjs deliberately passes true; the asymmetry
+  // is intentional and documented on collectDbTestFiles.
+  const { failures, laneMap } = buildDbCoverageLaneMap(
+    collectDbTestFiles({ includeBrowserTests: false })
+  );
 
   if (failures.length > 0) {
     for (const failure of failures) {

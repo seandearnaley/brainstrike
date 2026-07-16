@@ -2,6 +2,9 @@
   "name": "@brainstrike/app-shell",
   "version": "0.1.0",
   "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "^2.0.1",
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.0.0",
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.0",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/commands": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
@@ -21,22 +24,25 @@
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/vector-management": "workspace:*",
     "@brainstrike/workspace-search": "workspace:*",
+    "@tanstack/react-virtual": "^3.14.5",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
+    "fractional-indexing": "^4.0.0",
     "lucide-react": "^1.23.0"
   },
   "devDependencies": {
     "@brainstrike/db": "workspace:*",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^26.1.0",
-    "@types/react": "^19.2.17",
-    "jsdom": "29.1.1",
+    "@brainstrike/test-utils": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "jsdom": "catalog:",
     "react-dom": "^19.2.7",
-    "vitest": "^4.1.9",
-    "zustand": "^5.0.14"
+    "vitest": "catalog:",
+    "zustand": "catalog:"
   },
   "engines": {
     "node": ">=22"
@@ -105,8 +111,9 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
-    "test": "vitest run",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit --project tsconfig.typecheck.json && tsc --noEmit --project tsconfig.test.json"
   },

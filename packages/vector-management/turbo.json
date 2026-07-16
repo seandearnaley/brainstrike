@@ -1,0 +1,33 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // vitest.config.mts imports
+      // ../agent/config/browser-safe-subpath-aliases.mjs to build this
+      // package's resolve aliases — a CROSS-PACKAGE file turbo's default
+      // input hash for @brainstrike/vector-management does not cover (and
+      // @brainstrike/agent is not a declared dependency — nothing in this
+      // package imports agent code at runtime, the helper spread is
+      // defensive — so agent's topo/build hashes are not inputs either).
+      // Without this entry an edit to the helper would replay a stale cached
+      // green. $TURBO_DEFAULT$ keeps the normal inputs; the extra entry folds
+      // the helper into the hash. (Mirror of packages/app-shell/turbo.json,
+      // which documents the same coverage boundary: this hashes the alias
+      // GENERATOR only, not the agent source files it can resolve to — if
+      // tests ever start importing agent subpaths through these aliases,
+      // declare a real dependency on @brainstrike/agent instead.)
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/agent/config/browser-safe-subpath-aliases.mjs"
+      ]
+    },
+    "test:coverage": {
+      // Same cross-package input as `test`: the coverage lane loads the same
+      // vitest.config.mts and therefore the same agent helper.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/agent/config/browser-safe-subpath-aliases.mjs"
+      ]
+    }
+  }
+}

@@ -1,8 +1,10 @@
 import type { FileExplorerState, FolderState } from '@brainstrike/types';
 import {
+  createEmptySelectionModel,
   DEFAULT_FOLDER_SUMMARY_THRESHOLD,
   DEFAULT_MAX_SELECTION_COUNT,
   DEFAULT_STATE,
+  DEFAULT_TOKEN_BUDGET,
   MAX_FOLDER_STATES,
   MIN_MAX_SELECTION_COUNT,
 } from '@brainstrike/types';
@@ -138,6 +140,8 @@ describe('Folder State Actions', () => {
       lastActiveTab: 'settings',
       maxSelectionCount: 50,
       selectedFilePaths: selectedPaths,
+      selectionModel: createEmptySelectionModel(),
+      tokenBudget: DEFAULT_TOKEN_BUDGET,
       useRegex: true,
       viewFilterPresetId: null,
     };
@@ -204,7 +208,10 @@ describe('Folder State Actions', () => {
         lastActiveTab: 'files',
         maxSelectionCount: 100,
         selectedFilePaths: new Set([`${id}-file`]),
+        selectionModel: createEmptySelectionModel(),
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         useRegex: false,
+        viewFilterPresetId: null,
       };
     }
 

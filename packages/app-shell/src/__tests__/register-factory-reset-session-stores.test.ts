@@ -8,6 +8,7 @@ import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-sele
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
 
 // Import for side-effect registration (same path root-layout-content uses).
 import '../register-factory-reset-session-stores';
@@ -19,6 +20,7 @@ describe('register-factory-reset-session-stores', () => {
     resetContextUsageStore();
     useWorkspaceContextCurationStore.getState().reset();
     useAssistantComposerCommandStore.getState().reset();
+    useAssistantThreadGroupsStore.getState().reset();
   });
 
   it('clears sibling session stores when factory reset drains registered resetters', async () => {
@@ -53,6 +55,23 @@ describe('register-factory-reset-session-stores', () => {
       text: 'queued snippet',
       threadId: 'thread-1',
     });
+    useAssistantThreadGroupsStore.setState({
+      flatSortBy: 'name',
+      groupedSortBy: 'custom',
+      groupsByResourceId: {
+        'workspace-a': [
+          {
+            color: null,
+            icon: null,
+            id: 'group-1',
+            name: 'Research',
+            rank: 'a0',
+            resourceId: 'workspace-a',
+          },
+        ],
+      },
+    });
+    useAssistantThreadGroupsStore.getState().toggleGroupCollapsed('group-1');
 
     expect(useWorkspaceSearchStore.getState().query).toBe('find me');
     expect(useChunkSelectionStore.getState().selectionsByKey['root|@|src/a.ts']).toBeDefined();
@@ -78,5 +97,9 @@ describe('register-factory-reset-session-stores', () => {
     expect(useWorkspaceContextCurationStore.getState().tapestryRangesByKey).toEqual({});
     expect(useAssistantComposerCommandStore.getState().draftTextByThreadId).toEqual({});
     expect(useAssistantComposerCommandStore.getState().commandsByThreadId).toEqual({});
+    expect(useAssistantThreadGroupsStore.getState().groupsByResourceId).toEqual({});
+    expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toEqual({});
+    expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('recency');
+    expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
   });
 });

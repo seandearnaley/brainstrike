@@ -4,13 +4,51 @@
   // Global configuration
   "concurrency": "40",
   // Files that, when changed, should invalidate caches globally
-  // These files affect all tasks and will cause cache misses when modified
+  // These files affect all tasks and will cause cache misses when modified.
+  //
+  // tsconfig invalidation contract (Series B2 — do NOT "tidy" the two kept
+  // tsconfig globs back to the broad per-package form; that recreates the
+  // over-invalidation this change removed):
+  //   The repo's entire tsconfig `extends` graph terminates at a SINGLE shared
+  //   preset, packages/config/tsconfig/base.json (it has no `extends`). Every
+  //   package/app main tsconfig extends it by a RAW RELATIVE PATH
+  //   ("../../packages/config/tsconfig/base.json"), NOT a package import — so
+  //   no package.json dependency edge and no build-task edge carries base.json
+  //   into consumers' hashes (packages/config has no build script; only web +
+  //   desktop even depend on @brainstrike/config). The two globs below are the
+  //   SOLE hash carriers for the only two tsconfig files that escape their
+  //   consuming package's own $TURBO_DEFAULT$ input directory:
+  //     - "tsconfig*.json" (root): matches the repo-root tsconfig.json, which
+  //       packages/config/tsconfig.json extends ("../../tsconfig.json"). That
+  //       is a genuine cross-package input for config#type-check (root tsconfig
+  //       lives OUTSIDE the config package's default inputs). KEEP.
+  //     - "packages/*/tsconfig/*.json": matches ONLY packages/config/tsconfig/
+  //       (the sole tsconfig/ dir in the repo) → carries base.json (+ presets)
+  //       into all ~40 consumers. Removing it would make base.json an INVISIBLE
+  //       input: a strict/target/etc. edit would replay stale-green caches
+  //       repo-wide — the exact #1066/#1207 landmine. KEEP.
+  //   DELIBERATELY NOT LISTED: each package's / app's OWN local tsconfig*.json
+  //   (e.g. packages/types/tsconfig.test.json, apps/desktop/tsconfig.json).
+  //   Those live inside their package dir and are already $TURBO_DEFAULT$
+  //   inputs of that package's own build/type-check/test tasks, so they still
+  //   invalidate the package that owns them. Listing them globally (the removed
+  //   "apps/*/tsconfig*.json" + "packages/*/tsconfig*.json" entries) only added
+  //   cross-package OVER-invalidation: any one of ~75 per-package tsconfig
+  //   edits busted every cache in the repo for zero correctness benefit.
+  //   Cross-package tsconfig reads that DO exist, and their hash carriers:
+  //   (a) the extends chains into base.json and config→root — the two kept
+  //   globs above; (b) TypeScript project `references` (`tsc -b` reads the
+  //   referenced package's tsconfig) — covered by the ^build task-hash cascade,
+  //   so every cross-package `references` edge MUST be mirrored by a direct or
+  //   transitive workspace dependency in that package's package.json (enforced
+  //   by scripts/__tests__/tsconfig-global-deps-contract.test.mjs; the audit
+  //   found one stale unmirrored edge, workers→storage, removed alongside this
+  //   change). No other mechanism reads a foreign tsconfig (no
+  //   vite-tsconfig-paths anywhere; tsup/vite configs use only local tsconfig).
   "globalDependencies": [
     "pnpm-lock.yaml", // Package dependencies
-    "tsconfig*.json", // Root TypeScript configuration
-    "apps/*/tsconfig*.json", // App TypeScript configuration
-    "packages/*/tsconfig*.json", // Package TypeScript configuration
-    "packages/*/tsconfig/*.json", // Shared tsconfig preset package files
+    "tsconfig*.json", // Root TS config — config/tsconfig.json extends it (genuinely global)
+    "packages/*/tsconfig/*.json", // Shared tsconfig preset (base.json); sole hash carrier for ~40 raw-path consumers
     "turbo.jsonc", // Turborepo configuration
     "biome.json", // Formatting/linting configuration
     ".nvmrc", // Node version specification
@@ -18,6 +56,53 @@
   ],
   // Defines the tasks that can be run via `turbo run <taskName>`
   "tasks": {
+    // --- Transit Node (Series B4) --- //
+    //
+    // `topo` is a SYNTHETIC no-op task: no package defines a `topo` script, so
+    // turbo never executes anything for it. It exists purely as a HASH-
+    // PROPAGATION node — Turborepo's canonical "Transit Node" pattern
+    // (https://turborepo.dev/docs/crafting-your-repository/configuring-tasks
+    // — "name the task anything that isn't already a script in your Workspace").
+    // Its whole job is to give the `test*` tasks below an upstream edge that
+    // carries the SOURCE hash of every workspace dependency WITHOUT forcing that
+    // dependency to `build` first.
+    //
+    // WHY THIS EXISTS (Series B4 payoff): `test`/`test:integration`/
+    // `test:coverage` used to `dependsOn: ["^build"]`. Since B3 (#1651) every
+    // package test lane resolves `@brainstrike/*` workspace imports to SOURCE
+    // (packages/test-utils/workspace-src-aliases.mjs), so tests no longer need a
+    // dependency's `dist` to exist — yet `^build` still rebuilt ~39 packages
+    // before a single test could run (a `packages/types` whitespace edit rebuilt
+    // the world). `dependsOn: ["topo"]` keeps the topological hash cascade (a
+    // dep's source change still re-hashes and re-runs dependents' tests) while
+    // building NOTHING.
+    //
+    // WHY PLAIN DELETION WOULD BE A STALE-GREEN LANDMINE (do not "simplify" this
+    // back to an empty dependsOn): `^build` was doing DOUBLE duty — (1) ensuring
+    // dist existed [no longer needed post-B3] and (2) making a dependent's
+    // cached `test` result depend on its upstreams' hashes. Because tests import
+    // upstream SOURCE, if you DELETE the edge instead of replacing it, editing
+    // `packages/utils/src` no longer moves `packages/hooks#test`'s hash — turbo
+    // replays hooks' stale-green cached test against the OLD utils source. That
+    // is the #1066/#1207 incident class in cache flavor (a broken upstream stays
+    // green for weeks). `topo` REPLACES the edge: it re-carries the cascade
+    // through a node that runs no script. See proof #2 in the B4 PR body.
+    //
+    // INPUTS: deliberately the FULL default (no `inputs` key — every checked-in
+    // file of the package hashes into its topo node). A dep's test-only edit
+    // therefore re-runs its dependents' tests too. That is over-invalidation,
+    // but narrowing (excluding `**/*.test.*` / `**/__tests__/**`) was reviewed
+    // OUT of B4: `__tests__/` dirs in this repo contain helper/fixture modules
+    // that other packages CAN import, and nothing enforces "test files are
+    // never imported cross-package" — an unenforced exclusion is a stale-green
+    // vector, while test-only over-invalidation is merely a slower cache miss.
+    // Precision is a possible follow-up, gated on a guard proving no
+    // cross-package import resolves into an excluded path.
+    "topo": {
+      "dependsOn": [
+        "^topo"
+      ]
+    },
     // --- Build Task --- //
     "build": {
       // Ensures that the 'build' task for dependencies runs before this package's build.
@@ -35,10 +120,27 @@
     },
     // --- Test Task --- //
     "test": {
-      // Unit tests import package source directly, but workspace dependencies may
-      // still need their generated declarations/artifacts.
+      // Tests import workspace dependencies from SOURCE (B3, #1651), so they do
+      // NOT need a dependency's `dist`. `topo` (the transit node above) carries
+      // the upstream SOURCE-hash cascade WITHOUT building anything — replacing
+      // the old `^build` edge. Do NOT delete this to an empty dependsOn: that
+      // drops the cascade and replays stale-green cached tests against edited
+      // upstream source (see the topo comment for the full landmine rationale).
+      // Packages whose tests genuinely need a built artifact declare the exact
+      // edge in their own turbo.json (B4 exceptions): packages/utils#test needs
+      // its own `build` (logger-dist-singleton.test.ts imports utils' dist by
+      // file URL); packages/db#test needs `@brainstrike/utils#build`
+      // (migration-runner-types.test.ts runs a nested `ts.createProgram` whose
+      // compiler resolves @brainstrike/utils types from dist — vitest aliases
+      // cannot intercept tsc). apps/web + apps/desktop needed NO build edges:
+      // the gaps in their hand-maintained vitest alias maps (specifiers that
+      // fell through `exports` to dist) were closed in this change instead —
+      // web got the missing root aliases, desktop spreads the shared B3
+      // registry (+ an agent-root→src alias mirroring web). The one
+      // test-fixture consequence: desktop's agent-client-loader test keeps a
+      // fallback-list mirror that must stay in sync with the loader.
       "dependsOn": [
-        "^build"
+        "topo"
       ],
       // Tests can be sensitive to NODE_ENV, but build cache should not be globally invalidated by it.
       // TURBO_TEST_MODE differentiates plain test runs from coverage runs for cache keys.
@@ -69,6 +171,61 @@
       // the separate test:coverage task so coverage CLI args don't hash build tasks.
       "outputs": [],
       // Only show logs from cache misses and errors
+      "outputLogs": "new-only"
+    },
+    // --- Integration Test Task (uncached env-sensitive lane) --- //
+    "test:integration": {
+      // THE UNCACHED SIBLING OF `test`. Env-sensitive integration lanes run here
+      // and are NEVER replayed from cache — every invocation executes the tests.
+      //
+      // CONTRACT: the cacheable `test` task (above, `outputs: []`) replays a
+      // previously-logged green on a cache HIT WITHOUT executing anything, which
+      // is only sound when a lane's pass/fail is a pure function of the inputs
+      // turbo hashes (source + pnpm-lock + tsconfig/biome/turbo config). Tests
+      // whose outcome can depend on an UN-hashed input — real PGlite/WASM under
+      // wall-clock timeouts and CPU contention, native/N-API binaries + their
+      // host ABI, an installed CLI shelled out to (git, node-pty, /bin/sh), or
+      // REAL-SUBSYSTEM execution under wall-clock budgets — must NOT be
+      // cacheable. Boundary note: watchdog timeouts and polling budgets over
+      // fully MOCKED subsystems do not qualify — their nondeterminism lives in
+      // the test harness (worst case a false red under load, which caching a
+      // green cannot cause), and any product change re-hashes and invalidates
+      // the entry. Cross-package file reads are a separate hazard: declare them
+      // as explicit `inputs` (see apps/web/turbo.json) instead of un-caching.
+      // See the invariant that anchors this rule in packages/db/turbo.json.
+      //
+      // Instead of carving a package's WHOLE `test` task out with `cache: false`
+      // (which strands its fast, deterministic unit tests in the uncached lane
+      // too), a package tags its env-sensitive files with the
+      // `*.integration.test.*` suffix and splits them into a `test:integration`
+      // script. The pure `test` script excludes that suffix and STAYS cacheable;
+      // this task runs the suffix and is `cache: false`. Whole-task carve-outs
+      // remain only for packages whose ENTIRE suite is env-sensitive (db,
+      // secure-fs-native).
+      //
+      // Mirrors `test`'s dependsOn/env/passThroughEnv so cache keys and the
+      // Strict-mode runtime env match the pure lane (TURBO_TEST_MODE
+      // differentiates unit vs coverage; CI/COVERAGE stay in passThroughEnv so
+      // they never enter a hash — moot here since caching is off, but kept
+      // identical so a file moving between lanes sees the same runtime env).
+      // dependsOn is `["topo"]` for parity with `test` (see that task + the topo
+      // transit-node comment). This lane is `cache: false`, so topo's cascade is
+      // moot for it, but keeping it identical means a file moving between the two
+      // lanes carries the same task graph. Integration tests also import
+      // workspace deps from SOURCE, so no `^build` is needed here either.
+      "dependsOn": [
+        "topo"
+      ],
+      "env": [
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "passThroughEnv": [
+        "CI",
+        "COVERAGE"
+      ],
+      "outputs": [],
+      "cache": false,
       "outputLogs": "new-only"
     },
     // --- Lint Task --- //
@@ -128,7 +285,6 @@
         "@brainstrike/db-explorer#dev",
         "@brainstrike/chunking-worker#dev",
         "@brainstrike/file-tree-worker#dev",
-        "@brainstrike/queue-telemetry-collector#dev",
         "@brainstrike/platform-utils#dev"
       ]
     },
@@ -154,7 +310,8 @@
       "dependsOn": [
         "lint",
         "type-check",
-        "test"
+        "test",
+        "test:integration"
       ],
       // This composite task itself doesn't need caching.
       "cache": false,
@@ -187,8 +344,11 @@
     "test:coverage": {
       // Runs package-local Vitest coverage scripts. Keeping coverage flags inside
       // this task avoids Turborepo passthrough args invalidating dependency builds.
+      // `dependsOn: ["topo"]` mirrors `test` (same source-import graph, same
+      // transit-node cascade; see the topo comment). The same B4 build-edge
+      // exceptions apply per-package (utils' own build; db's @brainstrike/utils#build).
       "dependsOn": [
-        "^build"
+        "topo"
       ],
       // Coverage runs should hash NODE_ENV + explicit test mode without invalidating unrelated tasks globally.
       "env": [
@@ -213,9 +373,18 @@
       "outputs": [],
       "outputLogs": "new-only"
     },
+    // The db coverage lanes below run the SAME db test files as db#test, split
+    // across coverage buckets (coverage-lanes.mjs). Like `test`, they resolve
+    // workspace imports from SOURCE, so `^build` becomes `topo` (B4). They keep
+    // the explicit `@brainstrike/utils#build` edge because one of these lanes
+    // runs migration-runner-types.test.ts, whose nested `ts.createProgram`
+    // resolves @brainstrike/utils types from dist (see db/turbo.json). The edge
+    // is applied uniformly to all lanes for parity (utils builds cheaply and is
+    // a real db dependency) rather than tracking which bucket owns that file.
     "test:coverage:db:architecture": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -231,7 +400,8 @@
     },
     "test:coverage:db:chunking": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -247,7 +417,8 @@
     },
     "test:coverage:db:migrations": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -263,7 +434,8 @@
     },
     "test:coverage:db:queue": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -279,7 +451,8 @@
     },
     "test:coverage:db:repositories": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -295,7 +468,8 @@
     },
     "test:coverage:db:runtime": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [
@@ -311,7 +485,8 @@
     },
     "test:coverage:db:search": {
       "dependsOn": [
-        "^build",
+        "topo",
+        "@brainstrike/utils#build",
         "test:coverage:db:check-lanes"
       ],
       "env": [

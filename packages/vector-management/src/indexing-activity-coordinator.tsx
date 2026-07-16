@@ -4,6 +4,7 @@ import {
   getDatabaseWorkScheduler,
   usePGliteDatabase,
 } from '@brainstrike/db';
+import { isAppActive, useAppActive } from '@brainstrike/hooks';
 import {
   type IndexingBackfillSnapshot,
   type IndexingDatabaseWorkSnapshot,
@@ -15,7 +16,7 @@ import {
   useVectorStatusUIStore,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/preferences';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
 import type {
   EmbeddingRuntimeBackfillInfo,
@@ -162,6 +163,11 @@ function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkS
 }
 
 export function IndexingActivityCoordinator(): null {
+  const appActive = useAppActive();
+  const previousAppActiveRef = useRef(appActive);
+  const refreshDatabaseWorkRef = useRef<(() => void) | null>(null);
+  const refreshManagedCollectionStatsRef = useRef<(() => void) | null>(null);
+  const refreshQueueRef = useRef<(() => void) | null>(null);
   const db = usePGliteDatabase();
   const backgroundDb = useMemo(
     () => (db && typeof db.query === 'function' ? createPriorityDbHandle(db, 'background') : db),
@@ -215,7 +221,9 @@ export function IndexingActivityCoordinator(): null {
       try {
         const snapshot = await readElectronSnapshot();
         if (!disposed) {
-          setIndexingActivityError(null);
+          if (useIndexingActivityStore.getState().indexingActivityError !== null) {
+            setIndexingActivityError(null);
+          }
           setDatabaseWorkSnapshot(snapshot);
         }
       } catch (error) {
@@ -225,13 +233,24 @@ export function IndexingActivityCoordinator(): null {
       }
     };
 
-    void refresh();
-    const interval = window.setInterval(() => {
+    const requestRefresh = (): void => {
       void refresh();
+    };
+    refreshDatabaseWorkRef.current = requestRefresh;
+    if (isAppActive()) {
+      requestRefresh();
+    }
+    const interval = window.setInterval(() => {
+      if (isAppActive()) {
+        requestRefresh();
+      }
     }, DATABASE_WORK_SNAPSHOT_POLL_MS);
 
     return () => {
       disposed = true;
+      if (refreshDatabaseWorkRef.current === requestRefresh) {
+        refreshDatabaseWorkRef.current = null;
+      }
       window.clearInterval(interval);
       setDatabaseWorkSnapshot(null);
     };
@@ -242,7 +261,9 @@ export function IndexingActivityCoordinator(): null {
 
     const applyQueue = (queue: IndexingQueueSnapshot | null): void => {
       if (queue) {
-        setIndexingActivityError(null);
+        if (useIndexingActivityStore.getState().indexingActivityError !== null) {
+          setIndexingActivityError(null);
+        }
         setQueueSnapshot(queue);
         setDurableQueueStats(queue);
         setIsJobQueueActive(isQueueActive(queue));
@@ -272,19 +293,33 @@ export function IndexingActivityCoordinator(): null {
       }
     };
 
-    void refresh();
     if (!backgroundDb || typeof backgroundDb.query !== 'function') {
+      if (isAppActive()) {
+        void refresh();
+      }
       return () => {
         disposed = true;
       };
     }
 
-    const interval = window.setInterval(() => {
+    const requestRefresh = (): void => {
       void refresh();
+    };
+    refreshQueueRef.current = requestRefresh;
+    if (isAppActive()) {
+      requestRefresh();
+    }
+    const interval = window.setInterval(() => {
+      if (isAppActive()) {
+        requestRefresh();
+      }
     }, QUEUE_SNAPSHOT_POLL_MS);
 
     return () => {
       disposed = true;
+      if (refreshQueueRef.current === requestRefresh) {
+        refreshQueueRef.current = null;
+      }
       window.clearInterval(interval);
     };
   }, [
@@ -443,16 +478,38 @@ export function IndexingActivityCoordinator(): null {
       }
     };
 
-    void refresh();
-    const interval = window.setInterval(() => {
+    const requestRefresh = (): void => {
       void refresh();
+    };
+    refreshManagedCollectionStatsRef.current = requestRefresh;
+    if (isAppActive()) {
+      requestRefresh();
+    }
+    const interval = window.setInterval(() => {
+      if (isAppActive()) {
+        requestRefresh();
+      }
     }, MANAGED_COLLECTION_STATS_POLL_MS);
 
     return () => {
       disposed = true;
+      if (refreshManagedCollectionStatsRef.current === requestRefresh) {
+        refreshManagedCollectionStatsRef.current = null;
+      }
       window.clearInterval(interval);
     };
   }, [backgroundDb, managedCollectionId, setManagedCollectionStats]);
+
+  useEffect(() => {
+    const wasActive = previousAppActiveRef.current;
+    previousAppActiveRef.current = appActive;
+    if (!(appActive && !wasActive)) {
+      return;
+    }
+    refreshDatabaseWorkRef.current?.();
+    refreshQueueRef.current?.();
+    refreshManagedCollectionStatsRef.current?.();
+  }, [appActive]);
 
   return null;
 }

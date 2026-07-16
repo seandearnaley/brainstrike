@@ -133,6 +133,123 @@ describe('TreeTable', () => {
       expect(screen.getByText('File 2')).toBeInTheDocument();
     });
 
+    it('keeps roving focus semantic without painting the old primary ring', () => {
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'File 1')]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const treegrid = screen.getByRole('treegrid');
+      fireEvent.keyDown(treegrid, { key: 'ArrowDown' });
+
+      const row = screen.getByText('File 1').closest('tr');
+      expect(row).toHaveAttribute('data-focused', 'true');
+      expect(row).not.toHaveClass('ring-2', 'ring-primary', 'ring-inset');
+      expect(row).toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2',
+        'focus-visible:outline-solid',
+        'focus-visible:outline-2',
+        'focus-visible:outline-foreground/50',
+        'focus-visible:-outline-offset-2'
+      );
+    });
+
+    it('does not paint the roving row outline for pointer focus', () => {
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'File 1')]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const row = screen.getByText('File 1').closest('tr');
+      if (!row) {
+        throw new Error('Expected tree row to render.');
+      }
+      fireEvent.pointerDown(row);
+      fireEvent.click(row);
+
+      expect(row).toHaveAttribute('data-focused', 'true');
+      expect(row).not.toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2'
+      );
+    });
+
+    it('removes the roving row outline when focus leaves the tree', () => {
+      render(
+        <>
+          <TreeTable
+            columns={testColumns}
+            expandedIds={new Set()}
+            nodes={[createTestNode('1', 'File 1')]}
+            onToggleExpand={() => {}}
+          />
+          <button type="button">Outside</button>
+        </>
+      );
+
+      const treegrid = screen.getByRole('treegrid');
+      treegrid.focus();
+      fireEvent.keyDown(treegrid, { key: 'ArrowDown' });
+
+      const row = screen.getByText('File 1').closest('tr');
+      expect(row).toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2'
+      );
+
+      const outsideButton = screen.getByRole('button', { name: 'Outside' });
+      fireEvent.blur(treegrid, { relatedTarget: outsideButton });
+      outsideButton.focus();
+
+      expect(row).not.toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2'
+      );
+    });
+
+    it('keeps the roving row outline when focus moves within the tree', () => {
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'File 1', null, true)]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const treegrid = screen.getByRole('treegrid');
+      treegrid.focus();
+      fireEvent.keyDown(treegrid, { key: 'ArrowDown' });
+
+      const row = screen.getByText('File 1').closest('tr');
+      const expandButton = screen.getByRole('button', { name: 'Expand' });
+      fireEvent.blur(treegrid, { relatedTarget: expandButton });
+
+      expect(row).toHaveClass(
+        'outline-solid',
+        'outline-2',
+        'outline-foreground/50',
+        '-outline-offset-2'
+      );
+    });
+
     it('renders column headers', () => {
       const columns: TreeTableColumn<TestData>[] = [
         {
@@ -1072,6 +1189,32 @@ describe('TreeTable', () => {
   });
 
   describe('pluggable checkbox API', () => {
+    it('can pin tree controls to the first row line when cell content expands', () => {
+      const pinnedColumns: TreeTableColumn<TestData>[] = [
+        {
+          cell: ({ node }) => <div className="h-24">{node.data.name}</div>,
+          id: 'name',
+          treeControlsPosition: 'top',
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={pinnedColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'unchecked'}
+          nodes={[createTestNode('file', 'Expanded file')]}
+          onCheckboxChange={() => {}}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      const checkbox = screen.getByLabelText('Select file');
+      expect(checkbox.parentElement).toHaveAttribute('data-tree-controls-position', 'top');
+      expect(checkbox.parentElement).toHaveClass('self-start');
+    });
+
     it('renders checkbox state from getCheckboxState, including indeterminate', () => {
       const nodes: TreeNode<TestData>[] = [
         createTestNode('file', 'File', null, true, 0),
@@ -1114,6 +1257,31 @@ describe('TreeTable', () => {
 
       expect(screen.getByLabelText('Select file')).toBeInTheDocument();
       expect(screen.queryByLabelText('Select match')).not.toBeInTheDocument();
+    });
+
+    it('can reserve checkbox space when a consumer hides a row checkbox', () => {
+      const alignedColumns: TreeTableColumn<TestData>[] = [
+        {
+          cell: ({ node }) => node.data.name,
+          id: 'name',
+          reserveCheckboxSpace: true,
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={alignedColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'hidden'}
+          nodes={[createTestNode('empty-group', 'Empty group')]}
+          onCheckboxChange={() => {}}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(screen.getByTestId('tree-checkbox-spacer')).toBeInTheDocument();
     });
 
     it('hides the checkbox when getCheckboxState returns undefined', () => {
@@ -1318,6 +1486,65 @@ describe('TreeTable', () => {
   });
 
   describe('selection', () => {
+    it('can keep multi-selection checkbox-only while row clicks only move focus', () => {
+      const handleMultiSelect = vi.fn();
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'unchecked'}
+          multiSelectedIds={new Set()}
+          nodes={[createTestNode('file', 'File')]}
+          onCheckboxChange={() => {}}
+          onMultiSelectChange={handleMultiSelect}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          selectOnRowClick={false}
+          windowingStrategy="none"
+        />
+      );
+
+      fireEvent.click(screen.getByText('File'));
+
+      expect(handleMultiSelect).not.toHaveBeenCalled();
+    });
+
+    it('does not route keyboard activation from an interactive cell control to row selection', () => {
+      const handleCheckboxChange = vi.fn();
+      const interactiveColumns: TreeTableColumn<TestData>[] = [
+        {
+          cell: ({ node }) => <button type="button">Open {node.data.name}</button>,
+          header: 'Name',
+          id: 'name',
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={interactiveColumns}
+          expandedIds={new Set()}
+          getCheckboxState={() => 'unchecked'}
+          nodes={[createTestNode('file', 'File')]}
+          onCheckboxChange={handleCheckboxChange}
+          onToggleExpand={() => {}}
+          selectionMode="multi"
+          selectOnRowClick={false}
+          showCheckbox
+          windowingStrategy="none"
+        />
+      );
+
+      const row = screen.getByText('Open File').closest('tr');
+      if (!row) {
+        throw new Error('Expected an interactive tree row.');
+      }
+      fireEvent.click(row);
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Open File' }), { key: ' ' });
+
+      expect(handleCheckboxChange).not.toHaveBeenCalled();
+    });
+
     it('calls onSelect when row clicked in single mode', () => {
       const handleSelect = vi.fn();
       const nodes: TreeNode<TestData>[] = [createTestNode('1', 'File 1')];

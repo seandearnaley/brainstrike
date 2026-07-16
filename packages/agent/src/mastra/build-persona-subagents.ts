@@ -26,23 +26,6 @@ import {
   type PermissionToolGateSnapshot,
 } from './permission-tool-gate';
 
-/**
- * Thrown when a persona pins a model in v1 (the seam exists but is not yet
- * wired). Explicit, not a silent no-op — the persona author gets a clear error.
- */
-export class PersonaModelPinningNotImplementedError extends Error {
-  readonly personaId: string;
-
-  constructor(personaId: string) {
-    super(
-      `Persona '${personaId}' pins a model, but persona model pinning is not implemented in v1. ` +
-        'Leave `model` undefined; children reuse the parent language model.'
-    );
-    this.name = 'PersonaModelPinningNotImplementedError';
-    this.personaId = personaId;
-  }
-}
-
 export interface PersonaSubAgentBuildResult {
   /** 'agent-<personaId>' → personaId, for the stream mapper (D9). */
   readonly delegationToolPersonas: ReadonlyMap<string, string>;
@@ -60,6 +43,14 @@ export interface BuildPersonaSubAgentsParams {
   readonly logger: PermissionToolGateLogger;
   readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
   readonly personas: readonly AssistantPersonaDefinition[];
+  /**
+   * Resolve a pinned persona's model (`persona.model` is set) into a concrete
+   * model instance. Provided by the runtime layer, which owns provider/key
+   * resolution. A pinned persona is SKIPPED with a visible warn when the
+   * resolver is absent or throws — it never silently falls back to the parent
+   * model (the author pinned for a reason: cost, capability, or locality).
+   */
+  readonly resolvePinnedModel?: (persona: AssistantPersonaDefinition) => MastraModelConfig;
   /** sanitizedId → originalName (the parent's map). */
   readonly toolNameMap: ReadonlyMap<string, string>;
 }
@@ -115,9 +106,43 @@ function buildChildInstructions(
 }
 
 /**
+ * Resolve the model a persona child runs on. Un-pinned personas reuse the
+ * parent's model (D5). A pinned persona resolves through `resolvePinnedModel`;
+ * when that is absent or throws, the persona is skipped (null) with a warn —
+ * never a silent parent-model fallback.
+ */
+function resolvePersonaModel(
+  persona: AssistantPersonaDefinition,
+  params: BuildPersonaSubAgentsParams
+): MastraModelConfig | null {
+  if (!persona.model) {
+    return params.languageModel;
+  }
+  if (!params.resolvePinnedModel) {
+    params.logger.warn('Persona pins a model but no pin resolver is available; skipping persona', {
+      code: 'subagent_persona_pin_unresolvable',
+      modelId: persona.model.modelId,
+      personaId: persona.id,
+      provider: persona.model.provider,
+    });
+    return null;
+  }
+  try {
+    return params.resolvePinnedModel(persona);
+  } catch (error) {
+    params.logger.warn('Persona model pin failed to resolve; skipping persona', {
+      code: 'subagent_persona_pin_unresolvable',
+      detail: error instanceof Error ? error.message : String(error),
+      modelId: persona.model.modelId,
+      personaId: persona.id,
+      provider: persona.model.provider,
+    });
+    return null;
+  }
+}
+
+/**
  * Build persona child Agents for the parent supervisor.
- *
- * @throws {PersonaModelPinningNotImplementedError} when a persona pins a model (D5).
  */
 export function buildPersonaSubAgents(
   params: BuildPersonaSubAgentsParams
@@ -134,8 +159,9 @@ export function buildPersonaSubAgents(
     // naming a mutation tool would otherwise keep it — this throws first.
     assertReadOnlyPersona(persona);
 
-    if (persona.model) {
-      throw new PersonaModelPinningNotImplementedError(persona.id);
+    const childModel = resolvePersonaModel(persona, params);
+    if (childModel === null) {
+      continue;
     }
 
     const { candidate, candidateNameMap } = selectCandidateTools(
@@ -183,7 +209,7 @@ export function buildPersonaSubAgents(
       description: persona.description,
       id: persona.id,
       instructions: buildChildInstructions(persona, keptOriginalNames),
-      model: params.languageModel,
+      model: childModel,
       name: persona.label,
       tools: childTools as ToolsInput,
     });

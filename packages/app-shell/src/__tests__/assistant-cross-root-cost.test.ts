@@ -80,6 +80,28 @@ describe('resolveCrossRootCostRows', () => {
     expect(result[0]?.cost).toEqual({ available: false, reason: 'unpriced_model' });
   });
 
+  it('uses exact OpenRouter cost even when a model has no static price', () => {
+    const rows: CrossRootUsageRow[] = [
+      {
+        billedCostUsd: 0.0065,
+        estimatedInputTokens: 0,
+        estimatedOutputTokens: 0,
+        inputTokens: 5000,
+        model: 'new-model-not-yet-priced',
+        outputTokens: 900,
+        provider: 'openrouter',
+        rootDisplayName: 'project-alpha',
+        rootId: 'root-a',
+      },
+    ];
+
+    expect(resolveCrossRootCostRows(rows, () => undefined)[0]?.cost).toEqual({
+      available: true,
+      provenance: 'provider-reported',
+      usdAmount: 0.0065,
+    });
+  });
+
   it('renders the unattributed (null) root with a stable label and a truncated id fallback for join misses', () => {
     const rows: CrossRootUsageRow[] = [
       {

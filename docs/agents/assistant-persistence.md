@@ -17,7 +17,7 @@ contracts keep reloaded threads identical to live ones:
    field instead of `text` (and is often empty for encrypted provider
    reasoning). `step-start` and `data-om-*` bookkeeping parts are not
    renderable. Live-loop proof (real agent + real PGlite memory, no mocks):
-   packages/agent/src/__tests__/mastra-memory-persistence.spec.ts. Hydration
+   packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts. Hydration
    fixtures must mirror REAL persisted rows, never hand-written shapes — a
    hand-written `tool-call` fixture previously kept tests green while real
    tool history silently vanished on every reload.
@@ -47,6 +47,46 @@ contracts keep reloaded threads identical to live ones:
      (`ok:false`) hydrates as a failed tool call even though Mastra persists
      the invocation itself with `state:'result'`; the execution and replay
      paths must never maintain independent guarded-error code lists.
+3. **Edited-prompt branch topology:** Mastra remains the only writer of message
+   CONTENT, but its rows do not retain assistant-ui's parent graph. The client
+   history adapter therefore persists only `{messageId,parentId}` edges in
+   `brainstrike_assistant_message_parents` (migration 055) from its canonical
+   `append({message,parentId})` callback. An edge may land before Mastra saves
+   the matching content row, so `message_id`/`parent_id` intentionally have no
+   message FK. It also has no thread FK because the numbered migration runner
+   executes against a bare schema; app-shell thread deletion and factory reset
+   explicitly own cleanup. Hydration LEFT JOINs these edges and
+   uses an explicit parent (including explicit `null`) instead of chronological
+   chaining, which reconstructs edited prompts/regenerations as carousel
+   siblings after reload. Rows without an edge are legacy data and retain the
+   chronological fallback. The bounded 80-row hydration window is always a
+   closed graph: retained messages whose parent fell outside the window are
+   explicitly re-rooted. Hydration then performs a stable parent-first graph
+   traversal so assistant-ui never imports a dangling or not-yet-imported
+   parent. Mastra message creation time is immutable on same-id saves: a
+   regeneration reuses its parent user id, and moving that legacy row later
+   would invert pre-topology history.
+   Conflicting edges for the same message id throw — branch corruption is never
+   silently rewritten. Factory reset clears the companion table explicitly.
+   The UI transport preserves each assistant-ui user message id through the
+   generic-message conversion, and the desktop request parser preserves
+   assistant-ui's `unstable_assistantMessageId`; the stream session and Mastra
+   id generator both use those validated ids for the persisted user/visible
+   assistant pair. A normally finished stream asserts that the one-shot Mastra
+   generator consumed the assistant id through its memory message context,
+   making upstream contract drift visible instead of quietly substituting a
+   UUID. Initial turns and both approval/suspend resume paths pass a separate
+   per-call stream-id generator with the same initial id; the Mastra-global
+   generator remains reserved for the persisted memory row, so a transient
+   resume stream id cannot consume the durable identity first. If
+   observational-memory sealing creates additional snapshot rows,
+   hydration keeps the topology-bearing row's id for the combined assistant-ui
+   message. A new topology-bearing assistant id always starts a new hydration
+   group, including after an open legacy group, so consecutive regenerated
+   responses remain carousel siblings rather than being mistaken for snapshots
+   of one response.
+   This end-to-end identity alignment is what lets a later edited prompt point
+   to its durable assistant parent without correlation heuristics.
 
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,
@@ -160,7 +200,93 @@ Runtime invariants:
   (`onUsage` in data-stream-runtime.ts), local via the llm-host result (`onUsage` in
   local-runtime-adapter.ts; `LocalLlmGenerationResult.usage` is optional at the IPC boundary — guard it).
 - The meter shows estimated (heuristic over thread messages) until exact usage lands; provenance
-  must never lie — wire-format usage is `{inputTokens, outputTokens}` (e2e mocks must use those names).
+  must never lie — wire-format usage is `{inputTokens, outputTokens, billedCostUsd?}` (e2e mocks
+  must use the token field names).
+- OpenRouter finish messages must additionally carry `billedCostUsd`, sourced
+  from Mastra's official OpenRouter provider metadata. Persist it in
+  `brainstrike_assistant_run_usage.billed_cost_usd`; cumulative and cross-root
+  views use the provider amount for reported rows and registry pricing only for
+  legacy/unreported rows. Mixed groups add both portions and retain estimated
+  provenance; entirely provider-reported groups use `provider-reported`.
+  Approval/suspension pauses emit a zero-token finish without cost because
+  Mastra emits the pause before exposing that model step's `step-finish`. On
+  resume, Mastra emits the deferred pre-pause step finish and all subsequent
+  steps; the normal terminal usage tap persists their exact aggregate once.
+  Missing or malformed cost metadata on a new OpenRouter completion fails
+  visibly rather than being mislabeled as an exact or zero-cost run.
 
 ---
 
+
+## THREAD GROUPS (FOLDERS) IN THE THREADS PANEL
+
+User-defined groups organize the Threads panel: rank-ordered group sections, an
+**Ungrouped** section always last, drag-and-drop (Pragmatic drag and drop), and
+a Group by / Sort by view-options popover. Plan/rationale:
+`docs/thread-groups-plan-2026-07-12.md`.
+
+Where state lives (do not relitigate):
+- Groups: `brainstrike_assistant_thread_groups`; thread membership + manual
+  order: `brainstrike_assistant_thread_placements` (migration 054; migration
+  056 adds nullable validated folder `color` and independent `flat_rank`, seeded
+  from the legacy `rank` so existing custom order survives the split; both are
+  registered in both migration runners). Membership deliberately does NOT
+  live in `mastra_threads.metadata`: grouping, folder color, and manual order
+  are Brainstrike-owned presentation state while Mastra owns that schema.
+- Thread icon/color metadata updates preserve conversational `updatedAt`; visual
+  curation must never reshuffle a recency-sorted collection.
+- Placements have no FK to `mastra_threads`: a placement whose thread is gone is
+  inert (the panel joins by id). Bulk thread deletion removes placements and all
+  owned thread rows in one guarded CTE; an unknown id mutates nothing. Deleting
+  a group nulls its placements' `group_id` and removes the group in one CTE after
+  staged UI confirmation, returning its threads to Ungrouped without partial
+  state or discarding their independent flat-list ranks; the loaded store mirrors
+  that transition by retaining each placement with `groupId: null`.
+- `rank` columns are `fractional-indexing` keys (`generateKeyBetween`); a
+  positional drop rewrites the destination section's ranks wholesale
+  (`applyThreadOrder` → `setThreadPlacements`, a SINGLE multi-row upsert so the
+  batch is atomic without the optional `DbHandle.transaction`; `reorderGroups` →
+  `setGroupRanks` likewise) and silently switches Sort by → Custom so the drag
+  is honored, never ignored. In Custom sort, unranked (new) threads render first
+  by recency.
+- View prefs (`groupBy`, independent `flatSortBy` / `groupedSortBy`, collapsed)
+  persist via zustand `persist` (`brainstrike-assistant-thread-groups-v1`, state
+  version 2); the store registers a session resetter in
+  `register-factory-reset-session-stores.ts`.
+- The Threads panel uses shared `TreeTable` as its only scroll owner. Folder
+  rows are real expandable treegrid parents with Left/Right keyboard behavior.
+  Disclosed section rows are virtualized and capped at 50 initially, with an
+  explicit 50-row Show more action; folder selection still targets the complete
+  section, while Select visible targets only disclosed threads.
+
+Layers: repository `assistant-thread-groups-repository.ts` → store
+`assistant-thread-groups-store.ts` → pure view-model `thread-list-sections.ts`
+(grouping/sorting; `buildThreadMembership` is the single source of effective
+membership) → drop resolution `threads-panel-dnd.ts` (pure intent reducer) →
+element wiring `threads-panel-dnd-elements.tsx`. Semantic color presentation is
+owned once in `assistant-thread-presentation.ts` and shared by rows, folders,
+and tabs. Keyboard/a11y fallback for
+every drag operation: row context-menu "Move to <group>" / "Remove from Group".
+
+Paired tests: `migration-054-assistant-thread-groups.test.ts` and
+`migration-056-assistant-thread-group-presentation.test.ts` (packages/db),
+`assistant-thread-groups-repository.test.ts`, `assistant-thread-groups-store.test.ts`,
+`thread-list-sections.test.ts`, `threads-panel-dnd.test.ts`, and the
+`ThreadsPanel groups` suite in `threads-panel.test.tsx`.
+
+## ASSISTANT THREAD TABS
+
+Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
+`reorderThreadTabs` persists the complete ordered id list atomically. The tab
+controller uses the WAI-ARIA automatic-activation pattern with roving tab focus,
+Home/End, Delete, and `Alt+Shift+Left/Right` reorder controls. Pointer drag uses
+Pragmatic drag and drop plus edge auto-scroll; context-menu Move Left / Move
+Right provides the non-drag alternative. Panels remain mounted while inactive
+so runtime state is not discarded, and a colored thread supplies the canonical
+accent from `assistant-thread-presentation.ts` rather than a tab-local palette.
+
+Paired tests: `assistant-thread-store.test.ts`,
+`assistant-thread-tabs-dnd.test.ts`, `assistant-thread-tabs-dnd-elements.test.tsx`,
+and `assistant-thread-tabs-workspace.test.tsx`.
+
+---

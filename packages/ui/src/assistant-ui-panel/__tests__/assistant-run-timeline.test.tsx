@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { TooltipProvider } from '../../tooltip';
 import {
   AssistantRunTimeline,
+  deriveAssistantRunEventRows,
   getMatchingCompletedKind,
   isAlwaysVisibleRunEvent,
   resolveAssistantRunEventRenderPlan,
@@ -29,6 +30,118 @@ function renderTimeline(data: Record<string, unknown>) {
 function runEventPart(event: Record<string, unknown>) {
   return { data: event, name: ASSISTANT_RUN_EVENT_DATA_NAME };
 }
+
+function countedParts(parts: unknown[], reads: { count: number }): unknown[] {
+  return new Proxy(parts, {
+    get(target, property, receiver) {
+      if (typeof property === 'string' && /^\d+$/.test(property)) {
+        reads.count += 1;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+describe('deriveAssistantRunEventRows', () => {
+  it('scans message parts once for every row in an update', () => {
+    const reads = { count: 0 };
+    const started = Array.from({ length: 40 }, (_, index) => ({
+      id: `start-${index}`,
+      kind: 'memory.observation.started',
+      label: 'Observation started',
+      status: 'running',
+      timestamp: `2026-06-05T00:00:${String(index).padStart(2, '0')}.000Z`,
+    }));
+    const completed = started.map((event, index) => ({
+      ...event,
+      id: `complete-${index}`,
+      kind: 'memory.observation.completed',
+      label: `Observation completed ${index}`,
+      status: 'completed',
+    }));
+    const parts = countedParts([...started, ...completed].map(runEventPart), reads);
+
+    const rows = deriveAssistantRunEventRows([{ id: 'message-1', parts }]);
+
+    expect(reads.count).toBe(parts.length);
+    expect(rows.statuses['start-0']).toBe('completed');
+    expect(rows.renderPlanKeys['start-0']).toBe('hidden');
+    expect(rows.statuses['complete-0']).toBe('completed');
+    expect(rows.renderPlanKeys['complete-0']).toBe('visible:1');
+  });
+
+  it('matches the established per-row status and render-plan behavior', () => {
+    const events = [
+      {
+        id: 'run-start',
+        kind: 'run.started',
+        label: 'Run',
+        runId: 'run-1',
+        status: 'running',
+        timestamp: '2026-06-05T00:00:00.000Z',
+      },
+      {
+        id: 'tool-start',
+        kind: 'tool.started',
+        label: 'Read',
+        metadata: { toolCallId: 'call-1' },
+        runId: 'run-1',
+        status: 'running',
+        timestamp: '2026-06-05T00:00:01.000Z',
+      },
+      {
+        id: 'tool-done',
+        kind: 'tool.completed',
+        label: 'Read complete',
+        metadata: { toolCallId: 'call-1' },
+        runId: 'run-1',
+        status: 'completed',
+        timestamp: '2026-06-05T00:00:02.000Z',
+      },
+      {
+        id: 'repeat-1',
+        kind: 'memory.working.loaded',
+        label: 'Memory read',
+        status: 'info',
+        timestamp: '2026-06-05T00:00:03.000Z',
+      },
+      {
+        id: 'repeat-2',
+        kind: 'memory.working.loaded',
+        label: 'Memory read',
+        status: 'info',
+        timestamp: '2026-06-05T00:00:04.000Z',
+      },
+      {
+        id: 'run-done',
+        kind: 'run.finished',
+        label: 'Done',
+        runId: 'run-1',
+        status: 'completed',
+        timestamp: '2026-06-05T00:00:05.000Z',
+      },
+    ];
+    const messages = [
+      {
+        parts: [
+          ...events.map(runEventPart),
+          { toolCallId: 'call-1', toolName: 'brainstrike.readFile', type: 'tool-call' },
+        ],
+      },
+    ];
+    const rows = deriveAssistantRunEventRows(messages);
+
+    for (const event of events) {
+      const expectedPlan = resolveAssistantRunEventRenderPlan(messages, event);
+      expect(rows.statuses[event.id]).toBe(
+        resolveAssistantRunEventStatus(messages, event as never)
+      );
+      expect(rows.renderPlanKeys[event.id]).toBe(
+        expectedPlan.hidden ? 'hidden' : `visible:${expectedPlan.repeatCount}`
+      );
+    }
+  });
+});
 
 describe('getMatchingCompletedKind', () => {
   it('maps run.step.started to run.step.finished (not .completed)', () => {

@@ -429,6 +429,11 @@ export const createUiModuleMock = () => ({
   Progress: ({ value, ...props }: MockComponentProps & { value?: number }) => (
     <div data-testid="progress" data-value={value} {...props} />
   ),
+  SelectionActionBarOverlay: ({ children, ...props }: MockComponentProps) => (
+    <div data-testid="selection-action-overlay" {...props}>
+      {children}
+    </div>
+  ),
   SortableTableHeader: ({
     title,
     onSort,

@@ -15,6 +15,7 @@ import { Mastra } from '@mastra/core/mastra';
 import type { MastraMemory } from '@mastra/core/memory';
 import { TokenLimiter } from '@mastra/core/processors';
 import type { MastraCompositeStore } from '@mastra/core/storage';
+import type { IdGeneratorContext } from '@mastra/core/types';
 import {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
@@ -69,6 +70,7 @@ import {
   type PermissionAskToolMetadata,
   type PermissionToolGateSnapshot,
 } from './permission-tool-gate';
+import { createPersonaPinnedModelResolver } from './persona-pinned-model';
 import { filterToolsForPlanMode, resolveSuspendToolsForRun } from './plan-mode-tool-gate';
 import {
   type ResolvedRuntimeConfiguration,
@@ -141,6 +143,8 @@ export interface MastraAgentRuntime {
    * lack of resume storage.
    */
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
+  /** Fail-loud completion check for the client-provided persisted assistant id. */
+  assertAssistantMessageIdPersisted?: () => void;
   /**
    * 'agent-<personaId>' → personaId for every registered delegation tool. Empty
    * when personas are absent/skipped. Consumed by the stream mapper (T4) to emit
@@ -181,8 +185,12 @@ function instantiateLanguageModel(
 
 export function convertMessagesToMastra(
   messages: AgentMessage[]
-): Array<{ role: 'user' | 'assistant' | 'system'; content: string }> {
-  const result: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+): Array<{ id: string; role: 'user' | 'assistant' | 'system'; content: string }> {
+  const result: Array<{
+    content: string;
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+  }> = [];
   for (const message of messages) {
     const textParts: string[] = [];
     for (const part of message.parts) {
@@ -195,7 +203,7 @@ export function convertMessagesToMastra(
       }
     }
     if (textParts.length > 0) {
-      result.push({ content: textParts.join('\n\n'), role: message.role });
+      result.push({ content: textParts.join('\n\n'), id: message.id, role: message.role });
     }
   }
   return result;
@@ -348,6 +356,7 @@ function resolvePersonaRuntimeParts(params: {
   personas: readonly AssistantPersonaDefinition[] | undefined;
   planModeActive: boolean;
   provider: string;
+  resolvePinnedModel: (persona: AssistantPersonaDefinition) => MastraModelConfig;
   toolNameMap: Map<string, string>;
 }): PersonaRuntimeParts {
   if (params.planModeActive || !shouldEnablePersonas(params.provider, params.personas)) {
@@ -359,6 +368,7 @@ function resolvePersonaRuntimeParts(params: {
     logger,
     permissionSnapshot: params.permissionSnapshot,
     personas: params.personas ?? [],
+    resolvePinnedModel: params.resolvePinnedModel,
     toolNameMap: params.toolNameMap,
   });
   return {
@@ -400,6 +410,34 @@ function composeRuntimeInstructions(params: {
   return [resolvedInstructions, params.budgetNote, params.taskListNote]
     .filter((part): part is string => Boolean(part))
     .join('\n');
+}
+
+function registerAgentWithMastra(
+  agent: Agent,
+  storage: MastraCompositeStore | undefined,
+  assistantMessageId: string | undefined
+): {
+  assertAssistantMessageIdPersisted?: () => void;
+  mastra?: Mastra;
+} {
+  if (!storage) {
+    return {};
+  }
+  const assistantMessageIdGenerator = assistantMessageId
+    ? createAssistantMessageIdGenerator(assistantMessageId)
+    : undefined;
+  const mastra = new Mastra({
+    agents: { brainstrikeAssistant: agent },
+    ...(assistantMessageIdGenerator ? { idGenerator: assistantMessageIdGenerator.generate } : {}),
+    logger: false,
+    storage,
+  });
+  return {
+    ...(assistantMessageIdGenerator
+      ? { assertAssistantMessageIdPersisted: assistantMessageIdGenerator.assertConsumed }
+      : {}),
+    mastra,
+  };
 }
 
 export async function createMastraAgentRuntime(
@@ -557,6 +595,12 @@ export async function createMastraAgentRuntime(
     personas,
     planModeActive,
     provider: normalizedProvider,
+    resolvePinnedModel: createPersonaPinnedModelResolver({
+      apiKey,
+      instantiate: instantiateLanguageModel,
+      parentProvider: normalizedProvider,
+      runtime: sanitizedRuntime,
+    }),
     toolNameMap,
   });
 
@@ -592,16 +636,15 @@ export async function createMastraAgentRuntime(
       : {}),
   });
 
-  const mastra = storage
-    ? new Mastra({
-        agents: { brainstrikeAssistant: agent },
-        logger: false,
-        storage,
-      })
-    : undefined;
+  const { mastra, ...assistantIdentityRuntime } = registerAgentWithMastra(
+    agent,
+    storage,
+    runtime?.assistantMessageId
+  );
 
   return {
     agent,
+    ...assistantIdentityRuntime,
     askTools,
     delegationToolPersonas,
     dispose: async () => {
@@ -659,8 +702,9 @@ interface MastraStreamPart {
     tripwireReason?: string;
     stepResult?: { reason?: unknown };
     output?: { usage?: UsageLike };
-    metadata?: { usage?: UsageLike };
+    metadata?: { providerMetadata?: unknown; usage?: UsageLike };
   };
+  providerMetadata?: unknown;
   runId?: unknown;
   text?: string;
   textDelta?: string;
@@ -676,7 +720,39 @@ function asMastraStreamPart(part: unknown): MastraStreamPart {
   return { type: 'unknown' };
 }
 
-function makeFinishChunk(part: unknown): StreamChunk {
+function readOpenRouterBilledCost(part: MastraStreamPart): number | undefined {
+  const providerMetadata = part.payload?.metadata?.providerMetadata ?? part.providerMetadata;
+  if (providerMetadata === undefined) {
+    return;
+  }
+  if (!providerMetadata || typeof providerMetadata !== 'object') {
+    throw new Error('OpenRouter provider metadata must be an object.');
+  }
+  const openrouter = (providerMetadata as Record<string, unknown>)['openrouter'];
+  if (openrouter === undefined) {
+    return;
+  }
+  if (!openrouter || typeof openrouter !== 'object') {
+    throw new Error('OpenRouter provider metadata must be an object.');
+  }
+  const usage = (openrouter as Record<string, unknown>)['usage'];
+  if (usage === undefined) {
+    return;
+  }
+  if (!usage || typeof usage !== 'object') {
+    throw new Error('OpenRouter usage metadata must be an object.');
+  }
+  const cost = (usage as Record<string, unknown>)['cost'];
+  if (cost === undefined) {
+    return;
+  }
+  if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) {
+    throw new Error('OpenRouter billed cost must be a finite, non-negative number.');
+  }
+  return cost;
+}
+
+function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
   const p = asMastraStreamPart(part);
   const usageCandidates: Array<UsageLike | undefined> = [
     p.usage,
@@ -688,7 +764,25 @@ function makeFinishChunk(part: unknown): StreamChunk {
   const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
   const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
   const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
+  const finishCost = readOpenRouterBilledCost(p);
+  if (lifecycleState.requiresBilledCost && lifecycleState.sawStepWithoutBilledCost) {
+    // Mastra makes terminal token usage cumulative, but copies providerMetadata
+    // from only the final model step. A terminal cost therefore cannot repair a
+    // missing earlier step without silently undercounting the provider bill.
+    throw new Error('OpenRouter model step omitted required provider-reported billed cost.');
+  }
+  if (
+    lifecycleState.requiresBilledCost &&
+    !lifecycleState.sawStepBilledCost &&
+    finishCost === undefined
+  ) {
+    throw new Error('OpenRouter completion omitted required provider-reported billed cost.');
+  }
+  const billedCostUsd = lifecycleState.sawStepBilledCost
+    ? lifecycleState.stepBilledCostUsd
+    : finishCost;
   return {
+    ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     finishReason: readFinishReason(part),
     path: [],
     type: 'message-finish',
@@ -815,6 +909,10 @@ interface OutputOnlyToolEvent {
 interface ToolLifecycleState {
   delegationLifecycle: DelegationLifecycleTracker;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
+  requiresBilledCost: boolean;
+  sawStepBilledCost: boolean;
+  sawStepWithoutBilledCost: boolean;
+  stepBilledCostUsd: number;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
 }
 
@@ -1330,7 +1428,14 @@ function processMastraStreamPart(
         ],
         finished: false,
       };
-    case 'step-finish':
+    case 'step-finish': {
+      const billedCostUsd = readOpenRouterBilledCost(p);
+      if (billedCostUsd === undefined) {
+        lifecycleState.sawStepWithoutBilledCost = true;
+      } else {
+        lifecycleState.sawStepBilledCost = true;
+        lifecycleState.stepBilledCostUsd += billedCostUsd;
+      }
       return {
         chunks: [
           makeRunEventChunk(
@@ -1342,6 +1447,7 @@ function processMastraStreamPart(
         ],
         finished: false,
       };
+    }
     case 'finish': {
       return {
         chunks: [
@@ -1352,7 +1458,7 @@ function processMastraStreamPart(
             'Assistant run completed',
             makeStepMetadata(part)
           ),
-          makeFinishChunk(part),
+          makeFinishChunk(part, lifecycleState),
         ],
         finished: true,
       };
@@ -1505,12 +1611,29 @@ function makeProviderErrorTermination(
 
 function makeStreamStalledTermination(
   error: StreamStalledError,
-  lifecycleState: ToolLifecycleState
+  lifecycleState: ToolLifecycleState,
+  runtimeData: RuntimeData | undefined
 ): StreamChunk[] {
-  logger.error('mastra stream stalled by inactivity timeout', {
-    code: 'mastra_agent_stream_inactivity_timeout',
+  const provider = runtimeData?.provider?.trim().toLowerCase();
+  const model = runtimeData?.model?.trim();
+  const localRuntimeName =
+    provider === 'ollama' ? 'Ollama' : provider === 'lmstudio' ? 'LM Studio' : null;
+  const diagnosticContext = {
     inactivityMs: error.inactivityMs,
-  });
+    ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
+  };
+  logger.error(
+    {
+      code: 'mastra_agent_stream_inactivity_timeout',
+      ...diagnosticContext,
+    },
+    'mastra stream stalled by inactivity timeout'
+  );
+  const visibleMessage =
+    localRuntimeName && model
+      ? `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`
+      : `The model stream stalled after ${error.inactivityMs}ms without output.`;
   return [
     // A stall mid-delegation must never leave an orphaned `subagent.started`
     // with no terminal counterpart — mirror the abort branches' drain.
@@ -1518,11 +1641,11 @@ function makeStreamStalledTermination(
     ...makePendingToolOutputRunEventChunks(lifecycleState),
     {
       type: 'text-delta',
-      value: `The model stream stalled after ${error.inactivityMs}ms without output.`,
+      value: visibleMessage,
     },
     makeRunEventChunk('run.failed', 'failed', 'Assistant run failed', {
       code: error.code,
-      inactivityMs: error.inactivityMs,
+      ...diagnosticContext,
     }),
     makeErrorFinishChunk(),
   ];
@@ -1569,16 +1692,19 @@ async function initializeMastraRuntime(
     const resolvedModel =
       options.model && options.model.length > 0
         ? options.model
-        : (getDefaultModel(runtimeResolution.provider) ?? '');
-    logger.info('mastra runtime initialized', {
-      code: 'mastra_agent_runtime_initialized',
-      // Empty string means the caller did not specify a model AND the
-      // provider has no static default (e.g. local runtimes whose models are
-      // discovered dynamically). This is a real failure mode worth logging.
-      model: resolvedModel.length > 0 ? resolvedModel : '<unset>',
-      provider: runtimeResolution.provider,
-      toolCount: Object.keys(options.tools ?? {}).length,
-    });
+        : (runtimeResolution.runtime.model ?? getDefaultModel(runtimeResolution.provider) ?? '');
+    logger.info(
+      {
+        code: 'mastra_agent_runtime_initialized',
+        // Empty string means the caller did not specify a model AND the
+        // provider has no static default (e.g. local runtimes whose models are
+        // discovered dynamically). This is a real failure mode worth logging.
+        model: resolvedModel.length > 0 ? resolvedModel : '<unset>',
+        provider: runtimeResolution.provider,
+        toolCount: Object.keys(options.tools ?? {}).length,
+      },
+      'mastra runtime initialized'
+    );
     return { runtime: instance, sanitizedNameMap: instance.toolNameMap };
   } catch (err) {
     logger.error('mastra runtime init failed', {
@@ -1648,12 +1774,104 @@ type ApprovalGate = boolean | ((ctx: { toolName: string }) => boolean);
 interface BrainstrikeAgentStreamOptions {
   abortSignal?: AbortSignal;
   delegation?: DelegationConfig;
+  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+  experimental_generateMessageId?: () => string;
   inputProcessors?: unknown[];
   maxSteps?: number;
   memory?: AgentMemoryOption;
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
   requireToolApproval?: ApprovalGate;
+}
+
+const DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS = 4096;
+
+function buildModelSettingsOption(
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'modelSettings'> {
+  const modelSettings =
+    runtimeData?.provider === 'openrouter'
+      ? {
+          maxOutputTokens: DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS,
+          ...runtimeData.modelSettings,
+        }
+      : runtimeData?.modelSettings;
+  return modelSettings ? { modelSettings } : {};
+}
+
+/**
+ * Keep Brainstrike's local-server transport settings out of Mastra generation
+ * options. Mastra namespaces compatible-provider options by the model id's
+ * first segment, so forwarding `providerOptions.ollama` or `.lmstudio` would
+ * serialize `baseUrl` and `apiToken` into the chat-completions request body.
+ */
+function buildGenerationProviderOptionsOption(
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'providerOptions'> {
+  const providerOptions = runtimeData?.providerOptions;
+  if (!providerOptions) {
+    return {};
+  }
+  if (providerOptions.ollama === undefined && providerOptions.lmstudio === undefined) {
+    return { providerOptions };
+  }
+
+  const generationProviderOptions = Object.fromEntries(
+    Object.entries(providerOptions).filter(
+      ([namespace]) => namespace !== 'ollama' && namespace !== 'lmstudio'
+    )
+  ) as NonNullable<RuntimeData['providerOptions']>;
+  if (Object.keys(generationProviderOptions).length === 0) {
+    return {};
+  }
+  return { providerOptions: generationProviderOptions };
+}
+
+interface AssistantMessageIdGenerator {
+  assertConsumed: () => void;
+  generate: (context?: IdGeneratorContext) => string;
+}
+
+function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | undefined): {
+  // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+  experimental_generateMessageId?: () => string;
+} {
+  const assistantMessageId = runtimeData?.assistantMessageId;
+  if (!assistantMessageId) {
+    return {};
+  }
+  return {
+    // The stream and persistence paths each consume their own one-shot
+    // generator. Sharing one would make whichever Mastra path runs first force
+    // the other to a UUID, breaking visible/persisted identity alignment.
+    // biome-ignore lint/style/useNamingConvention: Mastra's public stream option.
+    experimental_generateMessageId: createAssistantMessageIdGenerator(assistantMessageId).generate,
+  };
+}
+
+function createAssistantMessageIdGenerator(initialMessageId: string): AssistantMessageIdGenerator {
+  let nextMessageId: string | undefined = initialMessageId;
+  return {
+    assertConsumed() {
+      if (nextMessageId === undefined) {
+        return;
+      }
+      throw new Error(
+        `Mastra completed without persisting assistant message ID "${initialMessageId}" through its memory ID context.`
+      );
+    },
+    generate(context?: IdGeneratorContext) {
+      if (context && (context.idType !== 'message' || context.source !== 'memory')) {
+        return generateUUID();
+      }
+      if (nextMessageId !== undefined) {
+        const messageId = nextMessageId;
+        nextMessageId = undefined;
+        return messageId;
+      }
+      return generateUUID();
+    },
+  };
 }
 
 const DEFAULT_AGENT_MAX_STEPS = 20;
@@ -1774,6 +1992,10 @@ async function* streamChunksFromMastra({
   const lifecycleState: ToolLifecycleState = {
     delegationLifecycle: createDelegationLifecycleTracker(),
     outputOnlyToolEvents: new Map(),
+    requiresBilledCost: runtimeData?.provider === 'openrouter',
+    sawStepBilledCost: false,
+    sawStepWithoutBilledCost: false,
+    stepBilledCostUsd: 0,
     terminalToolCallStates: new Map(),
   };
 
@@ -1796,6 +2018,7 @@ async function* streamChunksFromMastra({
       }
 
       if (finished) {
+        runtime.assertAssistantMessageIdPersisted?.();
         return;
       }
     }
@@ -1814,7 +2037,7 @@ async function* streamChunksFromMastra({
     }
     const stalledChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
-      : makeStreamStalledTermination(error, lifecycleState);
+      : makeStreamStalledTermination(error, lifecycleState, runtimeData);
     for (const chunk of stalledChunks) {
       yield chunk;
     }
@@ -1858,9 +2081,10 @@ async function createStreamIteratorFromRuntime({
     const streamOptions: BrainstrikeAgentStreamOptions = {
       ...buildToolLoopOptions(runtimeData),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
-      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
-      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      ...buildModelSettingsOption(runtimeData),
+      ...buildGenerationProviderOptionsOption(runtimeData),
       // Delegation safety rails: per-run caps + maxSteps clamp + unknown-persona
       // rejection (only when the run has registered personas).
       ...(runtime.personasById.size > 0
@@ -1875,7 +2099,14 @@ async function createStreamIteratorFromRuntime({
     const streamResult = resolvedStreamOptions
       ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
       : await runtime.agent.stream(streamInput);
-    logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
+    logger.info(
+      {
+        code: 'mastra_agent_stream_started',
+        ...(runtimeData?.model ? { model: runtimeData.model } : {}),
+        ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
+      },
+      'mastra stream started'
+    );
 
     const fullStream = resolveFullStream(streamResult);
     if (!fullStream) {
@@ -1950,9 +2181,10 @@ async function createToolApprovalIteratorFromRuntime({
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
-      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
-      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      ...buildModelSettingsOption(runtimeData),
+      ...buildGenerationProviderOptionsOption(runtimeData),
       // Resume keeps the delegation rails so a resumed run still caps/rejects
       // subagent delegations consistently with the initial turn.
       ...(runtime.personasById.size > 0
@@ -2043,7 +2275,7 @@ export async function streamMastraAgent(
     runtime,
     ...(options.memory ? { memory: options.memory } : {}),
     ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
-    ...(runtimeData ? { runtimeData } : {}),
+    runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
 }
@@ -2113,7 +2345,7 @@ export async function streamMastraToolApprovalAction(
     ...(options.requireToolApproval === undefined
       ? {}
       : { requireToolApproval: options.requireToolApproval }),
-    ...(runtimeData ? { runtimeData } : {}),
+    runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
 }
@@ -2249,9 +2481,10 @@ async function createToolResumeIteratorFromRuntime({
       runId: action.runId,
       toolCallId: action.toolCallId,
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...buildAssistantStreamMessageIdOption(runtimeData),
       ...(memoryOption ? { memory: memoryOption } : {}),
-      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
-      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+      ...buildModelSettingsOption(runtimeData),
+      ...buildGenerationProviderOptionsOption(runtimeData),
       // Resume keeps the delegation rails so a resumed run (e.g. an askUser
       // pause→answer that then delegates) still caps/rejects subagent
       // delegations consistently with the initial + approval-resume iterators.
@@ -2325,7 +2558,7 @@ export async function streamMastraToolResumeAction(
     action,
     runtime,
     ...(options.memory ? { memory: options.memory } : {}),
-    ...(runtimeData ? { runtimeData } : {}),
+    runtimeData: runtimeResolution.runtime,
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
 }

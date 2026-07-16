@@ -43,6 +43,12 @@ import { migration050AssistantTaskLists } from '../migrations/050-assistant-task
 import { migration051PromptLibrary } from '../migrations/051-prompt-library.js';
 import { migration052AssistantEditCheckpoints } from '../migrations/052-assistant-edit-checkpoints.js';
 import { migration053Bm25ContentIndex } from '../migrations/053-bm25-content-index.js';
+import { migration054AssistantThreadGroups } from '../migrations/054-assistant-thread-groups.js';
+import { migration055AssistantMessageParents } from '../migrations/055-assistant-message-parents.js';
+import { migration056AssistantThreadGroupPresentation } from '../migrations/056-assistant-thread-group-presentation.js';
+import { migration057UpdateProviderModels202607 } from '../migrations/057-update-provider-models-2026-07.js';
+import { migration058ProviderBilledCost } from '../migrations/058-provider-billed-cost.js';
+import { migration059AssistantThreadGroupIcons } from '../migrations/059-assistant-thread-group-icons.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -188,6 +194,18 @@ const customMigrations: Migration[] = [
   customMigration('custom-051-prompt-library', migration051PromptLibrary),
   customMigration('custom-052-assistant-edit-checkpoints', migration052AssistantEditCheckpoints),
   customMigration('custom-053-bm25-content-index', migration053Bm25ContentIndex),
+  customMigration('custom-054-assistant-thread-groups', migration054AssistantThreadGroups),
+  customMigration('custom-055-assistant-message-parents', migration055AssistantMessageParents),
+  customMigration(
+    'custom-056-assistant-thread-group-presentation',
+    migration056AssistantThreadGroupPresentation
+  ),
+  customMigration(
+    'custom-057-update-provider-models-2026-07',
+    migration057UpdateProviderModels202607
+  ),
+  customMigration('custom-058-provider-billed-cost', migration058ProviderBilledCost),
+  customMigration('custom-059-assistant-thread-group-icons', migration059AssistantThreadGroupIcons),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

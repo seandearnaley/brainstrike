@@ -44,6 +44,8 @@ import {
   AssistantUiPanel,
   EditCheckpointProvider,
   hasDesktopLlmHost,
+  type ToolApprovalGrantHandlers,
+  ToolApprovalGrantProvider,
   useContextUsageStore,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -106,6 +108,7 @@ import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picke
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useFileMentions } from './use-file-mentions';
@@ -216,7 +219,7 @@ export function AssistantUiPanelWrapper({
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
-  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+  const openSettings = usePanelLayoutStore((state) => state.openSettings);
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {
@@ -668,11 +671,11 @@ export function AssistantUiPanelWrapper({
     [nativeToolStates]
   );
   const handleOpenToolSettings = useCallback(() => {
-    setActiveTab('settings');
+    openSettings();
     if (typeof window !== 'undefined') {
       window.location.hash = '#settings/ai-tools';
     }
-  }, [setActiveTab]);
+  }, [openSettings]);
 
   const { enabledNativeToolIds, toolMenu } = useAssistantMcpMenuState({
     nativeToolItems,
@@ -692,9 +695,14 @@ export function AssistantUiPanelWrapper({
     (state) => state.blockedReason
   );
   const workspaceIndexLastError = useWorkspaceCollectionSyncStatusStore((state) => state.lastError);
-  const workspaceIndexQueueProgress = useWorkspaceCollectionSyncStatusStore(
-    (state) => state.queueProgress
-  );
+  // queueProgress is deliberately NOT live-subscribed: during initial indexing
+  // it gets a fresh identity per processed file, and threading it through this
+  // memo re-rendered the entire (un-memoized) assistant panel per file. The
+  // value baked here is only a render-time snapshot for the initial
+  // runtimeData; prepareRequestData re-reads the store FRESH at send time
+  // (use-assistant-request-lifecycle), so outgoing requests never see a stale
+  // value. state/blockedReason/lastError stay subscribed — they change on
+  // state transitions, not per file.
   const workspaceIndex = useMemo(
     () => ({
       blockedReason: workspaceIndexBlockedReason,
@@ -703,14 +711,13 @@ export function AssistantUiPanelWrapper({
       lastError: workspaceIndexLastError,
       mode: workspaceIndexingMode,
       paused: workspaceIndexingPaused,
-      queueProgress: workspaceIndexQueueProgress,
+      queueProgress: useWorkspaceCollectionSyncStatusStore.getState().queueProgress,
       statusState: workspaceIndexStatusState,
     }),
     [
       workspaceIndexBlockedReason,
       workspaceIndexEmbeddingSetId,
       workspaceIndexLastError,
-      workspaceIndexQueueProgress,
       workspaceIndexStatusState,
       workspaceIndexingEnabled,
       workspaceIndexingMode,
@@ -847,6 +854,9 @@ export function AssistantUiPanelWrapper({
   const workspaceInstructionsOversizedOptIns = useWorkspaceInstructionsPreferencesStore(
     (state) => state.oversizedOptInByRootId
   );
+  // Subagent persona availability (desktop data-stream only; undefined at defaults).
+  const subagentPersonasRequest = useSubagentPersonasRequest(localChatTransport);
+
   const workspaceInstructionsPreference = useMemo(() => {
     if (localChatTransport !== 'data-stream') {
       return;
@@ -907,6 +917,7 @@ export function AssistantUiPanelWrapper({
     selectedMemoryThreadId,
     selectionData,
     semanticRecallSettings,
+    subagentPersonasRequest,
     workspaceIndex,
     workspaceInstructionsPreference,
     workspaceRootPath,
@@ -924,6 +935,9 @@ export function AssistantUiPanelWrapper({
     focusedRootId: currentFolderId,
     memoryResourceId,
     modelSettings,
+    // Only the desktop data-stream server runs the runtime permission gate;
+    // mirrors the `permissionPolicyRequest` useMemo transport gate above.
+    permissionEnforceable: localChatTransport === 'data-stream',
     planModeAvailable,
     providerOptions,
     requestData,
@@ -1284,7 +1298,7 @@ export function AssistantUiPanelWrapper({
   // interactive mid-run. They are stored PER ROW so cost is attributable per
   // model when a thread switches models mid-conversation.
   const handleUsage = useCallback(
-    (usage: { inputTokens: number; outputTokens: number }) => {
+    (usage: { billedCostUsd?: number; inputTokens: number; outputTokens: number }) => {
       const threadId = selectedMemoryThreadId ?? 'active';
       useContextUsageStore.getState().recordUsage(threadId, usage);
 
@@ -1312,6 +1326,7 @@ export function AssistantUiPanelWrapper({
       }
       assistantThreadRepository
         .recordRunUsage({
+          ...(usage.billedCostUsd === undefined ? {} : { billedCostUsd: usage.billedCostUsd }),
           inputTokens: usage.inputTokens,
           model: runContext.model,
           outputTokens: usage.outputTokens,
@@ -1428,57 +1443,73 @@ export function AssistantUiPanelWrapper({
     [onRunFailed, refetchCheckpoints]
   );
 
+  // Grant actions for the tool-approval notice ("Always allow" / "Allow
+  // <category> this session"). Store-backed and stable: the wrapper already
+  // subscribes to perToolOverrides/sessionGrants for the request snapshot, so a
+  // grant recorded here reaches the very next request without extra plumbing.
+  const toolApprovalGrants = useMemo<ToolApprovalGrantHandlers>(
+    () => ({
+      grantCategoryForSession: (category) =>
+        usePermissionPolicyStore.getState().grantSessionCategory(category),
+      grantToolAlways: (toolId) =>
+        usePermissionPolicyStore.getState().setToolOverride(toolId, 'allow'),
+    }),
+    []
+  );
+
   return (
-    <EditCheckpointProvider value={editCheckpoints}>
-      <AssistantUiPanel
-        {...(composerDraftCommand ? { composerDraftCommand } : {})}
-        completePreparedRequest={completePreparedRequest}
-        contextWindow={selectedModelBudgetDef?.contextWindow}
-        {...(cumulativeUsage ? { cumulativeUsage } : {})}
-        effectiveInputBudget={effectiveInputBudget}
-        omSegment={omSegment}
-        {...(selectedMemoryThreadId
-          ? {
-              onComposerDraftCommandApplied: handleComposerCommandApplied,
-              onComposerTextChange: handleComposerTextChange,
-            }
-          : {})}
-        onProviderSettingsChange={handleProviderSettingsChange}
-        onRunFailed={handleRunFailed}
-        onRunFinished={handleRunFinished}
-        onStreamActivity={renewActiveAssistantForegroundActivity}
-        onToolApprovalRequired={onToolApprovalRequired}
-        onUsage={handleUsage}
-        pickerModels={pickerModels}
-        pickerProviders={pickerProviders}
-        prepareRequestData={prepareRequestData}
-        providerGroups={providerGroups}
-        providerSettings={effectiveProviderSettings}
-        requestData={requestData}
-        slashCommands={slashCommands}
-        {...(desktopAssistantBackendAvailable
-          ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
-          : {})}
-        toolMenu={toolMenu}
-        {...(historyAdapter ? { historyAdapter } : {})}
-        {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-        localChatTransport={localChatTransport}
-        {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
-        {...(selectedProvider ? { selectedProvider } : {})}
-        {...(currentModel ? { selectedModel: currentModel } : {})}
-        disabled={!isProviderReady || Boolean(memoryDisabledReason)}
-        onModelChange={handleModelChange}
-        onModelToggle={handleModelToggle}
-        {...(disabledReason ? { disabledReason } : {})}
-        {...(planModeAvailable
-          ? {
-              onExitPlanMode: exitPlanMode,
-              onTogglePlanMode: togglePlanMode,
-              planModeEnabled: planModeEnabledPref,
-            }
-          : {})}
-      />
-    </EditCheckpointProvider>
+    <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
+      <EditCheckpointProvider value={editCheckpoints}>
+        <AssistantUiPanel
+          {...(composerDraftCommand ? { composerDraftCommand } : {})}
+          completePreparedRequest={completePreparedRequest}
+          contextWindow={selectedModelBudgetDef?.contextWindow}
+          {...(cumulativeUsage ? { cumulativeUsage } : {})}
+          effectiveInputBudget={effectiveInputBudget}
+          omSegment={omSegment}
+          {...(selectedMemoryThreadId
+            ? {
+                onComposerDraftCommandApplied: handleComposerCommandApplied,
+                onComposerTextChange: handleComposerTextChange,
+              }
+            : {})}
+          onProviderSettingsChange={handleProviderSettingsChange}
+          onRunFailed={handleRunFailed}
+          onRunFinished={handleRunFinished}
+          onStreamActivity={renewActiveAssistantForegroundActivity}
+          onToolApprovalRequired={onToolApprovalRequired}
+          onUsage={handleUsage}
+          pickerModels={pickerModels}
+          pickerProviders={pickerProviders}
+          prepareRequestData={prepareRequestData}
+          providerGroups={providerGroups}
+          providerSettings={effectiveProviderSettings}
+          requestData={requestData}
+          slashCommands={slashCommands}
+          {...(desktopAssistantBackendAvailable
+            ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+            : {})}
+          toolMenu={toolMenu}
+          {...(historyAdapter ? { historyAdapter } : {})}
+          {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+          localChatTransport={localChatTransport}
+          {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
+          {...(selectedProvider ? { selectedProvider } : {})}
+          {...(currentModel ? { selectedModel: currentModel } : {})}
+          disabled={!isProviderReady || Boolean(memoryDisabledReason)}
+          onModelChange={handleModelChange}
+          onModelToggle={handleModelToggle}
+          {...(disabledReason ? { disabledReason } : {})}
+          {...(planModeAvailable
+            ? {
+                onExitPlanMode: exitPlanMode,
+                onTogglePlanMode: togglePlanMode,
+                planModeEnabled: planModeEnabledPref,
+              }
+            : {})}
+        />
+      </EditCheckpointProvider>
+    </ToolApprovalGrantProvider>
   );
 }
 

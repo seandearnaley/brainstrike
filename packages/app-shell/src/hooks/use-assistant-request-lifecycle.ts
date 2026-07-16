@@ -1,6 +1,8 @@
 import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { getPermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { useCallback, useEffect, useRef } from 'react';
 import {
   type AssistantForegroundActivityLease,
@@ -23,6 +25,16 @@ interface UseAssistantRequestLifecycleArgs {
   readonly focusedRootId: string | null | undefined;
   readonly memoryResourceId: string | undefined;
   readonly modelSettings: RuntimeData['modelSettings'] | undefined;
+  /**
+   * Whether the current transport can enforce permissions at all (mirrors the
+   * caller's `permissionPolicyRequest` transport gate — only the desktop
+   * data-stream server runs the runtime gate; web's in-renderer runtime has no
+   * server). Combined at request-composition time with a FRESH read of the
+   * persisted policy posture (see `prepareRequestData`), so a per-tool
+   * "Always allow" / session grant recorded synchronously right before a
+   * grant-and-approve resume reaches THIS run instead of the next re-render.
+   */
+  readonly permissionEnforceable: boolean;
   /**
    * Whether plan mode is offered at all for the current transport/provider
    * (mirrors the caller's `planModeAvailable` gate — never offered for the
@@ -70,11 +82,36 @@ interface UseAssistantRequestLifecycleResult {
   readonly renewActiveAssistantForegroundActivity: () => void;
 }
 
+/**
+ * Overlay the LIVE workspace-index status onto the render-captured value at
+ * request-composition time. The wrapper intentionally does NOT live-subscribe
+ * to per-file indexing progress (that re-rendered the whole assistant panel per
+ * processed file during initial indexing), so the render-captured status fields
+ * can be thousands of progress patches stale by send time. The preference-shaped
+ * fields (enabled/mode/paused/embeddingSetId) stay from the render — the wrapper
+ * still subscribes to those (they change rarely). Returns undefined when the
+ * request carries no workspace-index object (nothing to refresh).
+ */
+function resolveFreshWorkspaceIndex(captured: unknown): Record<string, unknown> | undefined {
+  if (!(captured && typeof captured === 'object' && !Array.isArray(captured))) {
+    return;
+  }
+  const sync = useWorkspaceCollectionSyncStatusStore.getState();
+  return {
+    ...(captured as Record<string, unknown>),
+    blockedReason: sync.blockedReason,
+    lastError: sync.lastError,
+    queueProgress: sync.queueProgress,
+    statusState: sync.state,
+  };
+}
+
 export function useAssistantRequestLifecycle({
   assistantThreadRepository,
   focusedRootId,
   memoryResourceId,
   modelSettings,
+  permissionEnforceable,
   planModeAvailable,
   providerOptions,
   requestData,
@@ -182,19 +219,42 @@ export function useAssistantRequestLifecycle({
     const freshPlanModeEnabled =
       planModeAvailable && useAssistantPreferencesStore.getState().planModeEnabled;
 
+    const freshWorkspaceIndex = resolveFreshWorkspaceIndex(requestData['workspaceIndex']);
+
+    // Same fresh-read rationale as `planMode` above, for permission enforcement.
+    // A grant action on the approval notice ("Always allow" / "Allow <category>
+    // this session") records the override/grant in the store and then, in the
+    // SAME synchronous handler, approves the pending call — which resumes the
+    // run through this composer. `requestData.permissionPolicyRequest` was
+    // snapshotted at the render that produced this closure, so without a fresh
+    // read the resumed run's gate would still treat the just-granted tool as
+    // `ask` and could re-prompt until a later re-render. Read the live store
+    // posture here so the grant takes effect on THIS run. `permissionEnforceable`
+    // mirrors the wrapper's transport gate (only the data-stream server
+    // enforces); `enforce` is read fresh. Presence-means-on: set `undefined`
+    // (never a stale object) so an off/opted-out posture drops off the wire.
+    const freshPermissionSnapshot = getPermissionToolGateSnapshotInput();
+    const freshPermissionPolicyRequest =
+      permissionEnforceable && freshPermissionSnapshot.enforce
+        ? freshPermissionSnapshot
+        : undefined;
+
     return {
       ...requestData,
       memory: {
         ...memoryContext,
         ...(runId ? { runId } : {}),
       },
+      permissionPolicyRequest: freshPermissionPolicyRequest,
       planMode: freshPlanModeEnabled ? true : undefined,
+      ...(freshWorkspaceIndex ? { workspaceIndex: freshWorkspaceIndex } : {}),
     };
   }, [
     assistantThreadRepository,
     focusedRootId,
     memoryResourceId,
     modelSettings,
+    permissionEnforceable,
     planModeAvailable,
     providerOptions,
     requestData,

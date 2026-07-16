@@ -21,6 +21,8 @@ Future‑ready, AI‑assisted productivity apps built with React 19, Vite, Turbo
 
 Tip: Use `--filter <workspace>` to scope any script to a single app/package.
 
+To use a locally hosted chat model, see [Ollama and LM Studio setup](docs/local-model-servers.md).
+
 ---
 
 ## Monorepo Layout
@@ -53,7 +55,6 @@ packages/
   embeddings/         # Vector embedding generation
   embedding-worker/   # Worker runtime (renderer)
   queue/              # Job queue infrastructure
-  queue-telemetry-collector/ # Queue telemetry collector service
   assistant-contract/        # Assistant provider/runtime contracts
   indexing-contract/         # Indexing pipeline contracts
   text-splitter/             # Text chunking utilities
@@ -79,8 +80,9 @@ packages/
 - **Queue Semantics**: Jobs persist in PGlite/local database via `JobQueue`; the queue respects concurrency limits and automatically retries failed embeddings. Queue adapters expose pause/resume/cancel/drain semantics per ADR-0002. Progress is dispatched via `brainstrike:queue-progress` events for UI subscribers.
 - **Re-embed workflow**: Vector Status can clear embeddings for the active set and requeue jobs (model switching/backfill).
 - **Persistence**: Queue state and job history are stored in the local database (`@brainstrike/db`); survives app restarts.
-- **Pipeline package**: `@brainstrike/pipeline` ships chunking/embedding stages, progress aggregation, controller, and schema health checks. It is currently exercised in tests and not yet wired into the apps.
-- **Embedding cache (opt-in)**: `@brainstrike/db` provides an embedding cache table and repository; `startEmbeddingWorker({ embeddingCache })` can use it for content-level dedupe but it is not wired by default.
+- **Pipeline package**: `@brainstrike/pipeline` ships chunking/embedding stages, progress aggregation, controller, and schema health checks. It powers app-shell's background workspace indexing (`workspace-collection-sync-service`) and db-explorer's enhanced file import.
+- **Embedding cache**: `@brainstrike/db` provides an embedding cache table and repository (`embedding_cache`, keyed on content hash + model key). The desktop embedding host (#928) and the web in-tab worker (#1640) wire it into `startEmbeddingWorker({ embeddingCache })` by default, so byte-identical content is embedded once and deduped across files and roots.
+- **Chunking parsers**: JS/TS chunking uses the native Rust `oxc-parser` in the desktop chunking-host (default-on since #994; kill switch `?parserFlag=babel`) and Babel on web (oxc has no WASM build). Python files chunk via tree-sitter WASM on both apps (default-on since #1011; `?treeSitterLanguages=` overrides, empty value disables).
 
 Web UX notes:
 - Vector Status (Right Panel → DB) surfaces Start/Stop/Reset for optional manual control and exposes coverage, throughput, and retry actions.
@@ -177,31 +179,32 @@ CI details: `.github/workflows/test.yml` runs lint → type‑check → build (w
 
 ### Dependency Updates
 
-Check for dependency drift and outdated packages across all workspaces:
+Shared dependency versions (TypeScript, Vitest, the testing-library family, and other high-fan-out deps) are pinned once in the `catalog:` block in `pnpm-workspace.yaml`; consuming `package.json` files reference them via `"catalog:"` instead of a literal version.
+
+**`react` and `react-dom` are the exception — they are governed by `overrides`, not the catalog.** A bare `overrides` entry shadows a catalog entry completely, and `overrides` is what constrains *transitive* dependencies (the ~157 third-party packages that depend on React), which is what guarantees a single React instance. Bump `overrides` for those two; a catalog entry would govern nothing.
+
+How this is enforced (two layers — read this before assuming `pnpm install` protects you):
+
+- **`pnpm add` / `pnpm update`** — pnpm rejects an off-catalog version itself, via `catalogMode: strict`: `ERR_PNPM_CATALOG_VERSION_MISMATCH`, exit 1.
+- **Hand edits** — **plain `pnpm install` does NOT reject drift.** If you hand-edit a catalogued dep to a literal version, `pnpm install` exits 0 and quietly resolves a *second, parallel* copy of that package; `--frozen-lockfile` then passes too. That path is caught in CI by `scripts/verify-catalog-references.mjs` (runs in `pnpm test:scripts`), which fails if any catalogued dep is referenced by a literal version, or if a catalog entry is shadowed by a bare override.
+
+So: a green local `pnpm install` is *not* evidence your version change is legal. Run `pnpm test:scripts` for that.
+
+Check for outdated packages across all workspaces:
 
 ```bash
-pnpm deps:lint
-pnpm deps:update:check
 pnpm outdated -r
 ```
 
-Normalize mismatched version ranges across the monorepo:
+Update a catalogued dependency: bump its version in the `catalog:` block in `pnpm-workspace.yaml` (not in the consuming `package.json`), then run `pnpm install`.
 
-```bash
-pnpm deps:fix
-```
-
-Update a specific dependency in a package:
+Update a specific non-catalogued dependency in a package:
 
 ```bash
 pnpm update <dep> --filter @brainstrike/<pkg>
 ```
 
-Update all dependencies with syncpack (writes package.json files; review diffs, then run `pnpm install`):
-
-```bash
-pnpm deps:update
-```
+`peerDependencies` deliberately keep literal, broad ranges (a compatibility floor is a contract, not a version selection) and are exempt from the catalog.
 
 Helpful docs: `onboarding.md`, `AGENTS.md`, `monorepo-docs.md`.
 

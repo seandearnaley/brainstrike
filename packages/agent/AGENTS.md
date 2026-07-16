@@ -93,10 +93,12 @@ should be configured to respect the project `.editorconfig` and prettier rules.
 `createMastraAgentRuntime(options)` is the primary entry point. It accepts  
 instructions, model configuration and optional runtime settings (`apiKey`,  
 `mcpConfig`, tool overrides, etc.) and returns an object containing a Mastra  
-agent and optional MCP client. Under the hood it resolves the OpenAI API key  
-using the provided runtime or environment variables; if no key is found, it  
-throws a `mastra_agent_missing_api_key` error. The runtime merges local tools  
-with any tools discovered via MCP, sanitises tool identifiers to avoid  
+agent and optional MCP client. Hosted providers resolve their configured key
+through the runtime/key resolver. Ollama and LM Studio are keyless by default
+and resolve to Mastra's first-class OpenAI-compatible model config (`id`,
+`/v1` base `url`, and an explicit dummy `apiKey` when auth is disabled); do
+not construct them with the OpenAI-specific SDK. The runtime merges local
+tools with any tools discovered via MCP, sanitises tool identifiers to avoid
 collisions, and exposes a disposable `agent` ready to stream responses.
 
 When adding new configuration fields, make sure they are serialisable; runtime  

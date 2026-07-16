@@ -52,3 +52,17 @@ export function useComposerDraftCommand({
     onApplied?.(command.id);
   }, [appliedCommandIds, aui, command, composerText, onApplied]);
 }
+
+/** Render-nothing leaf that owns the composer-text subscription. */
+export function ComposerDraftCommandBridge({
+  composerDraftCommand,
+  onComposerDraftCommandApplied,
+  onComposerTextChange,
+}: ComposerDraftCommandBridgeProps) {
+  useComposerDraftCommand({
+    command: composerDraftCommand,
+    onApplied: onComposerDraftCommandApplied,
+    onTextChange: onComposerTextChange,
+  });
+  return null;
+}

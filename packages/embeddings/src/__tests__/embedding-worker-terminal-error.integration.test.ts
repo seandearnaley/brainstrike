@@ -136,6 +136,10 @@ describe('Embedding Worker - Terminal Errors', () => {
       concurrency: 1,
       db,
       enable: true,
+      // Align the worker's active model with the job payload so there is no
+      // model-switch reinit (whose DB lookup for the uncatalogued 'test-model'
+      // would otherwise throw and mask the injected terminal 'status 400').
+      modelKey: 'local::test-model',
       service: new TerminalErrorService(),
     });
 

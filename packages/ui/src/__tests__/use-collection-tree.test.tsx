@@ -491,4 +491,38 @@ describe('useCollectionTree', () => {
     expect(result.current.nodes.map((node) => node.id)).toEqual(['file-f1', 'chunk-c1']);
     expect(result.current.searchMatchIds.has('chunk-c1')).toBe(true);
   });
+
+  it('builds searchable text once per node and shares query matches across traversals', () => {
+    let contentReads = 0;
+    const countedContent = {
+      toString: () => {
+        contentReads += 1;
+        return 'Unique searchable content';
+      },
+    } as unknown as string;
+    const data: CollectionTreeInput = {
+      chunks: [
+        {
+          chunkIndex: 0,
+          content: countedContent,
+          fileRecordId: 'f1',
+          id: 'c1',
+          tokenCount: 10,
+        },
+      ],
+      files: [{ id: 'f1', name: 'app.ts', path: '/repo/app.ts', size: 100 }],
+    };
+
+    const { result } = renderHook(() =>
+      useCollectionTree({
+        data,
+        expandedIds: new Set<string>(['file-f1']),
+        filters: makeFilters({ searchQuery: 'unique searchable' }),
+      })
+    );
+
+    expect(result.current.nodes.map((node) => node.id)).toEqual(['file-f1', 'chunk-c1']);
+    expect(result.current.searchMatchIds).toEqual(new Set(['chunk-c1']));
+    expect(contentReads).toBe(1);
+  });
 });

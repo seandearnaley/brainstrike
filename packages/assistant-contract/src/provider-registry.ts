@@ -41,7 +41,7 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    */
   maxOutputTokens?: number;
   /**
-   * Approx. USD price per 1,000,000 tokens. ESTIMATE as of 2026-06-19 — list prices drift;
+   * Approx. USD price per 1,000,000 tokens. ESTIMATE as of 2026-07-13 — list prices drift;
    * treat as non-authoritative (override planned in settings). Omit for models with unknown
    * or $0 (local/keyless) pricing — unknown pricing must render "cost unavailable", never $0.
    */
@@ -128,6 +128,34 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     id: 'openai',
     models: [
       {
+        contextWindow: 1_050_000,
+        id: 'gpt-5.6-sol',
+        label: 'GPT-5.6 Sol',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 5, outputPerMTok: 30 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_050_000,
+        default: true,
+        id: 'gpt-5.6-terra',
+        label: 'GPT-5.6 Terra',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 2.5, outputPerMTok: 15 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_050_000,
+        id: 'gpt-5.6-luna',
+        label: 'GPT-5.6 Luna',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1, outputPerMTok: 6 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
         contextWindow: 400_000,
         id: 'gpt-5.5',
         label: 'GPT-5.5',
@@ -147,7 +175,6 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       },
       {
         contextWindow: 400_000,
-        default: true,
         id: 'gpt-5.4',
         label: 'GPT-5.4',
         maxOutputTokens: 128_000,
@@ -244,6 +271,15 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     id: 'anthropic',
     models: [
       {
+        contextWindow: 1_000_000,
+        id: 'claude-fable-5',
+        label: 'Claude Fable 5',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 10, outputPerMTok: 50 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
         contextWindow: 200_000,
         id: 'claude-opus-4-8',
         label: 'Claude Opus 4.8',
@@ -253,8 +289,18 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         type: 'llm',
       },
       {
-        contextWindow: 200_000,
+        contextWindow: 1_000_000,
         default: true,
+        id: 'claude-sonnet-5',
+        label: 'Claude Sonnet 5',
+        maxOutputTokens: 128_000,
+        // Anthropic introductory rate through 2026-08-31.
+        pricing: { inputPerMTok: 2, outputPerMTok: 10 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 200_000,
         id: 'claude-sonnet-4-6',
         label: 'Claude Sonnet 4.6',
         maxOutputTokens: 64_000,
@@ -376,10 +422,143 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // https://openrouter.ai/docs/guides/routing/auto-model-selection
     envKeys: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
     id: 'openrouter',
-    // Intentional subset: the gateway list carries only the slugs OpenRouter
-    // actually exposes — Pro/Nano variants of the gpt-5.x family are omitted
-    // on purpose (this predates the contextWindow change).
+    // Curated current subset from OpenRouter's model catalog. Provider-reported
+    // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
+      {
+        contextWindow: 1_050_000,
+        id: 'openai/gpt-5.6-sol',
+        label: 'GPT-5.6 Sol (OpenRouter)',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 5, outputPerMTok: 30 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_050_000,
+        default: true,
+        id: 'openai/gpt-5.6-terra',
+        label: 'GPT-5.6 Terra (OpenRouter)',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 2.5, outputPerMTok: 15 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_050_000,
+        id: 'openai/gpt-5.6-luna',
+        label: 'GPT-5.6 Luna (OpenRouter)',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1, outputPerMTok: 6 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_000_000,
+        id: 'anthropic/claude-fable-5',
+        label: 'Claude Fable 5 (OpenRouter)',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 10, outputPerMTok: 50 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_000_000,
+        id: 'anthropic/claude-sonnet-5',
+        label: 'Claude Sonnet 5 (OpenRouter)',
+        maxOutputTokens: 128_000,
+        // OpenRouter currently reflects Anthropic's introductory rate.
+        pricing: { inputPerMTok: 2, outputPerMTok: 10 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_048_576,
+        id: 'z-ai/glm-5.2',
+        label: 'GLM-5.2 (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.9282, outputPerMTok: 2.9172 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_048_576,
+        id: 'minimax/minimax-m3',
+        label: 'MiniMax M3 (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.3, outputPerMTok: 1.2 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_048_576,
+        id: 'deepseek/deepseek-v4-pro',
+        label: 'DeepSeek V4 Pro (OpenRouter)',
+        maxOutputTokens: 384_000,
+        pricing: { inputPerMTok: 0.435, outputPerMTok: 0.87 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_048_576,
+        id: 'deepseek/deepseek-v4-flash',
+        label: 'DeepSeek V4 Flash (OpenRouter)',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.09, outputPerMTok: 0.18 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.7-max',
+        label: 'Qwen3.7 Max (OpenRouter)',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 3.75 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.7-plus',
+        label: 'Qwen3.7 Plus (OpenRouter)',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.32, outputPerMTok: 1.28 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.6-flash',
+        label: 'Qwen3.6 Flash (OpenRouter)',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.1875, outputPerMTok: 1.125 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 262_144,
+        id: 'qwen/qwen3-coder-next',
+        label: 'Qwen3 Coder Next (OpenRouter)',
+        pricing: { inputPerMTok: 0.11, outputPerMTok: 0.8 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 262_144,
+        id: 'moonshotai/kimi-k2.6',
+        label: 'Kimi K2.6 (OpenRouter)',
+        pricing: { inputPerMTok: 0.66, outputPerMTok: 3.41 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
+      {
+        contextWindow: 262_144,
+        id: 'moonshotai/kimi-k2.7-code',
+        label: 'Kimi K2.7 Code (OpenRouter)',
+        pricing: { inputPerMTok: 0.719, outputPerMTok: 3.49 },
+        supportsStreaming: true,
+        type: 'llm',
+      },
       {
         contextWindow: 400_000,
         id: 'openai/gpt-5.5',
@@ -391,7 +570,6 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       },
       {
         contextWindow: 400_000,
-        default: true,
         id: 'openai/gpt-5.4',
         label: 'GPT-5.4 (OpenRouter)',
         maxOutputTokens: 128_000,

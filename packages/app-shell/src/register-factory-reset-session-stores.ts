@@ -4,6 +4,7 @@ import { resetContextUsageStore } from '@brainstrike/ui/assistant-ui-panel/conte
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
 
 /**
  * Wire session-only Zustand stores into the factory-reset pipeline per the
@@ -38,4 +39,11 @@ registerFactoryResetSessionStore(() => {
 
 registerFactoryResetSessionStore(() => {
   useAssistantComposerCommandStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
+  // Thread group/placement rows live in PGlite (wiped with the DB); this
+  // clears the in-memory mirror plus the persisted view prefs slice so a
+  // reset-without-reload doesn't resurrect stale groups.
+  useAssistantThreadGroupsStore.getState().reset();
 });

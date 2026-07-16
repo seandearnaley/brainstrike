@@ -96,6 +96,12 @@ export interface AssistantUiMessage {
  */
 export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'providerOptions'> {
   /**
+   * Server-validated assistant-ui message id for this response. The runtime
+   * uses it as Mastra's first generated assistant id so persisted content,
+   * streamed UI state, and branch topology share one identity. Agent-only.
+   */
+  assistantMessageId?: string;
+  /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed into the
    * tool-execute seam so PreToolUse hooks can block a permitted tool and
    * PostToolUse hooks can append bounded context. Never serialized over
@@ -155,6 +161,13 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    */
   permissionPolicyRequest?: AssistantPermissionPolicyRequest;
   /**
+   * API keys for providers that pinned personas target (server-resolved from
+   * the secrets bridge, agent-only, NEVER client-supplied). Keyed by provider
+   * id. The parent provider's key is NOT duplicated here — the pin resolver
+   * reuses `apiKey` when the pin targets the parent provider.
+   */
+  personaProviderApiKeys?: Readonly<Record<string, string>>;
+  /**
    * Built-in subagent personas the supervisor may delegate to (server-set,
    * agent-only, mirrors `mastraTools`). Threaded through on both the initial turn
    * and the approval-resume path so the rebuilt supervisor keeps its `agent-<id>`
@@ -186,6 +199,13 @@ export interface OpenAiProviderOptions extends JSONObject {
   reasoningSummary?: OpenAiReasoningSummary;
 }
 
+export interface OpenRouterProviderOptions extends JSONObject {
+  reasoning?: {
+    effort?: OpenAiReasoningEffort;
+    summary?: OpenAiReasoningSummary;
+  };
+}
+
 export type AnthropicEffort = 'low' | 'medium' | 'high';
 
 export interface AnthropicProviderOptions extends JSONObject {
@@ -214,6 +234,9 @@ export interface LocalProviderOptions extends JSONObject {
  * `baseUrl` points the factory at a non-default host (e.g. a LAN GPU box) and
  * `apiToken` is sent as `Authorization: Bearer <token>` — used for Ollama
  * Turbo/Cloud and for LM Studio 0.4.0+ servers that opted into token auth.
+ * These namespaces are transport-only and must be stripped before Mastra
+ * receives per-generation `providerOptions`; otherwise their fields become
+ * chat-completions request parameters.
  */
 export interface LocalRuntimeProviderOptions extends JSONObject {
   apiToken?: string;
@@ -227,6 +250,7 @@ export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3Provider
   local?: LocalProviderOptions & JSONObject;
   ollama?: LocalRuntimeProviderOptions & JSONObject;
   lmstudio?: LocalRuntimeProviderOptions & JSONObject;
+  openrouter?: OpenRouterProviderOptions & JSONObject;
 };
 
 export interface StreamChunkText {
@@ -266,6 +290,7 @@ export interface StreamChunkToolSuspendRequired extends AssistantToolSuspendRequ
   type: 'tool-suspend-required';
 }
 export interface StreamChunkFinish {
+  billedCostUsd?: number;
   type: 'finish';
   usage: { promptTokens: number; completionTokens: number };
 }
@@ -280,6 +305,7 @@ export type StreamFinishReason =
   | 'unknown';
 
 export interface StreamChunkMessageFinish {
+  billedCostUsd?: number;
   finishReason: StreamFinishReason;
   path: readonly number[];
   type: 'message-finish';

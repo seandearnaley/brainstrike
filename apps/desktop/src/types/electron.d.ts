@@ -1,4 +1,7 @@
-import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
+import type {
+  AssistantPersonasListResult,
+  UserSlashCommandsListResult,
+} from '@brainstrike/assistant-contract';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
@@ -8,6 +11,17 @@ import type {
   DatabaseWorkOptions,
   ElectronChunkInsert,
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+  GitAheadBehind,
+  GitCommitFile,
+  GitCommitResult,
+  GitDiff,
+  GitDiffParams,
+  GitHistoryPage,
+  GitPushPullResult,
+  GitRepository,
+  GitResult,
+  GitStatus,
+  GitSwitchBranchResult,
   IFileNode,
 } from '@brainstrike/types';
 import type {
@@ -22,14 +36,6 @@ import type {
   WorkspaceIndexingPowerSource,
   WorkspaceIndexingThermalState,
 } from '@brainstrike/utils/workspace-indexing-qos';
-import type {
-  GitAheadBehind,
-  GitCommitResult,
-  GitDiff,
-  GitPushPullResult,
-  GitResult,
-  GitStatus,
-} from '../assistant-server/git-service';
 import type {
   ChunkingHostChunkBatchRequest,
   ChunkingHostChunkFileByIdRequest,
@@ -76,6 +82,15 @@ declare global {
   interface Window {
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
+    };
+    /**
+     * Desktop-only subagent persona discovery bridge. Absent on web (no
+     * preload) — consumers MUST capability-check `window.assistantPersonas`.
+     * The Settings -> Subagents panel calls `list` to show built-in +
+     * user-defined personas (including invalid files with their error).
+     */
+    assistantPersonas?: {
+      list: () => Promise<AssistantPersonasListResult>;
     };
     chunkingHost: {
       ensureStarted: () => Promise<ChunkingHostStatus>;
@@ -196,16 +211,34 @@ declare global {
      */
     git?: {
       status: (rootId: string) => Promise<GitResult<GitStatus>>;
-      diff: (
-        rootId: string,
-        params?: { path?: string; staged?: boolean; untracked?: boolean }
-      ) => Promise<GitResult<GitDiff>>;
+      diff: (rootId: string, params: GitDiffParams) => Promise<GitResult<GitDiff>>;
       stage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
       unstage: (rootId: string, params?: { path?: string }) => Promise<GitResult<null>>;
-      commit: (rootId: string, params: { message: string }) => Promise<GitResult<GitCommitResult>>;
+      commit: (
+        rootId: string,
+        params: { description?: string; summary: string }
+      ) => Promise<GitResult<GitCommitResult>>;
+      commitDiff: (
+        rootId: string,
+        params: { commit: string; originalPath?: string; path: string }
+      ) => Promise<GitResult<GitDiff>>;
+      commitFiles: (
+        rootId: string,
+        params: { commit: string }
+      ) => Promise<GitResult<readonly GitCommitFile[]>>;
       aheadBehind: (rootId: string) => Promise<GitResult<GitAheadBehind>>;
-      push: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
+      fetch: (rootId: string, params: { remote: string }) => Promise<GitResult<GitPushPullResult>>;
+      history: (
+        rootId: string,
+        params: { limit: number; offset: number; ref?: string }
+      ) => Promise<GitResult<GitHistoryPage>>;
+      push: (rootId: string, params?: { remote?: string }) => Promise<GitResult<GitPushPullResult>>;
       pull: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
+      repository: (rootId: string) => Promise<GitResult<GitRepository>>;
+      switchBranch: (
+        rootId: string,
+        params: { branch: string }
+      ) => Promise<GitResult<GitSwitchBranchResult>>;
     };
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;

@@ -114,9 +114,12 @@ function renderTapestryView(overrides: Partial<ComponentProps<typeof TapestryVie
 const TapestryHarness = memo(
   ({
     count = 12,
+    onRangesCommitted,
     showSelectionControls = true,
   }: {
     count?: number;
+    /** Observes every onRangesChange commit (the store write in the real app). */
+    onRangesCommitted?: (fileId: string, ranges: TapestryRange[]) => void;
     showSelectionControls?: boolean;
   }) => {
     const [files, setFiles] = useState<FileTapestry[]>(() =>
@@ -128,6 +131,7 @@ const TapestryHarness = memo(
     const tableRows = useMemo(() => buildTableRows(files), [files]);
 
     const handleRangesChange = (fileId: string, ranges: TapestryRange[]) => {
+      onRangesCommitted?.(fileId, ranges);
       setFiles((prev) =>
         prev.map((file) => (file.id === fileId ? { ...file, selections: ranges } : file))
       );
@@ -415,6 +419,41 @@ describe('TapestryView', () => {
     await act(async () => {
       window.dispatchEvent(new PointerEvent('pointerup', { clientY: 104, pointerId: 1 }));
     });
+  });
+
+  it('does not write ranges to the parent during drag frames — one commit on pointer-up', async () => {
+    // Per-frame onRangesChange writes hit the workspace-context store and
+    // re-rendered the entire PreviewPanel (plus every untouched card) at
+    // pointer-move cadence. Frames must render from a local draft; the store
+    // sees exactly ONE commit, on drag end.
+    const commits = vi.fn();
+    await act(async () => {
+      render(<TapestryHarness count={1} onRangesCommitted={commits} />);
+    });
+
+    const range = screen.getByRole('slider', { name: /^selection/i });
+    await act(async () => {
+      fireEvent.pointerDown(range, { button: 0, clientY: 100, pointerId: 1 });
+    });
+
+    // Three drag frames (rAF runs synchronously via the beforeEach mock).
+    for (const clientY of [104, 108, 112]) {
+      await act(async () => {
+        window.dispatchEvent(new PointerEvent('pointermove', { clientY, pointerId: 1 }));
+      });
+    }
+
+    // The visual position tracks the drag (draft layer renders live)…
+    expect(range.getAttribute('aria-valuenow')).toBe('14');
+    // …but nothing was committed to the parent/store yet.
+    expect(commits).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientY: 112, pointerId: 1 }));
+    });
+
+    expect(commits).toHaveBeenCalledTimes(1);
+    expect(range.getAttribute('aria-valuenow')).toBe('14');
   });
 
   it('commits the latest queued drag position when pointer-up lands before the next frame', async () => {

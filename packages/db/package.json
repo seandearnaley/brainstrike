@@ -13,24 +13,25 @@
   },
   "devDependencies": {
     "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/test-utils": "workspace:*",
     "@stryker-mutator/api": "^9.6.1",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@testing-library/react": "^16.3.2",
-    "@types/node": "^26.1.0",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "@testing-library/react": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "@vitest/browser-playwright": "^4.1.9",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.1",
     "fake-indexeddb": "^6.2.5",
-    "jsdom": "29.1.1",
-    "playwright": "^1.61.1",
+    "jsdom": "catalog:",
+    "playwright": "catalog:",
     "tsx": "^4.23.0",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
     "vite-plugin-wasm": "^3.6.0",
-    "vitest": "^4.1.9"
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

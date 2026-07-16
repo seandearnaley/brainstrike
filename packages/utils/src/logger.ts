@@ -284,7 +284,7 @@ function resolveBaseBindings(
     bindings[config.scopeKey] = scope;
   }
 
-  return bindings;
+  return redactSensitiveLogValue(bindings) as Record<string, unknown>;
 }
 
 type BrowserConsoleMethodName = 'debug' | 'error' | 'info' | 'trace' | 'warn';
@@ -625,6 +625,46 @@ function resolveLogRecordMessage(args: readonly unknown[]): string | undefined {
   return;
 }
 
+function isSensitiveLogKey(key: string, path: readonly string[]): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const configured =
+    internalConfig.redactPaths?.some((redactPath) => {
+      const parts = redactPath
+        .match(/[^.[\]]+|\[([^[\]]*?)\]/g)
+        ?.map((segment) => segment.replace(/^\[['"`]?|['"`]?\]$/g, ''));
+      return (
+        parts?.length === path.length && parts.every((part, i) => part === '*' || part === path[i])
+      );
+    }) === true;
+  return configured || /apikey|authorization|cookie|password|secret|token$/.test(normalized);
+}
+
+function redactSensitiveLogValue(
+  value: unknown,
+  path: readonly string[] = [],
+  seen = new WeakMap<object, unknown>()
+): unknown {
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+  const existing = seen.get(value);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const redacted = (Array.isArray(value) ? [] : {}) as Record<string, unknown>;
+  if (value instanceof Error) {
+    Object.assign(redacted, { message: value.message, name: value.name, stack: value.stack });
+  }
+  seen.set(value, redacted);
+  for (const [key, entry] of Object.entries(value)) {
+    const entryPath = [...path, key];
+    redacted[key] = isSensitiveLogKey(key, entryPath)
+      ? '[REDACTED]'
+      : redactSensitiveLogValue(entry, entryPath, seen);
+  }
+  return redacted;
+}
+
 function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonly unknown[]): void {
   if (logListeners.size === 0) {
     return;
@@ -632,9 +672,8 @@ function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonl
 
   const bindings = resolveBaseBindings(internalConfig, scope);
   const message = resolveLogRecordMessage(args);
-  const argsCopy = [...args];
   const record: LogRecord = {
-    args: argsCopy,
+    args,
     bindings,
     level,
     timestamp: Date.now(),
@@ -668,12 +707,13 @@ function logInternal(level: LogLevel, scope: string | undefined, args: readonly 
 
   const target = getLoggerForScope(scope);
   const logMethod = target[methodName] as unknown as PinoLogMethod;
+  const safeArgs = args.map((arg) => redactSensitiveLogValue(arg));
 
   try {
-    if (args.length === 0) {
+    if (safeArgs.length === 0) {
       logMethod.call(target, '');
     } else {
-      const [first, ...rest] = args;
+      const [first, ...rest] = safeArgs;
       logMethod.call(target, first, ...rest);
     }
   } catch (logError) {
@@ -684,7 +724,7 @@ function logInternal(level: LogLevel, scope: string | undefined, args: readonly 
     }
   }
 
-  emitLogRecord(level, scope, args);
+  emitLogRecord(level, scope, safeArgs);
 }
 
 export function configureLogger(config: LoggerConfig): void {

@@ -118,3 +118,11 @@
 ## 2026-07-11 - Workspace symbol ranking compiles matchers once
 **Learning:** `apps/desktop/src/assistant-server/find-workspace-symbol.ts` ranks every matching line in a workspace-symbol search. Recompiling up to three query-specific regular expressions per matching line measured 267.38ms over 100k representative lines x 40 rounds on Node 24.16.0; compiling the three matchers once per search measured 96.15ms with identical ranking checksums.
 **Action:** Keep workspace-symbol declaration matchers query-scoped and lazily compiled on the first matching line; do not move regular-expression construction back into per-line scoring.
+
+## 2026-07-13 - Grouped thread lists bucket threads once
+**Learning:** `packages/app-shell/src/thread-list-sections.ts` rebuilt grouped thread sections by filtering the complete thread list once per group, making panel preparation O(groups x threads). Across five Node 24.16.0 trials with 100 groups and 10,000 threads x 40 rounds, the old repeated scans took a median 872.63ms while one-pass bucketing took 13.33ms with identical membership checksums.
+**Action:** Keep grouped thread-list construction on one-pass group buckets; do not reintroduce per-group full-list filters.
+
+## 2026-07-15 - Import completion summaries use one result pass
+**Learning:** `packages/db-explorer/src/hooks/use-import-completion.ts` built one completion summary with four full-array filters and two reductions. Over 100,000 representative import results x 100 rounds on Node 24.16.0, repeated passes took a 305.63ms median while one-pass accumulation took 29.37ms with identical count checksums.
+**Action:** Keep import completion outcome and chunk counts in one accumulation pass; do not reintroduce independent filters or reductions for each summary field.

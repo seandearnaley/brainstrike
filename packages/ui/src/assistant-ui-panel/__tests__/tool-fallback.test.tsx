@@ -82,4 +82,31 @@ describe('ToolFallback', () => {
     expect(screen.queryByRole('img', { name: 'Failed' })).toBeNull();
     expect(screen.queryByText('advisory only')).toBeNull();
   });
+
+  it('does not serialize the result while the details pane is collapsed', () => {
+    // Tool results are budgeted at ~3k tokens (~12 KB serialized); every card
+    // in the streaming turn re-renders per chunk, so an eager JSON.stringify
+    // of a collapsed card's result is pure per-chunk waste. Serialization must
+    // only happen once the details pane is actually open.
+    let deepReads = 0;
+    const result = {
+      ok: true,
+      get payloadBlob() {
+        deepReads += 1;
+        return 'x'.repeat(64);
+      },
+    };
+    renderTool({
+      argsText: '{"q":"x"}',
+      result,
+      status: { type: 'complete' },
+      toolName: 'searchDocs',
+    });
+
+    expect(deepReads).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /expand/i }));
+    expect(screen.getByText(/Result/i)).toBeInTheDocument();
+    expect(deepReads).toBeGreaterThan(0);
+  });
 });

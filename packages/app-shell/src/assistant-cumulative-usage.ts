@@ -42,21 +42,31 @@ export function resolveCumulativeUsageDisplay(
 
   let summedUsd = 0;
   let sawAnyRow = false;
+  let sawEstimatedUsage = false;
+  let sawProviderReportedCost = false;
   for (const entry of usage.perModel) {
     sawAnyRow = true;
-    const pricing = resolvePricing(entry.provider, entry.model);
-    const entryCost = computeCost(
-      { inputTokens: entry.inputTokens, outputTokens: entry.outputTokens },
-      pricing
-    );
-    if (!entryCost.available) {
-      // Any unpriced model makes the whole-thread cost honestly unavailable.
-      return { cost: { available: false, reason: 'unpriced_model' }, totalTokens };
+    if (entry.billedCostUsd !== undefined) {
+      summedUsd += entry.billedCostUsd;
+      sawProviderReportedCost = true;
     }
-    summedUsd += entryCost.usdAmount;
+    const estimatedInputTokens = entry.estimatedInputTokens ?? entry.inputTokens;
+    const estimatedOutputTokens = entry.estimatedOutputTokens ?? entry.outputTokens;
+    if (estimatedInputTokens + estimatedOutputTokens > 0) {
+      sawEstimatedUsage = true;
+      const entryCost = computeCost(
+        { inputTokens: estimatedInputTokens, outputTokens: estimatedOutputTokens },
+        resolvePricing(entry.provider, entry.model)
+      );
+      if (!entryCost.available) {
+        // Any unpriced estimated portion makes the whole-thread cost honestly unavailable.
+        return { cost: { available: false, reason: 'unpriced_model' }, totalTokens };
+      }
+      summedUsd += entryCost.usdAmount;
+    }
   }
 
-  if (!sawAnyRow) {
+  if (!(sawAnyRow && (sawEstimatedUsage || sawProviderReportedCost))) {
     // A non-null usage with no per-model rows should not happen (the repo
     // returns null for an empty thread), but treat it as unpriced rather than
     // fabricating a $0.
@@ -64,7 +74,11 @@ export function resolveCumulativeUsageDisplay(
   }
 
   return {
-    cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: summedUsd },
+    cost: {
+      available: true,
+      provenance: sawEstimatedUsage ? 'captured-usage-estimate' : 'provider-reported',
+      usdAmount: Math.round(summedUsd * 1_000_000_000_000) / 1_000_000_000_000,
+    },
     totalTokens,
   };
 }

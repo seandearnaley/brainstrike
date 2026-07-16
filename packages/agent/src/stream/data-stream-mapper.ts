@@ -678,6 +678,7 @@ export class DataStreamMapper {
     yield {
       code: DataStreamCode.finishMessage,
       value: {
+        ...(chunk.billedCostUsd === undefined ? {} : { billedCostUsd: chunk.billedCostUsd }),
         finishReason: abnormalFinishMessage
           ? 'error'
           : (stepBeforeFinalize?.finishReason ?? finishReason),

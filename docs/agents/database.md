@@ -18,13 +18,23 @@ When changing the model catalog:
 4. Remap dropped IDs in the preference stores so persisted selections don't dangle:
    - MODEL_ID_MIGRATIONS in packages/preferences/src/stores/assistant-preferences-store.ts (bump its store version)
    - MEMORY_MODEL_TARGET_MIGRATIONS in packages/preferences/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
-5. Register any new `packages/db/__tests__/*.test.ts` in BOTH `packages/db/scripts/test-lanes.mjs` AND `packages/db/scripts/coverage-lanes.mjs` — they are two separate lane registries (unit lanes vs nightly coverage lanes) and each errors on an unassigned test file. Registering only `test-lanes.mjs` passes every PR check but silently breaks the **Nightly Coverage** job (the historical cause of issue #1101). Verify both: `node scripts/test-lanes.mjs check` and `node scripts/coverage-lanes.mjs check` (the Static job runs both on every PR).
+5. Add any new `packages/db/__tests__/*.test.ts` to `dbUnitLaneDefinitions` in `packages/db/scripts/db-test-lane-manifest.mjs` — that is the ONLY registration needed. Both `test-lanes.mjs` (PR unit lanes) and `coverage-lanes.mjs` (nightly coverage lanes) import and derive from this single manifest: `buildDbCoverageLaneMap` resolves each test's coverage lane automatically from its unit lane via `coverageDefaultsByUnitLane`. Add an entry to `coverageOverridesByLane` only when a test needs a *different* coverage lane than its unit-lane default (e.g. build-hygiene tests like `runtime-import-extensions.test.ts` are unit-laned under `schema-migration` but overridden into the `architecture` coverage lane). The one remaining manual step is introducing a brand-new *unit lane* (not just a new test in an existing one): it needs its own `coverageDefaultsByUnitLane` entry, and `buildDbCoverageLaneMap` fails LOUDLY — not silently — if that entry is missing. Verify: `node scripts/test-lanes.mjs check` and `node scripts/coverage-lanes.mjs check` (the Static job runs both on every PR; `packages/db/__tests__/db-test-lane-manifest.test.ts` also guards this in the regular unit-test run). This manifest unification is what structurally fixed the historical dual-registry drift that caused issue #1101 (registries independently maintained, one edited without the other) — that failure mode is no longer reachable for ordinary test additions.
 6. Every LLM model entry MUST declare `contextWindow` (and `maxOutputTokens` when documented) in
    packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
    (no DB migration). It drives the thread context meter and the auto-derived
    `agentLoop.inputTokenLimit` (see packages/assistant-contract/src/context-budget.ts).
 
 ---
+
+## ASSISTANT THREAD GROUP PRESENTATION
+
+Thread group structure and presentation are local-first Brainstrike state in
+`brainstrike_assistant_thread_groups`, not Mastra thread metadata. Migration 056
+owns group color and split flat/grouped rank; migration 059 owns the nullable,
+validated group icon. The repository must reject unsupported color/icon values
+at both read and write boundaries, and every new presentation column must be
+registered in the numbered runner plus Drizzle's append-only
+`customMigrations` ledger.
 
 ## PGLITE EXTENSION INVARIANT
 
@@ -124,5 +134,3 @@ reopen, strict post-ready writes, torn-store recovery),
 `db-provider-first-run-bootstrap.test.tsx` (wiring order + error surfacing).
 
 ---
-
-

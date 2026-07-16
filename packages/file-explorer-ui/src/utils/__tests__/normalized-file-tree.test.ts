@@ -578,4 +578,105 @@ describe('normalized-file-tree', () => {
     ]);
     expect(listNormalizedDescendantFilePaths(state, '/root/src/a.ts')).toEqual(['/root/src/a.ts']);
   });
+
+  // Structural sharing: every commit used to rematerialize the ENTIRE tree
+  // (fresh objects for all N nodes, twice per directory expand). Untouched
+  // subtrees must keep their materialized object identity across commits so
+  // memo'd rows bail out and WeakMap-keyed derivation caches stay warm.
+  describe('materialization structural sharing', () => {
+    function buildWideState() {
+      return createNormalizedFileTreeState([
+        createDirectoryNode({
+          children: [
+            createDirectoryNode({
+              children: [
+                createFileNode({ depth: 2, name: 'a.ts', path: '/root/src/alpha/a.ts' }),
+                createFileNode({ depth: 2, name: 'b.ts', path: '/root/src/alpha/b.ts' }),
+              ],
+              depth: 1,
+              name: 'alpha',
+              path: '/root/src/alpha',
+            }),
+            createDirectoryNode({
+              children: [createFileNode({ depth: 2, name: 'c.ts', path: '/root/src/beta/c.ts' })],
+              depth: 1,
+              loadState: 'unloaded',
+              name: 'beta',
+              path: '/root/src/beta',
+            }),
+          ],
+          name: 'src',
+          path: '/root/src',
+        }),
+      ]);
+    }
+
+    it('re-materializing the SAME state returns identical root objects', () => {
+      const state = buildWideState();
+      const first = materializeNormalizedFileTree(state);
+      const second = materializeNormalizedFileTree(state);
+      expect(second[0]).toBe(first[0]);
+    });
+
+    it('a loadState flip on one directory preserves sibling subtree identity', () => {
+      const state = buildWideState();
+      const before = materializeNormalizedFileTree(state);
+      const next = setNormalizedNodeLoadState(state, '/root/src/beta', 'loading');
+      const after = materializeNormalizedFileTree(next);
+
+      const beforeRoot = before[0];
+      const afterRoot = after[0];
+      if (!(beforeRoot?.children && afterRoot?.children)) {
+        throw new Error('Expected materialized roots with children.');
+      }
+      // The changed directory and its ancestor chain are new objects…
+      expect(afterRoot).not.toBe(beforeRoot);
+      const afterBeta = afterRoot.children.find((child) => child.path === '/root/src/beta');
+      const beforeBeta = beforeRoot.children.find((child) => child.path === '/root/src/beta');
+      expect(afterBeta).not.toBe(beforeBeta);
+      expect(afterBeta?.loadState).toBe('loading');
+      // …while the untouched sibling subtree keeps its identity.
+      const afterAlpha = afterRoot.children.find((child) => child.path === '/root/src/alpha');
+      const beforeAlpha = beforeRoot.children.find((child) => child.path === '/root/src/alpha');
+      expect(afterAlpha).toBe(beforeAlpha);
+    });
+
+    it('replacing one directory children preserves sibling subtree identity and stays value-correct', () => {
+      const state = buildWideState();
+      const before = materializeNormalizedFileTree(state);
+      const next = replaceNormalizedDirectoryChildren(state, '/root/src/beta', [
+        createFileNode({ depth: 2, name: 'c.ts', path: '/root/src/beta/c.ts' }),
+        createFileNode({ depth: 2, name: 'd.ts', path: '/root/src/beta/d.ts' }),
+      ]);
+      const after = materializeNormalizedFileTree(next);
+
+      const beforeRoot = before[0];
+      const afterRoot = after[0];
+      if (!(beforeRoot?.children && afterRoot?.children)) {
+        throw new Error('Expected materialized roots with children.');
+      }
+      const afterAlpha = afterRoot.children.find((child) => child.path === '/root/src/alpha');
+      const beforeAlpha = beforeRoot.children.find((child) => child.path === '/root/src/alpha');
+      expect(afterAlpha).toBe(beforeAlpha);
+
+      const afterBeta = afterRoot.children.find((child) => child.path === '/root/src/beta');
+      expect(afterBeta?.children?.map((child) => child.path)).toEqual([
+        '/root/src/beta/c.ts',
+        '/root/src/beta/d.ts',
+      ]);
+      expect(afterBeta?.loadState).toBe('loaded');
+      // Value-equivalence against a from-scratch materialization of the same state.
+      expect(after).toEqual(materializeNormalizedFileTree(next));
+    });
+
+    it('the old state still materializes correctly after the new state was materialized (fork safety)', () => {
+      const state = buildWideState();
+      const next = setNormalizedNodeLoadState(state, '/root/src/beta', 'loading');
+      materializeNormalizedFileTree(next);
+
+      const old = materializeNormalizedFileTree(state);
+      const oldBeta = old[0]?.children?.find((child) => child.path === '/root/src/beta');
+      expect(oldBeta?.loadState).toBe('unloaded');
+    });
+  });
 });

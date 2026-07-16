@@ -31,9 +31,18 @@ jobs:
     # NO download from cdn.playwright.dev at job time. That CDN browser download
     # was stalling at ~100% and hanging this job to its timeout every night
     # (GitHub reports the timeout as "cancelled"). Mirrors the web smoke job in
-    # test.yml. KEEP IN SYNC: the image tag MUST equal @playwright/test (^1.59.1);
-    # the same pin is hard-coded in .github/workflows/{test.yml,web-e2e.yml,
-    # performance.yml} — bump all three together on a Playwright upgrade.
+    # test.yml. KEEP IN SYNC: the image tag MUST equal @playwright/test's
+    # version; the same pin is hard-coded in .github/workflows/{test.yml,
+    # web-e2e.yml,performance.yml} — bump all three together on a Playwright
+    # upgrade. `container.image:` cannot consume a workflow expression, so this
+    # stays a literal; scripts/verify-playwright-pin-sync.mjs (run via
+    # `pnpm test:scripts` in test.yml's Static job) is the automated drift
+    # check.
+    #
+    # NOT folded into the setup-workspace composite (Series C R9a): this
+    # container has no C toolchain/sudo, so the bespoke install below excludes
+    # both native-build projects — see the matching note in test.yml's web-e2e
+    # job.
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
       # `--user 1001` (pwuser) owns the browsers under /ms-playwright; this is
@@ -56,13 +65,18 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
+      # Re-keyed on lockfile+turbo.jsonc content (Series C R9a — same pattern
+      # as the setup-workspace composite; see its header comment for the
+      # per-sha-key storage-ceiling rationale), instead of a private
+      # per-job-per-sha key. This job keeps its own literal cache step (not
+      # the composite) because the install below is bespoke.
       - name: Cache Turbo artifacts
         uses: actions/cache@v5
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-web-e2e-${{ github.job }}-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
           restore-keys: |
-            ${{ runner.os }}-turbo-web-e2e-${{ github.job }}-
+            ${{ runner.os }}-${{ runner.arch }}-turbo-
 
       - name: Install dependencies
         # Exclude both desktop-only native projects: this pwuser container has no

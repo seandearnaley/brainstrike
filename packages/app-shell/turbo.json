@@ -2,15 +2,34 @@
   "extends": ["//"],
   "tasks": {
     "test": {
-      // Do NOT cache: the default `vitest run` include (src/**/*.test.{ts,tsx})
-      // matches app-shell's *.integration.test.ts files, which have NO skip guard
-      // and construct REAL PGlite via wasmLoader.createPGlite (workspace-index
-      // benchmark + collection-sync-import-large). Some are explicitly heavy
-      // benchmark lanes on wall-clock timeouts — the same env-sensitive
-      // WASM-PGlite-under-parallelism mechanism as db (see packages/db/turbo.json
-      // invariant). Carved precautionary per the required-check rule.
-      "cache": false,
-      "passThroughEnv": ["CI", "COVERAGE"]
+      // vitest.config.mts imports
+      // ../agent/config/browser-safe-subpath-aliases.mjs to build this
+      // package's resolve aliases — a CROSS-PACKAGE file that turbo's default
+      // input hash for @brainstrike/app-shell does not cover (and
+      // @brainstrike/agent is not a declared dependency, so its outputs are not
+      // an input either). Now that app-shell#test is turbo-cacheable, an edit to
+      // that helper would replay a stale cached green. $TURBO_DEFAULT$ keeps the
+      // normal inputs; the extra entry folds the helper into the hash.
+      //
+      // COVERAGE BOUNDARY (review note on #1627): this hashes the alias
+      // GENERATOR only, not the six agent source files it resolves to —
+      // nothing in app-shell's test graph imports those browser-safe subpaths
+      // today (only apps/web and apps/desktop do). If app-shell tests ever
+      // start resolving through these aliases, extend this input list to the
+      // resolved agent sources or declare a real dependency on
+      // @brainstrike/agent.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/agent/config/browser-safe-subpath-aliases.mjs"
+      ]
+    },
+    "test:coverage": {
+      // Same cross-package input as `test`: the coverage lane loads the same
+      // vitest.config.mts and therefore the same agent helper.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/agent/config/browser-safe-subpath-aliases.mjs"
+      ]
     }
   }
 }

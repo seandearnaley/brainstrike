@@ -72,6 +72,7 @@ interface PGliteLiveQuerySurface {
 
 type OptionalRelationTable =
   | 'brainstrike_assistant_edit_checkpoints'
+  | 'brainstrike_assistant_message_parents'
   | 'brainstrike_assistant_run_usage'
   | 'brainstrike_assistant_task_lists'
   | 'collection_indexing_stats'
@@ -720,6 +721,9 @@ export function registerDatabaseIpcHandlers(
             // it does not survive a "true fresh start" (FACTORY RESET CONTRACT).
             // No FK, so nothing cascades it — clear explicitly.
             await clearOptionalRelation(tx, 'brainstrike_assistant_edit_checkpoints');
+            // assistant-ui branch topology is client-owned durable state; clear
+            // it explicitly so prompt carousels cannot survive factory reset.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_message_parents');
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');

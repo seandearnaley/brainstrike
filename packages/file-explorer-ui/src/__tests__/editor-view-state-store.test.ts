@@ -1,7 +1,43 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEditorViewStateStore } from '../stores/editor-view-state-store';
 
 describe('editor-view-state-store', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('coalesces rapid scroll persistence and writes the final value', () => {
+    vi.useFakeTimers();
+    const setItem = vi.spyOn(localStorage, 'setItem');
+    const key = 'root:/foo/rapid-scroll.ts';
+
+    for (let top = 1; top <= 50; top += 1) {
+      useEditorViewStateStore.getState().setScrollTop(key, top);
+    }
+
+    expect(setItem).toHaveBeenCalledTimes(0);
+    vi.advanceTimersByTime(500);
+    expect(setItem.mock.calls.length).toBeLessThanOrEqual(2);
+    const persisted = localStorage.getItem('editor-view-state.v1');
+    expect(persisted).not.toBeNull();
+    expect(JSON.parse(persisted ?? '{}')).toMatchObject({
+      state: { scrollTops: { [key]: 50 } },
+    });
+  });
+
+  it('does not notify subscribers when the clamped scroll value is unchanged', () => {
+    const key = 'root:/foo/unchanged-scroll.ts';
+    useEditorViewStateStore.getState().setScrollTop(key, 42);
+    const subscriber = vi.fn();
+    const unsubscribe = useEditorViewStateStore.subscribe(subscriber);
+
+    useEditorViewStateStore.getState().setScrollTop(key, 42.9);
+
+    expect(subscriber).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
   it('sets and gets scroll position per key', () => {
     const key = 'root:/foo/bar.ts';
     const get = useEditorViewStateStore.getState();

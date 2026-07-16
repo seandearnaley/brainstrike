@@ -33,6 +33,7 @@ const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
 const RENDERER_HEAP_DIAGNOSTIC_DELTA_BYTES = 128 * 1024 * 1024;
 const RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS = 15_000;
+const RENDERER_FRAME_DIAGNOSTIC_SAMPLE_WINDOW_MS = 1000;
 const RENDERER_FRAME_STALL_WARN_THRESHOLD_MS = 500;
 
 interface RendererMemoryPerformance extends Performance {
@@ -159,6 +160,7 @@ export default function RootLayoutContent() {
 
     const performanceWithMemory = globalThis.performance as RendererMemoryPerformance | undefined;
     let animationFrameId: number | null = null;
+    let sampleWindowStartedAt: number | null = null;
     let previousFrameTime: number | null = null;
     let maxFrameGapMs = 0;
     let frameCount = 0;
@@ -180,11 +182,17 @@ export default function RootLayoutContent() {
     };
 
     const sampleFrame: FrameRequestCallback = (timestamp) => {
+      animationFrameId = null;
       if (document.visibilityState !== 'visible') {
         previousFrameTime = null;
         resetFrameWindow();
-        animationFrameId = window.requestAnimationFrame(sampleFrame);
         return;
+      }
+
+      // Explicit guard (not `??=`): React Compiler rejects logical-assignment
+      // operators.
+      if (sampleWindowStartedAt === null) {
+        sampleWindowStartedAt = timestamp;
       }
 
       if (previousFrameTime !== null) {
@@ -196,13 +204,31 @@ export default function RootLayoutContent() {
       }
       previousFrameTime = timestamp;
       frameCount += 1;
+
+      if (timestamp - sampleWindowStartedAt >= RENDERER_FRAME_DIAGNOSTIC_SAMPLE_WINDOW_MS) {
+        return;
+      }
       animationFrameId = window.requestAnimationFrame(sampleFrame);
     };
 
-    animationFrameId = window.requestAnimationFrame(sampleFrame);
+    const startSampling = () => {
+      if (document.visibilityState !== 'visible' || animationFrameId !== null) {
+        return;
+      }
+      previousFrameTime = null;
+      sampleWindowStartedAt = null;
+      animationFrameId = window.requestAnimationFrame(sampleFrame);
+    };
+
+    startSampling();
 
     const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible' && animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
       previousFrameTime = null;
+      sampleWindowStartedAt = null;
       resetFrameWindow();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -210,6 +236,7 @@ export default function RootLayoutContent() {
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== 'visible') {
         previousFrameTime = null;
+        sampleWindowStartedAt = null;
         resetFrameWindow();
         return;
       }
@@ -223,6 +250,10 @@ export default function RootLayoutContent() {
           logger.debug('Desktop visible renderer frame diagnostic armed');
         }
         resetFrameWindow();
+        // Metrics describe the preceding one-second sample, not the full
+        // reporting interval. Stop rAF work between reports to keep idle
+        // renderers from requesting continuous BeginFrames.
+        startSampling();
         return;
       }
 
@@ -234,6 +265,7 @@ export default function RootLayoutContent() {
           stalledFrameCount,
         });
         resetFrameWindow();
+        startSampling();
         return;
       }
 
@@ -250,6 +282,7 @@ export default function RootLayoutContent() {
 
       logger.warn('Desktop visible renderer frame health degraded', payload);
       resetFrameWindow();
+      startSampling();
     }, RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS);
 
     return () => {

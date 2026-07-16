@@ -145,6 +145,55 @@ describe('model-registry-store', () => {
       useModelRegistryStore.getState().setDownloadProgress('model-1', 99);
       expect(useModelRegistryStore.getState().downloadedModels['model-1']).toBeUndefined();
     });
+
+    it('does not notify for progress ticks within the same rounded integer percent', () => {
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 42.2);
+      const listener = vi.fn();
+      const unsubscribe = useModelRegistryStore.subscribe(listener);
+
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 42.4);
+      unsubscribe();
+
+      expect(useModelRegistryStore.getState().downloadProgress['model-1']).toBe(42);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('keeps downloadedModels identity across progress ticks below completion', () => {
+      const before = useModelRegistryStore.getState().downloadedModels;
+
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 42.2);
+      const afterFirstTick = useModelRegistryStore.getState().downloadedModels;
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 43);
+
+      expect(afterFirstTick).toBe(before);
+      expect(useModelRegistryStore.getState().downloadedModels).toBe(before);
+    });
+
+    it('creates downloadedModels identity and notifies on completion', () => {
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 99);
+      const before = useModelRegistryStore.getState().downloadedModels;
+      const listener = vi.fn();
+      const unsubscribe = useModelRegistryStore.subscribe(listener);
+
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 100);
+      unsubscribe();
+
+      expect(useModelRegistryStore.getState().downloadedModels).not.toBe(before);
+      expect(useModelRegistryStore.getState().downloadedModels['model-1']).toBe(true);
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('notifies when progress crosses a rounded integer boundary', () => {
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 42.4);
+      const listener = vi.fn();
+      const unsubscribe = useModelRegistryStore.subscribe(listener);
+
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 43);
+      unsubscribe();
+
+      expect(useModelRegistryStore.getState().downloadProgress['model-1']).toBe(43);
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('setDownloading', () => {

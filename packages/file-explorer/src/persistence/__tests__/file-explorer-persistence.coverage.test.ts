@@ -17,9 +17,9 @@ vi.mock('../worker-init', () => ({
 
 function withClearedTestMarkers<T>(run: () => Promise<T>): Promise<T> {
   const globalRecord = globalThis as Record<string, unknown>;
-  const originalVitest = globalRecord.vitest;
-  const originalJest = globalRecord.jest;
-  const originalWorker = globalRecord.__vitest_worker__;
+  const originalVitest = globalRecord['vitest'];
+  const originalJest = globalRecord['jest'];
+  const originalWorker = globalRecord['__vitest_worker__'];
 
   Reflect.deleteProperty(globalRecord, 'vitest');
   Reflect.deleteProperty(globalRecord, 'jest');
@@ -27,13 +27,13 @@ function withClearedTestMarkers<T>(run: () => Promise<T>): Promise<T> {
 
   return run().finally(() => {
     if (originalVitest !== undefined) {
-      globalRecord.vitest = originalVitest;
+      globalRecord['vitest'] = originalVitest;
     }
     if (originalJest !== undefined) {
-      globalRecord.jest = originalJest;
+      globalRecord['jest'] = originalJest;
     }
     if (originalWorker !== undefined) {
-      globalRecord.__vitest_worker__ = originalWorker;
+      globalRecord['__vitest_worker__'] = originalWorker;
     }
   });
 }
@@ -49,7 +49,7 @@ describe('file-explorer-persistence coverage', () => {
 
   it('migrates the legacy localStorage key and logs in dev browser mode', async () => {
     const values = new Map<string, string>([['fileExplorerSettings', '{"legacy":true}']]);
-    (globalThis as Record<string, unknown>).localStorage = {
+    (globalThis as Record<string, unknown>)['localStorage'] = {
       clear: vi.fn(),
       getItem: vi.fn((key: string) => values.get(key) ?? null),
       key: vi.fn(),
@@ -78,7 +78,7 @@ describe('file-explorer-persistence coverage', () => {
   });
 
   it('logs a warning when legacy key migration hits a localStorage error', async () => {
-    (globalThis as Record<string, unknown>).localStorage = {
+    (globalThis as Record<string, unknown>)['localStorage'] = {
       clear: vi.fn(),
       getItem: vi.fn(() => {
         throw new Error('localStorage blocked');
@@ -124,7 +124,9 @@ describe('file-explorer-persistence coverage', () => {
         removeItem: async () => {},
         setItem: async () => {},
       });
-      const callback = persistOptions.onRehydrateStorage?.();
+      // onRehydrateStorage's outer arg (pre-hydration state) is ignored by the
+      // implementation but required by the zustand type; reuse hydratedState.
+      const callback = persistOptions.onRehydrateStorage?.(hydratedState);
       callback?.(hydratedState, undefined);
       callback?.(hydratedState, new Error('rehydration failed'));
     });
@@ -153,11 +155,12 @@ describe('file-explorer-persistence coverage', () => {
         removeItem: async () => {},
         setItem: async () => {},
       });
-      const callback = persistOptions.onRehydrateStorage?.();
-      callback?.(
-        { folderAccessOrder: null, folderStates: null } as unknown as FileExplorerState,
-        undefined
-      );
+      const invalidState = {
+        folderAccessOrder: null,
+        folderStates: null,
+      } as unknown as FileExplorerState;
+      const callback = persistOptions.onRehydrateStorage?.(invalidState);
+      callback?.(invalidState, undefined);
     });
 
     expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -177,15 +180,13 @@ describe('file-explorer-persistence coverage', () => {
         removeItem: async () => {},
         setItem: async () => {},
       });
-      const callback = persistOptions.onRehydrateStorage?.();
-      callback?.(
-        {
-          currentFolderId: null,
-          folderAccessOrder: [],
-          folderStates: {},
-        } as unknown as FileExplorerState,
-        undefined
-      );
+      const minimalState = {
+        currentFolderId: null,
+        folderAccessOrder: [],
+        folderStates: {},
+      } as unknown as FileExplorerState;
+      const callback = persistOptions.onRehydrateStorage?.(minimalState);
+      callback?.(minimalState, undefined);
     });
 
     expect(mockLogger.warn).not.toHaveBeenCalledWith(

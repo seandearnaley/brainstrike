@@ -164,7 +164,9 @@ test.describe('Git panel (desktop)', () => {
     await page.getByRole('button', { name: 'Stage commit-me.ts' }).click();
     await expect(page.getByText(/Staged \(1\)/)).toBeVisible({ timeout: 15_000 });
 
-    await page.getByLabel('Commit message').fill('e2e commit from the git panel');
+    await page
+      .getByRole('textbox', { name: 'Commit summary (required)' })
+      .fill('e2e commit from the git panel');
     await page
       .getByRole('button', { name: /^Commit/ })
       .first()

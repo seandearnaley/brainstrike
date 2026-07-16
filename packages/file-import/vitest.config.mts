@@ -1,11 +1,13 @@
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@brainstrike/indexing-contract': resolve(import.meta.dirname, '../indexing-contract/src'),
-    },
+    // Resolve workspace deps (chunking-worker, db, embeddings, indexing-contract,
+    // queue, text-splitter, types, utils, worker-runtime) from SOURCE, not dist.
+    // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
+    alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
   },
   test: {
     // Coverage consolidated at root vitest.config.mts

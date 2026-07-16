@@ -14,7 +14,7 @@ import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   buildCollectionFileDataSnapshot,
   buildRecordPageCacheKey,
@@ -40,6 +40,40 @@ import {
 } from './database-demo-data-mappers';
 
 const logger = createLogger('DatabaseDemoData');
+
+interface PageSnapshotIdentity {
+  collectionId: string;
+  page: number;
+  pageSize: number;
+}
+
+function pageHasSnapshot({
+  activeCollectionId,
+  globalSnapshot,
+  loadedPageKeys,
+  page,
+  pageCacheKey,
+  pageSize,
+}: {
+  activeCollectionId: string | null;
+  globalSnapshot: PageSnapshotIdentity | null;
+  loadedPageKeys: ReadonlySet<string>;
+  page: number;
+  pageCacheKey: string | null;
+  pageSize: number;
+}): boolean {
+  if (pageCacheKey && loadedPageKeys.has(pageCacheKey)) {
+    return true;
+  }
+  if (!(activeCollectionId && globalSnapshot)) {
+    return false;
+  }
+  return (
+    globalSnapshot.collectionId === activeCollectionId &&
+    globalSnapshot.page === page &&
+    globalSnapshot.pageSize === pageSize
+  );
+}
 
 /**
  * Resolve the storage location label based on the repository type.
@@ -149,6 +183,7 @@ export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
   collectionCounts: DatabaseCollectionCounts;
   collectionCountsStatus: DatabaseCollectionCountsStatus;
   dbInfo: DatabaseInfo | null;
+  initialLoading: boolean;
   recordPagination: DatabaseRecordPagination;
   records: DatabaseFileRecordSummary[];
   refreshing: boolean;
@@ -296,7 +331,8 @@ export function useDatabaseDemoData({
   const cachedLoadedChunksRef = useRef<Map<string, Map<string, DatabaseFileChunkSummary[]>>>(
     new Map()
   );
-  const loadedRecordPagesRef = useRef<Set<string>>(new Set());
+  const loadedRecordPageKeysRef = useRef<ReadonlySet<string>>(new Set());
+  const loadedRecordPageListenersRef = useRef<Set<() => void>>(new Set());
   const [cacheVersion, setCacheVersion] = useState(0);
   const [fallbackLoading, setFallbackLoading] = useState(false);
   const [fallbackError, setFallbackError] = useState<Error | null>(null);
@@ -318,6 +354,54 @@ export function useDatabaseDemoData({
   const recordPageCacheKey = activeCollectionId
     ? buildRecordPageCacheKey(activeCollectionId, normalizedRecordPage, normalizedRecordPageSize)
     : null;
+
+  const subscribeToLoadedRecordPages = useCallback((listener: () => void) => {
+    loadedRecordPageListenersRef.current.add(listener);
+    return () => {
+      loadedRecordPageListenersRef.current.delete(listener);
+    };
+  }, []);
+  const getLoadedRecordPagesSnapshot = useCallback(() => loadedRecordPageKeysRef.current, []);
+  const loadedRecordPageKeys = useSyncExternalStore(
+    subscribeToLoadedRecordPages,
+    getLoadedRecordPagesSnapshot,
+    getLoadedRecordPagesSnapshot
+  );
+  const markRecordPageLoaded = useCallback((pageCacheKey: string): void => {
+    if (loadedRecordPageKeysRef.current.has(pageCacheKey)) {
+      return;
+    }
+    const nextPageKeys = new Set(loadedRecordPageKeysRef.current);
+    nextPageKeys.add(pageCacheKey);
+    loadedRecordPageKeysRef.current = nextPageKeys;
+    for (const listener of loadedRecordPageListenersRef.current) {
+      listener();
+    }
+  }, []);
+
+  const publishCachedPageSnapshot = useCallback(
+    (collectionId: string, pageCacheKey: string): void => {
+      const cachedChunks = Array.from(
+        cachedLoadedChunksRef.current.get(pageCacheKey)?.values() ?? []
+      ).flat();
+      setGlobalCachedFileData(
+        buildCollectionFileDataSnapshot(
+          collectionId,
+          normalizedRecordPage,
+          normalizedRecordPageSize,
+          cachedRecordTotalsRef.current.get(collectionId) ?? 0,
+          cachedCollectionCountsRef.current.get(collectionId) ?? {
+            chunks: 0,
+            embeddings: 0,
+            records: 0,
+          },
+          cachedRecordsRef.current.get(pageCacheKey) ?? [],
+          cachedChunks
+        )
+      );
+    },
+    [normalizedRecordPage, normalizedRecordPageSize, setGlobalCachedFileData]
+  );
 
   useEffect(() => {
     if (!database) {
@@ -344,7 +428,7 @@ export function useDatabaseDemoData({
 
     let didRestoreFromGlobalCache = false;
 
-    if (!loadedRecordPagesRef.current.has(recordPageCacheKey)) {
+    if (!loadedRecordPageKeys.has(recordPageCacheKey)) {
       cachedRecordsRef.current.set(
         recordPageCacheKey,
         globalCachedFileData.records.map(restoreCachedRecord)
@@ -354,7 +438,7 @@ export function useDatabaseDemoData({
         activeCollectionId,
         globalCachedFileData.collectionCounts
       );
-      loadedRecordPagesRef.current.add(recordPageCacheKey);
+      markRecordPageLoaded(recordPageCacheKey);
       didRestoreFromGlobalCache = true;
     }
 
@@ -373,8 +457,10 @@ export function useDatabaseDemoData({
   }, [
     activeCollectionId,
     globalCachedFileData,
+    loadedRecordPageKeys,
     normalizedRecordPage,
     normalizedRecordPageSize,
+    markRecordPageLoaded,
     recordPageCacheKey,
   ]);
 
@@ -517,7 +603,6 @@ export function useDatabaseDemoData({
     });
   }, [refreshCollectionCountsQuery]);
 
-  // biome-ignore lint/plugin: This syncs live query results to cache, not fetching data
   useEffect(() => {
     if (
       !(liveQueryEnabled && activeCollectionId && recordPageCacheKey) ||
@@ -533,23 +618,10 @@ export function useDatabaseDemoData({
     cachedRecordsRef.current.set(recordPageCacheKey, records);
     cachedRecordTotalsRef.current.set(activeCollectionId, liveTotalRecords);
     cachedCollectionCountsRef.current.set(activeCollectionId, liveCollectionCounts);
-    loadedRecordPagesRef.current.add(recordPageCacheKey);
+    markRecordPageLoaded(recordPageCacheKey);
     setCacheVersion((prev) => prev + 1);
     setFallbackError(null);
-    const cachedChunksForCollection = Array.from(
-      cachedLoadedChunksRef.current.get(recordPageCacheKey)?.values() ?? []
-    ).flat();
-    setGlobalCachedFileData(
-      buildCollectionFileDataSnapshot(
-        activeCollectionId,
-        normalizedRecordPage,
-        normalizedRecordPageSize,
-        liveTotalRecords,
-        liveCollectionCounts,
-        records,
-        cachedChunksForCollection
-      )
-    );
+    publishCachedPageSnapshot(activeCollectionId, recordPageCacheKey);
   }, [
     activeCollectionId,
     liveCollectionCounts,
@@ -558,14 +630,13 @@ export function useDatabaseDemoData({
     liveQueryEnabled,
     liveTotalRecords,
     liveTotalRecordsReady,
-    normalizedRecordPage,
-    normalizedRecordPageSize,
+    markRecordPageLoaded,
+    publishCachedPageSnapshot,
     recordPageCacheKey,
     records,
     totalRecordsLoading,
     collectionCountsLoading,
     recordsLoading,
-    setGlobalCachedFileData,
   ]);
 
   const cachedRecords = useMemo<DatabaseFileRecordSummary[]>(() => {
@@ -633,7 +704,7 @@ export function useDatabaseDemoData({
 
       if (recordsResult) {
         cachedRecordsRef.current.set(recordPageCacheKey, recordsResult.rows.map(mapRecordRow));
-        loadedRecordPagesRef.current.add(recordPageCacheKey);
+        markRecordPageLoaded(recordPageCacheKey);
       }
       if (totalRecordsResult) {
         cacheTotalRecordsForCollection({
@@ -650,12 +721,15 @@ export function useDatabaseDemoData({
         });
       }
 
+      publishCachedPageSnapshot(activeCollectionId, recordPageCacheKey);
       setCacheVersion((prev) => prev + 1);
     },
     [
       activeCollectionId,
       database,
+      markRecordPageLoaded,
       normalizedRecordPageSize,
+      publishCachedPageSnapshot,
       recordOffset,
       recordPageCacheKey,
       recordQueryParams,
@@ -674,9 +748,7 @@ export function useDatabaseDemoData({
     if (fallbackLoading) {
       return;
     }
-    const needsRecords = recordPageCacheKey
-      ? !loadedRecordPagesRef.current.has(recordPageCacheKey)
-      : false;
+    const needsRecords = recordPageCacheKey ? !loadedRecordPageKeys.has(recordPageCacheKey) : false;
     const needsTotalRecords = cachedRecordTotalsRef.current.get(activeCollectionId) === undefined;
     const needsCollectionCounts =
       cachedCollectionCountsRef.current.get(activeCollectionId) === undefined;
@@ -720,6 +792,7 @@ export function useDatabaseDemoData({
     fallbackLoading,
     fetchSnapshot,
     liveQueryEnabled,
+    loadedRecordPageKeys,
     recordPageCacheKey,
     schemaReady,
   ]);
@@ -772,35 +845,11 @@ export function useDatabaseDemoData({
       cachedLoadedChunksRef.current.set(recordPageCacheKey, collectionChunks);
       setCacheVersion((prev) => prev + 1);
 
-      const cachedRecordsForCollection = cachedRecordsRef.current.get(recordPageCacheKey) ?? [];
-      const cachedChunksForCollection = Array.from(collectionChunks.values()).flat();
-      setGlobalCachedFileData(
-        buildCollectionFileDataSnapshot(
-          activeCollectionId,
-          normalizedRecordPage,
-          normalizedRecordPageSize,
-          cachedRecordTotalsRef.current.get(activeCollectionId) ?? 0,
-          cachedCollectionCountsRef.current.get(activeCollectionId) ?? {
-            chunks: 0,
-            embeddings: 0,
-            records: 0,
-          },
-          cachedRecordsForCollection,
-          cachedChunksForCollection
-        )
-      );
+      publishCachedPageSnapshot(activeCollectionId, recordPageCacheKey);
 
       return summaries;
     },
-    [
-      activeCollectionId,
-      database,
-      normalizedRecordPage,
-      normalizedRecordPageSize,
-      recordPageCacheKey,
-      schemaReady,
-      setGlobalCachedFileData,
-    ]
+    [activeCollectionId, database, publishCachedPageSnapshot, recordPageCacheKey, schemaReady]
   );
 
   const loadRecords = useCallback(async () => {
@@ -1009,7 +1058,7 @@ export function useDatabaseDemoData({
       resolvedCollectionCounts.records,
       resolvedCollectionCounts.chunks,
       embeddingCountBucket,
-      loadedRecordPagesRef.current.size,
+      loadedRecordPageKeys.size,
       loadedChunkGroups,
       totalLoadedChunks,
       fallbackLoading ? 'loading' : 'idle',
@@ -1034,7 +1083,7 @@ export function useDatabaseDemoData({
       isImporting,
       loadedChunkCount: totalLoadedChunks,
       loadedChunkGroupCount: loadedChunkGroups,
-      loadedRecordPageCount: loadedRecordPagesRef.current.size,
+      loadedRecordPageCount: loadedRecordPageKeys.size,
       manualRefreshing,
       page: normalizedRecordPage,
       pageSize: normalizedRecordPageSize,
@@ -1050,6 +1099,7 @@ export function useDatabaseDemoData({
     isEmbeddingActive,
     isImporting,
     liveQueryEnabled,
+    loadedRecordPageKeys.size,
     manualRefreshing,
     normalizedRecordPage,
     normalizedRecordPageSize,
@@ -1262,6 +1312,19 @@ export function useDatabaseDemoData({
   }, [database]);
 
   const refreshing = manualRefreshing || recordsLoading || totalRecordsLoading || fallbackLoading;
+  const hasCurrentPageSnapshot = pageHasSnapshot({
+    activeCollectionId,
+    globalSnapshot: globalCachedFileData,
+    loadedPageKeys: loadedRecordPageKeys,
+    page: normalizedRecordPage,
+    pageCacheKey: recordPageCacheKey,
+    pageSize: normalizedRecordPageSize,
+  });
+  const initialLoading = Boolean(
+    activeCollectionId &&
+      !hasCurrentPageSnapshot &&
+      (recordsLoading || totalRecordsLoading || fallbackLoading)
+  );
 
   // Sync local dbInfo state to global store for status bar
   useEffect(() => {
@@ -1280,6 +1343,7 @@ export function useDatabaseDemoData({
     collectionCounts: resolvedCollectionCounts,
     collectionCountsStatus: resolvedCollectionCountsStatus,
     dbInfo,
+    initialLoading,
     loadChunkDetail,
     loadChunks,
     loadCollectionExportData,

@@ -12,7 +12,7 @@ describe('provider-factory', () => {
     it('creates OpenAI provider with default model', () => {
       const model = createProvider('openai', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gpt-5.4');
+      expect(model.modelId).toBe('gpt-5.6-terra');
     });
 
     it('creates OpenAI provider with custom model', () => {
@@ -24,7 +24,7 @@ describe('provider-factory', () => {
     it('creates Anthropic provider with default model', () => {
       const model = createProvider('anthropic', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('claude-sonnet-4-6');
+      expect(model.modelId).toBe('claude-sonnet-5');
     });
 
     it('creates Anthropic provider with custom model', () => {
@@ -50,29 +50,33 @@ describe('provider-factory', () => {
     });
 
     it('creates OpenRouter provider with default model', () => {
-      const model = createProvider('openrouter', 'test-key') as { modelId: string };
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('openai/gpt-5.4');
+      expect(createProvider('openrouter', 'test-key')).toEqual({
+        apiKey: 'test-key',
+        id: 'openrouter/openai/gpt-5.6-terra',
+      });
     });
 
-    it('creates OpenRouter provider with custom model', () => {
-      const model = createProvider('openrouter', 'test-key', 'anthropic/claude-sonnet-4.5') as {
-        modelId: string;
-      };
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('anthropic/claude-sonnet-4.5');
+    it('uses Mastra model-router config for an OpenRouter model', () => {
+      expect(createProvider('openrouter', 'test-key', 'z-ai/glm-5.2')).toEqual({
+        apiKey: 'test-key',
+        id: 'openrouter/z-ai/glm-5.2',
+      });
     });
 
     it('creates Ollama provider with custom model', () => {
-      const model = createProvider('ollama', undefined, 'qwen2.5:latest') as { modelId: string };
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('qwen2.5:latest');
+      expect(createProvider('ollama', undefined, 'qwen2.5:latest')).toEqual({
+        apiKey: 'ollama',
+        id: 'ollama/qwen2.5:latest',
+        url: 'http://127.0.0.1:11434/v1',
+      });
     });
 
     it('creates LM Studio provider with custom model', () => {
-      const model = createProvider('lmstudio', undefined, 'qwen2.5') as { modelId: string };
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('qwen2.5');
+      expect(createProvider('lmstudio', undefined, 'qwen2.5')).toEqual({
+        apiKey: 'lmstudio',
+        id: 'lmstudio/qwen2.5',
+        url: 'http://127.0.0.1:1234/v1',
+      });
     });
 
     it('throws when local runtime provider has no selected model', () => {
@@ -114,11 +118,11 @@ describe('provider-factory', () => {
 
   describe('getDefaultModel', () => {
     it('returns correct default for OpenAI', () => {
-      expect(getDefaultModel('openai')).toBe('gpt-5.4');
+      expect(getDefaultModel('openai')).toBe('gpt-5.6-terra');
     });
 
     it('returns correct default for Anthropic', () => {
-      expect(getDefaultModel('anthropic')).toBe('claude-sonnet-4-6');
+      expect(getDefaultModel('anthropic')).toBe('claude-sonnet-5');
     });
 
     it('returns correct default for Google', () => {
@@ -126,11 +130,15 @@ describe('provider-factory', () => {
     });
 
     it('returns correct default for OpenRouter', () => {
-      expect(getDefaultModel('openrouter')).toBe('openai/gpt-5.4');
+      expect(getDefaultModel('openrouter')).toBe('openai/gpt-5.6-terra');
     });
 
-    it('falls back to OpenAI default for unsupported provider', () => {
-      expect(getDefaultModel('unsupported')).toBe('gpt-5.4');
+    it('throws for an unsupported provider', () => {
+      expect(() => getDefaultModel('unsupported')).toThrow(/Unsupported provider/);
+    });
+
+    it('returns an explicit unset default for a supported dynamic provider', () => {
+      expect(getDefaultModel('ollama')).toBe('');
     });
   });
 

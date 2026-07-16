@@ -280,7 +280,7 @@ describe('collection-browser-store', () => {
 
     it('drops legacy context-selected IDs during migration', () => {
       const options = storeWithPersist.persist?.getOptions?.();
-      expect(options?.version).toBe(3);
+      expect(options?.version).toBe(4);
       expect(options?.migrate).toBeTypeOf('function');
       if (!options?.migrate) {
         throw new Error('persist migrate unavailable for test');

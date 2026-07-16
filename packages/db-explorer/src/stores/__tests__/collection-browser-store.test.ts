@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetCollectionBrowserStoreForTests,
   collectionBrowserSelectors,
@@ -8,6 +8,65 @@ import {
 describe('CollectionBrowserStore', () => {
   beforeEach(() => {
     __resetCollectionBrowserStoreForTests();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  describe('persistence hygiene', () => {
+    it('excludes transient search queries from the persisted payload', () => {
+      const store = useCollectionBrowserStore.getState();
+      store.setSearchQuery('quick search');
+      store.setSemanticQuery('semantic search');
+      store.setSelectedId('selected');
+      store.setExpandedIds(['expanded']);
+
+      const partialized = useCollectionBrowserStore.persist
+        .getOptions()
+        .partialize?.(useCollectionBrowserStore.getState());
+
+      expect(partialized).not.toHaveProperty('searchQuery');
+      expect(partialized).not.toHaveProperty('semanticQuery');
+      expect(partialized).toMatchObject({ expandedIds: ['expanded'], selectedId: 'selected' });
+    });
+
+    it('coalesces rapid inspector width persistence writes', () => {
+      vi.useFakeTimers();
+      const setItem = vi.spyOn(localStorage, 'setItem');
+
+      for (let width = 1; width <= 50; width += 1) {
+        useCollectionBrowserStore.getState().setInspectorWidth(width);
+      }
+
+      expect(setItem).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(500);
+      expect(setItem.mock.calls.length).toBeLessThanOrEqual(2);
+      const persisted = localStorage.getItem('collection-browser.v1');
+      expect(persisted).not.toBeNull();
+      expect(JSON.parse(persisted ?? '{}')).toMatchObject({ state: { inspectorWidth: 50 } });
+    });
+
+    it('ignores legacy persisted search queries during migration', () => {
+      const migrate = useCollectionBrowserStore.persist.getOptions().migrate;
+      if (!migrate) {
+        throw new Error('expected collection browser migration');
+      }
+
+      const migrated = migrate(
+        {
+          expandedIds: ['expanded'],
+          searchQuery: 'stale quick search',
+          semanticQuery: 'stale semantic search',
+        },
+        3
+      );
+
+      expect(migrated).toMatchObject({ expandedIds: ['expanded'] });
+      expect(migrated).not.toHaveProperty('searchQuery');
+      expect(migrated).not.toHaveProperty('semanticQuery');
+    });
   });
 
   // ---------------------------------------------------------------------------

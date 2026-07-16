@@ -202,7 +202,7 @@ function TreeTableRowInner<T>({
         isSelected && !isGroupHeader && 'bg-accent',
         isHighlighted && !isSelected && !isGroupHeader && 'bg-yellow-50 dark:bg-yellow-950/20',
         isInContext && !isSelected && !isHighlighted && 'border-l-2 border-l-primary/60',
-        isFocused && 'ring-2 ring-primary ring-inset',
+        'outline-none focus-visible:outline-2 focus-visible:outline-foreground/50 focus-visible:outline-solid focus-visible:-outline-offset-2',
         !matchesFilter && 'opacity-50',
         className
       )}
@@ -303,18 +303,20 @@ interface TreeExpandControlProps {
   isExpanded: boolean;
   isLoading: boolean | undefined;
   onExpandClick: (event: React.MouseEvent) => void;
+  pinnedToTop: boolean;
 }
 
 function TreeExpandControl({
   isExpanded,
   isLoading,
   onExpandClick,
+  pinnedToTop,
 }: TreeExpandControlProps): React.ReactElement {
   return (
     <Button
       aria-expanded={isExpanded}
       aria-label={isExpanded ? 'Collapse' : 'Expand'}
-      className="flex-shrink-0"
+      className={cn('flex-shrink-0', pinnedToTop && 'mt-1.5')}
       disabled={isLoading}
       onClick={onExpandClick}
       size="icon-xs"
@@ -329,6 +331,42 @@ function TreeExpandControl({
       )}
     </Button>
   );
+}
+
+interface TreeCheckboxControlProps {
+  ariaLabel: string;
+  checkboxState: 'checked' | 'unchecked' | 'indeterminate';
+  onCheckboxChange: (() => void) | undefined;
+  pinnedToTop: boolean;
+  reserveSpace: boolean;
+  showCheckbox: boolean;
+}
+
+function TreeCheckboxControl({
+  ariaLabel,
+  checkboxState,
+  onCheckboxChange,
+  pinnedToTop,
+  reserveSpace,
+  showCheckbox,
+}: TreeCheckboxControlProps): React.ReactElement | null {
+  const className = cn('ml-1.5 h-4 w-4 flex-shrink-0', pinnedToTop && 'mt-3');
+  if (showCheckbox) {
+    return (
+      <Checkbox
+        aria-label={ariaLabel}
+        checked={checkboxState === 'indeterminate' ? 'indeterminate' : checkboxState === 'checked'}
+        className={className}
+        data-state={checkboxState}
+        onCheckedChange={() => onCheckboxChange?.()}
+        onClick={(event) => event.stopPropagation()}
+      />
+    );
+  }
+  if (!reserveSpace) {
+    return null;
+  }
+  return <span aria-hidden="true" className={className} data-testid="tree-checkbox-spacer" />;
 }
 
 function TreeTableCellComponent<T>({
@@ -362,10 +400,18 @@ function TreeTableCellComponent<T>({
   if (isFirstColumn) {
     const shouldReserveToggleSpace = column.reserveToggleSpace !== false;
     const indentWidth = column.indentWidth ?? INDENT_WIDTH;
+    const controlsPinnedToTop = column.treeControlsPosition === 'top';
 
     return (
       <TableCell className={cn('p-0', column.className)} colSpan={colSpan} role="gridcell">
-        <div className={cn('flex items-center', insetTreeControls && 'pl-1')}>
+        <div
+          className={cn(
+            'flex',
+            controlsPinnedToTop ? 'items-start self-start' : 'items-center',
+            insetTreeControls && 'pl-1'
+          )}
+          data-tree-controls-position={controlsPinnedToTop ? 'top' : 'center'}
+        >
           {/* Indentation spacer */}
           <span className="flex-shrink-0" style={{ width: node.depth * indentWidth }} />
 
@@ -375,24 +421,20 @@ function TreeTableCellComponent<T>({
               isExpanded={isExpanded}
               isLoading={node.isLoading}
               onExpandClick={onExpandClick}
+              pinnedToTop={controlsPinnedToTop}
             />
           ) : shouldReserveToggleSpace ? (
             <span className="h-7 w-7 flex-shrink-0" />
           ) : null}
 
-          {/* Checkbox for multi-select */}
-          {showCheckbox && (
-            <Checkbox
-              aria-label={checkboxAriaLabel ?? `Select ${node.id}`}
-              checked={
-                checkboxState === 'indeterminate' ? 'indeterminate' : checkboxState === 'checked'
-              }
-              className="ml-1.5 h-4 w-4 flex-shrink-0"
-              data-state={checkboxState}
-              onCheckedChange={() => onCheckboxChange?.()}
-              onClick={(e) => e.stopPropagation()}
-            />
-          )}
+          <TreeCheckboxControl
+            ariaLabel={checkboxAriaLabel ?? `Select ${node.id}`}
+            checkboxState={checkboxState}
+            onCheckboxChange={onCheckboxChange}
+            pinnedToTop={controlsPinnedToTop}
+            reserveSpace={column.reserveCheckboxSpace === true}
+            showCheckbox={showCheckbox}
+          />
 
           {/* Context indicator dot */}
           {isInContext && (

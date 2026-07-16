@@ -34,6 +34,11 @@ interface AssistantThreadState {
     resourceId: string,
     threadId: string
   ) => Promise<void>;
+  deleteThreads: (
+    repository: AssistantThreadRepository,
+    resourceId: string,
+    threadIds: readonly string[]
+  ) => Promise<void>;
   draftRuntimeByThreadId: Record<string, AssistantThreadDraftRuntime>;
   ensureResourceThreads: (
     repository: AssistantThreadRepository,
@@ -52,6 +57,7 @@ interface AssistantThreadState {
     threadId: string,
     title: string
   ) => Promise<void>;
+  reorderThreadTabs: (resourceId: string, orderedThreadIds: readonly string[]) => void;
   selectedThreadByResourceId: Record<string, string>;
   selectThread: (resourceId: string, threadId: string) => void;
   setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => void;
@@ -61,6 +67,12 @@ interface AssistantThreadState {
     repository: AssistantThreadRepository,
     resourceId: string,
     threadId: string,
+    metadata: AssistantThreadMetadata
+  ) => Promise<void>;
+  updateThreadsMetadata: (
+    repository: AssistantThreadRepository,
+    resourceId: string,
+    threadIds: readonly string[],
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
 }
@@ -127,6 +139,27 @@ function reconcileOpenThreadIds(
   return openIds;
 }
 
+function assertExactOpenThreadOrder(
+  currentOpenThreadIds: readonly string[],
+  orderedThreadIds: readonly string[]
+): void {
+  const orderedIdSet = new Set(orderedThreadIds);
+  const containsEveryOpenThread = currentOpenThreadIds.every((threadId) =>
+    orderedIdSet.has(threadId)
+  );
+  if (
+    orderedThreadIds.length !== currentOpenThreadIds.length ||
+    orderedIdSet.size !== currentOpenThreadIds.length ||
+    !containsEveryOpenThread
+  ) {
+    throw new Error('Assistant thread tab order must contain every open thread exactly once.');
+  }
+}
+
+function hasSameOrder(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((threadId, index) => threadId === right[index]);
+}
+
 function selectActiveThreadAfterClose(
   currentOpenThreadIds: readonly string[],
   closingThreadId: string
@@ -138,12 +171,65 @@ function selectActiveThreadAfterClose(
   if (remainingThreadIds.length === 0) {
     return;
   }
-  const nextIndex = closingIndex > 0 ? closingIndex - 1 : 0;
-  return remainingThreadIds[nextIndex] ?? remainingThreadIds.at(-1);
+  return remainingThreadIds[closingIndex] ?? remainingThreadIds.at(-1);
 }
 
 function omitRecordKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {
   return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
+}
+
+function omitRecordKeys<T>(
+  record: Record<string, T>,
+  keysToOmit: ReadonlySet<string>
+): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => !keysToOmit.has(key)));
+}
+
+function requireThreadIdBatch(threadIds: readonly string[]): readonly string[] {
+  if (!Array.isArray(threadIds) || threadIds.length === 0) {
+    throw new Error('At least one assistant thread id is required.');
+  }
+  const seenIds = new Set<string>();
+  for (const threadId of threadIds) {
+    if (typeof threadId !== 'string' || !threadId.trim()) {
+      throw new Error('Assistant thread id is required.');
+    }
+    if (seenIds.has(threadId)) {
+      throw new Error(`Duplicate assistant thread id: ${threadId}.`);
+    }
+    seenIds.add(threadId);
+  }
+  return threadIds;
+}
+
+function requireLoadedThreads(
+  loadedThreads: readonly AssistantMemoryThread[],
+  threadIds: readonly string[]
+): void {
+  const loadedThreadIds = new Set(loadedThreads.map((thread) => thread.id));
+  for (const threadId of threadIds) {
+    if (!loadedThreadIds.has(threadId)) {
+      throw new Error(`Unknown assistant thread: ${threadId}.`);
+    }
+  }
+}
+
+function requireBulkDelete(
+  repository: AssistantThreadRepository
+): NonNullable<AssistantThreadRepository['deleteThreads']> {
+  if (!repository.deleteThreads) {
+    throw new Error('Assistant thread repository does not support atomic bulk deletion.');
+  }
+  return repository.deleteThreads;
+}
+
+function requireBulkMetadataUpdate(
+  repository: AssistantThreadRepository
+): NonNullable<AssistantThreadRepository['updateThreadsMetadata']> {
+  if (!repository.updateThreadsMetadata) {
+    throw new Error('Assistant thread repository does not support atomic bulk metadata updates.');
+  }
+  return repository.updateThreadsMetadata;
 }
 
 function selectActiveThreadAfterDelete({
@@ -160,6 +246,37 @@ function selectActiveThreadAfterDelete({
     return nextOpenActive;
   }
   return remainingThreadIds[0];
+}
+
+function selectActiveThreadAfterBulkDelete({
+  currentActiveThreadId,
+  currentOpenThreadIds,
+  deletedThreadIds,
+  remainingThreadIds,
+}: {
+  currentActiveThreadId: string | undefined;
+  currentOpenThreadIds: readonly string[];
+  deletedThreadIds: ReadonlySet<string>;
+  remainingThreadIds: readonly string[];
+}): string | undefined {
+  if (currentActiveThreadId && !deletedThreadIds.has(currentActiveThreadId)) {
+    return currentActiveThreadId;
+  }
+  const activeIndex = currentActiveThreadId
+    ? currentOpenThreadIds.indexOf(currentActiveThreadId)
+    : -1;
+  const remainingOpenThreadIds = currentOpenThreadIds.filter(
+    (threadId) => !deletedThreadIds.has(threadId)
+  );
+  if (activeIndex >= 0) {
+    const nextOpenThread = currentOpenThreadIds
+      .slice(activeIndex + 1)
+      .find((threadId) => !deletedThreadIds.has(threadId));
+    if (nextOpenThread) {
+      return nextOpenThread;
+    }
+  }
+  return remainingOpenThreadIds.at(-1) ?? remainingThreadIds[0];
 }
 
 function copyProviderSettings(
@@ -406,6 +523,60 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           };
         });
       },
+      deleteThreads: async (
+        repository: AssistantThreadRepository,
+        resourceId: string,
+        threadIds: readonly string[]
+      ): Promise<void> => {
+        requireThreadIdBatch(threadIds);
+        const loadedThreads = get().threadsByResourceId[resourceId] ?? [];
+        requireLoadedThreads(loadedThreads, threadIds);
+        await requireBulkDelete(repository)(threadIds);
+        const deletedThreadIds = new Set(threadIds);
+        set((state) => {
+          const remainingThreads = (state.threadsByResourceId[resourceId] ?? []).filter(
+            (thread) => !deletedThreadIds.has(thread.id)
+          );
+          const remainingThreadIds = remainingThreads.map((thread) => thread.id);
+          const currentOpenThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
+          const nextOpenThreadIds = currentOpenThreadIds.filter(
+            (threadId) => !deletedThreadIds.has(threadId)
+          );
+          const nextActiveThreadId = selectActiveThreadAfterBulkDelete({
+            currentActiveThreadId:
+              state.activeThreadIdByResourceId[resourceId] ??
+              state.selectedThreadByResourceId[resourceId],
+            currentOpenThreadIds,
+            deletedThreadIds,
+            remainingThreadIds,
+          });
+          return {
+            activeThreadIdByResourceId: nextActiveThreadId
+              ? { ...state.activeThreadIdByResourceId, [resourceId]: nextActiveThreadId }
+              : omitRecordKey(state.activeThreadIdByResourceId, resourceId),
+            draftRuntimeByThreadId: omitRecordKeys(state.draftRuntimeByThreadId, deletedThreadIds),
+            loadStateByResourceId: {
+              ...state.loadStateByResourceId,
+              [resourceId]: { status: 'ready' },
+            },
+            openThreadIdsByResourceId: {
+              ...state.openThreadIdsByResourceId,
+              [resourceId]: nextOpenThreadIds,
+            },
+            selectedThreadByResourceId: nextActiveThreadId
+              ? { ...state.selectedThreadByResourceId, [resourceId]: nextActiveThreadId }
+              : omitRecordKey(state.selectedThreadByResourceId, resourceId),
+            threadIdsByResourceId: {
+              ...state.threadIdsByResourceId,
+              [resourceId]: remainingThreadIds,
+            },
+            threadsByResourceId: {
+              ...state.threadsByResourceId,
+              [resourceId]: remainingThreads,
+            },
+          };
+        });
+      },
       draftRuntimeByThreadId: {},
       ensureResourceThreads: async (
         repository: AssistantThreadRepository,
@@ -557,6 +728,21 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           },
         }));
       },
+      reorderThreadTabs: (resourceId: string, orderedThreadIds: readonly string[]) => {
+        set((state) => {
+          const currentOpenThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
+          assertExactOpenThreadOrder(currentOpenThreadIds, orderedThreadIds);
+          if (hasSameOrder(currentOpenThreadIds, orderedThreadIds)) {
+            return state;
+          }
+          return {
+            openThreadIdsByResourceId: {
+              ...state.openThreadIdsByResourceId,
+              [resourceId]: [...orderedThreadIds],
+            },
+          };
+        });
+      },
       selectedThreadByResourceId: {},
       selectThread: (resourceId: string, threadId: string) => {
         get().openThreadTab(resourceId, threadId);
@@ -589,7 +775,34 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
                       ...(thread.metadata ?? {}),
                       ...metadata,
                     },
-                    updatedAt: new Date(),
+                  }
+                : thread
+            ),
+          },
+        }));
+      },
+      updateThreadsMetadata: async (
+        repository: AssistantThreadRepository,
+        resourceId: string,
+        threadIds: readonly string[],
+        metadata: AssistantThreadMetadata
+      ): Promise<void> => {
+        requireThreadIdBatch(threadIds);
+        const loadedThreads = get().threadsByResourceId[resourceId] ?? [];
+        requireLoadedThreads(loadedThreads, threadIds);
+        await requireBulkMetadataUpdate(repository)(threadIds, metadata);
+        const updatedThreadIds = new Set(threadIds);
+        set((state) => ({
+          threadsByResourceId: {
+            ...state.threadsByResourceId,
+            [resourceId]: (state.threadsByResourceId[resourceId] ?? []).map((thread) =>
+              updatedThreadIds.has(thread.id)
+                ? {
+                    ...thread,
+                    metadata: {
+                      ...(thread.metadata ?? {}),
+                      ...metadata,
+                    },
                   }
                 : thread
             ),

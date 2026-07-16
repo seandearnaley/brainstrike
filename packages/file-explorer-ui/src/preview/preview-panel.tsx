@@ -6,6 +6,7 @@ import {
   Button,
   type CollectionNodeType,
   EmptyState,
+  SelectionActionBarOverlay,
   TablePagination,
   Tabs,
   TabsContent,
@@ -24,7 +25,7 @@ import type { ContextExportOptions } from '../context-export-options';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { useGroupSelection } from '../hooks/use-group-selection';
 import type { TokenCountingState } from '../indexing/use-token-counting';
-import { buildTapestryFileBase } from '../tapestry/tapestry-adapter';
+import { buildTapestryFileBase, tapestryBaseMatchesItem } from '../tapestry/tapestry-adapter';
 import { TapestryView } from '../tapestry/tapestry-view';
 import type { TapestryRange } from '../tapestry/types';
 import {
@@ -188,7 +189,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
   // Per-file cache for buildTapestryFileBase — avoids recomputing ALL files when
   // a single file's content loads. Cache is read during render (safe) and updated
-  // in a useEffect after commit (safe with React 18 Strict Mode).
+  // in a useEffect after commit (safe with React 18 Strict Mode). Validity is
+  // checked by the FIELDS the base derives from (tapestryBaseMatchesItem), NOT
+  // TableRowData identity — row objects are rebuilt on every ~100ms token-
+  // resolution tick, and identity-keying invalidated every file per tick.
   const tapestryBaseCacheRef = useRef<
     Map<
       string,
@@ -196,7 +200,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         base: ReturnType<typeof buildTapestryFileBase>;
         content: string | undefined;
         isLoading: boolean;
-        item: TableRowData;
       }
     >
   >(new Map());
@@ -417,13 +420,24 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
       if (
         cached &&
-        cached.item === item &&
         cached.content === content &&
-        cached.isLoading === isLoading
+        cached.isLoading === isLoading &&
+        tapestryBaseMatchesItem(cached.base, item)
       ) {
         map.set(item.compositeKey, cached.base);
       } else {
-        map.set(item.compositeKey, buildTapestryFileBase({ content, isLoading, item }));
+        // Metadata changed (e.g. this file's token count resolved): rebuild
+        // the base but reuse the content-derived lines/structure when the
+        // content itself is unchanged (verified inside via previous.content).
+        map.set(
+          item.compositeKey,
+          buildTapestryFileBase({
+            content,
+            isLoading,
+            item,
+            ...(cached ? { previous: { base: cached.base, content: cached.content } } : {}),
+          })
+        );
       }
     }
 
@@ -439,7 +453,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         base: ReturnType<typeof buildTapestryFileBase>;
         content: string | undefined;
         isLoading: boolean;
-        item: TableRowData;
       }
     >();
     for (const item of tableData) {
@@ -449,7 +462,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           base,
           content: fileContents[item.compositeKey],
           isLoading: loadingFiles.has(item.compositeKey),
-          item,
         });
       }
     }
@@ -1049,13 +1061,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             )}
 
             {previewSelections.size > 0 && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
+              <SelectionActionBarOverlay className="flex justify-center px-3">
                 <output aria-atomic="true" aria-live="polite" className="sr-only">
                   {contextSelectionSummaryText}
                 </output>
                 <BulkActionBar
                   actions={contextSelectionActions}
-                  className="pointer-events-auto"
+                  className="pointer-events-auto w-full max-w-3xl"
                   clearButtonAriaLabel="Clear context selection"
                   clearButtonLabel="Clear Selection"
                   compact
@@ -1065,7 +1077,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                   summarySubtext={null}
                   summaryText={contextSelectionSummaryText}
                 />
-              </div>
+              </SelectionActionBarOverlay>
             )}
           </div>
 

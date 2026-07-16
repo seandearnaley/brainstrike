@@ -112,10 +112,12 @@ describe('assistant request helpers', () => {
         data: { memory: { resourceId: 'workspace', threadId: 'thread' } },
         messages: [{ content: [{ text: 'hello', type: 'text' }], role: 'user' }],
         runConfig: { maxTokens: 128 },
+        unstable_assistantMessageId: 'assistant-client-id',
       })
     );
 
     expect(payload).toMatchObject({
+      assistantMessageId: 'assistant-client-id',
       data: { memory: { resourceId: 'workspace', threadId: 'thread' } },
       rawMessages: [{ role: 'user' }],
       runConfig: { maxTokens: 128 },
