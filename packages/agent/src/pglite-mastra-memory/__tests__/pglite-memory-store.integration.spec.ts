@@ -809,6 +809,7 @@ describe('PgliteMemoryStore', () => {
     });
 
     const querySpy = vi.spyOn(db, 'query');
+    const transactionSpy = vi.spyOn(db, 'transaction');
 
     const updated = await store.updateMessages({
       messages: [
@@ -841,7 +842,10 @@ describe('PgliteMemoryStore', () => {
       id: 'message-2',
       role: 'tool',
     });
-    expect(querySpy).toHaveBeenCalledTimes(4);
+    // Two batched reads (before/after) on the connection; the message upsert
+    // and thread updatedAt bump run together inside a single transaction.
+    expect(querySpy).toHaveBeenCalledTimes(2);
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
   });
 
   it('persists workspace-scoped working memory resources', async () => {
