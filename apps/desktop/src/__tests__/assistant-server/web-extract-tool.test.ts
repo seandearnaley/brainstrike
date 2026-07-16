@@ -117,6 +117,84 @@ describe('web-extract-tool', () => {
     }
   });
 
+  it('refuses obfuscated internal hosts: IPv4-mapped/compat IPv6 and trailing-dot localhost', async () => {
+    // WHATWG URL serializes IPv4-mapped/compat IPv6 to HEX hextets
+    // (::ffff:127.0.0.1 -> ::ffff:7f00:1, ::127.0.0.1 -> ::7f00:1) and keeps
+    // a root-label trailing dot on hostnames — all three previously slipped
+    // past the guard (review finding).
+    const fetchImpl = vi.fn();
+    const result = await runWebExtract(
+      {
+        urls: [
+          'http://[::ffff:127.0.0.1]/loopback-mapped',
+          'http://[::ffff:169.254.169.254]/metadata-mapped',
+          'http://[::ffff:c0a8:101]/rfc1918-mapped-hex',
+          'http://[::127.0.0.1]/loopback-compat',
+          'http://localhost./trailing-dot',
+          'http://sub.localhost./trailing-dot-sub',
+        ],
+      },
+      deps({ fetchImpl })
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result.results).toEqual([]);
+    expect(result.failed).toHaveLength(6);
+    for (const failure of result.failed) {
+      expect(failure.reason).toMatch(/refused/i);
+    }
+  });
+
+  it('bounds failure reasons and URLs so the failed list can never blow the budget', async () => {
+    // Refusal reasons are ours (short), but URLs are model-supplied (schema
+    // allows 2000 chars x 5) and Tavily-side error strings are unbounded —
+    // both must be capped like page content is (review finding).
+    const longPath = 'a'.repeat(1900);
+    const hugeReason = 'upstream exploded: '.repeat(600);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        okJsonResponse(
+          tavilyExtractBody([], [{ error: hugeReason, url: `https://example.com/${longPath}` }])
+        )
+      );
+    const result = await runWebExtract(
+      {
+        urls: [
+          `https://example.com/${longPath}`,
+          `http://10.0.0.1/${longPath}`,
+          `http://10.0.0.2/${longPath}`,
+          `http://10.0.0.3/${longPath}`,
+          `http://10.0.0.4/${longPath}`,
+        ],
+      },
+      deps({ fetchImpl })
+    );
+
+    // 1 Tavily-side failure + 4 local refusals, every entry bounded.
+    expect(result.failed).toHaveLength(5);
+    for (const failure of result.failed) {
+      expect(failure.url.length).toBeLessThanOrEqual(201);
+      expect(failure.reason.length).toBeLessThanOrEqual(301);
+    }
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(2750 * 4);
+  });
+
+  it('keeps a fully-refused oversized call inside the budget with no network use', async () => {
+    const fetchImpl = vi.fn();
+    const longPath = 'b'.repeat(1900);
+    const result = await runWebExtract(
+      {
+        urls: Array.from({ length: 5 }, (_, index) => `http://192.168.0.${index}/${longPath}`),
+      },
+      deps({ fetchImpl })
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result.failed).toHaveLength(5);
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(2750 * 4);
+  });
+
   it('extracts valid URLs while reporting refused ones alongside', async () => {
     const fetchImpl = vi
       .fn()

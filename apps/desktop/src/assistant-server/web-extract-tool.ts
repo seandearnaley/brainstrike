@@ -18,6 +18,13 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const TAVILY_EXTRACT_URL = 'https://api.tavily.com/extract';
 /** Hard cap per extracted page so one long article cannot dominate the budget. */
 const MAX_CONTENT_CHARS_PER_PAGE = 6000;
+/** Failure entries are bounded too: URLs are model-supplied (schema allows
+ * 2000 chars x 5) and Tavily error strings are unbounded — uncapped, the
+ * `failed` list alone could blow the tool output budget (it rides OUTSIDE the
+ * item fitter, which only trims `results`). Worst case with these caps:
+ * 10 entries (5 refusals + 5 service failures) ≈ 5KB, safely under budget. */
+const MAX_FAILED_URL_CHARS = 200;
+const MAX_FAILED_REASON_CHARS = 300;
 
 const UNAVAILABLE_MESSAGE =
   'Web extract is unavailable — add a Tavily API key in Settings → API Keys to enable it.';
@@ -101,32 +108,71 @@ async function resolveTavilyApiKeyFromKeychain(): Promise<string | undefined> {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-/** RFC1918/loopback/link-local IPv4 + unique-local/link-local/loopback IPv6. */
+/** RFC1918/loopback/link-local/unspecified IPv4, from a dotted-quad literal. */
+function isPrivateIpv4(dottedQuad: string): boolean {
+  const octets = dottedQuad.split('.');
+  if (!(octets.length === 4 && octets.every((part) => /^\d{1,3}$/.test(part)))) {
+    return false;
+  }
+  const [a, b] = octets.map(Number) as [number, number, number, number];
+  return (
+    a === 10 ||
+    a === 127 ||
+    a === 0 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254)
+  );
+}
+
+/**
+ * Extract the embedded IPv4 address from an IPv4-mapped (`::ffff:a.b.c.d`,
+ * within ::ffff:0:0/96) or deprecated IPv4-compatible (`::a.b.c.d`, within
+ * ::/96) IPv6 literal. The WHATWG URL parser serializes BOTH to hex hextets
+ * (`::ffff:7f00:1` / `::7f00:1` — verified against Node), so match the hex
+ * forms; dotted forms are kept as defense in depth for non-URL callers.
+ */
+function ipv4EmbeddedInIpv6(host: string): string | null {
+  const dotted = host.match(/^::(?:ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (dotted?.[1]) {
+    return dotted[1];
+  }
+  const hex = host.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hex?.[1] && hex[2]) {
+    const hi = Number.parseInt(hex[1], 16);
+    const lo = Number.parseInt(hex[2], 16);
+    return `${Math.floor(hi / 256)}.${hi % 256}.${Math.floor(lo / 256)}.${lo % 256}`;
+  }
+  return null;
+}
+
+/** RFC1918/loopback/link-local IPv4 (incl. IPv4-mapped/compat IPv6 carriers) +
+ * unique-local/link-local/loopback IPv6 + localhost names. */
 function isPrivateOrLoopbackHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  // Lowercase, unbracket IPv6, and strip a single root-label trailing dot
+  // ("localhost." resolves identically to "localhost").
+  const host = hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
   if (host === 'localhost' || host.endsWith('.localhost')) {
     return true;
   }
-  // IPv6 literals: loopback, unspecified, link-local fe80::/10, unique-local fc00::/7.
+  // IPv6 literals: loopback, unspecified, link-local fe80::/10, unique-local
+  // fc00::/7, and IPv4-mapped/compat carriers of a private IPv4.
   if (host.includes(':')) {
-    return host === '::1' || host === '::' || /^fe[89ab]/.test(host) || /^f[cd]/.test(host);
+    if (host === '::1' || host === '::' || /^fe[89ab]/.test(host) || /^f[cd]/.test(host)) {
+      return true;
+    }
+    const embeddedIpv4 = ipv4EmbeddedInIpv6(host);
+    return embeddedIpv4 !== null && isPrivateIpv4(embeddedIpv4);
   }
   // IPv4 literals only — public HOSTNAMES are not DNS-resolved here (the fetch
   // happens on Tavily's servers, not this machine; the guard's job is to keep
   // clearly-internal URLs from ever being SENT to the external service).
-  const octets = host.split('.');
-  if (octets.length === 4 && octets.every((part) => /^\d{1,3}$/.test(part))) {
-    const [a, b] = octets.map(Number) as [number, number, number, number];
-    return (
-      a === 10 ||
-      a === 127 ||
-      a === 0 ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 169 && b === 254)
-    );
-  }
-  return false;
+  // Obfuscated decimal/octal/hex IPv4 forms are already normalized to
+  // dotted-quad by the WHATWG URL parser before this check runs.
+  return isPrivateIpv4(host);
 }
 
 /**
@@ -167,7 +213,7 @@ function partitionExtractUrls(urls: readonly string[]): {
   for (const url of urls) {
     const refusal = refuseExtractUrl(url);
     if (refusal) {
-      failed.push({ reason: refusal, url });
+      failed.push(boundFailedItem(url, refusal));
     } else {
       accepted.push(url);
     }
@@ -191,10 +237,7 @@ function normalizeExtractPayload(
   for (const failure of Array.isArray(payload.failed_results) ? payload.failed_results : []) {
     const url = coerceString(failure?.url);
     if (url.length > 0) {
-      failed.push({
-        reason: coerceString(failure?.error) || 'extraction failed',
-        url,
-      });
+      failed.push(boundFailedItem(url, coerceString(failure?.error) || 'extraction failed'));
     }
   }
   return items;
@@ -205,6 +248,17 @@ function boundContent(content: string): string {
     return content;
   }
   return `${content.slice(0, MAX_CONTENT_CHARS_PER_PAGE)}…`;
+}
+
+function bounded(value: string, maxChars: number): string {
+  return value.length <= maxChars ? value : `${value.slice(0, maxChars)}…`;
+}
+
+function boundFailedItem(url: string, reason: string): WebExtractFailedItem {
+  return {
+    reason: bounded(reason, MAX_FAILED_REASON_CHARS),
+    url: bounded(url, MAX_FAILED_URL_CHARS),
+  };
 }
 
 function buildBudgetedResult(args: {

@@ -174,10 +174,11 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
     id: 'analyze',
     instructions:
       'You are the Analyst subagent: a read-only analysis specialist. Read workspace files and ' +
-      'directories, use grepSearch for exact matches, and webSearch for external context. Note ' +
-      'that webSearch sends the query to an external service (Tavily) — do not include private ' +
-      'workspace contents in web queries. You cannot modify anything. Answer the delegated task ' +
-      'with a concise written analysis, citing sources.',
+      'directories, use grepSearch for exact matches, webSearch for external context, and ' +
+      'webExtract to read the pages behind results or user-provided URLs. Note that webSearch ' +
+      'and webExtract send the query/URLs to an external service (Tavily) — do not include ' +
+      'private workspace contents in web queries or pass internal URLs. You cannot modify ' +
+      'anything. Answer the delegated task with a concise written analysis, citing sources.',
     label: 'Analyst',
     maxSteps: 8,
   }),
