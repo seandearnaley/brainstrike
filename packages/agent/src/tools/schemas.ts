@@ -1,4 +1,7 @@
-import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  WEB_EXTRACT_TOOL_ID,
+  WEB_SEARCH_TOOL_ID,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 
@@ -639,6 +642,30 @@ export const WebSearchInputSchema = z
 
 export type WebSearchInput = z.infer<typeof WebSearchInputSchema>;
 
+// ============================================================================
+// Web Extract Tool Schema
+// ============================================================================
+
+export const WebExtractInputSchema = z
+  .object({
+    urls: z
+      .array(
+        z
+          .string()
+          .min(10)
+          .max(2000)
+          .describe('Absolute http(s) URL of a PUBLIC page — never internal/private hosts')
+      )
+      .min(1)
+      .max(5)
+      .describe(
+        'Public web pages to extract as markdown (1-5). Sent to an external extraction service (Tavily) — never include URLs carrying secrets or pointing at private/internal hosts.'
+      ),
+  })
+  .strict();
+
+export type WebExtractInput = z.infer<typeof WebExtractInputSchema>;
+
 export const ExecuteCommandInputSchema = z
   .object({
     command: z
@@ -801,6 +828,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.submitPlan': SubmitPlanInputSchema,
   'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
   'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
+  [WEB_EXTRACT_TOOL_ID]: WebExtractInputSchema,
   [WEB_SEARCH_TOOL_ID]: WebSearchInputSchema,
   'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
   // Web tools

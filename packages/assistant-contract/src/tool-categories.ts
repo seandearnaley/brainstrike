@@ -16,6 +16,7 @@ import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
  * `read`-risk retrieval tool — see NATIVE_TOOL_DEFAULTS below.
  */
 export const WEB_SEARCH_TOOL_ID = 'brainstrike.webSearch' as const;
+export const WEB_EXTRACT_TOOL_ID = 'brainstrike.webExtract' as const;
 
 /**
  * Source of a tool - either built into the application or from an MCP server.
@@ -295,6 +296,19 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: true,
     riskCategory: 'edit',
+  },
+  // The natural pair to webSearch (report R5): read the page BEHIND a result
+  // or a user-pasted URL as markdown, via Tavily's /extract endpoint. Same
+  // 'read' + no-approval posture and the same external-service privacy caveat
+  // — the URLs are sent to Tavily. Model-supplied URLs are validated
+  // server-side first (http/https only, no credentials, no private/loopback/
+  // link-local hosts) so an internal URL never leaves the machine.
+  'brainstrike.webExtract': {
+    category: 'retrieval',
+    estimatedTokens: 130,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
   },
   // Read-only web retrieval via Tavily. riskCategory 'read' + requiresApproval
   // false: it does NOT mutate workspace state, so the permission engine allows

@@ -1,6 +1,9 @@
 import type { AssistantTaskItem, AssistantTaskStatus } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  WEB_EXTRACT_TOOL_ID,
+  WEB_SEARCH_TOOL_ID,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
@@ -81,6 +84,7 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   submitPlan: 'brainstrike.submitPlan',
   updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
+  webExtract: WEB_EXTRACT_TOOL_ID,
   webSearch: WEB_SEARCH_TOOL_ID,
   writeWorkspaceFile: 'brainstrike.writeWorkspaceFile',
 } as const;
@@ -103,6 +107,7 @@ interface ModelFacingToolNames {
   submitPlan: string | null;
   updateWorkspaceContextSelection: string | null;
   updateWorkspaceTapestrySelections: string | null;
+  webExtract: string | null;
   webSearch: string | null;
   writeWorkspaceFile: string | null;
 }
@@ -194,6 +199,10 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     updateWorkspaceTapestrySelections: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceTapestrySelections
+    ),
+    webExtract: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.webExtract
     ),
     webSearch: resolveModelFacingToolName(
       originalToModelFacing,
@@ -369,7 +378,10 @@ function buildWebSearchInstruction(names: ModelFacingToolNames): string {
     localSearchAlternatives.length > 0
       ? ` Do NOT use ${names.webSearch} for THIS project's own code or files — use ${localSearchAlternatives.join(' / ')} for that.`
       : '';
-  return `To look up CURRENT public information you do not already know — library/framework docs, external APIs, error messages, recent releases — use ${names.webSearch}. It SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider's built-in search when available, otherwise Tavily), so never include secrets or private workspace contents in the query.${alternativesClause} When no provider-native search is available and no Tavily API key is configured in Settings, it returns a non-fatal "unavailable" result (available: false) — relay that to the user rather than retrying. On a search error it returns a non-fatal error result; report it and continue.`;
+  const extractClause = names.webExtract
+    ? ` To READ a page behind a search result or a URL the user gave you, use ${names.webExtract} (up to 5 public http(s) URLs → markdown; same external-service caveat — private/internal URLs are refused).`
+    : '';
+  return `To look up CURRENT public information you do not already know — library/framework docs, external APIs, error messages, recent releases — use ${names.webSearch}. It SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider's built-in search when available, otherwise Tavily), so never include secrets or private workspace contents in the query.${alternativesClause}${extractClause} When no provider-native search is available and no Tavily API key is configured in Settings, it returns a non-fatal "unavailable" result (available: false) — relay that to the user rather than retrying. On a search error it returns a non-fatal error result; report it and continue.`;
 }
 
 /**
