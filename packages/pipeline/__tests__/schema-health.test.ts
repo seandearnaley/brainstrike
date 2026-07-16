@@ -374,6 +374,26 @@ describe('createSchemaHealthChecker', () => {
       expect(queryFn).toHaveBeenCalledWith(expect.stringContaining("state = 'canceled'"));
       expect(queryFn).toHaveBeenCalledWith(expect.stringContaining("IN ('queued', 'running')"));
     });
+
+    it('folds the lifetime canceled counter into the same atomic statement', async () => {
+      const queryFn = vi.fn().mockResolvedValue({ rows: [{ count: '3' }] });
+      mockDb = createMockDb({ query: queryFn });
+      const checker = createSchemaHealthChecker(mockDb);
+
+      const result = await checker.cancelAllPendingJobs();
+
+      expect(result.success).toBe(true);
+      expect(queryFn).toHaveBeenCalledTimes(1);
+      const sql = queryFn.mock.calls[0]?.[0] as string;
+      // Mirrors incrementOutcomeMetricsCte in @brainstrike/db: the canceled CTE
+      // exposes `queue` so the metrics INSERT can GROUP BY queue, all in one
+      // atomic statement (aggregate-then-prune lifetime counters).
+      expect(sql).toContain('RETURNING queue');
+      expect(sql).toContain('INSERT INTO job_queue_metrics (queue, canceled_total)');
+      expect(sql).toContain(
+        'SET canceled_total = job_queue_metrics.canceled_total + EXCLUDED.canceled_total'
+      );
+    });
   });
 
   describe('clearForReindex', () => {
