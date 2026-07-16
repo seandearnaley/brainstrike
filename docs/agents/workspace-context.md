@@ -349,6 +349,16 @@ rows). Capability-gated, not `isElectron()`.
   `failed` phase with a retry — never left stuck disabled in `reverting`, never a
   silent return to idle. Pure capability gating: `null` on web / for turns whose
   message owns no revertible run, never a disabled stub.
+- **Revert-derived outcome labels (Task Ledger).** A successful `revertEntry`/
+  `revertRun` additionally derives the run's outcome label from the POST-revert
+  journal in `use-edit-checkpoints.ts` (`labelRunOutcomeFromJournal`): every
+  revertible entry reverted → `verdict:'failed'`, partial → `'mixed'`, recorded
+  via `repository.recordRunOutcome` with `source:'edit_revert'` into
+  `brainstrike_assistant_run_outcomes` (migration 060). Labeling is SECONDARY:
+  a failure is logged and never rejects the completed revert (mirrors the
+  non-fatal capture contract), and a later explicit user verdict upserts over
+  the derived label by design. Only `ok`/`created`/`rename` capture states
+  count toward the denominator.
 - **Live-turn availability + reconciliation.** The footer must appear for the
   turn that JUST ran (its headline "undo what the agent just did" scenario). The
   journal rows are written in main DURING tool execution — after the thread-open

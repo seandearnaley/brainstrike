@@ -217,6 +217,39 @@ Runtime invariants:
 
 ---
 
+## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
+
+Per-run cost/outcome analytics over tables the assistant already writes.
+
+- **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 060 +
+  byte-identical bootstrap in `ASSISTANT_THREAD_RUNS_SCHEMA_SQL`; no FKs, purged
+  on factory reset via db-ipc `OptionalRelationTable`). At most ONE label per
+  run (`verdict` succeeded/failed/mixed, upserted on run_id) with provenance
+  `source` (`user` | `edit_revert` | `hook`) and bounded `detail` (2000 chars,
+  oversized THROWS — never silently truncated). Writer: `recordRunOutcome`
+  (app-shell repository). A later user verdict deliberately replaces a derived
+  `edit_revert` label. `edit_revert` labels are derived in
+  `use-edit-checkpoints.ts` after a successful revert (see
+  workspace-context.md § Edit Checkpoint Journal).
+- **Ledger read model:** `getRunLedger(resourceId, {limitLatest})` aggregates
+  each `thread_runs` row with SUM'd run_usage tokens + exact billed cost
+  (absent — never a fabricated 0 — when unreported), top-level
+  `tool.completed`/`tool.failed` counts (subagent.tool.* excluded in v1),
+  edit-checkpoint totals + reverted counts, computed `durationMs`, and the
+  outcome label. `RUN_LEDGER_AGGREGATION_SQL` + `mapRunLedgerRow` are the
+  exported single source of truth (same convention as
+  `CROSS_ROOT_USAGE_AGGREGATION_SQL`); the strict mapper THROWS on malformed
+  aggregates. Both are optional on `AssistantThreadRepository` (read-only/test
+  repositories) and required on `BulkAssistantThreadRepository`.
+
+When changing this flow, update this section and the paired tests
+(`packages/db/__tests__/migration-060-assistant-run-outcomes.test.ts`,
+`packages/app-shell/src/__tests__/run-ledger-row.test.ts`, the run-outcome and
+run-ledger cases in `assistant-memory-repository.integration.test.ts`, and the
+outcome-labeling suite in `use-edit-checkpoints.test.ts`).
+
+---
+
 
 ## THREAD GROUPS (FOLDERS) IN THE THREADS PANEL
 
