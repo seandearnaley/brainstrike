@@ -504,6 +504,39 @@ async function recordOwnWriteObservation(scope: string, absolutePath: string): P
   recordKnownFileMtime(scope, absolutePath, stat.mtimeMs);
 }
 
+/**
+ * Rename-source staleness compare (report R8), inside the rename's two-lock
+ * critical section. IDENTITY MATTERS: reads record under the realpath'd
+ * TARGET, so a symlink source compares the target's key + stat (the link's
+ * own path is never recorded); a regular file compares its own lstat. A
+ * DANGLING link has no target to compare — nothing observed, nothing guarded.
+ */
+async function assertRenameSourceUnchangedSinceObserved(args: {
+  fromMutationPath: string;
+  fromStats: import('node:fs').Stats;
+  requestedFromPath: string;
+  runtimeData: RuntimeData | undefined;
+  targetAbsolutePath: string;
+}): Promise<void> {
+  let compareKey = args.fromMutationPath;
+  let sourceMtimeMs: number | undefined = args.fromStats.mtimeMs;
+  if (args.fromStats.isSymbolicLink()) {
+    compareKey = args.targetAbsolutePath;
+    try {
+      sourceMtimeMs = (await fsPromises.stat(args.targetAbsolutePath)).mtimeMs;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      sourceMtimeMs = undefined;
+    }
+  }
+  const known = getKnownFileMtime(readStateScope(args.runtimeData), compareKey);
+  if (known !== undefined && sourceMtimeMs !== undefined && known !== sourceMtimeMs) {
+    throw buildStaleFileError(args.requestedFromPath);
+  }
+}
+
 async function runFindWorkspaceSymbol(
   input: FindWorkspaceSymbolInput,
   runtimeData: RuntimeData | undefined
@@ -545,10 +578,20 @@ async function runReadWorkspaceFile(
 }> {
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const requestedPath = input.path;
-  const file = await readWorkspaceTextFile({ requestedPath, rootPath: root.path });
-  // A content-bearing read is this scope's fresh observation of the file — the
-  // baseline the edit tools' staleness compare refuses against (report R8).
-  recordKnownFileMtime(readStateScope(runtimeData), file.absolutePath, file.mtimeMs);
+  // Resolve first so the read + tracker record can run INSIDE the same
+  // per-file lock the write tools use. An unlocked read could stat the OLD
+  // mtime, lose the race to a concurrent locked write (which records the
+  // fresh post-write mtime), then clobber the tracker back to the stale value
+  // — making the next legitimate write falsely refuse. Never nested inside
+  // another holder of this key, so no deadlock.
+  const resolvedForLock = await resolveWorkspaceAbsolutePath(root.path, requestedPath);
+  const file = await withFileLock(resolvedForLock.absolutePath, async () => {
+    const read = await readWorkspaceTextFile({ requestedPath, rootPath: root.path });
+    // A content-bearing read is this scope's fresh observation of the file —
+    // the baseline the edit tools' staleness compare refuses against (R8).
+    recordKnownFileMtime(readStateScope(runtimeData), read.absolutePath, read.mtimeMs);
+    return read;
+  });
   const ranged = sliceContentByLineRange(file.content, input.startLine, input.endLine);
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
   const truncated = truncateContent(ranged.content, maxChars);
@@ -1109,10 +1152,14 @@ async function runRenameWorkspaceFile(
     // Staleness compare (report R8): a rename decided against a stale view of
     // the source (someone rewrote it since this scope read it) is refused the
     // same way an edit is. Unobserved sources pass (compare-only).
-    const knownSourceMtime = getKnownFileMtime(readStateScope(runtimeData), fromMutationPath);
-    if (knownSourceMtime !== undefined && knownSourceMtime !== fromStats.mtimeMs) {
-      throw buildStaleFileError(input.fromPath);
-    }
+    const sourceIsSymlink = fromStats.isSymbolicLink();
+    await assertRenameSourceUnchangedSinceObserved({
+      fromMutationPath,
+      fromStats,
+      requestedFromPath: input.fromPath,
+      runtimeData,
+      targetAbsolutePath: fromResolved.absolutePath,
+    });
 
     // Destination must NOT already exist (no overwrite in v1). lstat so a symlink
     // at the destination also counts as "exists".
@@ -1140,11 +1187,16 @@ async function runRenameWorkspaceFile(
 
     await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
 
-    // Move the observation with the file: the source path no longer exists and
-    // the destination (content unchanged — rename preserves mtime) is now this
-    // scope's freshest view of it.
+    // Move the observation with the file. Regular file: the source path is
+    // gone; the destination (content unchanged — rename preserves mtime) is
+    // this scope's freshest view of it. Symlink: only the LINK moved — the
+    // target file and its (realpath-keyed) observation stay valid, and the
+    // destination stat would follow the link (or throw on a dangling one), so
+    // no destination record is made.
     forgetKnownFile(readStateScope(runtimeData), fromMutationPath);
-    await recordOwnWriteObservation(readStateScope(runtimeData), toResolved.absolutePath);
+    if (!sourceIsSymlink) {
+      await recordOwnWriteObservation(readStateScope(runtimeData), toResolved.absolutePath);
+    }
 
     // Index coherence: invalidate the SOURCE rows immediately (the differentiator
     // vs a shell mv). `indexInvalidated` reflects that source removal. The

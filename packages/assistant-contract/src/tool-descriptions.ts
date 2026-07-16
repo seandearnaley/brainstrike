@@ -26,7 +26,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.readWorkspaceFile':
     'Read a file from the selected workspace root with optional range and truncation',
   'brainstrike.renameWorkspaceFile':
-    'Rename or move a single file within the selected workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval',
+    'Rename or move a single file within the selected workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; refuses if the source changed on disk since you last read it — re-read and retry; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval',
   'brainstrike.stringReplaceWorkspaceFile':
     'Surgically edit a workspace file by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval)',
   'brainstrike.submitPlan':

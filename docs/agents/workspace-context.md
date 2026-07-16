@@ -401,6 +401,20 @@ without revisiting the test surface that legitimately writes unread files.
   brand-new files (nothing recorded); an observed file that VANISHED from disk
   (recreating it loses nothing — the stale record is dropped and the write
   proceeds).
+- **Identity + ordering rules (review-hardened):** the read tool's read+record
+  runs INSIDE the same per-file lock as the writes, so a racing read can never
+  clobber a fresh own-write observation back to a stale value. Reads record
+  under the realpath'd TARGET, so rename compares a symlink source via the
+  target's key + stat (a dangling link has nothing to compare); a symlink
+  rename moves only the link, so the target's observation stays valid and no
+  destination record is made.
+- **Accepted residual risks:** mtimeMs equality can miss a sub-timestamp-
+  granularity external edit on coarse-mtime filesystems (FAT/some network
+  mounts — APFS/ext4/NTFS are fine); and a checkpoint REVERT writes outside
+  these tools, so a thread's next edit to a reverted file may hit one refusal
+  (arguably correct — its view IS stale) and recovers with the standard
+  re-read. Both are deliberate: no polling, no fs watchers, one bounded
+  refusal worst-case.
 - **Paired tests:** `packages/agent/src/__tests__/file-read-state.spec.ts`
   (state semantics) + the `read-before-write staleness guard` describe block in
   `apps/desktop/src/__tests__/assistant-server/assistant-tools.integration.test.ts`

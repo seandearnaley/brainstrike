@@ -2,7 +2,12 @@ import { realpathSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { NATIVE_TOOL_DEFAULTS, type RuntimeData, resetFileReadState } from '@brainstrike/agent';
+import {
+  NATIVE_TOOL_DEFAULTS,
+  type RuntimeData,
+  resetFileReadState,
+  withFileLock,
+} from '@brainstrike/agent';
 import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -2120,6 +2125,119 @@ describe('assistant-tools', () => {
         await expect(
           fsPromises.access(path.join(workspaceRootPath, 'src', 'lib', 'sum.ts'))
         ).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('serializes the read-and-record under the same per-file lock as writes', async () => {
+      // The tracker record must be ordered against same-file writes: an
+      // unlocked read could stat OLD mtime, lose the race to a locked write
+      // (which records the fresh post-write mtime), then clobber the tracker
+      // back to the stale value — making the NEXT legitimate write falsely
+      // refuse. Proof: while the file's write lock is held, the read tool must
+      // not complete.
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+        const canonicalPath = realpathSync(path.join(workspaceRootPath, 'README.md'));
+
+        let releaseLock: () => void = () => {
+          throw new Error('release not armed');
+        };
+        const holdLock = withFileLock(
+          canonicalPath,
+          () =>
+            new Promise<void>((resolve) => {
+              releaseLock = resolve;
+            })
+        );
+
+        let readSettled = false;
+        const readPromise = tools['brainstrike.readWorkspaceFile']
+          .execute({ context: { path: '/README.md' } })
+          .finally(() => {
+            readSettled = true;
+          });
+
+        // Give the (mis-ordered) read every chance to complete outside the lock.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(readSettled).toBe(false);
+
+        releaseLock();
+        await holdLock;
+        await readPromise;
+        expect(readSettled).toBe(true);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('guards a rename whose SYMLINK source target changed since the read', async () => {
+      // Reads record under the realpath'd TARGET; rename mutates the LINK
+      // path. The compare must use the matching identity or a read-then-
+      // externally-modified symlinked source silently skips the guard.
+      const workspaceRootPath = await createWorkspaceFixture();
+      const targetPath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
+      const linkPath = path.join(workspaceRootPath, 'src', 'alias.ts');
+      try {
+        try {
+          await fsPromises.symlink(targetPath, linkPath, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+
+        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+        await tools['brainstrike.readWorkspaceFile'].execute({
+          context: { path: '/src/alias.ts' },
+        });
+
+        await externallyEdit(targetPath, 'export const add = () => 42;\n');
+
+        await expect(
+          tools['brainstrike.renameWorkspaceFile'].execute({
+            context: { fromPath: '/src/alias.ts', toPath: '/src/alias-moved.ts' },
+          })
+        ).rejects.toThrow(/changed on disk since/i);
+        // The link did not move.
+        await expect(
+          fsPromises.lstat(path.join(workspaceRootPath, 'src', 'alias-moved.ts'))
+        ).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
+    it('renames a read-but-unchanged symlink source without refusal', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const targetPath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
+      const linkPath = path.join(workspaceRootPath, 'src', 'alias.ts');
+      try {
+        try {
+          await fsPromises.symlink(targetPath, linkPath, 'file');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'EPERM' || code === 'EACCES') {
+            return;
+          }
+          throw error;
+        }
+
+        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+        await tools['brainstrike.readWorkspaceFile'].execute({
+          context: { path: '/src/alias.ts' },
+        });
+
+        const result = await tools['brainstrike.renameWorkspaceFile'].execute({
+          context: { fromPath: '/src/alias.ts', toPath: '/src/alias-moved.ts' },
+        });
+        expect(result.ok).toBe(true);
+        const moved = await fsPromises.lstat(path.join(workspaceRootPath, 'src', 'alias-moved.ts'));
+        expect(moved.isSymbolicLink()).toBe(true);
       } finally {
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
