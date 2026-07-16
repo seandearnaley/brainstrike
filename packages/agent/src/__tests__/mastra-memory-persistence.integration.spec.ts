@@ -27,7 +27,9 @@
  * snapshot rows) is exercised too.
  */
 
-import { ReadableStream } from 'node:stream/web';
+// Uses the global (DOM-typed) ReadableStream rather than `node:stream/web`:
+// the runtime class is the same in Node >= 18, and @ai-sdk/provider's stream
+// types are declared against the DOM ReadableStream.
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,

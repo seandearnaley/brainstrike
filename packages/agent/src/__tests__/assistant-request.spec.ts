@@ -155,14 +155,17 @@ describe('assistant request helpers', () => {
 
   it('detects whether the latest assistant prompt has non-empty text', () => {
     const emptyPrompt: AgentMessage = {
+      id: 'prompt-empty',
       parts: [{ text: '   ', type: 'text' }],
       role: 'user',
     };
     const nonTextPrompt: AgentMessage = {
+      id: 'prompt-non-text',
       parts: [{ data: 'abc', mediaType: 'text/plain', type: 'file' }],
       role: 'user',
-    } as AgentMessage;
+    };
     const nonEmptyPrompt: AgentMessage = {
+      id: 'prompt-non-empty',
       parts: [{ text: '  summarize this  ', type: 'text' }],
       role: 'user',
     };

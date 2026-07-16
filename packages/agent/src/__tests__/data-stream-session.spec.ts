@@ -317,6 +317,9 @@ describe('AssistantDataStreamSession', () => {
   it('prefers data-stream usage fields over legacy prompt/completion aliases', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Hello' },
+      // The declared StreamChunkFinish usage carries only the legacy
+      // prompt/completion aliases; this chunk intentionally adds the modern
+      // fields too, to prove the mapper prefers them over the aliases.
       {
         type: 'finish',
         usage: {
@@ -325,7 +328,7 @@ describe('AssistantDataStreamSession', () => {
           outputTokens: 13,
           promptTokens: 5,
         },
-      },
+      } as unknown as StreamChunk,
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
