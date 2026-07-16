@@ -54,7 +54,11 @@ import { ipcMain } from 'electron';
 import { isWithinRoot } from './assistant-server/workspace-path';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import { resolveWorkspaceWritePath, writeContainedFileBytes } from './secure-file-write';
+import {
+  ensureContainedDirectory,
+  resolveWorkspaceWritePath,
+  writeContainedFileBytes,
+} from './secure-file-write';
 
 const logger = createLogger('NotesVaultIpc');
 
@@ -119,6 +123,21 @@ function failure<T>(
 ): NotesVaultResult<T> {
   const message = toErrorMessage(error);
   logger.warn('Notes vault operation failed', { ...context, error: message, operation });
+  return { error: message, ok: false };
+}
+
+/**
+ * A logged policy refusal (containment breach, missing entry, no-overwrite,
+ * …) — same `{ ok: false }` shape as {@link failure}, but for deliberate
+ * rejections rather than thrown errors. Every mutation refusal goes through
+ * here so nothing fails silently.
+ */
+function refusal<T>(
+  operation: string,
+  message: string,
+  context: Record<string, unknown> = {}
+): NotesVaultResult<T> {
+  logger.warn('Notes vault operation refused', { ...context, operation, reason: message });
   return { error: message, ok: false };
 }
 
@@ -264,6 +283,136 @@ async function resolveApprovedReadPath(
 }
 
 /**
+ * Lexical policy checks for a rename request: both paths must be valid
+ * absolute vault paths under the SAME approved root, the source must not be a
+ * root itself, and the parent directories must match — the bridge contract is
+ * SAME-DIRECTORY rename only (a cross-directory move is a different operation
+ * with different containment obligations).
+ */
+function validateRenameRequest(
+  fromRequested: unknown,
+  toRequested: unknown
+): { error: string } | { fromPath: string; toPath: string } {
+  const rawFrom = validateRawVaultPath(fromRequested);
+  if ('error' in rawFrom) {
+    return rawFrom;
+  }
+  const rawTo = validateRawVaultPath(toRequested);
+  if ('error' in rawTo) {
+    return rawTo;
+  }
+  const fromRoot = findApprovedRootFor(rawFrom.lexicalPath);
+  if (fromRoot === null) {
+    return { error: outsideRootsError(rawFrom.lexicalPath) };
+  }
+  const toRoot = findApprovedRootFor(rawTo.lexicalPath);
+  if (toRoot === null) {
+    return { error: outsideRootsError(rawTo.lexicalPath) };
+  }
+  if (fromRoot !== toRoot) {
+    return {
+      error: `Rename must stay inside one approved root: "${rawFrom.lexicalPath}" and "${rawTo.lexicalPath}" resolve to different roots.`,
+    };
+  }
+  if (rawFrom.lexicalPath === fromRoot) {
+    return { error: `Path "${rawFrom.lexicalPath}" is a vault root and cannot be renamed.` };
+  }
+  if (path.dirname(rawFrom.lexicalPath) !== path.dirname(rawTo.lexicalPath)) {
+    return {
+      error: `Rename is same-directory only: "${rawFrom.lexicalPath}" -> "${rawTo.lexicalPath}" cross directories.`,
+    };
+  }
+  return { fromPath: rawFrom.lexicalPath, toPath: rawTo.lexicalPath };
+}
+
+/**
+ * Filesystem-level resolution for a validated rename: canonicalize the SHARED
+ * parent once (the dirnames are equal per {@link validateRenameRequest}) and
+ * re-check containment, so a symlinked intermediate directory cannot redirect
+ * the rename outside every approved root; require an existing, NON-symlink
+ * source leaf (the vault contract has no symlink kind — renaming a link
+ * relocates an escape hatch rather than a note); and refuse an existing
+ * destination of ANY kind — lstat, so even a dangling symlink blocks (NO
+ * OVERWRITE). Throws on unexpected fs errors; the caller maps them.
+ */
+async function resolveRenameLeaves(
+  fromPath: string,
+  toPath: string
+): Promise<{ error: string } | { fromLeaf: string; toLeaf: string }> {
+  const canonicalParent = await fsPromises.realpath(path.dirname(fromPath));
+  if (findApprovedRootFor(canonicalParent) === null) {
+    return { error: outsideRootsError(fromPath) };
+  }
+  const fromLeaf = path.join(canonicalParent, path.basename(fromPath));
+  const toLeaf = path.join(canonicalParent, path.basename(toPath));
+  let fromStats: import('node:fs').Stats;
+  try {
+    fromStats = await fsPromises.lstat(fromLeaf);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { error: `Path "${fromPath}" does not exist.` };
+    }
+    throw error;
+  }
+  if (fromStats.isSymbolicLink()) {
+    return { error: `Path "${fromPath}" is a symlink and cannot be renamed.` };
+  }
+  let toStats: import('node:fs').Stats;
+  try {
+    toStats = await fsPromises.lstat(toLeaf);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+    return { fromLeaf, toLeaf };
+  }
+  // Case-only rename on a case-insensitive/case-preserving filesystem
+  // (default macOS): the "existing destination" lstat resolves to the SOURCE
+  // itself. Same inode + names differing only by case is the source, not a
+  // collision — refusing it would make letter-casing fixes impossible.
+  const isSameEntry = toStats.dev === fromStats.dev && toStats.ino === fromStats.ino;
+  const isCaseOnly = fromLeaf !== toLeaf && fromLeaf.toLowerCase() === toLeaf.toLowerCase();
+  if (isSameEntry && isCaseOnly) {
+    return { fromLeaf, toLeaf };
+  }
+  return { error: `Destination "${toPath}" already exists.` };
+}
+
+/**
+ * Leaf-preserving resolution for deleteEntry (mirrors
+ * {@link resolveRenameLeaves}): canonicalize only the PARENT, then lstat the
+ * leaf itself. A realpath of the full path would dereference a symlink leaf
+ * and hand the symlink's TARGET to the trash — deleting a file the user never
+ * pointed at. The vault contract has no symlink kind, so a symlink leaf is
+ * refused outright. Throws on unexpected fs errors; the caller maps them.
+ */
+async function resolveDeleteLeaf(
+  lexicalPath: string
+): Promise<{ error: string } | { leaf: string }> {
+  const canonicalParent = await fsPromises.realpath(path.dirname(lexicalPath));
+  if (findApprovedRootFor(canonicalParent) === null) {
+    return { error: outsideRootsError(lexicalPath) };
+  }
+  const leaf = path.join(canonicalParent, path.basename(lexicalPath));
+  let leafStats: import('node:fs').Stats;
+  try {
+    leafStats = await fsPromises.lstat(leaf);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { error: `Path "${lexicalPath}" does not exist.` };
+    }
+    throw error;
+  }
+  if (leafStats.isSymbolicLink()) {
+    return { error: `Path "${lexicalPath}" is a symlink and cannot be deleted.` };
+  }
+  if (approvedRoots.has(leaf)) {
+    return { error: `Path "${leaf}" is an approved notes vault root and cannot be deleted.` };
+  }
+  return { leaf };
+}
+
+/**
  * lstat a directory child for listing. Returns null for entries that must be
  * SKIPPED: symlinks (live OR dangling — a link child could point outside every
  * approved root, and the bridge contract has no symlink kind), entries that are
@@ -320,14 +469,36 @@ export interface NotesVaultIpcHandlersOptions {
    * `ElectronStorageAdapter`; tests: an in-memory fake.
    */
   readonly storage: NotesVaultRootsStorage;
+  /**
+   * Moves an on-disk entry to the OS trash (recoverable). Production:
+   * Electron's `shell.trashItem`; tests inject a fake so no real trashing
+   * happens. Rejects on failure (e.g. no trash available for the volume).
+   */
+  readonly trashItem: (absolutePath: string) => Promise<void>;
 }
 
 export interface NotesVaultIpcHandlers {
+  /** Contained mkdir under an approved root; refuses an existing entry. */
+  createDirectory: (requestedPath: unknown) => Promise<NotesVaultResult<null>>;
+  /**
+   * Moves a contained entry to the OS TRASH (never `fs.rm`). `recursive` is
+   * advisory (FSA-contract parity); trashing a directory is inherently
+   * recursive. Refuses approved roots themselves, paths outside every
+   * approved root, and missing entries.
+   */
+  deleteEntry: (requestedPath: unknown, rawOptions: unknown) => Promise<NotesVaultResult<null>>;
   ensureDefaultVault: () => Promise<NotesVaultResult<NotesVaultRoot>>;
   listDirectory: (requestedPath: unknown) => Promise<NotesVaultResult<NotesVaultEntry[]>>;
   pickDirectory: () => Promise<NotesVaultResult<NotesVaultRoot | null>>;
   readFile: (requestedPath: unknown) => Promise<NotesVaultResult<string>>;
   registerRoot: (requestedPath: unknown) => Promise<NotesVaultResult<NotesVaultRoot>>;
+  /**
+   * SAME-DIRECTORY rename (the bridge contract's only move shape): both paths
+   * must live under the same approved root and share a parent directory;
+   * refuses a symlink source leaf and never overwrites an existing
+   * destination.
+   */
+  rename: (fromRequested: unknown, toRequested: unknown) => Promise<NotesVaultResult<null>>;
   statEntry: (requestedPath: unknown) => Promise<NotesVaultResult<NotesVaultEntry | null>>;
   /**
    * `requesterId` is the calling renderer's `WebContents.id`. unwatch rejects
@@ -610,12 +781,118 @@ export function createNotesVaultIpcHandlers(
       await writeContainedFileBytes({
         buffer: Buffer.from(content, 'utf8'),
         requestedPath: raw.lexicalPath,
+        // A vanished parent means the folder was renamed/deleted while an
+        // editor still held the old path — fail loudly rather than silently
+        // recreating the directory with stale content.
+        requireParentDirectory: true,
         resolved,
       });
       const stats = await fsPromises.stat(resolved.absolutePath);
       return { ok: true, value: { lastModified: stats.mtimeMs } };
     } catch (error) {
       return failure('writeFile', error, { path: raw.lexicalPath });
+    }
+  }
+
+  async function createDirectory(requestedPath: unknown): Promise<NotesVaultResult<null>> {
+    const raw = validateRawVaultPath(requestedPath);
+    if ('error' in raw) {
+      return refusal('createDirectory', raw.error);
+    }
+    const rootPath = findApprovedRootFor(raw.lexicalPath);
+    if (rootPath === null) {
+      return refusal('createDirectory', outsideRootsError(raw.lexicalPath));
+    }
+    if (raw.lexicalPath === rootPath) {
+      return refusal(
+        'createDirectory',
+        `Path "${raw.lexicalPath}" is a vault root and already exists.`
+      );
+    }
+    try {
+      // Refuse when ANY entry — file, directory, or symlink (live OR
+      // dangling, hence lstat) — already occupies the path.
+      let existing: import('node:fs').Stats | undefined;
+      try {
+        existing = await fsPromises.lstat(raw.lexicalPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw error;
+        }
+      }
+      if (existing) {
+        return refusal('createDirectory', `Path "${raw.lexicalPath}" already exists.`);
+      }
+      // The audited contained mkdir (secure-file-write.ts): creates missing
+      // components one at a time, refusing symlinked intermediates — a plain
+      // `mkdir -p` could traverse a symlink out of the root. Approved roots
+      // are stored canonical, satisfying its canonical-root precondition.
+      await ensureContainedDirectory(rootPath, raw.lexicalPath);
+      return { ok: true, value: null };
+    } catch (error) {
+      return failure('createDirectory', error, { path: raw.lexicalPath });
+    }
+  }
+
+  async function deleteEntry(
+    requestedPath: unknown,
+    rawOptions: unknown
+  ): Promise<NotesVaultResult<null>> {
+    const recursive =
+      rawOptions !== null && typeof rawOptions === 'object'
+        ? (rawOptions as { recursive?: unknown }).recursive
+        : undefined;
+    if (typeof recursive !== 'boolean') {
+      return refusal('deleteEntry', 'Notes vault deleteEntry requires a boolean recursive option.');
+    }
+    const raw = validateRawVaultPath(requestedPath);
+    if ('error' in raw) {
+      return refusal('deleteEntry', raw.error);
+    }
+    const rootPath = findApprovedRootFor(raw.lexicalPath);
+    if (rootPath === null) {
+      return refusal('deleteEntry', outsideRootsError(raw.lexicalPath));
+    }
+    if (raw.lexicalPath === rootPath) {
+      return refusal(
+        'deleteEntry',
+        `Path "${raw.lexicalPath}" is an approved notes vault root and cannot be deleted.`
+      );
+    }
+    try {
+      const resolved = await resolveDeleteLeaf(raw.lexicalPath);
+      if ('error' in resolved) {
+        return refusal('deleteEntry', resolved.error);
+      }
+      // RECOVERABLE deletion: the OS trash, never fs.rm. Trashing a directory
+      // is inherently recursive, so the validated `recursive` flag is advisory
+      // (kept for parity with the renderer's FSA-shaped contract).
+      await options.trashItem(resolved.leaf);
+      logger.info('Moved notes vault entry to trash', { path: resolved.leaf });
+      return { ok: true, value: null };
+    } catch (error) {
+      return failure('deleteEntry', error, { path: raw.lexicalPath, recursive });
+    }
+  }
+
+  async function rename(
+    fromRequested: unknown,
+    toRequested: unknown
+  ): Promise<NotesVaultResult<null>> {
+    const validated = validateRenameRequest(fromRequested, toRequested);
+    if ('error' in validated) {
+      return refusal('rename', validated.error);
+    }
+    const { fromPath, toPath } = validated;
+    try {
+      const leaves = await resolveRenameLeaves(fromPath, toPath);
+      if ('error' in leaves) {
+        return refusal('rename', leaves.error);
+      }
+      await fsPromises.rename(leaves.fromLeaf, leaves.toLeaf);
+      return { ok: true, value: null };
+    } catch (error) {
+      return failure('rename', error, { fromPath, toPath });
     }
   }
 
@@ -686,11 +963,14 @@ export function createNotesVaultIpcHandlers(
   }
 
   return {
+    createDirectory,
+    deleteEntry,
     ensureDefaultVault,
     listDirectory,
     pickDirectory,
     readFile,
     registerRoot,
+    rename,
     statEntry,
     unwatch,
     watch,
@@ -767,7 +1047,7 @@ export function resetNotesVaultIpcStateForTest(): void {
  * list survives so `registerRoot` can do so). The `notes-vault:changed` event
  * channel is NOT an `ipcMain.handle` registration — it is a one-way
  * main→renderer push, so it is never registered here; the registry owns only
- * the nine invoke channels.
+ * the twelve invoke channels.
  */
 export function registerNotesVaultIpcHandlers(handlers: NotesVaultIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
@@ -802,6 +1082,23 @@ export function registerNotesVaultIpcHandlers(handlers: NotesVaultIpcHandlers): 
     'notesVault',
     DESKTOP_IPC_CHANNELS.notesVault.writeFile,
     (_event, requestedPath: unknown, content: unknown) => handlers.writeFile(requestedPath, content)
+  );
+  registry.registerInvoke(
+    'notesVault',
+    DESKTOP_IPC_CHANNELS.notesVault.createDirectory,
+    (_event, requestedPath: unknown) => handlers.createDirectory(requestedPath)
+  );
+  registry.registerInvoke(
+    'notesVault',
+    DESKTOP_IPC_CHANNELS.notesVault.deleteEntry,
+    (_event, requestedPath: unknown, rawOptions: unknown) =>
+      handlers.deleteEntry(requestedPath, rawOptions)
+  );
+  registry.registerInvoke(
+    'notesVault',
+    DESKTOP_IPC_CHANNELS.notesVault.rename,
+    (_event, fromRequested: unknown, toRequested: unknown) =>
+      handlers.rename(fromRequested, toRequested)
   );
   registry.registerInvoke(
     'notesVault',

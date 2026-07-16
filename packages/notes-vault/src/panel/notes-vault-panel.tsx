@@ -11,11 +11,9 @@ import { FilePlus2, FolderOpen, RefreshCw, X } from 'lucide-react';
 import type * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useStore } from 'zustand';
-import { createVaultNote } from '../core/create-note';
 import { extractDroppedVaultDirectories } from '../core/drop';
-import { findVaultNote, noteIdForSegments } from '../core/links';
-import { getDirectoryHandleAt } from '../core/resolve';
-import { VAULT_SORT_MODES, type VaultSortMode } from '../core/types';
+import { findVaultNote } from '../core/links';
+import { makeVaultNodeId, VAULT_SORT_MODES, type VaultSortMode } from '../core/types';
 import type { NotesVaultStore } from '../store/notes-vault-store';
 import { getNotesVaultStore } from '../store/singleton';
 import { NoteViewer } from './note-viewer';
@@ -114,31 +112,17 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
     }
   }, [store]);
 
-  const handleNewNote = useCallback(async () => {
+  const handleNewNote = useCallback(() => {
     const state = store.getState();
+    // Target the selected note's folder, else the first ready vault.
     const selected = state.selectedNoteId ? findVaultNote(state.roots, state.selectedNoteId) : null;
-    const root = selected
-      ? (state.roots.find((candidate) => candidate.rootId === selected.rootId) ?? null)
-      : (state.roots.find((candidate) => candidate.status === 'ready') ?? null);
-    if (!root) {
-      return;
-    }
-    const parentSegments = selected ? selected.pathSegments.slice(0, -1) : [];
-    try {
-      const dir = await getDirectoryHandleAt(root.handle, parentSegments);
-      const created = await createVaultNote(dir);
-      await state.refreshRoot(root.rootId);
-      // Straight into the editor — a new note exists to be written.
-      state.selectNoteForEditing(noteIdForSegments(root.rootId, [...parentSegments, created.name]));
-    } catch (error) {
-      logger.error('Creating note failed', { error, rootId: root.rootId });
-      // A failed user action belongs in the role="alert" banner, not the
-      // polite informational notice slot.
-      store
-        .getState()
-        .reportGlobalError(
-          `Could not create a note: ${error instanceof Error ? error.message : String(error)}`
-        );
+    const containerId = selected
+      ? selected.pathSegments.length > 1
+        ? makeVaultNodeId(selected.rootId, selected.pathSegments.slice(0, -1))
+        : selected.rootId
+      : state.roots.find((candidate) => candidate.status === 'ready')?.rootId;
+    if (containerId) {
+      void state.createNote(containerId);
     }
   }, [store]);
 
@@ -232,9 +216,7 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
         <Button
           className="h-7 gap-1.5 px-2 text-xs"
           disabled={!hasReadyRoot}
-          onClick={() => {
-            void handleNewNote();
-          }}
+          onClick={handleNewNote}
           size="sm"
           variant="outline"
         >

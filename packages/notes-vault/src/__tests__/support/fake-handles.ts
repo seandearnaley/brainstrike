@@ -18,12 +18,17 @@ interface FakeFileState {
  */
 export class FakeFileHandle implements VaultFileHandleLike {
   readonly kind = 'file' as const;
-  readonly name: string;
+  name: string;
+  parent: FakeDirectoryHandle | null = null;
   readonly state: FakeFileState;
 
   constructor(name: string, state?: Partial<FakeFileState>) {
     this.name = name;
     this.state = { content: state?.content ?? '', lastModified: state?.lastModified ?? 0 };
+  }
+
+  move(newName: string): Promise<void> {
+    return moveFakeEntry(this, newName);
   }
 
   getFile(): Promise<File> {
@@ -63,7 +68,8 @@ export class FakeFileHandle implements VaultFileHandleLike {
 
 export class FakeDirectoryHandle implements VaultDirectoryHandleLike {
   readonly kind = 'directory' as const;
-  readonly name: string;
+  name: string;
+  parent: FakeDirectoryHandle | null = null;
   readonly entries: Map<string, FakeFileHandle | FakeDirectoryHandle>;
   permissionState: VaultPermissionState = 'granted';
   /** What requestPermission resolves (and transitions state) to. */
@@ -72,6 +78,29 @@ export class FakeDirectoryHandle implements VaultDirectoryHandleLike {
   constructor(name: string, children: readonly (FakeFileHandle | FakeDirectoryHandle)[] = []) {
     this.name = name;
     this.entries = new Map(children.map((child) => [child.name, child]));
+    for (const child of children) {
+      child.parent = this;
+    }
+  }
+
+  move(newName: string): Promise<void> {
+    return moveFakeEntry(this, newName);
+  }
+
+  removeEntry(name: string, options?: { recursive?: boolean }): Promise<void> {
+    const existing = this.entries.get(name);
+    if (!existing) {
+      return Promise.reject(new DOMException(`${name} not found`, 'NotFoundError'));
+    }
+    if (
+      existing instanceof FakeDirectoryHandle &&
+      existing.entries.size > 0 &&
+      !options?.recursive
+    ) {
+      return Promise.reject(new DOMException(`${name} is not empty`, 'InvalidModificationError'));
+    }
+    this.entries.delete(name);
+    return Promise.resolve();
   }
 
   async *values(): AsyncIterableIterator<VaultHandleLike> {
@@ -91,6 +120,7 @@ export class FakeDirectoryHandle implements VaultDirectoryHandleLike {
     }
     if (options?.create) {
       const created = new FakeDirectoryHandle(name);
+      created.parent = this;
       this.entries.set(name, created);
       return Promise.resolve(created);
     }
@@ -107,6 +137,7 @@ export class FakeDirectoryHandle implements VaultDirectoryHandleLike {
     }
     if (options?.create) {
       const created = new FakeFileHandle(name);
+      created.parent = this;
       this.entries.set(name, created);
       return Promise.resolve(created);
     }
@@ -125,6 +156,24 @@ export class FakeDirectoryHandle implements VaultDirectoryHandleLike {
     this.permissionState = this.requestOutcome;
     return Promise.resolve(this.requestOutcome);
   }
+}
+
+/** Same-directory rename shared by both fake handle kinds. */
+function moveFakeEntry(
+  entry: FakeFileHandle | FakeDirectoryHandle,
+  newName: string
+): Promise<void> {
+  const parent = entry.parent;
+  if (!parent) {
+    return Promise.reject(new DOMException('entry has no parent', 'InvalidStateError'));
+  }
+  if (parent.entries.has(newName)) {
+    return Promise.reject(new DOMException(`${newName} exists`, 'InvalidModificationError'));
+  }
+  parent.entries.delete(entry.name);
+  entry.name = newName;
+  parent.entries.set(newName, entry);
+  return Promise.resolve();
 }
 
 export function fakeNote(
