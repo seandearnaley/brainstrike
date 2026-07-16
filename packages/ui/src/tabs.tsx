@@ -8,9 +8,12 @@ const Tabs = TabsPrimitive.Root;
 /**
  * Compact trigger sizing shared by panel-header tab strips (Library,
  * Explorer|Search). Keeps every left/right panel on one segmented idiom
- * instead of per-surface bespoke tab styles.
+ * instead of per-surface bespoke tab styles. h-full pins each trigger to the
+ * list's padded slot — the base trigger's intrinsic height (py-1.5 + line)
+ * exceeds a compact h-8 list's 24px content box and would otherwise hang off
+ * the list's bottom edge.
  */
-const PANEL_TAB_TRIGGER_CLASS_NAME = 'min-w-0 gap-1.5 px-2 text-xs';
+const PANEL_TAB_TRIGGER_CLASS_NAME = 'h-full min-w-0 gap-1.5 px-2 py-0 text-xs';
 
 const TabsList = ({
   className,

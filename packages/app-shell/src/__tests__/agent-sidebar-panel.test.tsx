@@ -61,6 +61,9 @@ describe('AgentSidebarPanel', () => {
       // Stock shadcn active treatment from the shared TabsTrigger — the local
       // primary-tint override is gone so Library matches Explorer|Search.
       expect(tab).toHaveClass('data-[state=active]:bg-background');
+      // Triggers must fill the list's padded slot exactly; an intrinsic-height
+      // trigger overflows the 24px slot and hangs off the list's bottom edge.
+      expect(tab).toHaveClass('h-full');
       expect(tab).not.toHaveClass(
         'data-[state=active]:bg-primary/10',
         'data-[state=active]:text-primary'

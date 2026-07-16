@@ -37,6 +37,9 @@ describe('ExplorerSearchTabs', () => {
     // Converged on the same shared segmented Tabs primitive the Library uses.
     expect(explorerTab).toHaveAttribute('data-slot', 'tabs-trigger');
     expect(searchTab).toHaveAttribute('data-slot', 'tabs-trigger');
+    // Triggers fill the list's padded slot so they never overhang its bottom.
+    expect(explorerTab).toHaveClass('h-full');
+    expect(searchTab).toHaveClass('h-full');
     expect(screen.getByRole('tablist', { name: 'Explorer and search' })).toHaveAttribute(
       'data-slot',
       'tabs-list'
