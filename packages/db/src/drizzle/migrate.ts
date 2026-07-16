@@ -49,6 +49,7 @@ import { migration056AssistantThreadGroupPresentation } from '../migrations/056-
 import { migration057UpdateProviderModels202607 } from '../migrations/057-update-provider-models-2026-07.js';
 import { migration058ProviderBilledCost } from '../migrations/058-provider-billed-cost.js';
 import { migration059AssistantThreadGroupIcons } from '../migrations/059-assistant-thread-group-icons.js';
+import { migration060IndexConsolidation } from '../migrations/060-index-consolidation.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -206,6 +207,7 @@ const customMigrations: Migration[] = [
   ),
   customMigration('custom-058-provider-billed-cost', migration058ProviderBilledCost),
   customMigration('custom-059-assistant-thread-group-icons', migration059AssistantThreadGroupIcons),
+  customMigration('custom-060-index-consolidation', migration060IndexConsolidation),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
