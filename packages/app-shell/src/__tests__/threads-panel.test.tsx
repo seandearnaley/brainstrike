@@ -1036,6 +1036,10 @@ describe('ThreadsPanel groups', () => {
     const section = await screen.findByTestId('thread-group-section');
     expect(within(section).getByText('Research')).toBeVisible();
     expect(within(section).getByText('Research')).toHaveClass('text-[13px]', 'leading-4');
+    // Group headers share the thread rows' 8px chip-to-text rhythm so group
+    // names start at exactly the same x as thread titles.
+    expect(within(section).getByText('Research').parentElement).toHaveClass('gap-2');
+    expect(within(section).getByText('Research').parentElement).not.toHaveClass('gap-1');
     const nestedThreadRow = screen.getByText('Second thread').closest('tr');
     expect(nestedThreadRow).toHaveAttribute('data-depth', '1');
     expect(nestedThreadRow?.querySelector<HTMLElement>('td > div > span')).toHaveStyle({

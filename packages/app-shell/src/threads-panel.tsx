@@ -1293,7 +1293,7 @@ function ThreadGroupHeader({
   const GroupIcon = group.icon ? THREAD_ICON_CONFIG[group.icon].iconComponent : Folder;
   return (
     <div className="min-w-0" data-testid="thread-group-header">
-      <div className="group/thread-group flex min-h-10 min-w-0 items-center gap-1 px-2">
+      <div className="group/thread-group flex min-h-10 min-w-0 items-center gap-2 px-2">
         <span
           className={`flex size-6 shrink-0 items-center justify-center rounded-md border ${colorConfig.markClassName}`}
           data-testid={`thread-group-color-${group.color ?? 'unassigned'}`}
@@ -1734,7 +1734,7 @@ function ThreadPanelGroupCell({
     return (
       <UngroupedSectionDndShell>
         <div
-          className="flex min-h-10 items-center gap-1 px-2"
+          className="flex min-h-10 items-center gap-2 px-2"
           data-testid="threads-ungrouped-section"
         >
           <span
