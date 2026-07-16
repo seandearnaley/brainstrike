@@ -841,6 +841,13 @@ export function AssistantUiPanelWrapper({
   // than silently no-opping.
   const planModeAvailable = localChatTransport === 'data-stream' && selectedProvider !== 'local';
   const planMode = planModeEnabledPref && planModeAvailable;
+  // Image attachments: every HOSTED provider routes through the data-stream
+  // server path (desktop assistant server AND the web /api/assistant route
+  // share the same image-aware conversion), so only the text-only built-in
+  // local provider is excluded — localChatTransport describes the LOCAL
+  // provider's transport and must not gate hosted providers on web (review
+  // fix). Per-model vision gating is a documented follow-up.
+  const attachmentsAvailable = selectedProvider !== 'local';
   const exitPlanMode = useCallback(() => setPlanModeEnabled(false), [setPlanModeEnabled]);
 
   // Workspace instructions context-file injection (AGENTS.md/AGENT.md/CLAUDE.md).
@@ -1507,6 +1514,7 @@ export function AssistantUiPanelWrapper({
                 planModeEnabled: planModeEnabledPref,
               }
             : {})}
+          {...(attachmentsAvailable ? { attachmentsEnabled: true } : {})}
         />
       </EditCheckpointProvider>
     </ToolApprovalGrantProvider>

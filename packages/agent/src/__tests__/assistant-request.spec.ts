@@ -12,6 +12,14 @@ import {
 import type { AgentMessage } from '../types';
 
 describe('assistant request helpers', () => {
+  it('pins the default body limit with headroom for image attachments', () => {
+    // Sized against the attachment contract: the combined per-message
+    // attachment cap (10MB raw) base64-encodes to ~13.4MB, leaving ~2.6MB of
+    // prompt/history headroom inside 16MB. Env-overridable via
+    // BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES; overflow stays loud.
+    expect(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES).toBe(16 * 1024 * 1024);
+  });
+
   it('uses the default request body byte limit when no override is configured', () => {
     expect(resolveAssistantRequestBodyLimitBytes(undefined)).toBe(
       DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES

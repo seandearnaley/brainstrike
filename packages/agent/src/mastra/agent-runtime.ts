@@ -183,17 +183,37 @@ function instantiateLanguageModel(
   }
 }
 
+/** AI-SDK v5 user-content parts Mastra's MessageList accepts directly. */
+interface MastraContentTextPart {
+  text: string;
+  type: 'text';
+}
+interface MastraContentImagePart {
+  image: string;
+  mediaType: string;
+  type: 'image';
+}
+type MastraMessageContent = string | Array<MastraContentImagePart | MastraContentTextPart>;
+
 export function convertMessagesToMastra(
   messages: AgentMessage[]
-): Array<{ id: string; role: 'user' | 'assistant' | 'system'; content: string }> {
+): Array<{ id: string; role: 'user' | 'assistant' | 'system'; content: MastraMessageContent }> {
   const result: Array<{
-    content: string;
+    content: MastraMessageContent;
     id: string;
     role: 'user' | 'assistant' | 'system';
   }> = [];
   for (const message of messages) {
     const textParts: string[] = [];
+    const imageParts: MastraContentImagePart[] = [];
     for (const part of message.parts) {
+      if (part.type === 'file') {
+        // Validated image attachment (message-utils enforces the shared
+        // allowlist/caps). Emitted as the canonical AI-SDK user-message
+        // ImagePart — the shape every provider adapter converts for vision.
+        imageParts.push({ image: part.data, mediaType: part.mediaType, type: 'image' });
+        continue;
+      }
       if (part.type !== 'text') {
         continue;
       }
@@ -201,6 +221,16 @@ export function convertMessagesToMastra(
       if (trimmed.length > 0) {
         textParts.push(trimmed);
       }
+    }
+    if (imageParts.length > 0) {
+      // Content ARRAY only when an image is present; text-only messages keep
+      // the exact legacy string join for prompt stability.
+      result.push({
+        content: [...textParts.map((text) => ({ text, type: 'text' as const })), ...imageParts],
+        id: message.id,
+        role: message.role,
+      });
+      continue;
     }
     if (textParts.length > 0) {
       result.push({ content: textParts.join('\n\n'), id: message.id, role: message.role });

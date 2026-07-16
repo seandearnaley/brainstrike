@@ -51,7 +51,8 @@ describe('app-shell assistant contract boundary', () => {
     // Bumped 1500 → 1520 to acknowledge the workspace-instructions context
     // wiring (#1566) that grew the wrapper to 1518 lines, plus the
     // user-slash-commands thread-scoped `useAssistantSlashCommands` wiring.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1520);
+    // +2 lines for composer image-attachment availability wiring (R1).
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1525);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

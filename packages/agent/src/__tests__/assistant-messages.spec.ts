@@ -16,6 +16,132 @@ vi.mock('../mastra/agent-runtime', async () => {
   };
 });
 
+const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=';
+
+describe('convertAssistantUiMessages image attachments', () => {
+  it('preserves a user image file part alongside the text parts', () => {
+    const messages = convertAssistantUiMessages([
+      {
+        content: [
+          { text: 'what is in this screenshot?', type: 'text' },
+          { data: PNG_DATA_URL, filename: 'shot.png', mediaType: 'image/png', type: 'file' },
+        ],
+        id: 'u1',
+        role: 'user',
+      },
+    ]);
+
+    expect(messages).toHaveLength(1);
+    const [first] = messages as [AgentMessage];
+    expect(first.parts).toEqual([
+      { text: 'what is in this screenshot?', type: 'text' },
+      { data: PNG_DATA_URL, filename: 'shot.png', mediaType: 'image/png', type: 'file' },
+    ]);
+  });
+
+  it('never leaks the base64 body or media type into the text walk', () => {
+    const messages = convertAssistantUiMessages([
+      {
+        content: [
+          { text: 'describe it', type: 'text' },
+          { data: PNG_DATA_URL, mediaType: 'image/png', type: 'file' },
+        ],
+        id: 'u1',
+        role: 'user',
+      },
+    ]);
+
+    const [first] = messages as [AgentMessage];
+    const textJoined = first.parts
+      .filter((part): part is { text: string; type: 'text' } => part.type === 'text')
+      .map((part) => part.text)
+      .join(' ');
+    expect(textJoined).toBe('describe it');
+    expect(textJoined).not.toContain('base64');
+    expect(textJoined).not.toContain('image/png');
+  });
+
+  it('keeps an image-only user message (no text parts)', () => {
+    const messages = convertAssistantUiMessages([
+      {
+        content: [{ data: PNG_DATA_URL, mediaType: 'image/png', type: 'file' }],
+        id: 'u1',
+        role: 'user',
+      },
+    ]);
+
+    expect(messages).toHaveLength(1);
+    const [first] = messages as [AgentMessage];
+    expect(first.parts).toEqual([{ data: PNG_DATA_URL, mediaType: 'image/png', type: 'file' }]);
+  });
+
+  it('throws loudly on an unsupported attachment media type', () => {
+    expect(() =>
+      convertAssistantUiMessages([
+        {
+          content: [
+            {
+              data: 'data:application/pdf;base64,AAAA',
+              mediaType: 'application/pdf',
+              type: 'file',
+            },
+          ],
+          id: 'u1',
+          role: 'user',
+        },
+      ])
+    ).toThrow(/media type/i);
+  });
+
+  it('throws loudly when a message exceeds the attachment count cap', () => {
+    const parts = Array.from({ length: 5 }, () => ({
+      data: PNG_DATA_URL,
+      mediaType: 'image/png',
+      type: 'file',
+    }));
+    expect(() =>
+      convertAssistantUiMessages([
+        {
+          content: parts,
+          id: 'u1',
+          role: 'user',
+        },
+      ])
+    ).toThrow(/attachment/i);
+  });
+
+  it('throws loudly when the combined attachment payload exceeds the shared cap', () => {
+    // Three ~4MB images: each under the 5MB per-image cap, combined 12MB over
+    // the 10MB combined cap.
+    const fourMbBody = 'A'.repeat(Math.ceil((4 * 1024 * 1024) / 3) * 4);
+    const parts = Array.from({ length: 3 }, () => ({
+      data: `data:image/png;base64,${fourMbBody}`,
+      mediaType: 'image/png',
+      type: 'file',
+    }));
+    expect(() => convertAssistantUiMessages([{ content: parts, id: 'u1', role: 'user' }])).toThrow(
+      /combined/i
+    );
+  });
+
+  it('ignores file parts on assistant messages without leaking them as text', () => {
+    const messages = convertAssistantUiMessages([
+      { content: [{ text: 'earlier answer', type: 'text' }], id: 'a1', role: 'assistant' },
+      {
+        content: [
+          { text: 'follow-up', type: 'text' },
+          { data: PNG_DATA_URL, mediaType: 'image/png', type: 'file' },
+        ],
+        id: 'a2',
+        role: 'assistant',
+      },
+    ]);
+
+    const assistantWithFile = messages.find((message) => message.id === 'a2');
+    expect(assistantWithFile?.parts).toEqual([{ text: 'follow-up', type: 'text' }]);
+  });
+});
+
 describe('convertAssistantUiMessages', () => {
   beforeEach(() => {
     streamMastraAgentMock.mockReset();

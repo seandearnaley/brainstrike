@@ -2,7 +2,13 @@ import type { AgentMessage, AssistantUiMessageStrict, RuntimeData } from './type
 
 export const ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR =
   'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES';
-export const DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
+/**
+ * Default request body cap. Sized against the attachment contract: the 10MB
+ * combined per-message attachment cap base64-encodes to ~13.4MB, leaving
+ * prompt/history headroom. Overridable via
+ * BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES; overflow throws loudly.
+ */
+export const DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
 
 export interface AssistantRequestPayload {
   assistantMessageId?: string;
