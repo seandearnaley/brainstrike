@@ -321,6 +321,7 @@ const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
+const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
 const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
 ${MASTRA_MEMORY_SCHEMA_SQL}
@@ -464,6 +465,31 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_run_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_edit_checkpoints_revert_idx
   ON ${ASSISTANT_EDIT_CHECKPOINTS_TABLE} (thread_id, reverted_at);
+
+-- Per-run outcome labels (Task Ledger, Phase 1). At most one verdict per run
+-- (upsert on run_id); 'source' preserves label provenance (user verdict,
+-- edit-checkpoint revert derivation, or lifecycle-hook report). Bootstrapped
+-- here AND created by migration 060 — keep the shape byte-identical to 060.
+-- NO FK to thread_runs (migration runners execute on a bare PGlite without the
+-- parent); like run_usage, outcome rows are analytic facts that outlive thread
+-- deletion. Factory reset purges the table (db-ipc.ts OptionalRelationTable).
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_OUTCOMES_TABLE} (
+  run_id      text PRIMARY KEY,
+  thread_id   text NOT NULL,
+  resource_id text NOT NULL,
+  verdict     text NOT NULL CHECK (verdict IN ('succeeded','failed','mixed')),
+  source      text NOT NULL CHECK (source IN ('user','edit_revert','hook')),
+  detail      text,
+  labeled_at  timestamptz NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT NOW(),
+  updated_at  timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_thread_idx
+  ON ${ASSISTANT_RUN_OUTCOMES_TABLE} (thread_id, resource_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_resource_idx
+  ON ${ASSISTANT_RUN_OUTCOMES_TABLE} (resource_id, labeled_at DESC);
 `;
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, BulkAssistantThreadRepository>();
