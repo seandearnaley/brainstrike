@@ -29,7 +29,10 @@ export interface NotesVaultServices {
 export interface NotesVaultState {
   addDroppedDirectories: (handles: readonly VaultDirectoryHandleLike[]) => Promise<void>;
   addVaultFromPicker: () => Promise<void>;
+  clearEditRequest: () => void;
   clearGlobalError: () => void;
+  /** One-shot: the viewer enters edit mode for this note once ready, then clears. */
+  editRequestNoteId: string | null;
   expandedIds: Set<string>;
   /** Picker/persistence failures; the panel surfaces this as a toast/banner. */
   globalError: string | null;
@@ -45,6 +48,8 @@ export interface NotesVaultState {
   roots: VaultRootState[];
   selectedNoteId: string | null;
   selectNote: (noteId: string | null) => void;
+  /** Select a note AND arm the one-shot edit request (e.g. right after New Note). */
+  selectNoteForEditing: (noteId: string) => void;
   setSortMode: (mode: VaultSortMode) => void;
   sortMode: VaultSortMode;
   toggleExpanded: (nodeId: string) => void;
@@ -338,7 +343,11 @@ export function createNotesVaultStore(services: NotesVaultServices) {
         }
       },
 
+      clearEditRequest: () => set({ editRequestNoteId: null }),
+
       clearGlobalError: () => set({ globalError: null }),
+
+      editRequestNoteId: null,
 
       expandedIds: new Set<string>(),
 
@@ -416,6 +425,7 @@ export function createNotesVaultStore(services: NotesVaultServices) {
         disposeWatchers();
         scanGenerations.clear();
         set({
+          editRequestNoteId: null,
           expandedIds: new Set<string>(),
           globalError: null,
           initialized: false,
@@ -431,6 +441,8 @@ export function createNotesVaultStore(services: NotesVaultServices) {
       selectedNoteId: null,
 
       selectNote: (noteId) => set({ selectedNoteId: noteId }),
+
+      selectNoteForEditing: (noteId) => set({ editRequestNoteId: noteId, selectedNoteId: noteId }),
 
       setSortMode: (mode) => set({ sortMode: mode }),
 

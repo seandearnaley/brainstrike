@@ -9,3 +9,4 @@ export * from './scan';
 export * from './sort';
 export * from './types';
 export * from './watch';
+export * from './write-note';

@@ -96,7 +96,8 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
       const dir = await getDirectoryHandleAt(root.handle, parentSegments);
       const created = await createVaultNote(dir);
       await state.refreshRoot(root.rootId);
-      state.selectNote(noteIdForSegments(root.rootId, [...parentSegments, created.name]));
+      // Straight into the editor — a new note exists to be written.
+      state.selectNoteForEditing(noteIdForSegments(root.rootId, [...parentSegments, created.name]));
     } catch (error) {
       logger.error('Creating note failed', { error, rootId: root.rootId });
       // A failed user action belongs in the role="alert" banner, not the

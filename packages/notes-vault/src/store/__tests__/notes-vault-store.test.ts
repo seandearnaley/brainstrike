@@ -258,6 +258,21 @@ describe('notes-vault-store', () => {
   });
 });
 
+describe('edit request handshake', () => {
+  it('selectNoteForEditing selects the note and arms a one-shot edit request', async () => {
+    const h = harness();
+    h.setNextPick(fakeDir('vault', [fakeNote('a.md')]));
+    await h.store.getState().addVaultFromPicker();
+
+    h.store.getState().selectNoteForEditing('root-1:a.md');
+    expect(h.store.getState().selectedNoteId).toBe('root-1:a.md');
+    expect(h.store.getState().editRequestNoteId).toBe('root-1:a.md');
+
+    h.store.getState().clearEditRequest();
+    expect(h.store.getState().editRequestNoteId).toBeNull();
+  });
+});
+
 describe('initialize concurrency', () => {
   it('coalesces concurrent initialize calls so each stored root mounts once (StrictMode)', async () => {
     const h = harness();

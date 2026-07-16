@@ -1,6 +1,34 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// CodeMirror cannot mount in happy-dom (sibling precedent:
+// file-tab-body-markdown.test.tsx). Replace CodeSurface with a textarea that
+// forwards onChange, keyed off the real testId contract.
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...original,
+    CodeSurface: ({
+      onChange,
+      testId,
+      value,
+    }: {
+      onChange?: (value: string) => void;
+      testId?: string;
+      value: string;
+    }) => (
+      <div data-testid={testId}>
+        <textarea
+          data-testid={`${testId}-input`}
+          defaultValue={value}
+          onChange={(event) => onChange?.(event.target.value)}
+        />
+      </div>
+    ),
+  };
+});
+
 import { type FakeDirectoryHandle, fakeDir, fakeNote } from '../../__tests__/support/fake-handles';
 import type { StoredVaultRoot, VaultHandleStore } from '../../core/handle-store';
 import { createNotesVaultStore, type NotesVaultServices } from '../../store/notes-vault-store';
@@ -255,5 +283,45 @@ describe('review findings: error surfacing', () => {
     await user.click(await screen.findByRole('link', { name: 'broken' }));
 
     expect(await screen.findByText(/couldn.t find|not found/i)).toBeInTheDocument();
+  });
+});
+
+describe('editing', () => {
+  it('Edit opens the editor; typing and Done saves to disk', async () => {
+    const user = userEvent.setup();
+    const noteHandle = fakeNote('note.md', { content: '# Title\n\nBody' });
+    setup({ pick: fakeDir('vault', [noteHandle]) });
+    await user.click((await screen.findAllByRole('button', { name: /open folder/i }))[0]!);
+    await user.click(await screen.findByText('note'));
+    await screen.findByTestId('note-viewer-preview');
+
+    await user.click(screen.getByRole('button', { name: 'Edit note' }));
+    const editor = await screen.findByTestId('note-editor');
+    expect(editor).toBeInTheDocument();
+
+    // Drive the editor through its onChange (CodeSurface is mocked as a textarea).
+    fireEvent.change(screen.getByTestId('note-editor-input'), {
+      target: { value: '# Title\n\nEdited!' },
+    });
+    expect(screen.getByTestId('note-save-state')).toHaveTextContent(/unsaved/i);
+
+    await user.click(screen.getByRole('button', { name: 'Done editing' }));
+
+    await waitFor(() => {
+      expect(noteHandle.state.content).toBe('# Title\n\nEdited!');
+    });
+    expect(await screen.findByTestId('note-viewer-preview')).toBeInTheDocument();
+  });
+
+  it('New Note lands directly in the editor', async () => {
+    const user = userEvent.setup();
+    const vault = fakeDir('vault', [fakeNote('existing.md')]);
+    setup({ pick: vault });
+    await user.click((await screen.findAllByRole('button', { name: /open folder/i }))[0]!);
+    await screen.findByText('existing');
+
+    await user.click(screen.getByRole('button', { name: /new note/i }));
+
+    expect(await screen.findByTestId('note-editor')).toBeInTheDocument();
   });
 });
