@@ -2,6 +2,7 @@ import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { registerFactoryResetSessionStore } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import { resetContextUsageStore } from '@brainstrike/ui/assistant-ui-panel/context-usage-store';
+import { resetFollowUpQueueStore } from '@brainstrike/ui/assistant-ui-panel/follow-up-queue-store';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
@@ -32,6 +33,11 @@ registerFactoryResetSessionStore(() => {
 
 registerFactoryResetSessionStore(() => {
   resetContextUsageStore();
+});
+
+registerFactoryResetSessionStore(() => {
+  // Queued-but-unsent follow-up messages must never survive a reset.
+  resetFollowUpQueueStore();
 });
 
 registerFactoryResetSessionStore(() => {

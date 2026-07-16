@@ -78,6 +78,7 @@ import {
 import { type AssistantUsage, useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
+import { FollowUpQueueBridge, FollowUpQueueChips, QueueFollowUpButton } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
@@ -1142,6 +1143,7 @@ const ChatThreadUI = ({
         {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
         {...(threadKey ? { threadKey } : {})}
       />
+      <FollowUpQueueBridge threadKey={threadKey} />
       {/**
        * Messages Viewport
        *
@@ -1221,6 +1223,7 @@ const ChatThreadUI = ({
           threadKey={threadKey}
         />
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
+        <FollowUpQueueChips threadKey={threadKey} />
         <ComposerPrimitive.Root
           aria-disabled={isComposerDisabled}
           className="aui-composer-root"
@@ -1237,6 +1240,7 @@ const ChatThreadUI = ({
           {attachmentsEnabled ? <ComposerAttachmentsBar /> : null}
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
+            queueControl={<QueueFollowUpButton threadKey={threadKey} />}
             {...(attachmentsEnabled ? { attachmentsEnabled } : {})}
             {...(planMode ? { planMode } : {})}
             {...(hasSlashCommands

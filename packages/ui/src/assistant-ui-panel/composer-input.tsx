@@ -35,12 +35,16 @@ const ComposerInputRow = ({
   isComposerDisabled,
   mentionPopover,
   planMode,
+  queueControl,
   slashPopover,
 }: {
   attachmentsEnabled?: boolean;
   isComposerDisabled: boolean;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
+  /** Rendered in the RUNNING branch (where Send is unmounted) so a draft can
+   * be queued for after the run — see follow-up-queue.tsx. */
+  queueControl?: ReactNode;
   slashPopover?: ReactNode;
 }) => {
   const InputFrame =
@@ -97,6 +101,7 @@ const ComposerInputRow = ({
           </ComposerPrimitive.Send>
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
+          {queueControl}
           <ComposerPrimitive.Cancel
             aria-label="Stop"
             className="aui-button aui-button-primary aui-composer-cancel"
@@ -169,12 +174,14 @@ export const ComposerInputWithTriggers = ({
   slashPopover,
   mentionPopover,
   planMode,
+  queueControl,
 }: {
   attachmentsEnabled?: boolean;
   isComposerDisabled: boolean;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
+  queueControl?: ReactNode;
 }) => {
   const row = (
     <ComposerInputRow
@@ -183,6 +190,7 @@ export const ComposerInputWithTriggers = ({
       {...(slashPopover ? { slashPopover } : {})}
       {...(mentionPopover ? { mentionPopover } : {})}
       {...(planMode ? { planMode } : {})}
+      {...(queueControl ? { queueControl } : {})}
     />
   );
   if (!(slashPopover || mentionPopover)) {
