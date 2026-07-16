@@ -108,13 +108,18 @@ function FilterChipsToggleButton({
 
 /** Toolbar toggle for the whole view-filters block (presets, chips, quick filter). */
 function ViewFiltersToggleButton({
+  hasHiddenActiveFilter,
   isFiltersExpanded,
   setFiltersExpanded,
 }: {
+  /** True when a quick filter is still narrowing the tree while the block is collapsed. */
+  hasHiddenActiveFilter: boolean;
   isFiltersExpanded: boolean;
   setFiltersExpanded: (expanded: boolean) => void;
 }) {
-  const label = isFiltersExpanded ? 'Hide view filters' : 'Show view filters';
+  const label = isFiltersExpanded
+    ? 'Hide view filters'
+    : `Show view filters${hasHiddenActiveFilter ? ' (quick filter active)' : ''}`;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -123,7 +128,7 @@ function ViewFiltersToggleButton({
           aria-expanded={isFiltersExpanded}
           aria-label={label}
           className={cn(
-            '@[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6 shrink-0 p-0',
+            'relative @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6 shrink-0 p-0',
             isFiltersExpanded && 'bg-muted text-foreground'
           )}
           data-testid="toggle-view-filters-button"
@@ -132,6 +137,13 @@ function ViewFiltersToggleButton({
           variant="ghost"
         >
           <SlidersHorizontal className="size-4" />
+          {hasHiddenActiveFilter ? (
+            <span
+              aria-hidden="true"
+              className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-primary"
+              data-testid="view-filters-active-indicator"
+            />
+          ) : null}
         </Button>
       </TooltipTrigger>
       <TooltipContent>
@@ -952,6 +964,7 @@ const FileExplorerPanelInner = React.memo(() => {
             filtersControl={
               rootDirectoryHandle ? (
                 <ViewFiltersToggleButton
+                  hasHiddenActiveFilter={!isFiltersExpanded && quickFilter.trim().length > 0}
                   isFiltersExpanded={isFiltersExpanded}
                   setFiltersExpanded={setFiltersExpanded}
                 />
