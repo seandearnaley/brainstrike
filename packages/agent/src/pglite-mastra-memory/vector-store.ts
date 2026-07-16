@@ -70,6 +70,21 @@ const VECTOR_OPERATORS = {
   dotproduct: '<#>',
   euclidean: '<->',
 } as const satisfies Record<NonNullable<IndexStats['metric']>, string>;
+// halfvec HNSW indexes support up to 4000 dimensions (vs 2000 for full-precision
+// vector), and hosted embedders in the registry emit up to 3072 — so the fp16
+// path is mandatory for large models, not just a size optimization. Mirrors
+// packages/db/src/migrations/dimension-index-helpers.ts (file_chunks), which is
+// hardwired to that table; mastra_vectors owns its own simpler variant here.
+const MAX_HNSW_DIMENSION = 4000;
+const HNSW_OPCLASSES = {
+  cosine: 'halfvec_cosine_ops',
+  dotproduct: 'halfvec_ip_ops',
+  euclidean: 'halfvec_l2_ops',
+} as const satisfies Record<NonNullable<IndexStats['metric']>, string>;
+
+function dimensionIndexName(dimension: number, metric: NonNullable<IndexStats['metric']>): string {
+  return `idx_mastra_vectors_emb_hnsw_${dimension}_${metric}`;
+}
 
 function vectorLiteral(vector: number[]): string {
   if (vector.length === 0) {
@@ -218,6 +233,7 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
   private readonly eventSink: AssistantRunEventSink | undefined;
   private readonly runId: string | undefined;
   private initPromise: Promise<void> | null = null;
+  private readonly dimensionIndexPromises = new Map<string, Promise<void>>();
 
   constructor(options: PgliteVectorStoreOptions) {
     super({ id: options.id ?? 'brainstrike-pglite-vector' });
@@ -248,6 +264,10 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
           `Vector index ${indexName} already exists with metric ${existing.metric}, requested ${metric}`
         );
       }
+      // Mastra re-declares every logical index on session init, so this branch is
+      // how pre-existing installs (rows written before HNSW support) gain the
+      // physical index.
+      await this.ensureDimensionIndex(dimension, metric);
       return;
     }
     await this.database.query(
@@ -267,6 +287,7 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
         metric,
       ]
     );
+    await this.ensureDimensionIndex(dimension, metric);
   }
 
   override async listIndexes(): Promise<string[]> {
@@ -375,15 +396,29 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     let orderSql = 'updated_at DESC';
     if (queryVector) {
       values.push(vectorLiteral(queryVector));
-      const vectorParam = `$${values.length}::vector`;
+      // For HNSW-indexable dimensions the distance expression and predicate must
+      // mirror the partial index (halfvec cast + literal vector_dims match) or the
+      // planner falls back to a sequential scan. The dimension is a validated safe
+      // integer from the index metadata row, so inlining it is injection-safe —
+      // and a literal (unlike a bind parameter) is guaranteed to imply the partial
+      // index predicate. Score and order share one expression so returned scores
+      // always agree with result ordering.
+      const useHalfvec = stats.dimension <= MAX_HNSW_DIMENSION;
+      const vectorParam = useHalfvec
+        ? `$${values.length}::halfvec(${stats.dimension})`
+        : `$${values.length}::vector`;
+      const embeddingSql = useHalfvec ? `(embedding::halfvec(${stats.dimension}))` : 'embedding';
+      if (useHalfvec) {
+        clauses.push(`vector_dims(embedding) = ${stats.dimension}`);
+      }
       const operator = VECTOR_OPERATORS[stats.metric ?? DEFAULT_METRIC];
       scoreSql =
         stats.metric === 'dotproduct'
-          ? `-(embedding ${operator} ${vectorParam})`
+          ? `-(${embeddingSql} ${operator} ${vectorParam})`
           : stats.metric === 'euclidean'
-            ? `1 / (1 + (embedding ${operator} ${vectorParam}))`
-            : `1 - (embedding ${operator} ${vectorParam})`;
-      orderSql = `embedding ${operator} ${vectorParam}`;
+            ? `1 / (1 + (${embeddingSql} ${operator} ${vectorParam}))`
+            : `1 - (${embeddingSql} ${operator} ${vectorParam})`;
+      orderSql = `${embeddingSql} ${operator} ${vectorParam}`;
     }
     values.push(topK);
     const limitParam = `$${values.length}`;
@@ -495,6 +530,49 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     );
   }
 
+  /**
+   * Per-dimension partial halfvec HNSW index (mirrors the file_chunks technique in
+   * packages/db). One dimensionless `embedding` column holds many dimensions, so a
+   * global vector index is impossible; each (dimension, metric) pair gets its own
+   * partial index keyed on `vector_dims(embedding)`. Dimensions above the halfvec
+   * HNSW ceiling are skipped with a visible warning — queries stay correct via
+   * sequential scan, they just lose ANN acceleration. Creation failures reject
+   * loudly (no silent fallback); the failed key is cleared so a retry is possible.
+   */
+  private async ensureDimensionIndex(
+    dimension: number,
+    metric: NonNullable<IndexStats['metric']>
+  ): Promise<void> {
+    const key = `${dimension}:${metric}`;
+    const pending = this.dimensionIndexPromises.get(key);
+    if (pending) {
+      await pending;
+      return;
+    }
+    const created = (async () => {
+      if (dimension > MAX_HNSW_DIMENSION) {
+        logger.warn('Skipping HNSW index for dimension above halfvec ceiling', {
+          code: 'mastra_vector_dimension_index_skipped',
+          dimension,
+          maxDimension: MAX_HNSW_DIMENSION,
+          metric,
+        });
+        return;
+      }
+      await this.database.query(
+        `CREATE INDEX IF NOT EXISTS ${dimensionIndexName(dimension, metric)}
+           ON ${MASTRA_VECTOR_TABLE}
+           USING hnsw ((embedding::halfvec(${dimension})) ${HNSW_OPCLASSES[metric]})
+           WHERE vector_dims(embedding) = ${dimension}`
+      );
+    })().catch((error: unknown) => {
+      this.dimensionIndexPromises.delete(key);
+      throw error;
+    });
+    this.dimensionIndexPromises.set(key, created);
+    await created;
+  }
+
   private async ensureVectorTable(): Promise<void> {
     this.initPromise ??= this.database
       .exec(MASTRA_VECTOR_SCHEMA_SQL)
@@ -520,9 +598,18 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     if (!row) {
       return null;
     }
+    const dimension = Number(row.dimension);
+    // The dimension is inlined into index DDL and query SQL (partial-index
+    // matching requires a literal), so a corrupted metadata row must fail loudly
+    // here rather than reach SQL construction.
+    if (!Number.isSafeInteger(dimension) || dimension <= 0) {
+      throw new Error(
+        `Vector index ${indexName} has an invalid stored dimension: ${String(row.dimension)}`
+      );
+    }
     return {
       count: Number(row.count),
-      dimension: Number(row.dimension),
+      dimension,
       metric: row.metric ?? DEFAULT_METRIC,
     };
   }
