@@ -917,7 +917,12 @@ function buildOpenRouterOptions(
   const reasoningEffort = settings.reasoningEffort;
   if (modelName && reasoningEffort) {
     const model = getLlmModelDefinition('openrouter', modelName);
-    if (model.reasoning && !model.reasoning.supportedEfforts.includes(reasoningEffort)) {
+    if (!model.reasoning) {
+      throw new Error(
+        `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
+      );
+    }
+    if (!model.reasoning.supportedEfforts.includes(reasoningEffort)) {
       throw new Error(
         `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${model.reasoning.supportedEfforts.join(', ')}.`
       );
@@ -1038,9 +1043,10 @@ export function buildProviderOptions(
 
 /**
  * Clear a provider-wide effort override when the user explicitly switches to
- * an OpenRouter model that rejects it. The model's documented default then
- * remains visible as "Auto" in the settings control; request construction
- * still throws if incompatible state reaches it by any other path.
+ * an OpenRouter model that rejects it or has no declared effort support. The
+ * model's documented default then remains visible as "Auto" in the settings
+ * control; request construction still throws if incompatible state reaches it
+ * by any other path.
  */
 export function reconcileProviderSettingsForModel(
   providerId: SupportedProvider,
@@ -1051,7 +1057,7 @@ export function reconcileProviderSettingsForModel(
     return settings;
   }
   const model = getLlmModelDefinition('openrouter', modelName);
-  if (!(model.reasoning && !model.reasoning.supportedEfforts.includes(settings.reasoningEffort))) {
+  if (model.reasoning?.supportedEfforts.includes(settings.reasoningEffort)) {
     return settings;
   }
   const { reasoningEffort: _unsupportedReasoningEffort, ...compatibleSettings } = settings;

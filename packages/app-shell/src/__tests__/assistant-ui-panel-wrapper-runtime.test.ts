@@ -629,7 +629,7 @@ describe('assistant runtime helpers', () => {
       anthropic: { effort: 'high', thinking: { budgetTokens: 1024, type: 'enabled' } },
     });
     expect(
-      buildProviderOptions('openrouter', 'openai/gpt-5.6-terra', {
+      buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
         reasoningEffort: 'high',
         reasoningSummary: 'detailed',
       })
@@ -651,6 +651,11 @@ describe('assistant runtime helpers', () => {
         reasoningEffort: 'none',
       })
     ).toThrow(/Muse Spark 1\.1.*does not support.*none/i);
+    expect(() =>
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k2.6', {
+        reasoningEffort: 'max',
+      })
+    ).toThrow(/Kimi K2\.6.*does not declare.*reasoning effort/i);
     expect(
       reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
         maxOutputTokens: 2048,
@@ -662,6 +667,12 @@ describe('assistant runtime helpers', () => {
         reasoningEffort: 'max',
       })
     ).toEqual({ reasoningEffort: 'max' });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k2.6', {
+        maxOutputTokens: 2048,
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
     expect(
       buildProviderOptions('ollama', 'llama', {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
