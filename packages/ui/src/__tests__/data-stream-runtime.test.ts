@@ -1,4 +1,8 @@
 import type { ThreadMessage } from '@assistant-ui/react';
+import {
+  ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
+  AssistantAttachmentValidationError,
+} from '@brainstrike/assistant-contract';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import {
   AssistantMessageAccumulator,
@@ -9,6 +13,7 @@ import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BrainstrikeDataStreamRuntimeAdapter,
+  boundResentImageHistory,
   extractTransportBodyData,
   selectTransportMessagesForMastraMemory,
 } from '../assistant-ui-panel/data-stream-runtime';
@@ -201,6 +206,156 @@ describe('extractTransportBodyData', () => {
     ).toThrow(
       'Assistant runtime body only supports top-level data; unsupported field(s): messages, system'
     );
+  });
+});
+
+const MEGABYTE = 1024 * 1024;
+
+function imageDataUrl(decodedBytes: number, mediaType = 'image/png'): string {
+  return `data:${mediaType};base64,${Buffer.alloc(decodedBytes, 65).toString('base64')}`;
+}
+
+function wireUser(id: string, content: unknown[]): Record<string, unknown> {
+  return { content, id, role: 'user' };
+}
+
+function wireFilePart(dataUrl: string, mediaType = 'image/png'): Record<string, unknown> {
+  return { data: dataUrl, mediaType, type: 'file' };
+}
+
+function wireImageBytes(wireMessages: readonly unknown[]): number {
+  let total = 0;
+  for (const wireMessage of wireMessages) {
+    const content = (wireMessage as { content?: unknown[] }).content ?? [];
+    for (const part of content) {
+      const record = part as { data?: unknown; type?: unknown };
+      if (record.type === 'file' && typeof record.data === 'string') {
+        const body = record.data.slice(record.data.indexOf(';base64,') + ';base64,'.length);
+        total += Math.floor((body.length * 3) / 4);
+      }
+    }
+  }
+  return total;
+}
+
+describe('boundResentImageHistory', () => {
+  it('returns the same messages and no elision when history images fit the shared budget', () => {
+    const messages = [
+      wireUser('old-user', [{ text: 'earlier' }, wireFilePart(imageDataUrl(2 * MEGABYTE))]),
+      { content: [{ text: 'reply' }], role: 'assistant' },
+      wireUser('current-user', [{ text: 'now' }, wireFilePart(imageDataUrl(3 * MEGABYTE))]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toBeUndefined();
+    expect(result.messages).toBe(messages);
+  });
+
+  it('elides all history image bodies when the current turn consumes the whole budget', () => {
+    const historyImage = wireFilePart(imageDataUrl(MEGABYTE), 'image/jpeg');
+    const maxedCurrentTurn = [
+      wireFilePart(imageDataUrl(5 * MEGABYTE)),
+      wireFilePart(imageDataUrl(5 * MEGABYTE)),
+    ];
+    const messages = [
+      wireUser('old-user', [{ text: 'earlier' }, historyImage]),
+      wireUser('current-user', maxedCurrentTurn),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: MEGABYTE,
+      elidedImageCount: 1,
+      keptImageBytes: ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
+      strategy: 'newest-first-combined-image-budget',
+    });
+    const historyContent = (result.messages[0] as { content: unknown[] }).content;
+    expect(historyContent[0]).toEqual({ text: 'earlier' });
+    expect(historyContent[1]).toEqual({
+      text: expect.stringContaining('image/jpeg'),
+    });
+    expect((historyContent[1] as { text: string }).text).toContain('omitted');
+    // The current turn's own attachments are never elided.
+    expect((result.messages[1] as { content: unknown[] }).content).toEqual(maxedCurrentTurn);
+    expect(JSON.stringify(result.messages[0])).not.toContain(';base64,');
+  });
+
+  it('keeps the newest history images and elides older ones past the budget', () => {
+    const messages = [
+      wireUser('oldest-user', [wireFilePart(imageDataUrl(4 * MEGABYTE))]),
+      wireUser('middle-user', [wireFilePart(imageDataUrl(4 * MEGABYTE))]),
+      wireUser('newest-history-user', [wireFilePart(imageDataUrl(4 * MEGABYTE))]),
+      wireUser('current-user', [{ text: 'no image this turn' }]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: 4 * MEGABYTE,
+      elidedImageCount: 1,
+      keptImageBytes: 8 * MEGABYTE,
+      strategy: 'newest-first-combined-image-budget',
+    });
+    expect(JSON.stringify(result.messages[0])).not.toContain(';base64,');
+    expect(JSON.stringify(result.messages[1])).toContain(';base64,');
+    expect(JSON.stringify(result.messages[2])).toContain(';base64,');
+    expect(wireImageBytes(result.messages)).toBeLessThanOrEqual(
+      ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES
+    );
+  });
+
+  it('elides every image older than the first one that does not fit', () => {
+    const messages = [
+      // Would fit the leftover budget on its own, but sits past the cutoff.
+      wireUser('oldest-user', [wireFilePart(imageDataUrl(MEGABYTE))]),
+      wireUser('newer-user', [wireFilePart(imageDataUrl(5 * MEGABYTE))]),
+      wireUser('current-user', [
+        wireFilePart(imageDataUrl(3 * MEGABYTE)),
+        wireFilePart(imageDataUrl(3 * MEGABYTE)),
+      ]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: 6 * MEGABYTE,
+      elidedImageCount: 2,
+      keptImageBytes: 6 * MEGABYTE,
+      strategy: 'newest-first-combined-image-budget',
+    });
+    expect(JSON.stringify(result.messages[0])).not.toContain(';base64,');
+    expect(JSON.stringify(result.messages[1])).not.toContain(';base64,');
+  });
+
+  it('writes distinguishable notes for sibling attachments elided from one message', () => {
+    const messages = [
+      wireUser('old-user', [
+        wireFilePart(imageDataUrl(4 * MEGABYTE)),
+        wireFilePart(imageDataUrl(4 * MEGABYTE)),
+      ]),
+      wireUser('current-user', [
+        wireFilePart(imageDataUrl(4 * MEGABYTE)),
+        wireFilePart(imageDataUrl(4 * MEGABYTE)),
+      ]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    const [firstNote, secondNote] = (result.messages[0] as { content: { text: string }[] }).content;
+    expect(firstNote?.text).toContain('1 of 2');
+    expect(secondNote?.text).toContain('2 of 2');
+    expect(firstNote?.text).not.toEqual(secondNote?.text);
+  });
+
+  it('throws loudly on an unmeasurable history file part instead of guessing', () => {
+    const messages = [
+      wireUser('old-user', [{ data: 'https://example.test/image.png', type: 'file' }]),
+      wireUser('current-user', [{ text: 'hello' }]),
+    ];
+
+    expect(() => boundResentImageHistory(messages)).toThrow(AssistantAttachmentValidationError);
   });
 });
 
@@ -494,6 +649,70 @@ describe('assistant-stream integration', () => {
         role: 'tool',
       },
     ]);
+  });
+
+  it('bounds resent history images on the wire and attaches elision metadata', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        dataStreamFromLines([
+          'f:{"messageId":"msg-test"}',
+          '0:"Done"',
+          'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+        ])
+      );
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      body: { data: { model: 'test-model' } },
+    });
+    const historyDataUrl = imageDataUrl(5 * MEGABYTE);
+    const historyUserMessage = {
+      ...message('history-user', 'user'),
+      content: [
+        { text: 'first image', type: 'text' },
+        { data: historyDataUrl, mimeType: 'image/png', type: 'file' },
+      ],
+    } as unknown as ThreadMessage;
+    const currentUserMessage = {
+      ...message('current-user', 'user'),
+      content: [
+        { data: imageDataUrl(3 * MEGABYTE), mimeType: 'image/png', type: 'file' },
+        { data: imageDataUrl(3 * MEGABYTE), mimeType: 'image/png', type: 'file' },
+      ],
+    } as unknown as ThreadMessage;
+
+    for await (const _message of adapter.run(
+      runOptions({
+        messages: [historyUserMessage, message('assistant-reply', 'assistant'), currentUserMessage],
+      })
+    )) {
+      // Consume the response so the request is fully exercised.
+    }
+
+    expect(requestBody?.['data']).toEqual({
+      model: 'test-model',
+      transportImageElision: {
+        elidedImageBytes: 5 * MEGABYTE,
+        elidedImageCount: 1,
+        keptImageBytes: 6 * MEGABYTE,
+        strategy: 'newest-first-combined-image-budget',
+      },
+    });
+    const wireMessages = requestBody?.['messages'] as {
+      content: { data?: string; text?: string }[];
+      role: string;
+    }[];
+    expect(wireMessages[0]?.content[0]).toEqual({ text: 'first image' });
+    expect(wireMessages[0]?.content[1]?.text).toContain('omitted');
+    expect(JSON.stringify(wireMessages[0])).not.toContain(';base64,');
+    expect(wireMessages[2]?.content).toHaveLength(2);
+    expect(wireMessages[2]?.content[0]?.data).toContain(';base64,');
+    // The elision is wire-only: the thread's own message record keeps the body.
+    expect((historyUserMessage.content[1] as unknown as { data: string }).data).toBe(
+      historyDataUrl
+    );
   });
 
   it('rejects runtime config fields that would override transport protocol data', async () => {

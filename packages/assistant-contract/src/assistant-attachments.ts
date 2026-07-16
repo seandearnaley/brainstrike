@@ -19,6 +19,12 @@ export const ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE = 4;
  * the base64 encoding (~4/3×, ≈13.4MB) plus prompt/history headroom fits the
  * 16MB default assistant request body limit — a max-loaded message fails on
  * THIS precise error, never the generic body-too-large one.
+ *
+ * The UI transport reuses this cap as the whole-REQUEST inline-image budget:
+ * when resent history would push the total past it, older image bodies are
+ * elided newest-first with a visible note (packages/ui data-stream-runtime
+ * `boundResentImageHistory`), so multi-turn image threads can never
+ * accumulate past what the body limit was sized for.
  */
 export const ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES = 10 * 1024 * 1024;
 

@@ -5,6 +5,10 @@ import type {
   ThreadMessage,
 } from '@assistant-ui/react';
 import { useLocalRuntime } from '@assistant-ui/react';
+import {
+  ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
+  dataUrlByteLength,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { AssistantStreamChunk } from 'assistant-stream';
@@ -344,6 +348,239 @@ function withTransportCompactionMetadata(
   };
 }
 
+export interface TransportImageElision {
+  readonly elidedImageBytes: number;
+  readonly elidedImageCount: number;
+  readonly keptImageBytes: number;
+  readonly strategy: 'newest-first-combined-image-budget';
+}
+
+interface WireImagePartRef {
+  readonly bytes: number;
+  readonly fileCount: number;
+  readonly mediaType: string | undefined;
+  readonly messageIndex: number;
+  readonly ordinal: number;
+  readonly partIndex: number;
+}
+
+function wireContentOf(wireMessage: unknown): readonly unknown[] {
+  if (!wireMessage || typeof wireMessage !== 'object') {
+    return [];
+  }
+  const content = (wireMessage as { content?: unknown }).content;
+  return Array.isArray(content) ? content : [];
+}
+
+function isWireImagePart(value: unknown): value is Record<string, unknown> & { data: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return record['type'] === 'file' && typeof record['data'] === 'string';
+}
+
+function isWireUserMessage(wireMessage: unknown): boolean {
+  return (
+    Boolean(wireMessage) &&
+    typeof wireMessage === 'object' &&
+    (wireMessage as { role?: unknown }).role === 'user'
+  );
+}
+
+/**
+ * Measure every inline image (file) part carried by user wire messages. The
+ * decoded byte length comes from the shared attachment contract, which THROWS
+ * on a payload that is not an inline base64 data URL — an unmeasurable
+ * attachment is invalid by contract, never silently skipped.
+ */
+function collectWireImagePartRefs(wireMessages: readonly unknown[]): WireImagePartRef[] {
+  const refs: WireImagePartRef[] = [];
+  for (let messageIndex = 0; messageIndex < wireMessages.length; messageIndex += 1) {
+    if (!isWireUserMessage(wireMessages[messageIndex])) {
+      continue;
+    }
+    const content = wireContentOf(wireMessages[messageIndex]);
+    const filePartIndices: number[] = [];
+    for (let partIndex = 0; partIndex < content.length; partIndex += 1) {
+      if (isWireImagePart(content[partIndex])) {
+        filePartIndices.push(partIndex);
+      }
+    }
+    for (let ordinalIndex = 0; ordinalIndex < filePartIndices.length; ordinalIndex += 1) {
+      const partIndex = filePartIndices[ordinalIndex] as number;
+      const part = content[partIndex] as Record<string, unknown> & { data: string };
+      refs.push({
+        bytes: dataUrlByteLength(part.data),
+        fileCount: filePartIndices.length,
+        mediaType: typeof part['mediaType'] === 'string' ? part['mediaType'] : undefined,
+        messageIndex,
+        ordinal: ordinalIndex + 1,
+        partIndex,
+      });
+    }
+  }
+  return refs;
+}
+
+function findLastWireUserIndex(wireMessages: readonly unknown[]): number {
+  for (let index = wireMessages.length - 1; index >= 0; index -= 1) {
+    if (isWireUserMessage(wireMessages[index])) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Newest-first, recency-monotonic selection: history images spend whatever
+ * budget the current turn leaves, and once one image does not fit, every
+ * OLDER image is elided with it — the model never sees an older image while
+ * missing a newer one.
+ */
+function selectElidedHistoryImageRefs(
+  refs: readonly WireImagePartRef[],
+  lastUserIndex: number
+): WireImagePartRef[] {
+  const currentTurnBytes = refs
+    .filter((ref) => ref.messageIndex >= lastUserIndex)
+    .reduce((total, ref) => total + ref.bytes, 0);
+  const history = refs
+    .filter((ref) => ref.messageIndex < lastUserIndex)
+    .sort((a, b) => b.messageIndex - a.messageIndex || a.partIndex - b.partIndex);
+  let remainingBytes = ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES - currentTurnBytes;
+  const elided: WireImagePartRef[] = [];
+  let cutoff = false;
+  for (const ref of history) {
+    if (!cutoff && ref.bytes <= remainingBytes) {
+      remainingBytes -= ref.bytes;
+      continue;
+    }
+    cutoff = true;
+    elided.push(ref);
+  }
+  return elided;
+}
+
+function formatImageByteSize(bytes: number): string {
+  const kilobyte = 1024;
+  const megabyte = kilobyte * kilobyte;
+  if (bytes >= megabyte) {
+    return `${(bytes / megabyte).toFixed(1)}MB`;
+  }
+  if (bytes >= kilobyte) {
+    return `${Math.round(bytes / kilobyte)}KB`;
+  }
+  return `${bytes}B`;
+}
+
+function buildImageElisionNote(ref: WireImagePartRef): string {
+  const described = `${ref.mediaType ?? 'image'}, ${formatImageByteSize(ref.bytes)}`;
+  return `[Image attachment ${ref.ordinal} of ${ref.fileCount} (${described}) from this earlier message was omitted from the request to keep it within the transport size limit. The image is unchanged in the conversation; ask the user to re-attach it if it is needed again.]`;
+}
+
+function replaceElidedWireImageParts(
+  wireMessages: readonly unknown[],
+  elided: readonly WireImagePartRef[]
+): unknown[] {
+  const refsByMessage = new Map<number, Map<number, WireImagePartRef>>();
+  for (const ref of elided) {
+    const partMap = refsByMessage.get(ref.messageIndex) ?? new Map<number, WireImagePartRef>();
+    partMap.set(ref.partIndex, ref);
+    refsByMessage.set(ref.messageIndex, partMap);
+  }
+  return wireMessages.map((wireMessage, messageIndex) => {
+    const partMap = refsByMessage.get(messageIndex);
+    if (!partMap) {
+      return wireMessage;
+    }
+    const content = wireContentOf(wireMessage).map((part, partIndex) => {
+      const ref = partMap.get(partIndex);
+      return ref ? { text: buildImageElisionNote(ref) } : part;
+    });
+    return { ...(wireMessage as Record<string, unknown>), content };
+  });
+}
+
+/**
+ * Bound the inline image payload of one outgoing request to the SAME combined
+ * cap the composer enforces per message
+ * ({@link ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES}) — the number the 16MB
+ * request body limit is sized against. Without this, non-memory-backed
+ * transports that resend full history accumulate every prior turn's base64
+ * image bodies until the body limit rejects the request.
+ *
+ * The current turn's attachments always ship (the server validates them
+ * against the same cap); history images spend the remainder newest-first.
+ * Elision is WIRE-ONLY and LOUD: the thread state and persisted record keep
+ * the image, and each elided part is replaced with a visible text note so the
+ * model knows exactly what it can no longer see. Callers must surface the
+ * returned elision stats (request metadata + log), never drop them.
+ */
+export function boundResentImageHistory(wireMessages: readonly unknown[]): {
+  readonly elision: TransportImageElision | undefined;
+  readonly messages: readonly unknown[];
+} {
+  const refs = collectWireImagePartRefs(wireMessages);
+  const elided = selectElidedHistoryImageRefs(refs, findLastWireUserIndex(wireMessages));
+  if (elided.length === 0) {
+    return { elision: undefined, messages: wireMessages };
+  }
+  const elidedImageBytes = elided.reduce((total, ref) => total + ref.bytes, 0);
+  const totalImageBytes = refs.reduce((total, ref) => total + ref.bytes, 0);
+  return {
+    elision: {
+      elidedImageBytes,
+      elidedImageCount: elided.length,
+      keptImageBytes: totalImageBytes - elidedImageBytes,
+      strategy: 'newest-first-combined-image-budget',
+    },
+    messages: replaceElidedWireImageParts(wireMessages, elided),
+  };
+}
+
+/**
+ * Mirror of {@link withTransportCompactionMetadata} for image elision: when
+ * history image bodies were elided, the request's `data` records what was
+ * dropped so the degradation is observable server-side, creating the `data`
+ * object if the body had none.
+ */
+function withTransportImageElisionMetadata(
+  bodyValue: Record<string, unknown> | undefined,
+  elision: TransportImageElision | undefined
+): Record<string, unknown> | undefined {
+  if (!elision) {
+    return bodyValue;
+  }
+  const data = bodyValue?.['data'];
+  const dataRecord = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  return { ...bodyValue, data: { ...dataRecord, transportImageElision: elision } };
+}
+
+/**
+ * Apply {@link boundResentImageHistory} to the outgoing wire messages and
+ * surface any elision loudly in one step: a client warn log plus the
+ * `transportImageElision` request metadata.
+ */
+function boundWireMessagesForTransport(
+  wireMessages: readonly unknown[],
+  bodyValue: Record<string, unknown> | undefined
+): {
+  readonly bodyValue: Record<string, unknown> | undefined;
+  readonly messages: readonly unknown[];
+} {
+  const imageBound = boundResentImageHistory(wireMessages);
+  if (imageBound.elision) {
+    logger.warn('Elided older image attachment bodies from resent request history', {
+      ...imageBound.elision,
+    });
+  }
+  return {
+    bodyValue: withTransportImageElisionMetadata(bodyValue, imageBound.elision),
+    messages: imageBound.messages,
+  };
+}
+
 /**
  * Pass-through tap that intercepts "message-finish" chunks to surface provider
  * token usage. The DataStreamDecoder outputs AssistantStreamChunk
@@ -484,14 +721,18 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         messages.length,
         transportMessages.length
       );
-      const bodyData = extractTransportBodyData(compactedBodyValue);
+      const imageBound = boundWireMessagesForTransport(
+        toLanguageModelMessages(transportMessages),
+        compactedBodyValue
+      );
+      const bodyData = extractTransportBodyData(imageBound.bodyValue);
       assertNoTransportFieldCollisions(context.callSettings, 'callSettings');
       assertNoTransportFieldCollisions(context.config, 'config');
       const headers = new Headers(headersValue);
       headers.set('Content-Type', 'application/json');
 
       const requestBody: Record<string, unknown> = {
-        messages: toLanguageModelMessages(transportMessages),
+        messages: imageBound.messages,
         tools: toToolsJSONSchema(context.tools ?? {}),
         ...(context.system ? { system: context.system } : {}),
         // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.

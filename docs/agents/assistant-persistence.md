@@ -113,6 +113,17 @@ Image attachments (composer → model → persistence → reload):
   image-only user messages survive reload. Hydrated attachments render
   through the same user-bubble strip as live sends, and their content
   re-merges into later outbound turns so the model keeps seeing the image.
+- Resent image history is BOUNDED on the wire: non-memory-backed transports
+  resend full history, so `boundResentImageHistory` (packages/ui
+  data-stream-runtime) caps one request's total inline images at the SAME
+  combined cap — the current turn always ships, history image bodies spend
+  the remainder newest-first, and once one image no longer fits, it and every
+  older one is replaced by a visible text note (recency-monotonic; the model
+  never sees an older image while missing a newer one). Elision is wire-only
+  and loud (`data.transportImageElision` metadata + client warn log); the
+  thread state and persisted rows keep the image bytes, so reload hydration
+  is untouched. Memory-backed requests are already compacted to the current
+  turn and no-op through this bound.
 - Availability gating lives in the app-shell wrapper
   (`resolveComposerAttachmentsAvailability`), layered: (1) provider gate —
   every HOSTED provider is eligible (desktop assistant server AND the web
@@ -146,7 +157,8 @@ live-loop prompt proof), mastra-memory-persistence.integration.spec.ts
 (persisted dialect pin), assistant-memory-repository.integration.test.ts
 (hydration), attachment-adapter.test.ts (composer adapter),
 assistant-ui-panel-wrapper-runtime.test.ts + assistant-ui-panel-wrapper.test.tsx
-(availability gate), assistant-ui-panel.test.tsx (composer render states).
+(availability gate), assistant-ui-panel.test.tsx (composer render states),
+data-stream-runtime.test.ts `boundResentImageHistory` (wire history bound).
 
 Built-in LOCAL provider turns persist on DESKTOP: local chat routes through
 the assistant server's Mastra loop (see LOCAL LLM ARCHITECTURE), so memory,
