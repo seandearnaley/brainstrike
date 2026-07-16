@@ -23,6 +23,16 @@ import { VaultTree } from './vault-tree';
 
 const logger = createLogger('NotesVault');
 
+/**
+ * True when a drag originates from the OS and carries files/folders. Internal
+ * drags (assistant-thread tabs via pragmatic-drag-and-drop, text selections)
+ * advertise other types and must not arm or consume this drop zone.
+ */
+function dragCarriesFiles(event: React.DragEvent<HTMLElement>): boolean {
+  const types = event.dataTransfer?.types;
+  return types ? Array.from(types).includes('Files') : false;
+}
+
 const SORT_LABELS: Record<VaultSortMode, string> = {
   'modified-asc': 'Oldest',
   'modified-desc': 'Recent',
@@ -93,6 +103,12 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
 
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
+      if (!dragCarriesFiles(event)) {
+        // Internal drags (thread tabs, text selections) pass through untouched;
+        // this surface only mounts real OS folders.
+        setIsDragOver(false);
+        return;
+      }
       event.preventDefault();
       setIsDragOver(false);
       // Handle promises must be collected synchronously in the drop tick.
@@ -115,6 +131,9 @@ export function NotesVaultPanel({ store: storeProp }: NotesVaultPanelProps): Rea
   );
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!dragCarriesFiles(event)) {
+      return;
+    }
     event.preventDefault();
     setIsDragOver(true);
   }, []);

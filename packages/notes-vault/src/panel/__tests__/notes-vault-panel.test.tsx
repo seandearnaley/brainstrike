@@ -87,6 +87,7 @@ describe('NotesVaultPanel', () => {
             kind: 'file',
           },
         ],
+        types: ['Files'],
       },
     });
 
@@ -156,5 +157,31 @@ describe('NotesVaultPanel', () => {
     await waitFor(() => {
       expect(rowTexts()[0]).toContain('zeta');
     });
+  });
+});
+
+describe('drop-zone gating', () => {
+  it('only arms the drop ring for drags that carry files (not internal DnD)', async () => {
+    setup();
+    const panel = await screen.findByTestId('notes-vault-panel');
+
+    fireEvent.dragOver(panel, { dataTransfer: { types: ['text/plain'] } });
+    expect(panel.className).not.toContain('ring-2');
+
+    fireEvent.dragOver(panel, { dataTransfer: { types: ['Files'] } });
+    expect(panel.className).toContain('ring-2');
+
+    fireEvent.dragLeave(panel);
+    expect(panel.className).not.toContain('ring-2');
+  });
+
+  it('ignores drops without files entirely', async () => {
+    const { store } = setup();
+    const panel = await screen.findByTestId('notes-vault-panel');
+
+    fireEvent.drop(panel, { dataTransfer: { items: [], types: ['text/plain'] } });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(store.getState().roots).toHaveLength(0);
   });
 });
