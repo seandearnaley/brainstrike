@@ -179,6 +179,44 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
     }
   }, 30_000);
 
+  it('serializes concurrent same-file diagnoses so results are not cross-attributed', async () => {
+    // Two concurrent edits to the SAME file with different content: without
+    // per-file serialization the shared per-connection diagnostics map could
+    // cross-attribute one edit's result to the other. With the diagnose lock,
+    // the first-submitted call fully resolves against ITS content before the
+    // second runs — so the type-error content reports the error and the clean
+    // content reports clean, deterministically.
+    const root = await makeRoot();
+    try {
+      const filePath = path.join(root, 'racy.ts');
+      const errorContent = 'const x: number = "bad";\n';
+      const cleanContent = 'export const y: number = 1;\n';
+      await fsPromises.writeFile(filePath, errorContent, 'utf8');
+
+      const [errorResult, cleanResult] = await Promise.all([
+        getEditDiagnostics({
+          absolutePath: filePath,
+          content: errorContent,
+          rootId: 'r',
+          rootPath: root,
+        }),
+        getEditDiagnostics({
+          absolutePath: filePath,
+          content: cleanContent,
+          rootId: 'r',
+          rootPath: root,
+        }),
+      ]);
+
+      expect(errorResult.diagnostics?.some((d) => /not assignable/i.test(d.message))).toBe(true);
+      expect(cleanResult.diagnostics ?? []).toEqual([]);
+      // One pooled server served both (per-file lock, not per-call spawn).
+      expect(countPooledLspServers()).toBe(1);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
   it('evictLspServersForRoot disposes only that root and leaves others', async () => {
     const rootA = await makeRoot();
     const rootB = await makeRoot();

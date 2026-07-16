@@ -245,6 +245,18 @@ class LspServerConnection {
     this.child.stderr?.on('data', () => {
       /* discarded — server logs are not tool output */
     });
+    // Swallow pipe/process errors so killing the server mid-write (dispose,
+    // crash) can never surface an unhandled EPIPE/ERR_STREAM_DESTROYED — the
+    // diagnostics call already degrades to an honest note on any failure.
+    this.child.on('error', () => {
+      /* spawn/runtime failure — handled as a diagnostics timeout */
+    });
+    this.child.stdin?.on('error', () => {
+      /* writing to a dead server's stdin (EPIPE); ignore */
+    });
+    this.child.stdout?.on('error', () => {
+      /* reader stream torn down on dispose; ignore */
+    });
     this.connection = createMessageConnection(
       new StreamMessageReader(this.child.stdout as NodeJS.ReadableStream),
       new StreamMessageWriter(this.child.stdin as NodeJS.WritableStream)
@@ -353,15 +365,20 @@ class LspServerConnection {
       return;
     }
     this.disposed = true;
-    try {
-      await Promise.race([
-        this.connection.sendRequest(LSP.shutdown).then(() => {
-          void this.connection.sendNotification(LSP.exit);
-        }),
-        new Promise((resolve) => setTimeout(resolve, 500)),
-      ]);
-    } catch {
-      /* best effort — we SIGKILL below regardless */
+    // Only attempt a graceful LSP shutdown while the process is still alive;
+    // writing shutdown/exit to an already-exited server just races an EPIPE
+    // that the SIGKILL below settles anyway.
+    if (this.child.exitCode === null && this.child.signalCode === null) {
+      try {
+        await Promise.race([
+          this.connection.sendRequest(LSP.shutdown).then(() => {
+            void this.connection.sendNotification(LSP.exit);
+          }),
+          new Promise((resolve) => setTimeout(resolve, 500)),
+        ]);
+      } catch {
+        /* best effort — we SIGKILL below regardless */
+      }
     }
     try {
       this.connection.dispose();
@@ -375,6 +392,33 @@ class LspServerConnection {
 
 /** rootId → its pooled server connection. */
 const pool = new Map<string, LspServerConnection>();
+
+/**
+ * Per-file diagnose serialization. A pooled server's diagnostics map + document
+ * versions are keyed by path and shared across callers, so two concurrent edits
+ * to the SAME file (Mastra runs tool calls within a step concurrently) racing
+ * open/change → wait could cross-attribute one edit's diagnostics to the other.
+ * This lock serializes ONLY the diagnose step, keyed by canonical absolute path
+ * — deliberately SEPARATE from the edit tools' write lock so a slow
+ * language-server round-trip never adds latency back onto the write path.
+ */
+const diagnoseLocks = new Map<string, Promise<unknown>>();
+
+function withDiagnoseLock<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = diagnoseLocks.get(key) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  const chain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  diagnoseLocks.set(key, chain);
+  void chain.finally(() => {
+    if (diagnoseLocks.get(key) === chain) {
+      diagnoseLocks.delete(key);
+    }
+  });
+  return run;
+}
 
 export interface GetEditDiagnosticsArgs {
   absolutePath: string;
@@ -410,29 +454,33 @@ export async function getEditDiagnostics(
   }
 
   try {
-    let connection = pool.get(args.rootId);
-    if (!connection) {
-      connection = new LspServerConnection(server, args.rootPath);
-      pool.set(args.rootId, connection);
-    }
-    const raw = await connection.diagnose(args.absolutePath, args.content, language);
-    if (!connection.hasPublishedFor(args.absolutePath)) {
-      // No publish arrived within the budget — honest timeout note.
+    // Serialize per file so concurrent same-file edits can't cross-attribute
+    // each other's diagnostics through the shared per-connection state.
+    return await withDiagnoseLock(diagnosticsKey(args.absolutePath), async () => {
+      let connection = pool.get(args.rootId);
+      if (!connection) {
+        connection = new LspServerConnection(server, args.rootPath);
+        pool.set(args.rootId, connection);
+      }
+      const raw = await connection.diagnose(args.absolutePath, args.content, language);
+      if (!connection.hasPublishedFor(args.absolutePath)) {
+        // No publish arrived within the budget — honest timeout note.
+        return {
+          available: false,
+          language,
+          message: `Diagnostics timed out after ${DIAGNOSTIC_TIMEOUT_MS}ms; the edit still applied.`,
+          reason: 'timeout',
+        };
+      }
+      const bounded = boundDiagnostics(raw);
       return {
-        available: false,
+        available: true,
+        diagnosticCount: bounded.total,
+        diagnostics: bounded.diagnostics,
         language,
-        message: `Diagnostics timed out after ${DIAGNOSTIC_TIMEOUT_MS}ms; the edit still applied.`,
-        reason: 'timeout',
+        truncated: bounded.truncated,
       };
-    }
-    const bounded = boundDiagnostics(raw);
-    return {
-      available: true,
-      diagnosticCount: bounded.total,
-      diagnostics: bounded.diagnostics,
-      language,
-      truncated: bounded.truncated,
-    };
+    });
   } catch (error) {
     logger.error('LSP diagnostics failed; edit still applied', { error });
     return {

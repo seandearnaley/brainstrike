@@ -15,7 +15,13 @@
     "npmRebuild": true,
     "asarUnpack": [
       "**/node_modules/node-pty/prebuilds/**",
-      "**/node_modules/@brainstrike/secure-fs-native/build/Release/*.node"
+      "**/node_modules/@brainstrike/secure-fs-native/build/Release/*.node",
+      "**/node_modules/typescript-language-server/**",
+      "**/node_modules/typescript/**",
+      "**/node_modules/vscode-jsonrpc/**",
+      "**/node_modules/vscode-languageserver-protocol/**",
+      "**/node_modules/vscode-languageserver/**",
+      "**/node_modules/vscode-languageserver-textdocument/**"
     ],
     "mac": {
       "category": "public.app-category.productivity",
