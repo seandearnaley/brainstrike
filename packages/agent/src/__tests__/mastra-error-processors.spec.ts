@@ -70,7 +70,9 @@ vi.mock('@mastra/core/agent', async (importActual) => {
 });
 
 const { streamMastraAgent } = await import('../mastra/agent-runtime');
-const { ASSISTANT_MAX_PROCESSOR_RETRIES } = await import('../mastra/error-processors');
+const { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } = await import(
+  '../mastra/error-processors'
+);
 
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
@@ -174,6 +176,53 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
     // One failed attempt + one retry that succeeds = two model calls.
     expect(model.calls).toBe(2);
     expect(text).toContain('recovered after reset');
+  });
+
+  it('retries an UNKNOWN transient mid-stream error and completes the run', async () => {
+    // No `code`, no ECONNRESET phrasing, no provider `isRetryable` flag — an
+    // error our matcher does NOT know. @mastra/core 1.51's
+    // `retryUnknownErrors` retries these while still surfacing known
+    // authorization failures immediately (see the paired test below).
+    const unknownError = new Error('provider stream dropped unexpectedly');
+    const model = createScriptedModel({
+      attempts: [{ error: unknownError, kind: 'error' }],
+      finalText: 'recovered after unknown error',
+    });
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const { text } = await drain(iterator);
+
+    // One failed attempt + one retry that succeeds = two model calls.
+    expect(model.calls).toBe(2);
+    expect(text).toContain('recovered after unknown error');
+  });
+
+  it('surfaces a known authorization failure immediately (no unknown-error retry)', async () => {
+    // Boundary pin for `retryUnknownErrors`: a 401-class failure is exactly the
+    // error that option must NOT retry (isKnownTerminalAuthorizationError in
+    // @mastra/core 1.51 walks statusCode/status + auth error codes through the
+    // cause chain). A bad key fails loudly on the FIRST attempt.
+    const authError = Object.assign(new Error('Incorrect API key provided'), {
+      statusCode: 401,
+    });
+    const model = createScriptedModel({
+      attempts: Array.from({ length: 5 }, () => ({ error: authError, kind: 'error' as const })),
+      finalText: 'never reached',
+    });
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'bad-key', provider: 'openai' } }
+    );
+    const { text } = await drain(iterator);
+
+    expect(model.calls).toBe(1);
+    expect(text).not.toContain('never reached');
   });
 
   it('recovers a reloaded-thread assistant-prefill rejection', async () => {
@@ -292,6 +341,76 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
     };
     expect(config.errorProcessors).toBeUndefined();
     expect(config.maxProcessorRetries).toBeUndefined();
+  });
+
+  it('clamps a provider Retry-After wait to the backoff ceiling (direct processor)', async () => {
+    // Unit pin on the REAL processor our builder configures: an hour-long
+    // provider `retry-after` header must wait exactly maxRetryAfterMs (30s),
+    // never the header's demand. Fake timers keep the pin fast.
+    vi.useFakeTimers();
+    try {
+      const [retryProcessor] = buildAssistantErrorProcessors('openai') ?? [];
+      if (!retryProcessor?.processAPIError) {
+        throw new Error('stream-error retry processor missing from the builder output');
+      }
+      const error = Object.assign(new Error('rate limited upstream'), {
+        responseHeaders: { 'retry-after': '3600' },
+      });
+      let resolved = false;
+      // The implementation reads only { error, retryCount, abortSignal } from
+      // its args (verified against the installed 1.51 dist); the cast supplies
+      // the minimal shape without fabricating a full processor context.
+      const pending = Promise.resolve(
+        retryProcessor.processAPIError({ error, retryCount: 0 } as Parameters<
+          NonNullable<(typeof retryProcessor)['processAPIError']>
+        >[0])
+      ).then((result) => {
+        resolved = true;
+        return result;
+      });
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(resolved).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await pending;
+      expect(resolved).toBe(true);
+      expect(result).toEqual({ retry: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let a Retry-After wait outlive an abort (direct processor)', async () => {
+    vi.useFakeTimers();
+    try {
+      const [retryProcessor] = buildAssistantErrorProcessors('openai') ?? [];
+      if (!retryProcessor?.processAPIError) {
+        throw new Error('stream-error retry processor missing from the builder output');
+      }
+      const error = Object.assign(new Error('rate limited upstream'), {
+        responseHeaders: { 'retry-after': '3600' },
+      });
+      const controller = new AbortController();
+      let resolved = false;
+      const pending = Promise.resolve(
+        retryProcessor.processAPIError({
+          abortSignal: controller.signal,
+          error,
+          retryCount: 0,
+        } as Parameters<NonNullable<(typeof retryProcessor)['processAPIError']>>[0])
+      ).then(() => {
+        resolved = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(resolved).toBe(false);
+      controller.abort();
+      // No further timer advance: the abort alone must release the wait.
+      await pending;
+      expect(resolved).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('bounds a persistently-failing retryable stream and terminates (no infinite loop)', async () => {

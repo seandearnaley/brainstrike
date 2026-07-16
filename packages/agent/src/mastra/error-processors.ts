@@ -23,7 +23,14 @@ export const ASSISTANT_MAX_PROCESSOR_RETRIES = 3;
 
 /** StreamErrorRetry's own per-processor cap (<= the agent-level ceiling). */
 const STREAM_ERROR_MAX_RETRIES = 2;
-/** Exponential-backoff ceiling for a transient network reset retry. */
+/**
+ * Exponential-backoff ceiling for a transient retry. Doubles as the explicit
+ * `maxRetryAfterMs` clamp on provider `Retry-After` headers (1.51): the two
+ * caps are deliberately the SAME value so no retry wait — ours or the
+ * provider's — can exceed it. 1.51's default happens to match today; pinning
+ * it here guards against upstream drift (same posture as
+ * {@link ASSISTANT_MAX_PROCESSOR_RETRIES}).
+ */
 const STREAM_ERROR_BACKOFF_CAP_MS = 30_000;
 
 function normalizeProvider(provider: string): string {
@@ -80,6 +87,16 @@ export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[
       delayMs: ({ retryCount }) => Math.min(1000 * 2 ** retryCount, STREAM_ERROR_BACKOFF_CAP_MS),
       matchers: [isEconnResetStreamError],
       maxRetries: STREAM_ERROR_MAX_RETRIES,
+      // Cap provider `Retry-After` waits (walked through the error/cause
+      // chain) so a hostile/buggy header can never stall a retry past the
+      // same ceiling as our own backoff.
+      maxRetryAfterMs: STREAM_ERROR_BACKOFF_CAP_MS,
+      // 1.51: retry UNKNOWN stream errors too (bounded by the same
+      // maxRetries + backoff), while known-terminal authorization failures
+      // (401/403 / invalid_api_key-class codes, matched through the cause
+      // chain) still surface immediately — a bad key must fail loudly, never
+      // burn a silent retry budget.
+      retryUnknownErrors: true,
     }),
     new PrefillErrorHandler(),
     new ProviderHistoryCompat(),

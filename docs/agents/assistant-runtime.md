@@ -39,7 +39,15 @@ below are LIVE.
    double-wrapping:
    - **StreamErrorRetryProcessor** — retries transient mid-stream errors
      (OpenAI Responses `error`/`response.failed`, provider `isRetryable`, and an
-     `isEconnResetStreamError` matcher with capped exponential backoff).
+     `isEconnResetStreamError` matcher with capped exponential backoff). Since
+     core 1.51 the config additionally sets `retryUnknownErrors: true` — an
+     UNKNOWN stream error (matched by nothing) is retried under the same
+     bounded budget/backoff, while known-terminal authorization failures
+     (401/403 or `invalid_api_key`-class codes, walked through the cause
+     chain) surface immediately with NO retry (a bad key must fail loudly) —
+     and `maxRetryAfterMs` pinned to the SAME 30s ceiling as the backoff cap,
+     clamping provider `Retry-After` headers so neither our wait nor the
+     provider's demand can stall a retry past it; the wait is abort-aware.
    - **PrefillErrorHandler** — recovers reloaded-thread assistant-prefill
      rejections (Anthropic / Qwen `enable_thinking`).
    - **ProviderHistoryCompat** — cross-provider `mastra_messages` reuse.
