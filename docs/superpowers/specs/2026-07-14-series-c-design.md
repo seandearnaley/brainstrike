@@ -47,16 +47,20 @@ explicitly Series D.
 
 Workflow chain — serialized, all touch `.github/workflows/test.yml`:
 
-- **C1 — R7 Coverage demotion.** Behavior contract: coverage job runs ~once
+- **C1 — R7 Coverage demotion.** Behavior contract: coverage runs ~once
   per PR lifecycle (`ready_for_review` + `coverage` label re-trigger); other
-  test.yml jobs unaffected by the added event types. ~25% of PR pipeline cost.
+  test.yml jobs unaffected. **Shape:** move Coverage into its own
+  `.github/workflows/coverage.yml` — do **not** add `labeled` to `test.yml`
+  (that workflow produces the five required checks; a `labeled` subscription
+  would fire/skip/cancel them on every label add). ~25% of PR pipeline cost.
 - **C2 — R9a workflow dedup.** One composite setup action
-  (checkout→pnpm→node→optional turbo cache; 6 copies in test.yml + 3 nightly
-  Electron-provisioning copies); re-key the actions/cache `.turbo` layer on
-  lockfile+turbo.jsonc hash (performance.yml pattern) instead of
-  per-job-per-sha; single-source the Playwright image pin. Evaluate Turbo
-  2.10 `cacheMaxAge`/`cacheMaxSize` as replacement for the LRU-prune half of
-  `scripts/run-turbo-command.mjs` if trivial, else defer to Series D.
+  (pnpm→node→optional turbo cache; callers keep their own `actions/checkout`
+  — a local `./path` composite cannot contain checkout or it never resolves);
+  re-key the actions/cache `.turbo` layer on lockfile+turbo.jsonc hash
+  (performance.yml pattern) instead of per-job-per-sha; single-source the
+  Playwright image pin. Evaluate Turbo 2.10 `cacheMaxAge`/`cacheMaxSize` as
+  replacement for the LRU-prune half of `scripts/run-turbo-command.mjs` if
+  trivial, else defer to Series D.
 - **C3 — R9b ARM runners + cacheable lint.** Move lint/type/unit-eligible
   lanes to `ubuntu-24.04-arm` (37% cheaper); Electron/Playwright/native lanes
   stay x64. Make lint per-package cacheable (Biome is file-local and

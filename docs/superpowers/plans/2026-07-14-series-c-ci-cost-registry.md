@@ -24,9 +24,9 @@ Every task's requirements implicitly include this section. Values copied verbati
 
 ## File Structure
 
-Workflow-chain PRs (serialized — all edit `.github/workflows/test.yml`; each rebases on the prior):
-- **C1** — `.github/workflows/test.yml` (coverage job `if:` + `pull_request` types).
-- **C2** — `.github/actions/setup-workspace/action.yml` (new composite), `.github/workflows/test.yml` + `nightly-coverage.yml` + `web-e2e.yml` + `desktop-e2e.yml` + `performance.yml` (consume it), Turbo `.turbo` cache key re-key.
+Workflow-chain PRs (serialized — C1/C2/C3 touch shared CI surface; each rebases on the prior):
+- **C1** — create `.github/workflows/coverage.yml` (move Coverage out of `test.yml`); remove the Coverage job from `.github/workflows/test.yml`. **Do not** add `labeled` to `test.yml`.
+- **C2** — `.github/actions/setup-workspace/action.yml` (new composite — **no** `actions/checkout` inside it), `.github/workflows/test.yml` + `coverage.yml` + `nightly-coverage.yml` (consume it; callers keep their own Checkout step), Playwright pin guard. Turbo `.turbo` cache key re-key.
 - **C3** — `.github/workflows/test.yml` (`runs-on` per job), `turbo.jsonc` (lint task `cache`/`inputs`), possibly `packages/config/biome/*` no change; new guard `scripts/verify-lint-cache-coverage.mjs` if the probe demands it.
 
 Independent PRs (parallel — no shared files with each other):
@@ -95,57 +95,77 @@ Either "lint is cleanly cacheable — split `lint` into `lint:cacheable` (biome+
 ## Task 1: C1 — R7 demote Coverage to once-per-PR-lifecycle
 
 **Files:**
-- Modify: `.github/workflows/test.yml:3-11` (pull_request types), `:232-234` (coverage job `if:`)
+- Create: `.github/workflows/coverage.yml` (Coverage job + its own `on:` / concurrency / permissions)
+- Modify: `.github/workflows/test.yml` (delete the Coverage job; leave `pull_request.types` **without** `labeled`)
 
 **Interfaces:**
-- Produces: a `Coverage` job that runs on `ready_for_review`, on `opened` when not draft, and when a `coverage` label is added — NOT on every `synchronize`. Nightly `nightly-coverage.yml` threshold gate is unchanged (the enforcement backstop).
+- Produces: a `Coverage` check that runs on `ready_for_review`, on `opened`/`reopened` when not draft, and when a `coverage` label is added — NOT on every `synchronize`. Nightly `nightly-coverage.yml` threshold gate is unchanged (the enforcement backstop).
+- **Why a separate workflow (do not put `labeled` on `test.yml`):** `test.yml` is the sole producer of the five required status checks (`Static`, `Unit`, `Build`, `Web E2E`, `Desktop E2E`). Those jobs have no job-level `if:` guards today. Subscribing `test.yml` to `labeled` would (a) start the whole PR workflow on every label add — defeating the cost reduction and cancelling in-progress runs via the existing PR concurrency group — and (b) even with per-job `if:` skips, leave required contexts reporting `skipped` on the head SHA (merge-box greys out; measured on PR #1664). Keep the label trigger in its own workflow so `test.yml` never fires on `labeled`.
 
-- [ ] **Step 1: Add `labeled` to the trigger types**
+- [ ] **Step 1: Create `coverage.yml` with lifecycle-only triggers**
 
-In `.github/workflows/test.yml`, extend the `pull_request.types` list (currently `opened, synchronize, reopened, ready_for_review`) to also include `labeled`. This is required so adding the `coverage` label fires the workflow at all. Adding `labeled` does not change Static/Unit/Build behavior because their `if:` conditions do not depend on it, but VERIFY that in step 4 (a `labeled` event must not double-run Unit).
+Move the Coverage job out of `test.yml` into `.github/workflows/coverage.yml`. Subscribe only to lifecycle / explicit-request events — **no** `synchronize`:
 
-- [ ] **Step 2: Gate the coverage job on lifecycle events**
+```yaml
+on:
+  pull_request:
+    branches:
+      - '**'
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - labeled
+```
 
-Replace the coverage job `if: github.event_name == 'pull_request'` (line 234) with a condition that runs once per lifecycle:
+Use a concurrency group keyed on `github.workflow` (this file's name, `"Coverage"`) so a coverage run can never cancel — or queue behind — a `test.yml` run. Set `cancel-in-progress: false`: this workflow fires for *every* label (GitHub cannot filter label names at the trigger level), and a no-op run for an unrelated label must not cancel an in-flight 11–14 min Coverage run.
+
+- [ ] **Step 2: Gate the coverage job on lifecycle events + label name**
 
 ```yaml
     if: >-
-      github.event_name == 'pull_request' &&
       github.event.pull_request.draft == false &&
-      (github.event.action == 'ready_for_review' ||
+      (github.event.action == 'opened' ||
        github.event.action == 'reopened' ||
-       (github.event.action == 'opened') ||
+       github.event.action == 'ready_for_review' ||
        (github.event.action == 'labeled' && github.event.label.name == 'coverage'))
 ```
 
-Rationale in a workflow comment: coverage is advisory (not in the ruleset); running it per-`synchronize` re-instrumented changed packages 11–14 min every push. This runs it when a PR becomes review-ready and on explicit `coverage`-label request; the nightly threshold gate stays authoritative.
+Rationale in a workflow header comment: coverage is advisory (not in the ruleset); running it per-`synchronize` re-instrumented changed packages 11–14 min every push. This runs it when a PR becomes review-ready and on explicit `coverage`-label request; the nightly threshold gate stays authoritative. The `labeled && label.name == 'coverage'` clause is what filters label churn — without it every label add would run a 14-minute job.
 
-- [ ] **Step 3: Guard against the draft double-fire**
+- [ ] **Step 3: Remove Coverage from `test.yml` (leave triggers alone)**
 
-Add a note/comment: `ready_for_review` fires with `draft == false`; the `opened` branch must also require non-draft (already covered by the top-level `draft == false`). Confirm no path runs coverage on a draft PR.
+Delete the Coverage job from `.github/workflows/test.yml`. Do **not** add `labeled` to `test.yml`'s `pull_request.types`. Leave a short comment pointing at `coverage.yml` so nobody "simplifies" it back.
 
-- [ ] **Step 4: Validate PR + push + label paths**
+- [ ] **Step 4: Guard against draft runs**
+
+`ready_for_review` fires with `draft == false`; the top-level `draft == false` is still required for `opened` / `reopened` / `labeled`. Confirm no path runs coverage on a draft PR.
+
+- [ ] **Step 5: Validate PR + push + label paths**
 
 ```bash
 # From the lane branch, open a draft PR and confirm Coverage is SKIPPED on sync:
 gh pr create --draft --title "C1: R7 coverage demotion" --body "..."
-# push a trivial commit → Coverage must not run
-# flip ready → Coverage runs once
+# push a trivial commit → Coverage must not run; test.yml Unit/Static still run
+# flip ready → Coverage runs once (coverage.yml), test.yml does NOT re-fire solely for that
 gh pr ready <n>
-# add label → Coverage runs again
+# add coverage label → Coverage runs again via coverage.yml only
 gh pr edit <n> --add-label coverage
+# add an unrelated label → coverage.yml may start but the job must SKIP; test.yml must NOT run
+gh pr edit <n> --add-label codex
+gh run list --workflow=coverage.yml --branch=<branch> --json displayTitle,name,conclusion
 gh run list --workflow=test.yml --branch=<branch> --json displayTitle,name,conclusion
 ```
 
-Expected: Coverage appears exactly on ready-flip and on label-add, and is absent on plain synchronize pushes. Unit runs once per event (no double-run from `labeled`).
+Expected: Coverage appears on ready-flip and on `coverage`-label add, and is absent on plain synchronize pushes. `test.yml` never starts from a `labeled` event. Required checks stay green (no `skipped` overlay from label churn).
 
-- [ ] **Step 5: Prove the saving**
+- [ ] **Step 6: Prove the saving**
 
 Count Coverage executions across the PR's own lifecycle (should be ≈1–2, not N). Record in the PR body vs a recent comparable PR's sync count.
 
-- [ ] **Step 6: Review + merge gate**
+- [ ] **Step 7: Review + merge gate**
 
-Adversarial review must confirm: the `labeled` type doesn't leak extra Unit/Static runs; a reopened non-draft PR still gets coverage; nightly gate untouched. Merge only on all-green + every comment answered.
+Adversarial review must confirm: `test.yml` has no `labeled` trigger; a reopened non-draft PR still gets coverage; nightly gate untouched; unrelated labels do not grey out required checks. Merge only on all-green + every comment answered.
 
 ---
 
@@ -153,30 +173,28 @@ Adversarial review must confirm: the `labeled` type doesn't leak extra Unit/Stat
 
 **Files:**
 - Create: `.github/actions/setup-workspace/action.yml`
-- Modify: `.github/workflows/test.yml` (8 setup blocks → composite), `nightly-coverage.yml`, `web-e2e.yml`, `desktop-e2e.yml`, `performance.yml` (Playwright pin single-source), `.turbo` cache key
+- Modify: `.github/workflows/test.yml` (plain-install jobs → composite), `coverage.yml`, `nightly-coverage.yml` (consume it), Playwright pin single-source guard; `.turbo` cache key
 
 **Interfaces:**
-- Produces: a composite action `./.github/actions/setup-workspace` inputs `{ turbo-cache: 'true'|'false' }` doing checkout→pnpm→node(+pnpm cache)→install, optionally the `.turbo` restore. Callers replace their first 4–5 steps with one `uses:`.
+- Produces: a composite action `./.github/actions/setup-workspace` inputs `{ turbo-cache: 'true'|'false' }` doing pnpm→node(+pnpm cache)→install, optionally the `.turbo` restore. **Callers keep their own `actions/checkout` step immediately before `uses: ./.github/actions/setup-workspace`.** Local `./path` actions are resolved by reading `action.yml` off the runner filesystem *before* any composite steps run — so a composite that contains its own checkout can never be found (chicken-and-egg). Document this in the action header; do not thread `fetch-depth` through the composite.
 
-- [ ] **Step 1: Write the composite action**
+- [ ] **Step 1: Write the composite action (no checkout)**
 
 ```yaml
 # .github/actions/setup-workspace/action.yml
 name: Setup workspace
-description: Checkout, pnpm, Node (with pnpm cache), and install deps.
+description: pnpm, Node (with pnpm cache), optional .turbo cache, and install deps. Callers MUST check out first.
+# !! DO NOT ADD `actions/checkout` TO THIS COMPOSITE. !!
+# A local `uses: ./.github/actions/...` is resolved from the runner filesystem
+# before any of its steps run. If checkout lived here, the action would never
+# be found. Checkout stays in each caller, immediately ahead of the `uses:` line.
 inputs:
-  fetch-depth:
-    description: git checkout depth
-    default: '1'
   turbo-cache:
     description: restore/save the local .turbo cache layer
     default: 'false'
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: ${{ inputs.fetch-depth }}
     - uses: pnpm/action-setup@v6
     - uses: actions/setup-node@v6
       with:
@@ -189,16 +207,17 @@ runs:
         # Re-key on lockfile + turbo.jsonc (performance.yml pattern) instead of
         # per-job-per-sha, which pinned storage at the 10 GB ceiling. With remote
         # cache live this layer is an outage hedge, not the primary cache.
-        key: ${{ runner.os }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
+        # Include runner.arch so an ARM lane cannot restore an x64 cache entry.
+        key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
         restore-keys: |
-          ${{ runner.os }}-turbo-
+          ${{ runner.os }}-${{ runner.arch }}-turbo-
     - run: pnpm install --frozen-lockfile
       shell: bash
 ```
 
-- [ ] **Step 2: Replace the setup blocks in test.yml**
+- [ ] **Step 2: Replace the setup blocks (checkout stays in the caller)**
 
-For `static`, `unit`, `build` (they use turbo cache): replace Checkout+pnpm+Node+Cache+Install with `- uses: ./.github/actions/setup-workspace` `with: { turbo-cache: 'true', fetch-depth: '0' for unit }`. For `native-windows`, `native-electron`: `turbo-cache: 'false'`. For `web-e2e` (inside the Playwright container, custom `--filter` install) and `desktop-e2e` (electron cache + custom provisioning): leave their bespoke install as-is OR parameterize carefully — **do not** fold the container/electron special-casing into the composite (that's the trap; keep those two bespoke).
+For `static`, `unit`, `build`, `coverage` (they use turbo cache): keep `- uses: actions/checkout@v6` (with `fetch-depth: 0` where needed), then `- uses: ./.github/actions/setup-workspace` `with: { turbo-cache: 'true' }`. For `native-windows`, `native-electron`: same pattern with `turbo-cache: 'false'`. For `web-e2e` (inside the Playwright container, custom `--filter` install) and `desktop-e2e` (electron cache + custom provisioning): leave their bespoke install as-is — **do not** fold the container/electron special-casing into the composite (that's the trap; keep those two bespoke).
 
 - [ ] **Step 3: Single-source the Playwright image pin**
 
@@ -221,7 +240,7 @@ If `cacheMaxAge`/`cacheMaxSize` in `turbo.jsonc` can replace the LRU-prune half 
 
 - [ ] **Step 7: Review + merge gate**
 
-Reviewer confirms: web-e2e/desktop-e2e bespoke installs untouched; cache key change doesn't orphan the remote cache (remote cache keys off content hashes, unaffected); no job lost its `fetch-depth: 0`.
+Reviewer confirms: composite has **no** `actions/checkout`; every consumer still has Checkout immediately before `uses:`; web-e2e/desktop-e2e bespoke installs untouched; cache key change doesn't orphan the remote cache (remote cache keys off content hashes, unaffected); no job lost its `fetch-depth: 0`.
 
 ---
 
@@ -461,12 +480,14 @@ Then delete: `tsconfig.json` paths key (101–102) + references entry (240); `bi
 pnpm install                     # drops it from the lockfile
 pnpm run type-check              # tsconfig references still resolves
 pnpm run arch:domain-boundaries  # domain-map still valid
-node scripts/enforce-coverage.mjs 2>/dev/null || true   # no dangling ref
+# Must FAIL loudly on a dangling coverage override / package ref — do not
+# discard stderr or force exit 0 with `|| true`.
+node scripts/enforce-coverage.mjs
 pnpm test:scripts
 pnpm build
 ```
 
-Every command green. The `arch:domain-boundaries` check is the key one — it parses `domain-map.json` and would fail on a dangling package reference.
+Every command green (real exit codes — no masked failures). The `arch:domain-boundaries` check is the key domain-map one; `enforce-coverage.mjs` is the key coverage-registry one — both must surface dangling `@brainstrike/queue-telemetry-collector` references.
 
 - [ ] **Step 4: Review + merge gate**
 
