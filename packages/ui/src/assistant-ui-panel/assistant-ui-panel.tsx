@@ -230,8 +230,9 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
    * wrapper. Absent renders no attachment affordance and registers no
    * attachment adapter (provider gate: the text-only built-in local
    * provider); 'disabled' renders a visibly disabled attach button with the
-   * reason (per-model vision gate); 'enabled' activates attach, paste, and
-   * the preview strip.
+   * reason (per-model vision gate) while keeping the adapter + preview strip
+   * alive for already-staged attachments; 'enabled' activates attach, paste,
+   * and the preview strip.
    */
   attachmentsAvailability?: ComposerAttachmentsAvailability;
   className?: string;
@@ -929,15 +930,21 @@ const DataStreamRuntimeChat = ({
   );
 
   // Stable adapter instance: recreating it per render would reset composer
-  // attachment state. Absent unless attachments are 'enabled' — no adapter
-  // means assistant-ui rejects adds with a visible no-adapter error, never a
-  // silent accept (the 'disabled' vision-gate state must not accept paste).
-  // Keyed on the state string, not the availability object, so a re-built
-  // wrapper object cannot reset staged attachments.
-  const attachmentsEnabled = attachmentsAvailability?.state === 'enabled';
+  // attachment state. Keyed on availability PRESENCE (not the enabled state,
+  // and not the object identity): the adapter must survive an
+  // enabled→disabled model switch so attachments staged under a vision model
+  // stay removable/sendable — assistant-ui's composer wipes text + staged
+  // attachments and then throws an unhandled "Attachments are not supported"
+  // rejection if Send runs with no adapter. The 'disabled' vision-gate state
+  // blocks NEW adds through the disabled attach button and the absent paste
+  // frame (composer-input.tsx) instead; a sent-anyway staged image surfaces
+  // the documented visible provider error. Absent availability (provider
+  // gate) registers no adapter, so adds are rejected loudly, never silently
+  // accepted.
+  const attachmentsPresent = attachmentsAvailability !== undefined;
   const attachmentsAdapter = useMemo(
-    () => (attachmentsEnabled ? createAssistantImageAttachmentAdapter() : undefined),
-    [attachmentsEnabled]
+    () => (attachmentsPresent ? createAssistantImageAttachmentAdapter() : undefined),
+    [attachmentsPresent]
   );
   const runtimeAdapters =
     historyAdapter || attachmentsAdapter
@@ -1246,7 +1253,9 @@ const ChatThreadUI = ({
               siblings. A feature is mounted ONLY when its seam is present —
               an unmounted popover means the trigger char does nothing special
               (never an empty menu). Send / Cancel are unchanged. */}
-          {attachmentsAvailability?.state === 'enabled' ? <ComposerAttachmentsBar /> : null}
+          {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
+              its preview + Remove button after a switch to a text-only model. */}
+          {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
             queueControl={<QueueFollowUpButton threadKey={threadKey} />}

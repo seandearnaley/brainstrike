@@ -18,9 +18,12 @@ export interface PlanModeComposerControls {
 /**
  * Composer image-attachment availability, resolved by the app-shell wrapper.
  * Absent means the affordance is not offered at all (provider gate: the
- * text-only built-in local provider). 'disabled' renders the attach button
- * visibly disabled with `reason` (per-model vision gate) — never a silent
- * hide — and registers no attachment adapter, so image paste is rejected too.
+ * text-only built-in local provider) and no adapter is registered. 'disabled'
+ * renders the attach button visibly disabled with `reason` (per-model vision
+ * gate) — never a silent hide — and blocks NEW adds (disabled button, no
+ * paste frame) while keeping the adapter and preview strip alive so an
+ * attachment staged before a model switch stays removable instead of being
+ * wiped by an adapter-less send.
  */
 export type ComposerAttachmentsAvailability =
   | { readonly state: 'enabled' }
@@ -89,9 +92,10 @@ const ComposerInputRow = ({
           </ComposerPrimitive.AddAttachment>
         ) : null}
         {attachmentsAvailability?.state === 'disabled' ? (
-          // A plain disabled button (not the AddAttachment primitive): no
-          // attachment adapter is registered in this state, and the reason
-          // must stay visible rather than the affordance silently vanishing.
+          // A plain disabled button (not the AddAttachment primitive): adds
+          // are blocked in this state while the adapter stays registered for
+          // already-staged attachments, and the reason must stay visible
+          // rather than the affordance silently vanishing.
           <button
             aria-label="Attach image (unavailable)"
             className="aui-button aui-button-ghost"

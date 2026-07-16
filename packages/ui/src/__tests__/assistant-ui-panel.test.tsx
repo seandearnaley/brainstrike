@@ -1399,7 +1399,7 @@ describe('AssistantUiPanel composer attachments availability', () => {
   });
 
   it('renders a visibly disabled attach button carrying the reason when the model lacks vision', () => {
-    render(
+    const { container } = render(
       <AssistantUiPanel
         {...baseProps}
         attachmentsAvailability={{
@@ -1413,17 +1413,56 @@ describe('AssistantUiPanel composer attachments availability', () => {
     const attach = screen.getByTestId('assistant-attach-image');
     expect(attach).toBeDisabled();
     expect(attach).toHaveAttribute('title', expect.stringContaining('GPT-Text cannot read images'));
-    // Disabled must not register an adapter: paste/add is rejected by
-    // assistant-ui with a visible no-adapter error, never silently accepted.
+    // The adapter STAYS registered while disabled: an attachment staged before
+    // a switch to a text-only model must remain removable/sendable (the
+    // visible provider error is the net) — an adapter-less composer would
+    // wipe the typed text + staged image with an unhandled "Attachments are
+    // not supported" rejection on Send. New adds are blocked by the disabled
+    // button and the absent paste frame instead.
+    const lastRuntimeOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as
+      | { adapters?: { attachments?: unknown } }
+      | undefined;
+    expect(lastRuntimeOptions?.adapters?.attachments).toBeDefined();
+    // The preview strip stays mounted so a staged image keeps its Remove button.
+    expect(container.querySelector('.bs-composer-attachments')).not.toBeNull();
+  });
+
+  it('keeps the same adapter instance across an enabled-to-disabled model switch', () => {
+    const { rerender } = render(
+      <AssistantUiPanel
+        {...baseProps}
+        attachmentsAvailability={{ state: 'enabled' }}
+        onModelChange={() => {}}
+      />
+    );
+    const enabledOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as
+      | { adapters?: { attachments?: unknown } }
+      | undefined;
+
+    rerender(
+      <AssistantUiPanel
+        {...baseProps}
+        attachmentsAvailability={{ reason: 'No vision.', state: 'disabled' }}
+        onModelChange={() => {}}
+      />
+    );
+    const disabledOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as
+      | { adapters?: { attachments?: unknown } }
+      | undefined;
+
+    // Same instance — a re-created (or torn-down) adapter would reset staged
+    // composer attachments mid-thread on a model switch.
+    expect(disabledOptions?.adapters?.attachments).toBe(enabledOptions?.adapters?.attachments);
+  });
+
+  it('renders no attachment affordance at all when availability is absent (provider-gated)', () => {
+    const { container } = render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    expect(screen.queryByTestId('assistant-attach-image')).toBeNull();
     const lastRuntimeOptions = useBrainstrikeDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as
       | { adapters?: { attachments?: unknown } }
       | undefined;
     expect(lastRuntimeOptions?.adapters?.attachments).toBeUndefined();
-  });
-
-  it('renders no attachment affordance at all when availability is absent (provider-gated)', () => {
-    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
-
-    expect(screen.queryByTestId('assistant-attach-image')).toBeNull();
+    expect(container.querySelector('.bs-composer-attachments')).toBeNull();
   });
 });

@@ -456,20 +456,13 @@ function resolveReportedCapabilities(
     // LM Studio's native type discriminant separates text-only 'llm' from
     // vision-language 'vlm' models, so both classifications are authoritative.
     case 'llm':
-      return {
-        capabilitySource: 'provider_reported',
-        dimensionsKnown: { state: 'not_applicable' },
-        embeddings: 'unsupported',
-        llm: true,
-        vision: 'unsupported',
-      };
     case 'vlm':
       return {
         capabilitySource: 'provider_reported',
         dimensionsKnown: { state: 'not_applicable' },
         embeddings: 'unsupported',
         llm: true,
-        vision: 'supported',
+        vision: modelType === 'vlm' ? 'supported' : 'unsupported',
       };
   }
 }

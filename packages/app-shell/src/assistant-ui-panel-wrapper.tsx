@@ -97,7 +97,6 @@ import {
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderModelSelection,
-  type SelectedModelBudgetDef,
   toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
@@ -381,21 +380,12 @@ export function AssistantUiPanelWrapper({
       (m: LlmProviderModelDefinition) => m.id === resolvedModelName
     );
   }, [getProviderLlmModels, resolvedModelName, selectedProvider]);
-  const selectedModelBudgetDef = useMemo<SelectedModelBudgetDef | undefined>(() => {
-    if (!selectedLlmModelDef) {
-      return;
-    }
-    return {
-      contextWindow: selectedLlmModelDef.contextWindow,
-      ...(selectedLlmModelDef.maxOutputTokens === undefined
-        ? {}
-        : { maxOutputTokens: selectedLlmModelDef.maxOutputTokens }),
-    };
-  }, [selectedLlmModelDef]);
-
   const agentLoopSettings = useMemo(
-    () => buildAgentLoopSettings(selectedProviderSettings, selectedModelBudgetDef),
-    [selectedModelBudgetDef, selectedProviderSettings]
+    // LlmProviderModelDefinition structurally satisfies SelectedModelBudgetDef
+    // (contextWindow required, maxOutputTokens optional on both) — no
+    // projection needed.
+    () => buildAgentLoopSettings(selectedProviderSettings, selectedLlmModelDef),
+    [selectedLlmModelDef, selectedProviderSettings]
   );
   const effectiveInputBudget = agentLoopSettings?.inputTokenLimit;
   const assistantMemoryOptions = useMemo(
@@ -1483,7 +1473,7 @@ export function AssistantUiPanelWrapper({
         <AssistantUiPanel
           {...(composerDraftCommand ? { composerDraftCommand } : {})}
           completePreparedRequest={completePreparedRequest}
-          contextWindow={selectedModelBudgetDef?.contextWindow}
+          contextWindow={selectedLlmModelDef?.contextWindow}
           {...(cumulativeUsage ? { cumulativeUsage } : {})}
           effectiveInputBudget={effectiveInputBudget}
           omSegment={omSegment}

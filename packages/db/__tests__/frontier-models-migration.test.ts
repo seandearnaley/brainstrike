@@ -1,3 +1,4 @@
+import { listProviders } from '@brainstrike/assistant-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
@@ -198,6 +199,40 @@ describe('frontier models migrations', () => {
     await runner.down(migrations, 59);
     expect(await vision('claude-sonnet-5')).toBeNull();
     expect(await vision('onnx-community/gemma-4-E2B-it-ONNX')).toBeNull();
+  });
+
+  it('mirrors the static registry vision declarations VALUE-for-value', {
+    timeout: 60_000,
+  }, async () => {
+    // Migration 060's id lists "must stay in sync" with the registry (its own
+    // header comment). The blanket no-NULL check catches a FORGOTTEN id but
+    // not a FLIPPED value: without this test, moving one model between the
+    // true/false lists (or flipping its registry declaration) ships green
+    // while the DB mirror silently disagrees with the gate's source of truth.
+    await runner.initialize();
+    await runner.up(migrations);
+
+    const registryVisionById = new Map<string, string>();
+    for (const provider of listProviders()) {
+      for (const model of provider.models) {
+        if (model.type === 'llm') {
+          registryVisionById.set(model.id, model.vision);
+        }
+      }
+    }
+
+    const rows = await db.query(
+      "SELECT id, capabilities->>'vision' AS vision FROM models WHERE capabilities->>'type' = 'llm'"
+    );
+    expect(rows.rows.length).toBeGreaterThan(0);
+    for (const raw of rows.rows) {
+      const row = raw as { id: string; vision: string | null };
+      const registryVision = registryVisionById.get(row.id);
+      // Every catalog LLM row must exist in the static registry…
+      expect(registryVision, `${row.id} has no static-registry entry`).toBeDefined();
+      // …and carry the SAME vision value (jsonb boolean vs registry string).
+      expect(row.vision, row.id).toBe(registryVision === 'supported' ? 'true' : 'false');
+    }
   });
 
   it('adds and rolls back the provider billed-cost column', { timeout: 60_000 }, async () => {

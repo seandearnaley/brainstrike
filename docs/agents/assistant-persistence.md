@@ -126,7 +126,14 @@ Image attachments (composer → model → persistence → reload):
   `LocalRuntimeNormalizedModel.capabilities.vision` for Ollama /api/show +
   LM Studio vlm/llm discovery). 'unsupported' renders a visibly DISABLED
   attach button whose title names the model and the reason (never a silent
-  hide) and registers no attachment adapter, so paste is rejected too.
+  hide); NEW adds are blocked by the disabled button and the absent paste
+  frame, but the attachment ADAPTER stays registered and the preview strip
+  stays mounted — an attachment staged under a vision model must remain
+  visible/removable after a switch to a text-only model (assistant-ui's
+  composer wipes text + staged attachments and throws an unhandled
+  "Attachments are not supported" rejection if Send runs with no adapter;
+  a sent-anyway staged image surfaces the visible provider error instead).
+  Only ABSENT availability (provider gate) registers no adapter.
   'unknown' (runtime-discovered model without a capability signal) and an
   unresolved definition stay optimistic — a wrong guess surfaces as a visible
   provider error, never a silently blocked composer.
