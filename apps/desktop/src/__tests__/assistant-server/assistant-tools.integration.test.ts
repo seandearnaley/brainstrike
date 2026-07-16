@@ -2892,6 +2892,14 @@ describe('assistant-tools', () => {
     });
   });
 
+  it('marks webExtract as a read-risk retrieval tool (no approval, like webSearch)', () => {
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.webExtract']).toMatchObject({
+      category: 'retrieval',
+      requiresApproval: false,
+      riskCategory: 'read',
+    });
+  });
+
   it('registers every desktop assistant tool in NATIVE_TOOL_DEFAULTS', () => {
     // Tools absent from NATIVE_TOOL_DEFAULTS are excluded from enabledNativeToolIds
     // (built from NATIVE_TOOL_DEFAULTS) and dropped by buildDesktopAssistantTools

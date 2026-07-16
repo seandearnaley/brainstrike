@@ -35,6 +35,8 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'Bulk add, remove, or replace files selected in the workspace context explorer for reusable curated context',
   'brainstrike.updateWorkspaceTapestrySelections':
     'Create, update, or clear token-aware Tapestry line ranges for selected workspace context files',
+  'brainstrike.webExtract':
+    'Fetch the readable content of up to 5 public web pages as markdown (the natural follow-up to webSearch results, or for a user-pasted URL). SENDS THE URLS TO AN EXTERNAL EXTRACTION SERVICE (Tavily); refuses non-http(s), credentialed, and private/internal URLs before anything is sent. Returns a clear "unavailable" message (not an error) when no Tavily key is configured',
   'brainstrike.webSearch':
     'Search the web for current docs, APIs, error messages, and library usage. SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider\'s built-in search when available, otherwise Tavily). Returns a clear "unavailable" message (not an error) when no provider-native search and no Tavily key are configured',
   'brainstrike.writeWorkspaceFile':

@@ -53,7 +53,10 @@ export {
   TOOL_APPROVAL_RUN_CONFIG_KEY,
   type ToolApprovalRunConfigActionReadResult,
 } from '@brainstrike/assistant-contract/tool-approval';
-export { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
+export {
+  buildNativeToolRiskMap,
+  WEB_EXTRACT_TOOL_ID,
+} from '@brainstrike/assistant-contract/tool-metadata';
 export {
   type AskUserAnswer,
   type AskUserOption,
@@ -489,6 +492,8 @@ export {
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
   validateToolInput,
+  type WebExtractInput,
+  WebExtractInputSchema,
   type WebSearchInput,
   WebSearchInputSchema,
   type WriteWorkspaceFileInput,

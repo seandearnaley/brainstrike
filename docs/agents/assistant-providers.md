@@ -155,6 +155,22 @@ The assistant's search verbs, in the order the default instructions present them
    corpus-dependent; ts_rank-era fixed thresholds do not transfer). `, id` tiebreaks
    keep ordering deterministic (BM25 ties are common). `rankNormalization` is inert.
    RRF fuses rank POSITIONS, so the fusion layer is unchanged.
+4. Web retrieval pair (external service — Tavily via the shared `'tavily'`
+   secrets-store key, env `BRAINSTRIKE_TAVILY_API_KEY`/`TAVILY_API_KEY` first):
+   `brainstrike.webSearch` (snippets; provider-native search swapped in on
+   Anthropic/OpenAI) and `brainstrike.webExtract` (report R5 — reads up to 5
+   PUBLIC pages behind results/user URLs as markdown, Tavily `/extract`; it has
+   NO provider-native swap and must stay Tavily-backed). Both are keyless-
+   HONEST (`available:false` + actionable message, never a throw) and
+   non-fatal on network errors. webExtract additionally validates every
+   model-supplied URL BEFORE anything is sent (http/https only, no embedded
+   credentials, no private/loopback/link-local hosts — IPv4 literal ranges +
+   IPv6 `::1`/`fe80::/10`/`fc00::/7`; public hostnames are NOT DNS-resolved
+   locally since the fetch runs on Tavily's servers, the guard keeps clearly
+   internal URLs from leaving the machine) and reports every refusal per-URL
+   in `failed` — never a silent drop. Content is bounded per page (6000 chars)
+   and overall via `fitItemsToCharBudget`. Hermetic tests:
+   apps/desktop/src/__tests__/assistant-server/web-extract-tool.test.ts.
 
 Tool output budget (anti-thrash contract): budgets are token-denominated (`NATIVE_TOOL_RESULT_TOKEN_BUDGET` 2750, guard `MAX_TOOL_RESULT_TOKENS` 3000 in packages/agent/src/stream/tool-output-limits.ts) and enforced deterministically on serialized chars at 4 chars/token (mirrors `countTokensHeuristic`). Native tools self-bound their result lists via `fitItemsToCharBudget` and return SUCCESSFUL partial results with `truncated: true`, totals, and an actionable `hint` (offset/filters) built INSIDE the budget-fitted candidate — never a size error. The transport guard (`boundToolOutputForModel`) is a backstop: oversized collection-shaped outputs (matches/entries/results/items/files/chunks/rows) are structurally trimmed to fit with the same truncated+hint contract; only opaque non-collection outputs (e.g. MCP strings) still produce the `tool_result_too_large` error+preview, reported in ~tokens. Do not reintroduce hard size failures for native tools. `listWorkspaceContext` is concise by default (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 

@@ -48,6 +48,8 @@ import {
   UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
+  type WebExtractInput,
+  WebExtractInputSchema,
   type WebSearchInput,
   WebSearchInputSchema,
   type WriteWorkspaceFileInput,
@@ -97,6 +99,11 @@ import { MANAGE_TASK_LIST_TOOL_ID, runManageTaskList } from './manage-task-list-
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
+  runWebExtract,
+  WEB_EXTRACT_TOOL_ID,
+  type WebExtractToolDependencies,
+} from './web-extract-tool';
+import {
   runWebSearch,
   WEB_SEARCH_TOOL_ID,
   type WebSearchToolDependencies,
@@ -130,6 +137,8 @@ export interface DesktopAssistantToolDependencies {
    * hermetically. In production this is omitted and runWebSearch resolves the
    * real keychain key and uses the real fetch.
    */
+  /** Same injection seam as `webSearch`, for the webExtract tool. */
+  webExtract?: WebExtractToolDependencies | undefined;
   webSearch?: WebSearchToolDependencies | undefined;
 }
 
@@ -2514,6 +2523,23 @@ export function buildDesktopAssistantTools(
       },
       id: WEB_SEARCH_TOOL_ID,
       inputSchema: WebSearchInputSchema,
+    },
+    [WEB_EXTRACT_TOOL_ID]: {
+      description:
+        'Fetch the readable content of up to 5 PUBLIC web pages as markdown — the natural follow-up to webSearch results, or for a URL the user pasted. SENDS THE URLS TO AN EXTERNAL EXTRACTION SERVICE (Tavily): never pass URLs carrying secrets or pointing at private/internal hosts; non-http(s), credentialed, and private/loopback URLs are refused before anything is sent and reported per-URL. When no Tavily API key is configured (Settings → API Keys), returns a non-fatal "unavailable, add a key" result rather than failing. Content is bounded per page and to a fixed overall budget.',
+      // The Tavily key is resolved server-side inside runWebExtract and never
+      // returned to the model. No injected deps here → real fetch + keychain.
+      execute: async (input: ToolExecuteInput<WebExtractInput>) => {
+        const resolvedInput = parseToolExecuteInput(WebExtractInputSchema, input);
+        try {
+          return await runWebExtract(resolvedInput, dependencies.webExtract);
+        } catch (error) {
+          logToolFailure('webExtract failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: WEB_EXTRACT_TOOL_ID,
+      inputSchema: WebExtractInputSchema,
     },
     [READ_WORKSPACE_FILE_TOOL_ID]: {
       description:

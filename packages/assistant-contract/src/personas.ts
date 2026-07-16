@@ -12,7 +12,11 @@
  * registry the permission gate uses. An unknown id is NOT read — it throws.
  */
 
-import { NATIVE_TOOL_DEFAULTS, WEB_SEARCH_TOOL_ID } from './tool-categories.js';
+import {
+  NATIVE_TOOL_DEFAULTS,
+  WEB_EXTRACT_TOOL_ID,
+  WEB_SEARCH_TOOL_ID,
+} from './tool-categories.js';
 import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
 
 /** Ids of the personas that ship with the app. */
@@ -161,6 +165,7 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
       'brainstrike.readWorkspaceDirectory',
       'brainstrike.grepSearch',
       WEB_SEARCH_TOOL_ID,
+      WEB_EXTRACT_TOOL_ID,
     ],
     description:
       'Delegate focused analysis that combines reading workspace files with external web ' +
