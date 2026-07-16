@@ -65,14 +65,29 @@ export function isEconnResetStreamError(error: unknown): boolean {
 
 /**
  * The Agent-config `errorProcessors` stack (the un-clobbered seam — per-call
- * `inputProcessors` never touch it). Covers every `processAPIError` recovery:
+ * `inputProcessors` never touch it). Covers every `processAPIError` recovery.
  *
- * 1. StreamErrorRetryProcessor — transient mid-stream / ECONNRESET failures.
- * 2. PrefillErrorHandler — reloaded-thread assistant-prefill rejections.
- * 3. ProviderHistoryCompat — the REACTIVE cross-provider rules (e.g. Anthropic
+ * ORDER IS LOAD-BEARING: Mastra's ProcessorRunner returns at the FIRST
+ * processor that requests a retry, so the FIXUP processors must run before
+ * the unknown-error retry — otherwise a deterministic prefill / history-compat
+ * rejection is blindly retried with the UNCHANGED request until the budget
+ * burns, and the mutation that would fix it never happens (verified against
+ * the compiled 1.51 runner; pinned by the prompt-sensitive prefill test):
+ *
+ * 1. PrefillErrorHandler — reloaded-thread assistant-prefill rejections,
+ *    recovered by MUTATING history (must see `retryCount === 0`).
+ * 2. ProviderHistoryCompat — the REACTIVE cross-provider rules (e.g. Anthropic
  *    tool-id rewrite). Its PREEMPTIVE `processLLMRequest` rules do NOT fire from
  *    this array — those ride the per-call input array (see
  *    {@link buildProviderHistoryCompatInputProcessor}).
+ * 3. StreamErrorRetryProcessor — transient mid-stream / ECONNRESET failures,
+ *    plus (1.51) UNKNOWN errors as the LAST RESORT, bounded by the same
+ *    maxRetries + backoff. Known-terminal authorization failures (401/403 /
+ *    invalid_api_key-class codes, matched through the cause chain) surface
+ *    immediately — a bad key must fail loudly. Deliberate trade-off: OTHER
+ *    deterministic non-auth errors (e.g. a 400 context-length rejection) eat
+ *    the bounded ~3s retry budget before surfacing — accepted for the
+ *    transient-error recovery the option buys.
  *
  * Returns `undefined` for the built-in local provider (excluded — see
  * {@link isLocalProvider}), so the bare-Agent path keeps zero error processors
@@ -83,6 +98,8 @@ export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[
     return;
   }
   return [
+    new PrefillErrorHandler(),
+    new ProviderHistoryCompat(),
     new StreamErrorRetryProcessor({
       delayMs: ({ retryCount }) => Math.min(1000 * 2 ** retryCount, STREAM_ERROR_BACKOFF_CAP_MS),
       matchers: [isEconnResetStreamError],
@@ -91,15 +108,8 @@ export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[
       // chain) so a hostile/buggy header can never stall a retry past the
       // same ceiling as our own backoff.
       maxRetryAfterMs: STREAM_ERROR_BACKOFF_CAP_MS,
-      // 1.51: retry UNKNOWN stream errors too (bounded by the same
-      // maxRetries + backoff), while known-terminal authorization failures
-      // (401/403 / invalid_api_key-class codes, matched through the cause
-      // chain) still surface immediately — a bad key must fail loudly, never
-      // burn a silent retry budget.
       retryUnknownErrors: true,
     }),
-    new PrefillErrorHandler(),
-    new ProviderHistoryCompat(),
   ];
 }
 
