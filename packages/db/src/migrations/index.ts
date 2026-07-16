@@ -59,6 +59,7 @@ import { migration057UpdateProviderModels202607 } from './057-update-provider-mo
 import { migration058ProviderBilledCost } from './058-provider-billed-cost.js';
 import { migration059AssistantThreadGroupIcons } from './059-assistant-thread-group-icons.js';
 import { migration060AssistantRunOutcomes } from './060-assistant-run-outcomes.js';
+import { migration061JobQueueOutcomeMetrics } from './061-job-queue-outcome-metrics.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -124,6 +125,7 @@ export const migrations: Migration[] = [
   migration058ProviderBilledCost,
   migration059AssistantThreadGroupIcons,
   migration060AssistantRunOutcomes,
+  migration061JobQueueOutcomeMetrics,
 ];
 
 // Export base migrations (without chunks table) for test environments
