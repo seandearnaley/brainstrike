@@ -163,6 +163,60 @@ When changing this flow, update this section and the related tests.
 
 ---
 
+## POST-EDIT LSP DIAGNOSTICS (report R2 Phase A)
+
+After a successful workspace edit, a language server runs over the edited file
+and its diagnostics (errors/warnings) are attached to the tool result, so the
+agent learns about a broken edit immediately instead of only when a later
+build/test fails. Desktop-only (needs child processes + fs; web omits it —
+capability-gated, no `isElectron()`).
+
+- **Bespoke, not the core primitive.** Core 1.51 ships an LSP primitive but
+  only inside its (non-adopted) Workspace/sandbox model and behind unexported
+  deep paths, so `apps/desktop/src/assistant-server/lsp-diagnostics.ts` lifts
+  the WIRE PROTOCOL (standard `vscode-jsonrpc` + `vscode-languageserver-
+  protocol`, both bundled desktop deps), not the class.
+- **Bundled flagship server.** Phase A ships TypeScript/JavaScript only, via a
+  BUNDLED `typescript-language-server` + `typescript` (desktop `dependencies`,
+  so it works out-of-box). Reliability recipe (all three required, verified):
+  spawn the server's `cli.mjs` through `process.execPath` +
+  `ELECTRON_RUN_AS_NODE=1` (packaged apps have no standalone `node`); pin
+  `initializationOptions.tsserver.path` to the bundled `typescript/lib/
+  tsserver.js` (deterministic — OUR TS version); and advertise the
+  `textDocument.publishDiagnostics` client capability (without it the server
+  stays silent). Diagnostics land as two pushes (`[]` then the real set), so a
+  settle-window is mandatory — an empty publish is polled a little longer
+  before the "clean" verdict is trusted. py/go/rust + an `lsp_inspect` read
+  tool (hover/definition/implementations, `<<<` cursor) are Phase B.
+- **Pool + lifecycle.** One pooled server child process per workspace `rootId`
+  (module-level Map, mirroring `execute-command-tool`'s `liveChildProcesses`).
+  Every server MUST be torn down: `disposeLspServers()` is wired into BOTH the
+  factory-reset `runtimes[]` and graceful shutdown in `main.ts` (alongside the
+  shell/terminal reapers); `evictLspServersForRoot(rootId)` fires from the
+  `fs:removeRoot` IPC handler. The no-orphan proof is the heart of
+  `lsp-diagnostics.integration.test.ts`.
+- **No silent fallbacks.** An unresolvable server, an unsupported language, or
+  a diagnostics timeout all resolve to an honest result the caller attaches —
+  never a throw that would fail the already-applied edit. Unsupported languages
+  (markdown/json) OMIT the `lsp` field entirely (no note spam); a supported
+  language whose server is unavailable/timed out attaches `{available:false,
+  message}`. Diagnostics are self-bounded (≤15, message ≤300 chars, errors
+  first) because `lsp.diagnostics` is NESTED and not a trimmable collection key
+  — the transport budget guard cannot rescue an oversized blob.
+- **Scope note.** Wired into `write` + `stringReplace` (content-editing tools,
+  where diagnostics catch a just-introduced error); `rename` is deliberately
+  excluded (content unchanged → diagnostics would report pre-existing state as
+  noise, plus a bonus read).
+
+Diagnostics run OUTSIDE the per-file write lock (a language-server round-trip
+must not extend the write's critical section). Proofs:
+`lsp-diagnostics.integration.test.ts` (real subprocess: diagnostics,
+pooling, no-orphan dispose, honest degrade) + the `post-edit LSP diagnostics`
+cases in `assistant-tools.integration.test.ts`. When changing this flow, update
+this section and those tests.
+
+---
+
 ## PERMISSION ENGINE (TOOL APPROVAL)
 
 Mutation tools PROMPT for per-call approval by default. The permission policy

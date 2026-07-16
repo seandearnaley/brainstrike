@@ -7,6 +7,7 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { RootDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
+import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 import {
   createFileReadErrorPayload,
   FILE_READ_ERROR_CODE_NOT_FOUND,
@@ -606,6 +607,13 @@ export function registerFileSystemIpcHandlers({
 
       const remaining = entries.filter((entry) => entry.rootId !== rootId);
       await writeRootsList(storage, remaining);
+
+      // Tear down any pooled LSP language server for this root (report R2): the
+      // folder is leaving the workspace, so its server child process must not
+      // linger. Non-fatal — a stray server would otherwise idle until quit.
+      await evictLspServersForRoot(rootId).catch((error: unknown) => {
+        logger.debug('removeRoot: LSP server eviction failed (non-fatal)', { error, rootId });
+      });
 
       // Keep the dual stores coherent: clear lastFolderPath only when it points
       // at the removed root's path.

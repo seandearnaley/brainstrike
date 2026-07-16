@@ -98,6 +98,7 @@ import { findSymbolMatches } from './find-workspace-symbol';
 import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
 import { HYBRID_SEARCH_TOOL_ID, runHybridSearch } from './hybrid-search-tool';
+import { type EditDiagnosticsResult, getEditDiagnostics } from './lsp-diagnostics';
 import { MANAGE_TASK_LIST_TOOL_ID, runManageTaskList } from './manage-task-list-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
@@ -694,6 +695,37 @@ export async function triggerEditedFileReindex(args: {
   }
 }
 
+/**
+ * Post-edit LSP diagnostics (report R2 Phase A), run AFTER the per-file lock
+ * releases so a language-server round-trip never extends the write's critical
+ * section. ALWAYS non-fatal: diagnostics must never fail an already-applied
+ * edit. Returns undefined for unsupported languages (no note spam on every
+ * markdown/json edit); for supported languages it returns the honest result
+ * (diagnostics, or an available:false note when the server is unavailable/
+ * timed out) for the tool to attach to its result.
+ */
+async function collectEditDiagnostics(args: {
+  root: RuntimeWorkspaceRoot;
+  absolutePath: string;
+  content: string;
+}): Promise<EditDiagnosticsResult | undefined> {
+  try {
+    const result = await getEditDiagnostics({
+      absolutePath: args.absolutePath,
+      content: args.content,
+      rootId: args.root.rootId,
+      rootPath: args.root.path,
+    });
+    return result.reason === 'unsupported-language' ? undefined : result;
+  } catch (error) {
+    logger.error('Post-edit LSP diagnostics failed; edit still applied', {
+      error: redactToolErrorForLog(error),
+      path: REDACTED_PATH_LOG_VALUE,
+    });
+    return;
+  }
+}
+
 async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
@@ -703,6 +735,7 @@ async function runWriteWorkspaceFile(
   path: string;
   bytesWritten: number;
   created: boolean;
+  lsp?: EditDiagnosticsResult;
 }> {
   const buffer = Buffer.from(input.content, 'utf8');
   if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
@@ -770,11 +803,20 @@ async function runWriteWorkspaceFile(
     return writeResult;
   });
 
+  // Diagnose OUTSIDE the lock (report R2): a language-server round-trip must
+  // not extend the write's critical section. Non-fatal.
+  const lsp = await collectEditDiagnostics({
+    absolutePath: resolved.absolutePath,
+    content: input.content,
+    root,
+  });
+
   return {
     bytesWritten: buffer.byteLength,
     created,
     path: resolved.workspacePath,
     rootName: root.displayName,
+    ...(lsp ? { lsp } : {}),
   };
 }
 
@@ -788,6 +830,7 @@ async function runStringReplaceWorkspaceFile(
   bytesWritten: number;
   matchType: StringReplaceMatchType;
   replaced: true;
+  lsp?: EditDiagnosticsResult;
 }> {
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Resolve the write path up front so we can lock on the canonical absolute
@@ -881,7 +924,15 @@ async function runStringReplaceWorkspaceFile(
     return {
       bytesWritten: buffer.byteLength,
       matchType: replacement.matchType,
+      newContent: replacement.newContent,
     };
+  });
+
+  // Diagnose OUTSIDE the lock (report R2), against the just-written content.
+  const lsp = await collectEditDiagnostics({
+    absolutePath: resolved.absolutePath,
+    content: result.newContent,
+    root,
   });
 
   return {
@@ -890,6 +941,7 @@ async function runStringReplaceWorkspaceFile(
     path: resolved.workspacePath,
     replaced: true,
     rootName: root.displayName,
+    ...(lsp ? { lsp } : {}),
   };
 }
 

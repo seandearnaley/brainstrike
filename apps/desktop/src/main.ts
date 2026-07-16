@@ -20,6 +20,7 @@ import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { registerAssetProtocol, registerAssetProtocolPrivileges } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
+import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
@@ -753,6 +754,9 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
         disposeLiveChildProcesses();
         // Reap any live terminal pty so no interactive shell survives the app.
         disposeAllTerminals();
+        // Reap any pooled LSP language servers (report R2) so no orphaned
+        // server process survives the app quit.
+        await disposeLspServers();
         if (stopAssistantServer) {
           await stopAssistantServer();
           stopAssistantServer = null;
@@ -887,6 +891,12 @@ const handleResetLocal = createDesktopFactoryResetHandler({
         disposeAllTerminals();
         return Promise.resolve();
       },
+    },
+    // Reap any pooled LSP language-server child processes (report R2) so a
+    // factory reset is a true fresh start with no orphaned server surviving.
+    {
+      name: 'lsp-servers',
+      stop: () => disposeLspServers(),
     },
   ],
   runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,

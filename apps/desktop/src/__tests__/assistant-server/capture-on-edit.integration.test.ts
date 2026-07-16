@@ -97,14 +97,17 @@ afterEach(async () => {
 describe('edit checkpoint capture on write', () => {
   it('records a "created" checkpoint for a new file and keeps the result contract', async () => {
     const tools = buildDesktopAssistantTools(runtime());
+    // Plain-text fixture (.txt): keeps this a focused checkpoint-CONTRACT test
+    // with a strict toEqual — a .ts path would additionally attach the post-edit
+    // `lsp` diagnostics field (report R2), which is covered by its own tests.
     const result = await tools['brainstrike.writeWorkspaceFile']?.execute?.(
-      { content: 'hello\n', path: '/new.ts' },
+      { content: 'hello\n', path: '/new.txt' },
       runContext('call-write-1')
     );
     expect(result).toEqual({
       bytesWritten: 6,
       created: true,
-      path: '/new.ts',
+      path: '/new.txt',
       rootName: 'Project',
     });
 
@@ -114,7 +117,7 @@ describe('edit checkpoint capture on write', () => {
       before_existed: false,
       capture_status: 'created',
       op: 'write',
-      path: '/new.ts',
+      path: '/new.txt',
       run_id: RUN_ID,
       thread_id: THREAD_ID,
       tool_call_id: 'call-write-1',
@@ -182,16 +185,16 @@ describe('capture is non-fatal and gated', () => {
     dbHolder.fail = true;
     const tools = buildDesktopAssistantTools(runtime());
     const result = await tools['brainstrike.writeWorkspaceFile']?.execute?.(
-      { content: 'hi', path: '/x.ts' },
+      { content: 'hi', path: '/x.txt' },
       runContext('call-x')
     );
     expect(result).toEqual({
       bytesWritten: 2,
       created: true,
-      path: '/x.ts',
+      path: '/x.txt',
       rootName: 'Project',
     });
-    expect(await fsPromises.readFile(path.join(rootPath, 'x.ts'), 'utf8')).toBe('hi');
+    expect(await fsPromises.readFile(path.join(rootPath, 'x.txt'), 'utf8')).toBe('hi');
   });
 
   it('does not journal when there is no active memory thread', async () => {
