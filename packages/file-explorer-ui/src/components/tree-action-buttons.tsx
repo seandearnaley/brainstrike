@@ -152,8 +152,8 @@ export const TreeActionButtons = React.memo(
     return (
       <div className="flex shrink-0 items-center gap-1">
         {/* Inline scanning indicator - shown to the left of action buttons.
-            Placed before the (fixed-width) buttons so the filter row's flexible
-            search input absorbs its width, keeping the buttons from shifting.
+            Placed before the (fixed-width) buttons so the right cluster's
+            flexible column absorbs its width, keeping the buttons from shifting.
             Hide ONLY the indicator's spinner when an adjacent button is already
             spinning (Refresh while isRefreshing, Expand-all while
             isExpandingAll) -- two spinning circles in one row is the redundancy
@@ -191,7 +191,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label={expandLabel}
-              className="@[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
+              className="@max-[240px]/explorer-toolbar:hidden @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
               data-testid="expand-all-button-small"
               disabled={expandDisabled}
               onClick={onExpandAll}
@@ -213,7 +213,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Collapse All"
-              className="@[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
+              className="@max-[240px]/explorer-toolbar:hidden @[128px]/explorer-toolbar:size-8 @[96px]/explorer-toolbar:size-7 size-6"
               data-testid="collapse-all-button-small"
               disabled={collapseDisabled}
               onClick={onCollapseAll}
