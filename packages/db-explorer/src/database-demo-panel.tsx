@@ -149,7 +149,7 @@ function DatabasePanelStateContent({ error }: { error?: Error }): ReactElement {
             <div className="flex min-w-0 items-center gap-2 text-muted-foreground text-xs">
               <Database className="size-4 shrink-0" />
               <span className="@[360px]:inline hidden" data-testid="database-panel-loading-label">
-                {failed ? 'Database unavailable' : 'Database'}
+                {failed ? 'Collections unavailable' : 'Collections'}
               </span>
             </div>
             <div aria-hidden="true" className="flex @[360px]:gap-2 gap-1">
@@ -562,7 +562,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       [
         {
           critical: true,
-          name: 'Clear Database',
+          name: 'Clear Collections',
           operation: async () => clearAllData(),
         },
         {
@@ -584,10 +584,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       ],
       setClearing,
       {
-        partialSuccessMessage: 'Database was cleared but some data reload operations failed',
-        partialSuccessTitle: 'Database Cleared',
-        successMessage: 'Database has been cleared and data reloaded successfully',
-        successTitle: 'Database Cleared',
+        partialSuccessMessage: 'Collections were cleared but some data reload operations failed',
+        partialSuccessTitle: 'Collections Cleared',
+        successMessage: 'All collections data has been cleared and reloaded successfully',
+        successTitle: 'Collections Cleared',
       }
     );
   }, [clearAllData, toast, loadRecords, loadChunks, errorBoundary]);
@@ -868,7 +868,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         </Panel>
       </Group>
 
-      {/* Clear Database Dialog - triggered from Import Settings */}
+      {/* Clear All Collections dialog - triggered from Import Settings */}
       <ClearDatabaseDialog
         chunksCount={activeCollectionCounts.chunks}
         clearing={clearing}

@@ -33,8 +33,8 @@ test.describe('Database Persistence', () => {
   }
 
   /**
-   * Expand the Import Settings panel to access the Clear Database button.
-   * The Clear Database button was moved to Import Settings > Danger Zone.
+   * Expand the Import Settings panel to access the Clear All Collections button.
+   * The Clear All Collections button was moved to Import Settings > Danger Zone.
    */
   async function expandImportSettings(page: Page): Promise<void> {
     const panelScope = page.locator('[data-testid="database-demo-panel"]');
@@ -43,9 +43,9 @@ test.describe('Database Persistence', () => {
       .or(panelScope.locator(IMPORT_SETTINGS_SELECTOR))
       .first();
     // The settings content is rendered in a portal, so it must be queried from the page root.
-    const clearDatabaseButton = page.getByRole('button', { name: 'Clear Database' });
+    const clearDatabaseButton = page.getByRole('button', { name: 'Clear All Collections' });
 
-    // Check if settings are already expanded (Clear Database button visible)
+    // Check if settings are already expanded (Clear All Collections button visible)
     const isAlreadyExpanded = await clearDatabaseButton
       .isVisible({ timeout: 500 })
       .catch(() => false);
@@ -56,9 +56,9 @@ test.describe('Database Persistence', () => {
     // Click Import Settings to expand
     if (await importSettingsButton.isVisible({ timeout: 2000 })) {
       await importSettingsButton.click();
-      // Wait for the settings panel to expand and Clear Database button to appear
+      // Wait for the settings panel to expand and Clear All Collections button to appear
       await clearDatabaseButton.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
-        console.warn('⚠️ Clear Database button not visible after expanding Import Settings');
+        console.warn('⚠️ Clear All Collections button not visible after expanding Import Settings');
       });
     }
   }
@@ -488,7 +488,7 @@ test.describe('Database Persistence', () => {
     }
 
     const confirmButton = confirmDialog
-      .locator('button:has-text("Clear Database")')
+      .locator('button:has-text("Clear All Collections")')
       .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
     if (await confirmButton.isVisible()) {
       await confirmButton.click();
@@ -508,11 +508,11 @@ test.describe('Database Persistence', () => {
       return;
     }
 
-    // Expand Import Settings to access Clear Database button
+    // Expand Import Settings to access Clear All Collections button
     await expandImportSettings(activePage);
 
     const clearButton = activePage.getByRole('button', {
-      name: /Clear Database|Counts pending/,
+      name: /Clear All Collections|Counts pending/,
     });
     const visible = await clearButton.isVisible({ timeout: 10_000 }).catch(() => false);
     if (!visible) {
@@ -555,10 +555,10 @@ test.describe('Database Persistence', () => {
       return;
     }
 
-    // Expand Import Settings to access Clear Database button
+    // Expand Import Settings to access Clear All Collections button
     await expandImportSettings(page);
 
-    const clearButton = page.locator('button:has-text("Clear Database")');
+    const clearButton = page.locator('button:has-text("Clear All Collections")');
     await expect(clearButton).toBeVisible();
     await expect(clearButton).toBeEnabled({ timeout: 5000 });
 
@@ -568,7 +568,7 @@ test.describe('Database Persistence', () => {
     await expect(confirmDialog).toBeVisible({ timeout: 5000 });
 
     const confirmButton = confirmDialog
-      .locator('button:has-text("Clear Database")')
+      .locator('button:has-text("Clear All Collections")')
       .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
     await expect(confirmButton).toBeVisible();
     await confirmButton.click();
@@ -624,7 +624,9 @@ test.describe('Database Persistence', () => {
     await executeClearDatabaseWorkflow(activeWindow);
   });
 
-  test('should properly disable Clear Database button when no data exists', async ({ window }) => {
+  test('should properly disable Clear All Collections button when no data exists', async ({
+    window,
+  }) => {
     let activeWindow = await ensureDatabasePanelVisibleQuick(window);
     if (!activeWindow) {
       return;
@@ -635,23 +637,25 @@ test.describe('Database Persistence', () => {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       // Expand Import Settings first to check button count
       await expandImportSettings(activeWindow);
-      await expect(activeWindow.getByRole('button', { name: 'Clear Database' })).toHaveCount(0);
+      await expect(activeWindow.getByRole('button', { name: 'Clear All Collections' })).toHaveCount(
+        0
+      );
       return;
     }
 
     await clickRefreshIfAvailable(activeWindow);
 
-    // Expand Import Settings to access Clear Database button
+    // Expand Import Settings to access Clear All Collections button
     await expandImportSettings(activeWindow);
 
     const clearButton = activeWindow.getByRole('button', {
-      name: /Clear Database|Counts pending/,
+      name: /Clear All Collections|Counts pending/,
     });
     await expect(clearButton).toBeVisible();
     await expect(clearButton).toBeDisabled();
   });
 
-  test('should handle Clear Database with uninitialized database gracefully', async ({
+  test('should handle Clear All Collections with uninitialized database gracefully', async ({
     electron,
   }) => {
     test.info().annotations.push({ type: 'preserve-electron-state' });
@@ -686,7 +690,7 @@ test.describe('Database Persistence', () => {
     try {
       if (await dialog.isVisible({ timeout: 2000 })) {
         const confirmButton = dialog
-          .locator('button:has-text("Clear Database")')
+          .locator('button:has-text("Clear All Collections")')
           .or(dialog.locator('button:has-text("Clear")'))
           .or(dialog.locator('button:has-text("Confirm")'));
         if (await confirmButton.isVisible()) {
@@ -719,10 +723,10 @@ test.describe('Database Persistence', () => {
       return activePage;
     }
 
-    // Expand Import Settings to access Clear Database button
+    // Expand Import Settings to access Clear All Collections button
     await expandImportSettings(activePage);
 
-    const clearButton = activePage.locator('button:has-text("Clear Database")');
+    const clearButton = activePage.locator('button:has-text("Clear All Collections")');
     if (await clearButton.isVisible()) {
       const cleared = await clearWithButton(activePage, clearButton);
       if (!cleared) {
