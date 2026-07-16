@@ -62,7 +62,9 @@ import {
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
+import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
+import { ComposerAttachmentsBar, UserMessageAttachments } from './composer-attachments';
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
 import { ComposerInputWithTriggers } from './composer-input';
@@ -218,6 +220,13 @@ import type {
 } from '@brainstrike/types';
 
 export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
+  /** Models for the ModelPicker component */
+  /**
+   * Enables composer image attachments (attach button, image paste, preview
+   * strip). Gated by the app-shell wrapper — absent/false renders no
+   * attachment affordance and registers no attachment adapter.
+   */
+  attachmentsEnabled?: boolean;
   className?: string;
   completePreparedRequest?: (
     requestData: Record<string, unknown> | undefined,
@@ -292,7 +301,6 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
   /** Called with the provider's exact token counts from a finish-message chunk. */
   onUsage?: (usage: AssistantUsage) => void;
-  /** Models for the ModelPicker component */
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
@@ -649,6 +657,8 @@ const ThreadHistoryControl = ({
 
 // Shared props for inner chat components
 interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
+  /** Enables composer image attachments (attach button, paste, previews). */
+  attachmentsEnabled?: boolean | undefined;
   completePreparedRequest?:
     | ((
         requestData: Record<string, unknown> | undefined,
@@ -871,6 +881,7 @@ const DataStreamRuntimeChat = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   planMode,
+  attachmentsEnabled,
   toolMenu,
   threadKey,
 }: ChatThreadProps & {
@@ -910,9 +921,27 @@ const DataStreamRuntimeChat = ({
     []
   );
 
+  // Stable adapter instance: recreating it per render would reset composer
+  // attachment state. Absent when attachments are disabled — no adapter means
+  // assistant-ui rejects adds with a visible no-adapter error, never a silent
+  // accept.
+  const attachmentsAdapter = useMemo(
+    () => (attachmentsEnabled ? createAssistantImageAttachmentAdapter() : undefined),
+    [attachmentsEnabled]
+  );
+  const runtimeAdapters =
+    historyAdapter || attachmentsAdapter
+      ? {
+          adapters: {
+            ...(attachmentsAdapter ? { attachments: attachmentsAdapter } : {}),
+            ...(historyAdapter ? { history: historyAdapter } : {}),
+          },
+        }
+      : {};
+
   const runtime = useBrainstrikeDataStreamRuntime({
     api,
-    ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
+    ...runtimeAdapters,
     body: async () => {
       if (preparedRequestRef.current) {
         throw new Error('Cannot start a hosted assistant run while another run is in progress.');
@@ -973,6 +1002,7 @@ const DataStreamRuntimeChat = ({
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}
             {...(planMode ? { planMode } : {})}
+            {...(attachmentsEnabled ? { attachmentsEnabled } : {})}
             providerGroups={providerGroups}
             providerSettings={providerSettings}
             selectedModel={selectedModel}
@@ -1019,6 +1049,7 @@ const ChatThreadUI = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   planMode,
+  attachmentsEnabled,
   threadKey,
   toolMenu,
 }: {
@@ -1027,6 +1058,7 @@ const ChatThreadUI = ({
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
+  attachmentsEnabled?: boolean | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -1202,8 +1234,10 @@ const ChatThreadUI = ({
               siblings. A feature is mounted ONLY when its seam is present —
               an unmounted popover means the trigger char does nothing special
               (never an empty menu). Send / Cancel are unchanged. */}
+          {attachmentsEnabled ? <ComposerAttachmentsBar /> : null}
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
+            {...(attachmentsEnabled ? { attachmentsEnabled } : {})}
             {...(planMode ? { planMode } : {})}
             {...(hasSlashCommands
               ? {
@@ -1273,6 +1307,7 @@ export const AssistantUiPanel = ({
   onTogglePlanMode,
   onToolApprovalRequired,
   onUsage,
+  attachmentsEnabled,
   planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
@@ -1384,6 +1419,7 @@ export const AssistantUiPanel = ({
         ) : (
           <DataStreamRuntimeChat
             api={api}
+            attachmentsEnabled={attachmentsEnabled}
             completePreparedRequest={completePreparedRequest}
             composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
@@ -1447,6 +1483,7 @@ const UserMessage = () => {
         className="aui-user-message-content col-start-2 row-start-2 max-w-xl break-words rounded-2xl bg-muted px-4 py-2"
         testId="assistant-user-message-content"
       >
+        <UserMessageAttachments />
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */

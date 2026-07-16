@@ -841,6 +841,10 @@ export function AssistantUiPanelWrapper({
   // than silently no-opping.
   const planModeAvailable = localChatTransport === 'data-stream' && selectedProvider !== 'local';
   const planMode = planModeEnabledPref && planModeAvailable;
+  // Image attachments share plan mode's availability predicate: data-stream
+  // transport (server-side image conversion) and never the text-only built-in
+  // local provider. Per-model vision gating is a documented follow-up.
+  const attachmentsAvailable = planModeAvailable;
   const exitPlanMode = useCallback(() => setPlanModeEnabled(false), [setPlanModeEnabled]);
 
   // Workspace instructions context-file injection (AGENTS.md/AGENT.md/CLAUDE.md).
@@ -1507,6 +1511,7 @@ export function AssistantUiPanelWrapper({
                 planModeEnabled: planModeEnabledPref,
               }
             : {})}
+          {...(attachmentsAvailable ? { attachmentsEnabled: true } : {})}
         />
       </EditCheckpointProvider>
     </ToolApprovalGrantProvider>
