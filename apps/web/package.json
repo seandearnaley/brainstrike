@@ -10,6 +10,7 @@
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/notes-vault": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/server-config": "workspace:*",

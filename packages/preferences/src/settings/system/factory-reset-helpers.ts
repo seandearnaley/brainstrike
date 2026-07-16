@@ -35,6 +35,7 @@ export const FALLBACK_INDEXED_DB_NAMES = [
   // Non-PGlite IndexedDB stores (named bare, not via Emscripten IDBFS).
   'brainstrike-desktop', // Desktop renderer queue/embeddings database
   'brainstrike-file-handles', // Web File System Access handle cache (IndexedDB)
+  'brainstrike-notes-vault', // Notes vault directory handles (@brainstrike/notes-vault handle-store.ts)
   // NOTE: `brainstrike-web` was a PGlite store (idb://brainstrike-web) → its real
   // database name is `/pglite/brainstrike-web` (listed above), so there is no bare
   // `brainstrike-web` entry here.
