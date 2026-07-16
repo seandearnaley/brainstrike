@@ -83,6 +83,9 @@ export function ExplorerSearchTabs(): ReactElement {
 
   return (
     <Tabs
+      // Manual activation: arrow keys move focus without activating, so
+      // keyboard roving never latches (and lazily downloads) the Search panel.
+      activationMode="manual"
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
       onValueChange={handleValueChange}
       value={activeTab}

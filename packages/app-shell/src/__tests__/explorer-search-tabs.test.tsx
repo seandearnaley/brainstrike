@@ -70,6 +70,21 @@ describe('ExplorerSearchTabs', () => {
     expect(useContextExplorerLayoutStore.getState().explorerActiveTab).toBe('search');
   });
 
+  it('does not activate or mount Search from keyboard roving alone', async () => {
+    const user = userEvent.setup();
+    render(<ExplorerSearchTabs />);
+
+    screen.getByRole('tab', { name: 'Explorer' }).focus();
+    await user.keyboard('{ArrowRight}');
+
+    // Manual activation: focus roves without selecting, so the expensive
+    // Search panel is neither latched nor lazily downloaded.
+    expect(screen.getByRole('tab', { name: 'Search' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Search' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.queryByTestId('workspace-search-panel-mock')).not.toBeInTheDocument();
+    expect(useContextExplorerLayoutStore.getState().explorerActiveTab).toBe('explorer');
+  });
+
   it('keeps the Search panel mounted after switching back to Explorer', async () => {
     const user = userEvent.setup();
     render(<ExplorerSearchTabs />);

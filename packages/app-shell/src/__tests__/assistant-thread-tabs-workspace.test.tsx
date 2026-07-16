@@ -264,9 +264,12 @@ describe('AssistantThreadTabsWorkspace', () => {
 
     // The close button is a flex sibling of the tab button (vertically centered
     // by the row), not an absolutely positioned overlay pinned to a corner.
-    expect(closeButton.className).not.toMatch(/absolute/);
+    expect(closeButton).not.toHaveClass('absolute');
     expect(closeButton.parentElement).toBe(tab.parentElement);
     expect(closeButton).toHaveClass('h-5', 'w-5');
+    // Visual box is 20px, but the pseudo-element extends the hit target to
+    // 28px so the pointer target stays above the 24px minimum guidance.
+    expect(closeButton.className).toMatch(/after:-inset-1/);
 
     // Leading and close glyphs share one optical size (12px in a 20px box).
     const leadingIcon = screen.getByTestId('assistant-thread-tab-icon-rose');
