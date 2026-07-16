@@ -258,11 +258,29 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   aggregates. Both are optional on `AssistantThreadRepository` (read-only/test
   repositories) and required on `BulkAssistantThreadRepository`.
 
+- **Ledger panel:** the Task Ledger renders inside the existing **Cost
+  Tracking settings category** (`createCostTrackingSettingsCategory` in
+  `packages/app-shell/src/cost-tracking/index.tsx`, consumed by both apps'
+  settings page-content), stacked below `CostAggregationPanel`. Data is
+  renderer-direct (Path A): `use-run-ledger.ts` is a PGlite live query over the
+  shared `RUN_LEDGER_AGGREGATION_SQL` + `mapRunLedgerRow` pair (limit 50), and
+  `use-ledger-analytics.ts` fetches `getLedgerCostTrend` (day bucket) +
+  `getModelComparison` with a manual refresh. Both gate on
+  `hasDurableAssistantUsageCapability()` exactly like the sibling cost panel
+  (web renders an honest session-only state). Honest-cost rules: exact
+  provider-reported cost renders as-is; a registry-priced remainder is marked
+  "est."; unpriced models read "cost unavailable" and zero-usage runs read
+  "no usage recorded" — NEVER a fabricated $0; malformed aggregates and query
+  failures surface as a visible error state with retry, never an
+  empty-but-fine panel.
+
 When changing this flow, update this section and the paired tests
 (`packages/db/__tests__/migration-060-assistant-run-outcomes.test.ts`,
 `packages/app-shell/src/__tests__/run-ledger-row.test.ts`, the run-outcome and
-run-ledger cases in `assistant-memory-repository.integration.test.ts`, and the
-outcome-labeling suite in `use-edit-checkpoints.test.ts`).
+run-ledger cases in `assistant-memory-repository.integration.test.ts`, the
+outcome-labeling suite in `use-edit-checkpoints.test.ts`, and the panel suites
+in `packages/app-shell/src/cost-tracking/__tests__/` — `task-ledger-panel`,
+`use-run-ledger`, `use-ledger-analytics`).
 
 ---
 
