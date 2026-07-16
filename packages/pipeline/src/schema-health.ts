@@ -421,6 +421,12 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
 
   async function cancelAllPendingJobs(): Promise<RecoveryResult> {
     try {
+      // The metrics CTE mirrors incrementOutcomeMetricsCte in @brainstrike/db
+      // (packages/db/src/queue/job-queue.ts) — pipeline cannot depend on that
+      // package, so keep the SQL shape in sync by hand. Folding the lifetime
+      // canceled counter into the same statement as the transition keeps the
+      // aggregate-then-prune invariant: a job can never reach 'canceled'
+      // without being counted.
       const result = await db.query<{ count: string }>(`
         WITH canceled AS (
           UPDATE job_queue
@@ -431,7 +437,13 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
             worker_id = NULL,
             updated_at = NOW()
           WHERE state IN ('queued', 'running')
-          RETURNING 1
+          RETURNING queue
+        ),
+        metrics AS (
+          INSERT INTO job_queue_metrics (queue, canceled_total)
+          SELECT queue, COUNT(*) FROM canceled GROUP BY queue
+          ON CONFLICT (queue) DO UPDATE
+            SET canceled_total = job_queue_metrics.canceled_total + EXCLUDED.canceled_total
         )
         SELECT COUNT(*)::text as count FROM canceled
       `);
