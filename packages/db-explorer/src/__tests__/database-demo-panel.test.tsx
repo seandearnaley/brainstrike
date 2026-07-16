@@ -650,13 +650,21 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByText(/Create or select a collection/i)).toBeInTheDocument();
     });
 
-    it('fetches model registry on mount', async () => {
+    it('defers runtime model catalog loading until collection creation', async () => {
+      const user = userEvent.setup();
       renderWithProviders(<DatabaseDemoPanel />);
 
-      await waitFor(() => {
-        expect(mockEnsureModelRegistry).toHaveBeenCalledWith(
-          expect.objectContaining({ db: mockDatabase })
-        );
+      expect(mockUseLocalRuntimeEmbeddingModelCatalog).not.toHaveBeenCalled();
+      const registryHookCallsBeforeCreate = mockEnsureModelRegistry.mock.calls.length;
+
+      await user.click(screen.getByRole('button', { name: 'New' }));
+
+      expect(mockEnsureModelRegistry.mock.calls.length).toBeGreaterThan(
+        registryHookCallsBeforeCreate
+      );
+      expect(mockUseLocalRuntimeEmbeddingModelCatalog).toHaveBeenCalledWith({
+        maxVerificationModels: 8,
+        verifyEmbeddingDimensions: true,
       });
     });
   });
@@ -884,6 +892,34 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Data Loading', () => {
+    it('keeps an already loaded collection interactive while live data revalidates', async () => {
+      mockRecordLiveQueryResult.rows = [
+        {
+          createdAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
+          id: 'loaded-record',
+          name: 'loaded.txt',
+          path: '/loaded.txt',
+          size: 100,
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      const view = renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByText('loaded.txt')).toBeInTheDocument();
+      });
+
+      mockRecordLiveQueryResult.loading = true;
+      view.rerender(withProviders(<DatabaseDemoPanel />));
+
+      expect(screen.getByTestId('collection-tree-region')).toHaveAttribute('aria-busy', 'false');
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+      expect(screen.getByText('loaded.txt')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+    });
+
     it('loads file records and provides them to collection browser', async () => {
       const mockRecords = [
         {

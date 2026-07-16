@@ -76,6 +76,48 @@ interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
 }
 
+interface CreateCollectionDialogProps {
+  db: ReturnType<typeof usePGliteDatabase>;
+  onClose: () => void;
+  onCreated: (newSetId: string, newSet: EmbeddingSet) => void;
+  repository: ReturnType<typeof useEmbeddingSetsRepository>;
+}
+
+function CreateCollectionDialog({
+  db,
+  onClose,
+  onCreated,
+  repository,
+}: CreateCollectionDialogProps): ReactElement {
+  const models = useModelRegistryStore((state) => state.models);
+  const providers = useModelRegistryStore((state) => state.providers);
+  const isRegistryLoading = useModelRegistryStore((state) => state.isLoading);
+  useEnsureModelRegistry({ db });
+  const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
+    useLocalRuntimeEmbeddingModelCatalog({
+      maxVerificationModels: 8,
+      verifyEmbeddingDimensions: true,
+    });
+  const availableModels = useAvailableModels(models, runtimeEmbeddingCatalog);
+  const availableProviders = useAvailableProviders(providers, runtimeEmbeddingCatalog);
+
+  return (
+    <CreateEmbeddingSetDialog
+      isLoading={isRegistryLoading || isRuntimeCatalogLoading}
+      models={availableModels}
+      onOpenChange={(open: boolean) => {
+        if (!open) {
+          onClose();
+        }
+      }}
+      onSetCreated={onCreated}
+      open
+      providers={availableProviders}
+      repository={repository}
+    />
+  );
+}
+
 function DatabasePanelFrame({
   busy,
   children,
@@ -275,45 +317,30 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   // Use Zustand store directly as single source of truth for collection selection and import state
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
-  const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
-  const activeCollection = useMemo(() => {
-    if (!activeCollectionId) {
-      return null;
-    }
-    return cachedCollections.find((collection) => collection.id === activeCollectionId) ?? null;
-  }, [activeCollectionId, cachedCollections]);
-  const activeCollectionName = useMemo(
-    () => activeCollection?.name ?? activeCollection?.modelKey ?? undefined,
-    [activeCollection]
-  );
+  const activeCollectionName = useVectorStatusUIStore((state) => {
+    const collection = state.cachedCollections.find(
+      (candidate) => candidate.id === activeCollectionId
+    );
+    return collection?.name ?? collection?.modelKey ?? undefined;
+  });
+  const activeCollectionSystemRole = useVectorStatusUIStore((state) => {
+    const collection = state.cachedCollections.find(
+      (candidate) => candidate.id === activeCollectionId
+    );
+    return collection?.systemRole ?? null;
+  });
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
   const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
   const managedCollectionId = useBackgroundIndexingPreferencesStore((s) => s.managedCollectionId);
   const isManagedCollection = Boolean(
     activeCollectionId &&
-      (activeCollection?.systemRole === 'workspace-index' ||
+      (activeCollectionSystemRole === 'workspace-index' ||
         activeCollectionId === managedCollectionId)
   );
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
-
-  // Get enabled models from model registry. Selector-scoped subscriptions:
-  // a bare useModelRegistryStore() re-renders this entire panel on every
-  // store update — including per-tick setDownloadProgress during downloads.
-  const models = useModelRegistryStore((s) => s.models);
-  const providers = useModelRegistryStore((s) => s.providers);
-  const isRegistryLoading = useModelRegistryStore((s) => s.isLoading);
-  useEnsureModelRegistry({ db: dbContext });
-  const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
-    useLocalRuntimeEmbeddingModelCatalog({
-      maxVerificationModels: 8,
-      verifyEmbeddingDimensions: true,
-    });
-
-  const availableModels = useAvailableModels(models, runtimeEmbeddingCatalog);
-  const availableProviders = useAvailableProviders(providers, runtimeEmbeddingCatalog);
 
   const showSettings = useDatabaseDemoStore((s) => s.showSettings);
   const recordPage = useDatabaseDemoStore((s) => s.recordPage);
@@ -348,6 +375,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     collectionCountsStatus,
     records,
     chunks,
+    initialLoading,
     refreshing,
     loadRecords,
     loadChunks,
@@ -568,7 +596,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const handleCollectionChange = useCallback(
     (collectionId: string | null) => {
       const nextCollection = collectionId
-        ? cachedCollections.find((collection) => collection.id === collectionId)
+        ? useVectorStatusUIStore
+            .getState()
+            .cachedCollections.find((collection) => collection.id === collectionId)
         : null;
       if (nextCollection?.systemRole === 'workspace-index') {
         return;
@@ -576,7 +606,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       logger.info('Collection changed', { collectionId });
       setActiveCollectionId(collectionId);
     },
-    [cachedCollections, setActiveCollectionId]
+    [setActiveCollectionId]
   );
 
   const handleManualRefresh = useCallback(() => {
@@ -818,10 +848,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               <CollectionBrowserView
                 activeCollectionId={activeCollectionId}
                 {...(activeCollectionName ? { activeCollectionName } : {})}
-                activeCollectionSystemRole={activeCollection?.systemRole ?? null}
+                activeCollectionSystemRole={activeCollectionSystemRole}
                 chunks={chunks}
                 height="100%"
-                isLoading={refreshing}
+                isLoading={initialLoading}
                 loadChunkDetail={loadChunkDetail}
                 loadFileChunkSummaries={loadFileChunkSummaries}
                 pagination={{
@@ -851,21 +881,14 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
       {/* Create Collection Dialog */}
       {collectionDialogs.createCollectionOpen && (
-        <CreateEmbeddingSetDialog
-          isLoading={isRegistryLoading || isRuntimeCatalogLoading}
-          models={availableModels}
-          onOpenChange={(open: boolean) => {
-            if (!open) {
-              collectionDialogs.closeCreateDialog();
-            }
-          }}
-          onSetCreated={(newSetId: string, newSet: EmbeddingSet) => {
+        <CreateCollectionDialog
+          db={dbContext}
+          onClose={collectionDialogs.closeCreateDialog}
+          onCreated={(newSetId: string, newSet: EmbeddingSet) => {
             upsertCachedCollection(collectionCacheSnapshotFromEmbeddingSet(newSet));
             handleCollectionChange(newSetId);
             collectionDialogs.closeCreateDialog();
           }}
-          open={collectionDialogs.createCollectionOpen}
-          providers={availableProviders}
           repository={embeddingSetsRepository}
         />
       )}
