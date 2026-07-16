@@ -95,3 +95,77 @@ genuinely env-sensitive lanes stay uncached.
 
 Remaining recommendations (R3, R5–R8, R10, R12) are proposed as follow-up PR
 series, each independently testable in an isolated worktree.
+
+## Implementation status (as of 2026-07-15)
+
+The remaining recommendations from the 2026-07-12 status above have now been
+executed across two more PR series (B and C), plus a data point on the
+deferred merge-queue call. Six factual premises from the original review were
+measured during execution and found false — see "Corrections" below; the
+original text above is unchanged.
+
+- R1, R2, R4, R9-partial, R11 — landed 2026-07-12 (#1608–#1613), as above.
+- **R3** — Series B, all merged 2026-07-14: #1650 (script hygiene), #1649
+  (`globalDependencies` narrowing + guard), #1651 (test-lane src-alias
+  registry + execution guard), #1652 (Unit phase split), #1658 (topo transit
+  node; whole-repo test graph 39 build tasks → 3). Series B's audit overturned
+  R3's premises — see correction 1.
+- **R6, R7, R8, R9-remainder, R12a** — Series C, all merged 2026-07-14/15:
+  #1662 (orphan deletion), #1663 (lane-manifest verification — the §7
+  "derive coverage-lanes from test-lanes" recommendation was already
+  implemented; both scripts already imported one shared manifest, so the task
+  became verification + doc correction), #1664 (Coverage → its own
+  once-per-lifecycle workflow), #1666 (TS7 parity findings; outcome: do not
+  adopt yet), #1667 (one module-resolution registry), #1668 (composite setup
+  action + content-hashed arch-namespaced turbo cache key), #1669 (pnpm
+  catalogs replace syncpack, with CI enforcement), #1670 (Static + Unit →
+  `ubuntu-24.04-arm`).
+- **R5, R10** — deferred to a planned Series D (in planning as of 2026-07-15).
+  **R12b** (Turbo 3.0 prep / `cacheMaxAge`) deferred, with measured reasons in
+  #1668. **R12c** (boundaries-advisory) deferred.
+- §6's "merge queue deliberately deferred" ruling got a data point: Series C
+  hit a real cross-PR integration failure (C2's Playwright-pin guard reads
+  `@playwright/test`'s version; C6 catalogued it, so the guard crashed on the
+  literal string `'catalog:'`), caught by PR CI on the integrated tree and
+  fixed in #1669. The tripwire (red-main incidents) was not hit; the deferral
+  stands.
+
+### Corrections (2026-07-15)
+
+> **Correction.** Six factual premises above and in the full report were
+> measured during execution and found false. The original claims are left as
+> written; corrected figures follow.
+
+1. **R3's "18 packages double-compile"** — false: it was double *parse*, not
+   double *compile* (`emitDeclarationOnly` was already set everywhere; tsup
+   was always the sole JS emitter). "Tests import source directly" was also
+   false for 13 of 18 packages until #1651 made it true.
+2. **R7's "11–14 min per sync" for Coverage** — measured Coverage runs are
+   5–9.5 min. The mechanism (per-sync waste) was right; the magnitude was
+   overstated. Measured saving on 5 sample PRs: 21 coverage runs → 5 under the
+   new on-demand model.
+3. **R9's "Static's fixed 8–13 min floor"** (the lint-cache prize) — measured
+   Static total is ~197s on typical pushes; the 8m+ figures were cold
+   whole-repo-invalidation runs. Lint is ~91s, and 6 of `lint:ci`'s 8 chained
+   commands are inherently whole-repo scanners. Lint caching was deferred —
+   the realistic prize is ~40–60s on a cache hit.
+4. **R9's ARM expectation** — ARM is not faster: Static measured 2.7–3.0 min
+   on arm64 vs. 2.9–3.1 min on x64 (parity, not a speedup). The win is purely
+   the 37% cheaper per-minute rate. turbo's cache key is also
+   architecture-agnostic (hash omits CPU arch; `runner.os` reports `"Linux"`
+   on both), and the remote cache replays x64-produced results on ARM — so ARM
+   buys the rate discount, not independent per-arch validation. Recorded in
+   `docs/agents/ci-quality.md`.
+5. **R8's "`catalogMode: strict` to reject drift"** — pnpm's strict mode does
+   not reject a hand-edited literal for a catalogued dep: `pnpm install` exits
+   0 and resolves a second, parallel version; only
+   `pnpm add <pkg>@<off-catalog-version>` is rejected. #1669 ships the real
+   enforcement, `scripts/verify-catalog-references.mjs` (Static job) — a check
+   syncpack never had, since it was never wired into CI.
+6. **R12a's TS7 adoption** — parity fails: 64/67 type-check invocations match
+   byte-for-byte, but `apps/desktop/tsconfig.main.json`'s
+   `moduleResolution: "node"` is a removed option under TS7, and the paired
+   fix (`module`/`moduleResolution: Node16`) yields 88 errors under *both*
+   compilers — adoption is blocked on a full CJS→ESM migration of the
+   Electron main process. Findings + a re-runnable parity guard shipped in
+   #1666 (`docs/series-c-ts7-parity-findings.md`).

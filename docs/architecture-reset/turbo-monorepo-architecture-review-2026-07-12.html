@@ -211,6 +211,11 @@
   </div>
 </header>
 
+<div class="callout">
+  <div class="ct">Status — 2026-07-15</div>
+  <p>This review has been fully executed across three PR series (#1608–#1670). See the paired short-form doc's "Implementation status (as of 2026-07-15)" section for the PR-by-PR ledger. Six factual premises below were measured during execution and found false; each is marked in place with a <strong>Correction — 2026-07-15</strong> callout beside the original claim, which is left unedited. R5 and R10 (structural extraction/splits) are deferred to a planned Series D; R12b (Turbo 3.0 prep) and R12c (boundaries-advisory) remain deferred.</p>
+</div>
+
 <nav class="toc" aria-label="Contents">
   <ol>
     <li><a href="#verdict">Verdict &amp; headline numbers</a></li>
@@ -460,6 +465,11 @@
     <div class="why"><b>Grounding:</b> Turborepo's official TypeScript guide recommends per-package <code>tsc --noEmit</code> check tasks under turbo (explicitly <em>not</em> project references); your shape already matches; this makes the build side match too. <b>Payoff compounds with R2:</b> smaller build graphs → more cache hits → faster lanes.</div>
   </div>
 
+  <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p>Series B's build-mechanics audit (#1650, #1649, #1651, #1652, #1658) found the "18 packages double-compile" premise above overstated: it was double <em>parse</em>, not double <em>compile</em> — every package already set <code>emitDeclarationOnly</code>, and tsup was always the sole JS emitter. Because desktop main executes <code>dist</code> at runtime by design, declaration-only builds were dropped as a goal rather than pursued. Separately, "tests import source directly" (the premise behind narrowing <code>test.dependsOn</code>) was false for 13 of 18 packages until #1651 made it true via a src-alias registry and execution guard. The series still landed real wins — script hygiene, <code>globalDependencies</code> narrowing, a Unit phase split, and a topo transit node that collapsed the whole-repo test graph from 39 build tasks to 3 — just not the ones this recommendation predicted.</p>
+  </div>
+
   <div class="rec tier-now">
     <h3><span class="rid">R4</span>Ungate smoke E2E from Unit</h3>
     <div class="chips"><span class="chip info">this week</span><span class="chip serious">impact: PR latency</span><span class="chip good">effort: one line</span><span class="chip good">risk: trivial</span></div>
@@ -494,11 +504,21 @@
     <div class="why"><b>Trade-off stated honestly:</b> you lose per-push Codecov patch deltas. Given a 1.8% revert rate and an enforced nightly threshold gate, per-sync instrumentation is paying for signal you rarely consume.</div>
   </div>
 
+  <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p>The "11–14 min per sync" figure above was overstated: measured Coverage runs are 5–9.5 min. The mechanism (per-sync waste on an advisory lane) was right; the magnitude wasn't. #1664 moved Coverage to its own once-per-lifecycle workflow; measured across 5 sample PRs, that collapsed 21 coverage runs to 5.</p>
+  </div>
+
   <div class="rec tier-month">
     <h3><span class="rid">R8</span>Adopt pnpm catalogs; retire syncpack</h3>
     <div class="chips"><span class="chip info">this month</span><span class="chip warning">impact: dependency hygiene</span><span class="chip good">effort: small</span><span class="chip good">risk: low</span></div>
     <p>Catalogs (<code>catalog:</code> protocol in <code>pnpm-workspace.yaml</code>) are the canonical single-source for dependency versions, with <code>catalogMode: strict</code> to reject drift and <code>cleanupUnusedCatalogs</code>. Turborepo's lockfile analysis understands catalogs, so a catalog bump only cache-misses affected packages. This replaces syncpack's job with a native mechanism, and Renovate has first-class catalog support. Also audit pnpm 11's on-by-default supply-chain settings (<code>minimumReleaseAge: 1440</code>, <code>blockExoticSubdeps</code>, <code>trustPolicy</code>): your workspace file already carries a documented <code>minimumReleaseAgeExclude</code>, which is exactly the right pattern; confirm the umbrella settings weren't disabled during the v11 migration.</p>
     <div class="why"><b>Grounding:</b> pnpm catalogs + settings docs; pnpm 11.0 release post; Turborepo 2.7 notes (catalog-aware hashing).</div>
+  </div>
+
+  <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p>"<code>catalogMode: strict</code> to reject drift" doesn't do what the name implies: pnpm's strict mode does not reject a hand-edited literal version for a catalogued dependency. <code>pnpm install</code> exits 0 and silently resolves a second, parallel version. Only <code>pnpm add &lt;pkg&gt;@&lt;off-catalog-version&gt;</code> is rejected. #1669 ships the real enforcement, <code>scripts/verify-catalog-references.mjs</code> in the Static job, a check syncpack never had since it was never wired into CI.</p>
   </div>
 
   <div class="rec tier-month">
@@ -512,6 +532,12 @@
       <li>Make <code>lint</code> cacheable per-package (Biome is file-local and deterministic on inputs; the eslint invocation targets 4 fixed dirs, so key on them), keeping only genuinely repo-global checks (secret scan, contracts) uncached. This attacks Static's fixed 8–13 min floor.</li>
     </ul>
     <div class="why"><b>Grounding:</b> GitHub "Avoiding duplication" (composite actions for repeated setup); arm64-in-private-repos changelog (2026-01-29) + runner pricing docs.</div>
+  </div>
+
+  <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p><strong>Lint-cache prize.</strong> "Static's fixed 8–13 min floor" was overstated: measured Static total is ~197s on typical pushes, and Lint itself is ~91s of that. The 8m+ figures were cold whole-repo-invalidation runs, not the steady state. 6 of <code>lint:ci</code>'s 8 chained commands are inherently whole-repo scanners, so lint caching was deferred; the realistic prize is ~40–60s on a cache hit, not minutes.</p>
+    <p><strong>ARM runners.</strong> #1670 measured Static at 2.7–3.0 min on <code>ubuntu-24.04-arm</code> vs. 2.9–3.1 min on x64: parity, not a speedup. The win is purely the 37% cheaper per-minute rate. Also, turbo's cache key is architecture-agnostic (the hash omits CPU arch; <code>runner.os</code> reports <code>"Linux"</code> on both), and the remote cache replays x64-produced results on ARM runners, so ARM buys the rate discount, not independent per-arch validation. Recorded in <code>docs/agents/ci-quality.md</code>.</p>
   </div>
 
   <div class="rec tier-quarter">
@@ -546,8 +572,18 @@
   </div>
 
   <div class="callout warn">
+    <div class="ct">Correction — 2026-07-15</div>
+    <p>#1666's parity check found TS7 adoption blocked, not merely "an early-adopter surface": 64 of 67 type-check invocations match byte-for-byte, but <code>apps/desktop/tsconfig.main.json</code>'s <code>moduleResolution: "node"</code> is a removed option under TS7, and the paired fix (<code>module</code>/<code>moduleResolution: Node16</code>) produces 88 errors under <em>both</em> compilers. Adoption is blocked on a full CJS→ESM migration of the Electron main process, not a TS7-side gap. Findings plus a re-runnable parity guard are in <code>docs/series-c-ts7-parity-findings.md</code>.</p>
+  </div>
+
+  <div class="callout warn">
     <div class="ct">Considered and deliberately deferred: merge queue</div>
     <p>With <code>strict_required_status_checks_policy: false</code> and ~27 pushes/day, stale-base merges land semantically untested: the textbook merge-queue case (<code>merge_group</code> trigger + required checks is the canonical protection for busy repos). But a queue multiplies CI runs at exactly the volume where you're trying to cut spend, and R2 makes the existing mitigation (full post-merge test run + fast revert culture) nearly free. <strong>Defer, with a tripwire:</strong> if red-main incidents recur after R1/R2 land, adopt the queue and let the cached lanes absorb the extra runs.</p>
+  </div>
+
+  <div class="callout">
+    <div class="ct">Update — 2026-07-15</div>
+    <p>The tripwire above (red-main incidents) was not hit, so the deferral stands. But Series C did hit a real cross-PR integration failure: C2's Playwright-pin guard read <code>@playwright/test</code>'s version, and C6 catalogued that dependency, so the guard crashed on the literal string <code>'catalog:'</code>. PR CI caught it on the integrated tree; fixed in #1669.</p>
   </div>
 </section>
 
@@ -564,6 +600,11 @@
       <li><strong>Capability-injection over <code>isElectron()</code>.</strong> The pattern is sound; the §2 web↔desktop coupling is about duplicated composition roots, not the gating idiom. A shared platform-composition seam is worth exploring <em>after</em> R5, not before.</li>
       <li><strong>Contract packages, at current count.</strong> They serialize process boundaries well. Just don't add more expecting decoupling; the history data (81% lockstep) says that's not what they buy here.</li>
     </ul>
+  </div>
+
+  <div class="callout">
+    <div class="ct">Status — 2026-07-15</div>
+    <p>#1663 verified the "db lane registries" recommendation above was already implemented: both <code>coverage-lanes.mjs</code> and <code>test-lanes.mjs</code> import one shared <code>db-test-lane-manifest.mjs</code>, so coverage lane assignment is automatic and the "register in BOTH" footgun this bullet worried about no longer exists. The PR's job became verification plus a doc correction, not new code.</p>
   </div>
 </section>
 
