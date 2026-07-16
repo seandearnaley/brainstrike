@@ -562,7 +562,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       [
         {
           critical: true,
-          name: 'Clear Collections',
+          name: 'Clear All Collections',
           operation: async () => clearAllData(),
         },
         {
