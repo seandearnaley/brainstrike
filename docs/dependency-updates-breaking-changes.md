@@ -431,6 +431,39 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 
 - Mastra PR adding `LanguageModelV4`/AI SDK v7 support: [mastra-ai/mastra#18477](https://github.com/mastra-ai/mastra/pull/18477).
 
+### `@mastra/core` `^1.50.0` → `^1.51.0` — completed
+
+**Status:** Bumped `packages/agent`'s `@mastra/core` to `^1.51.0` (published
+2026-07-15; SLSA provenance from `mastra-ai/mastra`, `latest` dist-tag;
+`minimumReleaseAgeExclude` in `pnpm-workspace.yaml` updated to match).
+`@mastra/mcp`/`@mastra/memory` pins unchanged. No breaking changes surfaced —
+the 1.51.0 minor is additive (AgentController session scoping, scorer judge
+processors, foreach concurrency, StreamErrorRetryProcessor options).
+
+**What we adopted (the reason for the bump)**
+
+- `StreamErrorRetryProcessor` gained `retryUnknownErrors` (bounded retry of
+  unmatched transient stream failures; known authorization failures — 401/403
+  status or `invalid_api_key`-class codes — surface immediately) and
+  `maxRetryAfterMs` (caps provider `Retry-After` waits; default 30s, pinned
+  explicitly in `error-processors.ts`). Aborting during the retry wait now
+  cancels the pending retry (upstream behavior, no config).
+- **Ordering hazard found in review, verified in the compiled loop:**
+  `runProcessAPIError` returns on the FIRST processor claiming `{retry: true}`.
+  With `retryUnknownErrors` enabled, `StreamErrorRetryProcessor` must be LAST
+  in `errorProcessors` or it claims prefill rejections (status 400, not an
+  auth failure) before `PrefillErrorHandler` can inject its "continue"
+  system-reminder fix. The stack is now specific-before-generic and
+  `mastra-error-processors.spec.ts` pins the routing behaviorally (the retry
+  prompt must carry the injected reminder).
+
+**What to verify on the next `@mastra/*` bump (drift guards, all green on this one)**
+
+- `@brainstrike/agent` unit + integration (PGlite memory/workflow/vector
+  stores, tool-approval suspend/resume live-loop).
+- `@brainstrike/db test:all` (mastra OM schema-projection guard).
+- Repo-wide type-check, lint, build.
+
 ---
 
 ## web-tree-sitter (`web-tree-sitter` 0.25.x → 0.26.x) — deferred

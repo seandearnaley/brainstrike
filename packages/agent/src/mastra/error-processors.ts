@@ -65,14 +65,23 @@ export function isEconnResetStreamError(error: unknown): boolean {
 
 /**
  * The Agent-config `errorProcessors` stack (the un-clobbered seam — per-call
- * `inputProcessors` never touch it). Covers every `processAPIError` recovery:
+ * `inputProcessors` never touch it). Covers every `processAPIError` recovery.
  *
- * 1. StreamErrorRetryProcessor — transient mid-stream / ECONNRESET failures.
- * 2. PrefillErrorHandler — reloaded-thread assistant-prefill rejections.
- * 3. ProviderHistoryCompat — the REACTIVE cross-provider rules (e.g. Anthropic
+ * ORDER IS LOAD-BEARING: Mastra's runner returns on the FIRST processor that
+ * claims `{retry: true}` (verified in the compiled `runProcessAPIError`), so
+ * the SPECIFIC handlers must precede the generic catch-all — with
+ * `retryUnknownErrors` enabled, a leading StreamErrorRetry would claim a
+ * prefill rejection (status 400, not an auth failure) and blindly retry the
+ * UNCHANGED prompt instead of letting PrefillErrorHandler inject its fix.
+ *
+ * 1. PrefillErrorHandler — reloaded-thread assistant-prefill rejections
+ *    (injects the "continue" system-reminder, then retries).
+ * 2. ProviderHistoryCompat — the REACTIVE cross-provider rules (e.g. Anthropic
  *    tool-id rewrite). Its PREEMPTIVE `processLLMRequest` rules do NOT fire from
  *    this array — those ride the per-call input array (see
  *    {@link buildProviderHistoryCompatInputProcessor}).
+ * 3. StreamErrorRetryProcessor — transient mid-stream failures: ECONNRESET via
+ *    the explicit matcher, everything else via the bounded unknown-error path.
  *
  * Returns `undefined` for the built-in local provider (excluded — see
  * {@link isLocalProvider}), so the bare-Agent path keeps zero error processors
@@ -83,6 +92,8 @@ export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[
     return;
   }
   return [
+    new PrefillErrorHandler(),
+    new ProviderHistoryCompat(),
     new StreamErrorRetryProcessor({
       delayMs: ({ retryCount }) => Math.min(1000 * 2 ** retryCount, STREAM_ERROR_BACKOFF_CAP_MS),
       matchers: [isEconnResetStreamError],
@@ -94,8 +105,6 @@ export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[
       // terminal error the watchdog + renderer boundary surface.
       retryUnknownErrors: true,
     }),
-    new PrefillErrorHandler(),
-    new ProviderHistoryCompat(),
   ];
 }
 

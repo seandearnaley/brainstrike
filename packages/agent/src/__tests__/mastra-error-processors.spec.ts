@@ -271,9 +271,9 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
     expect(config.maxProcessorRetries).toBe(ASSISTANT_MAX_PROCESSOR_RETRIES);
     expect(config.maxProcessorRetries).not.toBe(10);
     expect(config.errorProcessors?.map((processor) => processor.id)).toEqual([
-      'stream-error-retry-processor',
       'prefill-error-handler',
       'provider-history-compat',
+      'stream-error-retry-processor',
     ]);
   });
 
@@ -292,6 +292,43 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
     };
     expect(config.errorProcessors).toBeUndefined();
     expect(config.maxProcessorRetries).toBeUndefined();
+  });
+
+  it('routes a prefill error to PrefillErrorHandler, not the unknown-error catch-all', async () => {
+    // Mastra's processor runner returns on the FIRST processor claiming
+    // {retry:true} (verified in compiled runProcessAPIError). A prefill error is
+    // NOT an authorization failure, so with retryUnknownErrors enabled a
+    // MIS-ORDERED stack would let StreamErrorRetry blindly claim it and retry
+    // the UNCHANGED prompt — for a genuinely prefill-incompatible thread that
+    // repeats identically until the budget dies. PrefillErrorHandler's real fix
+    // injects a "continue" system-reminder into the outbound prompt; assert the
+    // RETRY attempt actually carries that mutation, proving the specific
+    // handler ran before the catch-all.
+    const prefillError = new Error('This request does not support assistant message prefill.');
+    const prompts: LanguageModelV2CallOptions['prompt'][] = [];
+    const model = createScriptedModel({
+      attempts: [{ error: prefillError, kind: 'error' }],
+      finalText: 'continued past prefill',
+      onPrompt: (prompt) => {
+        prompts.push(prompt);
+      },
+    });
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [
+        { id: 'u1', parts: [{ text: 'summarize', type: 'text' }], role: 'user' },
+        { id: 'a1', parts: [{ text: 'Earlier answer.', type: 'text' }], role: 'assistant' },
+        { id: 'u2', parts: [{ text: 'continue', type: 'text' }], role: 'user' },
+      ],
+      { runtime: { apiKey: 'test-key', provider: 'anthropic' } }
+    );
+    await drain(iterator);
+
+    expect(model.calls).toBe(2);
+    const retryPromptText = JSON.stringify(prompts[1] ?? []);
+    expect(retryPromptText).toContain('system-reminder');
+    expect(retryPromptText).toContain('anthropic-prefill-processor-retry');
   });
 
   it('retries an unknown transient stream error and completes (resilient retries)', async () => {

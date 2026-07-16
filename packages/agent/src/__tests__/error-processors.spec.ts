@@ -33,13 +33,16 @@ describe('error-processor builders', () => {
     expect(STREAM_ERROR_MAX_RETRY_AFTER_MS).toBe(30_000);
   });
 
-  it('builds the three-processor error stack for hosted providers in order', () => {
+  it('builds the three-processor error stack SPECIFIC-BEFORE-GENERIC', () => {
+    // Mastra's runner returns on the FIRST processor claiming {retry:true}, so
+    // the targeted handlers must precede the retryUnknownErrors catch-all — a
+    // leading StreamErrorRetry would swallow prefill errors unfixed.
     const processors = buildAssistantErrorProcessors('anthropic');
     expect(processors).toBeDefined();
     expect(processors?.map((processor) => processor.id)).toEqual([
-      'stream-error-retry-processor',
       'prefill-error-handler',
       'provider-history-compat',
+      'stream-error-retry-processor',
     ]);
   });
 
