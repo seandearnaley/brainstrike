@@ -28,7 +28,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.renameWorkspaceFile':
     'Rename or move a single file within the selected workspace root, creating missing destination parents and invalidating the source index rows. Refuses overwriting an existing destination and refuses directories; acts on a symlink itself (moves the link, never its target). Workspace-scoped; requires approval',
   'brainstrike.stringReplaceWorkspaceFile':
-    'Surgically edit a workspace file by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; workspace-scoped, requires approval)',
+    'Surgically edit a workspace file by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval)',
   'brainstrike.submitPlan':
     'Submit a structured implementation plan (title, overview, ordered steps, optional risks/verification) for the user to Approve or Reject. The run PAUSES until they respond; rejection feedback is returned so you can revise and resubmit',
   'brainstrike.updateWorkspaceContextSelection':
@@ -38,5 +38,5 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.webSearch':
     'Search the web for current docs, APIs, error messages, and library usage. SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider\'s built-in search when available, otherwise Tavily). Returns a clear "unavailable" message (not an error) when no provider-native search and no Tavily key are configured',
   'brainstrike.writeWorkspaceFile':
-    'Write or create a UTF-8 file in the selected workspace root (overwrites existing content; workspace-scoped, requires approval)',
+    'Write or create a UTF-8 file in the selected workspace root (overwrites existing content; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval)',
 };

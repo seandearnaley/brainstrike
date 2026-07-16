@@ -370,4 +370,44 @@ When changing this flow, update this section and the paired tests.
 
 ---
 
+## READ-BEFORE-WRITE STALENESS GUARD (LOST-UPDATE PROTECTION)
+
+The compare layer of core 1.51's workspace `requireReadBeforeWrite` contract
+(report R8), adopted **compare-only** — a settled scoping decision, do not
+widen to core's stricter "refuse any overwrite without a prior read" layer
+without revisiting the test surface that legitimately writes unread files.
+
+- **Tracker:** `packages/agent/src/tools/file-read-state.ts` — pure in-memory
+  map of `scope|canonicalAbsolutePath → last observed mtimeMs`, where scope is
+  `runtimeData.memory.threadId` (sentinel `__no-thread__` without one). One
+  thread's observations never vouch for another's. Ephemeral main-process run
+  state (like the sibling `file-write-lock` map), NOT persistence — not a
+  factory-reset surface. Bounded by LRU-on-write eviction
+  (`FILE_READ_STATE_MAX_ENTRIES = 4096`), never unbounded.
+- **Observations recorded:** content-bearing reads (`readWorkspaceFile`), the
+  assistant's own successful `write`/`stringReplace` (post-write stat INSIDE
+  the same lock — consecutive same-thread writes never self-trip), and a
+  rename's destination. `delete`/rename-source FORGET their record so a later
+  re-creation is new, not compared against a ghost. `findWorkspaceSymbol`
+  deliberately does NOT record (snippets ≠ knowing the file).
+- **Compare points (all INSIDE the per-file `withFileLock` critical section):**
+  `write` stats the target before mutating; `stringReplace` compares against
+  its own fresh under-lock read's mtime; `rename` compares the source's lstat.
+  Mismatch → typed actionable refusal ("changed on disk since you last read
+  it… re-read and retry") — same refuse-rather-than-guess posture as the
+  string-replace ambiguity error. The model's recovery is always: re-read
+  (records the fresh mtime), retry.
+- **Exemptions:** files this scope never observed (compare-only contract);
+  brand-new files (nothing recorded); an observed file that VANISHED from disk
+  (recreating it loses nothing — the stale record is dropped and the write
+  proceeds).
+- **Paired tests:** `packages/agent/src/__tests__/file-read-state.spec.ts`
+  (state semantics) + the `read-before-write staleness guard` describe block in
+  `apps/desktop/src/__tests__/assistant-server/assistant-tools.integration.test.ts`
+  (real-fs refuse/recover behavior, `utimes`-forced external edits).
+
+When changing this flow, update this section and the paired tests.
+
+---
+
 
