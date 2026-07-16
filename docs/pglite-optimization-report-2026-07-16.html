@@ -1,0 +1,382 @@
+<title>PGlite Optimization Report — brainstrike</title>
+<style>
+  :root {
+    --ground: #f6f8f9;
+    --card: #ffffff;
+    --ink: #16262e;
+    --ink-2: #4c6470;
+    --ink-3: #7b909a;
+    --hairline: #dce5e9;
+    --accent: #2e6e8e;
+    --accent-strong: #1f5570;
+    --accent-wash: #e8f1f5;
+    --ember: #b05226;
+    --ember-wash: #f7ece5;
+    --gold: #8a6d1f;
+    --gold-wash: #f5efdd;
+    --neutral-chip: #eef2f4;
+    --bar-before: #b9c8cf;
+    --bar-after: #2e6e8e;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+    --sans: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0e171b;
+      --card: #152228;
+      --ink: #d9e5ea;
+      --ink-2: #93a9b3;
+      --ink-3: #6c828c;
+      --hairline: #24343c;
+      --accent: #61a5c4;
+      --accent-strong: #8ec4db;
+      --accent-wash: #1a2f39;
+      --ember: #d98354;
+      --ember-wash: #33221a;
+      --gold: #c9a94e;
+      --gold-wash: #2e2914;
+      --neutral-chip: #1d2c33;
+      --bar-before: #3b4f58;
+      --bar-after: #61a5c4;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0e171b; --card: #152228; --ink: #d9e5ea; --ink-2: #93a9b3; --ink-3: #6c828c;
+    --hairline: #24343c; --accent: #61a5c4; --accent-strong: #8ec4db; --accent-wash: #1a2f39;
+    --ember: #d98354; --ember-wash: #33221a; --gold: #c9a94e; --gold-wash: #2e2914;
+    --neutral-chip: #1d2c33; --bar-before: #3b4f58; --bar-after: #61a5c4;
+  }
+  :root[data-theme="light"] {
+    --ground: #f6f8f9; --card: #ffffff; --ink: #16262e; --ink-2: #4c6470; --ink-3: #7b909a;
+    --hairline: #dce5e9; --accent: #2e6e8e; --accent-strong: #1f5570; --accent-wash: #e8f1f5;
+    --ember: #b05226; --ember-wash: #f7ece5; --gold: #8a6d1f; --gold-wash: #f5efdd;
+    --neutral-chip: #eef2f4; --bar-before: #b9c8cf; --bar-after: #2e6e8e;
+  }
+  body {
+    background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.55; font-size: 16px;
+    margin: 0; padding: 0 20px 80px;
+  }
+  main { max-width: 920px; margin: 0 auto; }
+  header.masthead { padding: 56px 0 28px; border-bottom: 2px solid var(--ink); margin-bottom: 8px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 10px;
+  }
+  h1 { font-size: 34px; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 10px; text-wrap: balance; }
+  .meta { color: var(--ink-2); font-size: 14px; margin: 0; }
+  .meta code { font-family: var(--mono); font-size: 13px; }
+  h2 { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; margin: 48px 0 6px; text-wrap: balance; }
+  h2 .sec { font-family: var(--mono); font-size: 13px; color: var(--ink-3); font-weight: 500; margin-right: 10px; }
+  .h2-sub { color: var(--ink-2); font-size: 14.5px; margin: 0 0 18px; max-width: 68ch; }
+  p { max-width: 72ch; }
+  code { font-family: var(--mono); font-size: 0.86em; background: var(--neutral-chip); padding: 1px 5px; border-radius: 4px; }
+  a { color: var(--accent); }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 26px 0 8px; }
+  .tile { background: var(--card); border: 1px solid var(--hairline); border-radius: 8px; padding: 16px 18px 14px; }
+  .tile .k { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .tile .k .dim { color: var(--ink-3); font-weight: 500; }
+  .tile .k .up { color: var(--accent-strong); }
+  .tile .l { font-size: 13px; color: var(--ink-2); margin-top: 4px; line-height: 1.4; }
+
+  /* summary table */
+  .tablewrap { overflow-x: auto; background: var(--card); border: 1px solid var(--hairline); border-radius: 8px; margin: 18px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th { text-align: left; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+       color: var(--ink-3); font-weight: 600; padding: 12px 14px 8px; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.rank { font-family: var(--mono); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tbl-title { font-weight: 600; }
+  .tbl-title a { color: inherit; text-decoration: none; }
+  .tbl-title a:hover { color: var(--accent); }
+
+  /* chips */
+  .chip { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em;
+          padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .chip.high { background: var(--ember-wash); color: var(--ember); }
+  .chip.med  { background: var(--gold-wash); color: var(--gold); }
+  .chip.low  { background: var(--neutral-chip); color: var(--ink-2); }
+  .chip.area { background: var(--accent-wash); color: var(--accent-strong); }
+  .chip.eff  { background: var(--neutral-chip); color: var(--ink-2); }
+
+  /* finding cards */
+  .finding { background: var(--card); border: 1px solid var(--hairline); border-radius: 10px;
+             padding: 22px 26px 20px; margin: 18px 0; }
+  .finding h3 { margin: 0 0 4px; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; text-wrap: balance; }
+  .finding h3 .n { font-family: var(--mono); font-size: 14px; color: var(--ink-3); font-weight: 500; margin-right: 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+  .finding p { margin: 10px 0; }
+  .finding .label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+                    color: var(--ink-3); display: block; margin: 14px 0 4px; }
+  .finding ul { margin: 6px 0; padding-left: 22px; }
+  .finding li { margin: 5px 0; max-width: 70ch; }
+  .evidence { font-size: 13.5px; color: var(--ink-2); }
+  .evidence code { font-size: 12.5px; }
+
+  /* css bars */
+  .barchart { margin: 14px 0 6px; max-width: 560px; }
+  .barrow { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 10px; margin: 7px 0; }
+  .barrow .blabel { font-size: 13px; color: var(--ink-2); text-align: right; }
+  .bartrack { display: flex; align-items: center; gap: 8px; }
+  .bar { height: 18px; border-radius: 0 4px 4px 0; min-width: 2px; }
+  .bar.before { background: var(--bar-before); }
+  .bar.after { background: var(--bar-after); }
+  .bval { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+  .chartcap { font-size: 12.5px; color: var(--ink-3); margin: 6px 0 0; }
+
+  /* guc table annotations */
+  .ok { color: var(--accent-strong); }
+  .warn { color: var(--ember); font-weight: 600; }
+  .inert { color: var(--ink-3); }
+
+  .divider { border: none; border-top: 1px solid var(--hairline); margin: 40px 0; }
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--hairline);
+           font-size: 13.5px; color: var(--ink-2); }
+  footer p { margin: 6px 0; }
+</style>
+
+<main>
+<header class="masthead">
+  <p class="eyebrow">Engineering report · Database</p>
+  <h1>PGlite Optimization Report</h1>
+  <p class="meta">brainstrike · <code>@electric-sql/pglite 0.5.4</code> = PostgreSQL 18.3, wasm32, single connection · audited 2026-07-16 on <code>main</code> (69d405f0e)
+  <br>Scope: performance, memory, and product-capability opportunities, ranked by impact. Four parallel code audits + direct measurements on a fresh PGlite instance.</p>
+</header>
+
+<section>
+  <div class="tiles">
+    <div class="tile">
+      <div class="k">39.8% <span class="dim">→</span> <span class="up">100%</span></div>
+      <div class="l">filtered vector-search recall — fix already written &amp; benchmarked, <strong>not merged to main</strong> (#1)</div>
+    </div>
+    <div class="tile">
+      <div class="k">41.6 <span class="dim">→</span> <span class="up">8.4 min</span></div>
+      <div class="l">HNSW rebuild at 100k×1024d — the desktop idle-rebuild lane still runs at default 64MB memory (#2)</div>
+    </div>
+    <div class="tile">
+      <div class="k">0<span class="dim"> auto</span></div>
+      <div class="l">ANALYZE runs on <code>file_chunks</code>, ever — verified: one standalone backend, no autovacuum process (#3)</div>
+    </div>
+    <div class="tile">
+      <div class="k">~6<span class="dim">/sec</span></div>
+      <div class="l">polling queries hitting the single connection during indexing, across three separate timers (#6)</div>
+    </div>
+  </div>
+
+  <p>The engine layer is already in good shape: transaction-scoped HNSW tuning, 250-row batched upserts, a <code>SKIP LOCKED</code> lease queue, a priority scheduler protecting the single connection, and the BM25 lexical arm are all solid, benchmark-backed work. The highest-impact items left are <strong>finishing two fixes that already exist</strong> (one unmerged, one applied to only one of two code paths), <strong>compensating for what single-process Postgres never does on its own</strong> (ANALYZE), and <strong>a measured engine-tuning pass</strong> — every global GUC still sits at stock server defaults that assume spinning disks and 100 concurrent backends. The best product win is free: a hybrid BM25+vector assistant tool is fully built and registered nowhere.</p>
+</section>
+
+<section>
+  <h2><span class="sec">§1</span>Ranked recommendations</h2>
+  <p class="h2-sub">Ordered by expected impact at large-repo scale (100k+ chunks), weighted by confidence — measured wins rank above estimated ones. Effort: S &lt; 1 day, M = 1–3 days.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>#</th><th>Recommendation</th><th>Area</th><th>Impact</th><th>Effort</th></tr></thead>
+    <tbody>
+      <tr><td class="rank">1</td><td class="tbl-title"><a href="#f1">Merge the filtered-search exact-scan routing fix</a></td><td><span class="chip area">Performance</span></td><td><span class="chip high">High · measured</span></td><td class="num">S</td></tr>
+      <tr><td class="rank">2</td><td class="tbl-title"><a href="#f2">Apply the 512MB index-build fix to the desktop rebuild lane</a></td><td><span class="chip area">Perf + Memory</span></td><td><span class="chip high">High · measured</span></td><td class="num">S</td></tr>
+      <tr><td class="rank">3</td><td class="tbl-title"><a href="#f3">Scheduled ANALYZE — nothing maintains planner stats today</a></td><td><span class="chip area">Performance</span></td><td><span class="chip high">High · verified gap</span></td><td class="num">S</td></tr>
+      <tr><td class="rank">4</td><td class="tbl-title"><a href="#f4">Wire the already-built hybrid search tool into the assistant</a></td><td><span class="chip area">Product</span></td><td><span class="chip high">High · built, unwired</span></td><td class="num">S–M</td></tr>
+      <tr><td class="rank">5</td><td class="tbl-title"><a href="#f5">Engine tuning pass: work_mem, random_page_cost, shared_buffers</a></td><td><span class="chip area">Perf + Memory</span></td><td><span class="chip med">Medium–High · benchmark-gated</span></td><td class="num">M</td></tr>
+      <tr><td class="rank">6</td><td class="tbl-title"><a href="#f6">Collapse the job-queue polling storm</a></td><td><span class="chip area">Performance</span></td><td><span class="chip med">Medium</span></td><td class="num">M</td></tr>
+      <tr><td class="rank">7</td><td class="tbl-title"><a href="#f7">Serve coverage/status UI from denormalized stats</a></td><td><span class="chip area">Performance</span></td><td><span class="chip med">Medium</span></td><td class="num">M</td></tr>
+      <tr><td class="rank">8</td><td class="tbl-title"><a href="#f8">GIN pending-list policy for smoother ingest</a></td><td><span class="chip area">Performance</span></td><td><span class="chip med">Medium · hypothesis</span></td><td class="num">M</td></tr>
+      <tr><td class="rank">9</td><td class="tbl-title"><a href="#f9">Ship the index-consolidation migration (+1 new duplicate)</a></td><td><span class="chip area">Memory</span></td><td><span class="chip low">Low–Med</span></td><td class="num">S</td></tr>
+      <tr><td class="rank">10</td><td class="tbl-title"><a href="#f10">Full-text search micro-optimizations</a></td><td><span class="chip area">Performance</span></td><td><span class="chip low">Low–Med</span></td><td class="num">S</td></tr>
+      <tr><td class="rank">11</td><td class="tbl-title"><a href="#f11">Reconcile the two migration runners' index sets</a></td><td><span class="chip area">Integrity</span></td><td><span class="chip med">Medium · strategic</span></td><td class="num">M</td></tr>
+      <tr><td class="rank">12</td><td class="tbl-title"><a href="#f12">Transaction-wrap assistant message persistence</a></td><td><span class="chip area">Integrity</span></td><td><span class="chip low">Low</span></td><td class="num">S</td></tr>
+      <tr><td class="rank">13</td><td class="tbl-title"><a href="#f13">Capability menu: perf HUD, unaccent, fuzzy match, usage analytics</a></td><td><span class="chip area">Product</span></td><td><span class="chip med">Ideas · varies</span></td><td class="num">varies</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="sec">§2</span>Details</h2>
+
+  <div class="finding" id="f1">
+    <h3><span class="n">1</span>Merge the filtered-search exact-scan routing fix</h3>
+    <div class="chips"><span class="chip area">Performance</span><span class="chip high">High — measured</span><span class="chip eff">Effort S</span></div>
+    <p>The single biggest search-quality problem at scale is already solved — on a branch. Commit <code>a21745a51</code> (“route selective filtered vector searches to exact scans”, 2026-07-11, branch <code>claude/silly-montalcini-cdbd12</code>) is <strong>not an ancestor of main</strong>; verified via <code>git merge-base</code>. Today's main has no <code>resolveFilteredVectorSearchRoute</code>: every filtered vector search (any filter beyond <code>embedding_set_id</code>) goes through HNSW, whose post-filter recall collapses on narrow subsets.</p>
+    <div class="barchart">
+      <div class="barrow"><div class="blabel">HNSW post-filter (today)</div><div class="bartrack"><div class="bar before" style="width:39.8%"></div><span class="bval">39.8% recall@10 · 84.8ms p50</span></div></div>
+      <div class="barrow"><div class="blabel">adaptive exact routing</div><div class="bartrack"><div class="bar after" style="width:100%"></div><span class="bval">100% recall@10 · ~80–94ms p50</span></div></div>
+      <p class="chartcap">Benchmarked 2026-07-11 at 100k chunks × 1024 dims, production query shape. Alternatives (hnsw.max_scan_tuples, per-root partial indexes) were measured and rejected.</p>
+    </div>
+    <span class="label">Action</span>
+    <p>Rebase the branch and open a PR. The fix ships adaptive routing in both <code>FileChunkRepository</code> and <code>ElectronFileChunkRepository</code>: bounded selectivity counts route narrow searches (≤20k matched AND ≤15% of set) to an exact fp32 scan. Count overhead measured at ~4–14ms; whole-set searches never pay it.</p>
+  </div>
+
+  <div class="finding" id="f2">
+    <h3><span class="n">2</span>Apply the 512MB index-build fix to the desktop rebuild lane</h3>
+    <div class="chips"><span class="chip area">Perf + Memory</span><span class="chip high">High — measured 5×</span><span class="chip eff">Effort S</span></div>
+    <p>PR #1584 landed the <code>maintenance_work_mem</code> sizing fix (64MB → up to 512MB, clamped for 32-bit WASM) in <code>createDimensionIndex</code> — but the desktop idle-maintenance scheduler has its <strong>own</strong> SQL builder that never got it. <code>createDimensionIndexSql</code> (<code>apps/desktop/src/dimension-index-maintenance-scheduler.ts:141–175</code>) emits a bare <code>CREATE INDEX … USING hnsw</code> through <code>db.maintenance.exec</code> with no <code>SET&nbsp;/&nbsp;RESET maintenance_work_mem</code>. Every scheduler-driven rebuild runs at the 64MB default.</p>
+    <div class="barchart">
+      <div class="barrow"><div class="blabel">64MB (scheduler today)</div><div class="bartrack"><div class="bar before" style="width:100%"></div><span class="bval">2,496s — DB blocked</span></div></div>
+      <div class="barrow"><div class="blabel">512MB (helpers path)</div><div class="bartrack"><div class="bar after" style="width:20.2%"></div><span class="bval">505s</span></div></div>
+      <p class="chartcap">HNSW build, 100k chunks × 1024 dims (halfvec). The build blocks every other query on the single connection — this is 42 minutes vs 8.5 minutes of frozen DB.</p>
+    </div>
+    <span class="label">Action</span>
+    <ul>
+      <li>Route the scheduler through <code>createDimensionIndex</code> (which already sizes, sets, and — critically — <code>RESET</code>s the GUC in a <code>finally</code>), or wrap its exec with the same SET/RESET pair on the maintenance channel.</li>
+      <li>While there: the <code>'concurrent'</code> strategy emits <code>CREATE INDEX CONCURRENTLY</code>. On a single-connection engine nothing can run concurrently anyway — the statement still occupies the only connection while doing extra table scans. Verify and likely remove that branch.</li>
+    </ul>
+  </div>
+
+  <div class="finding" id="f3">
+    <h3><span class="n">3</span>Scheduled ANALYZE — nothing maintains planner statistics</h3>
+    <div class="chips"><span class="chip area">Performance</span><span class="chip high">High — verified gap</span><span class="chip eff">Effort S</span></div>
+    <p>Measured on a fresh instance: <code>pg_stat_activity</code> shows exactly one <code>standalone backend</code>. There is no autovacuum launcher (the <code>autovacuum=on</code> GUC is inert), so <strong>column statistics are only ever collected when something runs ANALYZE — and almost nothing does</strong>. The full runtime inventory: scheduled maintenance VACUUMs <code>job_queue</code> only (every 10 min, idle-gated); the embedding backfill VACUUMs <code>file_chunks</code> once post-drain (plain VACUUM — updates row counts, <em>not</em> column histograms); the token cache runs <code>ANALYZE file_token_cache</code> after bulk deletes. <code>file_chunks</code>, <code>file_records</code>, and <code>embedding_cache</code> can go from 0 to 100k+ rows with the planner still holding empty-table statistics.</p>
+    <p>Stale stats directly threaten the paths that matter: grep-candidate JOIN ordering (<code>file_chunks ⋈ file_records ⋈ roots</code>), tsvector/BM25 candidate estimates, the dedupe CTEs, and — once #1 merges — the selectivity counts that drive exact-scan routing.</p>
+    <span class="label">Action</span>
+    <ul>
+      <li>Add <code>ANALYZE</code> targets (<code>file_chunks</code>, <code>file_records</code>, <code>embedding_cache</code>, <code>job_queue</code>) to <code>scheduled-database-maintenance.ts</code> — it already has the idle-gating, table-name validation, and priority plumbing.</li>
+      <li>Upgrade the post-backfill <code>VACUUM file_chunks</code> to <code>VACUUM (ANALYZE) file_chunks</code>, and run <code>ANALYZE</code> after bulk imports complete.</li>
+      <li>Cheap insurance: ANALYZE on 100k rows is seconds, runs at background priority, and prevents silent plan regressions that would otherwise be diagnosed one mystery at a time.</li>
+    </ul>
+  </div>
+
+  <div class="finding" id="f4">
+    <h3><span class="n">4</span>Wire the already-built hybrid search tool into the assistant</h3>
+    <div class="chips"><span class="chip area">Product</span><span class="chip high">High — built, unwired</span><span class="chip eff">Effort S–M</span></div>
+    <p>The Explorer search panel gets hybrid BM25+vector retrieval with RRF fusion. The assistant does not: <code>brainstrike.queryEmbeddingSpace</code> is pure vector cosine. Meanwhile <code>packages/agent/src/tools/hybrid-search-tool.ts</code> defines a complete <code>brainstrike.hybridSearch</code> tool and <code>buildToolsWithHybridSearch</code> — with <strong>zero call sites</strong>. The desktop assistant registry (<code>assistant-tools.ts</code>) never registers it. All the hard parts (BM25 index, migration 053, RRF, eval gates) shipped; the agent just can't reach them.</p>
+    <span class="label">Action</span>
+    <ul>
+      <li>Register the hybrid tool in the assistant tool registry (or swap <code>queryEmbeddingSpace</code>'s internals to the hybrid service with a mode flag), respecting the same <code>rootIds</code> scoping the Explorer path pins.</li>
+      <li>Close the eval gap while at it: <code>eval:retrieval</code> scores the vector arm and lexical arm <em>in isolation</em> — nothing scores the fused ranking. Add a hybrid/RRF golden set so fusion quality is pinned the same way the arms are.</li>
+    </ul>
+  </div>
+
+  <div class="finding" id="f5">
+    <h3><span class="n">5</span>Engine tuning pass: work_mem, random_page_cost, shared_buffers</h3>
+    <div class="chips"><span class="chip area">Perf + Memory</span><span class="chip med">Medium–High — benchmark-gated</span><span class="chip eff">Effort M</span></div>
+    <p>Outside HNSW search tuning and the per-build maintenance memory, <strong>every global GUC sits at stock Postgres defaults</strong> — defaults written for a shared server with spinning disks and 100 backends, not a single-user embedded engine. Measured on PGlite 0.5.4 (full table in §3):</p>
+    <ul>
+      <li><code>work_mem = 4MB</code> — every sort/hash spills past 4MB to temp files. Vector search overfetches up to 10,000 rows before sorting; GIN searches (trgm, tsvector) build bitmaps; the grep path sorts <code>ORDER BY path, chunk_index</code>. One user, one connection: there is no multi-backend multiplication risk. <code>SET work_mem = '32MB'</code> at connection open is a classic embedded-DB win — benchmark 16/32/64MB with the existing harness.</li>
+      <li><code>random_page_cost = 4.0</code> — a spinning-rust number. Browser storage is an in-memory MEMFS mirror (RAM-speed reads); desktop is NVMe. The planner is being told random I/O costs 4× sequential, biasing it away from index scans exactly where index scans are nearly free. <code>SET random_page_cost = 1.1</code> is the standard SSD/RAM setting.</li>
+      <li><code>shared_buffers = 128MB</code> — allocated inside the WASM heap of <em>every</em> instance, including browser tabs. Verified: <code>ALTER SYSTEM SET shared_buffers</code> works in PGlite and persists to <code>postgresql.auto.conf</code> (applies on next open). Consider 64MB for browser profiles (smaller tab footprint; MEMFS makes OS-cache arguments moot) and leaving/raising desktop. Restart-scoped, so apply during init before migrations.</li>
+      <li>Confirmed <em>non</em>-levers, so nobody chases them later: <code>jit = on</code> but <code>pg_jit_available() = false</code> (inert in WASM); <code>fsync = off</code> at the Postgres layer by design — durability lives in the VFS <code>syncToFs</code> contract, so WAL-tuning GUCs have limited reach; parallel workers are 0 (no bgworkers).</li>
+    </ul>
+    <span class="label">Action</span>
+    <p>Add a small session preamble (<code>work_mem</code>, <code>random_page_cost</code>) at all four construction sites plus the desktop host, gated behind one shared helper; benchmark before/after with the existing vector + FTS harnesses at 100k scale. Spike <code>ALTER SYSTEM</code> for <code>shared_buffers</code> per platform. Keep the NO-FALLBACKS rule: the helper throws if a SET fails.</p>
+  </div>
+
+  <div class="finding" id="f6">
+    <h3><span class="n">6</span>Collapse the job-queue polling storm</h3>
+    <div class="chips"><span class="chip area">Performance</span><span class="chip med">Medium</span><span class="chip eff">Effort M</span></div>
+    <p>Three independent timers poll the queue during indexing, all funneling into the one connection while the embedding pipeline is trying to use it:</p>
+    <ul>
+      <li><code>indexing-activity-coordinator.tsx</code> — every <strong>1000ms</strong>, a 5-way <code>COUNT(*) FILTER</code> + <code>MIN(run_at)</code> aggregate over <code>job_queue</code>, plus a second 1000ms poll of collection stats.</li>
+      <li><code>embedding-job-queue-tracker.tsx</code> — every <strong>1500ms</strong>, <code>getQueueStats()</code> = <strong>3 sequential queries</strong> (state group-by, metrics select, MIN group-by).</li>
+      <li><code>use-pending-chunks.ts</code> — every <strong>2000ms</strong>, <code>SELECT dedupe_key FROM job_queue WHERE state IN ('queued','running')</code>.</li>
+    </ul>
+    <p>That's ~6 queries/sec of aggregate scans against the churn-heaviest table in the schema (every job row is UPDATEd multiple times through its lease lifecycle, so dead-tuple density between 10-minute vacuums makes those COUNTs progressively more expensive — precisely when the user is watching progress).</p>
+    <span class="label">Action</span>
+    <ul>
+      <li>Fold <code>getQueueStats</code>'s 3 queries into one statement (they're all single-table aggregates).</li>
+      <li>Consolidate the three consumers onto one shared snapshot poller (the BST-359 tracker comment already points this direction), or convert to <code>live</code> queries keyed on the denormalized <code>job_queue_metrics</code> / <code>collection_indexing_stats</code> tables instead of counting the queue itself.</li>
+    </ul>
+  </div>
+
+  <div class="finding" id="f7">
+    <h3><span class="n">7</span>Serve coverage/status UI from denormalized stats</h3>
+    <div class="chips"><span class="chip area">Performance</span><span class="chip med">Medium</span><span class="chip eff">Effort M</span></div>
+    <p>Two live-query hooks aggregate over the big tables on every refresh: <code>use-collection-embedding-coverage.ts</code> (<code>COUNT(DISTINCT fr.id)</code> / <code>COUNT(fc.id)</code> over <code>file_records LEFT JOIN file_chunks</code>) and <code>use-file-collection-status.ts</code> (same join shape). They're set-scoped, but at 100k chunks each refresh re-scans the active set's chunks — and live-query refreshes fire on exactly the tables the indexing pipeline is hammering. The codebase already has the right pattern: <code>use-document-count.ts</code> reads the denormalized <code>collection_indexing_stats</code> table instead.</p>
+    <span class="label">Action</span>
+    <p>Extend <code>collection_indexing_stats</code> (or a sibling) with the coverage columns those two hooks need, maintained where chunk/embedding writes already update stats, and point the hooks at it. Aggregate-on-write once beats aggregate-on-read per refresh.</p>
+  </div>
+
+  <div class="finding" id="f8">
+    <h3><span class="n">8</span>GIN pending-list policy for smoother ingest</h3>
+    <div class="chips"><span class="chip area">Performance</span><span class="chip med">Medium — hypothesis, benchmark first</span><span class="chip eff">Effort M</span></div>
+    <p><code>file_chunks</code> carries three content indexes — BM25 (25MB @ 50k chunks), trigram GIN (17MB), tsvector GIN (8.6MB) — that together are ~82% of the table's index bytes and are all maintained on every insert. The two GIN indexes use <code>fastupdate=on</code> with <code>gin_pending_list_limit = 4MB</code> (measured default). In stock Postgres, autovacuum merges the pending list in the background; here there is no autovacuum, so <strong>the merge happens inline on whichever unlucky INSERT overflows the list</strong> — a periodic latency spike in the middle of bulk ingest, on the single connection.</p>
+    <span class="label">Action</span>
+    <p>Benchmark two policies at 100k-chunk ingest: (a) <code>fastupdate=off</code> on both GIN indexes (pay a small constant cost per insert, never spike), vs (b) keep fastupdate and add <code>gin_clean_pending_list()</code> to the idle maintenance pass. Measure p99 insert latency, not throughput — the spike is the product problem (frozen UI beat), not the average.</p>
+  </div>
+
+  <div class="finding" id="f9">
+    <h3><span class="n">9</span>Ship the index-consolidation migration (+1 newly found duplicate)</h3>
+    <div class="chips"><span class="chip area">Memory</span><span class="chip low">Low–Med</span><span class="chip eff">Effort S</span></div>
+    <p>The skip-scan audit's three DROP verdicts (<code>idx_embedding_cache_content_hash</code>, <code>idx_file_token_cache_lookup</code>, <code>idx_file_token_cache_folder</code> — ~2.6MiB at seed scale, growing linearly, plus write amplification on two hot cache tables) are still sitting in an <strong>unregistered draft</strong>: <code>docs/pg18-index-consolidation.draft.ts</code>, marked “Do not import.” This audit also found a fourth: the live schema defines <strong>both</strong> <code>idx_prompt_item_revisions_unique</code> (UNIQUE) and <code>idx_prompt_item_revisions_item_revision</code> on the same <code>(prompt_item_id, revision)</code> columns (<code>schema/index.ts:342–345</code>) — a straight duplicate pair.</p>
+    <span class="label">Action</span>
+    <p>Promote the draft to a real migration (registered in <em>both</em> runners, per the database contract), add the <code>prompt_item_revisions</code> drop, and remove the definitions from <code>schema/index.ts</code>. At 500k cached embeddings the content_hash drop alone is ~25MB.</p>
+  </div>
+
+  <div class="finding" id="f10">
+    <h3><span class="n">10</span>Full-text search micro-optimizations</h3>
+    <div class="chips"><span class="chip area">Performance</span><span class="chip low">Low–Med</span><span class="chip eff">Effort S</span></div>
+    <ul>
+      <li><strong>BM25 rank computed twice per candidate row.</strong> <code>fullTextSearch</code> emits <code>-(content &lt;@&gt; to_bm25query(...))</code> in both the projection and the <code>ROW_NUMBER()</code> window (<code>file-chunk-repository.ts:601,607</code>). Check with <code>EXPLAIN VERBOSE</code> whether the planner de-duplicates it; if not, compute once in a subquery and rank over the alias.</li>
+      <li><strong><code>ts_headline</code> runs over the whole candidate pool.</strong> Headline generation re-parses each document; with <code>includeHeadline</code> defaulting true it runs for every row in the <code>ftsLimit</code> pool, not the returned page. The hybrid path already opts out — restrict headline computation to the final page for the remaining callers.</li>
+    </ul>
+  </div>
+
+  <div class="finding" id="f11">
+    <h3><span class="n">11</span>Reconcile the two migration runners' index sets</h3>
+    <div class="chips"><span class="chip area">Integrity</span><span class="chip med">Medium — strategic</span><span class="chip eff">Effort M</span></div>
+    <p>The numbered <code>MigrationRunner</code> (tests) and the Drizzle ledger (the real app) materialize <strong>different schemas</strong>. Tests run with ~17 indexes the app never gets (extra <code>file_chunks</code>, <code>job_queue</code>, and <code>file_records</code> indexes), and one divergence is semantic, not cosmetic: tests enforce queue dedupe with a UNIQUE partial index (<code>idx_job_queue_dedupe_active</code>) while the app has a plain index and relies on the enqueue CTE alone. Every plan-shaped test conclusion and any uniqueness-race assumption is being validated against a schema production doesn't have.</p>
+    <span class="label">Action</span>
+    <p>Decide the canonical index set per table (the skip-scan audit's inventory is the map), align the numbered path to the drizzle baseline (or vice versa), and add a parity test that diffs <code>pg_indexes</code> between the two runners so this can't silently drift again — the same structural fix that killed the dual-registry drift for test lanes.</p>
+  </div>
+
+  <div class="finding" id="f12">
+    <h3><span class="n">12</span>Transaction-wrap assistant message persistence</h3>
+    <div class="chips"><span class="chip area">Integrity</span><span class="chip low">Low</span><span class="chip eff">Effort S</span></div>
+    <p><code>PgliteMemoryStore.saveMessages</code> issues two autocommit statements — the message upsert, then the thread <code>updatedAt</code> bump (<code>memory-store.ts:859,889</code>). A crash between them leaves messages whose thread ordering timestamp lags. Wrapping both in one transaction closes the window and halves the scheduler dispatches per save. Small, but it's the chat hot path.</p>
+  </div>
+
+  <div class="finding" id="f13">
+    <h3><span class="n">13</span>Capability menu — interesting things the engine can already do</h3>
+    <div class="chips"><span class="chip area">Product</span><span class="chip med">Ideas — pick opportunistically</span></div>
+    <p>33 contrib extensions ship on disk inside the PGlite dist; the app loads one (<code>pg_trgm</code>). The interesting unused surface, roughly ordered by product value:</p>
+    <ul>
+      <li><strong>Database perf HUD</strong> — <code>pg_stat_statements</code> and <code>auto_explain</code> are both in the dist. A db-explorer “engine health” panel (top statements, slow-plan log, table/index sizes via <code>pg_relation_size</code>) would make every future optimization data-driven instead of audit-driven. Spike needed: <code>pg_stat_statements</code> normally requires <code>shared_preload_libraries</code> — verify loadability in PGlite first.</li>
+      <li><strong>Usage analytics over data you already collect</strong> — <code>brainstrike_assistant_run_usage</code> has per-run tokens, cost, provider, model, root. Only a cross-root SUM rollup reads it. A <code>date_trunc</code> time-series (cost/day, tokens/model) as a live-query dashboard — and as an assistant-queryable tool (“what did I spend this week?”) — is a few queries away. Watch the known gotcha: PGlite returns bigint aggregates as strings.</li>
+      <li><strong><code>unaccent</code></strong> — diacritic-insensitive full-text search; chains into the existing tsconfig.</li>
+      <li><strong><code>fuzzystrmatch</code></strong> — Levenshtein/soundex for typo-tolerant quick-open and <code>findWorkspaceSymbol</code>, complementing trigram (which needs 3-char literals).</li>
+      <li><strong>PG18 features on the shelf</strong> — virtual generated columns (034 uses STORED; virtual = zero storage for derived columns), temporal <code>WITHOUT OVERLAPS</code> constraints, <code>RETURNING new.*</code> (only <code>old.*</code> used so far, in the prompt-revision CAS — a nice pattern worth reusing for other optimistic-concurrency writes).</li>
+      <li><strong><code>pgcrypto</code></strong> — available if at-rest field encryption is ever wanted for sensitive columns.</li>
+    </ul>
+  </div>
+</section>
+
+<hr class="divider">
+
+<section>
+  <h2><span class="sec">§3</span>Measured baseline</h2>
+  <p class="h2-sub">Fresh in-memory PGlite 0.5.4 instance, 2026-07-16. These are the values every brainstrike instance runs with today (nothing in the repo overrides them except the two documented cases).</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>GUC</th><th>Default</th><th>Assessment</th></tr></thead>
+    <tbody>
+      <tr><td><code>work_mem</code></td><td class="num">4MB</td><td class="warn">Tuning target (#5) — sorts/hashes spill at 4MB; single user, no multiplication risk</td></tr>
+      <tr><td><code>random_page_cost</code></td><td class="num">4.0</td><td class="warn">Tuning target (#5) — spinning-disk assumption on RAM/NVMe-backed storage</td></tr>
+      <tr><td><code>shared_buffers</code></td><td class="num">128MB</td><td class="warn">Per-instance WASM heap cost; ALTER SYSTEM verified working (#5)</td></tr>
+      <tr><td><code>maintenance_work_mem</code></td><td class="num">64MB</td><td class="ok">Tuned per HNSW build (64→512MB clamp) — but only on one of two paths (#2)</td></tr>
+      <tr><td><code>autovacuum</code></td><td class="num">on</td><td class="warn">Inert — verified single standalone backend, no launcher. Manual ANALYZE required (#3)</td></tr>
+      <tr><td><code>gin_pending_list_limit</code></td><td class="num">4MB</td><td class="warn">Pending-list merges happen inline on inserts with no autovacuum (#8)</td></tr>
+      <tr><td><code>jit</code></td><td class="num">on</td><td class="inert">Inert — pg_jit_available() = false in WASM</td></tr>
+      <tr><td><code>fsync</code></td><td class="num">off</td><td class="inert">By design — durability lives in the VFS syncToFs contract, not Postgres WAL</td></tr>
+      <tr><td><code>effective_cache_size</code></td><td class="num">4GB</td><td class="ok">Planner-only; roughly right (browser MEMFS is all-RAM)</td></tr>
+      <tr><td><code>synchronous_commit</code> / <code>full_page_writes</code></td><td class="num">on / on</td><td class="ok">Leave alone — see fsync note</td></tr>
+      <tr><td><code>max_parallel_workers_per_gather</code></td><td class="num">0</td><td class="inert">No bgworkers in PGlite; parallel query unavailable</td></tr>
+      <tr><td><code>checkpoint_timeout</code> / <code>max_wal_size</code></td><td class="num">5min / 1GB</td><td class="ok">No evidence of WAL pressure; revisit only if profiling shows it</td></tr>
+      <tr><td><code>data_checksums</code></td><td class="num">on</td><td class="ok">PG18 default; small CPU cost, keep for corruption detection</td></tr>
+    </tbody>
+  </table></div>
+
+  <span class="label" style="font-family:var(--mono);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);display:block;margin:22px 0 4px;">Already done well — don't re-optimize</span>
+  <p>Transaction-scoped HNSW tuning (<code>SET LOCAL ef_search=100</code>, <code>iterative_scan='strict_order'</code> — a settled correctness ruling); 250-row batched multi-row upserts with atomic chunk+job enqueue; <code>FOR UPDATE SKIP LOCKED</code> lease queue with idle backoff (1s floor); the <code>DatabaseWorkScheduler</code> priority mutex with a 75ms foreground-quiet window; browser first-run bootstrap (53s → seconds via memory-migrate → dump → strict load); deferred, serialized, attempt-capped HNSW builds; uuidv7 PKs; STORED tsvector + BM25 lexical arm with eval gates; binary quantization was benchmarked and correctly rejected (re-evaluate only ≥500k chunks).</p>
+
+  <span class="label" style="font-family:var(--mono);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);display:block;margin:22px 0 4px;">Memory picture at 100k chunks × 1024 dims</span>
+  <p>HNSW graph ~260MB on disk (halfvec, ~550–600B/row overhead) · BM25 index ~25MB per 50k chunks (largest index) · trigram GIN ~17MB · tsvector GIN ~8.6MB — the three content indexes are ~82% of <code>file_chunks</code> index bytes · <code>shared_buffers</code> 128MB resident per instance · index builds clamp <code>maintenance_work_mem</code> at 512MB for 32-bit WASM headroom · one engine instance per platform (desktop utility process; browser shared worker), plus a transient bootstrap worker on web first run.</p>
+</section>
+
+<footer>
+  <p><strong>Methodology.</strong> Four parallel read-only code audits (construction/config, hot paths, schema/maintenance, capability surface) over the worktree at <code>main</code> 69d405f0e, followed by direct verification: GUC defaults, backend inventory, <code>pg_jit_available()</code>, and <code>ALTER SYSTEM</code> persistence measured on a fresh PGlite 0.5.4 instance; git ancestry checked for the unmerged fix. Benchmark figures (recall, build times, index sizes) are quoted from the repo's own benchmark comments and <code>docs/pg18-skip-scan-audit.md</code>, dated 2026-07-11.</p>
+  <p>Items marked <em>hypothesis</em> or <em>benchmark-gated</em> should not ship without measurement — the repo's evidence bar (quantified, verified claims) applies to this report's follow-ups too.</p>
+</footer>
+</main>
