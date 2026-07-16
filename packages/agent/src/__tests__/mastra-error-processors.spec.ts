@@ -23,6 +23,11 @@ import type {
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
+import type {
+  AgentConfig,
+  AgentExecutionOptionsBase,
+  Agent as MastraAgent,
+} from '@mastra/core/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StreamChunk } from '../types';
 
@@ -48,23 +53,28 @@ vi.mock('../providers/provider-factory', async (importActual) => {
 
 // Transparent recording subclass: super() runs the REAL Mastra Agent, so the
 // real loop / real processors execute. We only observe the config + stream args.
+// Typing constraint: `extends actual.Agent` instantiates the Agent generics
+// with their DEFAULTS (TOutput = undefined), while ConstructorParameters /
+// InstanceType inference resolves them to `unknown` — so only bare
+// `AgentConfig` / `MastraAgent` references match what super() expects. And
+// because `stream` is overloaded, no single method signature satisfies every
+// overload; a field typed as the base member type is the one override-safe shape.
 vi.mock('@mastra/core/agent', async (importActual) => {
   const actual = await importActual<typeof import('@mastra/core/agent')>();
   class RecordingAgent extends actual.Agent {
-    constructor(config: Record<string, unknown>) {
-      super(config as ConstructorParameters<typeof actual.Agent>[0]);
-      agentConfigs.push(config);
+    constructor(config: AgentConfig) {
+      super(config);
+      agentConfigs.push(config as Record<string, unknown>);
     }
-    stream(
-      input: unknown,
-      options?: unknown
-    ): ReturnType<InstanceType<typeof actual.Agent>['stream']> {
+    // The trailing `as MastraAgent['stream']` cast is load-bearing: it bridges
+    // the single-signature arrow back to the base's overload set.
+    override stream: MastraAgent['stream'] = ((
+      messages: Parameters<MastraAgent['stream']>[0],
+      options?: AgentExecutionOptionsBase<unknown> & { structuredOutput?: never }
+    ) => {
       streamOptionsLog.push(options);
-      return super.stream(
-        input as Parameters<InstanceType<typeof actual.Agent>['stream']>[0],
-        options as Parameters<InstanceType<typeof actual.Agent>['stream']>[1]
-      );
-    }
+      return options === undefined ? super.stream(messages) : super.stream(messages, options);
+    }) as MastraAgent['stream'];
   }
   return { ...actual, Agent: RecordingAgent };
 });
