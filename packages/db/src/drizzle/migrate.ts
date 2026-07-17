@@ -51,6 +51,7 @@ import { migration058ProviderBilledCost } from '../migrations/058-provider-bille
 import { migration059AssistantThreadGroupIcons } from '../migrations/059-assistant-thread-group-icons.js';
 import { migration060OpenRouterSparkKimiK3 } from '../migrations/060-openrouter-spark-kimi-k3.js';
 import { migration061ModelVisionCapability } from '../migrations/061-model-vision-capability.js';
+import { migration062AssistantRunOutcomes } from '../migrations/062-assistant-run-outcomes.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -210,6 +211,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-059-assistant-thread-group-icons', migration059AssistantThreadGroupIcons),
   customMigration('custom-060-openrouter-spark-kimi-k3', migration060OpenRouterSparkKimiK3),
   customMigration('custom-061-model-vision-capability', migration061ModelVisionCapability),
+  customMigration('custom-062-assistant-run-outcomes', migration062AssistantRunOutcomes),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

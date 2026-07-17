@@ -82,6 +82,7 @@ describe('Drizzle Migration Runner', () => {
         expect(tableNames).toContain('providers');
         expect(tableNames).toContain('models');
         expect(tableNames).not.toContain('model_registry');
+        expect(tableNames).toContain('brainstrike_assistant_run_outcomes');
         expect(tableNames).toContain('__drizzle_migrations');
       },
       MIGRATION_RUN_TIMEOUT_MS

@@ -73,6 +73,7 @@ interface PGliteLiveQuerySurface {
 type OptionalRelationTable =
   | 'brainstrike_assistant_edit_checkpoints'
   | 'brainstrike_assistant_message_parents'
+  | 'brainstrike_assistant_run_outcomes'
   | 'brainstrike_assistant_run_usage'
   | 'brainstrike_assistant_task_lists'
   | 'collection_indexing_stats'
@@ -712,6 +713,10 @@ export function registerDatabaseIpcHandlers(
             // survive a "true fresh start" (see FACTORY RESET CONTRACT). It has
             // no FK, so nothing cascades it — it must be cleared explicitly.
             await clearOptionalRelation(tx, 'brainstrike_assistant_run_usage');
+            // Per-run outcome labels (Task Ledger): analytic facts with no FK,
+            // so nothing cascades them — clear explicitly per the FACTORY RESET
+            // CONTRACT so verdict history cannot survive a fresh start.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_run_outcomes');
             // Durable per-thread assistant task list (P0 task-list tool): a
             // factory reset must wipe the plan so it does not survive a "true
             // fresh start" (FACTORY RESET CONTRACT). No FK, so clear explicitly.

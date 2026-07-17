@@ -55,7 +55,6 @@ export {
   fetchJsonWithTimeout,
   isRecord,
   type LocalRuntimeEndpointConfig,
-  type LocalRuntimeLogger,
   normalizeRuntimeBaseUrl,
   sanitizeDuration,
 } from './local-runtime-utils.js';

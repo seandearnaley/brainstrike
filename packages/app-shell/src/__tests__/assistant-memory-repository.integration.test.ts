@@ -3379,6 +3379,196 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     await expect(repository.getCrossRootUsage('never-seen')).resolves.toEqual([]);
   });
+
+  it('records one outcome label per run and upserts later verdicts in real PGlite', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-run-outcome-upsert');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+
+    await repository.recordRunOutcome({
+      labeledAt: new Date('2026-07-16T12:00:00Z'),
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      source: 'hook',
+      threadId: 'thread-1',
+      verdict: 'succeeded',
+    });
+    // A later explicit user verdict replaces the hook label — one row per run.
+    await repository.recordRunOutcome({
+      detail: 'edits reverted by user',
+      labeledAt: new Date('2026-07-16T12:05:00Z'),
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      source: 'user',
+      threadId: 'thread-1',
+      verdict: 'failed',
+    });
+
+    const rows = await db.query<{ verdict: string; source: string; detail: string | null }>(
+      `SELECT verdict, source, detail FROM brainstrike_assistant_run_outcomes WHERE run_id = 'run-1'`
+    );
+    expect(rows.rows).toEqual([
+      { detail: 'edits reverted by user', source: 'user', verdict: 'failed' },
+    ]);
+  });
+
+  it('aggregates the run ledger across usage, tool events, checkpoints, and outcomes in real PGlite', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-run-ledger');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    // Run 1: completed, two usage rows (one with exact billed cost), two tool
+    // completions + one tool failure, two edits (one later reverted), no label.
+    await repository.createThreadRun({
+      id: 'run-1',
+      model: 'claude-sonnet-5',
+      provider: 'anthropic',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-07-16T10:00:00Z'),
+      status: 'running',
+      threadId: thread.id,
+    });
+    await repository.completeThreadRun('run-1', { status: 'completed' });
+    await db.query(
+      `UPDATE brainstrike_assistant_thread_runs
+       SET completed_at = $2 WHERE id = $1`,
+      ['run-1', new Date('2026-07-16T10:01:30Z')]
+    );
+    await repository.recordRunUsage({
+      billedCostUsd: 0.5,
+      inputTokens: 1000,
+      model: 'claude-sonnet-5',
+      outputTokens: 200,
+      provider: 'anthropic',
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      threadId: thread.id,
+    });
+    await repository.recordRunUsage({
+      inputTokens: 400,
+      model: 'claude-sonnet-5',
+      outputTokens: 100,
+      provider: 'anthropic',
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      threadId: thread.id,
+    });
+    const toolEvents: Array<{ id: string; kind: 'tool.completed' | 'tool.failed' }> = [
+      { id: 'event-1', kind: 'tool.completed' },
+      { id: 'event-2', kind: 'tool.completed' },
+      { id: 'event-3', kind: 'tool.failed' },
+    ];
+    for (const [index, event] of toolEvents.entries()) {
+      await repository.appendThreadRunEvent('run-1', {
+        id: event.id,
+        kind: event.kind,
+        label: 'Tool call',
+        sequence: index + 1,
+        status: event.kind === 'tool.failed' ? 'failed' : 'completed',
+        timestamp: '2026-07-16T10:00:05.000Z',
+      } satisfies AssistantRunEvent);
+    }
+    // A non-tool event must not count toward toolCallCount.
+    await repository.appendThreadRunEvent('run-1', {
+      id: 'event-4',
+      kind: 'memory.configured',
+      label: 'Memory configured',
+      sequence: 4,
+      status: 'completed',
+      timestamp: '2026-07-16T10:00:06.000Z',
+    } satisfies AssistantRunEvent);
+    await db.query(
+      `INSERT INTO brainstrike_assistant_edit_checkpoints
+        (id, run_id, resource_id, thread_id, tool_name, op, root_id, path,
+         before_existed, after_existed, capture_status, reverted_at,
+         occurred_at, created_at, updated_at)
+       VALUES
+        ('cp-1', 'run-1', 'workspace-a', $1, 'writeWorkspaceFile', 'write', 'root-1',
+         'src/a.ts', true, true, 'ok', NULL, NOW(), NOW(), NOW()),
+        ('cp-2', 'run-1', 'workspace-a', $1, 'writeWorkspaceFile', 'write', 'root-1',
+         'src/b.ts', true, true, 'ok', NOW(), NOW(), NOW(), NOW())`,
+      [thread.id]
+    );
+
+    // Run 2: newer, failed transport, no usage/events, labeled failed by revert.
+    await repository.createThreadRun({
+      id: 'run-2',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-07-16T11:00:00Z'),
+      status: 'running',
+      threadId: thread.id,
+    });
+    await repository.completeThreadRun('run-2', { error: 'boom', status: 'failed' });
+    await repository.recordRunOutcome({
+      labeledAt: new Date('2026-07-16T11:02:00Z'),
+      resourceId: 'workspace-a',
+      runId: 'run-2',
+      source: 'edit_revert',
+      threadId: thread.id,
+      verdict: 'failed',
+    });
+
+    // A different workspace must not bleed into the ledger.
+    await repository.createThreadRun({
+      id: 'run-other',
+      model: 'gpt-5.2',
+      provider: 'openai',
+      resourceId: 'workspace-b',
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-07-16T11:30:00Z'),
+      status: 'running',
+      threadId: thread.id,
+    });
+
+    const ledger = await repository.getRunLedger('workspace-a');
+    expect(ledger.map((row) => row.runId)).toEqual(['run-2', 'run-1']);
+
+    const [run2, run1] = ledger;
+    expect(run1).toMatchObject({
+      billedCostUsd: 0.5,
+      durationMs: 90_000,
+      editCount: 2,
+      failedToolCallCount: 1,
+      inputTokens: 1400,
+      model: 'claude-sonnet-5',
+      outcomeDetail: null,
+      outcomeSource: null,
+      outcomeVerdict: null,
+      outputTokens: 300,
+      provider: 'anthropic',
+      revertedEditCount: 1,
+      runId: 'run-1',
+      status: 'completed',
+      threadId: thread.id,
+      toolCallCount: 3,
+    });
+    expect(run1?.startedAt.toISOString()).toBe('2026-07-16T10:00:00.000Z');
+    expect(run1?.completedAt?.toISOString()).toBe('2026-07-16T10:01:30.000Z');
+
+    expect(run2).toMatchObject({
+      editCount: 0,
+      failedToolCallCount: 0,
+      inputTokens: 0,
+      outcomeSource: 'edit_revert',
+      outcomeVerdict: 'failed',
+      outputTokens: 0,
+      revertedEditCount: 0,
+      runId: 'run-2',
+      status: 'failed',
+      toolCallCount: 0,
+    });
+    expect(run2?.billedCostUsd).toBeUndefined();
+    expect(run2?.durationMs).toBeGreaterThanOrEqual(0);
+
+    // limitLatest bounds the ledger to the newest runs.
+    const limited = await repository.getRunLedger('workspace-a', { limitLatest: 1 });
+    expect(limited.map((row) => row.runId)).toEqual(['run-2']);
+  });
 });
 
 function createMockDb(): {

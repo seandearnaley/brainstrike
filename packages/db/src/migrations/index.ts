@@ -60,6 +60,7 @@ import { migration058ProviderBilledCost } from './058-provider-billed-cost.js';
 import { migration059AssistantThreadGroupIcons } from './059-assistant-thread-group-icons.js';
 import { migration060OpenRouterSparkKimiK3 } from './060-openrouter-spark-kimi-k3.js';
 import { migration061ModelVisionCapability } from './061-model-vision-capability.js';
+import { migration062AssistantRunOutcomes } from './062-assistant-run-outcomes.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -126,6 +127,7 @@ export const migrations: Migration[] = [
   migration059AssistantThreadGroupIcons,
   migration060OpenRouterSparkKimiK3,
   migration061ModelVisionCapability,
+  migration062AssistantRunOutcomes,
 ];
 
 // Export base migrations (without chunks table) for test environments
