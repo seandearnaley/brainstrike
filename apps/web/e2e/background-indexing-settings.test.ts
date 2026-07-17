@@ -6,7 +6,7 @@ import { ensureRightPanelVisible } from './utils/layout-helpers';
 
 async function ensureDatabasePanelVisible(page: Page): Promise<void> {
   await ensureRightPanelVisible(page);
-  const databaseTab = page.getByRole('tab', { name: /database/i });
+  const databaseTab = page.getByRole('tab', { name: /collections/i });
   await expect(databaseTab).toBeVisible({ timeout: 15_000 });
   await databaseTab.click();
   await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });

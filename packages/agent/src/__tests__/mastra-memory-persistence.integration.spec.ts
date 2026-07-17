@@ -27,7 +27,9 @@
  * snapshot rows) is exercised too.
  */
 
-import { ReadableStream } from 'node:stream/web';
+// Uses the global (DOM-typed) ReadableStream rather than `node:stream/web`:
+// the runtime class is the same in Node >= 18, and @ai-sdk/provider's stream
+// types are declared against the DOM ReadableStream.
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
@@ -415,6 +417,106 @@ describe('mastra memory persistence through the live stream path', () => {
     },
     30_000
   );
+
+  it('persists a user image attachment part with its media type and data-URL body', async () => {
+    const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=';
+    const threadId = 'thread-image-attachment';
+    const { memory, storage } = await createPgliteMastraMemory({
+      database: database as unknown as PgliteDatabase,
+      memorySettings: OM_DISABLED_SETTINGS,
+    });
+
+    // Minimal scripted model: one text answer, no tools — this test is about
+    // what Mastra PERSISTS for the image-bearing USER message.
+    modelHolder.current = {
+      doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+      doStream: () =>
+        Promise.resolve({
+          stream: new ReadableStream<LanguageModelV2StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({ id: 't1', type: 'text-start' });
+              controller.enqueue({ delta: 'a tiny png', id: 't1', type: 'text-delta' });
+              controller.enqueue({ id: 't1', type: 'text-end' });
+              controller.enqueue({ finishReason: 'stop', type: 'finish', usage: USAGE });
+              controller.close();
+            },
+          }),
+        }),
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
+    } as unknown as LanguageModelV2;
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-img-1',
+          parts: [
+            { text: 'what is in this screenshot?', type: 'text' },
+            { data: PNG_DATA_URL, mediaType: 'image/png', type: 'file' },
+          ],
+          role: 'user',
+        },
+      ],
+      {
+        memory,
+        runtime: {
+          apiKey: 'test-key',
+          memory: {
+            memorySettings: OM_DISABLED_SETTINGS,
+            resourceId: 'resource-memory-test',
+            threadId,
+          },
+          provider: 'openai',
+        },
+        storage,
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    const rows = await listThreadMessages(database, threadId);
+    const userRow = rows.find((row) => row.id === 'u-img-1');
+    expect(userRow).toBeDefined();
+    const parts = parseParts(userRow as PersistedMessageRow) as Record<string, unknown>[];
+
+    // The full persisted envelope (captured from this real row): alongside
+    // `parts`, Mastra v2 flattens the text into a `content` STRING (this is
+    // what today's user-text hydration reads) and mirrors the image into
+    // `experimental_attachments: [{url, contentType}]`. Hydration derives
+    // attachments from the durable `parts` file dialect; the envelope pin
+    // below makes drift in either sibling field visible.
+    const envelope = (
+      typeof userRow?.content === 'string' ? JSON.parse(userRow.content) : userRow?.content
+    ) as Record<string, unknown>;
+    expect(envelope['format']).toBe(2);
+    expect(envelope['content']).toBe('what is in this screenshot?');
+    expect(envelope['experimental_attachments']).toEqual([
+      { contentType: 'image/png', url: PNG_DATA_URL },
+    ]);
+
+    // The PERSISTED FILE DIALECT (captured from this real row, do not
+    // hand-edit): Mastra v2 stores the user image as
+    //   { type: 'file', data: <base64 data URL>, mimeType: 'image/png' }
+    // — the media type field is `mimeType`, NOT `mediaType`. The app-shell
+    // hydration fixture mirrors exactly this shape.
+    const filePart = parts.find((part) => part['type'] === 'file');
+    expect(filePart).toBeDefined();
+    expect(filePart?.['mimeType']).toBe('image/png');
+    expect(filePart?.['data']).toBe(PNG_DATA_URL);
+
+    // The text sibling persists alongside — the image never replaces it.
+    const textJoined = parts
+      .filter((part) => part['type'] === 'text')
+      .map((part) => String(part['text'] ?? ''))
+      .join(' ');
+    expect(textJoined).toContain('what is in this screenshot?');
+    // ...and the base64 body never leaks INTO the persisted text.
+    expect(textJoined).not.toContain('base64');
+  });
 
   it('drives observational memory through the REAL llm-host proxy model (local memory model)', async () => {
     // Mirrors the desktop "memory model = built-in local" configuration: the

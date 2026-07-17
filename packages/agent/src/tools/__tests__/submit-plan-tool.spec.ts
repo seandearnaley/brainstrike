@@ -26,7 +26,7 @@ describe('submitPlan tool', () => {
 
   it('calls suspend once with the mapped plan payload when there is no resumeData', async () => {
     const tool = createSubmitPlanTool();
-    const suspend = vi.fn(() => Promise.resolve());
+    const suspend = vi.fn((_payload: unknown) => Promise.resolve());
     await runExecute(tool, INPUT, { agent: { suspend } });
     expect(suspend).toHaveBeenCalledTimes(1);
     expect(suspend.mock.calls[0]?.[0]).toEqual({

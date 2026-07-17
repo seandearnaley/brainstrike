@@ -7,6 +7,7 @@ import type {
   RuntimeDiagnosticLogLevel,
 } from './local-runtime-discovery.js';
 import type { LocalRuntimeEndpointConfig } from './local-runtime-utils.js';
+import type { ModelVisionSupport } from './provider-registry.js';
 
 export type LocalRuntimeModelSource =
   | 'openai_v1_models'
@@ -50,6 +51,13 @@ export interface LocalRuntimeNormalizedModel {
   readonly capabilities: {
     readonly llm: boolean;
     readonly embeddings: LocalRuntimeEmbeddingCapability;
+    /**
+     * Image-input support. 'supported'/'unsupported' when the runtime reports
+     * it (Ollama /api/show capabilities, LM Studio native `type` vlm/llm);
+     * 'unknown' when only name inference was possible — never silently
+     * coerced to unsupported.
+     */
+    readonly vision: ModelVisionSupport;
   };
   /**
    * Whether capabilities were reported by the runtime (LM Studio `type`, Ollama

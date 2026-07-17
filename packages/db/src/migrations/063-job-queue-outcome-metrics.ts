@@ -1,7 +1,7 @@
 import type { Migration } from './migration-runner';
 
 /**
- * Migration 061: lifetime failed/canceled outcome counters.
+ * Migration 063: lifetime failed/canceled outcome counters.
  *
  * job_queue_metrics (049) only tracked a monotonic per-queue succeeded_total,
  * so scheduled maintenance pruning terminal job rows destroyed lifetime
@@ -14,7 +14,7 @@ import type { Migration } from './migration-runner';
  * runner for tests, drizzle customMigrations for the real app) runs on
  * different paths — both must converge on the same table shape.
  */
-export const migration061JobQueueOutcomeMetrics: Migration = {
+export const migration063JobQueueOutcomeMetrics: Migration = {
   down: `
     ALTER TABLE job_queue_metrics DROP COLUMN IF EXISTS failed_total;
     ALTER TABLE job_queue_metrics DROP COLUMN IF EXISTS canceled_total;
@@ -24,5 +24,5 @@ export const migration061JobQueueOutcomeMetrics: Migration = {
     ALTER TABLE job_queue_metrics ADD COLUMN IF NOT EXISTS failed_total BIGINT NOT NULL DEFAULT 0;
     ALTER TABLE job_queue_metrics ADD COLUMN IF NOT EXISTS canceled_total BIGINT NOT NULL DEFAULT 0;
   `,
-  version: 61,
+  version: 63,
 };

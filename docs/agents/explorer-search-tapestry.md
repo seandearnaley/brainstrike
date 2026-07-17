@@ -119,6 +119,15 @@ additionally get a Source/Preview toggle; preview is the default.
   network requests, independent of CSP. Every failure is visible (placeholder,
   toast, or error block) — no silent fallbacks.
 - **Crash safety:** MarkdownPreviewErrorBoundary offers "Open in source".
+- **Binary files:** the content worker stores the `BINARY_CONTENT_MESSAGE`
+  sentinel (`@brainstrike/types`, exact-match — indexing/import guards key on
+  it) as the tab's content; `FileTabBody` renders `BinaryFilePreview`
+  (file-explorer-ui/components) instead of a code surface. Its buttons are a
+  projection of the shared context-action registry (`file.reveal-in-os`,
+  `file.open-in-default-app`, one copy-path variant) — same capability gating
+  as the right-click menu, so web builds without fs bridges just show fewer
+  buttons, and failures toast + log (no silent fallbacks). Paired test:
+  `file-explorer-ui/src/shell/__tests__/file-tab-body-binary.test.tsx`.
 
 When changing this flow, update this section and the paired tests.
 

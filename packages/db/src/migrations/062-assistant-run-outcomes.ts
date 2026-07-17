@@ -27,7 +27,7 @@ import type { Migration } from './migration-runner';
  * on different paths; the app-shell repository ALSO bootstraps this table, and
  * the two shapes must stay byte-identical.
  */
-export const migration060AssistantRunOutcomes: Migration = {
+export const migration062AssistantRunOutcomes: Migration = {
   down: `
     DROP INDEX IF EXISTS brainstrike_assistant_run_outcomes_resource_idx;
     --> statement-breakpoint
@@ -59,5 +59,5 @@ export const migration060AssistantRunOutcomes: Migration = {
     CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_resource_idx
       ON brainstrike_assistant_run_outcomes (resource_id, labeled_at DESC);
   `,
-  version: 60,
+  version: 62,
 };

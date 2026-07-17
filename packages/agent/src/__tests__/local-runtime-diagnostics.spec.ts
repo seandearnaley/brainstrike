@@ -21,9 +21,13 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   LocalRuntimeDiscoveryService,
-  type LocalRuntimeLogger,
+  type LocalRuntimeDiscoveryServiceOptions,
 } from '../providers/local-runtime-discovery';
 import { LocalRuntimeModelCatalogService } from '../providers/local-runtime-model-catalog';
+
+// `LocalRuntimeLogger` is not re-exported through the `local-runtime` barrel;
+// derive it from the discovery-service options instead of touching prod code.
+type LocalRuntimeLogger = NonNullable<LocalRuntimeDiscoveryServiceOptions['logger']>;
 
 type FetchMock = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 

@@ -51,11 +51,14 @@ describe('app-shell assistant contract boundary', () => {
     // Bumped 1500 → 1520 to acknowledge the workspace-instructions context
     // wiring (#1566) that grew the wrapper to 1518 lines, plus the
     // user-slash-commands thread-scoped `useAssistantSlashCommands` wiring.
-    // Bumped 1520 → 1530 for the Task Ledger run-verdict binding: the wrapper
+    // Bumped 1525 → 1540 for per-model vision attachment gating: the shared
+    // selected-model definition memo (feeds both the token budget and the
+    // composer attachment gate) plus the attachments-availability memo.
+    // Bumped 1540 → 1550 for the Task Ledger run-verdict binding: the wrapper
     // only calls useRunVerdictBinding and mounts <RunVerdictProvider>; the
     // phase machine and runId detection live in packages/ui
     // (run-verdict-control.tsx / run-verdict-context.tsx).
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1530);
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1550);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
@@ -65,7 +68,10 @@ describe('app-shell assistant contract boundary', () => {
     // it fires the panel's onRunFinished seam and asserts the checkpoint journal
     // is re-read without a thread switch (the turn-level "Revert all edits"
     // footer's headline scenario — see PR #1568 / EDIT CHECKPOINT JOURNAL).
-    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2025);
+    // Bumped 2025 → 2075 for the composer attachment gating tests: the
+    // transport-hidden case plus the vision-unsupported disabled-with-reason /
+    // vision-supported enabled transitions under the data-stream transport.
+    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2075);
   });
 
   it('reads built-in local LLM availability from assistant-contract instead of agent runtime packages', () => {

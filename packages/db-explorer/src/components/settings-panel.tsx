@@ -615,7 +615,7 @@ export function SettingsPanel({
               variant="destructive"
             >
               <Trash2 className="h-3 w-3" />
-              {clearDatabaseProps.countsPending ? 'Counts pending' : 'Clear Database'}
+              {clearDatabaseProps.countsPending ? 'Counts pending' : 'Clear All Collections'}
             </Button>
           )}
         </footer>

@@ -2,6 +2,7 @@ import {
   type AnthropicProviderOptions,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
+  getLlmModelDefinition,
   type HookTrustRequest,
   type LocalProviderOptions,
   type OpenAiProviderOptions,
@@ -23,6 +24,8 @@ import {
 import {
   getProviderDefaultModel,
   getProviderDefinition,
+  isSupportedProvider,
+  type ModelVisionSupport,
   type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -44,6 +47,7 @@ import {
 import type {
   AssistantProviderSettings,
   AssistantToolMenuItem,
+  ComposerAttachmentsAvailability,
 } from '@brainstrike/ui/assistant-ui-panel';
 import type {
   AssistantThreadRepository,
@@ -61,6 +65,17 @@ export function resolveModelNameFromComposite(
   }
   const parts = composite.split('::');
   return parts.length === 2 ? parts[1] : composite;
+}
+
+export function resolveProviderFromComposite(
+  composite: string | null | undefined
+): SupportedProvider | null {
+  if (!composite) {
+    return null;
+  }
+  const parts = composite.split('::');
+  const candidate = parts.length === 2 ? parts[0] : null;
+  return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
 function createThreadRunId(): string {
@@ -236,6 +251,12 @@ export function buildAssistantRequestData(args: {
    * transport and only when it diverges from the defaults. A preference, not a
    * security boundary — it can only reduce the persona set.
    */
+  /**
+   * Opt-in Agent Skills preference; only set on the desktop data-stream
+   * transport (web has no skills engine). A preference, not a security
+   * boundary — it can only reduce the skill set.
+   */
+  skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
    * Opt-in workspace instructions preference; only set on the desktop
@@ -314,6 +335,7 @@ interface OptInRequestFields {
   hookTrustRequest?: HookTrustRequest | undefined;
   permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
   planMode?: boolean;
+  skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
 }
@@ -345,6 +367,10 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   }
   if (fields.workspaceInstructionsPreference) {
     data['workspaceInstructionsPreference'] = fields.workspaceInstructionsPreference;
+  }
+  // Skills preference: absent => server default (master on, nothing disabled).
+  if (fields.skillsPreference) {
+    data['skillsPreference'] = fields.skillsPreference;
   }
 }
 
@@ -549,7 +575,44 @@ export function toRuntimeProviderModels(
     label: model.displayName,
     supportsStreaming: true,
     type: 'llm' as const,
+    vision: model.capabilities.vision,
   }));
+}
+
+/**
+ * Composer image-attachment gate. Layered on top of the provider predicate
+ * (every hosted provider is eligible — the desktop assistant server and the
+ * web /api/assistant route share the same image-aware conversion; only the
+ * text-only built-in local provider is excluded): when that gate fails the
+ * affordance is hidden entirely (undefined); when it passes, the SELECTED
+ * MODEL's vision capability decides between 'enabled' and a visibly
+ * 'disabled' button carrying the reason — never a silent hide. 'unknown'
+ * vision (runtime-discovered model without a capability signal) and an
+ * unresolved definition (e.g. runtime catalog still loading) stay
+ * optimistic: a wrong guess surfaces as a visible provider error downstream,
+ * whereas guessing 'unsupported' would silently block a capable model.
+ */
+export function resolveComposerAttachmentsAvailability(args: {
+  readonly providerGateAvailable: boolean;
+  readonly selectedModel:
+    | {
+        readonly id: string;
+        readonly label?: string | undefined;
+        readonly vision: ModelVisionSupport;
+      }
+    | undefined;
+}): ComposerAttachmentsAvailability | undefined {
+  if (!args.providerGateAvailable) {
+    return;
+  }
+  if (args.selectedModel?.vision === 'unsupported') {
+    const modelName = args.selectedModel.label ?? args.selectedModel.id;
+    return {
+      reason: `${modelName} doesn't support image input. Switch to a vision-capable model to attach images.`,
+      state: 'disabled',
+    };
+  }
+  return { state: 'enabled' };
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -898,10 +961,25 @@ function buildOpenAiOptions(
 }
 
 function buildOpenRouterOptions(
+  modelName: string | undefined,
   settings: AssistantProviderSettings
 ): OpenRouterProviderOptions | undefined {
+  const reasoningEffort = settings.reasoningEffort;
+  if (modelName && reasoningEffort) {
+    const model = getLlmModelDefinition('openrouter', modelName);
+    if (!model.reasoning) {
+      throw new Error(
+        `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
+      );
+    }
+    if (!model.reasoning.supportedEfforts.includes(reasoningEffort)) {
+      throw new Error(
+        `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${model.reasoning.supportedEfforts.join(', ')}.`
+      );
+    }
+  }
   const reasoning = buildOptionalOptions<NonNullable<OpenRouterProviderOptions['reasoning']>>([
-    ['effort', settings.reasoningEffort || undefined],
+    ['effort', reasoningEffort || undefined],
     ['summary', settings.reasoningSummary || undefined],
   ]);
   return reasoning ? { reasoning } : undefined;
@@ -981,7 +1059,7 @@ export function buildProviderOptions(
       return openai ? { openai } : undefined;
     }
     case 'openrouter': {
-      const openrouter = buildOpenRouterOptions(settings);
+      const openrouter = buildOpenRouterOptions(modelName, settings);
       return openrouter ? { openrouter } : undefined;
     }
     case 'anthropic': {
@@ -1011,6 +1089,29 @@ export function buildProviderOptions(
     default:
       return;
   }
+}
+
+/**
+ * Clear a provider-wide effort override when the user explicitly switches to
+ * an OpenRouter model that rejects it or has no declared effort support. The
+ * model's documented default then remains visible as "Auto" in the settings
+ * control; request construction still throws if incompatible state reaches it
+ * by any other path.
+ */
+export function reconcileProviderSettingsForModel(
+  providerId: SupportedProvider,
+  modelName: string,
+  settings: AssistantProviderSettings | undefined
+): AssistantProviderSettings | undefined {
+  if (!(providerId === 'openrouter' && settings?.reasoningEffort)) {
+    return settings;
+  }
+  const model = getLlmModelDefinition('openrouter', modelName);
+  if (model.reasoning?.supportedEfforts.includes(settings.reasoningEffort)) {
+    return settings;
+  }
+  const { reasoningEffort: _unsupportedReasoningEffort, ...compatibleSettings } = settings;
+  return compatibleSettings;
 }
 
 export function copyProviderSettingsMap(

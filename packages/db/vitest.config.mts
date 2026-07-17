@@ -13,6 +13,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 const sharedAliases: Record<string, string> = {
   '@': path.resolve(__dirname, 'src'),
+  // Root import (registry↔migration vision agreement test) resolves to source
+  // so the lane never depends on a prebuilt assistant-contract dist. Subpath
+  // aliases (e.g. mastra-memory-schema in unitAliases) must stay declared
+  // BEFORE this key so the prefix match cannot shadow them.
+  '@brainstrike/assistant-contract': path.resolve(__dirname, '../assistant-contract/src/index.ts'),
   '@brainstrike/embedding-worker': path.resolve(__dirname, '../embedding-worker/src'),
   '@brainstrike/file-explorer': path.resolve(__dirname, '../file-explorer/src'),
   '@brainstrike/file-explorer-hooks': path.resolve(__dirname, '../file-explorer-hooks/src'),

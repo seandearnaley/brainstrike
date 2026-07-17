@@ -16,6 +16,7 @@ import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
  * `read`-risk retrieval tool — see NATIVE_TOOL_DEFAULTS below.
  */
 export const WEB_SEARCH_TOOL_ID = 'brainstrike.webSearch' as const;
+export const WEB_EXTRACT_TOOL_ID = 'brainstrike.webExtract' as const;
 
 /**
  * Source of a tool - either built into the application or from an MCP server.
@@ -296,6 +297,19 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     requiresApproval: true,
     riskCategory: 'edit',
   },
+  // The natural pair to webSearch (report R5): read the page BEHIND a result
+  // or a user-pasted URL as markdown, via Tavily's /extract endpoint. Same
+  // 'read' + no-approval posture and the same external-service privacy caveat
+  // — the URLs are sent to Tavily. Model-supplied URLs are validated
+  // server-side first (http/https only, no credentials, no private/loopback/
+  // link-local hosts) so an internal URL never leaves the machine.
+  'brainstrike.webExtract': {
+    category: 'retrieval',
+    estimatedTokens: 130,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   // Read-only web retrieval via Tavily. riskCategory 'read' + requiresApproval
   // false: it does NOT mutate workspace state, so the permission engine allows
   // it by default like the other readers. NOTE the privacy caveat documented on
@@ -315,6 +329,38 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: true,
     riskCategory: 'edit',
+  },
+  // Agent Skills tools (https://agentskills.io). These are Mastra's OWN
+  // canonical tool ids (`skill`/`skill_read`/`skill_search`, deliberately NOT
+  // `brainstrike.*`-namespaced) created via `createSkillTools` and folded into
+  // the runtime tool map BEFORE guards/hooks/plan-mode/permission — so they
+  // need registry risk entries like every native tool. All three are
+  // READ-ONLY: they load, search, and read skill content the user installed on
+  // disk; skill *scripts* still run through `brainstrike.executeCommand` and
+  // its 'execute' approval gate. Explicit 'read' keeps them free under the
+  // default policy and available in plan mode (investigation tools).
+  skill: {
+    category: 'retrieval',
+    estimatedTokens: 90,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_read: {
+    category: 'retrieval',
+    estimatedTokens: 120,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
+  // biome-ignore lint/style/useNamingConvention: Mastra's canonical skill tool id.
+  skill_search: {
+    category: 'retrieval',
+    estimatedTokens: 110,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
   },
 };
 

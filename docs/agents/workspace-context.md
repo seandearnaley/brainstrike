@@ -1,4 +1,4 @@
-# Workspace Context Features: Prompt Workbench, Instructions Injection, Slash Commands, Edit Checkpoints
+# Workspace Context Features: Prompt Workbench, Instructions Injection, Slash Commands, Agent Skills, Edit Checkpoints
 
 > Extracted from AGENTS.md (2026-07-12). Read before changing the prompt library, AGENTS.md/CLAUDE.md injection, user-defined /commands, or the edit-checkpoint journal. Keep updated with the code.
 
@@ -170,10 +170,10 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
   opt-in) are the user's off-switches. A future per-root acknowledgment of
   newly-detected files is a possible hardening, not a v1 requirement.
 
-- **Deferred**: Mastra skills adoption (on-demand `createSkill()` per-root
-  instructions — the architecturally better long-term fit, blocked on verifying
-  its auto-added `skill`/`skill_search`/`skill_read` tools flow through the
-  permission gate); web (no workspace-tool bridge); prompt caching.
+- **Deferred**: web (no workspace-tool bridge); prompt caching. (Mastra skills
+  adoption LANDED as its own feature — see AGENT SKILLS below; the old blocker
+  was resolved by wiring the skill tools through the pipeline rather than the
+  Agent-level auto-add.)
 
 When changing this flow, update this section and the paired tests
 (`packages/preferences` store + settings-section + factory-reset tests;
@@ -272,7 +272,147 @@ use-assistant-slash-commands.test.ts (F4 merge), and the REAL-trigger
 packages/ui/src/assistant-ui-panel/__tests__/slash-commands.behavior.test.tsx
 (F1 placeholder-fill through the actual popover + adapter + write-back).
 Explicitly DEFERRED: shell expansion (never), web (no workspace-tool bridge),
-namespaced/categorized popover grouping, Mastra skills.
+namespaced/categorized popover grouping. (Mastra skills LANDED — see AGENT
+SKILLS below; user-invocable skills are a THIRD slash-entry kind merged after
+user commands.)
+
+When changing this flow, update this section and the paired tests.
+
+---
+
+## AGENT SKILLS (SKILL.md — agentskills.io spec)
+
+Skills teach the assistant specialized workflows via progressive disclosure:
+name+description always in context, full SKILL.md instructions loaded on
+demand, bundled references/scripts/assets read as needed. Built on Mastra's
+canonical skills surface — the exported `WorkspaceSkills` INTERFACE,
+`createSkillTools` (`skill`/`skill_read`/`skill_search`), `SkillsProcessor`,
+and `formatSkillActivation` — over a brainstrike-owned engine, because
+Mastra's own `WorkspaceSkillsImpl`/`LocalSkillSource` are (a) not public
+exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
+(SecureRoot fs + the assistant server); web constructs no bridge/engine
+(capability-gated, never `isElectron()`).
+
+- **PIPELINE RULING (the old adoption blocker — do not relitigate):** the
+  skill tools are NEVER attached via Mastra's Agent-level `skills:` option —
+  its auto-added tools land AFTER `new Agent` and would bypass
+  guards→hooks→plan-mode→permission. Instead `createMastraAgentRuntime` folds
+  `createAssistantSkillTools(workspaceSkills)` into the LOCAL tool map BEFORE
+  `sanitizeTools` (`mergeSkillToolsIntoLocalTools`, agent-runtime.ts), so they
+  traverse the full pipeline like every native tool. They are registered in
+  the contract registries under Mastra's canonical UNNAMESPACED ids with
+  `riskCategory:'read'` (free under the default policy; kept in plan mode).
+  Skill *scripts* are never executed by the feature itself — the model runs
+  them through `brainstrike.executeCommand` and its `execute:ask` gate.
+  Live-loop proof: packages/agent/src/__tests__/mastra-skills.integration.spec.ts
+  (real Agent: metadata injection, activation, gate-free read execution while
+  an ask tool is present, plan-mode availability, no-skills no-advertisement).
+
+- **Discovery** (`packages/agent/src/skills/skill-scan.ts`): four tiers,
+  highest priority first, first-NAME-wins: (1) `<root>/.brainstrike/skills/`
+  per mounted root, (2) `~/.brainstrike/skills/`, (3) `<root>/.claude/skills/`
+  (Claude Code compat), (4) `~/.claude/skills/`. A skill = a directory whose
+  immediate `SKILL.md` carries valid YAML frontmatter; the scan is FLAT (spec
+  layout) and BOUNDED (`MAX_SKILL_FILE_CHARS` 64K / 4× byte pre-guard,
+  `MAX_SKILLS` 200, `MAX_SKILL_DIR_ENTRIES` 512). Every candidate yields a
+  visible entry: `ok` (with spec warnings), `invalid` (exact validation
+  errors — fail closed, never a silent half-parse), or `shadowed` (names its
+  winner). Frontmatter parses with the real `yaml` package
+  (`skill-frontmatter.ts`; skills REQUIRE frontmatter, unlike /commands);
+  validation (`skill-validation.ts`) MIRRORS @mastra/core's unexported
+  `validateSkillMetadata` byte-for-byte (name 1–64 `[a-z0-9-]`, no edge/double
+  hyphens, name === dirName, description 1–1024; >500-line/>5k-token
+  instructions are WARNINGS). Fs is dependency-injected (commands-loader
+  shape) so tier/collision logic tests run diskless.
+
+- **Engine** (`packages/agent/src/skills/scanned-workspace-skills.ts`):
+  `createScannedWorkspaceSkills` implements Mastra's `WorkspaceSkills` over
+  the scan — ONE parser feeds the Settings panel, the SkillsProcessor, the
+  tools, AND explicit activations, so UI status and live behavior cannot
+  diverge. Lifetime = one request (lazy initial scan; `maybeRefresh()` no-op
+  after; no fs watchers — mirrors the commands loader's no-polling posture).
+  Reference/script/asset reads are containment-checked (no `..`/absolute/`\\`)
+  and bounded (256K chars text / 1 MB assets, oversized → logged + null);
+  disabled skills are invisible EVERYWHERE (list/get/has/search/reads).
+  `skill_search` is a deterministic per-line term matcher over instructions +
+  references (no embedding dependency).
+
+- **Tool output budgets:** the `skill` tool's result IS the instruction
+  payload, and the spec allows ~5k tokens > the generic 3000-token guard —
+  so `SKILL_ACTIVATION_RESULT_TOKEN_BUDGET` (6000) is an EXPLICIT per-tool
+  override in `boundToolOutputForModel` (tool-output-limits.ts), and the tool
+  SELF-BOUNDS to the same ceiling with an honest truncation note
+  (skill-tools.ts) so the backstop never converts an activation into a
+  `tool_result_too_large` error. `skill_read`/`skill_search` self-bound to the
+  native budget with line-range / narrower-query hints.
+
+- **Metadata injection:** Mastra's `SkillsProcessor` composed into the
+  PER-CALL `inputProcessors` in `buildToolLoopOptions` (per-call options
+  REPLACE the Agent-config array, so it cannot live there), FIRST so the
+  TokenLimiter counts the injected `<available_skills>` block.
+  `buildDefaultInstructions` adds a skills workflow line only when the `skill`
+  tool survived the gates (effective tool map). EXCLUDED for provider
+  `'local'` on both sides (tools + processor), mirroring personas/plan-mode.
+
+- **Server wiring** (`apps/desktop/src/assistant-server/request-skills.ts` +
+  `skills-fs-deps.ts`): the TRUSTED engine is server-built per request over
+  `createSecureSkillsFs` (per-call SecureRoot open/close; reads refused
+  outside the candidate containment roots) and set on
+  `runtimeData.workspaceSkills` (agent-only, never serialized — mirrors
+  `hookRunner`; a client-supplied value is STRIPPED). The renderer sends only
+  `skillsPreference` `{masterEnabled, disabledSkillKeys}` — strictly parsed
+  (`readSkillsPreference`: malformed → warn + fail-safe default), reduce-only.
+  Keys are durable (`deriveSkillPreferenceKey`: `root:<roots.id>:<name>` /
+  `global:<name>` — the `.brainstrike`/`.claude` tiers of one scope SHARE a
+  key on purpose; never a raw path).
+
+- **Explicit activation (`/skill:<name>` → `:skill[name]`):** user-invocable
+  skills (`user-invocable` ≠ false) are a third slash-entry kind
+  (`use-skill-slash-commands.ts`, merged after user commands, collision-drop
+  warn-once). Execute STAGES a visible `:skill[name]` directive into the
+  composer draft (trigger stripped, draft preserved, NEVER auto-sends — the
+  no-silent-expansion rule is binding). At the request boundary
+  (`skills-activation-context.ts`, wired in `resolveInitialAgentStream`
+  between referenced-files and workspace-instructions; skipped on
+  approval/resume legs) each directive resolves through the SAME engine into
+  one prepended `system` message carrying `formatSkillActivation` output —
+  byte-identical to the `skill` tool's payload. Unknown/disabled skills get an
+  explicit in-context note; the per-skill (24K chars, same as the tool budget)
+  and per-message caps (`MAX_ACTIVATED_SKILLS_PER_MESSAGE` 8, 48K aggregate)
+  truncate/omit with honest notes. With skills off, directives stay inert text.
+
+- **UI:** Settings → Skills (`skills-settings-{section,category}.tsx`,
+  registered in the DESKTOP page-content only): master toggle + per-skill
+  switches grouped by source, invalid entries with exact errors, shadowed
+  entries with winners, spec warnings, Refresh; a rejected scan renders a
+  DISTINCT error state with Retry — never the empty state. Data via
+  `window.skills.scan()` (`ipc-skills{,-handlers}.ts`, channel `skills:scan`,
+  preload capability-gated) which runs the SAME scan as the engine.
+
+- **Preference store** (`packages/preferences/src/stores/skills-preferences-store.ts`):
+  `{masterEnabled: true, disabledSkillKeys}` (only `true` entries persist),
+  registered in `factory-reset-helpers.ts` (FACTORY RESET CONTRACT).
+
+- **Trust posture (conscious ruling, mirrors workspace-instructions):**
+  default-ON with NO per-skill trust gate. Skill content is instructions-only
+  (prompt-level influence); the permission engine's `edit/execute:ask`
+  defaults remain the backstop that keeps injected text from silently driving
+  mutations, and all reads are SecureRoot-contained + bounded. The master
+  toggle and per-skill disables are the off-switches.
+
+- **Deferred:** web (no fs bridge; inline `createSkill()` skills would be the
+  route); fs-watch refresh; `SkillSearchProcessor`; a create-skill scaffold
+  action; rendering skill activations as composer chips.
+
+Paired tests: packages/assistant-contract/src/__tests__/skills.test.ts;
+packages/agent/src/__tests__/{skill-scan,scanned-workspace-skills,skill-tools}.spec.ts
++ mastra-skills.integration.spec.ts + tool-output-limits.spec.ts;
+apps/desktop/src/__tests__/assistant-server/{request-skills,skills-activation-context}.test.ts
++ ipc-domains/ipc-skills-handlers.test.ts;
+packages/preferences/src/stores/__tests__/skills-preferences-store.test.ts +
+src/__tests__/skills-settings-section.test.tsx;
+packages/app-shell/src/__tests__/use-skill-slash-commands.test.tsx +
+assistant-ui-panel-wrapper-runtime.test.ts (skillsPreference opt-in field).
 
 When changing this flow, update this section and the paired tests.
 
@@ -375,6 +515,60 @@ rows). Capability-gated, not `isElectron()`.
   the bridge with refetch-on-success + refetch-before-rethrow, plus the run-completion
   `refetch`) + `assistant-ui-panel-wrapper.tsx` (composes refetch into the run
   callbacks), `packages/assistant-contract/src/edit-checkpoints.ts`.
+
+When changing this flow, update this section and the paired tests.
+
+---
+
+## READ-BEFORE-WRITE STALENESS GUARD (LOST-UPDATE PROTECTION)
+
+The compare layer of core 1.51's workspace `requireReadBeforeWrite` contract
+(report R8), adopted **compare-only** — a settled scoping decision, do not
+widen to core's stricter "refuse any overwrite without a prior read" layer
+without revisiting the test surface that legitimately writes unread files.
+
+- **Tracker:** `packages/agent/src/tools/file-read-state.ts` — pure in-memory
+  map of `scope|canonicalAbsolutePath → last observed mtimeMs`, where scope is
+  `runtimeData.memory.threadId` (sentinel `__no-thread__` without one). One
+  thread's observations never vouch for another's. Ephemeral main-process run
+  state (like the sibling `file-write-lock` map), NOT persistence — not a
+  factory-reset surface. Bounded by LRU-on-write eviction
+  (`FILE_READ_STATE_MAX_ENTRIES = 4096`), never unbounded.
+- **Observations recorded:** content-bearing reads (`readWorkspaceFile`), the
+  assistant's own successful `write`/`stringReplace` (post-write stat INSIDE
+  the same lock — consecutive same-thread writes never self-trip), and a
+  rename's destination. `delete`/rename-source FORGET their record so a later
+  re-creation is new, not compared against a ghost. `findWorkspaceSymbol`
+  deliberately does NOT record (snippets ≠ knowing the file).
+- **Compare points (all INSIDE the per-file `withFileLock` critical section):**
+  `write` stats the target before mutating; `stringReplace` compares against
+  its own fresh under-lock read's mtime; `rename` compares the source's lstat.
+  Mismatch → typed actionable refusal ("changed on disk since you last read
+  it… re-read and retry") — same refuse-rather-than-guess posture as the
+  string-replace ambiguity error. The model's recovery is always: re-read
+  (records the fresh mtime), retry.
+- **Exemptions:** files this scope never observed (compare-only contract);
+  brand-new files (nothing recorded); an observed file that VANISHED from disk
+  (recreating it loses nothing — the stale record is dropped and the write
+  proceeds).
+- **Identity + ordering rules (review-hardened):** the read tool's read+record
+  runs INSIDE the same per-file lock as the writes, so a racing read can never
+  clobber a fresh own-write observation back to a stale value. Reads record
+  under the realpath'd TARGET, so rename compares a symlink source via the
+  target's key + stat (a dangling link has nothing to compare); a symlink
+  rename moves only the link, so the target's observation stays valid and no
+  destination record is made.
+- **Accepted residual risks:** mtimeMs equality can miss a sub-timestamp-
+  granularity external edit on coarse-mtime filesystems (FAT/some network
+  mounts — APFS/ext4/NTFS are fine); and a checkpoint REVERT writes outside
+  these tools, so a thread's next edit to a reverted file may hit one refusal
+  (arguably correct — its view IS stale) and recovers with the standard
+  re-read. Both are deliberate: no polling, no fs watchers, one bounded
+  refusal worst-case.
+- **Paired tests:** `packages/agent/src/__tests__/file-read-state.spec.ts`
+  (state semantics) + the `read-before-write staleness guard` describe block in
+  `apps/desktop/src/__tests__/assistant-server/assistant-tools.integration.test.ts`
+  (real-fs refuse/recover behavior, `utimes`-forced external edits).
 
 When changing this flow, update this section and the paired tests.
 

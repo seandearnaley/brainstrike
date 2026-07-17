@@ -17,8 +17,10 @@ import {
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LocalRuntimeModelCatalogMap,
+  reconcileProviderSettingsForModel,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
+  resolveComposerAttachmentsAvailability,
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderModelSelection,
@@ -392,6 +394,17 @@ describe('assistant runtime helpers', () => {
         'workspaceInstructionsPreference'
       ]
     ).toEqual(preference);
+
+    // Agent Skills preference rides the same opt-in gate: absent → nothing
+    // attached; present → the exact snapshot.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('skillsPreference');
+    const skillsPreference = {
+      disabledSkillKeys: ['root:root-a:pdf-processing'],
+      masterEnabled: true,
+    };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, skillsPreference })['skillsPreference']
+    ).toEqual(skillsPreference);
   });
 
   it('attaches subagentPersonasRequest only when provided (desktop transport gate)', () => {
@@ -491,7 +504,14 @@ describe('assistant runtime helpers', () => {
 
   it('resolves provider and local runtime model selections', () => {
     const models = [
-      { contextWindow: 200_000, default: false, id: 'fast', label: 'Fast', type: 'llm' as const },
+      {
+        contextWindow: 200_000,
+        default: false,
+        id: 'fast',
+        label: 'Fast',
+        type: 'llm' as const,
+        vision: 'supported' as const,
+      },
     ];
     expect(
       resolveProviderModelSelection({
@@ -535,7 +555,7 @@ describe('assistant runtime helpers', () => {
         freshness: 'live',
         models: [
           {
-            capabilities: { embeddings: 'unsupported', llm: true },
+            capabilities: { embeddings: 'unsupported', llm: true, vision: 'supported' },
             capabilitySource: 'provider_reported',
             dimensionsKnown: { state: 'not_applicable' },
             displayName: 'Llama',
@@ -548,7 +568,7 @@ describe('assistant runtime helpers', () => {
             source: 'ollama_api_tags',
           },
           {
-            capabilities: { embeddings: 'supported', llm: false },
+            capabilities: { embeddings: 'supported', llm: false, vision: 'unsupported' },
             capabilitySource: 'provider_reported',
             dimensionsKnown: { state: 'needs_verification' },
             displayName: 'Embed',
@@ -567,8 +587,10 @@ describe('assistant runtime helpers', () => {
       },
     };
 
+    // Vision rides through from the runtime-reported capability so the
+    // composer attachment gate can read it off the synthesized definition.
     expect(toRuntimeProviderModels('ollama', catalog)).toEqual([
-      expect.objectContaining({ default: true, id: 'llama' }),
+      expect.objectContaining({ default: true, id: 'llama', vision: 'supported' }),
     ]);
     expect(
       buildEnabledModelIdSet({
@@ -628,13 +650,50 @@ describe('assistant runtime helpers', () => {
       anthropic: { effort: 'high', thinking: { budgetTokens: 1024, type: 'enabled' } },
     });
     expect(
-      buildProviderOptions('openrouter', 'openai/gpt-5.6-terra', {
+      buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
         reasoningEffort: 'high',
         reasoningSummary: 'detailed',
       })
     ).toEqual({
       openrouter: { reasoning: { effort: 'high', summary: 'detailed' } },
     });
+    expect(
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ openrouter: { reasoning: { effort: 'max' } } });
+    expect(() =>
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'high',
+      })
+    ).toThrow(/Kimi K3.*does not support.*high/i);
+    expect(() =>
+      buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
+        reasoningEffort: 'none',
+      })
+    ).toThrow(/Muse Spark 1\.1.*does not support.*none/i);
+    expect(() =>
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k2.6', {
+        reasoningEffort: 'max',
+      })
+    ).toThrow(/Kimi K2\.6.*does not declare.*reasoning effort/i);
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
+        maxOutputTokens: 2048,
+        reasoningEffort: 'high',
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ reasoningEffort: 'max' });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k2.6', {
+        maxOutputTokens: 2048,
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
     expect(
       buildProviderOptions('ollama', 'llama', {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
@@ -716,5 +775,72 @@ describe('buildAgentLoopSettings input-token budget', () => {
     // budget = 32_768 − 4_096 (DEFAULT) − max(1024, ceil(32_768 × 0.05)) = 32_768 − 4_096 − 1_639 = 27_033
     const settings = buildAgentLoopSettings(undefined, { contextWindow: 32_768 });
     expect(settings?.inputTokenLimit).toBe(27_033);
+  });
+});
+
+describe('resolveComposerAttachmentsAvailability', () => {
+  it('hides the affordance entirely when the provider gate fails (built-in local provider)', () => {
+    expect(
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: false,
+        selectedModel: { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', vision: 'supported' },
+      })
+    ).toBeUndefined();
+  });
+
+  it('enables attachments for a vision-capable model', () => {
+    expect(
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: true,
+        selectedModel: { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', vision: 'supported' },
+      })
+    ).toEqual({ state: 'enabled' });
+  });
+
+  it('disables with a visible reason naming the model when vision is unsupported', () => {
+    const availability = resolveComposerAttachmentsAvailability({
+      providerGateAvailable: true,
+      selectedModel: {
+        id: 'qwen/qwen3-coder-next',
+        label: 'Qwen3 Coder Next (OpenRouter)',
+        vision: 'unsupported',
+      },
+    });
+    expect(availability?.state).toBe('disabled');
+    if (availability?.state !== 'disabled') {
+      throw new Error('Expected disabled availability');
+    }
+    expect(availability.reason).toContain('Qwen3 Coder Next (OpenRouter)');
+    expect(availability.reason).toMatch(/image/i);
+  });
+
+  it('falls back to the model id in the reason when no label exists', () => {
+    const availability = resolveComposerAttachmentsAvailability({
+      providerGateAvailable: true,
+      selectedModel: { id: 'mystery-text-model', vision: 'unsupported' },
+    });
+    if (availability?.state !== 'disabled') {
+      throw new Error('Expected disabled availability');
+    }
+    expect(availability.reason).toContain('mystery-text-model');
+  });
+
+  it('stays optimistic for unknown vision support and unresolved model definitions', () => {
+    // 'unknown' (runtime-discovered model with no capability signal) and a
+    // missing definition (e.g. runtime catalog still loading) both enable the
+    // affordance: a wrong guess surfaces as a visible provider error, never a
+    // silently blocked composer.
+    expect(
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: true,
+        selectedModel: { id: 'mystery-7b', label: 'Mystery 7B', vision: 'unknown' },
+      })
+    ).toEqual({ state: 'enabled' });
+    expect(
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: true,
+        selectedModel: undefined,
+      })
+    ).toEqual({ state: 'enabled' });
   });
 });
