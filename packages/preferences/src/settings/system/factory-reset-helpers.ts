@@ -2,6 +2,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { resetHookTrustStoreToDefaults } from '../../stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from '../../stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
+import { resetSkillsPreferencesStoreToDefaults } from '../../stores/skills-preferences-store';
 import { resetSubagentPersonasStoreToDefaults } from '../../stores/subagent-personas-store';
 import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from '../../stores/workspace-instructions-preferences-store';
 
@@ -368,6 +369,15 @@ function clearBrowserStorage(): void {
     resetWorkspaceInstructionsPreferencesStoreToDefaults();
   } catch (error) {
     logger.warn('Failed to reset workspace instructions preferences store', { error });
+  }
+
+  // Agent Skills preferences: the master toggle + per-skill disable map are
+  // live in-memory state a reset without a reload would otherwise leave in
+  // place (FACTORY RESET CONTRACT).
+  try {
+    resetSkillsPreferencesStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset skills preferences store', { error });
   }
 
   // Drain externally-registered session-store resetters (see the registry doc

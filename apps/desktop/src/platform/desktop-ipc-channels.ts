@@ -144,6 +144,9 @@ export const DESKTOP_IPC_CHANNELS = {
     openPath: 'shell:open-path',
     showItemInFolder: 'shell:show-item-in-folder',
   },
+  skills: {
+    scan: 'skills:scan',
+  },
   storage: {
     clear: 'storage:clear',
     getAllKeys: 'storage:getAllKeys',

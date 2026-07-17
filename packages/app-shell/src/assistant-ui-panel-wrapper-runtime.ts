@@ -236,6 +236,12 @@ export function buildAssistantRequestData(args: {
    * transport and only when it diverges from the defaults. A preference, not a
    * security boundary — it can only reduce the persona set.
    */
+  /**
+   * Opt-in Agent Skills preference; only set on the desktop data-stream
+   * transport (web has no skills engine). A preference, not a security
+   * boundary — it can only reduce the skill set.
+   */
+  skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
    * Opt-in workspace instructions preference; only set on the desktop
@@ -314,6 +320,7 @@ interface OptInRequestFields {
   hookTrustRequest?: HookTrustRequest | undefined;
   permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
   planMode?: boolean;
+  skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
 }
@@ -345,6 +352,10 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   }
   if (fields.workspaceInstructionsPreference) {
     data['workspaceInstructionsPreference'] = fields.workspaceInstructionsPreference;
+  }
+  // Skills preference: absent => server default (master on, nothing disabled).
+  if (fields.skillsPreference) {
+    data['skillsPreference'] = fields.skillsPreference;
   }
 }
 

@@ -30,6 +30,10 @@ import {
   usePermissionPolicyStore,
 } from '@brainstrike/preferences/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
+import {
+  buildSkillsContextRequest,
+  useSkillsPreferencesStore,
+} from '@brainstrike/preferences/stores/skills-preferences-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/preferences/stores/workspace-instructions-preferences-store';
 import type {
@@ -878,6 +882,21 @@ export function AssistantUiPanelWrapper({
     workspaceInstructionsOversizedOptIns,
   ]);
 
+  // Agent Skills preference (desktop data-stream only — the server builds the
+  // skills engine; web has no scan path). A plain-JSON snapshot the server
+  // parses strictly; it can only REDUCE the skill set.
+  const skillsMasterEnabled = useSkillsPreferencesStore((state) => state.masterEnabled);
+  const skillsDisabledKeys = useSkillsPreferencesStore((state) => state.disabledSkillKeys);
+  const skillsPreference = useMemo(() => {
+    if (localChatTransport !== 'data-stream') {
+      return;
+    }
+    return buildSkillsContextRequest({
+      disabledSkillKeys: skillsDisabledKeys,
+      masterEnabled: skillsMasterEnabled,
+    });
+  }, [localChatTransport, skillsDisabledKeys, skillsMasterEnabled]);
+
   useEffect(() => {
     if (!assistantThreadRepository) {
       return;
@@ -924,6 +943,7 @@ export function AssistantUiPanelWrapper({
     selectedMemoryThreadId,
     selectionData,
     semanticRecallSettings,
+    skillsPreference,
     subagentPersonasRequest,
     workspaceIndex,
     workspaceInstructionsPreference,

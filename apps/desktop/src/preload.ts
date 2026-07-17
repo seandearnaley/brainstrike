@@ -92,6 +92,7 @@ const GIT_SWITCH_BRANCH_CHANNEL = 'git:switchBranch' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
+const SKILLS_SCAN_CHANNEL = 'skills:scan' as const;
 const USER_COMMANDS_LIST_CHANNEL = 'user-commands:list' as const;
 const USER_PERSONAS_LIST_CHANNEL = 'user-personas:list' as const;
 const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
@@ -1186,6 +1187,17 @@ if (shouldExposeBridge('contextFiles')) {
 if (shouldExposeBridge('userCommands')) {
   contextBridge.exposeInMainWorld('userCommands', {
     list: () => ipcRenderer.invoke(USER_COMMANDS_LIST_CHANNEL),
+  });
+}
+
+// Agent Skills discovery bridge (desktop-only). Capability-gated: the Settings
+// → Skills panel and the composer's "/" menu call `scan` to list every skill
+// discovered across `.brainstrike/skills` + `.claude/skills` (mounted roots +
+// home). Web never constructs this bridge (no preload), so consumers must
+// capability-check `window.skills` rather than `isElectron()`.
+if (shouldExposeBridge('skills')) {
+  contextBridge.exposeInMainWorld('skills', {
+    scan: () => ipcRenderer.invoke(SKILLS_SCAN_CHANNEL),
   });
 }
 

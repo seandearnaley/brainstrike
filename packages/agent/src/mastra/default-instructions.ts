@@ -103,6 +103,9 @@ interface ModelFacingToolNames {
   readWorkspaceContext: string | null;
   readWorkspaceFile: string | null;
   renameWorkspaceFile: string | null;
+  skill: string | null;
+  skillRead: string | null;
+  skillSearch: string | null;
   stringReplaceWorkspaceFile: string | null;
   submitPlan: string | null;
   updateWorkspaceContextSelection: string | null;
@@ -111,6 +114,16 @@ interface ModelFacingToolNames {
   webSearch: string | null;
   writeWorkspaceFile: string | null;
 }
+
+/**
+ * Canonical Mastra skill tool ids (registered unnamespaced — they are Mastra's
+ * own tools; see skills/skill-tools.ts).
+ */
+const SKILL_TOOL_ORIGINAL_IDS = {
+  skill: 'skill',
+  skillRead: 'skill_read',
+  skillSearch: 'skill_search',
+} as const;
 
 function buildOriginalToModelFacingToolNameMap(
   toolNameMap: ReadonlyMap<string, string>
@@ -183,6 +196,12 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
     renameWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.renameWorkspaceFile
+    ),
+    skill: resolveModelFacingToolName(originalToModelFacing, SKILL_TOOL_ORIGINAL_IDS.skill),
+    skillRead: resolveModelFacingToolName(originalToModelFacing, SKILL_TOOL_ORIGINAL_IDS.skillRead),
+    skillSearch: resolveModelFacingToolName(
+      originalToModelFacing,
+      SKILL_TOOL_ORIGINAL_IDS.skillSearch
     ),
     stringReplaceWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
@@ -438,6 +457,30 @@ function buildAskUserInstruction(names: ModelFacingToolNames): string {
   return `When you need a decision or information only the user has (an ambiguous request, a choice between approaches), ask with ${names.askUser} instead of guessing — the run pauses for their answer.`;
 }
 
+/**
+ * Skills guidance — emitted ONLY when the `skill` tool is registered this run
+ * (the SkillsProcessor injects the actual `<available_skills>` metadata block
+ * per turn; this line teaches the workflow around it). Empty string otherwise
+ * so runs without skills never advertise the tools.
+ */
+function buildSkillsInstruction(names: ModelFacingToolNames): string {
+  if (!names.skill) {
+    return '';
+  }
+  const readClause = names.skillRead
+    ? ` Read a skill's bundled references/scripts/assets with ${names.skillRead} (paths are relative to the skill root)`
+    : '';
+  const searchClause = names.skillSearch
+    ? `${readClause ? ', and search' : ' Search'} across skill content with ${names.skillSearch}`
+    : '';
+  return (
+    'Agent Skills: the system context lists available skills (name + description) under <available_skills>. ' +
+    `When a task matches a skill's description, activate it PROACTIVELY with ${names.skill} — its full instructions arrive as the tool result; follow them for that task.` +
+    `${readClause}${searchClause}${readClause || searchClause ? '.' : ''} ` +
+    `Do not guess at a skill's contents without activating it first.`
+  );
+}
+
 function buildPlanModeBlock(names: ModelFacingToolNames): string {
   const submitPlanClause = names.submitPlan
     ? `When your investigation is complete, call ${names.submitPlan} with a structured plan (title, overview, ordered steps, and — where useful — risks and verification) and WAIT for the user to approve or reject it. If they reject with feedback, revise and submit again. Do NOT propose or perform any changes before the plan is approved.`
@@ -530,6 +573,7 @@ export function buildDefaultInstructions(
     'Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.',
     `Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.`,
     `When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${searchInstruction} ${semanticSearchInstruction} ${readContextInstruction} ${writeInstruction} ${executeCommandInstruction} ${webSearchInstruction}`,
+    buildSkillsInstruction(names),
     taskListInstruction,
     askUserInstruction,
     delegationInstruction,
