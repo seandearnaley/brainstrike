@@ -642,4 +642,114 @@ describe('local-runtime-model-catalog', () => {
     expect(result.embedding).toBe(true);
     expect(result.llm).toBe(true);
   });
+
+  it('propagates the Ollama vision capability into normalized model capabilities', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({
+          models: [{ name: 'llava:13b' }, { name: 'qwen3:30b' }],
+        });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        return jsonResponse({
+          capabilities:
+            body.model === 'llava:13b' ? ['completion', 'vision'] : ['completion', 'tools'],
+        });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 12_000,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('loaded_non_empty');
+    if (result.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    const visionModel = result.models.find((model) => model.modelId === 'llava:13b');
+    expect(visionModel?.capabilities.vision).toBe('supported');
+    const textModel = result.models.find((model) => model.modelId === 'qwen3:30b');
+    expect(textModel?.capabilities.vision).toBe('unsupported');
+  });
+
+  it('derives LM Studio vision from the native type discriminant (vlm vs llm)', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/v1/models')) {
+        return jsonResponse({
+          data: [
+            { id: 'qwen2-vl-7b-instruct', state: 'loaded', type: 'vlm' },
+            { id: 'qwen2.5', state: 'not-loaded', type: 'llm' },
+            { id: 'text-embedding-nomic-embed-text-v1.5', state: 'loaded', type: 'embeddings' },
+          ],
+        });
+      }
+      if (url.endsWith('/v1/models')) {
+        return new Response('missing', { status: 404 });
+      }
+      return jsonResponse({});
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 13_000,
+    });
+
+    const result = await service.listRuntimeModels('lmstudio', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('loaded_non_empty');
+    if (result.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    const vlm = result.models.find((model) => model.modelId === 'qwen2-vl-7b-instruct');
+    expect(vlm?.capabilities.vision).toBe('supported');
+    const llm = result.models.find((model) => model.modelId === 'qwen2.5');
+    expect(llm?.capabilities.vision).toBe('unsupported');
+    const embedding = result.models.find(
+      (model) => model.modelId === 'text-embedding-nomic-embed-text-v1.5'
+    );
+    expect(embedding?.capabilities.vision).toBe('unsupported');
+  });
+
+  it('reports vision as unknown for name-inferred OpenAI-compat catalog entries', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      // Only the OpenAI-compat list responds: no type discriminant, no
+      // /api/show — vision cannot be resolved and must stay 'unknown',
+      // never silently coerced to unsupported.
+      if (url.endsWith('/v1/models') && !url.endsWith('/api/v1/models')) {
+        return jsonResponse({ data: [{ id: 'mystery-model-7b' }] });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 14_000,
+    });
+
+    const result = await service.listRuntimeModels('lmstudio', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('loaded_non_empty');
+    if (result.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    expect(result.models[0]?.capabilitySource).toBe('inferred');
+    expect(result.models[0]?.capabilities.vision).toBe('unknown');
+  });
 });

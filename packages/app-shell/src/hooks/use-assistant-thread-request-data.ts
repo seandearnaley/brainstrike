@@ -41,6 +41,11 @@ interface UseAssistantThreadRequestDataArgs {
   };
   readonly semanticRecallSettings: RuntimeAssistantSemanticRecallSettings;
   /**
+   * Opt-in Agent Skills preference; only set on the desktop data-stream
+   * transport (web has no skills engine). Passthrough otherwise.
+   */
+  readonly skillsPreference?: RuntimeData['skillsPreference'];
+  /**
    * Opt-in workspace instructions preference; only set on the desktop
    * data-stream transport (web has no injection path). Passthrough otherwise.
    */
@@ -80,6 +85,7 @@ export function useAssistantThreadRequestData({
   selectedMemoryThreadId,
   selectionData,
   semanticRecallSettings,
+  skillsPreference,
   subagentPersonasRequest,
   workspaceInstructionsPreference,
   workspaceIndex,
@@ -110,6 +116,7 @@ export function useAssistantThreadRequestData({
         selectedMemoryThreadId,
         selectionData,
         workspaceContext: runtimeWorkspaceContext,
+        ...(skillsPreference ? { skillsPreference } : {}),
         ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
         ...(workspaceInstructionsPreference ? { workspaceInstructionsPreference } : {}),
         workspaceIndex,
@@ -130,6 +137,7 @@ export function useAssistantThreadRequestData({
       selectedMemoryThreadId,
       selectionData,
       runtimeWorkspaceContext,
+      skillsPreference,
       subagentPersonasRequest,
       workspaceInstructionsPreference,
       workspaceIndex,

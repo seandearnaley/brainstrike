@@ -29,10 +29,14 @@ describe('error-processor builders', () => {
   it('builds the three-processor error stack for hosted providers in order', () => {
     const processors = buildAssistantErrorProcessors('anthropic');
     expect(processors).toBeDefined();
+    // ORDER IS LOAD-BEARING: the runner returns at the FIRST processor that
+    // requests a retry, so the fixup processors must precede the
+    // unknown-error retry (see mastra-error-processors.spec.ts for the
+    // live-loop prompt-sensitive regression pin).
     expect(processors?.map((processor) => processor.id)).toEqual([
-      'stream-error-retry-processor',
       'prefill-error-handler',
       'provider-history-compat',
+      'stream-error-retry-processor',
     ]);
   });
 

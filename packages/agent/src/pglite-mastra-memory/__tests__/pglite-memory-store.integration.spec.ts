@@ -1,8 +1,10 @@
 import { PGlite } from '@electric-sql/pglite';
+import type { MastraMessageContentV2 } from '@mastra/core/agent';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import type { ObservationalMemoryRecord } from '@mastra/core/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PgliteMemoryStore } from '../memory-store';
+import type { PgliteDatabase } from '../types';
 
 function createDeferred<T>(): {
   readonly promise: Promise<T>;
@@ -22,7 +24,7 @@ function textMessage(
   createdAt: string
 ): MastraDBMessage {
   return {
-    content: { content: id },
+    content: { content: id, format: 2, parts: [{ text: id, type: 'text' }] },
     createdAt: new Date(createdAt),
     id,
     resourceId,
@@ -34,11 +36,13 @@ function textMessage(
 
 describe('PgliteMemoryStore', () => {
   let db: PGlite;
+  let database: PgliteDatabase;
   let store: PgliteMemoryStore;
 
   beforeEach(async () => {
     db = new PGlite();
-    store = new PgliteMemoryStore({ database: db });
+    database = db as unknown as PgliteDatabase;
+    store = new PgliteMemoryStore({ database });
     await store.initialize();
   });
 
@@ -325,7 +329,11 @@ describe('PgliteMemoryStore', () => {
 
     const messages: MastraDBMessage[] = [
       {
-        content: { content: 'Remember that the deploy window is Friday.' },
+        content: {
+          content: 'Remember that the deploy window is Friday.',
+          format: 2,
+          parts: [{ text: 'Remember that the deploy window is Friday.', type: 'text' }],
+        },
         createdAt: new Date('2026-04-22T10:00:01Z'),
         id: 'message-1',
         resourceId: 'workspace-a',
@@ -334,7 +342,11 @@ describe('PgliteMemoryStore', () => {
         type: 'text',
       },
       {
-        content: { content: 'I will remember that.' },
+        content: {
+          content: 'I will remember that.',
+          format: 2,
+          parts: [{ text: 'I will remember that.', type: 'text' }],
+        },
         createdAt: new Date('2026-04-22T10:00:02Z'),
         id: 'message-2',
         resourceId: 'workspace-a',
@@ -672,7 +684,7 @@ describe('PgliteMemoryStore', () => {
   it('emits compact run events from real history and working-memory hooks', async () => {
     const events: string[] = [];
     const observedStore = new PgliteMemoryStore({
-      database: db,
+      database,
       eventSink: (event) => {
         events.push(`${event.kind}:${event.label}:${event.runId}`);
       },
@@ -691,7 +703,11 @@ describe('PgliteMemoryStore', () => {
     await observedStore.saveMessages({
       messages: [
         {
-          content: { content: 'Remember the deploy window.' },
+          content: {
+            content: 'Remember the deploy window.',
+            format: 2,
+            parts: [{ text: 'Remember the deploy window.', type: 'text' }],
+          },
           createdAt: new Date('2026-04-22T10:00:01Z'),
           id: 'message-1',
           resourceId: 'workspace-a',
@@ -719,7 +735,7 @@ describe('PgliteMemoryStore', () => {
 
   it('does not fail memory operations when run-event emission fails', async () => {
     const observedStore = new PgliteMemoryStore({
-      database: db,
+      database,
       eventSink: () => {
         throw new Error('run event sink unavailable');
       },
@@ -746,7 +762,7 @@ describe('PgliteMemoryStore', () => {
   it('does not await slow run-event emission on memory read paths', async () => {
     const releaseSink = createDeferred<void>();
     const observedStore = new PgliteMemoryStore({
-      database: db,
+      database,
       eventSink: () => releaseSink.promise,
       runId: 'run-1',
     });
@@ -784,7 +800,9 @@ describe('PgliteMemoryStore', () => {
         {
           content: {
             content: 'Remember the Friday deploy window.',
+            format: 2,
             metadata: { provider: 'openai' },
+            parts: [{ text: 'Remember the Friday deploy window.', type: 'text' }],
           },
           createdAt: new Date('2026-04-22T10:00:01Z'),
           id: 'message-1',
@@ -796,7 +814,9 @@ describe('PgliteMemoryStore', () => {
         {
           content: {
             content: 'I will remember that.',
+            format: 2,
             metadata: { model: 'gpt-5.2' },
+            parts: [{ text: 'I will remember that.', type: 'text' }],
           },
           createdAt: new Date('2026-04-22T10:00:02Z'),
           id: 'message-2',
@@ -813,17 +833,21 @@ describe('PgliteMemoryStore', () => {
     const updated = await store.updateMessages({
       messages: [
         {
+          // Intentionally a partial content patch (no format/parts) — the
+          // store merges it over the persisted content.
           content: {
             metadata: { provider: 'anthropic' },
-          },
+          } as unknown as MastraMessageContentV2,
           id: 'message-1',
         },
         {
           content: {
             content: 'Deploy window stored.',
-          },
+          } as unknown as MastraMessageContentV2,
           id: 'message-2',
-          role: 'tool',
+          // 'tool' is outside the MastraDBMessage role union but the store
+          // persists roles verbatim; this pins that raw round-trip.
+          role: 'tool' as unknown as MastraDBMessage['role'],
         },
       ],
     });
@@ -831,7 +855,9 @@ describe('PgliteMemoryStore', () => {
     expect(updated).toHaveLength(2);
     expect(updated[0]?.content).toEqual({
       content: 'Remember the Friday deploy window.',
+      format: 2,
       metadata: { provider: 'anthropic' },
+      parts: [{ text: 'Remember the Friday deploy window.', type: 'text' }],
     });
     expect(updated[1]).toMatchObject({
       content: {
@@ -873,7 +899,7 @@ describe('PgliteMemoryStore', () => {
   it('persists observational memory records and history', async () => {
     const events: string[] = [];
     const observedStore = new PgliteMemoryStore({
-      database: db,
+      database,
       eventSink: (event) => {
         events.push(`${event.kind}:${event.status}:${event.label}`);
       },
@@ -934,7 +960,7 @@ describe('PgliteMemoryStore', () => {
   it('emits inline detail strings on memory run events so the timeline shows real data', async () => {
     const events: Array<{ detail?: string; label: string }> = [];
     const observedStore = new PgliteMemoryStore({
-      database: db,
+      database,
       eventSink: (event) => {
         events.push({ label: event.label, ...(event.detail ? { detail: event.detail } : {}) });
       },

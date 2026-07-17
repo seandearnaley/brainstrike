@@ -1,7 +1,7 @@
 import type { Migration } from './migration-runner';
 
 /**
- * Migration 061: lifetime failed/canceled outcome counters.
+ * Migration 063: lifetime failed/canceled outcome counters.
  *
  * job_queue_metrics (049) only tracked a monotonic per-queue succeeded_total,
  * so scheduled maintenance pruning terminal job rows destroyed lifetime
@@ -22,7 +22,7 @@ import type { Migration } from './migration-runner';
  * from the surviving rows — a re-run after later pruning can never shrink or
  * double-count an already-seeded total.
  */
-export const migration061JobQueueOutcomeMetrics: Migration = {
+export const migration063JobQueueOutcomeMetrics: Migration = {
   down: `
     ALTER TABLE job_queue_metrics DROP COLUMN IF EXISTS failed_total;
     --> statement-breakpoint
@@ -57,5 +57,5 @@ export const migration061JobQueueOutcomeMetrics: Migration = {
       AND m.failed_total = 0
       AND m.canceled_total = 0;
   `,
-  version: 61,
+  version: 63,
 };

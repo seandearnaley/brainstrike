@@ -5,7 +5,7 @@ import {
   formatFileSize,
   getFileSizeConfig,
 } from '@brainstrike/file-system';
-import { FileContentError } from '@brainstrike/types';
+import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
 import {
   createLogger,
   fileContent,
@@ -257,18 +257,18 @@ export function createFileContentWorker({
     const extension = fileExplorer.getFileExtension(req.path);
 
     if (isBinaryExtension(extension)) {
-      throw new FileContentError('Binary file - preview not available', req.path, 'BINARY');
+      throw new FileContentError(BINARY_CONTENT_MESSAGE, req.path, 'BINARY');
     }
 
     if (isTextExtension(extension)) {
       if (!fileContent.isTextContent(content)) {
-        throw new FileContentError('Binary file - preview not available', req.path, 'BINARY');
+        throw new FileContentError(BINARY_CONTENT_MESSAGE, req.path, 'BINARY');
       }
       return { content, key: req.compositeKey };
     }
 
     if (!fileContent.isTextContent(content)) {
-      throw new FileContentError('Binary file - preview not available', req.path, 'BINARY');
+      throw new FileContentError(BINARY_CONTENT_MESSAGE, req.path, 'BINARY');
     }
     return { content, key: req.compositeKey };
   }

@@ -12,7 +12,7 @@ interface ColumnRow {
   column_name: string;
 }
 
-describe('migration 061: job queue outcome metrics columns', () => {
+describe('migration 063: job queue outcome metrics columns', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -21,17 +21,17 @@ describe('migration 061: job queue outcome metrics columns', () => {
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 61));
+    await runner.up(migrations.filter((migration) => migration.version < 63));
   });
 
   afterEach(async () => {
     await db.close();
   });
 
-  function getMigration061() {
-    const migration = migrations.find((candidate) => candidate.version === 61);
+  function getMigration063() {
+    const migration = migrations.find((candidate) => candidate.version === 63);
     if (!migration) {
-      throw new Error('Migration 061 is missing');
+      throw new Error('Migration 063 is missing');
     }
     return migration;
   }
@@ -39,7 +39,7 @@ describe('migration 061: job queue outcome metrics columns', () => {
   it('adds failed_total and canceled_total columns to job_queue_metrics', {
     timeout: 60_000,
   }, async () => {
-    await runner.runMigration(getMigration061());
+    await runner.runMigration(getMigration063());
 
     const columns = await db.query<ColumnRow>(
       `SELECT column_name FROM information_schema.columns
@@ -54,7 +54,7 @@ describe('migration 061: job queue outcome metrics columns', () => {
   it('defaults new counters to zero and supports atomic increments', {
     timeout: 60_000,
   }, async () => {
-    await runner.runMigration(getMigration061());
+    await runner.runMigration(getMigration063());
 
     await db.query("INSERT INTO job_queue_metrics (queue) VALUES ('embeddings')");
     const defaults = await db.query<{
@@ -80,7 +80,7 @@ describe('migration 061: job queue outcome metrics columns', () => {
   });
 
   it('rollback drops the outcome columns but keeps the table', { timeout: 60_000 }, async () => {
-    const migration = getMigration061();
+    const migration = getMigration063();
     await runner.runMigration(migration);
     await runner.rollback(migration);
 
@@ -115,7 +115,7 @@ describe('migration 061: job queue outcome metrics columns', () => {
         ('bf-5', 'embedding', 'embed-chunk', '{}'::jsonb, 'succeeded')`
     );
 
-    await runner.runMigration(getMigration061());
+    await runner.runMigration(getMigration063());
 
     const seeded = await db.query<{
       queue: string;
@@ -136,7 +136,7 @@ describe('migration 061: job queue outcome metrics columns', () => {
     // Idempotent-by-guard: a re-run after rows were pruned must not shrink
     // or double-count the already-seeded totals.
     await db.query("DELETE FROM job_queue WHERE state IN ('failed', 'canceled')");
-    const up = getMigration061().up;
+    const up = getMigration063().up;
     if (typeof up !== 'string') {
       throw new Error('Migration 061 up must be SQL');
     }

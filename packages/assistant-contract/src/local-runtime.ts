@@ -9,6 +9,7 @@ export {
   type LocalRuntimeDiscoveryServiceOptions,
   type LocalRuntimeId,
   type LocalRuntimeIncompatibleState,
+  type LocalRuntimeLogger,
   type LocalRuntimeStaleState,
   type LocalRuntimeSurface,
   type LocalRuntimeUnavailableState,

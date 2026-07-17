@@ -26,6 +26,17 @@ export {
   useCheckpointTurnRevert,
 } from './edit-checkpoint-context';
 export type { FileMention } from './file-mentions';
+export {
+  FollowUpQueueBridge,
+  FollowUpQueueChips,
+  QueueFollowUpButton,
+} from './follow-up-queue';
+export {
+  type FollowUpQueueItem,
+  followUpQueueKey,
+  resetFollowUpQueueStore,
+  useFollowUpQueueStore,
+} from './follow-up-queue-store';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
   type RunVerdictContextValue,

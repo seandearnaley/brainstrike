@@ -53,6 +53,79 @@ function makeApproval(overrides: Partial<RediscoveredToolApproval>): Rediscovere
 }
 
 describe('createAssistantThreadHistoryAdapter', () => {
+  // Mirrors the REAL persisted envelope pinned in
+  // packages/agent mastra-memory-persistence.integration.spec.ts
+  // ("persists a user image attachment part…") — never hand-edit the shape.
+  const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA=';
+  const persistedImageUserContent = (text: string) => ({
+    content: text,
+    experimental_attachments: [{ contentType: 'image/png', url: PNG_DATA_URL }],
+    format: 2,
+    parts: [
+      ...(text ? [{ createdAt: 1_784_220_604_614, text, type: 'text' }] : []),
+      {
+        createdAt: 1_784_220_604_614,
+        data: PNG_DATA_URL,
+        mimeType: 'image/png',
+        type: 'file',
+      },
+    ],
+  });
+
+  it('hydrates a persisted user image attachment into message.attachments', async () => {
+    const repository = makeMessagesOnlyRepository();
+    repository.listMessages = vi.fn(async () => [
+      {
+        content: persistedImageUserContent('what is in this screenshot?'),
+        createdAt: new Date('2026-07-16T10:00:00Z'),
+        id: 'user-image-1',
+        role: 'user' as const,
+      },
+    ]);
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const { messages } = await adapter.load();
+    const userMessage = messages.find((entry) => entry.message.id === 'user-image-1')?.message;
+    expect(userMessage).toBeDefined();
+    expect(userMessage?.content).toEqual([{ text: 'what is in this screenshot?', type: 'text' }]);
+    expect(userMessage?.attachments).toEqual([
+      {
+        content: [{ image: PNG_DATA_URL, type: 'image' }],
+        contentType: 'image/png',
+        id: 'user-image-1-attachment-1',
+        name: 'image-1.png',
+        status: { type: 'complete' },
+        type: 'image',
+      },
+    ]);
+  });
+
+  it('keeps an image-only user message alive through hydration', async () => {
+    const repository = makeMessagesOnlyRepository();
+    repository.listMessages = vi.fn(async () => [
+      {
+        content: persistedImageUserContent(''),
+        createdAt: new Date('2026-07-16T10:00:00Z'),
+        id: 'user-image-only',
+        role: 'user' as const,
+      },
+    ]);
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const { messages } = await adapter.load();
+    const userMessage = messages.find((entry) => entry.message.id === 'user-image-only')?.message;
+    expect(userMessage).toBeDefined();
+    expect(userMessage?.attachments).toHaveLength(1);
+  });
+
   it('persists assistant-ui parent links without duplicating Mastra message content', async () => {
     const recordMessageParent = vi.fn(async () => undefined);
     const repository = Object.assign(makeMessagesOnlyRepository(), { recordMessageParent });

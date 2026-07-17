@@ -32,7 +32,7 @@ test.describe('Agent sidebar database access @stateful @web-db-startup', () => {
     }
     await expect(elements.hideAgentPanelButton).toBeVisible();
 
-    const databaseTab = page.getByRole('tab', { name: 'Database' });
+    const databaseTab = page.getByRole('tab', { name: 'Collections' });
     await expect(databaseTab).toBeVisible();
 
     await databaseTab.click();
@@ -55,7 +55,7 @@ test.describe('Agent sidebar database access @stateful @web-db-startup', () => {
     }
     await expect(reloadedElements.hideAgentPanelButton).toBeVisible();
 
-    const reloadedDatabaseTab = page.getByRole('tab', { name: 'Database' });
+    const reloadedDatabaseTab = page.getByRole('tab', { name: 'Collections' });
     await expect(reloadedDatabaseTab).toBeVisible();
     await reloadedDatabaseTab.click();
     await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
@@ -115,7 +115,7 @@ test.describe('Agent sidebar database access @stateful @web-db-startup', () => {
       };
     });
 
-    await page.getByRole('tab', { name: 'Database' }).click();
+    await page.getByRole('tab', { name: 'Collections' }).click();
     await expect(
       page.locator('[data-testid="database-demo-panel"][aria-busy="false"]')
     ).toBeVisible({ timeout: 30_000 });

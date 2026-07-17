@@ -14,15 +14,21 @@ import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
+// Capability check from the dependency-light `availability` subpath (NOT
+// `/panel`) so the startup check does not defeat the lazy code-split in
+// notes-page-content.tsx.
+import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { createLogger } from '@brainstrike/utils/logger';
-import { GitBranch, SquareTerminal } from 'lucide-react';
+import { GitBranch, NotebookPen, SquareTerminal } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import GitPageContent from './git-page-content';
+import NotesPageContent from './notes-page-content';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
 
 const GIT_NAVIGATION_ITEM: NavigationItem = { icon: GitBranch, name: 'Git', path: '/git' };
+const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };
 const TERMINAL_NAVIGATION_ITEM: NavigationItem = {
   icon: SquareTerminal,
   name: 'Terminal',
@@ -86,8 +92,14 @@ export default function RootLayoutContent() {
   // Capability gate: only surface the Terminal tab when the desktop
   // `window.terminal` pty bridge is present (no isElectron check). Resolved once.
   const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
+  // Capability gate: only surface the Notes tab when the File System Access
+  // directory picker exists in this renderer (Electron >= 30). Resolved once.
+  const notesAvailable = useMemo(() => isNotesVaultAvailable(), []);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
     const items = [...(navigationItems as NavigationItem[])];
+    if (notesAvailable) {
+      items.push(NOTES_NAVIGATION_ITEM);
+    }
     if (gitAvailable) {
       items.push(GIT_NAVIGATION_ITEM);
     }
@@ -95,7 +107,7 @@ export default function RootLayoutContent() {
       items.push(TERMINAL_NAVIGATION_ITEM);
     }
     return items;
-  }, [gitAvailable, terminalAvailable]);
+  }, [gitAvailable, terminalAvailable, notesAvailable]);
   const loadEmbeddingQueue = useCallback(
     () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
     []
@@ -109,6 +121,7 @@ export default function RootLayoutContent() {
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
     ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
+    ...(notesAvailable ? { notesPageContent: <NotesPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
   };

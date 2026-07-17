@@ -829,7 +829,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         tx,
         '[DbProvider] Skipped missing prompt_items table during clear:'
       );
-      // Task Ledger outcome labels (migration 060): writable on web via the
+      // Task Ledger outcome labels (migration 062): writable on web via the
       // renderer repository (user verdicts), no FK cascades them — clear
       // explicitly per the FACTORY RESET CONTRACT (review #1693).
       try {

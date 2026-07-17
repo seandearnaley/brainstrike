@@ -1,10 +1,19 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'tsup';
+
+const accurateTokenRuntimeSource = fileURLToPath(
+  new URL('../utils/src/token-utils-accurate-lite.ts', import.meta.url)
+);
 
 export default defineConfig((options) => ({
   clean: !options.watch,
   dts: true,
   entry: ['src/index.ts', 'src/chunking.worker.ts'],
   esbuildOptions(options) {
+    options.alias = {
+      ...options.alias,
+      '@brainstrike/utils/token-utils-accurate-lite': accurateTokenRuntimeSource,
+    };
     // Ensure CJS packages are properly converted to ESM for browser
     options.mainFields = ['browser', 'module', 'main'];
     options.conditions = ['browser', 'import', 'default'];

@@ -75,6 +75,9 @@ vi.mock('@brainstrike/preferences', async () => {
         ? 'anthropic/claude-sonnet-4.6'
         : undefined,
       testEnabledModels.has('google/gemini-3.5-flash') ? 'google/gemini-3.5-flash' : undefined,
+      // Text-only route (vision: 'unsupported' in the static registry) for
+      // composer attachment gating tests; opt in via testEnabledModels.
+      testEnabledModels.has('qwen/qwen3-coder-next') ? 'qwen/qwen3-coder-next' : undefined,
     ].filter((modelId): modelId is string => Boolean(modelId)),
   });
 
@@ -119,6 +122,12 @@ vi.mock('@brainstrike/preferences', async () => {
       capabilities: { type: 'llm' as const },
       id: 'google/gemini-3.5-flash',
       isEnabled: testEnabledModels.has('google/gemini-3.5-flash'),
+      providerId: 'openrouter',
+    },
+    {
+      capabilities: { type: 'llm' as const },
+      id: 'qwen/qwen3-coder-next',
+      isEnabled: testEnabledModels.has('qwen/qwen3-coder-next'),
       providerId: 'openrouter',
     },
   ];
@@ -674,6 +683,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     toolMenu,
     onComposerDraftCommandApplied,
     onComposerTextChange,
+    attachmentsAvailability,
   }: {
     composerDraftCommand?: { id: string; mode: 'append' | 'replace'; text: string };
     providerGroups?: Array<{
@@ -712,6 +722,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     };
     onComposerDraftCommandApplied?: (commandId: string) => void;
     onComposerTextChange?: (text: string) => void;
+    attachmentsAvailability?: { state: 'enabled' } | { reason: string; state: 'disabled' };
   }) => {
     const providers = providerGroups?.flatMap((group) => group.providers) ?? [];
     const currentProvider = providers.find((p) => p.id === selectedProvider);
@@ -760,6 +771,9 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
         </button>
         <div data-testid="panel-disabled">{String(disabled)}</div>
         <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>
+        <div data-testid="attachments-availability">
+          {JSON.stringify(attachmentsAvailability ?? null)}
+        </div>
         <div data-testid="request-data">{JSON.stringify(requestData ?? {})}</div>
         <div data-testid="context-menu">{JSON.stringify(contextMenu ?? {})}</div>
         {disabledReason && <div data-testid="disabled-reason">{disabledReason}</div>}

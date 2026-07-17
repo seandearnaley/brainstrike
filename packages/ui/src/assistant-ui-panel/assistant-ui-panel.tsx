@@ -62,11 +62,16 @@ import {
 } from './assistant-thinking-indicator';
 import { AssistantToolApprovalNotice } from './assistant-tool-approval-notice';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from './assistant-tool-suspend-notice';
+import { createAssistantImageAttachmentAdapter } from './attachment-adapter';
 import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
+import { ComposerAttachmentsBar, UserMessageAttachments } from './composer-attachments';
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
-import { ComposerInputWithTriggers } from './composer-input';
+import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
+
+export type { ComposerAttachmentsAvailability } from './composer-input';
+
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
@@ -77,6 +82,7 @@ import {
 import { type AssistantUsage, useBrainstrikeDataStreamRuntime } from './data-stream-runtime';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { buildFileMentionAdapter, type FileMention } from './file-mentions';
+import { FollowUpQueueBridge, FollowUpQueueChips, QueueFollowUpButton } from './follow-up-queue';
 import { LocalModelStatus } from './local-model-status';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
@@ -220,6 +226,17 @@ import type {
 } from '@brainstrike/types';
 
 export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
+  /** Models for the ModelPicker component */
+  /**
+   * Composer image-attachment availability, resolved by the app-shell
+   * wrapper. Absent renders no attachment affordance and registers no
+   * attachment adapter (provider gate: the text-only built-in local
+   * provider); 'disabled' renders a visibly disabled attach button with the
+   * reason (per-model vision gate) while keeping the adapter + preview strip
+   * alive for already-staged attachments; 'enabled' activates attach, paste,
+   * and the preview strip.
+   */
+  attachmentsAvailability?: ComposerAttachmentsAvailability;
   className?: string;
   completePreparedRequest?: (
     requestData: Record<string, unknown> | undefined,
@@ -294,7 +311,6 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   onToolApprovalRequired?: (request: AssistantToolApprovalRequest) => void;
   /** Called with the provider's exact token counts from a finish-message chunk. */
   onUsage?: (usage: AssistantUsage) => void;
-  /** Models for the ModelPicker component */
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
@@ -651,6 +667,8 @@ const ThreadHistoryControl = ({
 
 // Shared props for inner chat components
 interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
+  /** Composer image-attachment availability (attach button, paste, previews). */
+  attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   completePreparedRequest?:
     | ((
         requestData: Record<string, unknown> | undefined,
@@ -873,6 +891,7 @@ const DataStreamRuntimeChat = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   planMode,
+  attachmentsAvailability,
   toolMenu,
   threadKey,
 }: ChatThreadProps & {
@@ -912,9 +931,36 @@ const DataStreamRuntimeChat = ({
     []
   );
 
+  // Stable adapter instance: recreating it per render would reset composer
+  // attachment state. Keyed on availability PRESENCE (not the enabled state,
+  // and not the object identity): the adapter must survive an
+  // enabled→disabled model switch so attachments staged under a vision model
+  // stay removable/sendable — assistant-ui's composer wipes text + staged
+  // attachments and then throws an unhandled "Attachments are not supported"
+  // rejection if Send runs with no adapter. The 'disabled' vision-gate state
+  // blocks NEW adds through the disabled attach button and the absent paste
+  // frame (composer-input.tsx) instead; a sent-anyway staged image surfaces
+  // the documented visible provider error. Absent availability (provider
+  // gate) registers no adapter, so adds are rejected loudly, never silently
+  // accepted.
+  const attachmentsPresent = attachmentsAvailability !== undefined;
+  const attachmentsAdapter = useMemo(
+    () => (attachmentsPresent ? createAssistantImageAttachmentAdapter() : undefined),
+    [attachmentsPresent]
+  );
+  const runtimeAdapters =
+    historyAdapter || attachmentsAdapter
+      ? {
+          adapters: {
+            ...(attachmentsAdapter ? { attachments: attachmentsAdapter } : {}),
+            ...(historyAdapter ? { history: historyAdapter } : {}),
+          },
+        }
+      : {};
+
   const runtime = useBrainstrikeDataStreamRuntime({
     api,
-    ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
+    ...runtimeAdapters,
     body: async () => {
       if (preparedRequestRef.current) {
         throw new Error('Cannot start a hosted assistant run while another run is in progress.');
@@ -975,6 +1021,7 @@ const DataStreamRuntimeChat = ({
             pickerModels={pickerModels}
             pickerProviders={pickerProviders}
             {...(planMode ? { planMode } : {})}
+            {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
             providerGroups={providerGroups}
             providerSettings={providerSettings}
             selectedModel={selectedModel}
@@ -1021,6 +1068,7 @@ const ChatThreadUI = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   planMode,
+  attachmentsAvailability,
   threadKey,
   toolMenu,
 }: {
@@ -1029,6 +1077,7 @@ const ChatThreadUI = ({
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
+  attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -1112,6 +1161,7 @@ const ChatThreadUI = ({
         {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
         {...(threadKey ? { threadKey } : {})}
       />
+      <FollowUpQueueBridge threadKey={threadKey} />
       {/**
        * Messages Viewport
        *
@@ -1194,6 +1244,7 @@ const ChatThreadUI = ({
             budget-guardrail-control.tsx); renders nothing without a binding. */}
         <BudgetGuardrailControl />
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
+        <FollowUpQueueChips threadKey={threadKey} />
         <ComposerPrimitive.Root
           aria-disabled={isComposerDisabled}
           className="aui-composer-root"
@@ -1207,8 +1258,13 @@ const ChatThreadUI = ({
               siblings. A feature is mounted ONLY when its seam is present —
               an unmounted popover means the trigger char does nothing special
               (never an empty menu). Send / Cancel are unchanged. */}
+          {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
+              its preview + Remove button after a switch to a text-only model. */}
+          {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
+            queueControl={<QueueFollowUpButton threadKey={threadKey} />}
+            {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
             {...(planMode ? { planMode } : {})}
             {...(hasSlashCommands
               ? {
@@ -1278,6 +1334,7 @@ export const AssistantUiPanel = ({
   onTogglePlanMode,
   onToolApprovalRequired,
   onUsage,
+  attachmentsAvailability,
   planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
@@ -1389,6 +1446,7 @@ export const AssistantUiPanel = ({
         ) : (
           <DataStreamRuntimeChat
             api={api}
+            attachmentsAvailability={attachmentsAvailability}
             completePreparedRequest={completePreparedRequest}
             composerDraftCommand={composerDraftCommand}
             contextWindow={contextWindow}
@@ -1452,6 +1510,7 @@ const UserMessage = () => {
         className="aui-user-message-content col-start-2 row-start-2 max-w-xl break-words rounded-2xl bg-muted px-4 py-2"
         testId="assistant-user-message-content"
       >
+        <UserMessageAttachments />
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */

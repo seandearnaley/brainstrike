@@ -1,6 +1,7 @@
-import { ComposerPrimitive, ThreadPrimitive } from '@assistant-ui/react';
-import { ArrowUpIcon, ClipboardListIcon, SquareIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ComposerPrimitive, ThreadPrimitive, useComposerRuntime } from '@assistant-ui/react';
+import { ArrowUpIcon, ClipboardListIcon, ImageIcon, SquareIcon } from 'lucide-react';
+import type { ClipboardEvent, ReactNode } from 'react';
+import { collectImageFilesFromClipboard } from './attachment-adapter';
 import { useBudgetSendGate } from './budget-guardrail-control';
 
 /**
@@ -14,6 +15,20 @@ export interface PlanModeComposerControls {
   onExit?: () => void;
   onToggle: () => void;
 }
+
+/**
+ * Composer image-attachment availability, resolved by the app-shell wrapper.
+ * Absent means the affordance is not offered at all (provider gate: the
+ * text-only built-in local provider) and no adapter is registered. 'disabled'
+ * renders the attach button visibly disabled with `reason` (per-model vision
+ * gate) — never a silent hide — and blocks NEW adds (disabled button, no
+ * paste frame) while keeping the adapter and preview strip alive so an
+ * attachment staged before a model switch stays removable instead of being
+ * wiped by an adapter-less send.
+ */
+export type ComposerAttachmentsAvailability =
+  | { readonly state: 'enabled' }
+  | { readonly reason: string; readonly state: 'disabled' };
 
 /**
  * The composer input row (textarea + Send/Cancel), defined ONCE so both the
@@ -31,28 +46,39 @@ export interface PlanModeComposerControls {
  * `ComposerInputWithTriggers` below).
  */
 const ComposerInputRow = ({
+  attachmentsAvailability,
   isComposerDisabled,
   mentionPopover,
   planMode,
+  queueControl,
   slashPopover,
 }: {
+  attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
+  /** Rendered in the RUNNING branch (where Send is unmounted) so a draft can
+   * be queued for after the run — see follow-up-queue.tsx. */
+  queueControl?: ReactNode;
   slashPopover?: ReactNode;
 }) => {
   // Last-24h budget cap gate (see budget-guardrail-control.tsx): while over
   // cap without a session override, BOTH send paths are disabled — the Send
   // button and the textarea (a disabled textarea cannot submit via Enter, so
-  // there is no hidden path around the gate). The block is never silent: the
-  // BudgetGuardrailControl notice with its explicit "Send anyway" override
-  // renders in the composer shell whenever this gate is closed. The Cancel
-  // (Stop) button deliberately ignores the gate — stopping an in-flight run
-  // must always be possible.
+  // there is no hidden path around the gate). Attachment staging is gated the
+  // same way. The block is never silent: the BudgetGuardrailControl notice
+  // with its explicit "Send anyway" override renders in the composer shell
+  // whenever this gate is closed. The Cancel (Stop) button deliberately
+  // ignores the gate — stopping an in-flight run must always be possible.
   const budgetSendBlocked = useBudgetSendGate();
   const sendDisabled = isComposerDisabled || budgetSendBlocked;
+  const InputFrame =
+    attachmentsAvailability?.state === 'enabled' && !sendDisabled
+      ? AttachmentPasteFrame
+      : PlainInputFrame;
+
   return (
-    <div className="bs-composer-input-frame">
+    <InputFrame>
       <ComposerPrimitive.Input
         aria-label="Message input"
         className="aui-composer-input"
@@ -64,6 +90,34 @@ const ComposerInputRow = ({
       {slashPopover}
       {mentionPopover}
       <div className="bs-composer-primary-actions">
+        {attachmentsAvailability?.state === 'enabled' ? (
+          <ComposerPrimitive.AddAttachment
+            aria-label="Attach image"
+            className="aui-button aui-button-ghost"
+            data-testid="assistant-attach-image"
+            disabled={sendDisabled}
+            multiple
+            title="Attach an image (you can also paste one)"
+          >
+            <ImageIcon className="size-4" />
+          </ComposerPrimitive.AddAttachment>
+        ) : null}
+        {attachmentsAvailability?.state === 'disabled' ? (
+          // A plain disabled button (not the AddAttachment primitive): adds
+          // are blocked in this state while the adapter stays registered for
+          // already-staged attachments, and the reason must stay visible
+          // rather than the affordance silently vanishing.
+          <button
+            aria-label="Attach image (unavailable)"
+            className="aui-button aui-button-ghost"
+            data-testid="assistant-attach-image"
+            disabled
+            title={attachmentsAvailability.reason}
+            type="button"
+          >
+            <ImageIcon className="size-4" />
+          </button>
+        ) : null}
         {planMode ? (
           <button
             aria-label="Toggle plan mode"
@@ -90,6 +144,7 @@ const ComposerInputRow = ({
           </ComposerPrimitive.Send>
         </ThreadPrimitive.If>
         <ThreadPrimitive.If running>
+          {queueControl}
           <ComposerPrimitive.Cancel
             aria-label="Stop"
             className="aui-button aui-button-primary aui-composer-cancel"
@@ -100,6 +155,43 @@ const ComposerInputRow = ({
           </ComposerPrimitive.Cancel>
         </ThreadPrimitive.If>
       </div>
+    </InputFrame>
+  );
+};
+
+const PlainInputFrame = ({ children }: { children: ReactNode }) => (
+  <div className="bs-composer-input-frame">{children}</div>
+);
+
+/**
+ * The composer frame variant with image-paste support. A SEPARATE component
+ * (mounted only when attachments are enabled) so `useComposerRuntime` is not
+ * pulled in on the attachment-less path. Pasted images become composer
+ * attachments (validated by the attachment adapter); non-image clipboard
+ * content keeps the default paste behavior. Rejections are surfaced by the
+ * `composer.attachmentAddError` event (the error note in
+ * ComposerAttachmentsBar); the catch only prevents an unhandled-rejection
+ * duplicate report.
+ */
+const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
+  const composerRuntime = useComposerRuntime();
+
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const files = collectImageFilesFromClipboard(Array.from(event.clipboardData?.files ?? []));
+    if (files.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    for (const file of files) {
+      composerRuntime.addAttachment(file).catch(() => {
+        /* reported via composer.attachmentAddError */
+      });
+    }
+  };
+
+  return (
+    <div className="bs-composer-input-frame" onPaste={handlePaste}>
+      {children}
     </div>
   );
 };
@@ -120,22 +212,28 @@ const ComposerInputRow = ({
  * empty menu).
  */
 export const ComposerInputWithTriggers = ({
+  attachmentsAvailability,
   isComposerDisabled,
   slashPopover,
   mentionPopover,
   planMode,
+  queueControl,
 }: {
+  attachmentsAvailability?: ComposerAttachmentsAvailability;
   isComposerDisabled: boolean;
   slashPopover?: ReactNode;
   mentionPopover?: ReactNode;
   planMode?: PlanModeComposerControls;
+  queueControl?: ReactNode;
 }) => {
   const row = (
     <ComposerInputRow
       isComposerDisabled={isComposerDisabled}
+      {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
       {...(slashPopover ? { slashPopover } : {})}
       {...(mentionPopover ? { mentionPopover } : {})}
       {...(planMode ? { planMode } : {})}
+      {...(queueControl ? { queueControl } : {})}
     />
   );
   if (!(slashPopover || mentionPopover)) {

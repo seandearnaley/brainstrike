@@ -89,6 +89,16 @@ const BASE_EXTENSIONS: Extension[] = [
   highlightActiveLine(),
   syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
   EditorView.theme({
+    // CodeMirror's built-in active-line colors are hardcoded light-blue and
+    // ignore the app theme (a bright band in dark mode). Use theme tokens so
+    // both modes get a subtle, correct highlight.
+    '.cm-activeLine': {
+      backgroundColor: 'hsl(var(--muted) / 0.4)',
+    },
+    '.cm-activeLineGutter': {
+      backgroundColor: 'hsl(var(--muted) / 0.6)',
+      color: 'hsl(var(--foreground))',
+    },
     '.cm-content': {
       caretColor: 'hsl(var(--foreground))',
       fontFamily: MONO_FONT_FAMILY,
