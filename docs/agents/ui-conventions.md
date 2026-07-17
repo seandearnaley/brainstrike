@@ -33,7 +33,8 @@ Windowing and performance:
   worker I/O. A multi-root provider must never replay another root's paths.
   Web File System Access roots expose only a relative folder name, so their
   root-relative expansion paths remain in scope while stale absolute paths are
-  excluded.
+  excluded. Desktop scope comparisons normalize Windows separators and casing
+  without changing the persisted or worker-facing path identity.
   Automatic startup restoration is capped at 100 directories per root,
   shallowest-first with selected/query parents prioritized; excess persisted
   paths are collapsed and surfaced through both the restoration progress card

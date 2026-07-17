@@ -182,6 +182,51 @@ describe('useExpandedPathRestoration', () => {
     });
   });
 
+  it('restores Windows descendants without loading paths from another root', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const setExpandedPaths = vi.fn();
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set([
+            'C:\\repo\\src',
+            'C:\\repo\\src\\components',
+            'D:\\other-workspace\\downloads',
+          ]),
+          selectedFilePaths: new Set(['root-a|@|C:\\repo\\src\\components\\Button.tsx']),
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandedPathRestoration({
+        currentRootFolderId: 'root-a',
+        currentRootPath: 'c:\\repo',
+        fileTree: [createDirectoryNode('C:\\repo\\src')],
+        isTreeLoading: false,
+        loadSpecificPaths,
+        restorationKey: 'root-a',
+        setExpandedPaths,
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(
+        ['C:\\repo', 'C:\\repo\\src', 'C:\\repo\\src\\components'],
+        expect.any(Function)
+      );
+      expect(setExpandedPaths).toHaveBeenCalledWith(
+        new Set([
+          'C:\\repo',
+          'C:\\repo\\src',
+          'C:\\repo\\src\\components',
+          'D:\\other-workspace\\downloads',
+        ])
+      );
+    });
+  });
+
   it('bounds automatic restoration and reports the folders kept collapsed', async () => {
     let resolveRestoration: (() => void) | undefined;
     const loadSpecificPaths = vi.fn<
@@ -368,6 +413,10 @@ describe('useExpandSelectedFileParentDirectories', () => {
 
     const absoluteAncestors = __getAllAncestorDirectories('/workspace/src/components/Button.tsx');
     const repeatedSeparatorAncestors = __getAllAncestorDirectories('src//components/Button.tsx');
+    const windowsAncestors = __getAllAncestorDirectories(
+      'C:\\workspace\\src\\components\\Button.tsx'
+    );
+    const uncAncestors = __getAllAncestorDirectories('\\\\server\\share\\src\\Button.tsx');
     const fileOnlyAncestors = __getAllAncestorDirectories('Button.tsx');
     const rootAncestors = __getAllAncestorDirectories('/');
 
@@ -380,6 +429,13 @@ describe('useExpandSelectedFileParentDirectories', () => {
       '/workspace/src/components',
     ]);
     expect(repeatedSeparatorAncestors).toEqual(['src', 'src/components']);
+    expect(windowsAncestors).toEqual([
+      'C:',
+      'C:\\workspace',
+      'C:\\workspace\\src',
+      'C:\\workspace\\src\\components',
+    ]);
+    expect(uncAncestors).toEqual(['\\\\server', '\\\\server\\share', '\\\\server\\share\\src']);
     expect(fileOnlyAncestors).toEqual([]);
     expect(rootAncestors).toEqual([]);
   });

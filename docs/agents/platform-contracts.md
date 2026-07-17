@@ -87,9 +87,13 @@ and MUST NOT be retried against the empty replacement.
 
 Desktop order:
 1. Invalidate the desktop scheduler generation and reject new DB work until
-   renderer reload begins; queued closures from the old snapshot must never call
-   `getDatabase()` after replacement.
-2. Cancel active embedding backfills.
+   renderer reload begins. Every scheduler handed to backfills or other detached
+   work must route through the same generation check.
+2. Cancel active embedding backfills. Recovery runs inside the single scheduler
+   operation after its failing database call has settled. Do not wait for that
+   scheduler to become idle from inside recovery: the current operation owns the
+   lane. Queued closures can run only after recovery unwinds and must reject
+   against the invalidated generation.
 3. Unsubscribe renderer live queries.
 4. Terminate the DB utility process so all queued requests fail.
 5. Back up and replace the active database profile, then initialize migrations.

@@ -62,6 +62,14 @@ function runCurrentDesktopDatabaseWork<T>(
   });
 }
 
+const recoveryAwareDesktopDatabaseWorkScheduler: DatabaseWorkScheduler = {
+  getSnapshot: () => desktopDatabaseWorkScheduler.getSnapshot(),
+  run: <T>(work: () => Promise<T>, options: DatabaseWorkRunOptions): Promise<T> =>
+    runCurrentDesktopDatabaseWork(work, options),
+  subscribe: (listener: (snapshot: DatabaseWorkSchedulerSnapshot) => void) =>
+    desktopDatabaseWorkScheduler.subscribe(listener),
+};
+
 function isDatabaseWorkPriority(value: unknown): value is DatabaseWorkPriority {
   return value === 'foreground' || value === 'normal' || value === 'background';
 }
@@ -176,7 +184,7 @@ function resolveDatabaseWorkOptions(
 }
 
 export function getDesktopDatabaseWorkScheduler(): DatabaseWorkScheduler {
-  return desktopDatabaseWorkScheduler;
+  return recoveryAwareDesktopDatabaseWorkScheduler;
 }
 
 export function getDesktopDatabaseWorkSchedulerSnapshot(): DatabaseWorkSchedulerSnapshot {

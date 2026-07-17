@@ -67,7 +67,8 @@ function countNonEmptyPathSegments(filePath: string): number {
   let segmentCount = 0;
   let inSegment = false;
   for (let index = 0; index < filePath.length; index += 1) {
-    if (filePath.charCodeAt(index) === 47) {
+    const charCode = filePath.charCodeAt(index);
+    if (charCode === 47 || charCode === 92) {
       inSegment = false;
     } else if (!inSegment) {
       segmentCount += 1;
@@ -77,15 +78,21 @@ function countNonEmptyPathSegments(filePath: string): number {
   return segmentCount;
 }
 
-function appendAncestorSegment(currentPath: string, segment: string, isAbsolute: boolean): string {
+function appendAncestorSegment(
+  currentPath: string,
+  segment: string,
+  absolutePrefix: string,
+  separator: string
+): string {
   if (currentPath !== '') {
-    return `${currentPath}/${segment}`;
+    return `${currentPath}${separator}${segment}`;
   }
-  return `${isAbsolute ? '/' : ''}${segment}`;
+  return `${absolutePrefix}${segment}`;
 }
 
 export function __getAllAncestorDirectories(filePath: string): string[] {
-  const isAbsolute = filePath.startsWith('/');
+  const separator = filePath.includes('\\') ? '\\' : '/';
+  const absolutePrefix = filePath.startsWith('\\\\') ? '\\\\' : filePath.startsWith('/') ? '/' : '';
   const ancestorCount = countNonEmptyPathSegments(filePath) - 1;
   if (ancestorCount <= 0) {
     return [];
@@ -96,7 +103,8 @@ export function __getAllAncestorDirectories(filePath: string): string[] {
   let segmentStart = -1;
   let emittedSegments = 0;
   for (let index = 0; index <= filePath.length; index += 1) {
-    if (index < filePath.length && filePath.charCodeAt(index) !== 47) {
+    const charCode = filePath.charCodeAt(index);
+    if (index < filePath.length && charCode !== 47 && charCode !== 92) {
       if (segmentStart === -1) {
         segmentStart = index;
       }
@@ -111,7 +119,7 @@ export function __getAllAncestorDirectories(filePath: string): string[] {
     const segment = filePath.slice(segmentStart, index);
     // Restoration runs for every persisted/selected path; append one segment at
     // a time instead of rebuilding each ancestor from sliced segment arrays.
-    currentPath = appendAncestorSegment(currentPath, segment, isAbsolute);
+    currentPath = appendAncestorSegment(currentPath, segment, absolutePrefix, separator);
     ancestors.push(currentPath);
     if (emittedSegments === ancestorCount) {
       break;
@@ -287,6 +295,15 @@ function handleRestorationLock(
   return false;
 }
 
+function normalizePathForRootScope(path: string): string {
+  return path.replace(/\\/g, '/');
+}
+
+function isWindowsAbsolutePath(path: string): boolean {
+  const normalizedPath = normalizePathForRootScope(path);
+  return /^[A-Za-z]:\//u.test(normalizedPath) || normalizedPath.startsWith('//');
+}
+
 function isPathWithinRoot(path: string, currentRootPath: string | null | undefined): boolean {
   if (!currentRootPath) {
     return true;
@@ -294,12 +311,22 @@ function isPathWithinRoot(path: string, currentRootPath: string | null | undefin
   if (!isAbsolutePath(currentRootPath)) {
     return !isAbsolutePath(path);
   }
-  return path === currentRootPath || isDescendantPath(path, currentRootPath);
+  const normalizedPath = normalizePathForRootScope(path);
+  const normalizedRootPath = normalizePathForRootScope(currentRootPath);
+  const scopedPath = isWindowsAbsolutePath(currentRootPath)
+    ? normalizedPath.toLowerCase()
+    : normalizedPath;
+  const scopedRootPath = isWindowsAbsolutePath(currentRootPath)
+    ? normalizedRootPath.toLowerCase()
+    : normalizedRootPath;
+  return scopedPath === scopedRootPath || isDescendantPath(scopedPath, scopedRootPath);
 }
 
 function sortRestorationPaths(paths: Iterable<string>): string[] {
   return [...paths].sort((left, right) => {
-    const depthDifference = getPathDepth(left) - getPathDepth(right);
+    const depthDifference =
+      getPathDepth(normalizePathForRootScope(left)) -
+      getPathDepth(normalizePathForRootScope(right));
     return depthDifference === 0 ? left.localeCompare(right) : depthDifference;
   });
 }

@@ -886,6 +886,10 @@ async function recoverRuntimeDatabaseAndReload(context: string): Promise<void> {
     let reloadScheduled = false;
     try {
       cancelAllDesktopEmbeddingBackfills();
+      // Recovery runs inside the scheduler operation whose database call just
+      // failed, so waiting for scheduler idle here would deadlock on itself.
+      // Backfills receive the recovery-aware scheduler; queued work cannot run
+      // until this operation unwinds and then rejects against the old epoch.
       await cleanupDesktopLiveSubscriptionsForShutdown();
       await replaceCorruptedDatabase(context);
 
