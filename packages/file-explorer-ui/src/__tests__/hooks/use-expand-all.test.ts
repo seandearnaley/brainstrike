@@ -15,37 +15,37 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   return {
     ...original,
     createLogger: () => ({
+      debug: vi.fn(),
+      error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
     }),
   };
 });
 
 function createFileNode(overrides: Partial<IFileNode> = {}): IFileNode {
   return {
-    name: 'file.txt',
-    path: '/root/file.txt',
-    type: 'file',
     depth: 1,
     handle: {} as FileSystemFileHandle,
-    selectionState: 'unchecked',
+    name: 'file.txt',
+    path: '/root/file.txt',
     rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'file',
     ...overrides,
   };
 }
 
 function createDirectoryNode(overrides: Partial<IFileNode> = {}): IFileNode {
   return {
-    name: 'dir',
-    path: '/root/dir',
-    type: 'directory',
     depth: 0,
     handle: {} as FileSystemDirectoryHandle,
-    selectionState: 'unchecked',
-    rootFolderId: 'root',
     loadState: 'unloaded',
+    name: 'dir',
+    path: '/root/dir',
+    rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'directory',
     ...overrides,
   };
 }
@@ -74,9 +74,9 @@ describe('useExpandAll', () => {
     rootNodesRef = {
       current: [
         createDirectoryNode({
+          loadState: 'unloaded',
           name: 'src',
           path: '/root/src',
-          loadState: 'unloaded',
         }),
       ],
     };
@@ -92,19 +92,19 @@ describe('useExpandAll', () => {
       }
       rootNodesRef.current = [
         createDirectoryNode({
-          name: 'src',
-          path: '/root/src',
-          loadState: 'loaded',
           children: [
             createDirectoryNode({
-              name: 'nested',
-              path: '/root/src/nested',
+              children: [createFileNode({ depth: 2, path: '/root/src/nested/a.ts' })],
               depth: 1,
               loadState: 'loaded',
-              children: [createFileNode({ path: '/root/src/nested/a.ts', depth: 2 })],
+              name: 'nested',
+              path: '/root/src/nested',
             }),
-            createFileNode({ path: '/root/src/index.ts', depth: 1 }),
+            createFileNode({ depth: 1, path: '/root/src/index.ts' }),
           ],
+          loadState: 'loaded',
+          name: 'src',
+          path: '/root/src',
         }),
       ];
     },
@@ -169,19 +169,19 @@ describe('useExpandAll', () => {
       }
       rootNodesRef.current = [
         createDirectoryNode({
-          name: 'src',
-          path: '/root/src',
-          loadState: 'loaded',
           children: [
             createDirectoryNode({
-              name: 'nested',
-              path: '/root/src/nested',
+              children: [],
               depth: 1,
               loadState: 'loaded',
-              children: [],
+              name: 'nested',
+              path: '/root/src/nested',
             }),
-            createFileNode({ path: '/root/src/index.ts', depth: 1 }),
+            createFileNode({ depth: 1, path: '/root/src/index.ts' }),
           ],
+          loadState: 'loaded',
+          name: 'src',
+          path: '/root/src',
         }),
       ];
     });
@@ -205,18 +205,18 @@ describe('useExpandAll', () => {
   it('does not enter expand-all when every known directory is already loaded and expanded', async () => {
     rootNodesRef.current = [
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
-        loadState: 'loaded',
         children: [
           createDirectoryNode({
-            name: 'nested',
-            path: '/root/src/nested',
+            children: [],
             depth: 1,
             loadState: 'loaded',
-            children: [],
+            name: 'nested',
+            path: '/root/src/nested',
           }),
         ],
+        loadState: 'loaded',
+        name: 'src',
+        path: '/root/src',
       }),
     ];
     const loadDirectoryPath = vi.fn();
@@ -239,26 +239,26 @@ describe('useExpandAll', () => {
   it('commits already-loaded missing expansion paths without starting progressive traversal', async () => {
     rootNodesRef.current = [
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
-        loadState: 'loaded',
         children: [
           createDirectoryNode({
-            name: 'nested',
-            path: '/root/src/nested',
-            depth: 1,
-            loadState: 'loaded',
             children: [
               createDirectoryNode({
-                name: 'leaf',
-                path: '/root/src/nested/leaf',
+                children: [],
                 depth: 2,
                 loadState: 'loaded',
-                children: [],
+                name: 'leaf',
+                path: '/root/src/nested/leaf',
               }),
             ],
+            depth: 1,
+            loadState: 'loaded',
+            name: 'nested',
+            path: '/root/src/nested',
           }),
         ],
+        loadState: 'loaded',
+        name: 'src',
+        path: '/root/src',
       }),
     ];
     const loadDirectoryPath = vi.fn();
@@ -288,17 +288,17 @@ describe('useExpandAll', () => {
   it('commits newly discovered loaded descendants incrementally across batches', async () => {
     rootNodesRef.current = [
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
-        loadState: 'loaded',
         children: [
           createDirectoryNode({
-            name: 'nested',
-            path: '/root/src/nested',
             depth: 1,
             loadState: 'unloaded',
+            name: 'nested',
+            path: '/root/src/nested',
           }),
         ],
+        loadState: 'loaded',
+        name: 'src',
+        path: '/root/src',
       }),
     ];
 
@@ -308,25 +308,25 @@ describe('useExpandAll', () => {
       }
       rootNodesRef.current = [
         createDirectoryNode({
-          name: 'src',
-          path: '/root/src',
-          loadState: 'loaded',
           children: [
             createDirectoryNode({
-              name: 'nested',
-              path: '/root/src/nested',
-              depth: 1,
-              loadState: 'loaded',
               children: [
                 createDirectoryNode({
-                  name: 'deep',
-                  path: '/root/src/nested/deep',
                   depth: 2,
                   loadState: 'loaded',
+                  name: 'deep',
+                  path: '/root/src/nested/deep',
                 }),
               ],
+              depth: 1,
+              loadState: 'loaded',
+              name: 'nested',
+              path: '/root/src/nested',
             }),
           ],
+          loadState: 'loaded',
+          name: 'src',
+          path: '/root/src',
         }),
       ];
     });
@@ -365,20 +365,71 @@ describe('useExpandAll', () => {
     expect(result.current.isExpandingAll).toBe(false);
   });
 
+  it('does not let a stale cancelled session finalize a newer session', async () => {
+    const releaseLoads: Array<() => void> = [];
+    const loadDirectoryPath = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseLoads.push(resolve);
+        })
+    );
+    const { result } = renderExpandAllHook(loadDirectoryPath);
+    const setExpandedPaths = vi.fn();
+
+    let firstSessionPromise: Promise<void> | undefined;
+    await act(async () => {
+      firstSessionPromise = result.current.expandAllProgressively(setExpandedPaths);
+      await Promise.resolve();
+    });
+    expect(loadDirectoryPath).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.cancelExpandAll();
+    });
+
+    let secondSessionPromise: Promise<void> | undefined;
+    await act(async () => {
+      secondSessionPromise = result.current.expandAllProgressively(setExpandedPaths);
+      await Promise.resolve();
+    });
+    expect(loadDirectoryPath).toHaveBeenCalledTimes(2);
+    expect(result.current.isExpandingAll).toBe(true);
+    expect(result.current.isExpandingAllRef.current).toBe(true);
+
+    await act(async () => {
+      releaseLoads[0]?.();
+      await firstSessionPromise;
+    });
+
+    const remainedActiveAfterStaleSettlement = result.current.isExpandingAll;
+    const refRemainedActiveAfterStaleSettlement = result.current.isExpandingAllRef.current;
+
+    await act(async () => {
+      releaseLoads[1]?.();
+      await secondSessionPromise;
+    });
+
+    expect(remainedActiveAfterStaleSettlement).toBe(true);
+    expect(refRemainedActiveAfterStaleSettlement).toBe(true);
+    expect(result.current.isExpandingAll).toBe(false);
+    expect(result.current.isExpandingAllRef.current).toBe(false);
+    expect(onErrorMock).not.toHaveBeenCalled();
+  });
+
   it('leaves a valid partial expansion state when cancelled between batches', async () => {
     rootNodesRef.current = [
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
-        loadState: 'loaded',
         children: [
           createDirectoryNode({
-            name: 'nested',
-            path: '/root/src/nested',
             depth: 1,
             loadState: 'unloaded',
+            name: 'nested',
+            path: '/root/src/nested',
           }),
         ],
+        loadState: 'loaded',
+        name: 'src',
+        path: '/root/src',
       }),
     ];
 
@@ -389,25 +440,25 @@ describe('useExpandAll', () => {
       }
       rootNodesRef.current = [
         createDirectoryNode({
-          name: 'src',
-          path: '/root/src',
-          loadState: 'loaded',
           children: [
             createDirectoryNode({
-              name: 'nested',
-              path: '/root/src/nested',
-              depth: 1,
-              loadState: 'loaded',
               children: [
                 createDirectoryNode({
-                  name: 'deep',
-                  path: '/root/src/nested/deep',
                   depth: 2,
                   loadState: 'loaded',
+                  name: 'deep',
+                  path: '/root/src/nested/deep',
                 }),
               ],
+              depth: 1,
+              loadState: 'loaded',
+              name: 'nested',
+              path: '/root/src/nested',
             }),
           ],
+          loadState: 'loaded',
+          name: 'src',
+          path: '/root/src',
         }),
       ];
     });
@@ -496,7 +547,7 @@ describe('useExpandAll', () => {
   });
 
   it('skips when there are no directories to expand', async () => {
-    rootNodesRef.current = [createFileNode({ path: '/root/readme.md', depth: 0 })];
+    rootNodesRef.current = [createFileNode({ depth: 0, path: '/root/readme.md' })];
     const loadDirectoryPath = vi.fn();
 
     const { result } = renderExpandAllHook(loadDirectoryPath);

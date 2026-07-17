@@ -134,7 +134,7 @@ function tryExactMatch(
     fileContent.slice(0, index) + newStr + fileContent.slice(index + oldStr.length);
   // 0-based start line of the (single) occurrence.
   const startLine = fileContent.slice(0, index).split('\n').length - 1;
-  return { newContent, matchType: 'exact', startLine };
+  return { matchType: 'exact', newContent, startLine };
 }
 
 interface NormalizedWindow {
@@ -164,7 +164,7 @@ function findNormalizedWindows(
     for (let j = i; j <= Math.min(i + maxWindow, lines.length - 1); j += 1) {
       const candidate = lines.slice(i, j + 1).join('\n');
       if (normalizeWhitespace(candidate) === normalizedOldStr) {
-        matched = { start: i, end: j };
+        matched = { end: j, start: i };
         break;
       }
     }
@@ -219,7 +219,7 @@ function tryWhitespaceNormalizedMatch(
   const beforeLines = lines.slice(0, bestMatch.start);
   const afterLines = lines.slice(bestMatch.end + 1);
   const newContent = [...beforeLines, newStr, ...afterLines].join('\n');
-  return { newContent, matchType: 'whitespace-normalized', startLine: bestMatch.start };
+  return { matchType: 'whitespace-normalized', newContent, startLine: bestMatch.start };
 }
 
 interface FuzzyBestMatch {
@@ -427,7 +427,7 @@ function tryFuzzyMatch(
     newContent = newFileLines.join('\n');
   }
 
-  return { newContent, matchType: bestMatch.type, startLine: bestMatch.start };
+  return { matchType: bestMatch.type, newContent, startLine: bestMatch.start };
 }
 
 /**

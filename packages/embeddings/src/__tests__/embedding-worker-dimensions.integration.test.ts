@@ -11,8 +11,14 @@ import type {
 import { type EmbeddingWorkerController, startEmbeddingWorker } from '../worker/embedding-worker';
 
 /**
- * Mock EmbeddingService that returns 3072-dimensional embeddings
- * (simulating OpenAI text-embedding-3-large)
+ * Mock EmbeddingService that returns 1536-dimensional embeddings
+ * (simulating OpenAI text-embedding-3-small).
+ *
+ * Note: 1536 is the largest real embedding width the store supports here —
+ * MAX_EMBEDDING_DIMENSION caps vectors at 2000 (halfvec/HNSW limit), so the
+ * original 3072-dim premise (text-embedding-3-large) is now rejected by
+ * ensureModelDimension by design. This test exercises the large-vector storage
+ * plumbing at a supported width.
  */
 class LargeDimensionService implements EmbeddingService {
   initialize(
@@ -24,18 +30,18 @@ class LargeDimensionService implements EmbeddingService {
 
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     return {
-      embedding: new Array(3072).fill(0.1),
-      dimensions: 3072,
-      model: 'text-embedding-3-large',
+      dimensions: 1536,
+      embedding: new Array(1536).fill(0.1),
+      model: 'text-embedding-3-small',
       usage: { totalTokens: 10 },
     };
   }
 
   async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
     return texts.map(() => ({
-      embedding: new Array(3072).fill(0.1),
-      dimensions: 3072,
-      model: 'text-embedding-3-large',
+      dimensions: 1536,
+      embedding: new Array(1536).fill(0.1),
+      model: 'text-embedding-3-small',
       usage: { totalTokens: 10 },
     }));
   }
@@ -48,7 +54,7 @@ class LargeDimensionService implements EmbeddingService {
     }) => Promise<void> | void
   ): Promise<void> {
     const results = await this.generateEmbeddings(texts);
-    await onBatch({ startIndex: 0, endIndex: results.length, results });
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
   }
 
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
@@ -60,7 +66,7 @@ class LargeDimensionService implements EmbeddingService {
   }
 
   calculateSimilarity(_embedding1: number[], _embedding2: number[]): SimilarityResult {
-    return { similarity: 0.95, distance: 0.05, method: 'cosine' };
+    return { distance: 0.05, method: 'cosine', similarity: 0.95 };
   }
 
   getStatus(): EmbeddingStatus {
@@ -68,7 +74,7 @@ class LargeDimensionService implements EmbeddingService {
   }
 
   getConfig(): EmbeddingConfig {
-    return { modelId: 'text-embedding-3-large' };
+    return { modelId: 'text-embedding-3-small' };
   }
 
   async dispose(): Promise<void> {}
@@ -105,7 +111,7 @@ describe('Embedding Worker Dimensions', () => {
     vi.restoreAllMocks();
   });
 
-  it('should process jobs with 3072 dimensions without error', async () => {
+  it('should process jobs with 1536 dimensions without error', async () => {
     // 1. Create file record
     const fileId = crypto.randomUUID();
     await db.query(
@@ -122,38 +128,42 @@ describe('Embedding Worker Dimensions', () => {
       [chunkId, fileId, 0, 'hello world', 'hash123', 10, 'text', 100]
     );
 
-    // 3. Create embedding set with 3072 dimensions
+    // 3. Create embedding set with 1536 dimensions
     const setId = crypto.randomUUID();
     await db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [setId, 'local::large-dim-model', 'large-dim-model', 3072, 'cosine']
+      [setId, 'local::large-dim-model', 'large-dim-model', 1536, 'cosine']
     );
 
     // 4. Enqueue job
     await jq.enqueue({
-      queue: 'embeddings',
       jobType: 'embed_chunk',
       payload: {
         chunkId,
         embeddingSetId: setId,
+        expectedDimension: 1536,
         modelKey: 'local::large-dim-model',
-        expectedDimension: 3072,
       },
+      queue: 'embeddings',
     });
 
-    // 5. Start worker with custom service that returns 3072-dim embeddings
+    // 5. Start worker with custom service that returns 1536-dim embeddings
     worker = await startEmbeddingWorker({
+      concurrency: 1,
       db,
       enable: true,
-      concurrency: 1,
+      // Align the worker's active model with the job payload so the local
+      // model path short-circuits (no reinit, no real backend/model download)
+      // and the injected 1536-dim fake service is used directly.
+      modelKey: 'local::large-dim-model',
       service: new LargeDimensionService(),
     });
 
     // 6. Wait for processing
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    // 7. Verify job success - the key test is that 3072 dimensions didn't cause errors
+    // 7. Verify job success - the key test is that 1536 dimensions didn't cause errors
     const jobRes = await db.query<{ state: string; error: string | null }>(
       "SELECT state, error FROM job_queue WHERE job_type = 'embed_chunk'"
     );

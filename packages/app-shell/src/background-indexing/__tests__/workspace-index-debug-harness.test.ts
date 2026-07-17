@@ -5,67 +5,67 @@ import { countExpectedWorkspaceIndexFiles } from '../workspace-index-debug-harne
 describe('countExpectedWorkspaceIndexFiles', () => {
   it('counts expected files through the app traversal and full-root policy', async () => {
     const adapter = new MockFileSystemAdapter({
-      src: {
-        name: 'src',
-        type: 'directory',
-        children: {
-          'index.ts': {
-            name: 'index.ts',
-            type: 'file',
-            content: 'export const ok = true;',
-          },
-        },
-      },
-      node_modules: {
-        name: 'node_modules',
-        type: 'directory',
-        children: {
-          pkg: {
-            name: 'pkg',
-            type: 'directory',
-            children: {
-              'index.js': {
-                name: 'index.js',
-                type: 'file',
-                content: 'module.exports = {};',
-              },
-            },
-          },
-        },
-      },
       '.git': {
-        name: '.git',
-        type: 'directory',
         children: {
           config: {
+            content: '[core]',
             name: 'config',
             type: 'file',
-            content: '[core]',
           },
         },
+        name: '.git',
+        type: 'directory',
       },
       assets: {
-        name: 'assets',
-        type: 'directory',
         children: {
           'logo.png': {
+            content: 'png',
             name: 'logo.png',
             type: 'file',
-            content: 'png',
           },
         },
+        name: 'assets',
+        type: 'directory',
       },
       docs: {
-        name: 'docs',
-        type: 'directory',
         children: {
           'large.md': {
-            name: 'large.md',
-            type: 'file',
-            size: 800 * 1024,
             content: '# too large',
+            name: 'large.md',
+            size: 800 * 1024,
+            type: 'file',
           },
         },
+        name: 'docs',
+        type: 'directory',
+      },
+      node_modules: {
+        children: {
+          pkg: {
+            children: {
+              'index.js': {
+                content: 'module.exports = {};',
+                name: 'index.js',
+                type: 'file',
+              },
+            },
+            name: 'pkg',
+            type: 'directory',
+          },
+        },
+        name: 'node_modules',
+        type: 'directory',
+      },
+      src: {
+        children: {
+          'index.ts': {
+            content: 'export const ok = true;',
+            name: 'index.ts',
+            type: 'file',
+          },
+        },
+        name: 'src',
+        type: 'directory',
       },
     });
     const rootHandle = (await adapter.requestDirectoryAccess()) as DirectoryHandle;

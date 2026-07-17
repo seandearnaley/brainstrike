@@ -5,6 +5,7 @@ import {
   clearPersistentUiState,
   clearPersistentUiStateWithResult,
   FALLBACK_INDEXED_DB_NAMES,
+  registerFactoryResetSessionStore,
 } from '../settings/system/factory-reset-helpers';
 
 interface FakeRequest {
@@ -18,6 +19,39 @@ const globalWindow = window as Window &
     indexedDB?: IDBFactory;
     caches?: CacheStorage;
   };
+
+describe('registerFactoryResetSessionStore', () => {
+  it('drains registered session-store resetters during a factory reset', async () => {
+    const reset = vi.fn();
+    const dispose = registerFactoryResetSessionStore(reset);
+    try {
+      await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+      expect(reset).toHaveBeenCalledTimes(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('stops draining a resetter once it is disposed', async () => {
+    const reset = vi.fn();
+    const dispose = registerFactoryResetSessionStore(reset);
+    dispose();
+    await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('a throwing resetter does not abort the reset', async () => {
+    const dispose = registerFactoryResetSessionStore(() => {
+      throw new Error('boom');
+    });
+    try {
+      const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+      expect(result.success).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+});
 
 describe('FALLBACK_INDEXED_DB_NAMES engine versioning', () => {
   it('includes the PG18 engine-versioned database names so Safari/Firefox fallback wipes them', () => {
@@ -48,9 +82,9 @@ describe('FALLBACK_INDEXED_DB_NAMES engine versioning', () => {
 function createDeleteDatabaseMock() {
   return vi.fn((_name: string) => {
     const request: FakeRequest = {
-      onsuccess: null,
-      onerror: null,
       onblocked: null,
+      onerror: null,
+      onsuccess: null,
     };
 
     queueMicrotask(() => {
@@ -74,8 +108,8 @@ describe('clearPersistentUiState IndexedDB handling', () => {
 
     deleteDatabaseMock = createDeleteDatabaseMock();
     cachesMock = {
-      keys: vi.fn(async () => []),
       delete: vi.fn(async () => true),
+      keys: vi.fn(async () => []),
     } as unknown as CacheStorage;
 
     Object.defineProperty(globalWindow, 'indexedDB', {
@@ -126,8 +160,8 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     Object.defineProperty(globalWindow, 'indexedDB', {
       configurable: true,
       value: {
-        deleteDatabase: deleteDatabaseMock,
         databases: databasesMock,
+        deleteDatabase: deleteDatabaseMock,
       } as unknown as IDBFactory,
     });
 
@@ -142,8 +176,8 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     Object.defineProperty(globalWindow, 'indexedDB', {
       configurable: true,
       value: {
-        deleteDatabase: deleteDatabaseMock,
         databases: databasesMock,
+        deleteDatabase: deleteDatabaseMock,
       } as unknown as IDBFactory,
     });
 
@@ -264,8 +298,8 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
     Object.defineProperty(globalWindow, 'caches', {
       configurable: true,
       value: {
-        keys: vi.fn(async () => []),
         delete: vi.fn(async () => true),
+        keys: vi.fn(async () => []),
       } as unknown as CacheStorage,
     });
 
@@ -275,6 +309,7 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
       yield 'app'; // legacy unversioned
       yield 'app-pg17'; // older major
       yield 'web-pg18';
+      yield 'brainstrike-notes'; // notes vault default — must be wiped even when pglite dirs exist
       yield 'some-other-lib'; // unrelated OPFS consumer → must NOT be removed
     }
     Object.defineProperty(nav, 'storage', {
@@ -311,6 +346,14 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
     expect(removed).toEqual(expect.arrayContaining(['app-pg18', 'app', 'app-pg17', 'web-pg18']));
     // A non-pglite OPFS consumer's root dir must never be swept by factory reset.
     expect(removed).not.toContain('some-other-lib');
+  });
+
+  it('wipes the notes vault OPFS dir even when pglite dirs are enumerated (reset must not skip it)', async () => {
+    await clearPersistentUiState();
+
+    // Regression: enumeration finding pglite dirs used to bypass the fallback
+    // list entirely, leaving brainstrike-notes (note plaintext) alive.
+    expect(removeEntry.mock.calls.map(([name]) => name)).toContain('brainstrike-notes');
   });
 
   it('reports incomplete reset results when an OPFS pglite directory cannot be removed', async () => {

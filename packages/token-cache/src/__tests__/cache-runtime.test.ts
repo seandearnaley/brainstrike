@@ -27,9 +27,9 @@ class WorkerMock {
     queueMicrotask(() => {
       this.dispatch('message', {
         data: {
-          type: 'response',
           requestId: message.requestId,
           result: { ok: true },
+          type: 'response',
         },
       });
     });
@@ -64,14 +64,14 @@ describe('createTokenCacheWorkerPool', () => {
 
     const pool = await createTokenCacheWorkerPool('/token-worker.js');
     await expect(
-      pool.exec('countTokens', [{ id: '1', content: 'abc', mode: 'accurate' }])
+      pool.exec('countTokens', [{ content: 'abc', id: '1', mode: 'accurate' }])
     ).resolves.toEqual({
       ok: true,
     });
 
     expect(workerCtor).toHaveBeenCalledWith('/token-worker.js', {
-      type: 'module',
       name: 'brainstrike-token-cache',
+      type: 'module',
     });
     expect(workerInstance.postMessage).toHaveBeenCalledTimes(1);
   });
@@ -98,8 +98,8 @@ describe('createTokenCacheWorkerPool', () => {
       totalWorkers: 1,
     });
     expect(workerCtor).toHaveBeenCalledWith('/token-worker.js', {
-      type: 'classic',
       name: 'brainstrike-token-cache',
+      type: 'classic',
     });
   });
 
@@ -160,9 +160,9 @@ describe('createTokenCacheWorkerPool', () => {
     workerInstance.dispatch('message', { data: null });
     workerInstance.dispatch('message', {
       data: {
-        type: 'response',
         requestId: 'unknown-request',
         result: 'ignored',
+        type: 'response',
       },
     });
     expect(pool.stats().pendingTasks).toBe(1);
@@ -170,9 +170,9 @@ describe('createTokenCacheWorkerPool', () => {
     const request = workerInstance.postMessage.mock.calls.at(-1)?.[0] as { requestId: string };
     workerInstance.dispatch('message', {
       data: {
-        type: 'response',
         requestId: request.requestId,
         result: 'hash',
+        type: 'response',
       },
     });
 
@@ -185,11 +185,11 @@ describe('createTokenCacheWorkerPool', () => {
     globalThis.Worker = createWorkerConstructor(workerInstance);
 
     const pool = await createTokenCacheWorkerPool('/token-worker.js');
-    const pending = pool.exec('countTokens', [{ id: '1', content: 'abc', mode: 'accurate' }]);
+    const pending = pool.exec('countTokens', [{ content: 'abc', id: '1', mode: 'accurate' }]);
 
     workerInstance.dispatch('error', {
-      message: 'boom',
       error: new Error('boom'),
+      message: 'boom',
     });
 
     await expect(pending).rejects.toThrow(/boom/);
@@ -207,10 +207,10 @@ describe('createTokenCacheWorkerPool', () => {
 
     workerInstance.dispatch('message', {
       data: {
-        type: 'error',
-        requestId: request.requestId,
-        message: 'worker failed',
         cause: 'stack trace',
+        message: 'worker failed',
+        requestId: request.requestId,
+        type: 'error',
       },
     });
 

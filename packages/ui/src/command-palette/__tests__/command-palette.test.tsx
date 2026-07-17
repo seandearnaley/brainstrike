@@ -53,8 +53,8 @@ describe('CommandPalette', () => {
 
   it('renders available commands grouped, with a listbox and aria-selected', async () => {
     const commands: Command[] = [
-      makeCommand({ id: 'nav.settings', label: 'Open Settings', group: 'navigate' }),
-      makeCommand({ id: 'thread.new', label: 'New Thread', group: 'thread' }),
+      makeCommand({ group: 'navigate', id: 'nav.settings', label: 'Open Settings' }),
+      makeCommand({ group: 'thread', id: 'thread.new', label: 'New Thread' }),
     ];
     render(
       <CommandPalette commands={commands} context={EMPTY_CONTEXT} onOpenChange={() => {}} open />
@@ -85,8 +85,8 @@ describe('CommandPalette', () => {
 
   it('filters by a case-insensitive substring over label and keywords', async () => {
     const commands: Command[] = [
-      makeCommand({ id: 'nav.settings', label: 'Open Settings', keywords: ['preferences'] }),
-      makeCommand({ id: 'thread.new', label: 'New Thread', keywords: ['chat'] }),
+      makeCommand({ id: 'nav.settings', keywords: ['preferences'], label: 'Open Settings' }),
+      makeCommand({ id: 'thread.new', keywords: ['chat'], label: 'New Thread' }),
     ];
     render(
       <CommandPalette commands={commands} context={EMPTY_CONTEXT} onOpenChange={() => {}} open />
@@ -143,12 +143,12 @@ describe('CommandPalette', () => {
     const threadRun = vi.fn(() => Promise.resolve<ActionOutcome>({ ok: true }));
     const commands: Command[] = [
       makeCommand({
+        group: 'navigate',
         id: 'nav.settings',
         label: 'Open Settings',
-        group: 'navigate',
         run: settingsRun,
       }),
-      makeCommand({ id: 'thread.new', label: 'New Thread', group: 'thread', run: threadRun }),
+      makeCommand({ group: 'thread', id: 'thread.new', label: 'New Thread', run: threadRun }),
     ];
     render(
       <CommandPalette commands={commands} context={EMPTY_CONTEXT} onOpenChange={() => {}} open />
@@ -170,7 +170,7 @@ describe('CommandPalette', () => {
     const failing = makeCommand({
       id: 'thread.new',
       label: 'New Thread',
-      run: () => Promise.resolve<ActionOutcome>({ ok: false, error: 'boom' }),
+      run: () => Promise.resolve<ActionOutcome>({ error: 'boom', ok: false }),
     });
     render(
       <CommandPalette
@@ -188,7 +188,7 @@ describe('CommandPalette', () => {
       expect(toastSpy).toHaveBeenCalledTimes(1);
     });
     expect(toastSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ variant: 'destructive', description: 'boom' })
+      expect.objectContaining({ description: 'boom', variant: 'destructive' })
     );
     // A failed command must NOT close the palette.
     expect(onOpenChange).not.toHaveBeenCalledWith(false);

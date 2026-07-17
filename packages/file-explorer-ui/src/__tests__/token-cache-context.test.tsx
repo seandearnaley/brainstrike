@@ -21,8 +21,8 @@ const { tokenCacheStoreInstances, tokenPreferenceState } = vi.hoisted(() => ({
 
 // Mock dependencies
 vi.mock('@brainstrike/preferences/stores/token-preferences-store', () => ({
-  useTokenPreferencesStore: vi.fn(() => tokenPreferenceState.accurateCounting),
   tokenPreferencesSelectors: { accurateCounting: {} },
+  useTokenPreferencesStore: vi.fn(() => tokenPreferenceState.accurateCounting),
 }));
 
 vi.mock('@brainstrike/token-cache/cache-runtime', () => ({
@@ -46,18 +46,18 @@ vi.mock('@brainstrike/token-cache/cache-runtime', () => ({
     }
   },
   useTokenCache: vi.fn(() => ({
-    getTokenCount: (_folderId: string, _filePath: string) => 100,
-    getFileSize: (_folderId: string, _filePath: string) => 1024,
-    getTotalTokens: async () => 100,
-    isLoading: () => false,
-    isAnyLoading: false,
-    queueForCounting: vi.fn(),
-    preloadFolder: vi.fn(),
-    clearHotCache: vi.fn(),
-    invalidate: vi.fn(),
-    updateHotCache: vi.fn(),
-    updateFileSizeCache: vi.fn(),
     cacheVersion: 1,
+    clearHotCache: vi.fn(),
+    getFileSize: (_folderId: string, _filePath: string) => 1024,
+    getTokenCount: (_folderId: string, _filePath: string) => 100,
+    getTotalTokens: async () => 100,
+    invalidate: vi.fn(),
+    isAnyLoading: false,
+    isLoading: () => false,
+    preloadFolder: vi.fn(),
+    queueForCounting: vi.fn(),
+    updateFileSizeCache: vi.fn(),
+    updateHotCache: vi.fn(),
   })),
 }));
 

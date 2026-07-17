@@ -20,10 +20,10 @@ function createCoordinator(
     reset:
       overrides?.reset ??
       vi.fn(async () => ({
-        state: 'running' as const,
-        lastError: null,
         active: false,
+        lastError: null,
         runtimeId: 'embedding-host-runtime',
+        state: 'running' as const,
       })),
   };
 
@@ -73,10 +73,10 @@ describe('BackfillMaintenanceCoordinator', () => {
             await new Promise((resolve) => {
               resolveReset = () =>
                 resolve({
-                  state: 'running' as const,
-                  lastError: null,
                   active: false,
+                  lastError: null,
                   runtimeId: 'embedding-host-runtime',
+                  state: 'running' as const,
                 });
             })
         ),
@@ -88,8 +88,8 @@ describe('BackfillMaintenanceCoordinator', () => {
 
     expect(() =>
       coordinator.assertCanContinue({
-        state: 'stopped',
         lastError: null,
+        state: 'stopped',
       })
     ).not.toThrow();
 
@@ -107,8 +107,8 @@ describe('BackfillMaintenanceCoordinator', () => {
 
     expect(() =>
       coordinator.assertCanContinue({
-        state: 'stopped',
         lastError: null,
+        state: 'stopped',
       })
     ).toThrow('Embedding host stopped while backfill was in progress.');
   });
@@ -123,10 +123,10 @@ describe('BackfillMaintenanceCoordinator', () => {
       },
       {
         reset: vi.fn(async () => ({
-          state: 'error' as const,
-          lastError: 'reset failed',
           active: false,
+          lastError: 'reset failed',
           runtimeId: 'embedding-host-runtime',
+          state: 'error' as const,
         })),
       }
     );
@@ -139,8 +139,8 @@ describe('BackfillMaintenanceCoordinator', () => {
     expect(coordinator.getState()).toBe('failed');
     expect(() =>
       coordinator.assertCanContinue({
-        state: 'running',
         lastError: null,
+        state: 'running',
       })
     ).toThrow('Embedding host GPU reclaim maintenance failed: reset failed');
   });

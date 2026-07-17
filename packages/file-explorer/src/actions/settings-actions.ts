@@ -49,6 +49,13 @@ function updateWithFolderState(
 }
 
 export interface SettingsActions {
+  /**
+   * Re-enable every disabled include/exclude filter. Called when a view
+   * filter preset is applied: the toggles reference entries of the OUTGOING
+   * lists, and a preset that reintroduces a previously-toggled-off string
+   * would otherwise arrive silently disabled (effective filters ≠ preset).
+   */
+  clearDisabledFilters: () => void;
   setFilters: (include: readonly string[], exclude: readonly string[]) => void;
   setFolderSummaryThreshold: (value: number) => void;
   setIncludeProjectTree: (value: boolean) => void;
@@ -64,31 +71,20 @@ export const createSettingsActions = (
   set: SetState<FileExplorerState>,
   _get: GetState<FileExplorerState> // Re-added underscore to satisfy linter, despite usage in callback
 ): SettingsActions => ({
+  clearDisabledFilters: () => {
+    set({
+      disabledExcludeFilters: new Set<string>(),
+      disabledIncludeFilters: new Set<string>(),
+    });
+  },
+
   setFilters: (include: readonly string[], exclude: readonly string[]) => {
     set((state: FileExplorerState) =>
       updateWithFolderState(state, {
-        includeFilters: [...include],
         excludeFilters: [...exclude],
+        includeFilters: [...include],
       })
     );
-  },
-
-  setUseRegex: (useRegex: boolean) => {
-    set((state: FileExplorerState) => updateWithFolderState(state, { useRegex }));
-  },
-
-  setIncludeProjectTree: (value: boolean) => {
-    set((state: FileExplorerState) => updateWithFolderState(state, { includeProjectTree: value }));
-  },
-
-  setTokenBudget: (budget: number) => {
-    if (!Number.isFinite(budget)) {
-      return;
-    }
-
-    const normalized = Math.round(budget);
-    const clamped = Math.max(MIN_TOKEN_BUDGET, Math.min(normalized, MAX_TOKEN_BUDGET));
-    set((state: FileExplorerState) => updateWithFolderState(state, { tokenBudget: clamped }));
   },
 
   setFolderSummaryThreshold: (value: number) => {
@@ -98,6 +94,14 @@ export const createSettingsActions = (
         Math.min(value, MAX_FOLDER_SUMMARY_THRESHOLD)
       ),
     });
+  },
+
+  setIncludeProjectTree: (value: boolean) => {
+    set((state: FileExplorerState) => updateWithFolderState(state, { includeProjectTree: value }));
+  },
+
+  setLastActiveTab: (tab: string) => {
+    set({ lastActiveTab: tab });
   },
 
   setMaxSelectionCount: (count: number) => {
@@ -125,15 +129,25 @@ export const createSettingsActions = (
       );
 
       return {
+        folderStates,
         maxSelectionCount: clampedCount,
         selectedFilePaths: newSelectedFilePaths,
-        folderStates,
       };
     });
   },
 
-  setLastActiveTab: (tab: string) => {
-    set({ lastActiveTab: tab });
+  setTokenBudget: (budget: number) => {
+    if (!Number.isFinite(budget)) {
+      return;
+    }
+
+    const normalized = Math.round(budget);
+    const clamped = Math.max(MIN_TOKEN_BUDGET, Math.min(normalized, MAX_TOKEN_BUDGET));
+    set((state: FileExplorerState) => updateWithFolderState(state, { tokenBudget: clamped }));
+  },
+
+  setUseRegex: (useRegex: boolean) => {
+    set((state: FileExplorerState) => updateWithFolderState(state, { useRegex }));
   },
 
   setViewFilterPresetId: (presetId: string | null) => {

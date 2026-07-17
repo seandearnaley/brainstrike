@@ -15,8 +15,8 @@ interface WorkspaceTabSelectionState {
 
 const STORE_NAME = 'workspace-tab-selection.v1' as const;
 const DEFAULT_SELECTION: WorkspaceTabSelection = {
-  kind: 'app',
   appId: CONTEXT_EXPLORER_APP_ID,
+  kind: 'app',
 };
 
 const storage = createJSONStorage(() =>
@@ -37,7 +37,7 @@ function coerceSelection(value: unknown): WorkspaceTabSelection {
     return { kind: 'file', tabId: candidate.tabId };
   }
   if (candidate.kind === 'app' && typeof candidate.appId === 'string') {
-    return { kind: 'app', appId: candidate.appId };
+    return { appId: candidate.appId, kind: 'app' };
   }
   return DEFAULT_SELECTION;
 }
@@ -45,19 +45,19 @@ function coerceSelection(value: unknown): WorkspaceTabSelection {
 export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>()(
   persist(
     (set) => ({
-      selection: DEFAULT_SELECTION,
-      selectApp: (appId) => set({ selection: { kind: 'app', appId } }),
+      selectApp: (appId) => set({ selection: { appId, kind: 'app' } }),
       selectFile: (tabId) => set({ selection: { kind: 'file', tabId } }),
+      selection: DEFAULT_SELECTION,
     }),
     {
-      name: STORE_NAME,
-      version: 1,
-      storage,
-      partialize: (s) => ({ selection: s.selection }),
       merge: (persisted, current) => {
         const ps = (persisted ?? {}) as { selection?: unknown };
         return { ...current, selection: coerceSelection(ps.selection) };
       },
+      name: STORE_NAME,
+      partialize: (s) => ({ selection: s.selection }),
+      storage,
+      version: 1,
     }
   )
 );

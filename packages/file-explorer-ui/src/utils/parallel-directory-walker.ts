@@ -42,7 +42,7 @@ async function timeDirectoryRead<T>(
   const result = await operation();
   const durationMs = timer.elapsed();
   const exceededBudget = checkBudget(`read-dir:${path}`, durationMs, 'listDirectory');
-  return { result, durationMs, exceededBudget };
+  return { durationMs, exceededBudget, result };
 }
 
 export interface ParallelWalkerOptions {
@@ -111,7 +111,7 @@ function createDeferred<T>(): {
     resolve = res;
     reject = rej;
   });
-  return { promise, resolve, reject };
+  return { promise, reject, resolve };
 }
 
 /**
@@ -173,10 +173,10 @@ export async function walkDirectoryParallel(
 
   // Streaming: depth statistics tracking
   const depthStats = {
-    maxDepthSeen: 0,
     currentDepth: 0,
     directoriesCompleted: 0,
     filesFound: 0,
+    maxDepthSeen: 0,
   };
 
   // Streaming: snapshot timing
@@ -189,11 +189,11 @@ export async function walkDirectoryParallel(
   function buildDepthProgress(): DepthProgress {
     return {
       currentDepth: depthStats.currentDepth,
-      maxDepthSeen: depthStats.maxDepthSeen,
-      estimatedMaxDepth: Math.max(depthStats.maxDepthSeen + 2, INITIAL_ESTIMATED_MAX_DEPTH),
       directoriesCompleted: depthStats.directoriesCompleted,
       directoriesRemaining: workQueue.length,
+      estimatedMaxDepth: Math.max(depthStats.maxDepthSeen + 2, INITIAL_ESTIMATED_MAX_DEPTH),
       filesFound: depthStats.filesFound,
+      maxDepthSeen: depthStats.maxDepthSeen,
     };
   }
 
@@ -215,10 +215,10 @@ export async function walkDirectoryParallel(
     lastSnapshotTime = now;
 
     const meta: StreamMeta = {
-      isComplete: false,
       depthProgress: buildDepthProgress(),
-      totalNodesDiscovered: depthStats.filesFound + depthStats.directoriesCompleted,
       elapsedMs: now - startTime,
+      isComplete: false,
+      totalNodesDiscovered: depthStats.filesFound + depthStats.directoriesCompleted,
     };
 
     // Clone the root nodes array (shallow) for the snapshot
@@ -311,10 +311,10 @@ export async function walkDirectoryParallel(
     const finalPath = getFinalPath(directoryHandle, entry, relativePath);
     return {
       ...entry,
-      path: finalPath,
       depth: calculatePathDepth(relativePath),
-      selectionState: 'unchecked',
+      path: finalPath,
       rootFolderId,
+      selectionState: 'unchecked',
     };
   }
 
@@ -329,11 +329,11 @@ export async function walkDirectoryParallel(
     const finalPath = getFinalPath(directoryHandle, entry, relativePath);
     return {
       ...entry,
-      path: finalPath,
-      depth: calculatePathDepth(relativePath),
       children: [], // Will be populated by child processing
-      selectionState: 'unchecked',
+      depth: calculatePathDepth(relativePath),
+      path: finalPath,
       rootFolderId,
+      selectionState: 'unchecked',
     };
   }
 
@@ -351,11 +351,11 @@ export async function walkDirectoryParallel(
         ? entryHandle.path
         : finalPath;
     return {
-      path: childPath,
-      name: entry.name,
-      kind: 'directory',
-      platform: entryHandle?.platform ?? parentHandle.platform,
       _internal: entry.handle,
+      kind: 'directory',
+      name: entry.name,
+      path: childPath,
+      platform: entryHandle?.platform ?? parentHandle.platform,
     };
   }
 
@@ -395,10 +395,10 @@ export async function walkDirectoryParallel(
       const dirNode = processDirectoryEntry(entry, relativePath, handle);
       processedNodes.push(dirNode);
       workQueue.push({
-        handle: buildChildHandle(entry, dirNode.path, handle),
-        parentPath: relativePath,
-        parentNode: dirNode,
         depth: depth + 1,
+        handle: buildChildHandle(entry, dirNode.path, handle),
+        parentNode: dirNode,
+        parentPath: relativePath,
       });
     }
   }
@@ -480,10 +480,10 @@ export async function walkDirectoryParallel(
   async function runWorkers(): Promise<void> {
     // Add initial work item (root directory)
     workQueue.push({
-      handle: rootHandle,
-      parentPath: '',
-      parentNode: null,
       depth: 0,
+      handle: rootHandle,
+      parentNode: null,
+      parentPath: '',
     });
 
     // Keep spawning workers while there's work to do
@@ -529,10 +529,10 @@ export async function walkDirectoryParallel(
   // Emit final snapshot with isComplete: true
   if (onTreeSnapshot) {
     const finalMeta: StreamMeta = {
-      isComplete: true,
       depthProgress: buildDepthProgress(),
-      totalNodesDiscovered: depthStats.filesFound + depthStats.directoriesCompleted,
       elapsedMs: performance.now() - startTime,
+      isComplete: true,
+      totalNodesDiscovered: depthStats.filesFound + depthStats.directoriesCompleted,
     };
     onTreeSnapshot(finalTree, finalMeta);
   }

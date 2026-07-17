@@ -26,10 +26,10 @@ describe('ContextUsageMeter', () => {
   });
 
   const props = {
-    threadKey: 't1',
     contextWindow: 200_000,
     effectiveInputBudget: 126_000,
     estimatedTokens: 4000,
+    threadKey: 't1',
   };
 
   it('shows the heuristic estimate (flagged) before any exact usage', () => {
@@ -101,19 +101,21 @@ describe('ContextUsageMeter', () => {
     expect(screen.queryByTestId('context-usage-cumulative')).not.toBeInTheDocument();
   });
 
-  it('renders the cumulative tokens and exact cost when priced usage is supplied', () => {
+  it('qualifies cumulative cost as a captured-usage estimate', () => {
     render(
       <ContextUsageMeter
         {...props}
         cumulativeUsage={{
+          cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: 12.5 },
           totalTokens: 1_800_000,
-          cost: { available: true, usdAmount: 12.5, provenance: 'exact-pricing' },
         }}
       />
     );
     const cumulative = screen.getByTestId('context-usage-cumulative');
     expect(cumulative).toHaveTextContent(/1\.8M tokens/);
-    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent('$12.50');
+    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent(
+      /captured usage est\. \$12\.50/i
+    );
   });
 
   it('renders "cost unavailable" (never $0) for an unpriced model', () => {
@@ -121,8 +123,8 @@ describe('ContextUsageMeter', () => {
       <ContextUsageMeter
         {...props}
         cumulativeUsage={{
-          totalTokens: 1000,
           cost: { available: false, reason: 'unpriced_model' },
+          totalTokens: 1000,
         }}
       />
     );
@@ -139,9 +141,9 @@ describe('ContextUsageMeter OM informational stats', () => {
   });
 
   const props = {
-    threadKey: 't1',
     contextWindow: 200_000,
     effectiveInputBudget: 126_000,
+    threadKey: 't1',
   };
 
   it('does not render any OM line when omSegment is absent (desktop pre-load / no prop)', () => {
@@ -152,16 +154,20 @@ describe('ContextUsageMeter OM informational stats', () => {
 
   it('renders OM as INFORMATIONAL stats (observed tokens + compaction), NOT a budget segment', () => {
     const omSegment: OmMeterState = {
-      kind: 'stats',
-      observationTokens: 20_000,
+      bufferedObservationTokens: 1000,
       compactionSavedTokens: 30_000,
+      kind: 'stats',
+      messageTokenThreshold: 30_000,
+      observationTokens: 20_000,
+      pendingMessageTokens: 14_000,
     };
     render(<ContextUsageMeter {...props} omSegment={omSegment} />);
     const stats = screen.getByTestId('context-usage-om-stats');
     expect(stats).toBeInTheDocument();
-    // Informational observed-token stat.
-    expect(screen.getByTestId('context-usage-om-observed')).toHaveTextContent(/observed/i);
-    expect(screen.getByTestId('context-usage-om-observed')).toHaveTextContent(/20/);
+    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/active om/i);
+    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/20/);
+    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/buffered/i);
+    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.0k.*30\.0k/i);
     // Compaction-benefit stat.
     expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/saved/i);
     expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/30/);
@@ -175,11 +181,39 @@ describe('ContextUsageMeter OM informational stats', () => {
     render(
       <ContextUsageMeter
         {...props}
-        omSegment={{ kind: 'stats', observationTokens: 4000, compactionSavedTokens: 0 }}
+        omSegment={{
+          bufferedObservationTokens: 0,
+          compactionSavedTokens: 0,
+          kind: 'stats',
+          messageTokenThreshold: 30_000,
+          observationTokens: 4000,
+          pendingMessageTokens: 500,
+        }}
       />
     );
-    expect(screen.getByTestId('context-usage-om-observed')).toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-om-active')).toBeInTheDocument();
     expect(screen.queryByTestId('context-usage-om-compaction')).not.toBeInTheDocument();
+  });
+
+  it('shows buffered and pending work instead of claiming zero tokens were observed', () => {
+    render(
+      <ContextUsageMeter
+        {...props}
+        omSegment={{
+          bufferedObservationTokens: 867,
+          compactionSavedTokens: 0,
+          kind: 'stats',
+          messageTokenThreshold: 30_000,
+          observationTokens: 0,
+          pendingMessageTokens: 14_600,
+        }}
+      />
+    );
+    const stats = screen.getByTestId('context-usage-om-stats');
+    expect(screen.queryByTestId('context-usage-om-active')).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/867/);
+    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.6k.*30\.0k/i);
+    expect(stats).not.toHaveTextContent(/0 tokens observed/i);
   });
 
   it('FIX 1: loading state stays QUIET (no note, no stats, no empty flash)', () => {
@@ -239,8 +273,8 @@ describe('ThreadContextMeter', () => {
     // This test verifies the fix: messages shaped { content: [{ type:'text', text }] }
     // must produce a positive estimated token count.
     mockMessages = [
-      { content: [{ type: 'text', text: 'Hello world, this is a test message.' }] },
-      { content: [{ type: 'text', text: 'Another message here.' }] },
+      { content: [{ text: 'Hello world, this is a test message.', type: 'text' }] },
+      { content: [{ text: 'Another message here.', type: 'text' }] },
     ];
     render(<ThreadContextMeter {...meterProps} />);
     // The meter must show an estimate (flagged with "estimated") rather than zero.
@@ -252,7 +286,7 @@ describe('ThreadContextMeter', () => {
   });
 
   it('does not show estimated badge when exact usage is already recorded', () => {
-    mockMessages = [{ content: [{ type: 'text', text: 'Some text' }] }];
+    mockMessages = [{ content: [{ text: 'Some text', type: 'text' }] }];
     useContextUsageStore
       .getState()
       .recordUsage('test-thread', { inputTokens: 5000, outputTokens: 500 });
@@ -263,7 +297,7 @@ describe('ThreadContextMeter', () => {
 
   it('falls back to parts when content is absent (legacy message shape)', () => {
     // Ensure the content-first fallback doesn't break messages that only carry parts.
-    mockMessages = [{ parts: [{ type: 'text', text: 'Legacy parts-only text.' }] }];
+    mockMessages = [{ parts: [{ text: 'Legacy parts-only text.', type: 'text' }] }];
     render(<ThreadContextMeter {...meterProps} />);
     expect(screen.getByText(/estimated/i)).toBeInTheDocument();
   });

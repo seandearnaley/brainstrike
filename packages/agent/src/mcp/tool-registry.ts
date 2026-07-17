@@ -133,8 +133,8 @@ export class ToolRegistry {
         serverName,
         ...(description !== undefined && { description }),
         ...(inputSchema !== undefined && { inputSchema }),
-        enabled,
         discoveredAt,
+        enabled,
       };
 
       this.tools.set(toolId, metadata);
@@ -144,9 +144,9 @@ export class ToolRegistry {
     this.toolsByServer.set(serverName, toolIds);
     logger.info('tools registered', {
       code: 'tools_registered',
-      serverName,
       count: toolIds.size,
       enabled: Array.from(toolIds).filter((id) => this.tools.get(id)?.enabled).length,
+      serverName,
     });
 
     this.notifyListeners();
@@ -293,10 +293,10 @@ export class ToolRegistry {
   getStats(): { total: number; enabled: number; disabled: number; servers: number } {
     const tools = Array.from(this.tools.values());
     return {
-      total: tools.length,
-      enabled: tools.filter((t) => t.enabled).length,
       disabled: tools.filter((t) => !t.enabled).length,
+      enabled: tools.filter((t) => t.enabled).length,
       servers: this.toolsByServer.size,
+      total: tools.length,
     };
   }
 

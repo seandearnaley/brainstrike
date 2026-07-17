@@ -2,9 +2,7 @@ import { expect, test } from '@playwright/test';
 import { mockAssistantApi } from './utils/assistant-mocks';
 import { openAssistantWorkspace } from './utils/assistant-workspace';
 
-test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-state', {
-  tag: '@smoke',
-}, () => {
+test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-state', () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const response = await request.get('/api/assistant/status');
     const payload = (await response.json()) as { enabled?: boolean };
@@ -29,7 +27,7 @@ test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-s
       timeout: 10_000,
     });
 
-    const databaseTab = page.getByRole('tab', { name: 'Database' });
+    const databaseTab = page.getByRole('tab', { name: 'Collections' });
     await databaseTab.click();
     await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
 

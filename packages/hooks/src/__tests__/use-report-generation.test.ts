@@ -28,7 +28,6 @@ const createReportGenerator = vi.fn(
           ...(request.selectedLineRangesByFile
             ? { selectedLineRangesByFile: request.selectedLineRangesByFile }
             : {}),
-          useTapestryRanges: request.useTapestryRanges ?? false,
         }
       );
     }
@@ -47,14 +46,14 @@ describe('useReportGeneration', () => {
   // Helper to create a basic hook props object
   const createBaseProps = (overrides = {}) => ({
     createReportGenerator,
-    selectedFiles: mockSelectedFiles,
-    fileContents: mockFileContents,
-    rootDirectoryHandle: mockRootDirectoryHandle,
-    includeFilters: mockIncludeFilters,
     excludeFilters: mockExcludeFilters,
-    useRegex: mockUseRegex,
-    includeProjectTree: mockIncludeProjectTree,
+    fileContents: mockFileContents,
     folderSummaryThreshold: mockFolderSummaryThreshold,
+    includeFilters: mockIncludeFilters,
+    includeProjectTree: mockIncludeProjectTree,
+    rootDirectoryHandle: mockRootDirectoryHandle,
+    selectedFiles: mockSelectedFiles,
+    useRegex: mockUseRegex,
     ...overrides,
   });
 
@@ -90,7 +89,6 @@ describe('useReportGeneration', () => {
       mockFolderSummaryThreshold,
       {
         projectTreeUsesViewFilters: false,
-        useTapestryRanges: false,
       }
     );
 
@@ -184,8 +182,8 @@ describe('useReportGeneration', () => {
         useReportGeneration(
           createBaseProps({
             fileContents: emptyFileContents,
-            loadMissingContent: mockLoadMissingContent,
             getFileContents: mockGetFileContents,
+            loadMissingContent: mockLoadMissingContent,
           })
         )
       );
@@ -213,7 +211,6 @@ describe('useReportGeneration', () => {
         mockFolderSummaryThreshold,
         {
           projectTreeUsesViewFilters: false,
-          useTapestryRanges: false,
         }
       );
     });
@@ -236,8 +233,8 @@ describe('useReportGeneration', () => {
         useReportGeneration(
           createBaseProps({
             fileContents: partialFileContents,
-            loadMissingContent: mockLoadMissingContent,
             getFileContents: mockGetFileContents,
+            loadMissingContent: mockLoadMissingContent,
           })
         )
       );
@@ -264,8 +261,8 @@ describe('useReportGeneration', () => {
         useReportGeneration(
           createBaseProps({
             fileContents: completeFileContents,
-            loadMissingContent: mockLoadMissingContent,
             getFileContents: mockGetFileContents,
+            loadMissingContent: mockLoadMissingContent,
           })
         )
       );
@@ -291,7 +288,6 @@ describe('useReportGeneration', () => {
         expect.anything(),
         {
           projectTreeUsesViewFilters: false,
-          useTapestryRanges: false,
         }
       );
     });
@@ -332,7 +328,6 @@ describe('useReportGeneration', () => {
         expect.anything(),
         {
           projectTreeUsesViewFilters: false,
-          useTapestryRanges: false,
         }
       );
     });
@@ -367,7 +362,6 @@ describe('useReportGeneration', () => {
         mockFolderSummaryThreshold,
         {
           projectTreeUsesViewFilters: false,
-          useTapestryRanges: false,
         }
       );
     });

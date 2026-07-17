@@ -29,8 +29,8 @@ describe('workspace-tab-selection-store', () => {
 
   it('defaults to the Context Explorer app selection', () => {
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-      kind: 'app',
       appId: 'context-explorer',
+      kind: 'app',
     });
   });
 
@@ -50,8 +50,8 @@ describe('workspace-tab-selection-store', () => {
     );
     await rehydrate();
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-      kind: 'app',
       appId: 'context-explorer',
+      kind: 'app',
     });
   });
 
@@ -62,20 +62,20 @@ describe('workspace-tab-selection-store', () => {
     );
     await rehydrate();
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-      kind: 'app',
       appId: 'context-explorer',
+      kind: 'app',
     });
   });
 
   it('coerces a totally garbage payload back to the default', async () => {
     localStorage.setItem(
       STORE_KEY,
-      JSON.stringify({ state: { selection: { kind: 'wat', goblin: true } }, version: 1 })
+      JSON.stringify({ state: { selection: { goblin: true, kind: 'wat' } }, version: 1 })
     );
     await rehydrate();
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-      kind: 'app',
       appId: 'context-explorer',
+      kind: 'app',
     });
   });
 });

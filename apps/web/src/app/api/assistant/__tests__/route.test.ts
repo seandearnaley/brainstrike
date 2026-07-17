@@ -68,8 +68,8 @@ describe('assistant route', () => {
     } as unknown as AssistantDataStreamSession);
 
     const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
       headers: { 'last-event-id': 'evt-1' },
+      method: 'POST',
     });
 
     const res = await POST(req);
@@ -79,17 +79,17 @@ describe('assistant route', () => {
 
   it('returns 503 when provider is disabled', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: false,
       apiKey: '',
       disabledReason: 'missing_api_key',
+      enabled: false,
     });
 
     const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+        messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
       }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
 
     const res = await POST(req);
@@ -100,8 +100,8 @@ describe('assistant route', () => {
 
   it('returns 400 when request body is invalid JSON', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: true,
       apiKey: 'test-key',
+      enabled: true,
     });
     vi.mocked(toAiSdkStyleStream).mockResolvedValue((async function* stream() {})());
     vi.mocked(assistantDataStreamSessions.create).mockReturnValue({
@@ -109,9 +109,9 @@ describe('assistant route', () => {
     } as unknown as AssistantDataStreamSession);
 
     const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: '{"messages":[',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
 
     const res = await POST(req);
@@ -127,8 +127,8 @@ describe('assistant route', () => {
 
   it('returns 400 when request body has no non-empty prompt', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: true,
       apiKey: 'test-key',
+      enabled: true,
     });
     vi.mocked(toAiSdkStyleStream).mockResolvedValue((async function* stream() {})());
     vi.mocked(assistantDataStreamSessions.create).mockReturnValue({
@@ -136,11 +136,11 @@ describe('assistant route', () => {
     } as unknown as AssistantDataStreamSession);
 
     const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: '   ' }] }],
+        messages: [{ id: '1', parts: [{ text: '   ', type: 'text' }], role: 'user' }],
       }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
 
     const res = await POST(req);
@@ -152,8 +152,8 @@ describe('assistant route', () => {
 
   it('returns 413 when a chunked request body exceeds the default byte limit', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: true,
       apiKey: 'test-key',
+      enabled: true,
     });
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -182,17 +182,17 @@ describe('assistant route', () => {
 
   it('returns 502 when stream initialization fails', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: true,
       apiKey: 'test-key',
+      enabled: true,
     });
     vi.mocked(buildWebAssistantStream).mockRejectedValue(new Error('boom'));
 
     const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+        messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
       }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
 
     const res = await POST(req);
@@ -205,10 +205,8 @@ describe('assistant route', () => {
 
   it('rejects malformed tool approval actions on the web assistant route', async () => {
     const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [{ id: '1', role: 'user', parts: [] }],
+        messages: [{ id: '1', parts: [], role: 'user' }],
         runConfig: {
           custom: {
             [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
@@ -218,6 +216,8 @@ describe('assistant route', () => {
           },
         },
       }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
 
     const res = await POST(req);
@@ -230,8 +230,8 @@ describe('assistant route', () => {
 
   it('creates a new session when provider is enabled', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: true,
       apiKey: 'test-key',
+      enabled: true,
     });
 
     const stream: AsyncIterable<StreamChunk> = {
@@ -249,11 +249,11 @@ describe('assistant route', () => {
     );
 
     const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+        messages: [{ id: '1', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
       }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
 
     const res = await POST(req);
@@ -275,8 +275,8 @@ describe('assistant route', () => {
 
   it('resumes a tool approval action through workflow storage (no longer 501)', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: true,
       apiKey: 'test-key',
+      enabled: true,
     });
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
@@ -298,12 +298,12 @@ describe('assistant route', () => {
       toolName: 'workspace.writeFile',
     };
     const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: [{ id: '1', role: 'user', parts: [] }],
+        messages: [{ id: '1', parts: [], role: 'user' }],
         runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
       }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
 
     const res = await POST(req);
@@ -317,8 +317,8 @@ describe('assistant route', () => {
 
   it('declines a tool approval action through workflow storage', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: true,
       apiKey: 'test-key',
+      enabled: true,
     });
     vi.mocked(buildWebAssistantStream).mockResolvedValue(
       (async function* stream() {})() as AsyncIterable<StreamChunk>
@@ -337,11 +337,11 @@ describe('assistant route', () => {
       toolName: 'workspace.writeFile',
     };
     const req = new Request('http://localhost/api/assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
       }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
 
     const res = await POST(req);

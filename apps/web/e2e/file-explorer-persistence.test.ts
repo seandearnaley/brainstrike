@@ -116,8 +116,8 @@ async function setupOpfsDirectoryPicker(
       window.showDirectoryPicker = async () => rootHandle;
     },
     {
-      root: rootName,
       contents: tree,
+      root: rootName,
     }
   );
 }
@@ -166,10 +166,10 @@ async function seedRootHandleInCache(page: Page, rootId: string, rootName: strin
         const tx = db.transaction('root-handles', 'readwrite');
         tx.objectStore('root-handles').put({
           folderId: id,
-          name: root,
           handle: rootHandle,
-          storedAt: Date.now(),
           lastAccessedAt: Date.now(),
+          name: root,
+          storedAt: Date.now(),
         });
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
@@ -270,26 +270,26 @@ async function seedPersistedSelectionState(
         (_, index) => `${id}|@|src/file-${index}.ts`
       );
       const selectionModel = {
-        mode: 'explicit',
         explicitPaths: selectedFilePaths,
-        ruleSetJson: null,
-        materializedPaths: null,
         materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit',
         queryDescriptor: null,
+        ruleSetJson: null,
       };
       const folderState = {
+        excludeFilters: [],
+        expandedDirectoryPaths: ['src'],
+        folderSummaryThreshold: 5,
+        includeFilters: [],
+        includeProjectTree: true,
+        lastAccessed: Date.now(),
+        lastActiveTab: 'files',
+        maxSelectionCount: count,
         selectedFilePaths,
         selectionModel,
-        expandedDirectoryPaths: ['src'],
-        includeFilters: [],
-        excludeFilters: [],
-        useRegex: false,
-        includeProjectTree: true,
         tokenBudget: 100_000,
-        folderSummaryThreshold: 5,
-        maxSelectionCount: count,
-        lastActiveTab: 'files',
-        lastAccessed: Date.now(),
+        useRegex: false,
         viewFilterPresetId: null,
       };
 
@@ -298,25 +298,25 @@ async function seedPersistedSelectionState(
         JSON.stringify({
           state: {
             currentFolderId: id,
+            devInlineFixtureEnabled: false,
+            excludeFilters: [],
+            expandedDirectoryPaths: ['src'],
+            folderAccessOrder: [id],
             folderStates: {
               [id]: folderState,
             },
-            folderAccessOrder: [id],
-            selectedFilePaths,
-            expandedDirectoryPaths: ['src'],
-            includeFilters: [],
-            excludeFilters: [],
-            useRegex: false,
-            includeProjectTree: true,
-            tokenBudget: 100_000,
             folderSummaryThreshold: 5,
-            maxSelectionCount: count,
-            lastActiveTab: 'files',
-            quickFilter: '',
-            devInlineFixtureEnabled: false,
-            selectionModel,
-            viewFilterPresetId: null,
+            includeFilters: [],
+            includeProjectTree: true,
             isFiltersExpanded: true,
+            lastActiveTab: 'files',
+            maxSelectionCount: count,
+            quickFilter: '',
+            selectedFilePaths,
+            selectionModel,
+            tokenBudget: 100_000,
+            useRegex: false,
+            viewFilterPresetId: null,
           },
           version,
         })
@@ -460,13 +460,13 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
 
     await resetExplorerState(page, [], { waitForDatabase: false });
     await setupOpfsDirectoryPicker(page, ROOT_NAME, {
+      'root.ts': 'root content',
       src: {
+        'index.ts': 'index content',
         nested: {
           'deep.ts': 'deep content',
         },
-        'index.ts': 'index content',
       },
-      'root.ts': 'root content',
     });
 
     const explorer = new FileExplorerPage(page);
@@ -554,13 +554,13 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
 
     await resetExplorerState(page);
     await setupOpfsDirectoryPicker(page, ROOT_NAME, {
+      'root.ts': 'root content',
       src: {
+        'index.ts': 'index content',
         nested: {
           'deep.ts': 'deep content',
         },
-        'index.ts': 'index content',
       },
-      'root.ts': 'root content',
     });
 
     const explorer = new FileExplorerPage(page);
@@ -604,13 +604,13 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
 
     await resetExplorerState(page);
     await setupOpfsDirectoryPicker(page, ROOT_NAME, {
+      'root.ts': 'root content',
       src: {
+        'index.ts': 'index content',
         nested: {
           'deep.ts': 'deep content',
         },
-        'index.ts': 'index content',
       },
-      'root.ts': 'root content',
     });
 
     const explorer = new FileExplorerPage(page);

@@ -9,7 +9,7 @@ export class SettingsPage {
   }
 
   get heading(): Locator {
-    return this.page.getByRole('heading', { name: 'Settings', exact: true });
+    return this.page.getByRole('heading', { exact: true, name: 'Settings' });
   }
 
   categoryButton(name: string | RegExp): Locator {

@@ -5,9 +5,16 @@ import type { EmbeddingInput } from '../../../interfaces/provider';
 import { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } from '../../../runtime-config';
 import { TransformersEmbeddingProvider } from '../transformers-provider';
 
-// Skip these tests in CI - they require downloading large ML models which times out
-// These tests were previously skipped in CI (see successful run #426)
-const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+// This suite drives TransformersEmbeddingProvider entirely through a MOCKED
+// queue (registerEmbeddingQueueFactory below) — no model is ever downloaded and
+// no network is touched (verified: 28 tests pass in ~260ms offline). It is a
+// pure unit lane and must run identically in CI and locally: a former
+// `describe.skipIf(isCI)` guard made CI skip all 28 tests while local ran them,
+// so the two environments produced different selected-test sets. Now that the
+// `test` task is turbo-cacheable (CI is a pass-through, not cache-keyed, env), a
+// cache hit could replay a green recorded from the other environment's file set
+// — a cache-poisoning hazard. The guard is removed so both environments execute
+// the same fast, fully-mocked set.
 const slowTestTimeoutMs = 30_000;
 const slowTest = (name: string, fn: () => Promise<void> | void) => it(name, fn, slowTestTimeoutMs);
 
@@ -29,18 +36,18 @@ function buildVector(seed: number, length: number): number[] {
 function createQueueResult(id: string, vectors: Float32Array[]): QueueResult {
   const dimensions = vectors[0]?.length ?? DEFAULT_EMBEDDING_DIMENSION;
   return {
-    type: 'result',
     id,
-    vectors,
     metadata: {
-      model: 'jinaai/jina-embeddings-v2-base-code',
-      device: 'wasm',
-      dtype: 'fp32',
       batchSize: vectors.length,
+      device: 'wasm',
+      dimensions,
+      dtype: 'fp32',
       elapsedMs: 1,
       fallbackApplied: false,
-      dimensions,
+      model: 'jinaai/jina-embeddings-v2-base-code',
     },
+    type: 'result',
+    vectors,
   };
 }
 
@@ -60,9 +67,6 @@ function createQueueStub() {
   const queue: QueueAdapter = {
     add,
     addBulk: vi.fn(async () => []),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
     cancel: vi.fn(async () => {}),
     drain: vi.fn(async () => {}),
     get isPaused() {
@@ -71,12 +75,15 @@ function createQueueStub() {
     get isProcessing() {
       return false;
     },
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
   };
 
-  return { queue, add };
+  return { add, queue };
 }
 
-describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
+describe('TransformersEmbeddingProvider', () => {
   let provider: TransformersEmbeddingProvider;
 
   beforeEach(() => {
@@ -138,8 +145,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   describe('embedding generation', () => {
     slowTest('auto-initializes if not ready', async () => {
       const input: EmbeddingInput = {
-        text: 'hello world',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'hello world',
       };
 
       const result = await provider.embed(input);
@@ -159,8 +166,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
-        text: 'test embedding generation',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'test embedding generation',
       };
 
       const result = await provider.embed(input);
@@ -174,12 +181,35 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       }
     });
 
+    slowTest('passes the input abort signal to local document embedding work', async () => {
+      await provider.initialize();
+      const controller = new AbortController();
+      const service = provider.getService();
+      const generateDocEmbedding = vi.spyOn(service, 'generateDocEmbedding').mockResolvedValue({
+        dimensions: DEFAULT_EMBEDDING_DIMENSION,
+        embedding: new Array(DEFAULT_EMBEDDING_DIMENSION).fill(0.1),
+        model: 'jinaai/jina-embeddings-v2-base-code',
+      });
+
+      const input: EmbeddingInput = {
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
+        signal: controller.signal,
+        text: 'cancelable document',
+      };
+      const result = await provider.embed(input);
+
+      expect(result.ok).toBe(true);
+      expect(generateDocEmbedding).toHaveBeenCalledWith('cancelable document', {
+        signal: controller.signal,
+      });
+    });
+
     slowTest('returns consistent embeddings for same input', async () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
-        text: 'consistent test',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'consistent test',
       };
 
       const result1 = await provider.embed(input);
@@ -198,13 +228,13 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       await provider.initialize();
 
       const input1: EmbeddingInput = {
-        text: 'first text',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'first text',
       };
 
       const input2: EmbeddingInput = {
-        text: 'second text',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'second text',
       };
 
       const result1 = await provider.embed(input1);
@@ -223,8 +253,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
-        text: '',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: '',
       };
 
       const result = await provider.embed(input);
@@ -267,8 +297,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
-        text: 'validation test',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'validation test',
       };
 
       const result = await provider.embed(input);
@@ -369,8 +399,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       const invalidProvider = new TransformersEmbeddingProvider('invalid-model-key');
 
       const input: EmbeddingInput = {
-        text: 'test',
         modelId: 'invalid-model-key',
+        text: 'test',
       };
 
       const result = await invalidProvider.embed(input);
@@ -397,8 +427,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       service.generateDocEmbedding = vi.fn().mockRejectedValue(new Error('Service error'));
 
       const input: EmbeddingInput = {
-        text: 'test',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'test',
       };
 
       const result = await provider.embed(input);

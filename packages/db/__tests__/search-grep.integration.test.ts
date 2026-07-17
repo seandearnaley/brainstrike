@@ -44,44 +44,44 @@ describe('grep search (integration)', () => {
     );
 
     const baseChunk = {
-      tokenCount: 10,
-      chunkType: 'code' as const,
       chunkSize: 50,
+      chunkType: 'code' as const,
       createdAt: now,
+      tokenCount: 10,
       updatedAt: now,
     };
     const chunks: FileChunkInsert[] = [
       {
         ...baseChunk,
-        id: 'gc-1',
-        contentHash: 'h1',
-        fileRecordId: 'fr-alpha',
         chunkIndex: 0,
         content: 'function createGate() {\n  return new ForegroundGate();\n}',
-        startLine: 1,
+        contentHash: 'h1',
         endLine: 3,
+        fileRecordId: 'fr-alpha',
+        id: 'gc-1',
+        startLine: 1,
       },
       // Overlapping chunk: repeats line 2 ('return new ForegroundGate();')
       // with startLine 2, so dedupe on (path, line) is genuinely exercised.
       {
         ...baseChunk,
-        id: 'gc-2',
-        contentHash: 'h2',
-        fileRecordId: 'fr-alpha',
         chunkIndex: 1,
         content: '  return new ForegroundGate();\n}\n\nexport const gate = createGate();',
-        startLine: 2,
+        contentHash: 'h2',
         endLine: 5,
+        fileRecordId: 'fr-alpha',
+        id: 'gc-2',
+        startLine: 2,
       },
       {
         ...baseChunk,
-        id: 'gc-3',
-        contentHash: 'h3',
-        fileRecordId: 'fr-beta',
         chunkIndex: 0,
         content: 'const version = "1.2.3"; // 100%_done marker',
-        startLine: 1,
+        contentHash: 'h3',
         endLine: 1,
+        fileRecordId: 'fr-beta',
+        id: 'gc-3',
+        startLine: 1,
       },
     ];
     repo = new FileChunkRepository(db);
@@ -122,7 +122,7 @@ describe('grep search (integration)', () => {
   });
 
   it('supports regex mode end-to-end with literal prefilter', async () => {
-    const result = await service.search({ pattern: 'create\\w+\\(\\)', isRegex: true });
+    const result = await service.search({ isRegex: true, pattern: 'create\\w+\\(\\)' });
     const keys = result.matches.map((m) => `${m.path}:${m.line}`);
     expect(keys).toEqual(['src/alpha.ts:1', 'src/alpha.ts:5']);
     expect(result.scanLimited).toBe(false);
@@ -130,8 +130,8 @@ describe('grep search (integration)', () => {
 
   it('respects the filePaths filter', async () => {
     const result = await service.search({
-      pattern: 'createGate',
       filePaths: ['src/beta.ts'],
+      pattern: 'createGate',
     });
     expect(result.matches).toHaveLength(0);
   });
@@ -182,33 +182,33 @@ describe('grep search multi-root (integration)', () => {
     );
 
     const baseChunk = {
-      tokenCount: 10,
-      chunkType: 'code' as const,
       chunkSize: 50,
+      chunkType: 'code' as const,
       createdAt: now,
+      tokenCount: 10,
       updatedAt: now,
     };
     const repo = new FileChunkRepository(db);
     await repo.insertMany([
       {
         ...baseChunk,
-        id: 'mc-a',
-        contentHash: 'mha',
-        fileRecordId: 'fr-a-readme',
         chunkIndex: 0,
         content: 'shared marker token',
-        startLine: 1,
+        contentHash: 'mha',
         endLine: 1,
+        fileRecordId: 'fr-a-readme',
+        id: 'mc-a',
+        startLine: 1,
       },
       {
         ...baseChunk,
-        id: 'mc-b',
-        contentHash: 'mhb',
-        fileRecordId: 'fr-b-readme',
         chunkIndex: 0,
         content: 'shared marker token',
-        startLine: 1,
+        contentHash: 'mhb',
         endLine: 1,
+        fileRecordId: 'fr-b-readme',
+        id: 'mc-b',
+        startLine: 1,
       },
     ]);
     service = new GrepSearchService(repo);

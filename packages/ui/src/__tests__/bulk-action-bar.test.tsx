@@ -23,16 +23,16 @@ describe('BulkActionBar', () => {
 
   const mockActions: BulkAction[] = [
     {
+      applicableTypes: ['file', 'chunk'],
       id: 'embed',
       label: 'Embed',
       onAction: vi.fn(),
-      applicableTypes: ['file', 'chunk'],
     },
     {
+      destructive: true,
       id: 'delete',
       label: 'Delete',
       onAction: vi.fn(),
-      destructive: true,
     },
   ];
 
@@ -60,7 +60,10 @@ describe('BulkActionBar', () => {
     );
 
     expect(screen.getByText('3 selected')).toBeInTheDocument();
-    expect(screen.getByText('(2 files, 1 chunk)')).toBeInTheDocument();
+    const detail = screen.getByText('(2 files, 1 chunk)');
+    expect(detail).toBeInTheDocument();
+    expect(detail.className).toContain('truncate');
+    expect(detail.className).not.toContain('hidden');
   });
 
   it('renders custom summary text and subtext when provided', () => {
@@ -164,16 +167,16 @@ describe('BulkActionBar', () => {
   it('filters actions based on applicable types', () => {
     const actionsWithTypeFilter: BulkAction[] = [
       {
+        applicableTypes: ['file'],
         id: 'embed',
         label: 'Embed',
         onAction: vi.fn(),
-        applicableTypes: ['file'],
       },
       {
+        applicableTypes: ['chunk'],
         id: 'chunk-only',
         label: 'Chunk Only',
         onAction: vi.fn(),
-        applicableTypes: ['chunk'],
       },
     ];
 
@@ -260,9 +263,9 @@ describe('BulkActionBar', () => {
   it('uses compactLabel when compact mode is enabled', () => {
     const actionsWithCompactLabel: BulkAction[] = [
       {
+        compactLabel: 'Remove',
         id: 'remove',
         label: 'Remove Selected from Project',
-        compactLabel: 'Remove',
         onAction: vi.fn(),
       },
     ];
@@ -310,11 +313,11 @@ describe('BulkActionBar', () => {
   it('renders disabled actions correctly', () => {
     const actionsWithDisabled: BulkAction[] = [
       {
+        disabled: true,
+        disabledReason: 'No model configured',
         id: 'embed',
         label: 'Embed',
         onAction: vi.fn(),
-        disabled: true,
-        disabledReason: 'No model configured',
       },
     ];
 

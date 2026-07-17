@@ -102,15 +102,15 @@ async function waitForRetry(delayMs: number): Promise<void> {
  */
 function rowToEntry(row: TokenCacheRow): TokenCacheEntry {
   return {
-    folderId: row.folder_id,
-    filePath: row.file_path,
     contentHash: row.content_hash,
+    countingMode: row.counting_mode as TokenCountingMode,
+    createdAt: row.created_at,
+    filePath: row.file_path,
     fileSize: Number(row.file_size),
+    folderId: row.folder_id,
+    modelEncoding: row.model_encoding,
     mtimeMs: row.mtime_ms ? Number(row.mtime_ms) : null,
     tokenCount: row.token_count,
-    countingMode: row.counting_mode as TokenCountingMode,
-    modelEncoding: row.model_encoding,
-    createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
@@ -415,10 +415,10 @@ export class TokenCacheStore {
 
     const row = result.rows[0];
     return {
-      entryCount: Number(row?.entry_count ?? 0),
-      totalTokens: Number(row?.total_tokens ?? 0),
       accurateCount: Number(row?.accurate_count ?? 0),
+      entryCount: Number(row?.entry_count ?? 0),
       heuristicCount: Number(row?.heuristic_count ?? 0),
+      totalTokens: Number(row?.total_tokens ?? 0),
     };
   }
 

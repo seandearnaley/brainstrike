@@ -25,8 +25,8 @@ describe('vitest.setup TextEncoder handling', () => {
   it('assigns a mock TextEncoder when missing', async () => {
     // Temporarily remove TextEncoder to simulate it being missing
     Object.defineProperty(global, 'TextEncoder', {
-      value: undefined,
       configurable: true,
+      value: undefined,
       writable: true,
     });
 

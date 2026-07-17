@@ -32,13 +32,13 @@ export interface RootSectionHeaderProps {
  * SIBLINGS (nesting interactive elements inside a button is invalid HTML and
  * breaks assistive tech).
  */
-export const RootSectionHeader: React.FC<RootSectionHeaderProps> = ({
+export const RootSectionHeader = ({
   displayName,
   isCollapsed,
   onDisconnect,
   onToggleCollapse,
   selectionControl,
-}) => {
+}: RootSectionHeaderProps) => {
   const ChevronIcon = isCollapsed ? ChevronRight : ChevronDown;
   const chevronLabel = isCollapsed ? 'Expand section' : 'Collapse section';
 

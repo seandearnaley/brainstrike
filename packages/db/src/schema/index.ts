@@ -39,13 +39,13 @@ const tsvector = customType<{
   dataType() {
     return 'tsvector';
   },
+  fromDriver(value: string): string {
+    // Return raw tsvector string representation
+    return value;
+  },
   toDriver(value: string): string {
     // content_tsvector is a STORED generated column — never written from the app
     // (and `.generatedAlwaysAs` excludes it from insert types).
-    return value;
-  },
-  fromDriver(value: string): string {
-    // Return raw tsvector string representation
     return value;
   },
 });
@@ -67,6 +67,18 @@ const vector = customType<{
     }
     return 'vector';
   },
+  fromDriver(value: string): number[] {
+    // Handle pgvector format: "[0.1,0.2,0.3]"
+    const cleaned = value.replace(/[[\]()]/g, '');
+    const parsed = cleaned.split(',').map(Number);
+    // Validate parsed values - reject if any are NaN
+    for (let i = 0; i < parsed.length; i++) {
+      if (!Number.isFinite(parsed[i])) {
+        throw new Error(`Invalid vector value from database at index ${i}: ${parsed[i]}`);
+      }
+    }
+    return parsed;
+  },
   toDriver(value: number[]): string {
     if (!Array.isArray(value) || value.length === 0) {
       throw new Error('Vector must be a non-empty array of numbers');
@@ -81,18 +93,6 @@ const vector = customType<{
     }
     return `[${value.join(',')}]`;
   },
-  fromDriver(value: string): number[] {
-    // Handle pgvector format: "[0.1,0.2,0.3]"
-    const cleaned = value.replace(/[[\]()]/g, '');
-    const parsed = cleaned.split(',').map(Number);
-    // Validate parsed values - reject if any are NaN
-    for (let i = 0; i < parsed.length; i++) {
-      if (!Number.isFinite(parsed[i])) {
-        throw new Error(`Invalid vector value from database at index ${i}: ${parsed[i]}`);
-      }
-    }
-    return parsed;
-  },
 });
 
 const textTimestamp = customType<{
@@ -102,15 +102,15 @@ const textTimestamp = customType<{
   dataType() {
     return 'text';
   },
-  toDriver(value: Date): string {
-    return value.toISOString();
-  },
   fromDriver(value: string): Date {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
       throw new Error(`textTimestamp: invalid stored value "${value}"`);
     }
     return date;
+  },
+  toDriver(value: Date): string {
+    return value.toISOString();
   },
 });
 
@@ -121,16 +121,16 @@ export const textTimestampNow = sql`to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
 // ============================================================================
 
 export const roots = pgTable('roots', {
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  displayName: text('display_name').notNull(),
   id: text('id').primaryKey().default(sql`(uuidv7()::text)`),
   kind: text('kind').$type<'path' | 'fsa' | 'snapshot' | 'legacy'>().notNull(),
-  displayName: text('display_name').notNull(),
+  lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
   path: text('path'),
   status: text('status')
     .$type<'live' | 'needs-regrant' | 'disconnected' | 'snapshot-stale'>()
     .default('live')
     .notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
 });
 
 // ============================================================================
@@ -140,25 +140,25 @@ export const roots = pgTable('roots', {
 export const fileRecords = pgTable(
   'file_records',
   {
+    chunkingStrategy: text('chunking_strategy').$type<ResolvedChunkingStrategy>(),
+    chunksCount: integer('chunks_count'),
+    chunksProcessedAt: textTimestamp('chunks_processed_at'),
+    content: text('content'),
+    contentHash: text('content_hash'),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+    embeddingSetId: text('embedding_set_id'),
     id: text('id').primaryKey(),
-    name: text('name').notNull(),
-    path: text('path').notNull(),
-    rootId: text('root_id').references(() => roots.id, { onDelete: 'cascade' }),
-    size: integer('size').notNull(),
     // Nullable epoch-ms stat used by the background-sync stat-cache fast-path
     // (migration 037). BIGINT mirrors file_token_cache.mtime_ms. Null for rows
     // written before the column existed; self-heals on next write.
     mtimeMs: bigint('mtime_ms', { mode: 'number' }),
-    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
-    updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
-    content: text('content'),
-    contentHash: text('content_hash'),
-    tokenCount: integer('token_count'),
+    name: text('name').notNull(),
+    path: text('path').notNull(),
     processedAt: textTimestamp('processed_at'),
-    embeddingSetId: text('embedding_set_id'),
-    chunksProcessedAt: textTimestamp('chunks_processed_at'),
-    chunksCount: integer('chunks_count'),
-    chunkingStrategy: text('chunking_strategy').$type<ResolvedChunkingStrategy>(),
+    rootId: text('root_id').references(() => roots.id, { onDelete: 'cascade' }),
+    size: integer('size').notNull(),
+    tokenCount: integer('token_count'),
+    updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
   },
   (table) => [
     index('idx_file_records_path').on(table.path),
@@ -175,25 +175,11 @@ export const fileRecords = pgTable(
 export const fileChunks = pgTable(
   'file_chunks',
   {
-    id: text('id').primaryKey(),
-    fileRecordId: text('file_record_id')
-      .notNull()
-      .references(() => fileRecords.id, { onDelete: 'cascade' }),
     chunkIndex: integer('chunk_index').notNull(),
+    chunkSize: integer('chunk_size'),
+    chunkType: text('chunk_type').$type<'text' | 'code' | 'sentence' | 'recursive'>(),
     content: text('content').notNull(),
     contentHash: text('content_hash'),
-    tokenCount: integer('token_count'),
-    chunkType: text('chunk_type').$type<'text' | 'code' | 'sentence' | 'recursive'>(),
-    chunkSize: integer('chunk_size'),
-    startLine: integer('start_line'),
-    endLine: integer('end_line'),
-    startOffset: integer('start_offset'),
-    endOffset: integer('end_offset'),
-    // Flexible vector column (dimensions determined at runtime)
-    embedding: vector('embedding'),
-    embeddingSetId: text('embedding_set_id'),
-    embeddingUpdatedAt: textTimestamp('embedding_updated_at'),
-    embeddingHash: text('embedding_hash'),
     // Full-text search tsvector — a STORED generated column (migration 034) computed
     // by Postgres from `content`. Declared generated so the Drizzle type matches the
     // DB: a `.values({ contentTsvector })` write is now a compile error instead of a
@@ -213,6 +199,20 @@ export const fileChunks = pgTable(
       sql`to_tsvector('english', coalesce(content, ''))`
     ),
     createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+    // Flexible vector column (dimensions determined at runtime)
+    embedding: vector('embedding'),
+    embeddingHash: text('embedding_hash'),
+    embeddingSetId: text('embedding_set_id'),
+    embeddingUpdatedAt: textTimestamp('embedding_updated_at'),
+    endLine: integer('end_line'),
+    endOffset: integer('end_offset'),
+    fileRecordId: text('file_record_id')
+      .notNull()
+      .references(() => fileRecords.id, { onDelete: 'cascade' }),
+    id: text('id').primaryKey(),
+    startLine: integer('start_line'),
+    startOffset: integer('start_offset'),
+    tokenCount: integer('token_count'),
     updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
   },
   (table) => [
@@ -231,10 +231,10 @@ export const fileChunks = pgTable(
 export const selectionSnapshots = pgTable(
   'selection_snapshots',
   {
-    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
-    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
+    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
+    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
   },
   (table) => [index('idx_selection_snapshots_created_at').on(table.createdAt)]
 );
@@ -242,10 +242,10 @@ export const selectionSnapshots = pgTable(
 export const selectionSnapshotFiles = pgTable(
   'selection_snapshot_files',
   {
+    filePath: text('file_path').notNull(),
     snapshotId: uuid('snapshot_id')
       .notNull()
       .references(() => selectionSnapshots.id, { onDelete: 'cascade' }),
-    filePath: text('file_path').notNull(),
   },
   (table) => [
     index('idx_selection_snapshot_files_snapshot_id').on(table.snapshotId),
@@ -259,30 +259,102 @@ export const selectionSnapshotFiles = pgTable(
 // ============================================================================
 
 export const embeddingSets = pgTable('embedding_sets', {
-  id: text('id').primaryKey(),
-  modelKey: text('model_key').notNull(),
-  modelId: text('model_id').notNull(),
+  allowDuplicates: boolean('allow_duplicates').default(false),
+  category: text('category'),
+  createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+  description: text('description'),
   dimensions: integer('dimensions').notNull(),
   distance: text('distance').$type<'cosine' | 'l2' | 'ip'>().default('cosine'),
-  createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+  id: text('id').primaryKey(),
+  modelId: text('model_id').notNull(),
+  modelKey: text('model_key').notNull(),
   name: text('name'),
-  description: text('description'),
-  tags: text('tags'),
-  category: text('category'),
   systemRole: text('system_role').$type<'workspace-index'>(),
-  allowDuplicates: boolean('allow_duplicates').default(false),
+  tags: text('tags'),
 });
+
+// ============================================================================
+// PROMPT WORKBENCH TABLES
+// ============================================================================
+
+export const promptEmbeddingProfiles = pgTable('prompt_embedding_profiles', {
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  dimensions: integer('dimensions').notNull(),
+  distance: text('distance').$type<'cosine' | 'l2' | 'ip'>().default('cosine').notNull(),
+  id: text('id').primaryKey(),
+  modelId: text('model_id').notNull(),
+  modelKey: text('model_key').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const promptItems = pgTable(
+  'prompt_items',
+  {
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    description: text('description'),
+    embedding: vector('embedding'),
+    embeddingError: text('embedding_error'),
+    embeddingProfileId: text('embedding_profile_id').references(() => promptEmbeddingProfiles.id, {
+      onDelete: 'set null',
+    }),
+    embeddingRevision: integer('embedding_revision'),
+    embeddingUpdatedAt: timestamp('embedding_updated_at', { withTimezone: true }),
+    id: text('id').primaryKey(),
+    isFavorite: boolean('is_favorite').default(false).notNull(),
+    kind: text('kind').$type<'prompt' | 'snippet' | 'fragment'>().notNull(),
+    lastUsedAction: text('last_used_action').$type<'compose' | 'insert' | 'new-thread'>(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    modelKey: text('model_key'),
+    modelSettings: jsonb('model_settings').$type<Record<string, unknown>>(),
+    rating: integer('rating'),
+    revision: integer('revision').default(1).notNull(),
+    sourceUrl: text('source_url'),
+    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
+    title: text('title').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    useCount: integer('use_count').default(0).notNull(),
+  },
+  (table) => [
+    index('idx_prompt_items_kind_updated_at').on(table.kind, table.updatedAt),
+    index('idx_prompt_items_embedding_profile_id').on(table.embeddingProfileId),
+  ]
+);
+
+export const promptItemRevisions = pgTable(
+  'prompt_item_revisions',
+  {
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    description: text('description'),
+    id: text('id').primaryKey(),
+    modelKey: text('model_key'),
+    modelSettings: jsonb('model_settings').$type<Record<string, unknown>>(),
+    note: text('note'),
+    promptItemId: text('prompt_item_id')
+      .notNull()
+      .references(() => promptItems.id, { onDelete: 'cascade' }),
+    revision: integer('revision').notNull(),
+    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
+    title: text('title').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_prompt_item_revisions_unique').on(table.promptItemId, table.revision),
+    index('idx_prompt_item_revisions_item_revision').on(table.promptItemId, table.revision),
+  ]
+);
 
 export const collectionIndexingStats = pgTable(
   'collection_indexing_stats',
   {
+    chunkCount: integer('chunk_count').default(0).notNull(),
+    dirty: boolean('dirty').default(false).notNull(),
+    embeddedChunkCount: integer('embedded_chunk_count').default(0).notNull(),
     embeddingSetId: text('embedding_set_id').primaryKey(),
     fileCount: integer('file_count').default(0).notNull(),
-    chunkCount: integer('chunk_count').default(0).notNull(),
-    embeddedChunkCount: integer('embedded_chunk_count').default(0).notNull(),
-    pendingChunkCount: integer('pending_chunk_count').default(0).notNull(),
-    dirty: boolean('dirty').default(false).notNull(),
     lastRefreshedAt: timestamp('last_refreshed_at', { withTimezone: true }).defaultNow().notNull(),
+    pendingChunkCount: integer('pending_chunk_count').default(0).notNull(),
   },
   (table) => [index('idx_collection_indexing_stats_dirty').on(table.dirty, table.lastRefreshedAt)]
 );
@@ -294,27 +366,27 @@ export const collectionIndexingStats = pgTable(
 export const jobQueue = pgTable(
   'job_queue',
   {
-    id: text('id').primaryKey(),
-    queue: text('queue').notNull(),
-    jobType: text('job_type').notNull(),
-    payload: jsonb('payload').$type<unknown>(),
+    attempts: integer('attempts').default(0).notNull(),
+    backoffMs: integer('backoff_ms').default(0).notNull(),
     chunkId: text('chunk_id'),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+    dedupeKey: text('dedupe_key'),
     embeddingSetId: text('embedding_set_id'),
+    error: text('error'),
+    id: text('id').primaryKey(),
+    jobType: text('job_type').notNull(),
+    leasedUntil: textTimestamp('leased_until'),
+    leaseToken: text('lease_token'),
+    maxAttempts: integer('max_attempts').default(5).notNull(),
+    payload: jsonb('payload').$type<unknown>(),
+    queue: text('queue').notNull(),
+    runAt: textTimestamp('run_at').default(textTimestampNow).notNull(),
     state: text('state')
       .$type<'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired'>()
       .default('queued')
       .notNull(),
-    runAt: textTimestamp('run_at').default(textTimestampNow).notNull(),
-    attempts: integer('attempts').default(0).notNull(),
-    maxAttempts: integer('max_attempts').default(5).notNull(),
-    backoffMs: integer('backoff_ms').default(0).notNull(),
-    leaseToken: text('lease_token'),
-    leasedUntil: textTimestamp('leased_until'),
-    workerId: text('worker_id'),
-    dedupeKey: text('dedupe_key'),
-    error: text('error'),
-    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
     updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
+    workerId: text('worker_id'),
   },
   (table) => [
     index('idx_job_queue_state_run_at').on(table.state, table.runAt),
@@ -338,12 +410,12 @@ export const jobQueue = pgTable(
 export const tokenCache = pgTable(
   'token_cache',
   {
+    contentHash: text('content_hash').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    filePath: text('file_path').notNull(),
     // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
     id: uuid('id').default(sql`uuidv7()`).primaryKey(),
-    filePath: text('file_path').notNull(),
-    contentHash: text('content_hash').notNull(),
     tokenCount: integer('token_count').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index('idx_token_cache_file_path').on(table.filePath),
@@ -358,16 +430,16 @@ export const tokenCache = pgTable(
 export const fileTokenCache = pgTable(
   'file_token_cache',
   {
-    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-    folderId: text('folder_id').notNull(),
-    filePath: text('file_path').notNull(),
     contentHash: text('content_hash').notNull(),
+    countingMode: text('counting_mode').$type<'accurate' | 'heuristic'>().notNull(),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+    filePath: text('file_path').notNull(),
     fileSize: bigint('file_size', { mode: 'number' }).notNull(),
+    folderId: text('folder_id').notNull(),
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    modelEncoding: text('model_encoding'),
     mtimeMs: bigint('mtime_ms', { mode: 'number' }),
     tokenCount: integer('token_count').notNull(),
-    countingMode: text('counting_mode').$type<'accurate' | 'heuristic'>().notNull(),
-    modelEncoding: text('model_encoding'),
-    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
     updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
   },
   (table) => [
@@ -382,12 +454,12 @@ export const fileTokenCache = pgTable(
 export const fileTags = pgTable(
   'file_tags',
   {
-    id: text('id').primaryKey(),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
     fileId: text('file_id')
       .notNull()
       .references(() => fileRecords.id, { onDelete: 'cascade' }),
+    id: text('id').primaryKey(),
     tag: text('tag').notNull(),
-    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
   },
   (table) => [
     uniqueIndex('idx_file_tags_unique').on(table.fileId, table.tag),
@@ -398,16 +470,16 @@ export const fileTags = pgTable(
 export const fileRelationships = pgTable(
   'file_relationships',
   {
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
     id: text('id').primaryKey(),
+    metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
+    relationshipType: text('relationship_type').notNull(),
     sourceId: text('source_id')
       .notNull()
       .references(() => fileRecords.id, { onDelete: 'cascade' }),
     targetId: text('target_id')
       .notNull()
       .references(() => fileRecords.id, { onDelete: 'cascade' }),
-    relationshipType: text('relationship_type').notNull(),
-    metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
-    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
   },
   (table) => [
     uniqueIndex('idx_file_relationships_unique').on(
@@ -437,22 +509,22 @@ export const fileRelationships = pgTable(
 export const embeddingCache = pgTable(
   'embedding_cache',
   {
-    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
-    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
-    /** SHA-256 hash of the content */
-    contentHash: text('content_hash').notNull(),
-    /** Composite model key (e.g., "local::all-MiniLM-L6-v2" or "openai::text-embedding-3-small") */
-    modelKey: text('model_key').notNull(),
-    /** The cached embedding vector */
-    embedding: vector('embedding').notNull(),
-    /** Embedding dimension (for validation) */
-    dimensions: integer('dimensions').notNull(),
-    /** When this cache entry was created */
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    /** When this cache entry was last accessed (for LRU eviction) */
-    accessedAt: timestamp('accessed_at', { withTimezone: true }).defaultNow().notNull(),
     /** Access count for cache analytics */
     accessCount: integer('access_count').default(1).notNull(),
+    /** When this cache entry was last accessed (for LRU eviction) */
+    accessedAt: timestamp('accessed_at', { withTimezone: true }).defaultNow().notNull(),
+    /** SHA-256 hash of the content */
+    contentHash: text('content_hash').notNull(),
+    /** When this cache entry was created */
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    /** Embedding dimension (for validation) */
+    dimensions: integer('dimensions').notNull(),
+    /** The cached embedding vector */
+    embedding: vector('embedding').notNull(),
+    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
+    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
+    /** Composite model key (e.g., "local::all-MiniLM-L6-v2" or "openai::text-embedding-3-small") */
+    modelKey: text('model_key').notNull(),
   },
   (table) => [
     // Unique constraint on (contentHash, modelKey) - the cache key
@@ -471,12 +543,12 @@ export const embeddingCache = pgTable(
 export const providers = pgTable(
   'providers',
   {
-    id: text('id').primaryKey(),
-    name: text('name').notNull(),
-    icon: text('icon'),
-    isEnabled: boolean('is_enabled').default(false).notNull(),
-    sortOrder: integer('sort_order').default(0).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    icon: text('icon'),
+    id: text('id').primaryKey(),
+    isEnabled: boolean('is_enabled').default(false).notNull(),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').default(0).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('idx_providers_sort_order').on(table.sortOrder)]
@@ -485,20 +557,20 @@ export const providers = pgTable(
 export const models = pgTable(
   'models',
   {
+    bestFor: jsonb('best_for').$type<readonly string[] | null>(),
+    capabilities: jsonb('capabilities').$type<Record<string, unknown> | null>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    description: text('description'),
+    icon: text('icon'),
     id: text('id').primaryKey(),
+    isEnabled: boolean('is_enabled').default(false).notNull(),
+    name: text('name').notNull(),
+    parameters: jsonb('parameters').$type<Record<string, unknown> | null>(),
     providerId: text('provider_id')
       .notNull()
       .references(() => providers.id, { onDelete: 'cascade' }),
-    name: text('name').notNull(),
-    description: text('description'),
-    tagline: text('tagline'),
-    bestFor: jsonb('best_for').$type<readonly string[] | null>(),
-    icon: text('icon'),
-    isEnabled: boolean('is_enabled').default(false).notNull(),
-    capabilities: jsonb('capabilities').$type<Record<string, unknown> | null>(),
-    parameters: jsonb('parameters').$type<Record<string, unknown> | null>(),
     sortOrder: integer('sort_order').default(0).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    tagline: text('tagline'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -520,24 +592,24 @@ export const models = pgTable(
 export const viewFilterPresets = pgTable(
   'view_filter_presets',
   {
-    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
-    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
-    name: text('name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     description: text('description'),
-    /** Lucide icon name (e.g., 'file-code', 'settings', 'folder-open') */
-    icon: text('icon').notNull().default('file'),
-    /** Include patterns (glob or regex based on useRegex) */
-    includes: text('includes').array().notNull().default([]),
     /** Exclude patterns (glob or regex based on useRegex) */
     excludes: text('excludes').array().notNull().default([]),
-    /** Whether patterns are regex (true) or glob (false) */
-    useRegex: boolean('use_regex').notNull().default(false),
+    /** Lucide icon name (e.g., 'file-code', 'settings', 'folder-open') */
+    icon: text('icon').notNull().default('file'),
+    // uuidv7() (Postgres 18): time-sortable ids; see migration 035.
+    id: uuid('id').default(sql`uuidv7()`).primaryKey(),
+    /** Include patterns (glob or regex based on useRegex) */
+    includes: text('includes').array().notNull().default([]),
     /** Whether this is a built-in default preset */
     isDefault: boolean('is_default').notNull().default(false),
+    name: text('name').notNull(),
     /** Sort order for display */
     sortOrder: integer('sort_order').notNull().default(0),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    /** Whether patterns are regex (true) or glob (false) */
+    useRegex: boolean('use_regex').notNull().default(false),
   },
   (table) => [
     index('idx_view_filter_presets_sort_order').on(table.sortOrder),

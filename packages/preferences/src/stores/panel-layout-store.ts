@@ -4,7 +4,8 @@
  * Canonical source of truth for the app-wide agent shell layout and root tab state.
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
- * - activeTab: 'explorer' | 'settings' | 'prompts' | 'git' | 'terminal'
+ * - activeTab: 'explorer' | 'settings' | 'git' | 'terminal'
+ * - settingsOpen: session-only visibility for the modal settings surface
  *
  * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
@@ -16,16 +17,19 @@ import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type PanelTab = 'explorer' | 'settings' | 'prompts' | 'git' | 'terminal';
+export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes';
 
 export interface PanelLayoutStoreState {
   // Root tabs
   activeTab: PanelTab;
+  openSettings: () => void;
   setActiveTab: (tab: PanelTab) => void;
+  setSettingsOpen: (open: boolean) => void;
 
   // Actions
   setSizes: (sizes: number[]) => void;
   setState: (next: Partial<PanelLayoutStoreState>) => void;
+  settingsOpen: boolean;
   showConsole: boolean;
   showLeftPanel: boolean;
   showRightPanel: boolean;
@@ -46,13 +50,21 @@ export interface PanelLayoutStoreState {
  */
 const DEFAULT_STATE: Omit<
   PanelLayoutStoreState,
-  'setSizes' | 'toggleLeft' | 'toggleRight' | 'toggleConsole' | 'setActiveTab' | 'setState'
+  | 'setSizes'
+  | 'toggleLeft'
+  | 'toggleRight'
+  | 'toggleConsole'
+  | 'openSettings'
+  | 'setActiveTab'
+  | 'setSettingsOpen'
+  | 'setState'
 > = {
-  sizes: [18, 40, 20],
+  activeTab: 'explorer',
+  settingsOpen: false,
+  showConsole: false,
   showLeftPanel: true,
   showRightPanel: true,
-  showConsole: false,
-  activeTab: 'explorer',
+  sizes: [18, 40, 20],
 };
 
 const STORE_NAME = 'panel-layout-store.v1' as const;
@@ -71,6 +83,12 @@ const creator: StateCreator<PanelLayoutStoreState, [['zustand/persist', unknown]
 ) => ({
   ...DEFAULT_STATE,
 
+  openSettings: () => set({ settingsOpen: true }),
+
+  setActiveTab: (tab: PanelTab) => set({ activeTab: tab, settingsOpen: tab === 'settings' }),
+
+  setSettingsOpen: (open: boolean) => set({ settingsOpen: open }),
+
   setSizes: (sizes: number[]) => {
     const normalized = normalizeSizes(sizes);
     const next: Partial<PanelLayoutStoreState> = {
@@ -83,13 +101,11 @@ const creator: StateCreator<PanelLayoutStoreState, [['zustand/persist', unknown]
     set(next);
   },
 
-  toggleLeft: () => set({ showLeftPanel: !get().showLeftPanel }),
-  toggleRight: () => set({ showRightPanel: !get().showRightPanel }),
+  setState: (next: Partial<PanelLayoutStoreState>) => set(next),
   toggleConsole: () => set({ showConsole: !get().showConsole }),
 
-  setActiveTab: (tab: PanelTab) => set({ activeTab: tab }),
-
-  setState: (next: Partial<PanelLayoutStoreState>) => set(next),
+  toggleLeft: () => set({ showLeftPanel: !get().showLeftPanel }),
+  toggleRight: () => set({ showRightPanel: !get().showRightPanel }),
 });
 
 type PersistedPanelState = Pick<
@@ -127,10 +143,19 @@ function parsePersistedPanelState(raw: string | null): PersistedPanelStorageValu
       state?: PersistedPanelState;
       version?: number;
     };
-    const state = parsed?.state;
-    if (!state) {
+    const rawState = parsed?.state;
+    if (!rawState) {
       return null;
     }
+    // Root-tab selection is intentionally session-only. Whitelist the persisted
+    // layout fields so legacy snapshots containing activeTab: "prompts" cannot
+    // restore a route that now lives inside the agent sidebar.
+    const state: PersistedPanelState = {
+      showConsole: rawState.showConsole,
+      showLeftPanel: rawState.showLeftPanel,
+      showRightPanel: rawState.showRightPanel,
+      sizes: rawState.sizes,
+    };
     const version = typeof parsed.version === 'number' ? parsed.version : 0;
     if (state.sizes && hasCorruptedSizes(state.sizes)) {
       return {
@@ -157,11 +182,11 @@ function createAdapterPersistStorage(storage: StorageAdapter): PersistStorage<Pe
     // Adapter-backed storage remains async, so this hydration path resolves on a later microtask.
     // The fallback storage stays synchronous for direct localStorage environments.
     getItem: async (name: string) => parsePersistedPanelState(await storage.getItem(name)),
-    setItem: async (name: string, value) => {
-      await storage.setItem(name, JSON.stringify(value));
-    },
     removeItem: async (name: string) => {
       await storage.removeItem(name);
+    },
+    setItem: async (name: string, value) => {
+      await storage.setItem(name, JSON.stringify(value));
     },
   };
 }
@@ -208,11 +233,11 @@ function createFallbackPersistStorage(): PersistStorage<PersistedPanelState> {
 
   return {
     getItem: (name: string) => parsePersistedPanelState(readRaw(name)),
-    setItem: (name: string, value) => {
-      writeRaw(name, JSON.stringify(value));
-    },
     removeItem: (name: string) => {
       removeRaw(name);
+    },
+    setItem: (name: string, value) => {
+      writeRaw(name, JSON.stringify(value));
     },
   };
 }
@@ -221,15 +246,6 @@ function persistOptions(
   storage: PersistStorage<PersistedPanelState>
 ): PersistOptions<PanelLayoutStoreState, PersistedPanelState> {
   return {
-    name: STORE_NAME,
-    version: STORE_VERSION,
-    storage,
-    partialize: (state): PersistedPanelState => ({
-      sizes: state.sizes,
-      showLeftPanel: state.showLeftPanel,
-      showRightPanel: state.showRightPanel,
-      showConsole: state.showConsole,
-    }),
     migrate: (persistedState, version) => {
       // The outer shell replaced the old three-pane geometry, so pre-v4 sizes do not map
       // safely. Intentionally hard-reset legacy panel layout state instead of attempting
@@ -241,6 +257,15 @@ function persistOptions(
       }
       return persistedState as PersistedPanelState;
     },
+    name: STORE_NAME,
+    partialize: (state): PersistedPanelState => ({
+      showConsole: state.showConsole,
+      showLeftPanel: state.showLeftPanel,
+      showRightPanel: state.showRightPanel,
+      sizes: state.sizes,
+    }),
+    storage,
+    version: STORE_VERSION,
   };
 }
 

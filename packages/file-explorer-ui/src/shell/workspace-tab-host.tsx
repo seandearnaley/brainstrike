@@ -1,9 +1,12 @@
+import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
 import {
   INACCESSIBLE_CONTENT_PREFIX,
   type TabFileStatus,
   useTabFileRestoration,
 } from '@brainstrike/file-explorer-hooks';
+import { BINARY_CONTENT_MESSAGE, type FileExplorerState } from '@brainstrike/types';
 import {
+  ActionContextMenu,
   Button,
   CodeSurface,
   cn,
@@ -11,10 +14,15 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  isMarkdownPath,
+  type OpenFileInTab,
+  useContextMenuTarget,
   useIdeFileEditor,
+  useToast,
 } from '@brainstrike/ui';
+import { resolveRelativePath } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
   AlertCircle,
   File,
@@ -24,24 +32,46 @@ import {
   MoreHorizontal,
   X,
 } from 'lucide-react';
-import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  lazy,
+  memo,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { BinaryFilePreview } from '../components/binary-file-preview';
+import { fileTabToTarget } from '../context-actions/file-surface-target';
+import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
+import { useFileViewerContextMenu } from '../hooks/use-file-viewer-context-menu';
 import { type FileTab, useTabManager } from '../hooks/use-tab-manager';
-import { useEditorViewStateStore } from '../stores/editor-view-state-store';
+import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
+import { useTabManagerStore } from '../stores/tab-manager-store';
 import {
   useWorkspaceTabSelectionStore,
   type WorkspaceTabSelection,
 } from '../stores/workspace-tab-selection-store';
 import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
+import { useFileExplorerStoreSelector } from './file-explorer-provider';
+import { FileTabHeader } from './file-tab-header';
+import { MarkdownPreviewErrorBoundary } from './markdown-preview-error-boundary';
 import { useFileExplorer } from './use-file-explorer-context';
 import { CONTEXT_EXPLORER_APP_ID, type WorkspaceApp } from './workspace-app';
+
+const MarkdownSurfaceLazy = lazy(() =>
+  import('@brainstrike/ui/markdown-surface').then((m) => ({ default: m.MarkdownSurface }))
+);
 
 const logger = createLogger('WorkspaceTabHost');
 
 const CONTEXT_EXPLORER_APP: WorkspaceApp = {
+  icon: LayoutGrid,
   id: CONTEXT_EXPLORER_APP_ID,
   label: 'Context Explorer',
-  icon: LayoutGrid,
   render: () => <FileExplorerMiddlePanelBase />,
 };
 
@@ -80,8 +110,11 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   }, [extraApps]);
 
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
+  const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
+  const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
   const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
     useFileExplorer();
+  const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
   const selectApp = useWorkspaceTabSelectionStore((s) => s.selectApp);
@@ -183,8 +216,8 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         // but this catch ensures a rogue throw (e.g. from a future codepath) never
         // surfaces as an unhandled rejection through the caller's `void` invocation.
         logger.error('Tab selection failed', {
-          tabId,
           error: err instanceof Error ? err.message : String(err),
+          tabId,
         });
       }
     },
@@ -287,9 +320,10 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     loadingFilesRef.current = loadingFiles;
   }, [fileContents, loadingFiles]);
 
+  const setTarget = useEditorViewStateStore((s) => s.setTarget);
   const { registerOpenFileInTab } = useIdeFileEditor();
-  const handleOpenFileInTab = useCallback(
-    (compositeKey: string) => {
+  const handleOpenFileInTab = useCallback<OpenFileInTab>(
+    (compositeKey, options) => {
       // Decode defensively — keys come from trusted internal callers today, but a
       // malformed key would otherwise propagate as an unhandled error from the click
       // event. FileTabBody wraps the same call in try/catch; mirror that here.
@@ -303,6 +337,18 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         });
         return;
       }
+      // Record the one-shot view target BEFORE mounting the tab so FileTabBody's
+      // CodeSurface reads it on its first (keyed) render. A later open of the same
+      // key overwrites it; there is no reopen-with-new-line remount in v1. A chunk
+      // open carries a selection range (scroll to + select the block); a match
+      // open carries the line only.
+      if (typeof options?.line === 'number' && options.line > 0) {
+        const line = options.line;
+        setTarget(
+          compositeKey,
+          options.selection ? { line, selection: options.selection } : { line }
+        );
+      }
       // tabId is the compositeKey itself — stable across reloads (it already encodes the
       // folder identity), unlike the legacy `${rootFolderId}:${compositeKey}` form.
       const tabId = compositeKey;
@@ -315,7 +361,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         void loadFileContent(compositeKey);
       }
     },
-    [openTab, selectFile, loadFileContent]
+    [openTab, selectFile, loadFileContent, setTarget]
   );
   useEffect(() => {
     registerOpenFileInTab(handleOpenFileInTab);
@@ -337,7 +383,6 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
       if (selection.kind === 'file') {
         e.preventDefault();
         handleCloseFileTab(selection.tabId);
-        return;
       }
       // Electron + non-file selection (Context Explorer or another pinned app):
       // intentional no-op. We do NOT preventDefault, so the host (Electron's window
@@ -388,16 +433,50 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     [cycleFileTab]
   );
 
-  // Explicit Close-All handler: route the workspace selection back to Context Explorer
-  // at the call site instead of relying on the dead-selection effect to detect the
-  // orphaned tabId on the next render. The effect still serves as a safety net for
-  // silent-eviction and external-close paths, but making the bulk-close path explicit
-  // keeps the behavior obvious and robust against future changes that might suppress
-  // the effect.
+  const reconcileSelectionAfterBulkClose = useCallback(
+    (nextActiveTabId: string | null): void => {
+      const currentSelection = useWorkspaceTabSelectionStore.getState().selection;
+      if (currentSelection.kind === 'app') {
+        return;
+      }
+      const selectedTabStillExists = useTabManagerStore
+        .getState()
+        .tabs.some((tab) => tab.id === currentSelection.tabId);
+      if (selectedTabStillExists) {
+        return;
+      }
+      if (nextActiveTabId === null) {
+        handleSelectApp(CONTEXT_EXPLORER_APP_ID);
+        return;
+      }
+      selectFile(nextActiveTabId);
+    },
+    [handleSelectApp, selectFile]
+  );
+
+  // File-tab bulk operations never replace a pinned app selection. When a file
+  // selection is removed, reconcile it immediately instead of waiting for the
+  // dead-selection safety effect on the next render.
   const handleCloseAllFileTabs = useCallback(() => {
     clearTabs();
-    handleSelectApp(CONTEXT_EXPLORER_APP_ID);
-  }, [clearTabs, handleSelectApp]);
+    reconcileSelectionAfterBulkClose(null);
+  }, [clearTabs, reconcileSelectionAfterBulkClose]);
+
+  const handleCloseOtherFileTabs = useCallback(
+    (tabId: string): void => {
+      const nextActiveTabId = closeOtherTabs(tabId);
+      reconcileSelectionAfterBulkClose(nextActiveTabId);
+    },
+    [closeOtherTabs, reconcileSelectionAfterBulkClose]
+  );
+
+  const handleCloseFileTabsToRight = useCallback(
+    (tabId: string): void => {
+      const nextActiveTabId = closeTabsToRight(tabId);
+      reconcileSelectionAfterBulkClose(nextActiveTabId);
+    },
+    [closeTabsToRight, reconcileSelectionAfterBulkClose]
+  );
 
   return (
     <div className={cn('flex h-full flex-col bg-background', className)}>
@@ -407,8 +486,11 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         loadingFiles={loadingFiles}
         onCloseAllFileTabs={handleCloseAllFileTabs}
         onCloseFileTab={handleCloseFileTab}
+        onCloseFileTabsToRight={handleCloseFileTabsToRight}
+        onCloseOtherFileTabs={handleCloseOtherFileTabs}
         onSelectApp={handleSelectApp}
         onSelectFileTab={handleSelectFileTab}
+        rootDescriptors={rootDescriptors}
         selection={selection}
         tabStatuses={tabStatuses}
         tabs={tabs}
@@ -419,6 +501,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
           fileContents={fileContents}
           isRestoring={isRestoring}
           loadingFiles={loadingFiles}
+          rootDescriptors={rootDescriptors}
           selection={selection}
           tabStatuses={tabStatuses}
           tabs={tabs}
@@ -437,8 +520,11 @@ interface WorkspaceTabStripProps {
   /** Clear all file tabs at once. Surfaced via the overflow menu next to the tab strip. */
   readonly onCloseAllFileTabs: () => void;
   readonly onCloseFileTab: (tabId: string) => void;
+  readonly onCloseFileTabsToRight: (tabId: string) => void;
+  readonly onCloseOtherFileTabs: (tabId: string) => void;
   readonly onSelectApp: (appId: string) => void;
   readonly onSelectFileTab: (tabId: string) => void | Promise<void>;
+  readonly rootDescriptors: FileExplorerState['rootDescriptors'];
   readonly selection: WorkspaceTabSelection;
   readonly tabStatuses: Map<string, TabFileStatus>;
   readonly tabs: FileTab[];
@@ -453,52 +539,155 @@ function WorkspaceTabStrip({
   tabStatuses,
   onSelectFileTab,
   onCloseFileTab,
+  onCloseFileTabsToRight,
+  onCloseOtherFileTabs,
   onCloseAllFileTabs,
   getTabStatusMessage,
+  rootDescriptors,
 }: WorkspaceTabStripProps) {
+  const contextMenuController = useContextMenuTarget();
+  const { setTarget: setContextMenuTarget } = contextMenuController;
+  const handleFileTabContextMenu = useCallback(
+    (tab: FileTab): void => {
+      const target = fileTabToTarget(tab, getTabRootPath(tab, rootDescriptors));
+      if (!target) {
+        logger.error('Could not resolve workspace file tab context target', {
+          compositeKey: tab.compositeKey,
+        });
+      }
+      setContextMenuTarget(target);
+    },
+    [rootDescriptors, setContextMenuTarget]
+  );
+  const localActions = useMemo<readonly AnyContextAction[]>(() => {
+    const currentTabs = (): readonly FileTab[] => useTabManagerStore.getState().tabs;
+    const currentTargetIndex = (tabId: string): number =>
+      currentTabs().findIndex((tab) => tab.id === tabId);
+    const isCurrentTab = (tabId: string): boolean => currentTargetIndex(tabId) >= 0;
+    const staleTargetFailure = Promise.resolve({
+      error: 'File tab is no longer open',
+      ok: false as const,
+    });
+
+    return [
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        icon: X,
+        id: 'workspace-file-tab.close',
+        isEnabled: (target) => isCurrentTab(target.tabId),
+        label: 'Close',
+        run: (target) => {
+          if (!isCurrentTab(target.tabId)) {
+            return staleTargetFailure;
+          }
+          onCloseFileTab(target.tabId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        id: 'workspace-file-tab.close-others',
+        isEnabled: (target) => isCurrentTab(target.tabId) && currentTabs().length > 1,
+        label: 'Close Others',
+        run: (target) => {
+          if (!isCurrentTab(target.tabId)) {
+            return staleTargetFailure;
+          }
+          if (currentTabs().length <= 1) {
+            return Promise.resolve({ error: 'No other file tabs remain open', ok: false });
+          }
+          onCloseOtherFileTabs(target.tabId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        id: 'workspace-file-tab.close-right',
+        isEnabled: (target) => {
+          const targetIndex = currentTargetIndex(target.tabId);
+          return targetIndex >= 0 && targetIndex < currentTabs().length - 1;
+        },
+        label: 'Close Tabs to the Right',
+        run: (target) => {
+          const targetIndex = currentTargetIndex(target.tabId);
+          if (targetIndex === -1) {
+            return staleTargetFailure;
+          }
+          if (targetIndex === currentTabs().length - 1) {
+            return Promise.resolve({ error: 'No file tabs remain to the right', ok: false });
+          }
+          onCloseFileTabsToRight(target.tabId);
+          return Promise.resolve({ ok: true });
+        },
+      }),
+      defineContextAction({
+        appliesTo: ['workspace-file-tab'] as const,
+        group: 'primary',
+        id: 'workspace-file-tab.close-all',
+        isEnabled: (target) => isCurrentTab(target.tabId),
+        label: 'Close All Tabs',
+        run: (target) => {
+          if (!isCurrentTab(target.tabId)) {
+            return staleTargetFailure;
+          }
+          onCloseAllFileTabs();
+          return Promise.resolve({ ok: true });
+        },
+      }),
+    ];
+  }, [onCloseAllFileTabs, onCloseFileTab, onCloseFileTabsToRight, onCloseOtherFileTabs]);
+
   return (
-    <div
-      className="flex flex-shrink-0 items-stretch border-border border-b bg-muted/30"
-      role="tablist"
-    >
-      <div className="flex flex-shrink-0 items-stretch border-border border-r">
-        {apps.map((app) => {
-          const isActive = selection.kind === 'app' && selection.appId === app.id;
-          return (
-            <AppTabButton
-              app={app}
-              isActive={isActive}
-              key={app.id}
-              onSelect={() => onSelectApp(app.id)}
-            />
-          );
-        })}
+    <ActionContextMenu controller={contextMenuController} localActions={localActions}>
+      <div
+        className="flex h-12 flex-shrink-0 items-stretch border-border border-b bg-muted/30"
+        data-testid="workspace-tab-strip"
+        onContextMenuCapture={() => setContextMenuTarget(null)}
+        role="tablist"
+      >
+        <div className="flex flex-shrink-0 items-stretch border-border border-r">
+          {apps.map((app) => {
+            const isActive = selection.kind === 'app' && selection.appId === app.id;
+            return (
+              <AppTabButton
+                app={app}
+                isActive={isActive}
+                key={app.id}
+                onSelect={() => onSelectApp(app.id)}
+              />
+            );
+          })}
+        </div>
+        <div className="scrollbar-thin flex min-w-0 flex-1 items-stretch overflow-x-auto">
+          {tabs.map((tab) => {
+            const isActive = selection.kind === 'file' && selection.tabId === tab.id;
+            const status = tabStatuses.get(tab.compositeKey);
+            const isLoading = loadingFiles.has(tab.compositeKey);
+            const statusMessage = getTabStatusMessage(tab.compositeKey);
+            // FileTabButton receives the parent handlers verbatim and dispatches them with
+            // its own tab.id internally — no per-render arrow-closure recreation, so the
+            // memo wrap on FileTabButton bails on shallow-equal props.
+            return (
+              <FileTabButton
+                isActive={isActive}
+                isLoading={isLoading}
+                key={tab.id}
+                onClose={onCloseFileTab}
+                onContextMenu={handleFileTabContextMenu}
+                onSelect={onSelectFileTab}
+                status={status}
+                statusMessage={statusMessage}
+                tab={tab}
+              />
+            );
+          })}
+        </div>
+        <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
       </div>
-      <div className="scrollbar-thin flex min-w-0 flex-1 items-stretch overflow-x-auto">
-        {tabs.map((tab) => {
-          const isActive = selection.kind === 'file' && selection.tabId === tab.id;
-          const status = tabStatuses.get(tab.compositeKey);
-          const isLoading = loadingFiles.has(tab.compositeKey);
-          const statusMessage = getTabStatusMessage(tab.compositeKey);
-          // FileTabButton receives the parent handlers verbatim and dispatches them with
-          // its own tab.id internally — no per-render arrow-closure recreation, so the
-          // memo wrap on FileTabButton bails on shallow-equal props.
-          return (
-            <FileTabButton
-              isActive={isActive}
-              isLoading={isLoading}
-              key={tab.id}
-              onClose={onCloseFileTab}
-              onSelect={onSelectFileTab}
-              status={status}
-              statusMessage={statusMessage}
-              tab={tab}
-            />
-          );
-        })}
-      </div>
-      <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
-    </div>
+    </ActionContextMenu>
   );
 }
 
@@ -551,7 +740,7 @@ function AppTabButton({ app, isActive, onSelect }: AppTabButtonProps) {
       aria-controls={`workspace-app-panel-${app.id}`}
       aria-selected={isActive}
       className={cn(
-        'flex items-center gap-1.5 px-3 py-2 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'flex h-full items-center gap-1.5 px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
         isActive
           ? 'border-primary border-b-2 bg-background text-foreground'
           : 'border-transparent border-b-2 text-muted-foreground hover:bg-muted/60 hover:text-foreground'
@@ -578,6 +767,7 @@ interface FileTabButtonProps {
    * effective.
    */
   readonly onClose: (tabId: string) => void;
+  readonly onContextMenu: (tab: FileTab) => void;
   readonly onSelect: (tabId: string) => void | Promise<void>;
   readonly status: TabFileStatus | undefined;
   readonly statusMessage: string | null;
@@ -598,6 +788,7 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
   statusMessage,
   onSelect,
   onClose,
+  onContextMenu,
 }) {
   const fileName = getFileName(tab.path);
   const tabButtonId = `workspace-file-tab-${tab.id}`;
@@ -612,18 +803,24 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
     },
     [onClose, tab.id]
   );
+  const handleContextMenu = useCallback(() => {
+    onContextMenu(tab);
+  }, [onContextMenu, tab]);
   return (
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: composite tab wrapper claims context-menu identity for its focusable tab button
+    // biome-ignore lint/a11y/noStaticElementInteractions: composite tab wrapper claims context-menu identity for its focusable tab button
     <div
       className={cn(
         'flex flex-shrink-0 items-center border-transparent border-r border-b-2',
         isActive ? 'border-b-primary bg-background' : 'bg-muted/30 hover:bg-muted'
       )}
+      onContextMenu={handleContextMenu}
     >
       <button
         aria-controls={panelId}
         aria-selected={isActive}
         className={cn(
-          'flex items-center gap-2 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'flex h-full items-center gap-2 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           status?.status === 'needs-permission' && 'text-amber-600 dark:text-amber-400',
           status?.status === 'not-found' && 'text-destructive'
         )}
@@ -674,6 +871,7 @@ interface WorkspaceBodyProps {
   readonly fileContents: { [key: string]: string };
   readonly isRestoring: boolean;
   readonly loadingFiles: Set<string>;
+  readonly rootDescriptors: FileExplorerState['rootDescriptors'];
   readonly selection: WorkspaceTabSelection;
   readonly tabStatuses: Map<string, TabFileStatus>;
   readonly tabs: FileTab[];
@@ -694,6 +892,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   tabs,
   fileContents,
   loadingFiles,
+  rootDescriptors,
   tabStatuses,
   isRestoring,
 }) {
@@ -741,6 +940,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   const status = tabStatuses.get(tab.compositeKey);
   const isLoading = loadingFiles.has(tab.compositeKey);
   const content = fileContents[tab.compositeKey];
+  const rootPath = getTabRootPath(tab, rootDescriptors);
   return (
     <div
       aria-labelledby={`workspace-file-tab-${tab.id}`}
@@ -752,6 +952,8 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
         content={content}
         isLoading={isLoading}
         isRestoring={isRestoring}
+        key={tab.compositeKey}
+        rootPath={rootPath}
         status={status}
         tab={tab}
       />
@@ -763,11 +965,19 @@ interface FileTabBodyProps {
   readonly content: string | undefined;
   readonly isLoading: boolean;
   readonly isRestoring: boolean;
+  readonly rootPath?: string | null;
   readonly status: TabFileStatus | undefined;
   readonly tab: FileTab;
 }
 
-function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBodyProps) {
+function FileTabBody({
+  tab,
+  content,
+  isLoading,
+  isRestoring,
+  rootPath = null,
+  status,
+}: FileTabBodyProps) {
   const path = useMemo(() => {
     try {
       return decodeFileSelection(tab.compositeKey).path;
@@ -776,8 +986,37 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     }
   }, [tab.compositeKey, tab.path]);
 
+  const isMarkdown = isMarkdownPath(path);
+
   const getScrollTop = useEditorViewStateStore((s) => s.getScrollTop);
   const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
+  const getTarget = useEditorViewStateStore((s) => s.getTarget);
+  const clearTarget = useEditorViewStateStore((s) => s.clearTarget);
+  const storedMode = useEditorViewStateStore((s) => s.modes[tab.compositeKey]);
+  const setMode = useEditorViewStateStore((s) => s.setMode);
+
+  const capabilities = useMarkdownPreviewCapabilities();
+  const { toast } = useToast();
+  const ideEditor = useIdeFileEditor();
+
+  // A line-targeted open (search match) forces source for THIS open only; the
+  // user's persisted preference is untouched. Captured once on mount (FileTabBody
+  // is keyed by compositeKey, so a fresh open re-evaluates). It stays state — not
+  // a derived value — so it does not flip preview→source once the target is
+  // consumed/cleared later in the same view.
+  const [forceSource, setForceSource] = useState<boolean>(
+    () => isMarkdown && useEditorViewStateStore.getState().getTarget(tab.compositeKey) !== undefined
+  );
+  const effectiveMode: FileViewMode =
+    !isMarkdown || forceSource ? 'source' : (storedMode ?? 'preview');
+
+  const handleModeChange = useCallback(
+    (mode: FileViewMode) => {
+      setForceSource(false);
+      setMode(tab.compositeKey, mode);
+    },
+    [setMode, tab.compositeKey]
+  );
 
   const handleScrollTopChange = useCallback(
     (scrollTop: number) => {
@@ -786,8 +1025,124 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     [setScrollTop, tab.compositeKey]
   );
 
+  const handlePreviewScrollTopChange = useCallback(
+    (scrollTop: number) => {
+      setScrollTop(`preview:${tab.compositeKey}`, scrollTop);
+    },
+    [setScrollTop, tab.compositeKey]
+  );
+
+  const {
+    controller: contextMenuController,
+    handleCodeContextMenuSelection,
+    handleMarkdownContextMenuSelection,
+    handleViewerContextMenu,
+    resetContextMenuTarget,
+  } = useFileViewerContextMenu({ rootPath, tab, viewMode: effectiveMode });
+
+  const resolveImage = useCallback(
+    async (src: string): Promise<string> => {
+      // Remote images are blocked in previews regardless of CSP (which allows
+      // localhost in dev and is deployment-dependent on web): untrusted file
+      // content must not trigger network requests (file-explorer-ui AGENTS.md
+      // resource-loading restriction). Failure surfaces as the visible
+      // image-unavailable placeholder.
+      if (/^https?:/i.test(src)) {
+        throw new Error('Remote images are blocked in previews');
+      }
+      if (/^data:/i.test(src)) {
+        return src;
+      }
+      if (!capabilities) {
+        throw new Error('Image preview unavailable');
+      }
+      const resolved = src.startsWith('/') ? src : resolveRelativePath(path, src);
+      if (!resolved) {
+        throw new Error('Path escapes the workspace');
+      }
+      return capabilities.resolveImageSrc(resolved);
+    },
+    [capabilities, path]
+  );
+
+  const handleOpenLink = useCallback(
+    (href: string) => {
+      // Protocol-relative URLs (`//host/path`) carry no scheme but are NOT
+      // workspace-relative — the relative branch below would resolve them to a nonsense
+      // workspace key. Reject them explicitly with the same notice as unsupported schemes.
+      if (href.startsWith('//')) {
+        toast({ description: href, title: 'Unsupported link type', variant: 'destructive' });
+        return;
+      }
+      if (/^(https?|mailto):/i.test(href)) {
+        if (!capabilities) {
+          toast({ description: href, title: 'External links unavailable', variant: 'destructive' });
+          return;
+        }
+        void capabilities.openExternalLink(href).then((result) => {
+          if (!result.ok) {
+            toast({
+              description: result.error ?? href,
+              title: 'Could not open link',
+              variant: 'destructive',
+            });
+          }
+        });
+        return;
+      }
+      // Any other URL scheme (tel:, ftp:, javascript:, …) must not fall into the
+      // relative-path branch — it would resolve to a nonsense workspace key or a
+      // misleading "outside the workspace" toast. Name the real failure instead.
+      if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+        toast({ description: href, title: 'Unsupported link type', variant: 'destructive' });
+        return;
+      }
+      // Workspace-relative link → open in a tab.
+      let folderId: string;
+      try {
+        folderId = decodeFileSelection(tab.compositeKey).folderId;
+      } catch {
+        toast({ description: href, title: 'Could not resolve link', variant: 'destructive' });
+        return;
+      }
+      const resolved = resolveRelativePath(path, href.split('#')[0] ?? href);
+      if (!resolved) {
+        toast({
+          description: href,
+          title: 'Link is outside the workspace',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const openFileInTab = ideEditor.openFileInTab;
+      if (!openFileInTab) {
+        toast({ description: href, title: 'File opening unavailable', variant: 'destructive' });
+        return;
+      }
+      openFileInTab(encodeFileSelection(folderId, resolved));
+    },
+    [capabilities, ideEditor.openFileInTab, path, tab.compositeKey, toast]
+  );
+
+  // One-shot consumption: only clear once `content` is actually a string, i.e.
+  // once the surface below has genuinely mounted with whatever target
+  // (initialLine/initialSelection) this render read (content loads async —
+  // clearing on every compositeKey change regardless of content would erase the
+  // target before the surface ever mounts to consume it). Without this,
+  // switching tabs away and back (or closing and reopening) remounts CodeSurface
+  // — keyed on compositeKey — and its mount effect re-reads a stale target,
+  // yanking the view back to the match line and discarding the user's scroll
+  // position.
+  useEffect(() => {
+    if (typeof content !== 'string') {
+      return;
+    }
+    clearTarget(tab.compositeKey);
+  }, [clearTarget, content, tab.compositeKey]);
+
+  let body: ReactNode;
   if (status?.status === 'needs-permission') {
-    return (
+    body = (
       <div className="flex h-full flex-col items-center justify-center text-center">
         <div aria-live="polite" className="sr-only">
           File access required for {path}. Click the tab to restore access.
@@ -801,10 +1156,8 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
         {status.error ? <p className="mt-2 text-destructive text-xs">{status.error}</p> : null}
       </div>
     );
-  }
-
-  if (status?.status === 'not-found') {
-    return (
+  } else if (status?.status === 'not-found') {
+    body = (
       <div className="flex h-full flex-col items-center justify-center text-center">
         <div aria-live="polite" className="sr-only">
           File not found: {path}. This file may have been moved, renamed, or deleted.
@@ -818,28 +1171,28 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
         {status.error ? <p className="mt-2 text-destructive text-xs">{status.error}</p> : null}
       </div>
     );
-  }
-
-  if (typeof content !== 'string') {
+  } else if (typeof content !== 'string') {
     // Three reasons content may be missing here, none of which is "the file is gone":
     //  1. Restoration is still in flight (status not yet emitted).
     //  2. We just opened the tab and loadFileContent hasn't completed.
     //  3. The active tab effect hasn't fired yet (e.g. fileTree not ready on web).
     // In all cases, "Restoring…" is the honest message — "File not found" was a lie.
     const isPending = isLoading || isRestoring || status?.status === 'pending';
-    return (
+    body = (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
         <span>{isPending ? 'Restoring…' : 'Loading…'}</span>
       </div>
     );
-  }
-
-  // Short-circuit before truncation: the inaccessible branch renders the full `content`
-  // verbatim, so running getDisplayContent first would do throwaway work and (for a very
-  // verbose error message above MAX_DOM_CHARS) produce an unused truncated string.
-  if (content.startsWith(INACCESSIBLE_CONTENT_PREFIX)) {
-    return (
+  } else if (content === BINARY_CONTENT_MESSAGE) {
+    // The worker stores the BINARY sentinel as the tab's content; render the
+    // dedicated screen instead of dumping the sentinel into a code surface.
+    body = <BinaryFilePreview rootPath={rootPath} tab={tab} />;
+  } else if (content.startsWith(INACCESSIBLE_CONTENT_PREFIX)) {
+    // Short-circuit before truncation: the inaccessible branch renders the full `content`
+    // verbatim, so running getDisplayContent first would do throwaway work and (for a very
+    // verbose error message above MAX_DOM_CHARS) produce an unused truncated string.
+    body = (
       <div className="h-full overflow-auto p-4">
         <p className="text-amber-600 dark:text-amber-400">{content}</p>
         <p className="mt-2 text-muted-foreground text-sm">
@@ -848,23 +1201,77 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
         </p>
       </div>
     );
+  } else {
+    const { text, truncated } = getDisplayContent(content);
+    const target = getTarget(tab.compositeKey);
+
+    body =
+      effectiveMode === 'preview' ? (
+        <MarkdownPreviewErrorBoundary onOpenSource={() => handleModeChange('source')}>
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                <span>Loading preview…</span>
+              </div>
+            }
+          >
+            <MarkdownSurfaceLazy
+              ariaLabel={`Markdown preview for ${path}`}
+              initialScrollTop={getScrollTop(`preview:${tab.compositeKey}`)}
+              onContextMenuSelection={handleMarkdownContextMenuSelection}
+              onOpenLink={handleOpenLink}
+              onScrollTopChange={handlePreviewScrollTopChange}
+              resolveImageSrc={resolveImage}
+              testId="file-markdown-surface"
+              truncated={truncated}
+              value={text}
+            />
+          </Suspense>
+        </MarkdownPreviewErrorBoundary>
+      ) : (
+        <CodeSurface
+          ariaLabel={`Source preview for ${path}`}
+          initialLine={target?.line}
+          initialScrollTop={getScrollTop(tab.compositeKey)}
+          initialSelection={target?.selection}
+          key={tab.compositeKey}
+          onContextMenuSelection={handleCodeContextMenuSelection}
+          onScrollTopChange={handleScrollTopChange}
+          path={path}
+          testId="file-code-surface"
+          truncated={truncated}
+          value={text}
+        />
+      );
   }
 
-  const { text, truncated } = getDisplayContent(content);
+  const fileName = path.split('/').pop() ?? path;
+  const directory = path.slice(0, Math.max(0, path.length - fileName.length - 1));
 
   return (
-    <CodeSurface
-      ariaLabel={`Source preview for ${path}`}
-      initialScrollTop={getScrollTop(tab.compositeKey)}
-      key={tab.compositeKey}
-      onScrollTopChange={handleScrollTopChange}
-      path={path}
-      testId="file-code-surface"
-      truncated={truncated}
-      value={text}
-    />
+    <ActionContextMenu controller={contextMenuController}>
+      {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: read-only file viewer exposes a context menu while preserving tabpanel/editor semantics */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: contextmenu is an auxiliary action; keyboard invocation is owned by the focused CodeMirror/preview content */}
+      <div
+        className="flex h-full flex-col"
+        onContextMenu={handleViewerContextMenu}
+        onContextMenuCapture={resetContextMenuTarget}
+      >
+        <FileTabHeader
+          directory={directory}
+          fileName={fileName}
+          mode={effectiveMode}
+          onModeChange={handleModeChange}
+          showModeToggle={isMarkdown}
+        />
+        <div className="min-h-0 flex-1">{body}</div>
+      </div>
+    </ActionContextMenu>
   );
 }
+
+export { FileTabBody as FileTabBodyForTesting };
 
 function NoFileTabSelected() {
   return (
@@ -887,6 +1294,18 @@ function MissingAppFallback() {
 function getFileName(path: string): string {
   const last = path.split('/').pop();
   return last && last.length > 0 ? last : path;
+}
+
+function getTabRootPath(
+  tab: FileTab,
+  rootDescriptors: FileExplorerState['rootDescriptors']
+): string | null {
+  try {
+    const { folderId } = decodeFileSelection(tab.compositeKey);
+    return rootDescriptors[folderId]?.path ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -91,7 +91,7 @@ describe('FilterControls', () => {
     // routing through this component's handlers.
     rerender(
       <FilterControls
-        filters={createFilters({ searchQuery: 'first', embeddingStatus: 'complete' })}
+        filters={createFilters({ embeddingStatus: 'complete', searchQuery: 'first' })}
         onFiltersChange={handle}
       />
     );
@@ -103,7 +103,7 @@ describe('FilterControls', () => {
     });
 
     expect(handle).toHaveBeenLastCalledWith(
-      expect.objectContaining({ searchQuery: 'second', embeddingStatus: 'complete' })
+      expect.objectContaining({ embeddingStatus: 'complete', searchQuery: 'second' })
     );
   });
 

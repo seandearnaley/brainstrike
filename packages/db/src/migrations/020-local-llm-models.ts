@@ -15,7 +15,13 @@ import type { Migration } from './migration-runner';
  * All models are tagged with 'transformers.js' on HuggingFace and verified to work.
  */
 export const migration020LocalLlmModels: Migration = {
-  version: 20,
+  down: `
+    DELETE FROM models WHERE id IN (
+      'onnx-community/functiongemma-270m-it-ONNX',
+      'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+      'onnx-community/Qwen3-0.6B-ONNX'
+    );
+  `,
   name: 'local_llm_models',
   up: `
     -- Remove Qwen3-1.7B if it exists (crashes due to WebGPU buffer limits)
@@ -65,11 +71,5 @@ export const migration020LocalLlmModels: Migration = {
       parameters = EXCLUDED.parameters,
       updated_at = CURRENT_TIMESTAMP;
   `,
-  down: `
-    DELETE FROM models WHERE id IN (
-      'onnx-community/functiongemma-270m-it-ONNX',
-      'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
-      'onnx-community/Qwen3-0.6B-ONNX'
-    );
-  `,
+  version: 20,
 };

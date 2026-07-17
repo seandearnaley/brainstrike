@@ -22,7 +22,7 @@ import {
   useReactTable,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { LogList } from './log-list';
 import { LogToolbar } from './log-toolbar';
 import {
@@ -59,6 +59,7 @@ const DEFAULT_RETENTION_LIMIT = 2000;
 const DEFAULT_PAGE_SIZE = 50;
 const ALL_SCOPES_VALUE = '__all__';
 const NO_SCOPE_VALUE = '__none__';
+const LOG_SUBSCRIPTION_DEBOUNCE_MS = 100;
 
 const LOG_LEVEL_ITEMS = LOG_LEVEL_OPTIONS.map((level) => (
   <SelectItem key={level} value={level}>
@@ -301,17 +302,17 @@ type LogViewerAction =
     };
 
 const initialLogViewerState: LogViewerState = {
+  autoScroll: true,
+  columnVisibility: {},
+  globalFilter: '',
+  logLevelFilter: LogLevel.DEBUG,
   logRecords: [],
   logsLoading: false,
-  retentionLimit: DEFAULT_RETENTION_LIMIT,
-  logLevelFilter: LogLevel.DEBUG,
-  scopeFilter: ALL_SCOPES_VALUE,
-  globalFilter: '',
-  autoScroll: true,
-  wrapLines: true,
-  sorting: [{ id: 'timestamp', desc: false }],
-  columnVisibility: {},
   pagination: { pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE },
+  retentionLimit: DEFAULT_RETENTION_LIMIT,
+  scopeFilter: ALL_SCOPES_VALUE,
+  sorting: [{ desc: false, id: 'timestamp' }],
+  wrapLines: true,
 };
 
 function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogViewerState {
@@ -350,6 +351,7 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
 
 export function LogViewer({ logSource, toast }: LogViewerProps) {
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
+  const rowCacheRef = useRef(new WeakMap<LogRecord, LogRecordRow>());
   const {
     logRecords,
     logsLoading,
@@ -377,18 +379,20 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
 
   useEffect(() => {
     if (!logSource) {
-      dispatch({ type: 'SET_LOG_RECORDS', records: [] });
+      dispatch({ records: [], type: 'SET_LOG_RECORDS' });
       return;
     }
     let cancelled = false;
+    let pendingSubscriptionRecords: readonly LogRecord[] | null = null;
+    let subscriptionTimerId: number | null = null;
 
     if (logSource.getInitialRecords) {
-      dispatch({ type: 'SET_LOGS_LOADING', loading: true });
+      dispatch({ loading: true, type: 'SET_LOGS_LOADING' });
       logSource
         .getInitialRecords()
         .then((initial) => {
           if (!cancelled && initial) {
-            dispatch({ type: 'SET_LOG_RECORDS', records: applyRetentionLimit(initial) });
+            dispatch({ records: applyRetentionLimit(initial), type: 'SET_LOG_RECORDS' });
           }
         })
         .catch((error) => {
@@ -401,17 +405,31 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         })
         .finally(() => {
           if (!cancelled) {
-            dispatch({ type: 'SET_LOGS_LOADING', loading: false });
+            dispatch({ loading: false, type: 'SET_LOGS_LOADING' });
           }
         });
     }
 
     const unsubscribe = logSource.subscribe?.((records) => {
-      dispatch({ type: 'SET_LOG_RECORDS', records: applyRetentionLimit(records) });
+      pendingSubscriptionRecords = records;
+      if (subscriptionTimerId !== null) {
+        window.clearTimeout(subscriptionTimerId);
+      }
+      subscriptionTimerId = window.setTimeout(() => {
+        subscriptionTimerId = null;
+        const pendingRecords = pendingSubscriptionRecords;
+        pendingSubscriptionRecords = null;
+        if (!(cancelled || pendingRecords === null)) {
+          dispatch({ records: applyRetentionLimit(pendingRecords), type: 'SET_LOG_RECORDS' });
+        }
+      }, LOG_SUBSCRIPTION_DEBOUNCE_MS);
     });
 
     return () => {
       cancelled = true;
+      if (subscriptionTimerId !== null) {
+        window.clearTimeout(subscriptionTimerId);
+      }
       unsubscribe?.();
     };
   }, [applyRetentionLimit, logSource, toast]);
@@ -425,15 +443,22 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     );
   }, [globalFilter, logLevelFilter, logRecords, scopeFilter]);
 
-  const tableData = useMemo<LogRecordRow[]>(
-    () =>
-      filteredRecords.map((record) => ({
+  const tableData = useMemo<LogRecordRow[]>(() => {
+    const rowCache = rowCacheRef.current;
+    return filteredRecords.map((record) => {
+      const cachedRow = rowCache.get(record);
+      if (cachedRow) {
+        return cachedRow;
+      }
+      const row: LogRecordRow = {
         ...record,
         flattenedBindings: JSON.stringify(record.bindings ?? {}),
         serializedArgs: serializeArgs(record.args),
-      })),
-    [filteredRecords]
-  );
+      };
+      rowCache.set(record, row);
+      return row;
+    });
+  }, [filteredRecords]);
 
   const columns = useMemo(() => buildLogColumns(wrapLines), [wrapLines]);
 
@@ -457,13 +482,13 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     },
     onPaginationChange: (updater) => {
       dispatch({
-        type: 'SET_PAGINATION',
         pagination: typeof updater === 'function' ? updater(pagination) : updater,
+        type: 'SET_PAGINATION',
       });
     },
     onSortingChange: (updater) => {
       const newSorting = typeof updater === 'function' ? updater(sorting) : updater;
-      dispatch({ type: 'SET_SORTING', sorting: newSorting });
+      dispatch({ sorting: newSorting, type: 'SET_SORTING' });
     },
     state: {
       columnVisibility,
@@ -482,11 +507,11 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     if (!getInitialRecords) {
       return;
     }
-    dispatch({ type: 'SET_LOGS_LOADING', loading: true });
+    dispatch({ loading: true, type: 'SET_LOGS_LOADING' });
     try {
       const records = await getInitialRecords();
-      dispatch({ type: 'SET_LOG_RECORDS', records: applyRetentionLimit(records) });
-      dispatch({ type: 'SET_LOGS_LOADING', loading: false });
+      dispatch({ records: applyRetentionLimit(records), type: 'SET_LOG_RECORDS' });
+      dispatch({ loading: false, type: 'SET_LOGS_LOADING' });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast({
@@ -494,7 +519,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         title: 'Failed to refresh logs',
         variant: 'destructive',
       });
-      dispatch({ type: 'SET_LOGS_LOADING', loading: false });
+      dispatch({ loading: false, type: 'SET_LOGS_LOADING' });
     }
   };
 
@@ -510,8 +535,8 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     const exportPayload = {
       exportedAt: new Date().toISOString(),
       recordCount: exportData.length,
-      sourceCoverage: buildSourceCoverage(exportData),
       records: exportData,
+      sourceCoverage: buildSourceCoverage(exportData),
     };
     const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
       type: 'application/json',
@@ -525,13 +550,13 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
   };
 
   const handleSortNewestFirstChange = useCallback((value: boolean) => {
-    dispatch({ type: 'SET_SORTING', sorting: [{ desc: value, id: 'timestamp' }] });
+    dispatch({ sorting: [{ desc: value, id: 'timestamp' }], type: 'SET_SORTING' });
   }, []);
 
   const handlePageSizeChange = useCallback((value: number) => {
     dispatch({
-      type: 'SET_PAGINATION',
       pagination: (previous) => ({ ...previous, pageSize: value }),
+      type: 'SET_PAGINATION',
     });
   }, []);
 
@@ -591,12 +616,12 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         logsLoading={logsLoading}
         onAutoScrollChange={(value) => dispatch({ type: 'SET_AUTO_SCROLL', value })}
         onExport={handleExportLogs}
-        onLevelChange={(level) => dispatch({ type: 'SET_LOG_LEVEL_FILTER', level })}
+        onLevelChange={(level) => dispatch({ level, type: 'SET_LOG_LEVEL_FILTER' })}
         onPageSizeChange={handlePageSizeChange}
         onRefresh={handleRefreshLogs}
-        onRetentionChange={(limit) => dispatch({ type: 'SET_RETENTION_LIMIT', limit })}
-        onScopeChange={(scope) => dispatch({ type: 'SET_SCOPE_FILTER', scope })}
-        onSearchChange={(filter) => dispatch({ type: 'SET_GLOBAL_FILTER', filter })}
+        onRetentionChange={(limit) => dispatch({ limit, type: 'SET_RETENTION_LIMIT' })}
+        onScopeChange={(scope) => dispatch({ scope, type: 'SET_SCOPE_FILTER' })}
+        onSearchChange={(filter) => dispatch({ filter, type: 'SET_GLOBAL_FILTER' })}
         onSortNewestFirstChange={handleSortNewestFirstChange}
         onWrapLinesChange={(value) => dispatch({ type: 'SET_WRAP_LINES', value })}
         pageSize={pagination.pageSize}
@@ -636,8 +661,8 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
           onPageChange={(page) => {
             dispatch({ type: 'SET_AUTO_SCROLL', value: false });
             dispatch({
-              type: 'SET_PAGINATION',
               pagination: (previous) => ({ ...previous, pageIndex: page }),
+              type: 'SET_PAGINATION',
             });
           }}
           totalItems={filteredRecords.length}

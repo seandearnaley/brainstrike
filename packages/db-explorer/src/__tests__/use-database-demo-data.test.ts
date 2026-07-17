@@ -12,10 +12,6 @@ import { useDatabaseDemoData } from '../use-database-demo-data';
 
 // Mock preferences store state for useVectorStatusUIStore
 const mockVectorStatusUIStore = {
-  schemaVerified: true,
-  setSchemaVerified: vi.fn((value: boolean) => {
-    mockVectorStatusUIStore.schemaVerified = value;
-  }),
   cachedFileData: null as null | {
     collectionCounts: {
       chunks: number;
@@ -29,20 +25,24 @@ const mockVectorStatusUIStore = {
     chunks: Record<string, unknown>[];
     totalRecords: number;
   },
+  isEmbeddingActive: false,
+  isImporting: false,
+  schemaVerified: true,
   setCachedFileData: vi.fn((data: typeof mockVectorStatusUIStore.cachedFileData) => {
     mockVectorStatusUIStore.cachedFileData = data;
   }),
-  isImporting: false,
-  isEmbeddingActive: false,
+  setSchemaVerified: vi.fn((value: boolean) => {
+    mockVectorStatusUIStore.schemaVerified = value;
+  }),
 };
 
 // Mock the preferences store - required for dbInfo sync to global store
 vi.mock('@brainstrike/preferences/stores/database-status-store', () => ({
   useDatabaseStatusStore: {
     getState: vi.fn(() => ({
-      setLoading: vi.fn(),
       setConnected: vi.fn(),
       setDisconnected: vi.fn(),
+      setLoading: vi.fn(),
     })),
   },
 }));
@@ -65,8 +65,8 @@ vi.mock('@brainstrike/db', async () => {
   }
   return {
     ...actual,
-    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     MigrationRunner: MockMigrationRunner,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     migrations: [],
     usePGliteLiveQuery: vi.fn(),
   };
@@ -96,18 +96,18 @@ const createRepository = (
   count = records.length
 ): DrizzleFileRecordRepository =>
   ({
+    count: vi.fn().mockResolvedValue(count),
     findAll: vi.fn().mockResolvedValue(records),
     findById: vi.fn(async (id: string) => records.find((record) => record.id === id) ?? null),
-    count: vi.fn().mockResolvedValue(count),
   }) as unknown as DrizzleFileRecordRepository;
 
 const createChunkRepository = (chunks: FileChunk[]): DrizzleFileChunkRepository =>
   ({
     findAll: vi.fn().mockResolvedValue(chunks),
-    findById: vi.fn(async (id: string) => chunks.find((chunk) => chunk.id === id) ?? null),
     findByFileRecordId: vi.fn(async (fileRecordId: string) =>
       chunks.filter((chunk) => chunk.fileRecordId === fileRecordId)
     ),
+    findById: vi.fn(async (id: string) => chunks.find((chunk) => chunk.id === id) ?? null),
   }) as unknown as DrizzleFileChunkRepository;
 
 const setupLiveQueries = (
@@ -129,10 +129,10 @@ const setupLiveQueries = (
     totalRecordsLoading = false,
     collectionCounts = [
       {
-        embeddingsetid: 'set-1',
-        recordsCount: records.length,
         chunksCount: 0,
         embeddingsCount: 0,
+        embeddingsetid: 'set-1',
+        recordsCount: records.length,
       },
     ],
     collectionCountsLoading = false,
@@ -142,29 +142,29 @@ const setupLiveQueries = (
   const collectionCountsRefresh = vi.fn().mockResolvedValue(undefined);
 
   const recordResult = {
-    rows: records,
-    loading: recordsLoading,
     error: recordError,
+    loading: recordsLoading,
     refresh: recordRefresh,
+    rows: records,
   };
   const totalRecordsResult = {
-    rows: totalRecords,
-    loading: totalRecordsLoading,
     error: null,
+    loading: totalRecordsLoading,
     refresh: totalRecordsRefresh,
+    rows: totalRecords,
   };
   const collectionCountsResult = {
-    rows: collectionCounts,
-    loading: collectionCountsLoading,
     error: null,
+    loading: collectionCountsLoading,
     refresh: collectionCountsRefresh,
+    rows: collectionCounts,
   };
 
   const disabledResult = {
-    rows: [],
-    loading: false,
     error: null,
+    loading: false,
     refresh: vi.fn().mockResolvedValue(undefined),
+    rows: [],
   };
 
   mockedUsePGliteLiveQuery.mockImplementation(
@@ -193,6 +193,7 @@ const setupLiveQueries = (
   return {
     collectionCountsRefresh,
     recordRefresh,
+    recordResult,
     totalRecordsRefresh,
   };
 };
@@ -214,7 +215,7 @@ const createMockDatabase = (options?: {
       if (sql.includes('AS "recordsCount"')) {
         return {
           rows: options?.collectionCountsRows ?? [
-            { recordsCount: 0, chunksCount: 0, embeddingsCount: 0 },
+            { chunksCount: 0, embeddingsCount: 0, recordsCount: 0 },
           ],
         };
       }
@@ -260,88 +261,88 @@ describe('useDatabaseDemoData', () => {
   it('keeps collection page and count queries live while embedding is active', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {
+      chunks: [
+        {
+          chunkIndex: 0,
+          chunkSize: 3,
+          chunkType: 'text',
+          content: 'cached chunk',
+          contentHash: 'cached-chunk-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddingDimensions: 0,
+          embeddingHash: null,
+          embeddingSetId: 'set-1',
+          embeddingUpdatedAt: null,
+          fileRecordId: 'cached-record',
+          hasEmbedding: false,
+          id: 'cached-chunk',
+          tokenCount: 3,
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ],
       collectionCounts: {
-        records: 1,
         chunks: 1,
         embeddings: 0,
+        records: 1,
       },
       collectionId: 'set-1',
       page: 0,
       pageSize: 50,
       records: [
         {
+          chunkingStrategy: null,
+          chunksCount: 1,
+          chunksProcessedAt: null,
+          contentHash: 'cached-record-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 0,
+          embeddingSetId: 'set-1',
+          hasEmbedding: false,
           id: 'cached-record',
           name: 'cached.ts',
           path: '/cached.ts',
-          size: 12,
-          createdAt: '2024-01-01T00:00:00Z',
-          updatedAt: '2024-01-01T00:00:00Z',
-          contentHash: 'cached-record-hash',
-          tokenCount: 1,
           processedAt: null,
-          chunksProcessedAt: null,
-          chunksCount: 1,
-          embeddedChunksCount: 0,
-          chunkingStrategy: null,
-          hasEmbedding: false,
-          embeddingSetId: 'set-1',
-        },
-      ],
-      chunks: [
-        {
-          id: 'cached-chunk',
-          fileRecordId: 'cached-record',
-          chunkIndex: 0,
-          content: 'cached chunk',
-          contentHash: 'cached-chunk-hash',
-          tokenCount: 3,
-          chunkType: 'text',
-          chunkSize: 3,
-          hasEmbedding: false,
-          embeddingDimensions: 0,
-          embeddingSetId: 'set-1',
-          embeddingUpdatedAt: null,
-          embeddingHash: null,
-          createdAt: '2024-01-01T00:00:00Z',
+          size: 12,
+          tokenCount: 1,
           updatedAt: '2024-01-01T00:00:00Z',
         },
       ],
       totalRecords: 1,
     };
     setupLiveQueries({
+      collectionCounts: [
+        { chunksCount: 2, embeddingsCount: 1, embeddingsetid: 'set-1', recordsCount: 1 },
+      ],
       records: [
         {
+          chunkingStrategy: null,
+          chunksCount: 2,
+          chunksProcessedAt: null,
+          contentHash: 'live-record-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 1,
+          embeddingSetId: 'set-1',
+          hasEmbedding: true,
           id: 'live-record',
           name: 'live.ts',
           path: '/live.ts',
-          size: 24,
-          createdAt: '2024-01-01T00:00:00Z',
-          updatedAt: '2024-01-01T00:00:00Z',
-          contentHash: 'live-record-hash',
-          tokenCount: 2,
           processedAt: null,
-          chunksProcessedAt: null,
-          chunksCount: 2,
-          embeddedChunksCount: 1,
-          chunkingStrategy: null,
-          hasEmbedding: true,
-          embeddingSetId: 'set-1',
+          size: 24,
+          tokenCount: 2,
+          updatedAt: '2024-01-01T00:00:00Z',
         },
       ],
       totalRecords: [{ totalRecords: 1 }],
-      collectionCounts: [
-        { embeddingsetid: 'set-1', recordsCount: 1, chunksCount: 2, embeddingsCount: 1 },
-      ],
     });
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
         isEmbeddingActive: true,
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -350,9 +351,9 @@ describe('useDatabaseDemoData', () => {
     });
 
     expect(result.current.collectionCounts).toEqual({
-      records: 1,
       chunks: 2,
       embeddings: 1,
+      records: 1,
     });
     expect(
       mockedUsePGliteLiveQuery.mock.calls.some(
@@ -379,11 +380,11 @@ describe('useDatabaseDemoData', () => {
 
     renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -402,11 +403,11 @@ describe('useDatabaseDemoData', () => {
 
     renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -424,11 +425,11 @@ describe('useDatabaseDemoData', () => {
 
     renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -443,7 +444,7 @@ describe('useDatabaseDemoData', () => {
     );
 
     expect(recordPageCall?.[0]).toEqual(
-      expect.objectContaining({ mode: 'incremental', key: 'id' })
+      expect.objectContaining({ key: 'id', mode: 'incremental' })
     );
     expect(totalAggregateCall?.[0]).not.toHaveProperty('mode', 'incremental');
     expect(collectionStatsCall?.[0].query).toContain('AS embeddingsetid');
@@ -456,72 +457,72 @@ describe('useDatabaseDemoData', () => {
   it('uses active collection cache while replacement live queries are loading', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {
+      chunks: [],
       collectionCounts: {
-        records: 3,
         chunks: 30,
         embeddings: 12,
+        records: 3,
       },
       collectionId: 'set-2',
       page: 0,
       pageSize: 50,
       records: [
         {
+          chunkingStrategy: null,
+          chunksCount: 30,
+          chunksProcessedAt: null,
+          contentHash: 'active-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 12,
+          embeddingSetId: 'set-2',
+          hasEmbedding: false,
           id: 'set-2-record',
           name: 'active.ts',
           path: '/active.ts',
-          size: 12,
-          createdAt: '2024-01-01T00:00:00Z',
-          updatedAt: '2024-01-01T00:00:00Z',
-          contentHash: 'active-hash',
-          tokenCount: 1,
           processedAt: null,
-          chunksProcessedAt: null,
-          chunksCount: 30,
-          embeddedChunksCount: 12,
-          chunkingStrategy: null,
-          hasEmbedding: false,
-          embeddingSetId: 'set-2',
+          size: 12,
+          tokenCount: 1,
+          updatedAt: '2024-01-01T00:00:00Z',
         },
       ],
-      chunks: [],
       totalRecords: 3,
     };
     setupLiveQueries({
+      collectionCounts: [
+        { chunksCount: 1000, embeddingsCount: 999, embeddingsetid: 'set-1', recordsCount: 999 },
+      ],
+      collectionCountsLoading: true,
       records: [
         {
+          chunkingStrategy: null,
+          chunksCount: 1000,
+          chunksProcessedAt: null,
+          contentHash: 'stale-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 999,
+          embeddingSetId: 'set-1',
+          hasEmbedding: true,
           id: 'set-1-stale-record',
           name: 'stale.ts',
           path: '/stale.ts',
-          size: 24,
-          createdAt: '2024-01-01T00:00:00Z',
-          updatedAt: '2024-01-01T00:00:00Z',
-          contentHash: 'stale-hash',
-          tokenCount: 2,
           processedAt: null,
-          chunksProcessedAt: null,
-          chunksCount: 1000,
-          embeddedChunksCount: 999,
-          chunkingStrategy: null,
-          hasEmbedding: true,
-          embeddingSetId: 'set-1',
+          size: 24,
+          tokenCount: 2,
+          updatedAt: '2024-01-01T00:00:00Z',
         },
       ],
       recordsLoading: true,
       totalRecords: [{ totalRecords: 999 }],
       totalRecordsLoading: true,
-      collectionCounts: [
-        { embeddingsetid: 'set-1', recordsCount: 999, chunksCount: 1000, embeddingsCount: 999 },
-      ],
-      collectionCountsLoading: true,
     });
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-2',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -531,86 +532,86 @@ describe('useDatabaseDemoData', () => {
     expect(result.current.records.map((record) => record.id)).toEqual(['set-2-record']);
     expect(result.current.recordPagination.totalRecords).toBe(3);
     expect(result.current.collectionCounts).toEqual({
-      records: 3,
       chunks: 30,
       embeddings: 12,
+      records: 3,
     });
   });
 
   it('does not expose stale live rows from a previous collection after switching collections', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {
+      chunks: [],
       collectionCounts: {
-        records: 3,
         chunks: 30,
         embeddings: 12,
+        records: 3,
       },
       collectionId: 'set-2',
       page: 0,
       pageSize: 50,
       records: [
         {
+          chunkingStrategy: null,
+          chunksCount: 30,
+          chunksProcessedAt: null,
+          contentHash: 'active-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 12,
+          embeddingSetId: 'set-2',
+          hasEmbedding: false,
           id: 'set-2-record',
           name: 'active.ts',
           path: '/active.ts',
-          size: 12,
-          createdAt: '2024-01-01T00:00:00Z',
-          updatedAt: '2024-01-01T00:00:00Z',
-          contentHash: 'active-hash',
-          tokenCount: 1,
           processedAt: null,
-          chunksProcessedAt: null,
-          chunksCount: 30,
-          embeddedChunksCount: 12,
-          chunkingStrategy: null,
-          hasEmbedding: false,
-          embeddingSetId: 'set-2',
+          size: 12,
+          tokenCount: 1,
+          updatedAt: '2024-01-01T00:00:00Z',
         },
       ],
-      chunks: [],
       totalRecords: 3,
     };
     setupLiveQueries({
+      collectionCounts: [
+        {
+          chunksCount: 1000,
+          embeddingsCount: 999,
+          embeddingsetid: 'set-1',
+          recordsCount: 999,
+        },
+      ],
+      collectionCountsLoading: false,
       records: [
         {
+          chunkingStrategy: null,
+          chunksCount: 1000,
+          chunksProcessedAt: null,
+          contentHash: 'stale-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 999,
+          embeddingSetId: 'set-1',
+          hasEmbedding: true,
           id: 'set-1-stale-record',
           name: 'stale.ts',
           path: '/stale.ts',
-          size: 24,
-          createdAt: '2024-01-01T00:00:00Z',
-          updatedAt: '2024-01-01T00:00:00Z',
-          contentHash: 'stale-hash',
-          tokenCount: 2,
           processedAt: null,
-          chunksProcessedAt: null,
-          chunksCount: 1000,
-          embeddedChunksCount: 999,
-          chunkingStrategy: null,
-          hasEmbedding: true,
-          embeddingSetId: 'set-1',
+          size: 24,
+          tokenCount: 2,
+          updatedAt: '2024-01-01T00:00:00Z',
         },
       ],
       recordsLoading: false,
       totalRecords: [{ embeddingSetId: 'set-1', totalRecords: 999 }],
       totalRecordsLoading: false,
-      collectionCounts: [
-        {
-          embeddingsetid: 'set-1',
-          recordsCount: 999,
-          chunksCount: 1000,
-          embeddingsCount: 999,
-        },
-      ],
-      collectionCountsLoading: false,
     });
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-2',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -619,9 +620,9 @@ describe('useDatabaseDemoData', () => {
     });
     expect(result.current.recordPagination.totalRecords).toBe(3);
     expect(result.current.collectionCounts).toEqual({
-      records: 3,
       chunks: 30,
       embeddings: 12,
+      records: 3,
     });
     expect(result.current.collectionCountsStatus).toBe('pending');
   });
@@ -629,19 +630,19 @@ describe('useDatabaseDemoData', () => {
   it('reports collection counts as pending when active collection stats are unavailable', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     setupLiveQueries({
-      records: [],
-      totalRecords: [{ embeddingSetId: 'set-1', totalRecords: 0 }],
       collectionCounts: [],
       collectionCountsLoading: false,
+      records: [],
+      totalRecords: [{ embeddingSetId: 'set-1', totalRecords: 0 }],
     });
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -649,48 +650,48 @@ describe('useDatabaseDemoData', () => {
       expect(result.current.collectionCountsStatus).toBe('pending');
     });
     expect(result.current.collectionCounts).toEqual({
-      records: 0,
       chunks: 0,
       embeddings: 0,
+      records: 0,
     });
   });
 
   it('does not block the collection file list while only collection stats are pending', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     setupLiveQueries({
+      collectionCounts: [],
+      collectionCountsLoading: true,
       records: [
         {
+          chunkingStrategy: null,
+          chunksCount: 1,
+          chunksProcessedAt: null,
+          contentHash: 'active-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 0,
+          embeddingSetId: 'set-1',
+          hasEmbedding: false,
           id: 'record-1',
           name: 'active.ts',
           path: '/active.ts',
-          size: 12,
-          createdAt: '2024-01-01T00:00:00Z',
-          updatedAt: '2024-01-01T00:00:00Z',
-          contentHash: 'active-hash',
-          tokenCount: 1,
           processedAt: null,
-          chunksProcessedAt: null,
-          chunksCount: 1,
-          embeddedChunksCount: 0,
-          chunkingStrategy: null,
-          hasEmbedding: false,
-          embeddingSetId: 'set-1',
+          size: 12,
+          tokenCount: 1,
+          updatedAt: '2024-01-01T00:00:00Z',
         },
       ],
       recordsLoading: false,
       totalRecords: [{ embeddingSetId: 'set-1', totalRecords: 1 }],
       totalRecordsLoading: false,
-      collectionCounts: [],
-      collectionCountsLoading: true,
     });
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -708,19 +709,19 @@ describe('useDatabaseDemoData', () => {
     mockVectorStatusUIStore.isImporting = true;
     setupLiveQueries();
     const database = createMockDatabase({
+      collectionCountsRows: [{ chunksCount: 0, embeddingsCount: 0, recordsCount: 0 }],
       recordRows: [],
       totalRecordsRows: [{ totalRecords: 0 }],
-      collectionCountsRows: [{ recordsCount: 0, chunksCount: 0, embeddingsCount: 0 }],
     });
 
     renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database,
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database,
         isImporting: true,
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -743,16 +744,123 @@ describe('useDatabaseDemoData', () => {
     });
   });
 
+  it('publishes fallback snapshots so loaded pages are no longer initially loading', async () => {
+    mockVectorStatusUIStore.schemaVerified = true;
+    mockVectorStatusUIStore.isImporting = true;
+    setupLiveQueries();
+    const database = createMockDatabase({
+      collectionCountsRows: [{ chunksCount: 0, embeddingsCount: 0, recordsCount: 1 }],
+      recordRows: [
+        {
+          chunkingStrategy: null,
+          chunksCount: 0,
+          chunksProcessedAt: null,
+          contentHash: 'fallback-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 0,
+          embeddingSetId: 'set-1',
+          hasEmbedding: false,
+          id: 'fallback-record',
+          name: 'fallback.ts',
+          path: '/fallback.ts',
+          processedAt: null,
+          size: 12,
+          tokenCount: 1,
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+      totalRecordsRows: [{ totalRecords: 1 }],
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database,
+        isImporting: true,
+        repository: createRepository(),
+        toast: vi.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.records.map((record) => record.id)).toEqual(['fallback-record']);
+    });
+    expect(result.current.initialLoading).toBe(false);
+    expect(mockVectorStatusUIStore.setCachedFileData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collectionId: 'set-1',
+        page: 0,
+        pageSize: 50,
+        totalRecords: 1,
+      })
+    );
+  });
+
+  it('treats a previously loaded local page as cached after another page replaces the global snapshot', async () => {
+    mockVectorStatusUIStore.schemaVerified = true;
+    const liveQueries = setupLiveQueries({
+      records: [
+        {
+          chunkingStrategy: null,
+          chunksCount: 0,
+          chunksProcessedAt: null,
+          contentHash: 'cached-page-hash',
+          createdAt: '2024-01-01T00:00:00Z',
+          embeddedChunksCount: 0,
+          embeddingSetId: 'set-1',
+          hasEmbedding: false,
+          id: 'cached-page-record',
+          name: 'cached-page.ts',
+          path: '/cached-page.ts',
+          processedAt: null,
+          size: 12,
+          tokenCount: 1,
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+      totalRecords: [{ embeddingSetId: 'set-1', totalRecords: 51 }],
+    });
+    const database = createMockDatabase();
+
+    const { result, rerender } = renderHook(
+      ({ page }: { page: number }) =>
+        useDatabaseDemoData({
+          activeCollectionId: 'set-1',
+          chunkRepository: createChunkRepository([]),
+          database,
+          recordPage: page,
+          repository: createRepository(),
+          toast: vi.fn(),
+        }),
+      { initialProps: { page: 0 } }
+    );
+
+    await waitFor(() => {
+      expect(mockVectorStatusUIStore.cachedFileData?.page).toBe(0);
+    });
+    rerender({ page: 1 });
+    await waitFor(() => {
+      expect(mockVectorStatusUIStore.cachedFileData?.page).toBe(1);
+    });
+
+    liveQueries.recordResult.loading = true;
+    rerender({ page: 0 });
+
+    expect(result.current.records.map((record) => record.id)).toEqual(['cached-page-record']);
+    expect(result.current.initialLoading).toBe(false);
+  });
+
   it('computes active-collection counts live from file_records/file_chunks so indexing progress is visible', async () => {
     setupLiveQueries();
 
     renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -784,21 +892,21 @@ describe('useDatabaseDemoData', () => {
     setupLiveQueries({
       records: [
         {
+          chunkingStrategy: 'sentence',
+          chunksCount: 2,
+          chunksProcessedAt: now,
+          content: null,
+          contentHash: null,
+          createdAt: now,
+          embeddedChunksCount: 0,
+          embeddingSetId: 'set-1',
           id: '1',
           name: 'file',
           path: '/file',
-          size: 123,
-          createdAt: now,
-          updatedAt: now,
-          content: null,
-          contentHash: null,
-          tokenCount: 1,
           processedAt: now,
-          chunksProcessedAt: now,
-          chunksCount: 2,
-          embeddedChunksCount: 0,
-          chunkingStrategy: 'sentence',
-          embeddingSetId: 'set-1',
+          size: 123,
+          tokenCount: 1,
+          updatedAt: now,
         },
       ],
     });
@@ -806,19 +914,19 @@ describe('useDatabaseDemoData', () => {
       chunkRowsByFileRecordId: {
         '1': [
           {
-            id: 'chunk-1',
-            fileRecordId: '1',
             chunkIndex: 0,
-            contentHash: 'hash',
-            tokenCount: 10,
-            chunkType: 'text',
             chunkSize: 10,
-            hasEmbedding: false,
+            chunkType: 'text',
+            contentHash: 'hash',
+            createdAt: now,
             embeddingDimensions: 0,
+            embeddingHash: null,
             embeddingSetId: 'set-1',
             embeddingUpdatedAt: now,
-            embeddingHash: null,
-            createdAt: now,
+            fileRecordId: '1',
+            hasEmbedding: false,
+            id: 'chunk-1',
+            tokenCount: 10,
             updatedAt: now,
           },
         ],
@@ -827,11 +935,11 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast,
-        database,
         activeCollectionId: 'set-1',
+        chunkRepository,
+        database,
+        repository,
+        toast,
       })
     );
 
@@ -843,23 +951,23 @@ describe('useDatabaseDemoData', () => {
 
     expect(result.current.records).toEqual([
       expect.objectContaining({
+        chunksCount: 2,
+        embeddingSetId: 'set-1',
         id: '1',
         name: 'file',
         path: '/file',
-        embeddingSetId: 'set-1',
-        chunksCount: 2,
       }),
     ]);
     await act(async () => {
       await expect(result.current.loadFileChunkSummaries('1')).resolves.toEqual([
-        expect.objectContaining({ id: 'chunk-1', fileRecordId: '1', embeddingSetId: 'set-1' }),
+        expect.objectContaining({ embeddingSetId: 'set-1', fileRecordId: '1', id: 'chunk-1' }),
       ]);
     });
     await waitFor(() => {
       expect(result.current.chunks).toHaveLength(1);
     });
     expect(result.current.chunks).toEqual([
-      expect.objectContaining({ id: 'chunk-1', fileRecordId: '1', embeddingSetId: 'set-1' }),
+      expect.objectContaining({ embeddingSetId: 'set-1', fileRecordId: '1', id: 'chunk-1' }),
     ]);
     expect(toast).not.toHaveBeenCalled();
   });
@@ -869,21 +977,21 @@ describe('useDatabaseDemoData', () => {
     setupLiveQueries({
       records: [
         {
+          chunkingStrategy: 'sentence',
+          chunksCount: 2,
+          chunksProcessedAt: now,
+          contentHash: 'record-hash',
+          createdAt: now,
+          embeddedChunksCount: 1,
+          embeddingSetId: 'set-1',
+          hasEmbedding: true,
           id: '1',
           name: 'file',
           path: '/file',
-          size: 123,
-          createdAt: now,
-          updatedAt: now,
-          contentHash: 'record-hash',
-          tokenCount: 1,
           processedAt: now,
-          chunksProcessedAt: now,
-          chunksCount: 2,
-          embeddedChunksCount: 1,
-          chunkingStrategy: 'sentence',
-          hasEmbedding: true,
-          embeddingSetId: 'set-1',
+          size: 123,
+          tokenCount: 1,
+          updatedAt: now,
         },
       ],
     });
@@ -891,19 +999,19 @@ describe('useDatabaseDemoData', () => {
       chunkRowsByFileRecordId: {
         '1': [
           {
-            id: 'chunk-1',
-            fileRecordId: '1',
             chunkIndex: 0,
-            contentHash: 'hash',
-            tokenCount: 10,
-            chunkType: 'text',
             chunkSize: 10,
-            hasEmbedding: true,
+            chunkType: 'text',
+            contentHash: 'hash',
+            createdAt: now,
             embeddingDimensions: 384,
+            embeddingHash: 'embedding-hash',
             embeddingSetId: 'set-1',
             embeddingUpdatedAt: now,
-            embeddingHash: 'embedding-hash',
-            createdAt: now,
+            fileRecordId: '1',
+            hasEmbedding: true,
+            id: 'chunk-1',
+            tokenCount: 10,
             updatedAt: now,
           },
         ],
@@ -912,11 +1020,11 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database,
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database,
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -929,7 +1037,7 @@ describe('useDatabaseDemoData', () => {
     expect(summaries[0]).not.toHaveProperty('content');
     expect(result.current.records[0]).toEqual(expect.objectContaining({ hasEmbedding: true }));
     expect(summaries[0]).toEqual(
-      expect.objectContaining({ hasEmbedding: true, embeddingDimensions: 384 })
+      expect.objectContaining({ embeddingDimensions: 384, hasEmbedding: true })
     );
 
     const liveQueryCalls = mockedUsePGliteLiveQuery.mock.calls.map(([options]) => options.query);
@@ -941,81 +1049,81 @@ describe('useDatabaseDemoData', () => {
   it('loads full chunk detail and export payloads only on demand', async () => {
     const now = new Date().toISOString();
     const fullRecord: FileRecord = {
+      content: 'const detail = true;',
+      createdAt: now,
       id: 'record-1',
       name: 'detail.ts',
       path: '/detail.ts',
       size: 42,
-      createdAt: now,
       updatedAt: now,
-      content: 'const detail = true;',
     };
     const fullChunk: FileChunk = {
-      id: 'chunk-1',
-      fileRecordId: 'record-1',
       chunkIndex: 0,
+      chunkSize: 21,
+      chunkType: 'code',
       content: 'const detail = true;',
       contentHash: 'chunk-hash',
-      tokenCount: 5,
-      chunkType: 'code',
-      chunkSize: 21,
       createdAt: now,
-      updatedAt: now,
       embedding: [0.1, 0.2],
+      fileRecordId: 'record-1',
+      id: 'chunk-1',
+      tokenCount: 5,
+      updatedAt: now,
     };
     setupLiveQueries({
       records: [
         {
+          chunkingStrategy: 'recursive',
+          chunksCount: 1,
+          chunksProcessedAt: now,
+          contentHash: 'record-hash',
+          createdAt: now,
+          embeddedChunksCount: 1,
+          embeddingSetId: 'set-1',
+          hasEmbedding: false,
           id: 'record-1',
           name: 'detail.ts',
           path: '/detail.ts',
-          size: 42,
-          createdAt: now,
-          updatedAt: now,
-          contentHash: 'record-hash',
-          tokenCount: 5,
           processedAt: now,
-          chunksProcessedAt: now,
-          chunksCount: 1,
-          embeddedChunksCount: 1,
-          chunkingStrategy: 'recursive',
-          hasEmbedding: false,
-          embeddingSetId: 'set-1',
+          size: 42,
+          tokenCount: 5,
+          updatedAt: now,
         },
       ],
     });
     const repository = createRepository([fullRecord], 1);
     const chunkRepository = createChunkRepository([fullChunk]);
     const database = createMockDatabase({
-      recordRows: [{ id: 'record-1' }],
       chunkRowsByFileRecordId: {
         'record-1': [
           {
-            id: 'chunk-1',
-            fileRecordId: 'record-1',
             chunkIndex: 0,
-            contentHash: 'chunk-hash',
-            tokenCount: 5,
-            chunkType: 'code',
             chunkSize: 21,
-            hasEmbedding: true,
+            chunkType: 'code',
+            contentHash: 'chunk-hash',
+            createdAt: now,
             embeddingDimensions: 2,
+            embeddingHash: 'embedding-hash',
             embeddingSetId: 'set-1',
             embeddingUpdatedAt: now,
-            embeddingHash: 'embedding-hash',
-            createdAt: now,
+            fileRecordId: 'record-1',
+            hasEmbedding: true,
+            id: 'chunk-1',
+            tokenCount: 5,
             updatedAt: now,
           },
         ],
       },
+      recordRows: [{ id: 'record-1' }],
     });
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast: vi.fn(),
-        database,
         activeCollectionId: 'set-1',
+        chunkRepository,
+        database,
+        repository,
+        toast: vi.fn(),
       })
     );
 
@@ -1025,8 +1133,8 @@ describe('useDatabaseDemoData', () => {
 
     await expect(result.current.loadChunkDetail('chunk-1')).resolves.toEqual(fullChunk);
     await expect(result.current.loadCollectionExportData()).resolves.toEqual({
-      records: [fullRecord],
       chunks: [fullChunk],
+      records: [fullRecord],
     });
   });
 
@@ -1035,11 +1143,11 @@ describe('useDatabaseDemoData', () => {
     const renderSubject = (chunkRepository: DrizzleFileChunkRepository | null) =>
       renderHook(() =>
         useDatabaseDemoData({
-          repository: createRepository(),
-          chunkRepository,
-          toast: vi.fn(),
-          database: createMockDatabase(),
           activeCollectionId: 'set-1',
+          chunkRepository,
+          database: createMockDatabase(),
+          repository: createRepository(),
+          toast: vi.fn(),
         })
       );
 
@@ -1064,11 +1172,11 @@ describe('useDatabaseDemoData', () => {
   it('rejects invalid chunk summary requests before querying the database', async () => {
     setupLiveQueries();
     const validOptions = {
-      repository: createRepository(),
-      chunkRepository: createChunkRepository([]),
-      toast: vi.fn(),
-      database: createMockDatabase(),
       activeCollectionId: 'set-1',
+      chunkRepository: createChunkRepository([]),
+      database: createMockDatabase(),
+      repository: createRepository(),
+      toast: vi.fn(),
     };
 
     const valid = renderHook(() => useDatabaseDemoData(validOptions));
@@ -1085,10 +1193,10 @@ describe('useDatabaseDemoData', () => {
 
     const withoutDatabase = renderHook(() =>
       useDatabaseDemoData({
-        repository: validOptions.repository,
-        chunkRepository: validOptions.chunkRepository,
-        toast: validOptions.toast,
         activeCollectionId: validOptions.activeCollectionId,
+        chunkRepository: validOptions.chunkRepository,
+        repository: validOptions.repository,
+        toast: validOptions.toast,
       })
     );
     await expect(withoutDatabase.result.current.loadFileChunkSummaries('record-1')).rejects.toThrow(
@@ -1121,19 +1229,19 @@ describe('useDatabaseDemoData', () => {
     }) =>
       renderHook(() =>
         useDatabaseDemoData({
-          repository,
-          chunkRepository,
-          toast: vi.fn(),
-          database: database as never,
           activeCollectionId,
+          chunkRepository,
+          database: database as never,
+          repository,
+          toast: vi.fn(),
         })
       );
 
     const noCollection = renderSubject({
       activeCollectionId: null,
-      repository,
       chunkRepository,
       database,
+      repository,
     });
     await expect(noCollection.result.current.loadCollectionExportData()).rejects.toThrow(
       'Export requests require an active collection.'
@@ -1141,9 +1249,9 @@ describe('useDatabaseDemoData', () => {
 
     const noRepository = renderSubject({
       activeCollectionId: 'set-1',
-      repository: null,
       chunkRepository,
       database,
+      repository: null,
     });
     await expect(noRepository.result.current.loadCollectionExportData()).rejects.toThrow(
       'File export repository is unavailable.'
@@ -1151,9 +1259,9 @@ describe('useDatabaseDemoData', () => {
 
     const noQuerySupport = renderSubject({
       activeCollectionId: 'set-1',
-      repository,
       chunkRepository,
       database: {},
+      repository,
     });
     await expect(noQuerySupport.result.current.loadCollectionExportData()).rejects.toThrow(
       'Collection export requires database query support.'
@@ -1161,9 +1269,9 @@ describe('useDatabaseDemoData', () => {
 
     const noChunkRepository = renderSubject({
       activeCollectionId: 'set-1',
-      repository,
       chunkRepository: null,
       database,
+      repository,
     });
     await expect(noChunkRepository.result.current.loadCollectionExportData()).rejects.toThrow(
       'Chunk export repository is unavailable.'
@@ -1171,9 +1279,9 @@ describe('useDatabaseDemoData', () => {
 
     const unsupportedFileRepository = renderSubject({
       activeCollectionId: 'set-1',
-      repository: { count: vi.fn() } as unknown as DrizzleFileRecordRepository,
       chunkRepository,
       database,
+      repository: { count: vi.fn() } as unknown as DrizzleFileRecordRepository,
     });
     await expect(
       unsupportedFileRepository.result.current.loadCollectionExportData()
@@ -1181,9 +1289,9 @@ describe('useDatabaseDemoData', () => {
 
     const unsupportedChunkRepository = renderSubject({
       activeCollectionId: 'set-1',
-      repository,
       chunkRepository: { findById: vi.fn() } as unknown as DrizzleFileChunkRepository,
       database,
+      repository,
     });
     await expect(
       unsupportedChunkRepository.result.current.loadCollectionExportData()
@@ -1203,11 +1311,11 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast: vi.fn(),
-        database,
         activeCollectionId: 'set-1',
+        chunkRepository,
+        database,
+        repository,
+        toast: vi.fn(),
       })
     );
 
@@ -1220,24 +1328,24 @@ describe('useDatabaseDemoData', () => {
     const now = new Date().toISOString();
     const recordCount = 120;
     const records: FileRecord[] = Array.from({ length: recordCount }, (_, index) => ({
+      content: `content-${index}`,
+      createdAt: now,
       id: `record-${index}`,
       name: `file-${index}.ts`,
       path: `/file-${index}.ts`,
       size: index + 1,
-      createdAt: now,
       updatedAt: now,
-      content: `content-${index}`,
     }));
     const chunks: FileChunk[] = records.map((record, index) => ({
-      id: `chunk-${index}`,
-      fileRecordId: record.id,
       chunkIndex: 0,
+      chunkSize: 10,
+      chunkType: 'code',
       content: `chunk-${index}`,
       contentHash: `chunk-hash-${index}`,
-      tokenCount: 5,
-      chunkType: 'code',
-      chunkSize: 10,
       createdAt: now,
+      fileRecordId: record.id,
+      id: `chunk-${index}`,
+      tokenCount: 5,
       updatedAt: now,
     }));
 
@@ -1247,6 +1355,8 @@ describe('useDatabaseDemoData', () => {
     let maxConcurrentChunkLoads = 0;
 
     const repository = {
+      count: vi.fn().mockResolvedValue(recordCount),
+      findAll: vi.fn().mockResolvedValue(records),
       findById: vi.fn(async (id: string) => {
         activeRecordLoads += 1;
         maxConcurrentRecordLoads = Math.max(maxConcurrentRecordLoads, activeRecordLoads);
@@ -1254,12 +1364,9 @@ describe('useDatabaseDemoData', () => {
         activeRecordLoads -= 1;
         return records.find((record) => record.id === id) ?? null;
       }),
-      count: vi.fn().mockResolvedValue(recordCount),
-      findAll: vi.fn().mockResolvedValue(records),
     } as unknown as DrizzleFileRecordRepository;
 
     const chunkRepository = {
-      findById: vi.fn(async (id: string) => chunks.find((chunk) => chunk.id === id) ?? null),
       findAll: vi.fn().mockResolvedValue(chunks),
       findByFileRecordId: vi.fn(async (fileRecordId: string) => {
         activeChunkLoads += 1;
@@ -1268,25 +1375,26 @@ describe('useDatabaseDemoData', () => {
         activeChunkLoads -= 1;
         return chunks.filter((chunk) => chunk.fileRecordId === fileRecordId);
       }),
+      findById: vi.fn(async (id: string) => chunks.find((chunk) => chunk.id === id) ?? null),
     } as unknown as DrizzleFileChunkRepository;
 
     setupLiveQueries({
       records: records.map((record) => ({
+        chunkingStrategy: 'recursive',
+        chunksCount: 1,
+        chunksProcessedAt: now,
+        contentHash: null,
+        createdAt: record.createdAt,
+        embeddedChunksCount: 0,
+        embeddingSetId: 'set-1',
+        hasEmbedding: false,
         id: record.id,
         name: record.name,
         path: record.path,
-        size: record.size,
-        createdAt: record.createdAt,
-        updatedAt: record.updatedAt,
-        contentHash: null,
-        tokenCount: 5,
         processedAt: now,
-        chunksProcessedAt: now,
-        chunksCount: 1,
-        embeddedChunksCount: 0,
-        chunkingStrategy: 'recursive',
-        hasEmbedding: false,
-        embeddingSetId: 'set-1',
+        size: record.size,
+        tokenCount: 5,
+        updatedAt: record.updatedAt,
       })),
     });
     const database = createMockDatabase({
@@ -1295,17 +1403,17 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast: vi.fn(),
-        database,
         activeCollectionId: 'set-1',
+        chunkRepository,
+        database,
+        repository,
+        toast: vi.fn(),
       })
     );
 
     await expect(result.current.loadCollectionExportData()).resolves.toEqual({
-      records,
       chunks,
+      records,
     });
 
     expect(maxConcurrentRecordLoads).toBeLessThanOrEqual(50);
@@ -1317,32 +1425,32 @@ describe('useDatabaseDemoData', () => {
     setupLiveQueries({
       records: [
         {
+          chunkingStrategy: 'semantic-markdown',
+          chunksCount: 3,
+          chunksProcessedAt: now,
+          content: '# Guide',
+          contentHash: 'guide-hash',
+          createdAt: now,
+          embeddingSetId: 'set-markdown',
+          hasEmbedding: false,
           id: 'markdown-record',
           name: 'guide.md',
           path: '/guide.md',
-          size: 512,
-          createdAt: now,
-          updatedAt: now,
-          content: '# Guide',
-          contentHash: 'guide-hash',
-          tokenCount: 42,
           processedAt: now,
-          chunksProcessedAt: now,
-          chunksCount: 3,
-          chunkingStrategy: 'semantic-markdown',
-          hasEmbedding: false,
-          embeddingSetId: 'set-markdown',
+          size: 512,
+          tokenCount: 42,
+          updatedAt: now,
         },
       ],
     });
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-markdown',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -1372,21 +1480,21 @@ describe('useDatabaseDemoData', () => {
       const { recordRefresh } = setupLiveQueries({
         records: [
           {
+            chunkingStrategy: 'recursive',
+            chunksCount: 1,
+            chunksProcessedAt: now,
+            contentHash: 'refresh-hash',
+            createdAt: now,
+            embeddedChunksCount: 1,
+            embeddingSetId: 'set-1',
+            hasEmbedding: true,
             id: 'record-1',
             name: 'refresh.ts',
             path: '/refresh.ts',
-            size: 42,
-            createdAt: now,
-            updatedAt: now,
-            contentHash: 'refresh-hash',
-            tokenCount: 5,
             processedAt: now,
-            chunksProcessedAt: now,
-            chunksCount: 1,
-            embeddedChunksCount: 1,
-            chunkingStrategy: 'recursive',
-            hasEmbedding: true,
-            embeddingSetId: 'set-1',
+            size: 42,
+            tokenCount: 5,
+            updatedAt: now,
           },
         ],
       });
@@ -1394,19 +1502,19 @@ describe('useDatabaseDemoData', () => {
         chunkRowsByFileRecordId: {
           'record-1': [
             {
-              id: 'chunk-1',
-              fileRecordId: 'record-1',
               chunkIndex: 0,
-              contentHash: 'chunk-hash',
-              tokenCount: 5,
-              chunkType: 'code',
               chunkSize: 21,
-              hasEmbedding: true,
+              chunkType: 'code',
+              contentHash: 'chunk-hash',
+              createdAt: now,
               embeddingDimensions: 2,
+              embeddingHash: 'embedding-hash',
               embeddingSetId: 'set-1',
               embeddingUpdatedAt: now,
-              embeddingHash: 'embedding-hash',
-              createdAt: now,
+              fileRecordId: 'record-1',
+              hasEmbedding: true,
+              id: 'chunk-1',
+              tokenCount: 5,
               updatedAt: now,
             },
           ],
@@ -1415,11 +1523,11 @@ describe('useDatabaseDemoData', () => {
 
       const { result } = renderHook(() =>
         useDatabaseDemoData({
-          repository,
-          chunkRepository,
-          toast,
-          database,
           activeCollectionId: 'set-1',
+          chunkRepository,
+          database,
+          repository,
+          toast,
         })
       );
 
@@ -1466,11 +1574,11 @@ describe('useDatabaseDemoData', () => {
 
     renderHook(() =>
       useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast,
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository,
+        database: createMockDatabase(),
+        repository,
+        toast,
       })
     );
 
@@ -1480,8 +1588,8 @@ describe('useDatabaseDemoData', () => {
 
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Error',
         description: expect.stringContaining('file_records'),
+        title: 'Error',
       })
     );
   });
@@ -1491,11 +1599,11 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository(),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository(),
+        toast: vi.fn(),
       })
     );
 
@@ -1539,10 +1647,10 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: null,
-        chunkRepository: null,
-        toast,
         activeCollectionId: null,
+        chunkRepository: null,
+        repository: null,
+        toast,
       })
     );
 
@@ -1563,11 +1671,11 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast,
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository,
+        database: createMockDatabase(),
+        repository,
+        toast,
       })
     );
 
@@ -1583,9 +1691,9 @@ describe('useDatabaseDemoData', () => {
   it('resolves storage location as Main Process for Electron repository', async () => {
     // Create a mock repository with constructor name matching ElectronFileRecordRepository
     const electronRepository = {
-      findAll: vi.fn().mockResolvedValue([]),
-      count: vi.fn().mockResolvedValue(5),
       constructor: { name: 'ElectronFileRecordRepository' },
+      count: vi.fn().mockResolvedValue(5),
+      findAll: vi.fn().mockResolvedValue([]),
     } as unknown as DrizzleFileRecordRepository;
 
     const chunkRepository = createChunkRepository([]);
@@ -1594,11 +1702,11 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: electronRepository,
-        chunkRepository,
-        toast,
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository,
+        database: createMockDatabase(),
+        repository: electronRepository,
+        toast,
       })
     );
 
@@ -1624,8 +1732,8 @@ describe('useDatabaseDemoData', () => {
 
     try {
       const repository = {
-        findAll: vi.fn().mockResolvedValue([]),
         count: vi.fn().mockRejectedValue(new Error('Connection refused')),
+        findAll: vi.fn().mockResolvedValue([]),
       } as unknown as DrizzleFileRecordRepository;
 
       const chunkRepository = createChunkRepository([]);
@@ -1634,11 +1742,11 @@ describe('useDatabaseDemoData', () => {
 
       const { result } = renderHook(() =>
         useDatabaseDemoData({
-          repository,
-          chunkRepository,
-          toast,
-          database: createMockDatabase(),
           activeCollectionId: 'set-1',
+          chunkRepository,
+          database: createMockDatabase(),
+          repository,
+          toast,
         })
       );
 
@@ -1672,11 +1780,11 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast,
-        database: failingDatabase,
         activeCollectionId: 'set-1',
+        chunkRepository,
+        database: failingDatabase,
+        repository,
+        toast,
       })
     );
 
@@ -1695,10 +1803,10 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: null,
-        chunkRepository: null,
-        toast,
         activeCollectionId: null,
+        chunkRepository: null,
+        repository: null,
+        toast,
       })
     );
 
@@ -1725,11 +1833,11 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast,
-        database,
         activeCollectionId: 'set-1',
+        chunkRepository,
+        database,
+        repository,
+        toast,
       })
     );
 
@@ -1747,32 +1855,32 @@ describe('useDatabaseDemoData', () => {
     const test = vi.fn().mockResolvedValue({ success: true });
     let resolveCount: (count: number) => void = () => undefined;
     const repository = {
-      findAll: vi.fn().mockResolvedValue([]),
       count: vi.fn(
         () =>
           new Promise<number>((resolve) => {
             resolveCount = resolve;
           })
       ),
+      findAll: vi.fn().mockResolvedValue([]),
     } as unknown as DrizzleFileRecordRepository;
     vi.stubGlobal('electronAPI', { db: { ping, test } });
     setupLiveQueries();
 
     const { result, unmount } = renderHook(() =>
       useDatabaseDemoData({
-        repository,
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository,
+        toast: vi.fn(),
       })
     );
 
     await waitFor(() => {
       expect(result.current.dbInfo).toEqual({
+        connected: true,
         location: 'Main Process',
         testResult: 'Connected (IPC)',
-        connected: true,
       });
     });
     expect(ping).toHaveBeenCalled();
@@ -1790,11 +1898,11 @@ describe('useDatabaseDemoData', () => {
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
-        repository: createRepository([], 4),
-        chunkRepository: createChunkRepository([]),
-        toast: vi.fn(),
-        database: createMockDatabase(),
         activeCollectionId: 'set-1',
+        chunkRepository: createChunkRepository([]),
+        database: createMockDatabase(),
+        repository: createRepository([], 4),
+        toast: vi.fn(),
       })
     );
 

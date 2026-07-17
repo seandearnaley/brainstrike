@@ -57,10 +57,10 @@ export function useFileContentLoading(
       }
 
       let fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
-      if (!fileNode || fileNode.type !== 'file' || !fileNode.handle) {
+      if (fileNode?.type !== 'file' || !fileNode.handle) {
         await new Promise((r) => setTimeout(r, 100));
         fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
-        if (!fileNode || fileNode.type !== 'file' || !fileNode.handle) {
+        if (fileNode?.type !== 'file' || !fileNode.handle) {
           return null;
         }
       }
@@ -127,10 +127,10 @@ export function useFileContentLoading(
   }, []);
 
   return {
-    fileContents,
-    isLoading,
-    error,
-    handleFileContentLoading,
     clearFileContents,
+    error,
+    fileContents,
+    handleFileContentLoading,
+    isLoading,
   };
 }

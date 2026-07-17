@@ -1,4 +1,8 @@
-export type { CodeSurfaceProps, CodeSurfaceSelection } from './code-surface';
+export type {
+  CodeSurfaceContextMenuSelection,
+  CodeSurfaceProps,
+  CodeSurfaceSelection,
+} from './code-surface';
 export { CodeSurface } from './code-surface';
 export {
   type CodeSurfaceLanguageInput,

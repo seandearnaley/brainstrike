@@ -6,7 +6,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** A message part is a tool call when its discriminant `type` is `'tool-call'`. */
-function isToolCallPart(part: unknown): part is Record<string, unknown> {
+export function isToolCallPart(part: unknown): part is Record<string, unknown> {
   return isRecord(part) && part['type'] === 'tool-call';
 }
 
@@ -67,7 +67,7 @@ export function summarizeToolActivity(parts: readonly unknown[]): ToolActivitySu
     }
   }
 
-  return { stepCount, runningCount, failedCount, activeLabel, activeArg };
+  return { activeArg, activeLabel, failedCount, runningCount, stepCount };
 }
 
 /**

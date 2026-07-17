@@ -65,10 +65,10 @@ describe('ACTIVE_COLLECTION_LIVE_COUNTS_QUERY', () => {
 
       expect(result.rows).toHaveLength(1);
       expect(result.rows[0]).toEqual({
-        embeddingsetid: 'set-1',
-        recordsCount: 3,
         chunksCount: 5,
         embeddingsCount: 2,
+        embeddingsetid: 'set-1',
+        recordsCount: 3,
       });
     } finally {
       await db.close();
@@ -83,7 +83,7 @@ describe('ACTIVE_COLLECTION_LIVE_COUNTS_QUERY', () => {
       const result = await db.query(ACTIVE_COLLECTION_LIVE_COUNTS_QUERY, ['set-new']);
 
       expect(result.rows).toEqual([
-        { embeddingsetid: 'set-new', recordsCount: 0, chunksCount: 0, embeddingsCount: 0 },
+        { chunksCount: 0, embeddingsCount: 0, embeddingsetid: 'set-new', recordsCount: 0 },
       ]);
     } finally {
       await db.close();
@@ -109,10 +109,10 @@ describe('ACTIVE_COLLECTION_LIVE_COUNTS_QUERY', () => {
       const result = await db.query(ACTIVE_COLLECTION_LIVE_COUNTS_QUERY, ['set-1']);
 
       expect(result.rows[0]).toEqual({
-        embeddingsetid: 'set-1',
-        recordsCount: 1,
         chunksCount: 1,
         embeddingsCount: 1,
+        embeddingsetid: 'set-1',
+        recordsCount: 1,
       });
     } finally {
       await db.close();

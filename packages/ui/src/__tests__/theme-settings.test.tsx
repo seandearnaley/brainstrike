@@ -14,8 +14,8 @@ describe('ThemeSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (useTheme as ReturnType<typeof vi.fn>).mockReturnValue({
-      theme: 'light',
       setTheme: mockSetTheme,
+      theme: 'light',
     });
   });
 
@@ -29,8 +29,8 @@ describe('ThemeSettings', () => {
 
   it('highlights the active theme button', () => {
     (useTheme as ReturnType<typeof vi.fn>).mockReturnValue({
-      theme: 'dark',
       setTheme: mockSetTheme,
+      theme: 'dark',
     });
 
     render(<ThemeSettings />);

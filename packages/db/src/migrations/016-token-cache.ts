@@ -12,7 +12,9 @@ import type { Migration } from './migration-runner';
  * - Efficient batch queries with indexes
  */
 export const migration016TokenCache: Migration = {
-  version: 16,
+  down: `
+    DROP TABLE IF EXISTS file_token_cache;
+  `,
   name: 'token_cache',
   up: `
     -- Create token cache table
@@ -58,7 +60,5 @@ export const migration016TokenCache: Migration = {
     CREATE INDEX IF NOT EXISTS idx_token_cache_mode
       ON file_token_cache(folder_id, counting_mode);
   `,
-  down: `
-    DROP TABLE IF EXISTS file_token_cache;
-  `,
+  version: 16,
 };

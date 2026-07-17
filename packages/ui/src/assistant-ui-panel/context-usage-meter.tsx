@@ -17,7 +17,7 @@ import {
   formatTokenCount,
   formatUsdCost,
 } from '@brainstrike/utils/token-counting-heuristics';
-import { type FC, useMemo } from 'react';
+import { useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { getMessageParts } from './assistant-run-timeline';
 import { useContextUsageStore } from './context-usage-store';
@@ -25,8 +25,8 @@ import { useContextUsageStore } from './context-usage-store';
 /**
  * Durable cumulative usage for the active thread, resolved upstream (tokens +
  * a discriminated cost). Distinct from the one-turn-lag bar above: this is the
- * running total persisted across reloads. `cost` is never $0 for an unavailable
- * price — the `available: false` branch renders "cost unavailable".
+ * running captured total persisted across reloads. `cost` is never $0 for an
+ * unavailable price, and captured-only totals are visibly qualified as estimates.
  */
 export interface CumulativeUsageDisplay {
   readonly cost: CostEstimate;
@@ -36,7 +36,8 @@ export interface CumulativeUsageDisplay {
 /** Resolve a cost estimate to its display string (never $0 for unavailable). */
 function costLabel(cost: CostEstimate): string {
   if (cost.available) {
-    return formatUsdCost(cost.usdAmount);
+    const amount = formatUsdCost(cost.usdAmount);
+    return cost.provenance === 'captured-usage-estimate' ? `captured usage est. ${amount}` : amount;
   }
   return 'cost unavailable';
 }
@@ -54,7 +55,7 @@ function costLabel(cost: CostEstimate): string {
  *   loading   → live query fetching (initial / thread switch); stays quiet.
  *   empty     → no OM row yet (first turn).
  *   error     → malformed OM row / live-query error (strict parse failed upstream).
- *   stats     → live informational values (observed tokens + compaction saved).
+ *   stats     → active/buffered OM, activation progress, and compaction saved.
  */
 export type OmMeterState =
   | { readonly kind: 'chat-only' }
@@ -64,10 +65,16 @@ export type OmMeterState =
   | { readonly kind: 'error'; readonly reason: string }
   | {
       readonly kind: 'stats';
+      /** Summaries generated in the async buffer but not activated yet. */
+      readonly bufferedObservationTokens: number;
       /** observationTokenCount — what OM is currently holding for this thread. */
       readonly observationTokens: number;
       /** totalTokensObserved − observationTokenCount, clamped ≥ 0 (compacted away). */
       readonly compactionSavedTokens: number;
+      /** Raw-message threshold that activates buffered observations. */
+      readonly messageTokenThreshold: number;
+      /** Raw message tokens currently progressing toward activation. */
+      readonly pendingMessageTokens: number;
     };
 
 export interface ContextUsageMeterProps {
@@ -140,21 +147,32 @@ interface OmMeterSectionProps {
 }
 
 /**
- * Renders the OM portion of the meter as INFORMATIONAL stats (observed tokens +
- * compaction saved) for the `stats` state, or an honest one-line note for every
+ * Renders the OM portion of the meter as INFORMATIONAL active/buffered/progress
+ * stats for the `stats` state, or an honest one-line note for every
  * other state (never zeros). The observation is deliberately NOT drawn as a
  * budget segment — it does not consume this turn's input budget (see OmMeterState
  * doc). Extracted so ContextUsageMeter stays under the cognitive-complexity budget.
  */
-const OmMeterSection: FC<OmMeterSectionProps> = ({ state }) => {
+const OmMeterSection = ({ state }: OmMeterSectionProps) => {
   if (state.kind === 'stats') {
     return (
       <div
         className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground/70"
         data-testid="context-usage-om-stats"
       >
-        <span className="tabular-nums" data-testid="context-usage-om-observed">
-          OM context: ~{formatCompact(state.observationTokens)} tokens observed
+        {state.observationTokens > 0 && (
+          <span className="tabular-nums" data-testid="context-usage-om-active">
+            Active OM: ~{formatCompact(state.observationTokens)} tokens
+          </span>
+        )}
+        {state.bufferedObservationTokens > 0 && (
+          <span className="tabular-nums" data-testid="context-usage-om-buffered">
+            Buffered OM: ~{formatCompact(state.bufferedObservationTokens)} tokens
+          </span>
+        )}
+        <span className="tabular-nums" data-testid="context-usage-om-progress">
+          Messages: ~{formatCompact(state.pendingMessageTokens)} /{' '}
+          {formatCompact(state.messageTokenThreshold)} toward activation
         </span>
         {state.compactionSavedTokens > 0 && (
           <span className="tabular-nums" data-testid="context-usage-om-compaction">
@@ -184,14 +202,14 @@ const OmMeterSection: FC<OmMeterSectionProps> = ({ state }) => {
 
 OmMeterSection.displayName = 'OmMeterSection';
 
-export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
+export const ContextUsageMeter = ({
   threadKey,
   contextWindow,
   cumulativeUsage,
   effectiveInputBudget,
   estimatedTokens,
   omSegment,
-}) => {
+}: ContextUsageMeterProps) => {
   const key = threadKey ?? 'active';
   const usage = useContextUsageStore((s) => s.usageByThread[key]);
 
@@ -334,13 +352,13 @@ export interface ThreadContextMeterProps {
   threadKey: string | undefined;
 }
 
-export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
+export const ThreadContextMeter = ({
   contextWindow,
   cumulativeUsage,
   effectiveInputBudget,
   omSegment,
   threadKey,
-}) => {
+}: ThreadContextMeterProps) => {
   // Access all messages to build a local token estimate.
   const messages = useAuiState((s) => s.thread.messages);
   // Exact usage for this thread — when present, skip the message walk entirely

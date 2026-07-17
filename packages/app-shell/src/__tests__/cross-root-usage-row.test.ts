@@ -3,12 +3,12 @@ import { mapCrossRootUsageRow } from '../assistant-memory-repository';
 
 function baseRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    rootId: 'root-1',
-    rootDisplayName: 'project-alpha',
-    provider: 'anthropic',
-    model: 'claude-opus-4-8',
     inputTokens: 100,
+    model: 'claude-opus-4-8',
     outputTokens: 50,
+    provider: 'anthropic',
+    rootDisplayName: 'project-alpha',
+    rootId: 'root-1',
     ...overrides,
   };
 }
@@ -16,12 +16,12 @@ function baseRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 describe('mapCrossRootUsageRow', () => {
   it('maps a well-formed row', () => {
     expect(mapCrossRootUsageRow(baseRow())).toMatchObject({
-      rootId: 'root-1',
-      rootDisplayName: 'project-alpha',
-      provider: 'anthropic',
-      model: 'claude-opus-4-8',
       inputTokens: 100,
+      model: 'claude-opus-4-8',
       outputTokens: 50,
+      provider: 'anthropic',
+      rootDisplayName: 'project-alpha',
+      rootId: 'root-1',
     });
   });
 

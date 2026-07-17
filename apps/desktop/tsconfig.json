@@ -21,13 +21,15 @@
       "electron",
       "vite/client"
     ],
-    "baseUrl": ".",
     "paths": {
       "@brainstrike/agent": [
         "../../packages/agent/dist/index.d.ts"
       ],
       "@brainstrike/agent/client": [
         "../../packages/agent/dist/client.d.ts"
+      ],
+      "@brainstrike/agent/mcp-client": [
+        "../../packages/agent/dist/mcp-client.d.ts"
       ],
       "@brainstrike/agent/local-llm": [
         "../../packages/agent/dist/local-llm.d.ts"

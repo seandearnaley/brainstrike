@@ -1,6 +1,5 @@
 import { FileExplorerStrings } from '@brainstrike/types';
 import { Label, Switch } from '@brainstrike/ui';
-import type React from 'react';
 
 interface InlineFixtureSettingProps {
   checked: boolean;
@@ -8,11 +7,11 @@ interface InlineFixtureSettingProps {
   onChange: (checked: boolean) => void;
 }
 
-const InlineFixtureSetting: React.FC<InlineFixtureSettingProps> = ({
+const InlineFixtureSetting = ({
   checked,
   disabled = false,
   onChange,
-}) => (
+}: InlineFixtureSettingProps) => (
   <div className="flex flex-col gap-2 rounded-md border bg-card/60 p-3">
     <div className="flex items-center justify-between gap-4">
       <div className="flex flex-col">

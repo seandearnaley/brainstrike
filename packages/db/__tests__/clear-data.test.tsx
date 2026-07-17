@@ -32,9 +32,9 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   });
 
   return {
-    query: baseQuery,
-    exec: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
+    exec: vi.fn(async () => {}),
+    query: baseQuery,
     ...overrides,
   };
 }
@@ -100,7 +100,7 @@ describe('Database clearing functionality', () => {
         () => {
           const repo = useFileRecordRepository(); // Trigger lazy initialization
           const clearData = useClearAllData();
-          return { repo, clearData };
+          return { clearData, repo };
         },
         { wrapper }
       );
@@ -120,8 +120,8 @@ describe('Database clearing functionality', () => {
       }
 
       expect(clearResult).toEqual({
-        deletedFiles: 0,
         deletedChunks: 0,
+        deletedFiles: 0,
       });
       expect(mockTransaction).toHaveBeenCalled();
     });
@@ -151,7 +151,7 @@ describe('Database clearing functionality', () => {
         () => {
           const repo = useFileRecordRepository(); // Trigger lazy initialization
           const clearData = useClearAllData();
-          return { repo, clearData };
+          return { clearData, repo };
         },
         { wrapper }
       );
@@ -171,12 +171,135 @@ describe('Database clearing functionality', () => {
       }
 
       expect(clearResult).toEqual({
-        deletedFiles: 5,
         deletedChunks: 10,
+        deletedFiles: 5,
       });
       // Factory-reset contract: stale roots must not survive a clear and
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM prompt_items');
+    });
+
+    it('propagates a real prompt_items delete failure from direct clear', async () => {
+      const queryMock: QueryMock = vi.fn(async (sql: string) => {
+        if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
+          return { rows: [{ count: '0' }] };
+        }
+        if (sql === 'SELECT COUNT(*) as count FROM file_records') {
+          return { rows: [{ count: '0' }] };
+        }
+        if (sql === 'DELETE FROM prompt_items') {
+          throw new Error('prompt storage I/O failure');
+        }
+        return { rows: [] };
+      });
+      const mockTransaction: TransactionMock = vi.fn(
+        async (callback: TransactionCallback) => await callback({ query: queryMock })
+      );
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
+      activeDatabases.push(mockDb);
+
+      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
+
+      const { result } = renderHook(
+        () => ({
+          clearData: useClearAllData(),
+          repo: useFileRecordRepository(),
+        }),
+        { wrapper }
+      );
+      await waitFor(() => {
+        expect(result.current.repo).not.toBeNull();
+        expect(result.current.clearData).not.toBeNull();
+      });
+
+      await expect(result.current.clearData?.()).rejects.toThrow('prompt storage I/O failure');
+    });
+
+    it('tolerates a missing prompt_items relation during direct clear for older schemas', async () => {
+      const missingRelation = Object.assign(new Error('relation "prompt_items" does not exist'), {
+        code: '42P01',
+      });
+      const queryMock: QueryMock = vi.fn(async (sql: string) => {
+        if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
+          return { rows: [{ count: '0' }] };
+        }
+        if (sql === 'SELECT COUNT(*) as count FROM file_records') {
+          return { rows: [{ count: '0' }] };
+        }
+        if (sql === 'DELETE FROM prompt_items') {
+          throw missingRelation;
+        }
+        return { rows: [] };
+      });
+      const mockTransaction: TransactionMock = vi.fn(
+        async (callback: TransactionCallback) => await callback({ query: queryMock })
+      );
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
+      activeDatabases.push(mockDb);
+
+      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
+
+      const { result } = renderHook(
+        () => ({
+          clearData: useClearAllData(),
+          repo: useFileRecordRepository(),
+        }),
+        { wrapper }
+      );
+      await waitFor(() => {
+        expect(result.current.repo).not.toBeNull();
+        expect(result.current.clearData).not.toBeNull();
+      });
+
+      await expect(result.current.clearData?.()).resolves.toEqual({
+        deletedChunks: 0,
+        deletedFiles: 0,
+      });
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM prompt_items');
+    });
+
+    it('propagates an undefined-table error for a different relation during prompt cleanup', async () => {
+      const triggerFailure = Object.assign(
+        new Error('relation "prompt_item_audit_log" does not exist while deleting prompt_items'),
+        { code: '42P01' }
+      );
+      const queryMock: QueryMock = vi.fn(async (sql: string) => {
+        if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
+          return { rows: [{ count: '0' }] };
+        }
+        if (sql === 'SELECT COUNT(*) as count FROM file_records') {
+          return { rows: [{ count: '0' }] };
+        }
+        if (sql === 'DELETE FROM prompt_items') {
+          throw triggerFailure;
+        }
+        return { rows: [] };
+      });
+      const mockTransaction: TransactionMock = vi.fn(
+        async (callback: TransactionCallback) => await callback({ query: queryMock })
+      );
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
+      activeDatabases.push(mockDb);
+
+      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
+
+      const { result } = renderHook(
+        () => ({
+          clearData: useClearAllData(),
+          repo: useFileRecordRepository(),
+        }),
+        { wrapper }
+      );
+      await waitFor(() => {
+        expect(result.current.repo).not.toBeNull();
+        expect(result.current.clearData).not.toBeNull();
+      });
+
+      await expect(result.current.clearData?.()).rejects.toThrow('prompt_item_audit_log');
     });
 
     it('should handle transaction errors gracefully', async () => {
@@ -193,7 +316,7 @@ describe('Database clearing functionality', () => {
         () => {
           const repo = useFileRecordRepository(); // Trigger lazy initialization
           const clearData = useClearAllData();
-          return { repo, clearData };
+          return { clearData, repo };
         },
         { wrapper }
       );
@@ -249,7 +372,7 @@ describe('Database clearing functionality', () => {
         () => {
           const repo = useFileRecordRepository(); // Trigger lazy initialization
           const clearData = useClearAllData();
-          return { repo, clearData };
+          return { clearData, repo };
         },
         { wrapper }
       );

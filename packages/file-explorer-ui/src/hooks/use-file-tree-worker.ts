@@ -60,7 +60,7 @@ async function loadSingleDirectory(
 ): Promise<BatchLoadResult> {
   const handle = handleMap.get(path);
   if (!handle) {
-    return { path, error: 'Handle not found' };
+    return { error: 'Handle not found', path };
   }
 
   const node = buildNodeFromPath(path, rootPath, rootFolderId, handle as FileSystemDirectoryHandle);
@@ -73,13 +73,13 @@ async function loadSingleDirectory(
 
     addHandlesToMap(children, handleMap);
 
-    return { path, children: toWorkerFileNodes(children) };
+    return { children: toWorkerFileNodes(children), path };
   } catch (err) {
     if (isAbortError(err)) {
       // Re-throw abort errors to be handled by caller
       throw err;
     }
-    return { path, error: err instanceof Error ? err.message : String(err) };
+    return { error: err instanceof Error ? err.message : String(err), path };
   }
 }
 
@@ -165,10 +165,10 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
       // Handle async worker errors (load failures, runtime errors)
       worker.onerror = (event) => {
         logger.error('Worker async error', {
-          message: event.message,
+          colno: event.colno,
           filename: event.filename,
           lineno: event.lineno,
-          colno: event.colno,
+          message: event.message,
         });
         onErrorRef.current?.(new Error(`Worker error: ${event.message}`));
       };
@@ -189,7 +189,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
       port.onRequestLoad(async (_requestId, paths) => {
         if (!fileSystemAdapter) {
           logger.warn('onRequestLoad: no file system adapter');
-          return paths.map((path) => ({ path, error: 'No file system adapter' }));
+          return paths.map((path) => ({ error: 'No file system adapter', path }));
         }
 
         const abortController = new AbortController();
@@ -198,8 +198,8 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
         const rootPath = rootHandleRef.current?.path;
         if (!rootPath) {
           return paths.map((path) => ({
-            path,
             error: 'Root directory handle is missing its canonical path',
+            path,
           }));
         }
 
@@ -224,11 +224,11 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
             } catch (err) {
               // Ignore abort errors (operation was cancelled)
               if (isAbortError(err)) {
-                return { path, error: 'Operation aborted' };
+                return { error: 'Operation aborted', path };
               }
               return {
-                path,
                 error: err instanceof Error ? err.message : String(err),
+                path,
               };
             }
           }
@@ -289,8 +289,8 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
   }, [fileSystemAdapter]); // Only recreate worker when adapter changes
 
   return {
-    portRef,
     handleMapRef,
+    portRef,
     rootHandleRef,
     setRootHandle,
   };

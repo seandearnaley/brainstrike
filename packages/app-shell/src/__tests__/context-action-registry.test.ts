@@ -66,12 +66,12 @@ describe('createAppActionRegistry', () => {
     const openPath = vi
       .fn<(absolutePath: string) => Promise<{ ok: boolean; error?: string }>>()
       .mockResolvedValueOnce({ ok: false })
-      .mockResolvedValueOnce({ ok: false, error: 'x' })
+      .mockResolvedValueOnce({ error: 'x', ok: false })
       .mockResolvedValueOnce({ ok: true });
     const showItemInFolder = vi
       .fn<(absolutePath: string) => Promise<{ ok: boolean; error?: string }>>()
       .mockResolvedValueOnce({ ok: false })
-      .mockResolvedValueOnce({ ok: false, error: 'x' })
+      .mockResolvedValueOnce({ error: 'x', ok: false })
       .mockResolvedValueOnce({ ok: true });
     (window as MutableWindow).platform = { openPath, showItemInFolder };
 
@@ -82,17 +82,17 @@ describe('createAppActionRegistry', () => {
     }
 
     await expect(platformFs.openPath('/a')).resolves.toEqual({
-      ok: false,
       error: 'Open failed',
+      ok: false,
     });
-    await expect(platformFs.openPath('/a')).resolves.toEqual({ ok: false, error: 'x' });
+    await expect(platformFs.openPath('/a')).resolves.toEqual({ error: 'x', ok: false });
     await expect(platformFs.openPath('/a')).resolves.toEqual({ ok: true });
 
     await expect(platformFs.showItemInFolder('/a')).resolves.toEqual({
-      ok: false,
       error: 'Reveal failed',
+      ok: false,
     });
-    await expect(platformFs.showItemInFolder('/a')).resolves.toEqual({ ok: false, error: 'x' });
+    await expect(platformFs.showItemInFolder('/a')).resolves.toEqual({ error: 'x', ok: false });
     await expect(platformFs.showItemInFolder('/a')).resolves.toEqual({ ok: true });
 
     expect(openPath).toHaveBeenCalledWith('/a');
@@ -101,9 +101,20 @@ describe('createAppActionRegistry', () => {
 
   it('includes the composed global actions', () => {
     const registry = createAppActionRegistry();
-    const grouped = registry.actionsFor({ kind: 'chunk', id: 'c', content: 'x' });
+    const grouped = registry.actionsFor({ content: 'x', id: 'c', kind: 'chunk' });
     const flatIds = grouped.flatMap((group) => group.actions.map((action) => action.id));
     expect(flatIds).toContain('collection.copy-id');
     expect(flatIds).toContain('collection.copy-content');
+
+    const threadGroups = registry.actionsFor({
+      id: 'thread-a',
+      kind: 'assistant-thread',
+      resourceId: 'workspace-memory',
+      title: 'Evidence review',
+    });
+    expect(threadGroups.flatMap((group) => group.actions.map((action) => action.id))).toEqual([
+      'assistant-thread.copy-title',
+      'assistant-thread.copy-id',
+    ]);
   });
 });

@@ -55,11 +55,11 @@ class MockWorker {
 
 function createRequest(): EmbedWorkerRequest {
   return {
-    type: 'embed',
+    deviceHint: 'wasm',
     id: 'embed-1',
     model: 'local:test-model',
     texts: ['hello'],
-    deviceHint: 'wasm',
+    type: 'embed',
   };
 }
 
@@ -77,31 +77,31 @@ describe('StreamingEmbeddingWorkerClient', () => {
     await flushMicrotasks();
 
     worker.emitMessage({
-      type: 'batch',
-      id: 'embed-1',
       batchIndex: 0,
-      startIndex: 0,
       endIndex: 1,
+      id: 'embed-1',
+      startIndex: 0,
+      type: 'batch',
       vectors: [new Float32Array([1, 2])],
     } satisfies EmbedWorkerBatch);
     worker.emitMessage({
-      type: 'complete',
       id: 'embed-1',
       metadata: {
-        model: 'local:test-model',
-        device: 'wasm',
-        dtype: 'fp32',
         batchSize: 1,
+        device: 'wasm',
+        dimensions: 2,
+        dtype: 'fp32',
         elapsedMs: 5,
         fallbackApplied: false,
-        dimensions: 2,
+        model: 'local:test-model',
       },
+      type: 'complete',
     });
 
     await expect(embedPromise).resolves.toMatchObject({
-      type: 'result',
       id: 'embed-1',
       metadata: expect.objectContaining({ dimensions: 2 }),
+      type: 'result',
     });
     await expect(embedPromise).resolves.toMatchObject({
       vectors: [new Float32Array([1, 2])],
@@ -116,26 +116,23 @@ describe('StreamingEmbeddingWorkerClient', () => {
     const onDiagnostic = vi.fn();
 
     const streamPromise = client.stream(createRequest(), {
-      onProgress,
       onBatch,
       onDiagnostic,
+      onProgress,
     });
     await flushMicrotasks();
 
     const [requestMessage] = worker.postMessage.mock.calls[0] ?? [];
     expect(requestMessage).toMatchObject({
-      type: 'stream-embed',
       request: expect.objectContaining({
         id: 'embed-1',
       }),
+      type: 'stream-embed',
     });
 
     worker.emitMessage({
-      type: 'diagnostic',
-      diagnostic: 'pipeline-cache',
-      event: 'loaded',
-      id: 'embed-1',
       cacheSize: 1,
+      diagnostic: 'pipeline-cache',
       emittedAt: 1000,
       entries: [
         {
@@ -153,38 +150,41 @@ describe('StreamingEmbeddingWorkerClient', () => {
           residencyMs: 0,
         },
       ],
+      event: 'loaded',
+      id: 'embed-1',
+      type: 'diagnostic',
     } satisfies EmbedWorkerPipelineCacheDiagnostic);
     worker.emitMessage({
-      type: 'progress',
       id: 'embed-1',
       phase: 'embedding',
       progress: 0.5,
+      type: 'progress',
     } satisfies EmbedWorkerProgress);
     worker.emitMessage({
-      type: 'batch',
-      id: 'embed-1',
       batchIndex: 0,
-      startIndex: 0,
       endIndex: 1,
+      id: 'embed-1',
+      startIndex: 0,
+      type: 'batch',
       vectors: [new Float32Array([1, 2, 3])],
     } satisfies EmbedWorkerBatch);
     worker.emitMessage({
-      type: 'complete',
       id: 'embed-1',
       metadata: {
-        model: 'local:test-model',
-        device: 'wasm',
-        dtype: 'fp32',
         batchSize: 1,
+        device: 'wasm',
+        dimensions: 3,
+        dtype: 'fp32',
         elapsedMs: 12,
         fallbackApplied: false,
-        dimensions: 3,
+        model: 'local:test-model',
       },
+      type: 'complete',
     });
 
     await expect(streamPromise).resolves.toMatchObject({
-      model: 'local:test-model',
       dimensions: 3,
+      model: 'local:test-model',
     });
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onBatch).toHaveBeenCalledTimes(1);
@@ -196,9 +196,9 @@ describe('StreamingEmbeddingWorkerClient', () => {
       })
     );
     expect(worker.postMessage).toHaveBeenCalledWith({
-      type: 'stream-ack',
-      id: 'embed-1',
       batchIndex: 0,
+      id: 'embed-1',
+      type: 'stream-ack',
     });
   });
 
@@ -211,32 +211,32 @@ describe('StreamingEmbeddingWorkerClient', () => {
     await flushMicrotasks();
 
     const diagnostic = {
-      type: 'diagnostic',
-      diagnostic: 'pipeline-cache',
-      event: 'invalidated',
       cacheSize: 0,
+      diagnostic: 'pipeline-cache',
       emittedAt: 1234,
       entries: [],
+      event: 'invalidated',
       reason: 'device-lost',
+      type: 'diagnostic',
     } satisfies EmbedWorkerPipelineCacheDiagnostic;
     worker.emitMessage(diagnostic);
     worker.emitMessage({
-      type: 'complete',
       id: 'embed-1',
       metadata: {
-        model: 'local:test-model',
-        device: 'wasm',
-        dtype: 'fp32',
         batchSize: 1,
+        device: 'wasm',
+        dimensions: 3,
+        dtype: 'fp32',
         elapsedMs: 12,
         fallbackApplied: false,
-        dimensions: 3,
+        model: 'local:test-model',
       },
+      type: 'complete',
     });
 
     await expect(streamPromise).resolves.toMatchObject({
-      model: 'local:test-model',
       dimensions: 3,
+      model: 'local:test-model',
     });
     expect(onDiagnostic).toHaveBeenCalledWith(diagnostic);
   });
@@ -253,27 +253,27 @@ describe('StreamingEmbeddingWorkerClient', () => {
 
     worker.emitMessage('not-an-event');
     worker.emitMessage({
-      type: 'progress',
       id: 'other-request',
       phase: 'embedding',
       progress: 0.2,
+      type: 'progress',
     });
     worker.emitMessage({
-      type: 'progress',
       phase: 'embedding',
       progress: 0.7,
+      type: 'progress',
     });
     worker.emitMessage({
-      type: 'error',
       id: 'embed-1',
       message: 'model exploded',
+      type: 'error',
     });
 
     await expect(streamPromise).rejects.toThrow('model exploded');
     expect(onError).toHaveBeenCalledWith({
-      type: 'error',
       id: 'embed-1',
       message: 'model exploded',
+      type: 'error',
     });
     expect(worker.terminate).toHaveBeenCalled();
   });
@@ -290,19 +290,19 @@ describe('StreamingEmbeddingWorkerClient', () => {
     await flushMicrotasks();
 
     worker.emitMessage({
-      type: 'batch',
-      id: 'embed-1',
       batchIndex: 0,
-      startIndex: 0,
       endIndex: 1,
+      id: 'embed-1',
+      startIndex: 0,
+      type: 'batch',
       vectors: [new Float32Array([1, 2, 3])],
     } satisfies EmbedWorkerBatch);
 
     await expect(streamPromise).rejects.toThrow('batch ack failed');
     expect(worker.postMessage).not.toHaveBeenCalledWith({
-      type: 'stream-ack',
-      id: 'embed-1',
       batchIndex: 0,
+      id: 'embed-1',
+      type: 'stream-ack',
     });
   });
 
@@ -344,7 +344,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
     class ConstructableMockWorker extends MockWorker {
       constructor(url: string | URL, options?: WorkerOptions) {
         super();
-        createdWorkers.push({ url, options });
+        createdWorkers.push({ options, url });
       }
     }
     vi.stubGlobal('Worker', ConstructableMockWorker as unknown as typeof Worker);

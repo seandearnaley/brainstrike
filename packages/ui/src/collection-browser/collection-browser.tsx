@@ -179,27 +179,27 @@ export function CollectionBrowser({
     handleTreeTableSortChange,
   } = useCollectionBrowserState({
     data,
-    onSelect,
-    onMultiSelect,
-    onDoubleClick,
-    onContextMenu,
-    sortState,
-    onSortChange,
     expandedIds: controlledExpandedIds,
-    onExpandedIdsChange,
-    selectedId: controlledSelectedId,
-    onSelectedIdChange,
-    searchMode,
-    semanticResults,
-    hasSearched,
     filters: controlledFilters,
     groupBy,
+    hasSearched,
+    onContextMenu,
+    onDoubleClick,
+    onExpandedIdsChange,
+    onMultiSelect,
+    onSelect,
+    onSelectedIdChange,
+    onSortChange,
+    searchMode,
+    selectedId: controlledSelectedId,
+    semanticResults,
+    sortState,
   });
 
   const columns = useCollectionBrowserColumns({
+    semanticMatchIds,
     showScoreColumn,
     similarityScores,
-    semanticMatchIds,
   });
 
   const displayEmptyMessage = getEmptyStateMessage(
@@ -221,10 +221,10 @@ export function CollectionBrowser({
       return;
     }
     return {
+      pageInfo: 'semantic results',
       pageSizeOptions: DEFAULT_SEMANTIC_PAGE_SIZE_OPTIONS,
       showControls: true,
       showItemRange: true,
-      pageInfo: 'semantic results',
     };
   }, [treePagination, shouldUseSearchWindowingContext]);
 

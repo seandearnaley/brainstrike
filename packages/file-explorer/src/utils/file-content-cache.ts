@@ -84,9 +84,9 @@ export class FileContentCache {
 
     const entry: CacheEntry = {
       content,
-      timestamp: now,
       lastAccessed: now,
       size,
+      timestamp: now,
     };
 
     // Remove existing entry if it exists (adjusting running size counter)
@@ -151,10 +151,10 @@ export class FileContentCache {
     const hitRate = totalRequests > 0 ? this.hits / totalRequests : 0;
 
     return {
-      totalSize: this.currentSize,
       entryCount: this.cache.size,
-      hitRate,
       evictionCount: this.evictions,
+      hitRate,
+      totalSize: this.currentSize,
     };
   }
 
@@ -198,8 +198,8 @@ export class FileContentCache {
     }
 
     logger.info('Evicted entries by size', {
-      evictions: this.evictions,
       currentSizeMb: Math.round(this.currentSize / 1024 / 1024),
+      evictions: this.evictions,
     });
   }
 
@@ -223,8 +223,8 @@ export class FileContentCache {
     }
 
     logger.info('Evicted entries by count', {
-      removedEntries: removed,
       currentCount: this.cache.size,
+      removedEntries: removed,
     });
   }
 

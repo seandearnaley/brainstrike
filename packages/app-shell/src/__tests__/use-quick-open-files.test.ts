@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const usePGliteLiveQueryMock = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
   makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
   QUICK_OPEN_MAX_LIMIT: 50,
   QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
+  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
 
 // The hook reads activeRootIds + rootDescriptors from the store selector.
@@ -43,7 +43,7 @@ interface DbRow {
 }
 
 function mockRows(rows: DbRow[], loading = false): void {
-  usePGliteLiveQueryMock.mockReturnValue({ rows, loading, error: null, refresh: vi.fn() });
+  usePGliteLiveQueryMock.mockReturnValue({ error: null, loading, refresh: vi.fn(), rows });
 }
 
 function setRoots(
@@ -79,10 +79,10 @@ describe('useQuickOpenFiles', () => {
   it('FIX A: a legacy root whose DB id ≠ adapter id SURVIVES the gate and encodes the ADAPTER id', () => {
     // DB roots.id = 'L', adapter rootId = 'A' (divergent — the legacy case).
     // activeRootIds holds the ADAPTER id; the mapping is {adapter A -> db L}.
-    setRoots(['A'], { A: { rootId: 'A', displayName: 'Legacy', path: '/abs/legacy' } });
+    setRoots(['A'], { A: { displayName: 'Legacy', path: '/abs/legacy', rootId: 'A' } });
     adapterByDbRootId = new Map([['L', 'A']]);
     mockRows([
-      { id: 'f1', path: 'src/index.ts', name: 'index.ts', root_id: 'L', display_name: 'Legacy' },
+      { display_name: 'Legacy', id: 'f1', name: 'index.ts', path: 'src/index.ts', root_id: 'L' },
     ]);
 
     const { result } = renderSettled('index');
@@ -95,8 +95,8 @@ describe('useQuickOpenFiles', () => {
 
   it('opens the RIGHT root for the same path in two roots (DB ids differ from adapter ids)', () => {
     setRoots(['A1', 'A2'], {
-      A1: { rootId: 'A1', displayName: 'Alpha', path: '/abs/alpha' },
-      A2: { rootId: 'A2', displayName: 'Beta', path: '/abs/beta' },
+      A1: { displayName: 'Alpha', path: '/abs/alpha', rootId: 'A1' },
+      A2: { displayName: 'Beta', path: '/abs/beta', rootId: 'A2' },
     });
     // Divergent: DB ids D1/D2 map to adapter ids A1/A2.
     adapterByDbRootId = new Map([
@@ -104,8 +104,8 @@ describe('useQuickOpenFiles', () => {
       ['D2', 'A2'],
     ]);
     mockRows([
-      { id: 'a', path: 'src/index.ts', name: 'index.ts', root_id: 'D1', display_name: 'Alpha' },
-      { id: 'b', path: 'src/index.ts', name: 'index.ts', root_id: 'D2', display_name: 'Beta' },
+      { display_name: 'Alpha', id: 'a', name: 'index.ts', path: 'src/index.ts', root_id: 'D1' },
+      { display_name: 'Beta', id: 'b', name: 'index.ts', path: 'src/index.ts', root_id: 'D2' },
     ]);
 
     const { result } = renderSettled('index');
@@ -117,11 +117,11 @@ describe('useQuickOpenFiles', () => {
   });
 
   it('omits a file whose DB root_id has no adapter mapping (genuinely unmounted)', () => {
-    setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
+    setRoots(['A'], { A: { displayName: 'Alpha', path: '/abs/alpha', rootId: 'A' } });
     adapterByDbRootId = new Map([['L', 'A']]); // only 'L' is mapped
     mockRows([
-      { id: 'a', path: 'a.ts', name: 'a.ts', root_id: 'L', display_name: 'Alpha' },
-      { id: 'b', path: 'b.ts', name: 'b.ts', root_id: 'UNMAPPED', display_name: 'Ghost' },
+      { display_name: 'Alpha', id: 'a', name: 'a.ts', path: 'a.ts', root_id: 'L' },
+      { display_name: 'Ghost', id: 'b', name: 'b.ts', path: 'b.ts', root_id: 'UNMAPPED' },
     ]);
 
     const { result } = renderSettled('ts');
@@ -133,7 +133,7 @@ describe('useQuickOpenFiles', () => {
     // DB 'L' maps to adapter 'A', but 'A' is NOT in activeRootIds (root closed).
     setRoots([], {});
     adapterByDbRootId = new Map([['L', 'A']]);
-    mockRows([{ id: 'a', path: 'a.ts', name: 'a.ts', root_id: 'L', display_name: 'Alpha' }]);
+    mockRows([{ display_name: 'Alpha', id: 'a', name: 'a.ts', path: 'a.ts', root_id: 'L' }]);
 
     const { result } = renderSettled('ts');
 
@@ -141,9 +141,9 @@ describe('useQuickOpenFiles', () => {
   });
 
   it('omits legacy NULL root_id rows', () => {
-    setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
+    setRoots(['A'], { A: { displayName: 'Alpha', path: '/abs/alpha', rootId: 'A' } });
     mockRows([
-      { id: 'legacy', path: 'legacy.ts', name: 'legacy.ts', root_id: null, display_name: null },
+      { display_name: null, id: 'legacy', name: 'legacy.ts', path: 'legacy.ts', root_id: null },
     ]);
 
     const { result } = renderSettled('legacy');
@@ -152,11 +152,11 @@ describe('useQuickOpenFiles', () => {
   });
 
   it('FIX B: while a debounce is pending, exposes NO files (Enter cannot open a stale file)', () => {
-    setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
+    setRoots(['A'], { A: { displayName: 'Alpha', path: '/abs/alpha', rootId: 'A' } });
     adapterByDbRootId = new Map([['A', 'A']]);
     // Stale rows for the PREVIOUS query are returned by the live query.
     mockRows([
-      { id: 'stale', path: 'stale.ts', name: 'stale.ts', root_id: 'A', display_name: 'Alpha' },
+      { display_name: 'Alpha', id: 'stale', name: 'stale.ts', path: 'stale.ts', root_id: 'A' },
     ]);
 
     // First render with 'rea', settle it.
@@ -174,11 +174,11 @@ describe('useQuickOpenFiles', () => {
   });
 
   it('FIX B: while the live query is loading the current query, exposes NO files', () => {
-    setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
+    setRoots(['A'], { A: { displayName: 'Alpha', path: '/abs/alpha', rootId: 'A' } });
     adapterByDbRootId = new Map([['A', 'A']]);
     // loading: true (new subscription in flight) with stale rows still present.
     mockRows(
-      [{ id: 'stale', path: 'stale.ts', name: 'stale.ts', root_id: 'A', display_name: 'Alpha' }],
+      [{ display_name: 'Alpha', id: 'stale', name: 'stale.ts', path: 'stale.ts', root_id: 'A' }],
       true
     );
 
@@ -189,9 +189,9 @@ describe('useQuickOpenFiles', () => {
   });
 
   it('disables the live query and returns no files for an empty/whitespace query', () => {
-    setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
+    setRoots(['A'], { A: { displayName: 'Alpha', path: '/abs/alpha', rootId: 'A' } });
     adapterByDbRootId = new Map([['A', 'A']]);
-    mockRows([{ id: 'a', path: 'a.ts', name: 'a.ts', root_id: 'A', display_name: 'Alpha' }]);
+    mockRows([{ display_name: 'Alpha', id: 'a', name: 'a.ts', path: 'a.ts', root_id: 'A' }]);
 
     const { result } = renderSettled('   ');
 
@@ -217,9 +217,9 @@ describe('useQuickOpenFiles', () => {
   });
 
   it('prefers the live root display name, falling back to the DB name then "Workspace"', () => {
-    setRoots(['A'], { A: { rootId: 'A', displayName: 'Renamed Alpha', path: '/abs/alpha' } });
+    setRoots(['A'], { A: { displayName: 'Renamed Alpha', path: '/abs/alpha', rootId: 'A' } });
     adapterByDbRootId = new Map([['D', 'A']]);
-    mockRows([{ id: 'a', path: 'a.ts', name: 'a.ts', root_id: 'D', display_name: 'Old Alpha' }]);
+    mockRows([{ display_name: 'Old Alpha', id: 'a', name: 'a.ts', path: 'a.ts', root_id: 'D' }]);
 
     const { result } = renderSettled('a');
     expect(result.current.files[0]?.rootLabel).toBe('Renamed Alpha');

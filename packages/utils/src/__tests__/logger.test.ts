@@ -123,8 +123,8 @@ describe('logger', () => {
 
     it('adds global bindings when configured', () => {
       configureLogger({
-        prefix: 'Brainstrike',
         baseBindings: { environment: 'test' },
+        prefix: 'Brainstrike',
       });
 
       const [record] = collectLogs(() => {
@@ -136,7 +136,7 @@ describe('logger', () => {
     });
 
     it('uses custom scope keys for scoped loggers', () => {
-      configureLogger({ scopeKey: 'component', level: LogLevel.DEBUG });
+      configureLogger({ level: LogLevel.DEBUG, scopeKey: 'component' });
       const scopedLogger = createLogger('Importer');
 
       const [record] = collectLogs(() => {
@@ -156,6 +156,81 @@ describe('logger', () => {
 
       expect(record?.bindings['scope']).toBe('DbProvider');
       expect(record?.message).toBe('initialising');
+    });
+
+    it('redacts nested secrets before notifying log listeners', () => {
+      class ProviderConfig {
+        apiKey = 'class-secret';
+      }
+
+      configureLogger({
+        baseBindings: {
+          clientSecret: 'binding-secret',
+          profile: { tenantId: 'binding-tenant-secret' },
+        },
+        redactPaths: [
+          'profile.tenantId',
+          'provider.accounts[*]["refresh.key"]',
+          'provider.profile.tenantId',
+          'provider.regions.*.credential',
+          'sessionId',
+        ],
+      });
+
+      const [record] = collectLogs(() => {
+        info(
+          {
+            headers: { 'x-api-key': 'header-secret' },
+            provider: {
+              accessToken: 'access-secret',
+              accounts: [{ 'refresh.key': 'refresh-secret' }],
+              apiKey: 'sk-secret',
+              authorization: 'Bearer secret',
+              config: new ProviderConfig(),
+              failure: Object.assign(new Error('provider failed'), { accessToken: 'error-secret' }),
+              profile: { tenantId: 'tenant-secret' },
+              regions: {
+                east: { credential: 'east-secret' },
+                west: { credential: 'west-secret' },
+              },
+              tokenCount: 42,
+            },
+            sessionId: 'session-secret',
+          },
+          'configured provider'
+        );
+      });
+
+      expect(record?.bindings).toEqual({
+        clientSecret: '[REDACTED]',
+        profile: { tenantId: '[REDACTED]' },
+      });
+      expect(record?.args).toEqual([
+        {
+          headers: { 'x-api-key': '[REDACTED]' },
+          provider: {
+            accessToken: '[REDACTED]',
+            accounts: [{ 'refresh.key': '[REDACTED]' }],
+            apiKey: '[REDACTED]',
+            authorization: '[REDACTED]',
+            config: { apiKey: '[REDACTED]' },
+            failure: {
+              accessToken: '[REDACTED]',
+              message: 'provider failed',
+              name: 'Error',
+              stack: expect.any(String),
+            },
+            profile: { tenantId: '[REDACTED]' },
+            regions: {
+              east: { credential: '[REDACTED]' },
+              west: { credential: '[REDACTED]' },
+            },
+            tokenCount: 42,
+          },
+          sessionId: '[REDACTED]',
+        },
+        'configured provider',
+      ]);
     });
   });
 
@@ -477,8 +552,8 @@ describe('logger', () => {
         },
         'scope',
         {
-          runtime: 'electron-renderer',
           application: 'brainstrike-desktop',
+          runtime: 'electron-renderer',
           version: '0.1.0',
         }
       );
@@ -502,10 +577,10 @@ describe('logger', () => {
       );
 
       expect(formattedMessage).toEqual(
-        expect.stringContaining(
-          '[DbProvider] Failed to initialize database {"error":{"name":"Error","message":"boom"'
-        )
+        expect.stringContaining('[DbProvider] Failed to initialize database {"error":{')
       );
+      expect(formattedMessage).toEqual(expect.stringContaining('"message":"boom"'));
+      expect(formattedMessage).toEqual(expect.stringContaining('"name":"Error"'));
     });
 
     it('respects browser console thresholds without affecting retained log records', () => {
@@ -513,9 +588,6 @@ describe('logger', () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const browserWrite = __loggerTesting.createBrowserWrite({
-        enableInProduction: true,
-        includeTimestamp: false,
-        scopeKey: 'scope',
         baseBindings: { runtime: 'electron-renderer' },
         console: {
           enabled: true,
@@ -523,6 +595,9 @@ describe('logger', () => {
           options: {},
         },
         customTransports: [],
+        enableInProduction: true,
+        includeTimestamp: false,
+        scopeKey: 'scope',
       }) as BrowserWriteMethods;
 
       browserWrite.info?.({
@@ -548,15 +623,15 @@ describe('logger', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const browserWrite = __loggerTesting.createBrowserWrite({
-        enableInProduction: true,
-        includeTimestamp: false,
-        scopeKey: 'scope',
         baseBindings: { runtime: 'electron-renderer' },
         console: {
           enabled: false,
           options: {},
         },
         customTransports: [],
+        enableInProduction: true,
+        includeTimestamp: false,
+        scopeKey: 'scope',
       }) as BrowserWriteMethods;
 
       browserWrite.error?.({

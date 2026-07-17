@@ -47,7 +47,7 @@ export async function runStatementsInTransaction(
 
   return db.transaction(async (tx) => {
     let designated: { rows: unknown[] } = { rows: [] };
-    for (const [i, { sql, params }] of statements.entries()) {
+    for (const [i, { params, sql }] of statements.entries()) {
       const res = params && params.length > 0 ? await tx.query(sql, params) : await tx.query(sql);
       if (i === resultIndex) {
         designated = { rows: res.rows };

@@ -86,5 +86,5 @@ export function getCollectionColor(
   const bgLightness = sanitizeHslValue(theme === 'light' ? 97 : 15, 100);
   const background = `hsl(${hue}, ${saturation}%, ${bgLightness}%)`;
 
-  return { primary, background };
+  return { background, primary };
 }

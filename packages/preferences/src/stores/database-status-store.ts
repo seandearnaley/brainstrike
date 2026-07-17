@@ -22,16 +22,16 @@ export type DatabaseStatusStore = DatabaseStatusState & DatabaseStatusActions;
  * Does not persist - connection state is determined at runtime.
  */
 export const useDatabaseStatusStore = create<DatabaseStatusStore>()((set) => ({
-  location: null,
-  testResult: null,
   connected: false,
   loading: true,
+  location: null,
+  reset: () => set({ connected: false, loading: true, location: null, testResult: null }),
   setConnected: (location, testResult) =>
-    set({ location, testResult, connected: true, loading: false }),
+    set({ connected: true, loading: false, location, testResult }),
   setDisconnected: (location, testResult) =>
-    set({ location, testResult, connected: false, loading: false }),
-  setLoading: () => set({ loading: true, connected: false }),
-  reset: () => set({ location: null, testResult: null, connected: false, loading: true }),
+    set({ connected: false, loading: false, location, testResult }),
+  setLoading: () => set({ connected: false, loading: true }),
+  testResult: null,
 }));
 
 export const databaseStatusSelectors = {
@@ -43,9 +43,9 @@ export const databaseStatusSelectors = {
 
 export function __resetDatabaseStatusStoreForTests() {
   useDatabaseStatusStore.setState({
-    location: null,
-    testResult: null,
     connected: false,
     loading: true,
+    location: null,
+    testResult: null,
   });
 }

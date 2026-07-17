@@ -31,8 +31,8 @@ export function createCommandRegistry(commands: readonly Command[]): CommandRegi
   const all = [...commands];
 
   return {
-    listAll: () => all,
     available: (ctx) => all.filter((command) => isAvailableInContext(command, ctx)),
     byId: (id) => byId.get(id),
+    listAll: () => all,
   };
 }

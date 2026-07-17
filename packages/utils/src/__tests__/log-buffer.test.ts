@@ -3,12 +3,12 @@ import { LogBuffer } from '../../src/log-buffer';
 import { LogLevel } from '../../src/logger';
 
 const createRecord = (level: LogLevel, scope: string, message: string, args: unknown[] = []) => ({
-  level,
-  scope,
-  message,
-  timestamp: Date.now(),
   args,
   bindings: {},
+  level,
+  message,
+  scope,
+  timestamp: Date.now(),
 });
 
 describe('LogBuffer', () => {
@@ -148,7 +148,7 @@ describe('LogBuffer', () => {
 
   describe('arg size limiting', () => {
     it('truncates large string args', () => {
-      const buffer = new LogBuffer({ size: 10, maxArgSize: 50 });
+      const buffer = new LogBuffer({ maxArgSize: 50, size: 10 });
       const longString = 'a'.repeat(100);
       buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [longString]));
 
@@ -159,12 +159,12 @@ describe('LogBuffer', () => {
     });
 
     it('summarizes large objects', () => {
-      const buffer = new LogBuffer({ size: 10, maxArgSize: 50 });
+      const buffer = new LogBuffer({ maxArgSize: 50, size: 10 });
       const largeObject = {
+        array: [1, 2, 3, 4, 5],
         key1: 'value1',
         key2: 'value2',
         nested: { deep: { object: 'here' } },
-        array: [1, 2, 3, 4, 5],
       };
       buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [largeObject]));
 
@@ -177,7 +177,7 @@ describe('LogBuffer', () => {
     });
 
     it('preserves primitive values', () => {
-      const buffer = new LogBuffer({ size: 10, maxArgSize: 1000 });
+      const buffer = new LogBuffer({ maxArgSize: 1000, size: 10 });
       buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [42, true, null, undefined]));
 
       const records = buffer.getRecords();
@@ -187,8 +187,8 @@ describe('LogBuffer', () => {
 
   describe('skipArgCloning option', () => {
     it('summarizes args when skipArgCloning is true', () => {
-      const buffer = new LogBuffer({ size: 10, skipArgCloning: true, maxArgSize: 100 });
-      const obj = { name: 'test', data: { nested: 'value' } };
+      const buffer = new LogBuffer({ maxArgSize: 100, size: 10, skipArgCloning: true });
+      const obj = { data: { nested: 'value' }, name: 'test' };
       buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [obj]));
 
       const records = buffer.getRecords();
@@ -198,7 +198,7 @@ describe('LogBuffer', () => {
     });
 
     it('summarizes object shapes, long strings, arrays, and excess keys', () => {
-      const buffer = new LogBuffer({ size: 10, skipArgCloning: true, maxArgSize: 8 });
+      const buffer = new LogBuffer({ maxArgSize: 8, size: 10, skipArgCloning: true });
       const obj = Object.fromEntries(
         Array.from({ length: 12 }, (_, index) => [
           `key${index}`,
@@ -224,7 +224,7 @@ describe('LogBuffer', () => {
     });
 
     it('truncates long top-level strings when cloning is skipped', () => {
-      const buffer = new LogBuffer({ size: 10, skipArgCloning: true, maxArgSize: 4 });
+      const buffer = new LogBuffer({ maxArgSize: 4, size: 10, skipArgCloning: true });
 
       buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', ['abcdef']));
 
@@ -243,7 +243,7 @@ describe('LogBuffer', () => {
   describe('full cloning', () => {
     it('clones objects without size limits when maxArgSize is zero', () => {
       const buffer = new LogBuffer({ maxArgSize: 0 });
-      const arg = { nested: { value: 1 }, list: [true, 'yes'] };
+      const arg = { list: [true, 'yes'], nested: { value: 1 } };
 
       buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [arg]));
 
@@ -251,10 +251,26 @@ describe('LogBuffer', () => {
       expect(buffer.getRecords()[0]?.args[0]).not.toBe(arg);
     });
 
+    it('preserves circular references when full cloning with structuredClone', () => {
+      const buffer = new LogBuffer({ maxArgSize: 0 });
+      const arg: Record<string, unknown> = { name: 'cycle' };
+      arg['self'] = arg;
+
+      buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [arg]));
+
+      const cloned = buffer.getRecords()[0]?.args[0] as Record<string, unknown>;
+      expect(cloned).not.toBe(arg);
+      expect(cloned['name']).toBe('cycle');
+      expect(cloned['self']).toBe(cloned);
+    });
+
     it('stringifies unclonable objects when full cloning fails', () => {
       const buffer = new LogBuffer({ maxArgSize: 0 });
-      const arg: Record<string, unknown> = {};
-      arg['self'] = arg;
+      const arg = {
+        fn() {
+          return 'nope';
+        },
+      };
 
       buffer.push(createRecord(LogLevel.INFO, 'test', 'msg', [arg]));
 

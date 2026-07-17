@@ -73,9 +73,9 @@ describe('native-tool-preferences-store', () => {
     const migrated = options.migrate(
       {
         toolStates: {
+          'brainstrike.getSelection': 'false',
           'brainstrike.readWorkspaceFile': false,
           unknownTool: false,
-          'brainstrike.getSelection': 'false',
         },
       },
       0

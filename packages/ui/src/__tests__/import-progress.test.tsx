@@ -4,9 +4,9 @@ import { ImportProgress, type ImportProgress as ImportProgressType } from '../im
 
 describe('ImportProgress', () => {
   const createProgress = (overrides: Partial<ImportProgressType> = {}): ImportProgressType => ({
-    total: 10,
     completed: 5,
     errors: [],
+    total: 10,
     ...overrides,
   });
 
@@ -17,19 +17,19 @@ describe('ImportProgress', () => {
   });
 
   it('displays completed and total files count', () => {
-    render(<ImportProgress progress={createProgress({ total: 20, completed: 15 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 15, total: 20 })} />);
 
     expect(screen.getByText('15 of 20 files')).toBeInTheDocument();
   });
 
   it('calculates and displays percentage correctly', () => {
-    render(<ImportProgress progress={createProgress({ total: 10, completed: 5 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 5, total: 10 })} />);
 
     expect(screen.getByText('50%')).toBeInTheDocument();
   });
 
   it('displays 0% when total is 0', () => {
-    render(<ImportProgress progress={createProgress({ total: 0, completed: 0 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 0, total: 0 })} />);
 
     expect(screen.getByText('0%')).toBeInTheDocument();
   });
@@ -54,8 +54,8 @@ describe('ImportProgress', () => {
 
   it('displays imported count minus errors', () => {
     const errors = [
-      { file: 'error1.txt', error: 'Failed' },
-      { file: 'error2.txt', error: 'Failed' },
+      { error: 'Failed', file: 'error1.txt' },
+      { error: 'Failed', file: 'error2.txt' },
     ];
     render(<ImportProgress progress={createProgress({ completed: 8, errors })} />);
 
@@ -64,8 +64,8 @@ describe('ImportProgress', () => {
 
   it('displays error count badge when errors exist', () => {
     const errors = [
-      { file: 'error1.txt', error: 'Failed to import' },
-      { file: 'error2.txt', error: 'Invalid format' },
+      { error: 'Failed to import', file: 'error1.txt' },
+      { error: 'Invalid format', file: 'error2.txt' },
     ];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
@@ -79,14 +79,14 @@ describe('ImportProgress', () => {
   });
 
   it('shows check icon when import is complete', () => {
-    render(<ImportProgress progress={createProgress({ total: 10, completed: 10 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 10, total: 10 })} />);
 
     // The CheckCircle icon should be present when complete — no spinner
     expect(screen.queryByTestId('import-progress-spinner')).not.toBeInTheDocument();
   });
 
   it('shows spinner when import is in progress', () => {
-    render(<ImportProgress progress={createProgress({ total: 10, completed: 5 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 5, total: 10 })} />);
 
     expect(screen.getByTestId('import-progress-spinner')).toBeInTheDocument();
   });
@@ -117,7 +117,7 @@ describe('ImportProgress', () => {
   });
 
   it('toggles error list visibility when view errors button is clicked', () => {
-    const errors = [{ file: 'error.txt', error: 'Failed to import' }];
+    const errors = [{ error: 'Failed to import', file: 'error.txt' }];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
     const viewErrorsButton = screen.getByRole('button', { name: /view 1 error/i });
@@ -143,7 +143,7 @@ describe('ImportProgress', () => {
   });
 
   it('uses a unique error list id per component instance', () => {
-    const errors = [{ file: 'error.txt', error: 'Failed to import' }];
+    const errors = [{ error: 'Failed to import', file: 'error.txt' }];
     render(
       <>
         <ImportProgress progress={createProgress({ errors })} />
@@ -162,7 +162,7 @@ describe('ImportProgress', () => {
   });
 
   it('displays correct singular error text', () => {
-    const errors = [{ file: 'error.txt', error: 'Failed' }];
+    const errors = [{ error: 'Failed', file: 'error.txt' }];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
     expect(screen.getByText('View 1 error')).toBeInTheDocument();
@@ -170,8 +170,8 @@ describe('ImportProgress', () => {
 
   it('displays correct plural errors text', () => {
     const errors = [
-      { file: 'error1.txt', error: 'Failed' },
-      { file: 'error2.txt', error: 'Failed' },
+      { error: 'Failed', file: 'error1.txt' },
+      { error: 'Failed', file: 'error2.txt' },
     ];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
@@ -180,8 +180,8 @@ describe('ImportProgress', () => {
 
   it('renders error details correctly', () => {
     const errors = [
-      { file: 'path/to/file.txt', error: 'File size exceeded limit' },
-      { file: 'another/file.js', error: 'Invalid encoding' },
+      { error: 'File size exceeded limit', file: 'path/to/file.txt' },
+      { error: 'Invalid encoding', file: 'another/file.js' },
     ];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
@@ -196,14 +196,14 @@ describe('ImportProgress', () => {
   });
 
   it('handles edge case of 100% completion', () => {
-    render(<ImportProgress progress={createProgress({ total: 100, completed: 100 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 100, total: 100 })} />);
 
     expect(screen.getByText('100%')).toBeInTheDocument();
     expect(screen.getByText('100 of 100 files')).toBeInTheDocument();
   });
 
   it('handles edge case of 0 files', () => {
-    render(<ImportProgress progress={createProgress({ total: 0, completed: 0 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 0, total: 0 })} />);
 
     expect(screen.getByText('0 of 0 files')).toBeInTheDocument();
     expect(screen.getByText('0%')).toBeInTheDocument();
@@ -212,7 +212,7 @@ describe('ImportProgress', () => {
   // ── Additional coverage tests ───────────────────────────────────────
 
   it('renders progress bar with correct percentage value', () => {
-    render(<ImportProgress progress={createProgress({ total: 10, completed: 7 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 7, total: 10 })} />);
 
     expect(screen.getByText('70%')).toBeInTheDocument();
     expect(screen.getByText('7 of 10 files')).toBeInTheDocument();
@@ -220,7 +220,7 @@ describe('ImportProgress', () => {
 
   it('shows close button and error toggle simultaneously', () => {
     const onClose = vi.fn();
-    const errors = [{ file: 'err.txt', error: 'Oops' }];
+    const errors = [{ error: 'Oops', file: 'err.txt' }];
     render(<ImportProgress onClose={onClose} progress={createProgress({ errors })} />);
 
     const buttons = screen.getAllByRole('button');
@@ -229,7 +229,7 @@ describe('ImportProgress', () => {
   });
 
   it('renders ChevronDown when errors are expanded', () => {
-    const errors = [{ file: 'err.txt', error: 'Oops' }];
+    const errors = [{ error: 'Oops', file: 'err.txt' }];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
     const toggle = screen.getByText(/View 1 error/);
@@ -242,8 +242,8 @@ describe('ImportProgress', () => {
 
   it('handles errors with unique file-error key combinations', () => {
     const errors = [
-      { file: 'same-file.txt', error: 'Error A' },
-      { file: 'same-file.txt', error: 'Error B' },
+      { error: 'Error A', file: 'same-file.txt' },
+      { error: 'Error B', file: 'same-file.txt' },
     ];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
@@ -255,22 +255,22 @@ describe('ImportProgress', () => {
 
   it('rounds percentage correctly for non-round numbers', () => {
     // 3/7 = 42.857... should round to 43%
-    render(<ImportProgress progress={createProgress({ total: 7, completed: 3 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 3, total: 7 })} />);
 
     expect(screen.getByText('43%')).toBeInTheDocument();
   });
 
   it('shows 1% when barely started', () => {
     // 1/100 = 1%
-    render(<ImportProgress progress={createProgress({ total: 100, completed: 1 })} />);
+    render(<ImportProgress progress={createProgress({ completed: 1, total: 100 })} />);
 
     expect(screen.getByText('1%')).toBeInTheDocument();
   });
 
   it('shows 0 imported when all completed files are errors', () => {
     const errors = [
-      { file: 'a.txt', error: 'fail' },
-      { file: 'b.txt', error: 'fail' },
+      { error: 'fail', file: 'a.txt' },
+      { error: 'fail', file: 'b.txt' },
     ];
     render(<ImportProgress progress={createProgress({ completed: 2, errors })} />);
 
@@ -292,7 +292,7 @@ describe('ImportProgress', () => {
 
   it('renders without crashing when given minimal props', () => {
     const { container } = render(
-      <ImportProgress progress={{ total: 0, completed: 0, errors: [] }} />
+      <ImportProgress progress={{ completed: 0, errors: [], total: 0 }} />
     );
 
     expect(container.querySelector('.w-full')).toBeInTheDocument();

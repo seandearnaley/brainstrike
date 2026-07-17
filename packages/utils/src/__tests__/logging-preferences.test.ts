@@ -20,9 +20,9 @@ describe('logging-preferences', () => {
 
   it('configures console logging when enabled', () => {
     const preferences = createDefaultLoggingPreferences({
-      level: LogLevel.DEBUG,
       consoleLevel: LogLevel.INFO,
       includeTimestamp: true,
+      level: LogLevel.DEBUG,
     });
 
     applyLoggingPreferences(preferences, 'browser');
@@ -30,13 +30,13 @@ describe('logging-preferences', () => {
     expect(configureLoggerSpy).toHaveBeenCalledTimes(1);
     expect(configureLoggerSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        level: LogLevel.DEBUG,
-        includeTimestamp: true,
         console: expect.objectContaining({
           enabled: true,
           level: LogLevel.INFO,
         }),
         file: false,
+        includeTimestamp: true,
+        level: LogLevel.DEBUG,
       })
     );
   });
@@ -58,11 +58,11 @@ describe('logging-preferences', () => {
   it('configures file logging for electron-main runtime', () => {
     const preferences = createDefaultLoggingPreferences({
       file: {
-        enabled: true,
+        append: false,
         destination: '/tmp/brainstrike.log',
+        enabled: true,
         level: LogLevel.DEBUG,
         mkdir: true,
-        append: false,
       },
     });
 
@@ -71,11 +71,11 @@ describe('logging-preferences', () => {
     expect(configureLoggerSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         file: {
-          enabled: true,
+          append: false,
           destination: '/tmp/brainstrike.log',
+          enabled: true,
           level: LogLevel.DEBUG,
           mkdir: true,
-          append: false,
         },
       })
     );

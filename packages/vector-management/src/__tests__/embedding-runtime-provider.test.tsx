@@ -74,13 +74,13 @@ describe('EmbeddingRuntimeProvider', () => {
     const { result } = renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
 
     expect(createVectorQueueServiceMock).toHaveBeenCalledWith({
-      db: { dialect: 'pglite' },
-      jobQueue: expect.objectContaining({
-        db: { dialect: 'pglite' },
-      }),
       chunkRepository: expect.objectContaining({
         clearEmbeddingsForSet: expect.any(Function),
         getCoverageForSet: expect.any(Function),
+      }),
+      db: { dialect: 'pglite' },
+      jobQueue: expect.objectContaining({
+        db: { dialect: 'pglite' },
       }),
     });
     expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith({

@@ -9,15 +9,15 @@ afterAll(() => {
 });
 
 import { useTabManager } from '../../hooks/use-tab-manager';
-import { __resetTabManagerStoreForTests } from '../../stores/tab-manager-store';
+import { __resetTabManagerStoreForTests, useTabManagerStore } from '../../stores/tab-manager-store';
 
 describe('useTabManager', () => {
   // Mock localStorage
   const localStorageMock = {
-    getItem: vi.fn(),
-    setItem: vi.fn(),
-    removeItem: vi.fn(),
     clear: vi.fn(),
+    getItem: vi.fn(),
+    removeItem: vi.fn(),
+    setItem: vi.fn(),
   };
 
   beforeEach(() => {
@@ -47,11 +47,11 @@ describe('useTabManager', () => {
     it('should initialize from localStorage when data exists', async () => {
       const persisted = {
         state: {
-          tabs: [
-            { id: 'file1', path: '/src/index.ts', compositeKey: 'file1' },
-            { id: 'file2', path: '/src/app.ts', compositeKey: 'file2' },
-          ],
           activeTabId: 'file1',
+          tabs: [
+            { compositeKey: 'file1', id: 'file1', path: '/src/index.ts' },
+            { compositeKey: 'file2', id: 'file2', path: '/src/app.ts' },
+          ],
         },
         version: 1,
       };
@@ -72,20 +72,20 @@ describe('useTabManager', () => {
       // Content and loading states should be initialized to defaults
       expect(result.current.tabs).toEqual([
         {
-          id: 'file1',
-          path: '/src/index.ts',
           compositeKey: 'file1',
           content: null,
-          isLoading: false,
           error: undefined,
+          id: 'file1',
+          isLoading: false,
+          path: '/src/index.ts',
         },
         {
-          id: 'file2',
-          path: '/src/app.ts',
           compositeKey: 'file2',
           content: null,
-          isLoading: false,
           error: undefined,
+          id: 'file2',
+          isLoading: false,
+          path: '/src/app.ts',
         },
       ]);
       expect(result.current.activeTabId).toBe('file1');
@@ -112,11 +112,11 @@ describe('useTabManager', () => {
 
       expect(result.current.tabs).toHaveLength(1);
       expect(result.current.tabs[0]).toEqual({
-        id: 'folder1:/src/index.ts',
-        path: '/src/index.ts',
         compositeKey: 'folder1:/src/index.ts',
         content: null,
+        id: 'folder1:/src/index.ts',
         isLoading: true,
+        path: '/src/index.ts',
       });
       expect(result.current.activeTabId).toBe('folder1:/src/index.ts');
     });
@@ -244,6 +244,82 @@ describe('useTabManager', () => {
       expect(result.current.tabs).toHaveLength(2);
       expect(result.current.tabs.map((t) => t.id)).toEqual(['file2', 'file3']);
       expect(result.current.activeTabId).toBe('file2'); // Should activate the next tab
+    });
+  });
+
+  describe('atomic bulk close operations', () => {
+    function openFourTabs(): void {
+      const store = useTabManagerStore.getState();
+      store.openTab('/src/a.ts', 'file-a', 'file-a');
+      store.openTab('/src/b.ts', 'file-b', 'file-b');
+      store.openTab('/src/c.ts', 'file-c', 'file-c');
+      store.openTab('/src/d.ts', 'file-d', 'file-d');
+    }
+
+    it('closes other tabs in one store transition and makes the retained tab active', () => {
+      openFourTabs();
+      localStorageMock.setItem.mockClear();
+
+      let successor: string | null = null;
+      act(() => {
+        successor = useTabManagerStore.getState().closeOtherTabs('file-b');
+      });
+
+      expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual(['file-b']);
+      expect(useTabManagerStore.getState().activeTabId).toBe('file-b');
+      expect(successor).toBe('file-b');
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes tabs to the right atomically and chooses the target when active was removed', () => {
+      openFourTabs();
+      localStorageMock.setItem.mockClear();
+
+      let successor: string | null = null;
+      act(() => {
+        successor = useTabManagerStore.getState().closeTabsToRight('file-b');
+      });
+
+      expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual(['file-a', 'file-b']);
+      expect(useTabManagerStore.getState().activeTabId).toBe('file-b');
+      expect(successor).toBe('file-b');
+      expect(localStorageMock.setItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps current state unchanged when the target tab does not exist', () => {
+      openFourTabs();
+      const before = useTabManagerStore.getState();
+      localStorageMock.setItem.mockClear();
+
+      let successor: string | null = null;
+      act(() => {
+        successor = useTabManagerStore.getState().closeOtherTabs('missing');
+      });
+
+      expect(useTabManagerStore.getState().tabs).toEqual(before.tabs);
+      expect(useTabManagerStore.getState().activeTabId).toBe(before.activeTabId);
+      expect(successor).toBe(before.activeTabId);
+      expect(localStorageMock.setItem).not.toHaveBeenCalled();
+    });
+
+    it('does not publish or persist a close transition for a missing tab', () => {
+      openFourTabs();
+      localStorageMock.setItem.mockClear();
+      const listener = vi.fn();
+      const unsubscribe = useTabManagerStore.subscribe(listener);
+
+      let successor: string | null = null;
+      try {
+        act(() => {
+          successor = useTabManagerStore.getState().closeTab('missing');
+        });
+      } finally {
+        unsubscribe();
+      }
+
+      expect(successor).toBe('file-d');
+      expect(listener).not.toHaveBeenCalled();
+      expect(localStorageMock.setItem).not.toHaveBeenCalled();
     });
   });
 
@@ -391,7 +467,7 @@ describe('useTabManager', () => {
         activeTabId: string;
       };
       expect(state.activeTabId).toBe('file1');
-      expect(state.tabs).toEqual([{ id: 'file1', path: '/src/index.ts', compositeKey: 'file1' }]);
+      expect(state.tabs).toEqual([{ compositeKey: 'file1', id: 'file1', path: '/src/index.ts' }]);
     });
 
     it('should handle localStorage errors gracefully', async () => {
@@ -409,11 +485,11 @@ describe('useTabManager', () => {
       // The tab should still be opened despite the storage error
       expect(result.current.tabs).toHaveLength(1);
       expect(result.current.tabs[0]).toEqual({
-        id: 'file1',
-        path: '/src/index.ts',
         compositeKey: 'file1',
         content: null,
+        id: 'file1',
         isLoading: true,
+        path: '/src/index.ts',
       });
     });
   });

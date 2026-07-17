@@ -214,8 +214,8 @@ describe('fileSystem', () => {
     it('should read file content', async () => {
       const mockHandle = {
         getFile: vi.fn().mockResolvedValue({
-          text: vi.fn().mockResolvedValue('test content'),
           arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+          text: vi.fn().mockResolvedValue('test content'),
         }),
       };
 
@@ -241,8 +241,8 @@ describe('fileSystem', () => {
 
       const mockHandleWithArrayBuffer = {
         getFile: vi.fn().mockResolvedValue({
-          text: vi.fn().mockRejectedValue(new Error('text() failed')),
           arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(10)), // Content doesn't matter as we're mocking the decoder
+          text: vi.fn().mockRejectedValue(new Error('text() failed')),
         }),
       };
 
@@ -260,8 +260,8 @@ describe('fileSystem', () => {
     it('should handle both text() and arrayBuffer() failures', async () => {
       const mockHandleWithFailures = {
         getFile: vi.fn().mockResolvedValue({
-          text: vi.fn().mockRejectedValue(new Error('text() failed')),
           arrayBuffer: vi.fn().mockRejectedValue(new Error('arrayBuffer() failed')),
+          text: vi.fn().mockRejectedValue(new Error('text() failed')),
         }),
       };
 

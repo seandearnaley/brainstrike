@@ -88,13 +88,46 @@ describe('AssistantToolApprovalNotice', () => {
   it('shows the risk reason when the approval carries a riskCategory hint', () => {
     const approvalWithRisk: AssistantToolApprovalRequest = {
       ...baseApproval,
-      riskCategory: 'execute',
       policyDecision: 'ask',
+      riskCategory: 'execute',
     };
     render(<AssistantToolApprovalNotice data={approvalWithRisk} />);
 
     expect(screen.getByText(/Requires approval/i)).toBeInTheDocument();
     expect(screen.getByText(/runs a command/i)).toBeInTheDocument();
+  });
+
+  it('shows a "pending since" line and a stale advisory for a rediscovered stale approval, keeping both buttons enabled', () => {
+    const staleApproval = {
+      ...baseApproval,
+      stale: true,
+      suspendedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    };
+    render(<AssistantToolApprovalNotice data={staleApproval} />);
+
+    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
+    expect(screen.getByText(/pending a while/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+  });
+
+  it('shows "pending since" but no advisory for a fresh (non-stale) rediscovered approval', () => {
+    const freshApproval = {
+      ...baseApproval,
+      stale: false,
+      suspendedAt: new Date(Date.now() - 30 * 1000).toISOString(),
+    };
+    render(<AssistantToolApprovalNotice data={freshApproval} />);
+
+    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
+    expect(screen.queryByText(/pending a while/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a live approval (no suspendedAt) without the pending-since or advisory lines', () => {
+    render(<AssistantToolApprovalNotice data={baseApproval} />);
+
+    expect(screen.queryByText(/pending since/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pending a while/i)).not.toBeInTheDocument();
   });
 
   it('expands to show approval identifiers and arguments', async () => {
@@ -123,7 +156,7 @@ describe('AssistantToolApprovalNotice', () => {
 
     expect(appendMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: [{ type: 'text', text: 'Approved workspace.writeFile.' }],
+        content: [{ text: 'Approved workspace.writeFile.', type: 'text' }],
         role: 'user',
         runConfig: {
           custom: {
@@ -149,7 +182,7 @@ describe('AssistantToolApprovalNotice', () => {
 
     expect(appendMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: [{ type: 'text', text: 'Declined workspace.writeFile.' }],
+        content: [{ text: 'Declined workspace.writeFile.', type: 'text' }],
         role: 'user',
         runConfig: {
           custom: {

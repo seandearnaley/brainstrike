@@ -88,6 +88,13 @@ function createMockWorker() {
         errorHandlers.push(handler as (event: ErrorEvent) => void);
       }
     }),
+    clearPostedMessages: () => {
+      postedMessages.length = 0;
+    },
+    getPostedMessages: () => postedMessages,
+    postMessage: vi.fn((message: unknown) => {
+      postedMessages.push(message);
+    }),
     removeEventListener: vi.fn((type: string, handler: (event: unknown) => void) => {
       if (type === 'message') {
         const index = messageHandlers.indexOf(
@@ -103,26 +110,19 @@ function createMockWorker() {
         }
       }
     }),
-    postMessage: vi.fn((message: unknown) => {
-      postedMessages.push(message);
-    }),
-    terminate: vi.fn(),
+    simulateError: (message: string) => {
+      const event = { filename: 'worker.js', lineno: 1, message } as ErrorEvent;
+      for (const handler of [...errorHandlers]) {
+        handler(event);
+      }
+    },
     simulateMessage: (data: WorkerResponse) => {
       const event = { data } as MessageEvent<WorkerResponse>;
       for (const handler of [...messageHandlers]) {
         handler(event);
       }
     },
-    simulateError: (message: string) => {
-      const event = { message, filename: 'worker.js', lineno: 1 } as ErrorEvent;
-      for (const handler of [...errorHandlers]) {
-        handler(event);
-      }
-    },
-    clearPostedMessages: () => {
-      postedMessages.length = 0;
-    },
-    getPostedMessages: () => postedMessages,
+    terminate: vi.fn(),
   };
 
   return mockWorker as unknown as Worker & {
@@ -202,13 +202,13 @@ describe('ChunkingWorkerProvider', () => {
     }
 
     const workerResult: ChunkResult = {
-      type: 'result',
-      id: postedMessage.id,
-      fileRecordId: 'file-1',
       chunks: [],
+      fileRecordId: 'file-1',
+      id: postedMessage.id,
+      skipped: false,
       strategyUsed: 'sentence',
       totalTokens: 5,
-      skipped: false,
+      type: 'result',
     };
 
     await emitWorkerMessage(worker, workerResult);
@@ -290,10 +290,10 @@ describe('ChunkingWorkerProvider', () => {
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
 
     await emitWorkerMessage(initialWorker, {
-      type: 'error',
-      id: 'req-1',
-      fileRecordId: 'file-1',
       error: 'tiktoken encoder failed to initialize',
+      fileRecordId: 'file-1',
+      id: 'req-1',
+      type: 'error',
     });
 
     await waitForExpect(() => {
@@ -371,10 +371,10 @@ describe('ChunkingWorkerProvider', () => {
     }
 
     await emitWorkerMessage(worker, {
-      type: 'error',
-      id: '__init__',
-      fileRecordId: '__init__',
       error: 'worker init failed',
+      fileRecordId: '__init__',
+      id: '__init__',
+      type: 'error',
     });
 
     await waitForExpect(() => {
@@ -402,10 +402,10 @@ describe('ChunkingWorkerProvider', () => {
     }
 
     await emitWorkerMessage(worker, {
-      type: 'error',
-      id: 'req-2',
-      fileRecordId: 'file-2',
       error: 'Error: accurate token counting unavailable: missing encoder',
+      fileRecordId: 'file-2',
+      id: 'req-2',
+      type: 'error',
     });
 
     await waitForExpect(() => {
@@ -479,16 +479,16 @@ describe('ChunkingWorkerProvider', () => {
 
   it('clears processing state when wrapped local port operations fail or terminate', async () => {
     const rawPort: ChunkingWorkerPort = {
-      transportKind: 'local-worker',
-      chunkFile: vi.fn(async () => {
-        throw new Error('chunk file failed');
-      }),
       chunkBatch: vi.fn(async () => {
         throw new Error('chunk batch failed');
+      }),
+      chunkFile: vi.fn(async () => {
+        throw new Error('chunk file failed');
       }),
       chunkFileById: vi.fn(async () => undefined as never),
       isReady: vi.fn(() => true),
       terminate: vi.fn(),
+      transportKind: 'local-worker',
     };
     vi.doMock('../chunking-worker-port', () => ({
       createChunkingWorkerPort: vi.fn(() => rawPort),
@@ -515,7 +515,7 @@ describe('ChunkingWorkerProvider', () => {
 
     await expect(
       port.chunkBatch(
-        [{ fileRecordId: 'file-1', content: 'content', fileName: 'file.ts', filePath: '/file.ts' }],
+        [{ content: 'content', fileName: 'file.ts', filePath: '/file.ts', fileRecordId: 'file-1' }],
         { strategy: 'sentence' }
       )
     ).rejects.toThrow('chunk batch failed');
@@ -538,11 +538,11 @@ describe('ChunkingWorkerProvider', () => {
 
   it('proxies chunking requests through the desktop chunking host bridge', async () => {
     const runningStatus = {
-      state: 'running' as const,
       active: false,
       lastError: null,
-      runtimeKind: 'chunking-host' as const,
       runtimeId: 'host-1',
+      runtimeKind: 'chunking-host' as const,
+      state: 'running' as const,
     };
     let progressHandler:
       | ((progress: {
@@ -556,46 +556,46 @@ describe('ChunkingWorkerProvider', () => {
     const cleanupProgress = vi.fn();
     const cleanupStatus = vi.fn();
     const fileResult: ChunkResult = {
-      type: 'result',
-      id: 'file-result',
-      fileRecordId: 'file-1',
       chunks: [],
+      fileRecordId: 'file-1',
+      id: 'file-result',
+      skipped: false,
       strategyUsed: 'sentence',
       totalTokens: 3,
-      skipped: false,
+      type: 'result',
     };
     const batchResult: ChunkResult = {
       ...fileResult,
-      id: 'batch-result',
       fileRecordId: 'batch-file-1',
+      id: 'batch-result',
     };
     const bridge = {
       chunkBatch: vi.fn(async (request: { requestId: string }) => {
         progressHandler?.({
-          type: 'progress',
-          runtimeId: 'host-1',
-          requestId: request.requestId,
           channel: 'chunk',
           payload: {
-            fileRecordId: 'batch-file-1',
             chunksCreated: 2,
             currentIndex: 0,
+            fileRecordId: 'batch-file-1',
             totalFiles: 1,
           },
+          requestId: request.requestId,
+          runtimeId: 'host-1',
+          type: 'progress',
         });
         progressHandler?.({
-          type: 'progress',
-          runtimeId: 'host-1',
-          requestId: request.requestId,
           channel: 'chunk-file-complete',
           payload: { fileRecordId: 'batch-file-1', result: batchResult },
+          requestId: request.requestId,
+          runtimeId: 'host-1',
+          type: 'progress',
         });
         progressHandler?.({
-          type: 'progress',
-          runtimeId: 'host-1',
-          requestId: request.requestId,
           channel: 'chunk-file-error',
-          payload: { fileRecordId: 'batch-file-2', errorMessage: 'too large' },
+          payload: { errorMessage: 'too large', fileRecordId: 'batch-file-2' },
+          requestId: request.requestId,
+          runtimeId: 'host-1',
+          type: 'progress',
         });
         return [batchResult];
       }),
@@ -649,10 +649,10 @@ describe('ChunkingWorkerProvider', () => {
       port.chunkBatch(
         [
           {
-            fileRecordId: 'batch-file-1',
             content: 'content',
             fileName: 'batch.ts',
             filePath: '/repo/batch.ts',
+            fileRecordId: 'batch-file-1',
           },
         ],
         { strategy: 'sentence' },
@@ -663,19 +663,19 @@ describe('ChunkingWorkerProvider', () => {
     expect(bridge.chunkFile).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        kind: 'chunk-file',
-        fileRecordId: 'file-1',
         content: 'const value = 1;',
         fileName: 'file.ts',
         filePath: '/repo/file.ts',
+        fileRecordId: 'file-1',
+        kind: 'chunk-file',
         options: {
-          requestedStrategy: 'sentence',
           allowLargeFiles: true,
           forceStrategy: true,
           ignoreFileTypeRecommendations: true,
           maxTokens: 100,
           maxTokensCap: 200,
           overlap: 10,
+          requestedStrategy: 'sentence',
           separators: ['\n'],
           tokenTrueSizing: true,
         },
@@ -684,8 +684,8 @@ describe('ChunkingWorkerProvider', () => {
     expect(bridge.chunkFile).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        kind: 'chunk-file-by-id',
         fileRecordId: 'file-2',
+        kind: 'chunk-file-by-id',
         options: { requestedStrategy: 'sentence' },
       })
     );
@@ -716,22 +716,22 @@ describe('ChunkingWorkerProvider', () => {
 
     await act(async () => {
       worker.simulateMessage({
-        type: 'parser-host:invoke',
-        requestId: 'parse-1',
         payload: { code: 'const value = 1;' },
+        requestId: 'parse-1',
+        type: 'parser-host:invoke',
       } as unknown as WorkerResponse);
       await Promise.resolve();
     });
 
     await waitForExpect(() =>
       expect(worker.postMessage).toHaveBeenCalledWith({
-        type: 'parser-host:reply',
         requestId: 'parse-1',
         response: {
+          error: expect.stringContaining('parser-host bridge unavailable'),
           ok: false,
           requestId: 'parse-1',
-          error: expect.stringContaining('parser-host bridge unavailable'),
         },
+        type: 'parser-host:reply',
       })
     );
     unmount();
@@ -740,8 +740,8 @@ describe('ChunkingWorkerProvider', () => {
   it('routes parser-host bridge invokes through parserHost.parse', async () => {
     const parse = vi.fn(async (payload: unknown) => ({
       ok: true,
-      requestId: 'parse-2',
       payload,
+      requestId: 'parse-2',
     }));
     Object.assign(globalThis, { parserHost: { parse } });
 
@@ -762,9 +762,9 @@ describe('ChunkingWorkerProvider', () => {
     const payload = { code: 'const value = 2;' };
     await act(async () => {
       worker.simulateMessage({
-        type: 'parser-host:invoke',
-        requestId: 'parse-2',
         payload,
+        requestId: 'parse-2',
+        type: 'parser-host:invoke',
       } as unknown as WorkerResponse);
       await Promise.resolve();
     });
@@ -772,13 +772,13 @@ describe('ChunkingWorkerProvider', () => {
     await waitForExpect(() => {
       expect(parse).toHaveBeenCalledWith(payload);
       expect(worker.postMessage).toHaveBeenCalledWith({
-        type: 'parser-host:reply',
         requestId: 'parse-2',
         response: {
           ok: true,
-          requestId: 'parse-2',
           payload,
+          requestId: 'parse-2',
         },
+        type: 'parser-host:reply',
       });
     });
     unmount();
@@ -809,22 +809,22 @@ describe('ChunkingWorkerProvider', () => {
 
     await act(async () => {
       worker.simulateMessage({
-        type: 'parser-host:invoke',
-        requestId: 'parse-3',
         payload: { code: 'broken' },
+        requestId: 'parse-3',
+        type: 'parser-host:invoke',
       } as unknown as WorkerResponse);
       await Promise.resolve();
     });
 
     await waitForExpect(() =>
       expect(worker.postMessage).toHaveBeenCalledWith({
-        type: 'parser-host:reply',
         requestId: 'parse-3',
         response: {
+          error: 'parser crashed',
           ok: false,
           requestId: 'parse-3',
-          error: 'parser crashed',
         },
+        type: 'parser-host:reply',
       })
     );
     unmount();
@@ -856,9 +856,9 @@ describe('ChunkingWorkerProvider', () => {
 
     await act(async () => {
       worker.simulateMessage({
-        type: 'parser-host:invoke',
-        requestId: 'parse-4',
         payload: { code: 'const value = 4;' },
+        requestId: 'parse-4',
+        type: 'parser-host:invoke',
       } as unknown as WorkerResponse);
       await Promise.resolve();
     });
@@ -874,48 +874,41 @@ describe('ChunkingWorkerProvider', () => {
     const onFileComplete = vi.fn();
     const onFileError = vi.fn();
     const ensureStarted = vi.fn(async () => ({
-      state: 'running' as const,
       active: false,
       lastError: null,
+      state: 'running' as const,
     }));
     const chunkFile = vi.fn(async () => ({
-      type: 'result' as const,
-      id: 'file-request',
-      fileRecordId: 'file-1',
       chunks: [],
+      fileRecordId: 'file-1',
+      id: 'file-request',
+      skipped: false,
       strategyUsed: 'sentence' as const,
       totalTokens: 12,
-      skipped: false,
+      type: 'result' as const,
     }));
     const chunkBatch = vi.fn(async () => [
       {
-        type: 'result' as const,
-        id: 'batch-request',
-        fileRecordId: 'file-1',
         chunks: [],
+        fileRecordId: 'file-1',
+        id: 'batch-request',
+        skipped: false,
         strategyUsed: 'sentence' as const,
         totalTokens: 12,
-        skipped: false,
+        type: 'result' as const,
       },
     ]);
 
     Object.assign(window, {
       chunkingHost: {
+        chunkBatch,
+        chunkFile,
         ensureStarted,
         getStatus: vi.fn(async () => ({
-          state: 'stopped' as const,
           active: false,
           lastError: null,
+          state: 'stopped' as const,
         })),
-        reset: vi.fn(async () => ({ state: 'running' as const, active: false, lastError: null })),
-        chunkFile,
-        chunkBatch,
-        onStatus: (
-          callback: (status: { state: 'running'; active: boolean; lastError: null }) => void
-        ) => {
-          onStatus.mockImplementation(callback);
-          return () => {};
-        },
         onProgress: (
           callback: (progress: {
             type: 'progress' | 'file-complete' | 'file-error';
@@ -931,6 +924,13 @@ describe('ChunkingWorkerProvider', () => {
           onProgress.mockImplementation(callback);
           return () => {};
         },
+        onStatus: (
+          callback: (status: { state: 'running'; active: boolean; lastError: null }) => void
+        ) => {
+          onStatus.mockImplementation(callback);
+          return () => {};
+        },
+        reset: vi.fn(async () => ({ active: false, lastError: null, state: 'running' as const })),
       },
     });
 
@@ -1003,12 +1003,12 @@ describe('ChunkingWorkerProvider', () => {
     );
 
     const batchPromise = resolvedPort.chunkBatch(
-      [{ fileRecordId: 'file-1', content: 'content', fileName: 'file.ts', filePath: '/file.ts' }],
+      [{ content: 'content', fileName: 'file.ts', filePath: '/file.ts', fileRecordId: 'file-1' }],
       { strategy: 'sentence' },
       {
-        onProgress: onBatchProgress,
         onFileComplete,
         onFileError,
+        onProgress: onBatchProgress,
       }
     );
 
@@ -1019,54 +1019,54 @@ describe('ChunkingWorkerProvider', () => {
     }
 
     onProgress({
-      type: 'progress',
+      channel: 'chunk',
+      payload: {
+        chunksCreated: 99,
+        fileRecordId: 'file-ignored',
+      },
       requestId: 'other-request',
       runtimeId: 'chunking-host:runtime-1',
-      channel: 'chunk',
-      payload: {
-        fileRecordId: 'file-ignored',
-        chunksCreated: 99,
-      },
+      type: 'progress',
     });
     onProgress({
-      type: 'progress',
-      requestId: batchRequest.requestId,
-      runtimeId: 'chunking-host:runtime-1',
       channel: 'chunk',
       payload: {
-        fileRecordId: 'file-1',
         chunksCreated: 3,
         currentIndex: 1,
+        fileRecordId: 'file-1',
         totalFiles: 1,
       },
-    });
-    onProgress({
-      type: 'progress',
       requestId: batchRequest.requestId,
       runtimeId: 'chunking-host:runtime-1',
+      type: 'progress',
+    });
+    onProgress({
       channel: 'chunk-file-complete',
       payload: {
         fileRecordId: 'file-1',
         result: {
-          type: 'result',
-          id: 'file-request',
-          fileRecordId: 'file-1',
           chunks: [],
+          fileRecordId: 'file-1',
+          id: 'file-request',
+          skipped: false,
           strategyUsed: 'sentence',
           totalTokens: 12,
-          skipped: false,
+          type: 'result',
         },
       },
-    });
-    onProgress({
-      type: 'progress',
       requestId: batchRequest.requestId,
       runtimeId: 'chunking-host:runtime-1',
+      type: 'progress',
+    });
+    onProgress({
       channel: 'chunk-file-error',
       payload: {
-        fileRecordId: 'file-2',
         errorMessage: 'chunk failed',
+        fileRecordId: 'file-2',
       },
+      requestId: batchRequest.requestId,
+      runtimeId: 'chunking-host:runtime-1',
+      type: 'progress',
     });
 
     await expect(batchPromise).resolves.toHaveLength(1);
@@ -1116,25 +1116,25 @@ describe('ChunkingWorkerProvider', () => {
       throw new Error('status offline');
     });
     const bridge = {
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
       ensureStarted: vi.fn(async () => ({
-        state: 'starting' as const,
         active: true,
         lastError: null,
-        runtimeKind: 'chunking-host' as const,
         runtimeId: 'chunking-host:starting',
+        runtimeKind: 'chunking-host' as const,
+        state: 'starting' as const,
       })),
       getStatus,
+      onProgress: vi.fn(() => () => {}),
+      onStatus: vi.fn(() => cleanupStatus),
       reset: vi.fn(async () => ({
-        state: 'running' as const,
         active: false,
         lastError: null,
-        runtimeKind: 'chunking-host' as const,
         runtimeId: 'chunking-host:running',
+        runtimeKind: 'chunking-host' as const,
+        state: 'running' as const,
       })),
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
-      onStatus: vi.fn(() => cleanupStatus),
-      onProgress: vi.fn(() => () => {}),
     };
     Object.assign(window, { chunkingHost: bridge });
 
@@ -1166,25 +1166,23 @@ describe('ChunkingWorkerProvider', () => {
   it('surfaces chunking host status and reset failures explicitly', async () => {
     Object.assign(window, {
       chunkingHost: {
+        chunkBatch: vi.fn(),
+        chunkFile: vi.fn(),
         ensureStarted: vi.fn(async () => ({
-          state: 'error' as const,
           active: false,
           lastError: 'host failed',
-          runtimeKind: 'chunking-host' as const,
           runtimeId: 'chunking-host:runtime-1',
+          runtimeKind: 'chunking-host' as const,
+          state: 'error' as const,
         })),
         getStatus: vi.fn(async () => ({
-          state: 'error' as const,
           active: false,
           lastError: 'host failed',
-          runtimeKind: 'chunking-host' as const,
           runtimeId: 'chunking-host:runtime-1',
+          runtimeKind: 'chunking-host' as const,
+          state: 'error' as const,
         })),
-        reset: vi.fn(async () => {
-          throw new Error('reset failed');
-        }),
-        chunkFile: vi.fn(),
-        chunkBatch: vi.fn(),
+        onProgress: vi.fn(() => () => {}),
         onStatus: (
           callback: (status: {
             state: 'error';
@@ -1195,15 +1193,17 @@ describe('ChunkingWorkerProvider', () => {
           }) => void
         ) => {
           callback({
-            state: 'error',
             active: false,
             lastError: 'host failed',
-            runtimeKind: 'chunking-host',
             runtimeId: 'chunking-host:runtime-1',
+            runtimeKind: 'chunking-host',
+            state: 'error',
           });
           return () => {};
         },
-        onProgress: vi.fn(() => () => {}),
+        reset: vi.fn(async () => {
+          throw new Error('reset failed');
+        }),
       },
     });
 

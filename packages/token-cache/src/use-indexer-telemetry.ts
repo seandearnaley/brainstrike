@@ -42,15 +42,15 @@ export interface UseIndexerTelemetryReturn {
 }
 
 const emptySnapshot: IndexerTelemetrySnapshot = {
+  averageLatencyMs: null,
+  cacheHitRate: null,
+  errorCount: 0,
   events: [],
   indexedPerMinute: 0,
-  totalFilesPerMinute: 0,
-  averageLatencyMs: null,
   latencyP50Ms: null,
   latencyP95Ms: null,
+  totalFilesPerMinute: 0,
   totalTokensIndexed: 0,
-  errorCount: 0,
-  cacheHitRate: null,
 };
 
 /**
@@ -100,5 +100,5 @@ export function useIndexerTelemetry({
     []
   );
 
-  return { snapshot, reset };
+  return { reset, snapshot };
 }

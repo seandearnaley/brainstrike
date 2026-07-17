@@ -73,8 +73,8 @@ function buildSparklinePoints(
   const areaPath = `M ${firstPoint.x} ${height - padding} ${lineCommands.join(' ')} L ${lastPoint.x} ${height - padding} Z`;
 
   return {
-    polylinePoints,
     areaPath,
+    polylinePoints,
   };
 }
 
@@ -173,7 +173,6 @@ interface PreviewPanelFooterProps {
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
   onProjectTreeUsesViewFiltersChange?: ((checked: boolean) => void) | undefined;
   onTokenBudgetChange?: ((budget: number) => void) | undefined;
-  onUseTapestryRangesChange?: ((checked: boolean) => void) | undefined;
   projectTreeUsesViewFilters: boolean;
   selectedFilesCount: number;
   /** BST-153: Number of files still being indexed (for "estimating..." state) */
@@ -182,7 +181,6 @@ interface PreviewPanelFooterProps {
   tokenUsage: TokenUsageMetrics;
   totalFiles: number;
   treeLoading?: boolean;
-  useTapestryRanges: boolean;
 }
 
 interface FooterActionButtonsProps {
@@ -306,13 +304,11 @@ interface ExpandedFooterInsightsProps {
   includeProjectTree: boolean;
   tokenUsage: TokenUsageMetrics;
   usageHistory: number[];
-  useTapestryRanges: boolean;
 }
 
 const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function ExpandedFooterInsights({
   tokenUsage,
   includeProjectTree,
-  useTapestryRanges,
   usageHistory,
 }) {
   const compositionSegments = useMemo(() => {
@@ -324,25 +320,25 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
 
     const segments = [
       {
+        className: 'bg-primary/80',
         id: 'selected',
-        label: useTapestryRanges ? 'Output' : 'Selected',
+        label: 'Output',
         value: tokenUsage.selectedTokens,
         visualValue: tokenUsage.selectedTokens * budgetRatio,
-        className: 'bg-primary/80',
       },
       {
+        className: 'bg-[hsl(var(--chart-2))]/80',
         id: 'tree',
         label: 'Tree',
         value: treeTokens,
         visualValue: treeTokens * budgetRatio,
-        className: 'bg-[hsl(var(--chart-2))]/80',
       },
       {
+        className: tokenUsage.isOverBudget ? 'bg-destructive/75' : 'bg-emerald-500/70',
         id: 'remaining',
         label: tokenUsage.isOverBudget ? 'Over budget' : 'Remaining',
         value: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
         visualValue: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
-        className: tokenUsage.isOverBudget ? 'bg-destructive/75' : 'bg-emerald-500/70',
       },
     ];
     const totalValue = Math.max(1, tokenUsage.isOverBudget ? totalUsedTokens : tokenUsage.budget);
@@ -351,7 +347,7 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
       ...segment,
       widthPercent: (segment.visualValue / totalValue) * 100,
     }));
-  }, [includeProjectTree, tokenUsage, useTapestryRanges]);
+  }, [includeProjectTree, tokenUsage]);
 
   return (
     <div className="grid @[640px]:grid-cols-[1.2fr_0.8fr] gap-1.5">
@@ -370,8 +366,8 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
               className={segment.className}
               key={segment.id}
               style={{
-                width: `${segment.widthPercent}%`,
                 minWidth: segment.value > 0 ? '4px' : undefined,
+                width: `${segment.widthPercent}%`,
               }}
             />
           ))}
@@ -433,25 +429,19 @@ interface DetailedFooterControlsProps {
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
   onProjectTreeUsesViewFiltersChange?: ((checked: boolean) => void) | undefined;
   onTokenBudgetChange?: ((budget: number) => void) | undefined;
-  onUseTapestryRangesChange?: ((checked: boolean) => void) | undefined;
   projectTreeUsesViewFilters: boolean;
-  selectedFilesCount: number;
   tokenUsage: TokenUsageMetrics;
-  useTapestryRanges: boolean;
 }
 
 const DetailedFooterControls = memo<DetailedFooterControlsProps>(function DetailedFooterControls({
   includeProjectTree,
   projectTreeUsesViewFilters,
-  useTapestryRanges,
-  selectedFilesCount,
   tokenUsage,
   folderSummaryThreshold,
   onTokenBudgetChange,
   onIncludeProjectTreeChange,
   onProjectTreeUsesViewFiltersChange,
   onFolderSummaryThresholdChange,
-  onUseTapestryRangesChange,
   actions,
 }) {
   return (
@@ -519,7 +509,7 @@ const DetailedFooterControls = memo<DetailedFooterControlsProps>(function Detail
               Tree detail:
             </label>
             <input
-              className="h-7 w-14 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-7 w-14 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               id="folder-summary-threshold-footer"
               min="0"
               onChange={(event) => {
@@ -533,36 +523,6 @@ const DetailedFooterControls = memo<DetailedFooterControlsProps>(function Detail
               value={folderSummaryThreshold}
             />
           </div>
-        </>
-      )}
-
-      {onUseTapestryRangesChange && (
-        <>
-          <div aria-hidden className="h-6 w-px bg-border" />
-          <TooltipProvider delayDuration={400}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    aria-label="Use tapestry ranges in context output"
-                    checked={useTapestryRanges}
-                    disabled={selectedFilesCount === 0}
-                    id="use-tapestry-ranges"
-                    onCheckedChange={onUseTapestryRangesChange}
-                  />
-                  <Label
-                    className="cursor-pointer select-none text-muted-foreground text-xs"
-                    htmlFor="use-tapestry-ranges"
-                  >
-                    Use Tapestry Ranges
-                  </Label>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                When enabled, export only active ranges. Turn off for full files.
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </>
       )}
 
@@ -580,14 +540,12 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       tokenUsage,
       includeProjectTree,
       projectTreeUsesViewFilters,
-      useTapestryRanges,
       treeLoading = false,
       selectedTokensPendingCount = 0,
       onTokenBudgetChange,
       selectedFilesCount,
       onIncludeProjectTreeChange,
       onProjectTreeUsesViewFiltersChange,
-      onUseTapestryRangesChange,
       onDownloadContext,
       onCopyContext,
       folderSummaryThreshold = 5,
@@ -672,7 +630,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
                 sourceSelectedTokens={tokenUsage.sourceSelectedTokens}
                 treeTokens={tokenUsage.includedTreeTokens}
                 usedTokens={tokenUsage.usedTokens}
-                useTapestryRanges={useTapestryRanges}
               />
             </div>
 
@@ -690,7 +647,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
                 totalFiles={totalFiles}
                 treeLoading={treeLoading}
                 treeTokens={tokenUsage.includedTreeTokens}
-                useTapestryRanges={useTapestryRanges}
               />
 
               {!isCompact && (
@@ -725,7 +681,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
               includeProjectTree={includeProjectTree}
               tokenUsage={tokenUsage}
               usageHistory={usageHistory}
-              useTapestryRanges={useTapestryRanges}
             />
           ) : null}
 
@@ -758,11 +713,8 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
               onIncludeProjectTreeChange={onIncludeProjectTreeChange}
               onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
               onTokenBudgetChange={onTokenBudgetChange}
-              onUseTapestryRangesChange={onUseTapestryRangesChange}
               projectTreeUsesViewFilters={projectTreeUsesViewFilters}
-              selectedFilesCount={selectedFilesCount}
               tokenUsage={tokenUsage}
-              useTapestryRanges={useTapestryRanges}
             />
           )}
         </div>

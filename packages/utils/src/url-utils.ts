@@ -77,8 +77,8 @@ export function parseQueryParams(url: string): Record<string, string> {
     }
   } catch (error) {
     logger.debug('Failed to parse full URL, falling back to query string parsing', {
-      url,
       error,
+      url,
     });
     // If URL is invalid, try to parse just the query string
     const queryString = url.split('?')[1] || '';

@@ -18,6 +18,8 @@ export interface IndexingQueueSnapshot {
   readonly queued: number;
   readonly running: number;
   readonly succeeded: number;
+  /** Durable, monotonic lifetime total of succeeded jobs — survives pruning. */
+  readonly succeededLifetime: number;
 }
 
 export interface IndexingBackfillSnapshot {
@@ -41,6 +43,23 @@ export interface IndexingBackgroundSnapshot {
 export interface IndexingWorkerSnapshot {
   readonly lastError: string | null;
   readonly state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping' | 'unknown';
+}
+
+export interface IndexingManagedCollectionStats {
+  readonly chunkCount: number;
+  readonly dirty: boolean;
+  readonly embeddedChunkCount: number;
+  readonly embeddingSetId: string;
+  readonly fileCount: number;
+  readonly lastRefreshedAt: string;
+  readonly pendingChunkCount: number;
+}
+
+export interface IndexingManagedCollectionStatsState {
+  readonly collectionId: string | null;
+  readonly error: string | null;
+  readonly stats: IndexingManagedCollectionStats | null;
+  readonly status: 'unavailable' | 'loading' | 'pending' | 'ready' | 'error';
 }
 
 export type IndexingDatabaseWorkPriority = 'foreground' | 'normal' | 'background';
@@ -93,6 +112,7 @@ export interface IndexingActivitySnapshot {
 
 interface IndexingActivityData {
   readonly indexingActivityError: string | null;
+  readonly managedCollectionStats: IndexingManagedCollectionStatsState;
   readonly snapshot: IndexingActivitySnapshot;
 }
 
@@ -102,6 +122,7 @@ interface IndexingActivityActions {
   readonly setBackgroundSnapshot: (background: IndexingBackgroundSnapshot) => void;
   readonly setDatabaseWorkSnapshot: (databaseWork: IndexingDatabaseWorkSnapshot | null) => void;
   readonly setIndexingActivityError: (error: string | null) => void;
+  readonly setManagedCollectionStats: (state: IndexingManagedCollectionStatsState) => void;
   readonly setQueueSnapshot: (queue: IndexingQueueSnapshot | null) => void;
   readonly setWorkerSnapshot: (worker: IndexingWorkerSnapshot | null) => void;
 }
@@ -118,23 +139,30 @@ type IndexingActivitySnapshotInput = Pick<
 const DEFAULT_BACKGROUND_SNAPSHOT: IndexingBackgroundSnapshot = {
   enabled: false,
   lastError: null,
-  paused: false,
   managedCollectionId: null,
   managedCollectionName: null,
-  state: 'disabled',
+  paused: false,
   pauseReasons: [],
+  state: 'disabled',
 };
 
 const DEFAULT_INDEXING_ACTIVITY_SNAPSHOT: IndexingActivitySnapshot = {
-  status: 'unavailable',
-  phase: null,
-  queue: null,
   activeBackfills: [],
   background: DEFAULT_BACKGROUND_SNAPSHOT,
   databaseWork: null,
-  worker: null,
   lastError: null,
   lastUpdatedAt: null,
+  phase: null,
+  queue: null,
+  status: 'unavailable',
+  worker: null,
+};
+
+const DEFAULT_MANAGED_COLLECTION_STATS: IndexingManagedCollectionStatsState = {
+  collectionId: null,
+  error: null,
+  stats: null,
+  status: 'unavailable',
 };
 
 function isQueueActive(queue: IndexingQueueSnapshot | null): boolean {
@@ -365,8 +393,8 @@ function deriveNextSnapshot(
   >
 ): IndexingActivitySnapshot {
   return deriveSnapshot({
-    activityError,
     activeBackfills: patch.activeBackfills ?? current.activeBackfills,
+    activityError,
     background: patch.background ?? current.background,
     databaseWork: patch.databaseWork === undefined ? current.databaseWork : patch.databaseWork,
     lastUpdatedAt: patch.lastUpdatedAt ?? current.lastUpdatedAt,
@@ -379,31 +407,203 @@ function now(): number {
   return Date.now();
 }
 
-export const useIndexingActivityStore = create<IndexingActivityStore>()((set) => ({
+function areArraysEqual<T>(left: readonly T[], right: readonly T[]): boolean {
+  return (
+    left === right ||
+    (left.length === right.length && left.every((value, index) => value === right[index]))
+  );
+}
+
+function areQueueSnapshotsEqual(
+  left: IndexingQueueSnapshot | null,
+  right: IndexingQueueSnapshot | null
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!(left && right)) {
+    return false;
+  }
+  return (
+    left.failed === right.failed &&
+    left.nextRunnableAt === right.nextRunnableAt &&
+    left.queued === right.queued &&
+    left.running === right.running &&
+    left.succeeded === right.succeeded &&
+    left.succeededLifetime === right.succeededLifetime
+  );
+}
+
+function areBackfillSnapshotsEqual(
+  left: readonly IndexingBackfillSnapshot[],
+  right: readonly IndexingBackfillSnapshot[]
+): boolean {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((backfill, index) => {
+        const other = right[index];
+        return (
+          other !== undefined &&
+          backfill.current === other.current &&
+          backfill.embeddingSetId === other.embeddingSetId &&
+          backfill.requestId === other.requestId &&
+          backfill.source === other.source &&
+          backfill.total === other.total
+        );
+      }))
+  );
+}
+
+function areBackgroundSnapshotsEqual(
+  left: IndexingBackgroundSnapshot,
+  right: IndexingBackgroundSnapshot
+): boolean {
+  return (
+    left === right ||
+    (left.enabled === right.enabled &&
+      left.lastError === right.lastError &&
+      left.managedCollectionId === right.managedCollectionId &&
+      left.managedCollectionName === right.managedCollectionName &&
+      left.paused === right.paused &&
+      areArraysEqual(left.pauseReasons, right.pauseReasons) &&
+      left.state === right.state)
+  );
+}
+
+function areWorkerSnapshotsEqual(
+  left: IndexingWorkerSnapshot | null,
+  right: IndexingWorkerSnapshot | null
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!(left && right)) {
+    return false;
+  }
+  return left.lastError === right.lastError && left.state === right.state;
+}
+
+function areDatabaseWorkPriorityStatsEqual(
+  left: IndexingDatabaseWorkPriorityStats,
+  right: IndexingDatabaseWorkPriorityStats
+): boolean {
+  return (
+    left.completed === right.completed &&
+    left.lastCompletedLabel === right.lastCompletedLabel &&
+    left.lastStartedLabel === right.lastStartedLabel &&
+    left.longestWaitMs === right.longestWaitMs &&
+    left.queued === right.queued &&
+    left.serviceP50Ms === right.serviceP50Ms &&
+    left.serviceP95Ms === right.serviceP95Ms &&
+    left.started === right.started &&
+    left.totalServiceMs === right.totalServiceMs &&
+    left.totalWaitMs === right.totalWaitMs &&
+    left.waitP50Ms === right.waitP50Ms &&
+    left.waitP95Ms === right.waitP95Ms
+  );
+}
+
+function areDatabaseWorkSnapshotsEqual(
+  left: IndexingDatabaseWorkSnapshot | null,
+  right: IndexingDatabaseWorkSnapshot | null
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!(left && right)) {
+    return false;
+  }
+  return (
+    left.backgroundWaiting === right.backgroundWaiting &&
+    left.backgroundWaitingSince === right.backgroundWaitingSince &&
+    left.backgroundYieldCount === right.backgroundYieldCount &&
+    left.currentBackgroundWaitMs === right.currentBackgroundWaitMs &&
+    left.foregroundQuietMs === right.foregroundQuietMs &&
+    left.lastBackgroundYieldAt === right.lastBackgroundYieldAt &&
+    left.lastCompletedAt === right.lastCompletedAt &&
+    left.lastForegroundAt === right.lastForegroundAt &&
+    left.lastNormalAt === right.lastNormalAt &&
+    left.lastStartedAt === right.lastStartedAt &&
+    areDatabaseWorkPriorityStatsEqual(
+      left.priorityStats.background,
+      right.priorityStats.background
+    ) &&
+    areDatabaseWorkPriorityStatsEqual(
+      left.priorityStats.foreground,
+      right.priorityStats.foreground
+    ) &&
+    areDatabaseWorkPriorityStatsEqual(left.priorityStats.normal, right.priorityStats.normal) &&
+    left.queued.background === right.queued.background &&
+    left.queued.foreground === right.queued.foreground &&
+    left.queued.normal === right.queued.normal &&
+    areArraysEqual(left.queuedLabels.background, right.queuedLabels.background) &&
+    areArraysEqual(left.queuedLabels.foreground, right.queuedLabels.foreground) &&
+    areArraysEqual(left.queuedLabels.normal, right.queuedLabels.normal) &&
+    left.runningLabel === right.runningLabel &&
+    left.runningPriority === right.runningPriority &&
+    left.snapshotAt === right.snapshotAt
+  );
+}
+
+function areManagedCollectionStatsEqual(
+  left: IndexingManagedCollectionStats | null,
+  right: IndexingManagedCollectionStats | null
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!(left && right)) {
+    return false;
+  }
+  return (
+    left.chunkCount === right.chunkCount &&
+    left.dirty === right.dirty &&
+    left.embeddedChunkCount === right.embeddedChunkCount &&
+    left.embeddingSetId === right.embeddingSetId &&
+    left.fileCount === right.fileCount &&
+    left.lastRefreshedAt === right.lastRefreshedAt &&
+    left.pendingChunkCount === right.pendingChunkCount
+  );
+}
+
+function areManagedCollectionStatsStatesEqual(
+  left: IndexingManagedCollectionStatsState,
+  right: IndexingManagedCollectionStatsState
+): boolean {
+  return (
+    left === right ||
+    (left.collectionId === right.collectionId &&
+      left.error === right.error &&
+      areManagedCollectionStatsEqual(left.stats, right.stats) &&
+      left.status === right.status)
+  );
+}
+
+export const useIndexingActivityStore = create<IndexingActivityStore>()((set, get) => ({
   indexingActivityError: null,
-  snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
-  setQueueSnapshot: (queue: IndexingQueueSnapshot | null) =>
-    set((state) => ({
-      snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
-        queue,
-        lastUpdatedAt: now(),
-      }),
-    })),
-  setBackfills: (backfills: readonly IndexingBackfillSnapshot[]) =>
+  managedCollectionStats: DEFAULT_MANAGED_COLLECTION_STATS,
+  resetIndexingActivity: () =>
+    set({
+      indexingActivityError: null,
+      managedCollectionStats: DEFAULT_MANAGED_COLLECTION_STATS,
+      snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
+    }),
+  setBackfills: (backfills: readonly IndexingBackfillSnapshot[]) => {
+    if (areBackfillSnapshotsEqual(get().snapshot.activeBackfills, backfills)) {
+      return;
+    }
     set((state) => ({
       snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
         activeBackfills: [...backfills],
         lastUpdatedAt: now(),
       }),
-    })),
-  setWorkerSnapshot: (worker: IndexingWorkerSnapshot | null) =>
-    set((state) => ({
-      snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
-        worker,
-        lastUpdatedAt: now(),
-      }),
-    })),
-  setBackgroundSnapshot: (background: IndexingBackgroundSnapshot) =>
+    }));
+  },
+  setBackgroundSnapshot: (background: IndexingBackgroundSnapshot) => {
+    if (areBackgroundSnapshotsEqual(get().snapshot.background, background)) {
+      return;
+    }
     set((state) => ({
       snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
         background: {
@@ -412,29 +612,61 @@ export const useIndexingActivityStore = create<IndexingActivityStore>()((set) =>
         },
         lastUpdatedAt: now(),
       }),
-    })),
-  setDatabaseWorkSnapshot: (databaseWork: IndexingDatabaseWorkSnapshot | null) =>
+    }));
+  },
+  setDatabaseWorkSnapshot: (databaseWork: IndexingDatabaseWorkSnapshot | null) => {
+    if (areDatabaseWorkSnapshotsEqual(get().snapshot.databaseWork, databaseWork)) {
+      return;
+    }
     set((state) => ({
       snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
         databaseWork,
         lastUpdatedAt: now(),
       }),
-    })),
+    }));
+  },
   setIndexingActivityError: (error: string | null) =>
     set((state) => ({
       indexingActivityError: error,
       snapshot: deriveNextSnapshot(state.snapshot, error, { lastUpdatedAt: now() }),
     })),
-  resetIndexingActivity: () =>
-    set({
-      indexingActivityError: null,
-      snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
-    }),
+  setManagedCollectionStats: (managedCollectionStats: IndexingManagedCollectionStatsState) => {
+    if (
+      areManagedCollectionStatsStatesEqual(get().managedCollectionStats, managedCollectionStats)
+    ) {
+      return;
+    }
+    set({ managedCollectionStats });
+  },
+  setQueueSnapshot: (queue: IndexingQueueSnapshot | null) => {
+    if (areQueueSnapshotsEqual(get().snapshot.queue, queue)) {
+      return;
+    }
+    set((state) => ({
+      snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
+        lastUpdatedAt: now(),
+        queue,
+      }),
+    }));
+  },
+  setWorkerSnapshot: (worker: IndexingWorkerSnapshot | null) => {
+    if (areWorkerSnapshotsEqual(get().snapshot.worker, worker)) {
+      return;
+    }
+    set((state) => ({
+      snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
+        lastUpdatedAt: now(),
+        worker,
+      }),
+    }));
+  },
+  snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
 }));
 
 export function __resetIndexingActivityStoreForTests(): void {
   useIndexingActivityStore.setState({
     indexingActivityError: null,
+    managedCollectionStats: DEFAULT_MANAGED_COLLECTION_STATS,
     snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
   });
 }

@@ -17,6 +17,7 @@ import {
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
+import { registerAssetProtocol, registerAssetProtocolPrivileges } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
@@ -32,22 +33,24 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
-import { markDesktopShuttingDown } from './desktop-shutdown-state';
+import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import {
-  type DimensionIndexStrategySelection,
+  type DimensionIndexBuildStrategy,
   probeDimensionIndexRuntimeCapabilities,
-  selectDimensionIndexStrategy,
 } from './dimension-index-maintenance-capabilities';
 import {
   createDesktopDimensionIndexMaintenanceScheduler,
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { createDatabaseRootResolver } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
+import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
+import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
@@ -59,14 +62,19 @@ import {
   setBackgrounded,
   waitForDesktopDatabaseWorkSchedulerIdle,
 } from './ipc-handlers';
+import { registerHooksIpcHandlers } from './ipc-hooks';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { cleanupMcpRuntimeForShutdown, registerMcpIpcHandlers } from './ipc-mcp';
+import { registerNotesVaultIpc } from './ipc-notes-vault';
 import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
+import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerToolsIpcHandlers } from './ipc-tools';
+import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
+import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { LlmHostManager } from './llm-host-manager';
 import {
   cloneLoggingPreferences,
@@ -92,6 +100,10 @@ const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
 const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
 configureAgentDevtoolsCommandLine(app.commandLine, process.env, process.argv);
+
+// MUST run before app.whenReady(): privileged scheme registration is only
+// honored if it happens before the app is ready.
+registerAssetProtocolPrivileges();
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
@@ -179,32 +191,32 @@ function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
 function createDesktopDefaultPreferences(): LoggingPreferences {
   const logPath = getLogFilePath();
   return createDefaultLoggingPreferences({
-    level: LogLevel.INFO,
     consoleLevel: LogLevel.WARN,
-    includeTimestamp: true,
     file: {
-      enabled: !disableFileLogs && Boolean(logPath),
-      destination: logPath ?? null,
-      level: LogLevel.INFO,
       append: true,
+      destination: logPath ?? null,
+      enabled: !disableFileLogs && Boolean(logPath),
+      level: LogLevel.INFO,
       mkdir: true,
     },
+    includeTimestamp: true,
+    level: LogLevel.INFO,
   });
 }
 
 function createLegacyDesktopDefaultPreferences(): LoggingPreferences {
   const logPath = getLogFilePath();
   return createDefaultLoggingPreferences({
-    level: LogLevel.DEBUG,
     consoleLevel: LogLevel.INFO,
-    includeTimestamp: true,
     file: {
-      enabled: !disableFileLogs && Boolean(logPath),
-      destination: logPath ?? null,
-      level: LogLevel.DEBUG,
       append: true,
+      destination: logPath ?? null,
+      enabled: !disableFileLogs && Boolean(logPath),
+      level: LogLevel.DEBUG,
       mkdir: true,
     },
+    includeTimestamp: true,
+    level: LogLevel.DEBUG,
   });
 }
 
@@ -230,11 +242,11 @@ function migrateStoredLoggingPreferences(stored: LoggingPreferences): LoggingPre
   const currentDefaults = createDesktopDefaultPreferences();
   const debugFileDefaults = sanitizeDesktopPreferences({
     ...currentDefaults,
-    level: LogLevel.DEBUG,
     file: {
       ...currentDefaults.file,
       level: LogLevel.DEBUG,
     },
+    level: LogLevel.DEBUG,
   });
   if (
     areLoggingPreferencesEqual(sanitizedStored, legacyDefaults) ||
@@ -256,21 +268,21 @@ function mergeStoredPreferences(
   return {
     ...base,
     ...stored,
-    redactPaths: stored.redactPaths ?? base.redactPaths,
     file: {
       ...base.file,
       ...(stored.file ?? {}),
     },
+    redactPaths: stored.redactPaths ?? base.redactPaths,
   };
 }
 
 function sanitizeDesktopPreferences(preferences: LoggingPreferences): LoggingPreferences {
   const normalized: LoggingPreferences = {
     ...preferences,
+    file: { ...preferences.file },
     redactPaths: preferences.redactPaths
       .map((value) => value.trim())
       .filter((value) => value.length),
-    file: { ...preferences.file },
   };
 
   const trimmedDestination = normalized.file.destination?.trim() ?? null;
@@ -342,8 +354,8 @@ async function readFileStatSnapshot(filePath: string): Promise<FileStatSnapshot 
   try {
     const stats = await fs.promises.stat(filePath);
     return {
-      size: stats.size,
       mtimeMs: stats.mtimeMs,
+      size: stats.size,
     };
   } catch {
     return null;
@@ -370,10 +382,10 @@ async function sanitizeDesktopPreferencesAsync(
 ): Promise<LoggingPreferences> {
   const normalized: LoggingPreferences = {
     ...preferences,
+    file: { ...preferences.file },
     redactPaths: preferences.redactPaths
       .map((value) => value.trim())
       .filter((value) => value.length),
-    file: { ...preferences.file },
   };
 
   const trimmedDestination = normalized.file.destination?.trim() ?? null;
@@ -420,22 +432,22 @@ const initialLoggingPreferences = sanitizeDesktopPreferences(
 );
 
 const loggingOptions: InitializeLoggingOptions = {
-  runtime: 'electron-main',
-  level: initialLoggingPreferences.level,
-  consoleLevel: initialLoggingPreferences.consoleLevel,
-  includeTimestamp: initialLoggingPreferences.includeTimestamp,
   appName: 'brainstrike-desktop',
   appVersion: app.getVersion(),
   baseBindings: {
-    platform: process.platform,
     arch: process.arch,
     electron: process.versions.electron,
     node: process.versions.node,
+    platform: process.platform,
     ...(initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.destination
       ? { logFile: initialLoggingPreferences.file.destination }
       : {}),
   },
+  consoleLevel: initialLoggingPreferences.consoleLevel,
   enableDebugInProduction: true,
+  includeTimestamp: initialLoggingPreferences.includeTimestamp,
+  level: initialLoggingPreferences.level,
+  runtime: 'electron-main',
 };
 
 const logger = createLogger('DesktopMain');
@@ -447,10 +459,10 @@ const removeLogBufferListener = addLogListener((record) => {
 
 if (initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.destination) {
   loggingOptions.file = {
+    append: initialLoggingPreferences.file.append,
     destination: initialLoggingPreferences.file.destination,
     level: initialLoggingPreferences.file.level,
     mkdir: initialLoggingPreferences.file.mkdir,
-    append: initialLoggingPreferences.file.append,
   };
 }
 
@@ -475,18 +487,18 @@ persistLoggingPreferences(currentLoggingPreferences);
 
 function getLoggingCapabilities() {
   return {
-    runtime: 'electron' as const,
-    fileLoggingSupported: !disableFileLogs,
     canSelectDestination: !disableFileLogs,
     defaultDestination: getLogFilePath() ?? null,
+    fileLoggingSupported: !disableFileLogs,
     reason: disableFileLogs ? 'File logging disabled by BRAINSTRIKE_DISABLE_FILE_LOGS=1' : null,
+    runtime: 'electron' as const,
   };
 }
 
 function getLoggingSettingsPayload(): LoggingSettingsPayload {
   return cloneLoggingSettingsPayload({
-    preferences: currentLoggingPreferences,
     capabilities: getLoggingCapabilities(),
+    preferences: currentLoggingPreferences,
   });
 }
 
@@ -495,29 +507,29 @@ async function verifyActiveLogFile(reason: string): Promise<void> {
   const defaultDestination = getLoggingCapabilities().defaultDestination;
 
   logger.info('Desktop file logging configuration resolved', {
-    reason,
-    fileLoggingEnabled: enabled,
+    appReady: app.isReady(),
     configuredDestination: destination,
     defaultDestination,
-    appReady: app.isReady(),
+    fileLoggingEnabled: enabled,
+    reason,
   });
 
   if (!(enabled && destination)) {
     logger.warn('Desktop file logging is not active', {
-      reason,
-      fileLoggingEnabled: enabled,
       configuredDestination: destination,
       defaultDestination,
+      fileLoggingEnabled: enabled,
+      reason,
     });
     return;
   }
 
   const before = await readFileStatSnapshot(destination);
   logger.info('Desktop file logging verification marker', {
-    reason,
     logFile: destination,
-    previousSizeBytes: before?.size ?? null,
     previousMtimeMs: before?.mtimeMs ?? null,
+    previousSizeBytes: before?.size ?? null,
+    reason,
   });
 
   const startedAt = Date.now();
@@ -529,12 +541,12 @@ async function verifyActiveLogFile(reason: string): Promise<void> {
     }
     if (!before || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
       logger.info('Desktop file logging verified on disk', {
-        reason,
         logFile: destination,
-        sizeBytes: after.size,
         mtimeMs: after.mtimeMs,
-        previousSizeBytes: before?.size ?? null,
         previousMtimeMs: before?.mtimeMs ?? null,
+        previousSizeBytes: before?.size ?? null,
+        reason,
+        sizeBytes: after.size,
       });
       return;
     }
@@ -542,14 +554,14 @@ async function verifyActiveLogFile(reason: string): Promise<void> {
 
   const finalStats = await readFileStatSnapshot(destination);
   logger.error('Desktop file logging did not advance on disk after verification marker', {
-    reason,
-    logFile: destination,
-    existsOnDisk: finalStats !== null,
-    sizeBytes: finalStats?.size ?? null,
-    mtimeMs: finalStats?.mtimeMs ?? null,
-    previousSizeBytes: before?.size ?? null,
-    previousMtimeMs: before?.mtimeMs ?? null,
     defaultDestination,
+    existsOnDisk: finalStats !== null,
+    logFile: destination,
+    mtimeMs: finalStats?.mtimeMs ?? null,
+    previousMtimeMs: before?.mtimeMs ?? null,
+    previousSizeBytes: before?.size ?? null,
+    reason,
+    sizeBytes: finalStats?.size ?? null,
   });
 }
 
@@ -562,9 +574,9 @@ async function selectLogDestination(): Promise<string | null> {
     currentLoggingPreferences.file.destination ?? getLogFilePath() ?? app.getPath('logs');
 
   const result = await dialog.showSaveDialog({
-    title: 'Choose log file location',
     buttonLabel: 'Use Log File',
     defaultPath,
+    title: 'Choose log file location',
   });
 
   if (result.canceled || !result.filePath) {
@@ -614,28 +626,28 @@ async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
   try {
     const capabilities = await probeDimensionIndexRuntimeCapabilities({
       db: await getDatabase(),
-      foregroundHealthProbe: async () => {
-        throw new Error('Startup capability probe must not run foreground health measurement.');
-      },
       initialMemoryBytes: null,
       now: () => new Date(),
       scratchTableName: `brainstrike_hnsw_probe_${randomUUID().replaceAll('-', '_')}`,
     });
-    desktopDimensionIndexStrategySelection = selectDimensionIndexStrategy({
-      concurrentIndexBuild: capabilities.concurrentIndexBuild,
-      foregroundHealthThresholdMs: 5000,
-    });
+    desktopDimensionIndexStrategy = 'regular';
     logger.info('Dimension index maintenance capability probe completed', {
-      concurrentIndexBuild: capabilities.concurrentIndexBuild,
       hnswIndexBuild: capabilities.hnswIndexBuild,
       maintenanceSettings: capabilities.maintenanceSettings,
       progressReporting: capabilities.progressReporting,
-      strategyReason: desktopDimensionIndexStrategySelection.reason,
-      strategy: desktopDimensionIndexStrategySelection.strategy,
+      strategy: desktopDimensionIndexStrategy,
     });
   } catch (error) {
-    desktopDimensionIndexStrategySelection = null;
-    logger.error('Dimension index maintenance capability probe failed', { error });
+    desktopDimensionIndexStrategy = null;
+    // The probe runs concurrently with the app lifecycle (it no longer gates
+    // window creation), so a short-lived session can tear the DB down while
+    // the probe is mid-flight. That rejection is an EXPECTED teardown (see
+    // desktop-shutdown-state), not a capability failure — log it quietly.
+    if (isDesktopShuttingDown()) {
+      logger.info('Dimension index maintenance capability probe aborted by shutdown', { error });
+    } else {
+      logger.error('Dimension index maintenance capability probe failed', { error });
+    }
   }
 }
 
@@ -651,12 +663,19 @@ let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
+let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
+let unregisterHooksIpcHandlers: null | (() => void) = null;
+let unregisterContextFilesIpcHandlers: null | (() => void) = null;
+let unregisterSkillsIpcHandlers: null | (() => void) = null;
+let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
+let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
+let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
-let desktopDimensionIndexStrategySelection: DimensionIndexStrategySelection | null = null;
+let desktopDimensionIndexStrategy: DimensionIndexBuildStrategy | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
@@ -667,8 +686,8 @@ const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 function serializeDesktopError(error: unknown): Record<string, string | undefined> {
   if (error instanceof Error) {
     return {
-      name: error.name,
       message: error.message,
+      name: error.name,
       stack: error.stack,
     };
   }
@@ -793,8 +812,8 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
 
     if (failures.length > 0) {
       logger.warn('Graceful shutdown completed with cleanup failures', {
-        trigger,
         failures,
+        trigger,
       });
     }
   })().finally(() => {
@@ -883,7 +902,7 @@ desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler(
 });
 desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
   getDatabase,
-  getDimensionIndexStrategy: () => desktopDimensionIndexStrategySelection,
+  getDimensionIndexStrategy: () => desktopDimensionIndexStrategy,
   getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
@@ -891,11 +910,8 @@ desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenan
 });
 
 unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
-  getState: getLoggingSettingsPayload,
-  setPreferences: applyAndPersistLoggingPreferences,
-  selectDestination: selectLogDestination,
-  openDestination: openLogDestination,
   getBufferedLogs: () => mainLogBuffer.getRecords(),
+  getState: getLoggingSettingsPayload,
   ingestBufferedLog: (senderId, record) => {
     mainLogBuffer.push({
       ...record,
@@ -907,14 +923,16 @@ unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
       },
     });
   },
+  openDestination: openLogDestination,
+  selectDestination: selectLogDestination,
+  setPreferences: applyAndPersistLoggingPreferences,
 });
 
 // Register IPC handlers early to avoid renderer calls racing registration during startup.
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
   chunkingHostManager,
   embeddingHostManager,
-  getDimensionIndexMaintenanceStrategy: () =>
-    desktopDimensionIndexStrategySelection?.strategy ?? null,
+  getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
   onResetLocal: handleResetLocal,
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
@@ -962,16 +980,23 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 });
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
+unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
+unregisterHooksIpcHandlers = registerHooksIpcHandlers();
+unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
+unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();
+unregisterUserCommandsIpcHandlers = registerUserCommandsIpcHandlers();
+unregisterUserPersonasIpcHandlers = registerUserPersonasIpcHandlers();
 unregisterTerminalIpcHandlers = registerTerminalIpc();
+unregisterNotesVaultIpcHandlers = registerNotesVaultIpc(storage);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
   const serializedError =
     error instanceof Error
       ? {
-          name: error.name,
           message: error.message,
+          name: error.name,
           stack: error.stack,
         }
       : { value: String(error) };
@@ -984,8 +1009,8 @@ process.on('unhandledRejection', (reason, promise) => {
   const serializedReason =
     reason instanceof Error
       ? {
-          name: reason.name,
           message: reason.message,
+          name: reason.name,
           stack: reason.stack,
         }
       : { value: String(reason) };
@@ -1052,6 +1077,12 @@ if (singleInstanceLockAcquired) {
       });
       logger.debug('Resolved desktop launch mode', { launchMode });
 
+      // Register the root-validated `brainstrike-asset://` protocol now that the
+      // app is ready (protocol.handle requires ready). The resolver validates
+      // renderer-supplied paths against the DB `roots` table — the SAME source
+      // the git/read/search tools use — resolving the DB lazily per request.
+      registerAssetProtocol(createDatabaseRootResolver(getDatabase));
+
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {
         app.setActivationPolicy?.('accessory');
@@ -1068,17 +1099,17 @@ if (singleInstanceLockAcquired) {
             ...currentLoggingPreferences,
             file: {
               ...currentLoggingPreferences.file,
-              enabled: true,
               destination: resolvedLogPath,
+              enabled: true,
             },
           };
           applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
             baseBindings: {
-              logFile: resolvedLogPath,
-              platform: process.platform,
               arch: process.arch,
               electron: process.versions.electron,
+              logFile: resolvedLogPath,
               node: process.versions.node,
+              platform: process.platform,
             },
           });
           logger.debug('File logging enabled after app.ready', { logFile: resolvedLogPath });
@@ -1093,11 +1124,24 @@ if (singleInstanceLockAcquired) {
       registerToolsIpcHandlers({ embeddingHostManager });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
-      await initializeDesktopDimensionIndexStrategy();
-      desktopDatabaseMaintenanceScheduler?.start();
-      logger.debug('Scheduled desktop database maintenance started');
-      desktopDimensionIndexMaintenanceScheduler?.start();
-      logger.debug('Scheduled desktop dimension index maintenance started');
+      // Kick off DB initialization (utilityProcess spawn + migrations) and the
+      // dimension-index capability probe WITHOUT blocking window creation: the
+      // visible window needs none of it to paint, and renderer DB calls
+      // coalesce on the same getDatabase() promise. Only the maintenance
+      // schedulers wait for the probe (they consume the selected strategy).
+      // initializeDesktopDimensionIndexStrategy never rejects (it catches and
+      // degrades internally); the .catch guards the scheduler start() calls so
+      // a future throw there can never become an unhandled rejection.
+      void initializeDesktopDimensionIndexStrategy()
+        .then(() => {
+          desktopDatabaseMaintenanceScheduler?.start();
+          logger.debug('Scheduled desktop database maintenance started');
+          desktopDimensionIndexMaintenanceScheduler?.start();
+          logger.debug('Scheduled desktop dimension index maintenance started');
+        })
+        .catch((error) => {
+          logger.error('Failed to start desktop maintenance schedulers', { error });
+        });
 
       // Setup security before creating windows
       setupSecurity();
@@ -1129,7 +1173,6 @@ if (singleInstanceLockAcquired) {
           label: 'View',
           submenu: [
             {
-              label: 'Command Palette…',
               accelerator: process.platform === 'darwin' ? 'Cmd+K' : 'Ctrl+K',
               click: (_menuItem, browserWindow) => {
                 // Route to the FOCUSED window only, so the palette opens where
@@ -1144,9 +1187,9 @@ if (singleInstanceLockAcquired) {
                 }
                 targetWindow.webContents.send(DESKTOP_IPC_CHANNELS.commandPalette.open);
               },
+              label: 'Command Palette…',
             },
             {
-              label: 'Quick Open…',
               accelerator: process.platform === 'darwin' ? 'Cmd+P' : 'Ctrl+P',
               click: (_menuItem, browserWindow) => {
                 // Same focused-window routing as the command palette; a no-op on
@@ -1160,10 +1203,10 @@ if (singleInstanceLockAcquired) {
                 }
                 targetWindow.webContents.send(DESKTOP_IPC_CHANNELS.quickOpen.open);
               },
+              label: 'Quick Open…',
             },
             { type: 'separator' },
             {
-              label: 'Reload',
               accelerator: process.platform === 'darwin' ? 'Cmd+R' : 'Ctrl+R',
               click: (_menuItem, browserWindow) => {
                 const targetWindow =
@@ -1180,6 +1223,7 @@ if (singleInstanceLockAcquired) {
                 });
                 targetWindow.webContents.reload();
               },
+              label: 'Reload',
             },
             { role: 'toggleDevTools' },
             { type: 'separator' },
@@ -1194,19 +1238,17 @@ if (singleInstanceLockAcquired) {
           label: 'Developer',
           submenu: [
             {
-              id: 'dev-reset-db',
-              label: 'Reset Local Database…',
               accelerator:
                 process.platform === 'darwin' ? 'Cmd+Shift+Backspace' : 'Ctrl+Shift+Backspace',
               click: async () => {
                 const res = await dialog.showMessageBox({
-                  type: 'warning',
                   buttons: ['Reset', 'Cancel'],
-                  defaultId: 1,
                   cancelId: 1,
-                  title: 'Reset Local Database',
+                  defaultId: 1,
                   message:
                     'This will delete the local database files and reinitialize on next access. This action cannot be undone.',
+                  title: 'Reset Local Database',
+                  type: 'warning',
                 });
                 if (res.response !== 0) {
                   return;
@@ -1214,10 +1256,10 @@ if (singleInstanceLockAcquired) {
                 try {
                   await resetLocalDatabase();
                   await dialog.showMessageBox({
-                    type: 'info',
                     buttons: ['OK'],
-                    title: 'Database Reset',
                     message: 'Local database has been reset. The app will reload.',
+                    title: 'Database Reset',
+                    type: 'info',
                   });
                   for (const win of BrowserWindow.getAllWindows()) {
                     noteNextWindowReload(win, {
@@ -1231,6 +1273,8 @@ if (singleInstanceLockAcquired) {
                   dialog.showErrorBox('Reset Failed', message);
                 }
               },
+              id: 'dev-reset-db',
+              label: 'Reset Local Database…',
             },
           ],
         },
@@ -1335,15 +1379,15 @@ if (singleInstanceLockAcquired) {
             )._getActiveRequests?.()?.length ?? -1;
 
           const payload = {
+            backgroundRuntimeMetrics: collectBackgroundRuntimeMetrics(),
             cpuPercent: (cpuPercent * 100).toFixed(1),
+            handles,
+            heapUsedKb: (mem.heapUsed / 1024).toFixed(0),
+            loopLagMaxMs: max.toFixed(1),
             loopLagP50Ms: p50.toFixed(1),
             loopLagP99Ms: p99.toFixed(1),
-            loopLagMaxMs: max.toFixed(1),
-            rssKb: (mem.rss / 1024).toFixed(0),
-            heapUsedKb: (mem.heapUsed / 1024).toFixed(0),
-            handles,
             requests,
-            backgroundRuntimeMetrics: collectBackgroundRuntimeMetrics(),
+            rssKb: (mem.rss / 1024).toFixed(0),
           };
 
           // Always log — if entries stop appearing, the event loop is stuck.
@@ -1400,7 +1444,7 @@ if (singleInstanceLockAcquired) {
 
         const watchdog = new Worker(watchdogSource, { eval: true });
         watchdog.unref();
-        watchdog.postMessage({ type: 'config', logPath: getLogFilePath() });
+        watchdog.postMessage({ logPath: getLogFilePath(), type: 'config' });
 
         setInterval(() => {
           watchdog.postMessage({ type: 'heartbeat' });
@@ -1551,14 +1595,43 @@ app.on('will-quit', () => {
     unregisterClipboardIpcHandlers();
     unregisterClipboardIpcHandlers = null;
   }
+  if (unregisterAssistantCheckpointIpcHandlers) {
+    unregisterAssistantCheckpointIpcHandlers();
+    unregisterAssistantCheckpointIpcHandlers = null;
+  }
   if (unregisterGitIpcHandlers) {
     unregisterGitIpcHandlers();
     unregisterGitIpcHandlers = null;
+  }
+  if (unregisterHooksIpcHandlers) {
+    unregisterHooksIpcHandlers();
+    unregisterHooksIpcHandlers = null;
+  }
+  if (unregisterContextFilesIpcHandlers) {
+    unregisterContextFilesIpcHandlers();
+    unregisterContextFilesIpcHandlers = null;
+  }
+  if (unregisterSkillsIpcHandlers) {
+    unregisterSkillsIpcHandlers();
+    unregisterSkillsIpcHandlers = null;
+  }
+  if (unregisterUserCommandsIpcHandlers) {
+    unregisterUserCommandsIpcHandlers();
+    unregisterUserCommandsIpcHandlers = null;
+  }
+  if (unregisterUserPersonasIpcHandlers) {
+    unregisterUserPersonasIpcHandlers();
+    unregisterUserPersonasIpcHandlers = null;
   }
   if (unregisterTerminalIpcHandlers) {
     // Disposer also reaps every live pty (no orphaned shell survives quit).
     unregisterTerminalIpcHandlers();
     unregisterTerminalIpcHandlers = null;
+  }
+  if (unregisterNotesVaultIpcHandlers) {
+    // Disposer also stops every live notes vault watcher.
+    unregisterNotesVaultIpcHandlers();
+    unregisterNotesVaultIpcHandlers = null;
   }
   removeLogBufferListener();
 });

@@ -48,6 +48,55 @@ export function createFileContentActions(
   get: Parameters<StateCreator<FileExplorerState>>[1]
 ) {
   return {
+    clearAllFileContents: () => {
+      fileContentCache.clear();
+      set({ fileContents: {} });
+    },
+
+    clearFileContents: (compositeKeys: string[]) => {
+      // Clear from cache
+      fileContentCache.deleteKeys(compositeKeys);
+
+      // Clear from state
+      set((state) => {
+        const newFileContents = { ...state.fileContents };
+        for (const key of compositeKeys) {
+          delete newFileContents[key];
+        }
+        return { fileContents: newFileContents };
+      });
+    },
+
+    evictOldFileContents: (count = 10) => {
+      fileContentCache.evictOldest(count);
+
+      // Sync state with cache
+      const cacheKeys = new Set(fileContentCache.getKeys());
+      set((state) => {
+        const filteredContents: Record<string, string> = {};
+        for (const [key, content] of Object.entries(state.fileContents)) {
+          if (cacheKeys.has(key)) {
+            filteredContents[key] = content;
+          }
+        }
+        return { fileContents: filteredContents };
+      });
+    },
+
+    getFileContent: (compositeKey: string): string | undefined => {
+      // Check cache first for most up-to-date content, then fall back to state
+      // This ensures we always get the latest content and prevents split-brain scenarios
+      const cachedContent = fileContentCache.get(compositeKey);
+      if (cachedContent !== undefined) {
+        return cachedContent;
+      }
+
+      // Fall back to state if not in cache (should be rare with current logic)
+      const state = get();
+      return state.fileContents[compositeKey];
+    },
+
+    getFileContentCacheStats: () => fileContentCache.getStats(),
     setFileContent: (compositeKey: string, content: string) => {
       // Add to cache first
       fileContentCache.set(compositeKey, content);
@@ -65,56 +114,6 @@ export function createFileContentActions(
             [compositeKey]: content,
           },
         };
-      });
-    },
-
-    getFileContent: (compositeKey: string): string | undefined => {
-      // Check cache first for most up-to-date content, then fall back to state
-      // This ensures we always get the latest content and prevents split-brain scenarios
-      const cachedContent = fileContentCache.get(compositeKey);
-      if (cachedContent !== undefined) {
-        return cachedContent;
-      }
-
-      // Fall back to state if not in cache (should be rare with current logic)
-      const state = get();
-      return state.fileContents[compositeKey];
-    },
-
-    clearFileContents: (compositeKeys: string[]) => {
-      // Clear from cache
-      fileContentCache.deleteKeys(compositeKeys);
-
-      // Clear from state
-      set((state) => {
-        const newFileContents = { ...state.fileContents };
-        for (const key of compositeKeys) {
-          delete newFileContents[key];
-        }
-        return { fileContents: newFileContents };
-      });
-    },
-
-    clearAllFileContents: () => {
-      fileContentCache.clear();
-      set({ fileContents: {} });
-    },
-
-    getFileContentCacheStats: () => fileContentCache.getStats(),
-
-    evictOldFileContents: (count = 10) => {
-      fileContentCache.evictOldest(count);
-
-      // Sync state with cache
-      const cacheKeys = new Set(fileContentCache.getKeys());
-      set((state) => {
-        const filteredContents: Record<string, string> = {};
-        for (const [key, content] of Object.entries(state.fileContents)) {
-          if (cacheKeys.has(key)) {
-            filteredContents[key] = content;
-          }
-        }
-        return { fileContents: filteredContents };
       });
     },
   };

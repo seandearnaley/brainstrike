@@ -24,9 +24,9 @@ describe('initializeEmbeddingService', () => {
 
   beforeEach(() => {
     mockEmbeddingService = {
+      generateEmbedding: vi.fn(),
       getStatus: vi.fn().mockReturnValue('idle'),
       initializeWithModel: vi.fn().mockResolvedValue(undefined),
-      generateEmbedding: vi.fn(),
     };
   });
 
@@ -67,15 +67,15 @@ describe('processChunkEmbedding', () => {
 
   beforeEach(() => {
     mockChunk = {
-      id: 'chunk-1',
-      fileRecordId: 'file-1',
-      content: 'Test content',
       chunkIndex: 0,
-      contentHash: 'hash',
-      tokenCount: 10,
-      chunkType: 'text',
       chunkSize: 11,
+      chunkType: 'text',
+      content: 'Test content',
+      contentHash: 'hash',
       createdAt: new Date().toISOString(),
+      fileRecordId: 'file-1',
+      id: 'chunk-1',
+      tokenCount: 10,
       updatedAt: new Date().toISOString(),
     };
 
@@ -84,11 +84,11 @@ describe('processChunkEmbedding', () => {
     };
 
     mockEmbeddingService = {
-      getStatus: vi.fn().mockReturnValue('ready'),
-      initializeWithModel: vi.fn(),
       generateEmbedding: vi.fn().mockResolvedValue({
         embedding: new Float32Array([0.1, 0.2, 0.3]),
       }),
+      getStatus: vi.fn().mockReturnValue('ready'),
+      initializeWithModel: vi.fn(),
     };
   });
 
@@ -121,8 +121,8 @@ describe('processChunkEmbedding', () => {
     expect(result).toBe(true);
     expect(mockEmbeddingService.generateEmbedding).toHaveBeenCalledWith('Test content');
     expect(mockChunkRepository.update).toHaveBeenCalledWith({
-      id: 'chunk-1',
       embedding: new Float32Array([0.1, 0.2, 0.3]),
+      id: 'chunk-1',
       updatedAt: expect.any(String),
     });
   });
@@ -142,8 +142,8 @@ describe('processChunkEmbedding', () => {
     expect(mockEmbeddingService.generateDocEmbedding).toHaveBeenCalledWith('Test content');
     expect(mockEmbeddingService.generateEmbedding).not.toHaveBeenCalled();
     expect(mockChunkRepository.update).toHaveBeenCalledWith({
-      id: 'chunk-1',
       embedding: new Float32Array([0.4, 0.5, 0.6]),
+      id: 'chunk-1',
       updatedAt: expect.any(String),
     });
   });
@@ -202,36 +202,36 @@ describe('processEmbeddings', () => {
   beforeEach(() => {
     mockChunks = [
       {
-        id: 'chunk-1',
-        fileRecordId: 'file-1',
-        content: 'First chunk content',
         chunkIndex: 0,
-        contentHash: 'hash1',
-        tokenCount: 15,
-        chunkType: 'text',
         chunkSize: 18,
+        chunkType: 'text',
+        content: 'First chunk content',
+        contentHash: 'hash1',
         createdAt: new Date().toISOString(),
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+        tokenCount: 15,
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'chunk-2',
-        fileRecordId: 'file-1',
-        content: 'Second chunk content',
         chunkIndex: 1,
-        contentHash: 'hash2',
-        tokenCount: 16,
-        chunkType: 'text',
         chunkSize: 19,
+        chunkType: 'text',
+        content: 'Second chunk content',
+        contentHash: 'hash2',
         createdAt: new Date().toISOString(),
+        fileRecordId: 'file-1',
+        id: 'chunk-2',
+        tokenCount: 16,
         updatedAt: new Date().toISOString(),
       },
     ];
 
     mockResult = {
+      chunksCreated: 2,
+      existed: false,
       id: 'file-1',
       imported: true,
-      existed: false,
-      chunksCreated: 2,
     };
 
     mockChunkRepository = {
@@ -239,11 +239,11 @@ describe('processEmbeddings', () => {
     };
 
     mockEmbeddingService = {
-      getStatus: vi.fn().mockReturnValue('ready'),
-      initializeWithModel: vi.fn().mockResolvedValue(undefined),
       generateEmbedding: vi.fn().mockResolvedValue({
         embedding: new Float32Array([0.1, 0.2, 0.3]),
       }),
+      getStatus: vi.fn().mockReturnValue('ready'),
+      initializeWithModel: vi.fn().mockResolvedValue(undefined),
     };
 
     mockUpdateProgress = vi.fn();
@@ -344,8 +344,8 @@ describe('processEmbeddings', () => {
     // Check specific calls
     expect(mockChunkRepository.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'chunk-1',
         embeddingSetId: 'test-set-id',
+        id: 'chunk-1',
       })
     );
   });

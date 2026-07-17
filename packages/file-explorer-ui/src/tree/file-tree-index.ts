@@ -105,9 +105,9 @@ export class FileTreeIndex {
 
   /** Cached statistics about the indexed tree */
   private _stats: FileTreeIndexStats = {
-    totalNodes: 0,
-    totalFiles: 0,
     totalDirectories: 0,
+    totalFiles: 0,
+    totalNodes: 0,
   };
 
   /**
@@ -126,9 +126,9 @@ export class FileTreeIndex {
     this.nodeByKey.clear();
     this.handleByKey.clear();
     this._stats = {
-      totalNodes: 0,
-      totalFiles: 0,
       totalDirectories: 0,
+      totalFiles: 0,
+      totalNodes: 0,
     };
   }
 
@@ -173,9 +173,9 @@ export class FileTreeIndex {
 
     if (isWebFileHandle(handle)) {
       return {
-        webHandle: handle,
         fileName: node.name,
         fileSize: node.size,
+        webHandle: handle,
       };
     }
 

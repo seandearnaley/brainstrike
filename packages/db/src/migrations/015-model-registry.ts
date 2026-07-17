@@ -1,7 +1,10 @@
 import type { Migration } from './migration-runner';
 
 export const migration015ModelRegistry: Migration = {
-  version: 15,
+  down: `
+    DROP TABLE IF EXISTS models;
+    DROP TABLE IF EXISTS providers;
+  `,
   name: 'model_registry',
   up: `
     -- Create providers table
@@ -94,8 +97,5 @@ export const migration015ModelRegistry: Migration = {
       ('voyage-3', 'voyage', 'Voyage 3', 'State-of-the-art retrieval', '["Legal", "Finance", "Code"]', '{"type":"embedding","defaultDimension":1024}', 1, false),
       ('voyage-3-lite', 'voyage', 'Voyage 3 Lite', 'Efficient retrieval', '["Low latency apps"]', '{"type":"embedding","defaultDimension":512}', 2, false);
   `,
-  down: `
-    DROP TABLE IF EXISTS models;
-    DROP TABLE IF EXISTS providers;
-  `,
+  version: 15,
 };

@@ -24,20 +24,68 @@ import type {
 import { useCollectionTree } from './use-collection-tree';
 
 const COLUMN_TO_SORT_KEY: Record<string, CollectionSortKey> = {
-  name: 'name',
-  status: 'status',
-  size: 'size',
   meta: 'count',
+  name: 'name',
   score: 'score',
+  size: 'size',
+  status: 'status',
 };
 
 const SORT_KEY_TO_COLUMN: Record<CollectionSortKey, string> = {
-  name: 'name',
-  status: 'status',
-  size: 'size',
   count: 'meta',
+  name: 'name',
   score: 'score',
+  size: 'size',
+  status: 'status',
 };
+
+function sameNodeTypes(
+  left: ReadonlySet<CollectionNodeType>,
+  right: ReadonlySet<CollectionNodeType>
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Apply a deferred search query onto filter state.
+ * When the deferred value lags behind keystrokes, keep the previous query so
+ * expensive filtering (and selection-clear side effects) do not run eagerly.
+ *
+ * Controlled parents (e.g. CollectionBrowserView) often rebuild a fresh `filters`
+ * object on every keystroke — including a new `nodeTypes` Set with the same
+ * members. While search is lagging, reuse the previous composed filters object
+ * so `useCollectionTree` memos are not defeated by identity churn.
+ */
+export function withDeferredSearchQuery(
+  filters: CollectionBrowserFilters,
+  deferredSearchQuery: string,
+  previousDeferredFilters: CollectionBrowserFilters | null = null
+): CollectionBrowserFilters {
+  if (deferredSearchQuery === filters.searchQuery) {
+    return filters;
+  }
+  if (
+    previousDeferredFilters !== null &&
+    previousDeferredFilters.searchQuery === deferredSearchQuery &&
+    previousDeferredFilters.embeddingStatus === filters.embeddingStatus &&
+    previousDeferredFilters.searchMatchesOnly === filters.searchMatchesOnly &&
+    sameNodeTypes(previousDeferredFilters.nodeTypes, filters.nodeTypes)
+  ) {
+    return previousDeferredFilters;
+  }
+  return { ...filters, searchQuery: deferredSearchQuery };
+}
 
 interface UseCollectionBrowserStateOptions {
   data: CollectionTreeInput;
@@ -113,6 +161,21 @@ export function useCollectionBrowserState({
   }));
   const filters = controlledFilters ?? internalFilters;
 
+  // Defer the search query to keep typing responsive on large trees.
+  // Expensive tree filtering runs in a lower-priority render while the
+  // input stays responsive — same pattern as file-explorer quick filter.
+  const deferredSearchQuery = React.useDeferredValue(filters.searchQuery);
+  const previousDeferredFiltersRef = React.useRef<CollectionBrowserFilters | null>(null);
+  const deferredFilters = React.useMemo(() => {
+    const next = withDeferredSearchQuery(
+      filters,
+      deferredSearchQuery,
+      previousDeferredFiltersRef.current
+    );
+    previousDeferredFiltersRef.current = next;
+    return next;
+  }, [deferredSearchQuery, filters]);
+
   const [internalSelectedId, setInternalSelectedId] = React.useState<string | null>(null);
   const selectedId = controlledSelectedId === undefined ? internalSelectedId : controlledSelectedId;
   const setSelectedId = onSelectedIdChange ?? setInternalSelectedId;
@@ -142,16 +205,16 @@ export function useCollectionBrowserState({
     semanticExpandIds,
   } = useCollectionTree({
     data,
-    filters,
     expandedIds,
+    filters: deferredFilters,
     ...(sortState ? { sortState } : {}),
     ...(shouldFilterToSemanticResults
-      ? { semanticResults: semanticResults ?? [], filterToSemanticResults: true }
+      ? { filterToSemanticResults: true, semanticResults: semanticResults ?? [] }
       : {}),
     ...(groupBy ? { groupBy } : {}),
   });
 
-  const prevSearchQuery = React.useRef(filters.searchQuery);
+  const prevSearchQuery = React.useRef(deferredSearchQuery);
   const prevSemanticResultsLength = React.useRef<number | undefined>(undefined);
 
   const expandForSearch = React.useCallback(
@@ -171,15 +234,15 @@ export function useCollectionBrowserState({
   );
 
   React.useEffect(() => {
-    const queryChanged = filters.searchQuery !== prevSearchQuery.current;
+    const queryChanged = deferredSearchQuery !== prevSearchQuery.current;
     if (!queryChanged) {
       return;
     }
-    prevSearchQuery.current = filters.searchQuery;
-    if (filters.searchQuery && searchExpandIds.size > 0) {
+    prevSearchQuery.current = deferredSearchQuery;
+    if (deferredSearchQuery && searchExpandIds.size > 0) {
       expandForSearch(searchExpandIds);
     }
-  }, [filters.searchQuery, searchExpandIds, expandForSearch]);
+  }, [deferredSearchQuery, searchExpandIds, expandForSearch]);
 
   React.useEffect(() => {
     if (!(isSemanticMode && semanticResults)) {
@@ -283,7 +346,7 @@ export function useCollectionBrowserState({
       } else {
         const sortKey = COLUMN_TO_SORT_KEY[columnId];
         if (sortKey) {
-          onSortChange({ key: sortKey, direction });
+          onSortChange({ direction, key: sortKey });
         }
       }
     },
@@ -304,27 +367,27 @@ export function useCollectionBrowserState({
   const highlightedIds = isSemanticMode && hasSemanticResults ? semanticMatchIds : searchMatchIds;
 
   return {
-    nodes,
     columns: null,
-    filters,
-    selectedId,
-    multiSelectedIds,
     expandedIds,
-    isSemanticMode,
-    showScoreColumn,
+    filters,
+    handleClearSelection,
+    handleContextMenu,
+    handleDoubleClick,
+    handleMultiSelectChange,
+    handleSelect,
+    handleToggleExpand,
+    handleTreeTableSortChange,
     hasSemanticResults: !!hasSemanticResults,
     highlightedIds,
-    searchMatchIds,
-    semanticMatchIds,
-    similarityScores,
+    isSemanticMode,
+    multiSelectedIds,
+    nodes,
     nodeTypeMap,
+    searchMatchIds,
+    selectedId,
+    semanticMatchIds,
+    showScoreColumn,
+    similarityScores,
     treeTableSortState,
-    handleToggleExpand,
-    handleSelect,
-    handleMultiSelectChange,
-    handleClearSelection,
-    handleDoubleClick,
-    handleContextMenu,
-    handleTreeTableSortChange,
   };
 }

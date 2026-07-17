@@ -34,8 +34,8 @@ const mockTokenizer = Object.assign(
 const mockProcessor = {
   apply_chat_template: mockProcessorApplyChatTemplate,
   batch_decode: mockBatchDecode,
-  tokenizer: mockTokenizer,
   call: mockProcessorCall,
+  tokenizer: mockTokenizer,
 };
 const mockGemmaLoader = {
   from_pretrained: mockFromPretrainedModel,
@@ -86,10 +86,10 @@ function installNavigatorWebGpu(hasGpu: boolean): void {
           gpu: {
             requestAdapter: vi.fn().mockResolvedValue({
               info: {
-                vendor: 'test-vendor',
                 architecture: 'test-arch',
-                device: 'test-device',
                 description: 'test-description',
+                device: 'test-device',
+                vendor: 'test-vendor',
               },
               limits: {
                 maxBufferSize: 8_000_000_000,
@@ -292,12 +292,12 @@ describe('LocalLlmBackend', () => {
     });
 
     expect(progressUpdates).toContainEqual({
-      stage: 'loading',
       progress: 25,
+      stage: 'loading',
     });
     expect(progressUpdates.at(-1)).toEqual({
-      stage: 'ready',
       progress: 100,
+      stage: 'ready',
     });
   });
 
@@ -354,7 +354,7 @@ describe('LocalLlmBackend', () => {
 
     expect(mockFromPretrainedProcessor).toHaveBeenCalledTimes(1);
     expect(backend.isReady()).toBe(true);
-    expect(backend.getStatus()).toEqual({ state: 'ready', device: 'webgpu' });
+    expect(backend.getStatus()).toEqual({ device: 'webgpu', state: 'ready' });
 
     await backend.dispose();
 
@@ -415,14 +415,14 @@ describe('LocalLlmBackend', () => {
 
     expect(progressUpdates).toContainEqual({
       file: 'processor.json',
-      stage: 'loading',
-      progress: 42,
       message: 'Loading processor.json',
+      progress: 42,
+      stage: 'loading',
     });
     expect(progressUpdates).toContainEqual({
-      stage: 'loading',
-      progress: 100,
       message: `Loading ${GEMMA4_E2B_MODEL_ID}`,
+      progress: 100,
+      stage: 'loading',
     });
   });
 
@@ -432,12 +432,12 @@ describe('LocalLlmBackend', () => {
     expect(LocalLlmBackend.getBestDevice()).toBe('webgpu');
 
     await expect(LocalLlmBackend.getWebGpuInfo()).resolves.toEqual({
-      vendor: 'test-vendor',
       architecture: 'test-arch',
-      device: 'test-device',
       description: 'test-description',
+      device: 'test-device',
       maxBufferSize: 8_000_000_000,
       maxStorageBufferBindingSize: 8_000_000_000,
+      vendor: 'test-vendor',
     });
 
     installNavigatorWebGpu(false);
@@ -506,8 +506,8 @@ describe('LocalLlmBackend', () => {
       });
     });
 
-    const first = backend.generate([{ role: 'user', content: 'one' }]);
-    const second = backend.generate([{ role: 'user', content: 'two' }]);
+    const first = backend.generate([{ content: 'one', role: 'user' }]);
+    const second = backend.generate([{ content: 'two', role: 'user' }]);
 
     await vi.waitFor(() => {
       expect(mockModelGenerate).toHaveBeenCalledTimes(1);
@@ -542,8 +542,8 @@ describe('LocalLlmBackend', () => {
     });
 
     const abortController = new AbortController();
-    const first = backend.generate([{ role: 'user', content: 'one' }]);
-    const second = backend.generate([{ role: 'user', content: 'two' }], {
+    const first = backend.generate([{ content: 'one', role: 'user' }]);
+    const second = backend.generate([{ content: 'two', role: 'user' }], {
       signal: abortController.signal,
     });
     const observedSecond = second.then(
@@ -590,7 +590,7 @@ describe('LocalLlmBackend', () => {
       });
     });
 
-    const inFlight = backend.generate([{ role: 'user', content: 'one' }]);
+    const inFlight = backend.generate([{ content: 'one', role: 'user' }]);
     await vi.waitFor(() => {
       expect(mockModelGenerate).toHaveBeenCalledTimes(1);
     });
@@ -618,7 +618,7 @@ describe('LocalLlmBackend', () => {
       new Error('operation does not support unaligned accesses')
     );
 
-    await expect(backend.generate([{ role: 'user', content: 'hello' }])).rejects.toThrow(
+    await expect(backend.generate([{ content: 'hello', role: 'user' }])).rejects.toThrow(
       /operation does not support unaligned accesses \(prompt: \d+ tokens\)/
     );
   });
@@ -631,7 +631,7 @@ describe('LocalLlmBackend', () => {
       new DOMException('The operation was aborted.', 'AbortError')
     );
 
-    await expect(backend.generate([{ role: 'user', content: 'hello' }])).rejects.toThrow(
+    await expect(backend.generate([{ content: 'hello', role: 'user' }])).rejects.toThrow(
       /^The operation was aborted\.$/
     );
   });
@@ -643,7 +643,7 @@ describe('LocalLlmBackend', () => {
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    const result = await backend.generate([{ role: 'user', content: 'Hello' }], {
+    const result = await backend.generate([{ content: 'Hello', role: 'user' }], {
       thinking: {
         enabled: true,
       },
@@ -654,8 +654,8 @@ describe('LocalLlmBackend', () => {
     expect(mockProcessorApplyChatTemplate).toHaveBeenCalledWith(
       [
         {
-          role: 'user',
           content: 'Hello',
+          role: 'user',
         },
       ],
       {
@@ -677,7 +677,7 @@ describe('LocalLlmBackend', () => {
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+    const result = await backend.generate([{ content: 'Tell me a joke', role: 'user' }], {
       stream: {
         onReasoningSnapshot: (snapshot) => {
           reasoningSnapshots.push(snapshot);
@@ -729,7 +729,7 @@ Because they make up everything!<turn|>`,
 
     const reasoningSnapshots: string[] = [];
     const textSnapshots: string[] = [];
-    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+    const result = await backend.generate([{ content: 'Tell me a joke', role: 'user' }], {
       stream: {
         onReasoningSnapshot: (snapshot) => {
           reasoningSnapshots.push(snapshot);
@@ -770,7 +770,7 @@ Because they make up everything!<turn|>`,
     });
 
     const textSnapshots: string[] = [];
-    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+    const result = await backend.generate([{ content: 'Tell me a joke', role: 'user' }], {
       stream: {
         onTextSnapshot: (snapshot) => {
           textSnapshots.push(snapshot);
@@ -808,7 +808,7 @@ Because they make up everything!<turn|>`,
 
     const reasoningSnapshots: string[] = [];
     const textSnapshots: string[] = [];
-    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+    const result = await backend.generate([{ content: 'Tell me a joke', role: 'user' }], {
       stream: {
         onReasoningSnapshot: (snapshot) => {
           reasoningSnapshots.push(snapshot);
@@ -835,21 +835,21 @@ Because they make up everything!<turn|>`,
     });
 
     await expect(
-      backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+      backend.generate([{ content: 'Tell me a joke', role: 'user' }], {
         tools: [
           {
-            type: 'function',
             function: {
-              name: 'tell_joke',
               description: 'Return a joke',
+              name: 'tell_joke',
               parameters: {
-                type: 'object',
                 properties: {
                   topic: { type: 'string' },
                 },
                 required: ['topic'],
+                type: 'object',
               },
             },
+            type: 'function',
           },
         ],
       })
@@ -861,8 +861,8 @@ Because they make up everything!<turn|>`,
     expect(mockProcessorApplyChatTemplate).toHaveBeenLastCalledWith(
       [
         {
-          role: 'user',
           content: 'Tell me a joke',
+          role: 'user',
         },
       ],
       {
@@ -870,18 +870,18 @@ Because they make up everything!<turn|>`,
         enable_thinking: true,
         tools: [
           {
-            type: 'function',
             function: {
-              name: 'tell_joke',
               description: 'Return a joke',
+              name: 'tell_joke',
               parameters: {
-                type: 'object',
                 properties: {
                   topic: { type: 'string' },
                 },
                 required: ['topic'],
+                type: 'object',
               },
             },
+            type: 'function',
           },
         ],
       }
@@ -896,7 +896,7 @@ Because they make up everything!<turn|>`,
     });
 
     await expect(
-      backend.generate([{ role: 'user', content: 'Tell me another joke' }], {
+      backend.generate([{ content: 'Tell me another joke', role: 'user' }], {
         thinking: {
           enabled: false,
         },
@@ -915,7 +915,7 @@ Because they make up everything!<turn|>`,
     });
 
     await expect(
-      backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+      backend.generate([{ content: 'Tell me a joke', role: 'user' }], {
         thinking: {
           enabled: false,
         },
@@ -943,7 +943,7 @@ Because they make up everything!<turn|>`,
     });
 
     await expect(
-      backend.generate([{ role: 'user', content: 'Use camelCase tensors' }])
+      backend.generate([{ content: 'Use camelCase tensors', role: 'user' }])
     ).resolves.toMatchObject({
       finishReason: 'stop',
       text: 'Final answer',
@@ -970,7 +970,7 @@ Because they make up everything!<turn|>`,
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    await expect(backend.generate([{ role: 'user', content: 'Bad tensor' }])).rejects.toThrow(
+    await expect(backend.generate([{ content: 'Bad tensor', role: 'user' }])).rejects.toThrow(
       'Gemma processor inputs are missing input_ids'
     );
   });
@@ -982,7 +982,7 @@ Because they make up everything!<turn|>`,
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    await backend.generate([{ role: 'user', content: 'Tune generation' }], {
+    await backend.generate([{ content: 'Tune generation', role: 'user' }], {
       doSample: true,
       maxNewTokens: 12,
       temperature: 0.25,
@@ -1011,7 +1011,7 @@ Because they make up everything!<turn|>`,
     abortController.abort();
 
     await expect(
-      backend.generate([{ role: 'user', content: 'Stop' }], {
+      backend.generate([{ content: 'Stop', role: 'user' }], {
         signal: abortController.signal,
       })
     ).rejects.toThrow('The operation was aborted');
@@ -1029,21 +1029,21 @@ Because they make up everything!<turn|>`,
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+    const result = await backend.generate([{ content: 'Tell me a joke', role: 'user' }], {
       tools: [
         {
-          type: 'function',
           function: {
-            name: 'tell_joke',
             description: 'Return a joke',
+            name: 'tell_joke',
             parameters: {
-              type: 'object',
               properties: {
                 topic: { type: 'string' },
               },
               required: ['topic'],
+              type: 'object',
             },
           },
+          type: 'function',
         },
       ],
     });
@@ -1052,8 +1052,8 @@ Because they make up everything!<turn|>`,
     expect(result.text).toBe('');
     expect(result.toolCalls).toHaveLength(1);
     expect(result.toolCalls?.[0]?.function).toEqual({
-      name: 'tell_joke',
       arguments: JSON.stringify({ topic: 'penguins' }),
+      name: 'tell_joke',
     });
   });
 
@@ -1066,26 +1066,26 @@ Because they make up everything!<turn|>`,
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    const result = await backend.generate([{ role: 'user', content: 'Refresh the index' }], {
+    const result = await backend.generate([{ content: 'Refresh the index', role: 'user' }], {
       tools: [
         {
-          type: 'function',
           function: {
-            name: 'refresh_index',
             description: 'Refresh the current index',
+            name: 'refresh_index',
             parameters: {
-              type: 'object',
               properties: {},
+              type: 'object',
             },
           },
+          type: 'function',
         },
       ],
     });
 
     expect(result.finishReason).toBe('tool_calls');
     expect(result.toolCalls?.[0]?.function).toEqual({
-      name: 'refresh_index',
       arguments: JSON.stringify({}),
+      name: 'refresh_index',
     });
   });
 
@@ -1100,21 +1100,21 @@ Because they make up everything!<turn|>`,
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+    const result = await backend.generate([{ content: 'Tell me a joke', role: 'user' }], {
       tools: [
         {
-          type: 'function',
           function: {
-            name: 'tell_joke',
             description: 'Return a joke',
+            name: 'tell_joke',
             parameters: {
-              type: 'object',
               properties: {
                 topic: { type: 'string' },
               },
               required: ['topic'],
+              type: 'object',
             },
           },
+          type: 'function',
         },
       ],
     });
@@ -1135,40 +1135,39 @@ Because they make up everything!<turn|>`,
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    const result = await backend.generate([{ role: 'user', content: 'Read the readme' }], {
+    const result = await backend.generate([{ content: 'Read the readme', role: 'user' }], {
       tools: [
         {
-          type: 'function',
           function: {
-            name: 'read_file',
             description: 'Read a file',
+            name: 'read_file',
             parameters: {
-              type: 'object',
               properties: {
-                path: { type: 'string' },
                 options: {
-                  type: 'object',
                   properties: {
                     encoding: { type: 'string' },
                   },
+                  type: 'object',
                 },
+                path: { type: 'string' },
               },
               required: ['path'],
+              type: 'object',
             },
           },
+          type: 'function',
         },
       ],
     });
 
     expect(result.finishReason).toBe('tool_calls');
-    expect(result.toolCalls?.[0]?.function).toEqual({
-      name: 'read_file',
-      arguments: JSON.stringify({
-        path: '/README.md',
-        options: {
-          encoding: 'utf8',
-        },
-      }),
+    const toolCall = result.toolCalls?.[0]?.function;
+    expect(toolCall?.name).toBe('read_file');
+    expect(JSON.parse(toolCall?.arguments ?? '{}')).toEqual({
+      options: {
+        encoding: 'utf8',
+      },
+      path: '/README.md',
     });
   });
 
@@ -1181,32 +1180,32 @@ Because they make up everything!<turn|>`,
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    const result = await backend.generate([{ role: 'user', content: 'Call the tool' }], {
+    const result = await backend.generate([{ content: 'Call the tool', role: 'user' }], {
       tools: [
         {
-          type: 'function',
           function: {
-            name: 'demo',
             description: 'Demo tool',
+            name: 'demo',
             parameters: {
-              type: 'object',
               properties: {
                 x: { type: 'number' },
                 y: { type: 'string' },
               },
               required: ['x', 'y'],
+              type: 'object',
             },
           },
+          type: 'function',
         },
       ],
     });
 
     expect(result.toolCalls?.[0]?.function).toEqual({
-      name: 'demo',
       arguments: JSON.stringify({
         x: 1,
         y: 'two',
       }),
+      name: 'demo',
     });
   });
 
@@ -1221,30 +1220,30 @@ Because they make up everything!<turn|>`,
       modelId: GEMMA4_E2B_MODEL_ID,
     });
 
-    const result = await backend.generate([{ role: 'user', content: 'Call the tool' }], {
+    const result = await backend.generate([{ content: 'Call the tool', role: 'user' }], {
       tools: [
         {
-          type: 'function',
           function: {
-            name: 'demo',
             description: 'Demo tool',
+            name: 'demo',
             parameters: {
-              type: 'object',
               properties: {
                 message: { type: 'string' },
               },
               required: ['message'],
+              type: 'object',
             },
           },
+          type: 'function',
         },
       ],
     });
 
     expect(result.toolCalls?.[0]?.function).toEqual({
-      name: 'demo',
       arguments: JSON.stringify({
         message: 'literal {x:1} value',
       }),
+      name: 'demo',
     });
   });
 
@@ -1259,28 +1258,28 @@ Because they make up everything!<turn|>`,
       backend.generate(
         [
           {
-            role: 'assistant',
             content: '',
+            role: 'assistant',
             toolCalls: [
               {
+                function: {
+                  arguments: JSON.stringify({ path: '/README.md' }),
+                  name: 'read_file',
+                },
                 id: 'tool-1',
                 type: 'function',
-                function: {
-                  name: 'read_file',
-                  arguments: JSON.stringify({ path: '/README.md' }),
-                },
               },
             ],
           },
           {
-            role: 'tool',
             content: '',
+            role: 'tool',
             toolResponses: [
               {
                 name: 'read_file',
                 response: {
-                  success: true,
                   result: 'hello',
+                  success: true,
                 },
               },
             ],
@@ -1303,13 +1302,13 @@ Because they make up everything!<turn|>`,
           role: 'assistant',
           tool_calls: [
             {
-              type: 'function',
               function: {
-                name: 'read_file',
                 arguments: {
                   path: '/README.md',
                 },
+                name: 'read_file',
               },
+              type: 'function',
             },
           ],
         },
@@ -1319,8 +1318,8 @@ Because they make up everything!<turn|>`,
             {
               name: 'read_file',
               response: {
-                success: true,
                 result: 'hello',
+                success: true,
               },
             },
           ],

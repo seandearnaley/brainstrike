@@ -152,8 +152,13 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
       await selectAllButton.click({ timeout: 5000 });
 
+      // The selection counter renders counts >= 1000 in compact notation
+      // (formatCompactSelectionCount, #1591): 1000 -> "1K".
       await expect(activeWindow.getByTestId('selection-count')).toHaveText(
-        String(ACTUAL_IMPORT_STRESS_FILE_COUNT),
+        new Intl.NumberFormat('en-US', {
+          maximumFractionDigits: 1,
+          notation: 'compact',
+        }).format(ACTUAL_IMPORT_STRESS_FILE_COUNT),
         {
           timeout: 60_000,
         }
@@ -345,9 +350,9 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
           timeout: 240_000,
         })
         .toMatchObject({
+          embeddedChunks: expect.any(Number),
           fileCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
           totalChunks: expect.any(Number),
-          embeddedChunks: expect.any(Number),
         });
 
       const semanticQuery = 'stress-file-42-sentence-0';
@@ -1221,9 +1226,9 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
 
     const restoreEnv = withTemporaryProcessEnv({
       BRAINSTRIKE_E2E_ALLOW_GPU: '1',
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS: undefined,
       BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED: undefined,
       BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD: undefined,
-      BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS: undefined,
       BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE: undefined,
     });
     const userDataDir = path.join(
@@ -1248,9 +1253,9 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       await ensureEmbeddingHostWarmed(activeWindow);
 
       const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-        fileCount: 623,
-        chunksPerFile: 20,
         chunkContentBytes: 1024,
+        chunksPerFile: 20,
+        fileCount: 623,
         persistActiveSet: false,
       });
       await reloadRendererInTest(activeWindow, 'desktop-dev-visible-growth-12k-fixture');
@@ -1352,16 +1357,16 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         ) {
           console.log(
             JSON.stringify({
-              type: 'desktop-dev-visible-growth-12k-bounded',
-              fixture,
-              lastQueueStats,
-              lastBackfillState,
               baselineVisibleWorkingSetFromHealthMB:
                 Math.round(baselineVisibleWorkingSetFromHealthMB * 10) / 10,
+              fixture,
+              lastBackfillState,
+              lastQueueStats,
+              mainProcessHealthSamples,
               peakVisibleWorkingSetMB: Math.round(peakVisibleWorkingSetMB * 10) / 10,
+              type: 'desktop-dev-visible-growth-12k-bounded',
               visibleWorkingSetGrowthFromHealthMB:
                 Math.round(visibleWorkingSetGrowthFromHealthMB * 10) / 10,
-              mainProcessHealthSamples,
             })
           );
           return;

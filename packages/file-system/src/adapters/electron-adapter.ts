@@ -58,20 +58,20 @@ function toDirectoryNode(root: DirectoryHandle, entryName: string, fullPath: str
     throw new Error('Root directory handle is missing its canonical path');
   }
   return {
-    name: entryName,
-    path: fullPath,
-    type: 'directory',
-    depth: 0,
-    selectionState: 'unchecked',
     children: [],
-    rootFolderId: root.path,
-    isVisible: true,
+    depth: 0,
     handle: {
-      path: fullPath,
-      name: entryName,
       kind: 'directory',
+      name: entryName,
+      path: fullPath,
       platform: 'electron',
     } as unknown as FileSystemDirectoryHandle,
+    isVisible: true,
+    name: entryName,
+    path: fullPath,
+    rootFolderId: root.path,
+    selectionState: 'unchecked',
+    type: 'directory',
   };
 }
 
@@ -80,19 +80,19 @@ function toBasicFileNode(root: DirectoryHandle, entryName: string, fullPath: str
     throw new Error('Root directory handle is missing its canonical path');
   }
   return {
-    name: entryName,
-    path: fullPath,
-    type: 'file',
     depth: 0,
-    selectionState: 'unchecked',
-    rootFolderId: root.path,
-    isVisible: true,
     handle: {
-      path: fullPath,
-      name: entryName,
       kind: 'file',
+      name: entryName,
+      path: fullPath,
       platform: 'electron',
     } as unknown as FileSystemFileHandle,
+    isVisible: true,
+    name: entryName,
+    path: fullPath,
+    rootFolderId: root.path,
+    selectionState: 'unchecked',
+    type: 'file',
   };
 }
 
@@ -107,21 +107,21 @@ function toFileNodeWithMetadata(
     throw new Error('Root directory handle is missing its canonical path');
   }
   return {
-    name: entryName,
-    path: fullPath,
-    type: 'file',
     depth: 0,
-    selectionState: 'unchecked',
-    rootFolderId: root.path,
-    isVisible: true,
-    size,
-    lastModified: mtimeMs,
     handle: {
-      path: fullPath,
-      name: entryName,
       kind: 'file',
+      name: entryName,
+      path: fullPath,
       platform: 'electron',
     } as unknown as FileSystemFileHandle,
+    isVisible: true,
+    lastModified: mtimeMs,
+    name: entryName,
+    path: fullPath,
+    rootFolderId: root.path,
+    selectionState: 'unchecked',
+    size,
+    type: 'file',
   };
 }
 
@@ -138,23 +138,19 @@ function emitFinalBatch(batch: IFileNode[], total: number, onBatch: DirectoryStr
   }
 }
 
-function isStreamingAborted(signal?: AbortSignal): boolean {
-  return signal?.aborted ?? false;
-}
-
 async function buildStreamingNodes(
   dirents: FsDirent[],
-  shouldAbort: () => boolean,
+  signal: AbortSignal | undefined,
   buildNode: (dirent: FsDirent) => Promise<IFileNode>
 ): Promise<IFileNode[]> {
   const work: Promise<IFileNode>[] = [];
   for (const dirent of dirents) {
-    if (shouldAbort()) {
-      break;
-    }
+    signal?.throwIfAborted();
     work.push(buildNode(dirent));
   }
-  return Promise.all(work);
+  const nodes = await Promise.all(work);
+  signal?.throwIfAborted();
+  return nodes;
 }
 
 function emitIntermediateBatch(
@@ -266,7 +262,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     if (this.metadataCache) {
       const cached = this.metadataCache.get(fullPath);
       if (cached && !cached.isDirectory) {
-        return { size: cached.size, mtimeMs: cached.mtimeMs };
+        return { mtimeMs: cached.mtimeMs, size: cached.size };
       }
     }
 
@@ -277,13 +273,13 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       // Store in cache
       if (this.metadataCache) {
         this.metadataCache.set(fullPath, {
-          size: stat.size,
-          mtimeMs: stat.mtimeMs,
           isDirectory: stat.isDirectory(),
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
         });
       }
 
-      return { size: stat.size, mtimeMs: stat.mtimeMs };
+      return { mtimeMs: stat.mtimeMs, size: stat.size };
     } catch {
       return null;
     }
@@ -318,11 +314,11 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
     try {
       const result = await dialog.showOpenDialog({
-        properties: ['openDirectory'],
-        title: 'Select a folder to explore',
         // Add these properties to improve dialog behavior
         buttonLabel: 'Select Folder',
         message: 'Choose a directory to explore with BrainStrike',
+        properties: ['openDirectory'],
+        title: 'Select a folder to explore',
       });
 
       if (result.canceled || result.filePaths.length === 0) {
@@ -340,9 +336,9 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       await validateDirectoryPath(selectedPath, this.requestDirectoryAccess);
 
       return {
-        path: selectedPath,
-        name: path.basename(selectedPath),
         kind: 'directory',
+        name: path.basename(selectedPath),
+        path: selectedPath,
         platform: 'electron',
       };
     } catch (error) {
@@ -489,11 +485,11 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     // Validate path against root if provided (security check)
     if (rootPath) {
       const validated = await resolveValidatedPath({
-        rootDir: rootPath,
-        requestedPath: absolutePath,
         allowMissing: false,
-        maxTraversal: 0, // Don't allow any .. segments
         blockSensitiveDirectories: true,
+        maxTraversal: 0, // Don't allow any .. segments
+        requestedPath: absolutePath,
+        rootDir: rootPath,
       });
 
       if (!validated.ok) {
@@ -600,17 +596,17 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   ): Promise<void> {
     const batchSize = options?.batchSize ?? DEFAULT_STREAMING_BATCH_SIZE;
     const signal = options?.signal;
+    signal?.throwIfAborted();
     const { includeMetadata } = normalizeDirectoryReadOptions(options);
-    const shouldAbort = (): boolean => isStreamingAborted(signal);
 
     let dir: Awaited<ReturnType<typeof fsPromises.opendir>> | null = null;
 
     try {
       dir = await fsPromises.opendir(handle.path);
+      signal?.throwIfAborted();
 
       let total = 0;
       let pendingDirents: FsDirent[] = [];
-      let aborted = false;
 
       // Bind getFileMetadata for the helper function
       const getMetadata = this.getFileMetadata.bind(this);
@@ -622,11 +618,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       };
 
       for await (const dirent of dir) {
-        // Check for cancellation
-        if (shouldAbort()) {
-          aborted = true;
-          break;
-        }
+        signal?.throwIfAborted();
 
         pendingDirents.push(dirent);
         if (pendingDirents.length < batchSize) {
@@ -635,29 +627,24 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
         const batchDirents = pendingDirents;
         pendingDirents = [];
-        const nodes = await buildStreamingNodes(batchDirents, shouldAbort, buildNode);
-        if (shouldAbort()) {
-          aborted = true;
-          break;
-        }
+        const nodes = await buildStreamingNodes(batchDirents, signal, buildNode);
         total = emitIntermediateBatch(nodes, total, onBatch);
+        signal?.throwIfAborted();
       }
 
       // Process any remaining entries
       let finalNodes: IFileNode[] = [];
-      if (!aborted && pendingDirents.length > 0 && !shouldAbort()) {
-        finalNodes = await buildStreamingNodes(pendingDirents, shouldAbort, buildNode);
-        if (shouldAbort()) {
-          aborted = true;
-        }
+      signal?.throwIfAborted();
+      if (pendingDirents.length > 0) {
+        finalNodes = await buildStreamingNodes(pendingDirents, signal, buildNode);
       }
-      if (!aborted) {
-        total += finalNodes.length;
-      }
+      total += finalNodes.length;
 
       // Emit any remaining entries and signal completion
-      emitFinalBatch(aborted ? [] : finalNodes, total, onBatch);
+      signal?.throwIfAborted();
+      emitFinalBatch(finalNodes, total, onBatch);
     } catch (error) {
+      signal?.throwIfAborted();
       throw new AccessError(
         `Failed to stream directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
         handle.path,

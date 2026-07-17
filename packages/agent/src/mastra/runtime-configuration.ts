@@ -46,9 +46,9 @@ export function resolveRuntimeConfiguration(
     normalizedProvider === 'lmstudio'
   ) {
     return {
+      apiKey: '',
       provider: normalizedProvider,
       runtime: sanitizedRuntime,
-      apiKey: '',
     };
   }
 
@@ -64,8 +64,8 @@ export function resolveRuntimeConfiguration(
   }
 
   return {
+    apiKey,
     provider: normalizedProvider,
     runtime: sanitizedRuntime,
-    apiKey,
   };
 }

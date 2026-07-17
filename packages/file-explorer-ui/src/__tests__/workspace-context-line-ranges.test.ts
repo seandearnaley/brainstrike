@@ -6,33 +6,33 @@ import {
 
 describe('workspace context line range conversion', () => {
   it('converts 1-indexed inclusive tool lines to 0-indexed exclusive tapestry lines', () => {
-    expect(toolLineRangeToTapestryRange({ startLine: 4, endLine: 12 })).toEqual({
-      startLine: 3,
+    expect(toolLineRangeToTapestryRange({ endLine: 12, startLine: 4 })).toEqual({
       endLine: 12,
+      startLine: 3,
     });
   });
 
   it('keeps single-line tool ranges visible in tapestry coordinates', () => {
-    expect(toolLineRangeToTapestryRange({ startLine: 1, endLine: 1 })).toEqual({
-      startLine: 0,
+    expect(toolLineRangeToTapestryRange({ endLine: 1, startLine: 1 })).toEqual({
       endLine: 1,
+      startLine: 0,
     });
   });
 
   it('converts 0-indexed exclusive tapestry lines back to tool lines', () => {
-    expect(tapestryLineRangeToToolRange({ startLine: 3, endLine: 12 })).toEqual({
-      startLine: 4,
+    expect(tapestryLineRangeToToolRange({ endLine: 12, startLine: 3 })).toEqual({
       endLine: 12,
+      startLine: 4,
     });
   });
 
   it('rejects invalid tool ranges instead of silently clamping', () => {
-    expect(() => toolLineRangeToTapestryRange({ startLine: 10, endLine: 5 })).toThrow(RangeError);
-    expect(() => toolLineRangeToTapestryRange({ startLine: 0, endLine: 1 })).toThrow(RangeError);
+    expect(() => toolLineRangeToTapestryRange({ endLine: 5, startLine: 10 })).toThrow(RangeError);
+    expect(() => toolLineRangeToTapestryRange({ endLine: 1, startLine: 0 })).toThrow(RangeError);
   });
 
   it('rejects invalid tapestry ranges instead of silently converting them', () => {
-    expect(() => tapestryLineRangeToToolRange({ startLine: 5, endLine: 5 })).toThrow(RangeError);
-    expect(() => tapestryLineRangeToToolRange({ startLine: -1, endLine: 1 })).toThrow(RangeError);
+    expect(() => tapestryLineRangeToToolRange({ endLine: 5, startLine: 5 })).toThrow(RangeError);
+    expect(() => tapestryLineRangeToToolRange({ endLine: 1, startLine: -1 })).toThrow(RangeError);
   });
 });

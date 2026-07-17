@@ -1,21 +1,29 @@
-import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
+  ASK_USER_TOOL_ID,
   applyStringReplace,
+  createAskUserTool,
+  createSubmitPlanTool,
+  type DeleteWorkspaceFileInput,
+  DeleteWorkspaceFileInputSchema,
   type ExecuteCommandInput,
   ExecuteCommandInputSchema,
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
   fitItemsToCharBudget,
+  forgetKnownFile,
   type GlobWorkspaceInput,
   GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
+  getKnownFileMtime,
   type ListEmbeddingSetsInput,
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
+  type ManageTaskListInput,
+  ManageTaskListInputSchema,
   type QueryEmbeddingSpaceInput,
   QueryEmbeddingSpaceInputSchema,
   type ReadWorkspaceContextInput,
@@ -24,28 +32,36 @@ import {
   ReadWorkspaceDirectoryInputSchema,
   type ReadWorkspaceFileInput,
   ReadWorkspaceFileInputSchema,
+  type RenameWorkspaceFileInput,
+  RenameWorkspaceFileInputSchema,
   type RuntimeData,
   type RuntimeWorkspaceContextFileMetadata,
   type RuntimeWorkspaceContextMetadata,
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
+  recordKnownFileMtime,
   type StringReplaceMatchType,
   type StringReplaceWorkspaceFileInput,
   StringReplaceWorkspaceFileInputSchema,
+  SUBMIT_PLAN_TOOL_ID,
   type UpdateWorkspaceContextSelectionInput,
   UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
+  type WebExtractInput,
+  WebExtractInputSchema,
   type WebSearchInput,
   WebSearchInputSchema,
   type WriteWorkspaceFileInput,
   WriteWorkspaceFileInputSchema,
   withFileLock,
+  writeShellOutputChunk,
 } from '@brainstrike/agent';
 import {
   EmbeddingSetsRepository,
   type EmbeddingSpaceListing,
   type EmbeddingSpaceStats,
+  invalidateManagedCacheEntriesByIdentity,
 } from '@brainstrike/db';
 import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
@@ -59,13 +75,34 @@ import type { z } from 'zod';
 import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import {
+  ensureContainedDirectory,
+  resolveWorkspaceWritePath,
+  writeContainedFileBytes,
+} from '../secure-file-write';
 import { getWindowRole } from '../window-role';
-import { EXECUTE_COMMAND_TOOL_ID, runExecuteCommand } from './execute-command-tool';
+import {
+  beforeStateToCapture,
+  captureBeforeState,
+  recordEditCheckpointForTool,
+} from './edit-checkpoint-capture';
+import { sha256Hex } from './edit-checkpoint-journal';
+import {
+  EXECUTE_COMMAND_TOOL_ID,
+  runExecuteCommand,
+  type ShellOutputStreamer,
+} from './execute-command-tool';
 import { findSymbolMatches } from './find-workspace-symbol';
 import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
+import { MANAGE_TASK_LIST_TOOL_ID, runManageTaskList } from './manage-task-list-tool';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
+import {
+  runWebExtract,
+  WEB_EXTRACT_TOOL_ID,
+  type WebExtractToolDependencies,
+} from './web-extract-tool';
 import {
   runWebSearch,
   WEB_SEARCH_TOOL_ID,
@@ -81,6 +118,15 @@ import {
 } from './workspace-path';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 
+// The audited write path moved to `../secure-file-write` so other IPC domains
+// (e.g. the notes vault) can share it; re-exported here so existing importers
+// (edit-checkpoint-revert, integration tests) keep their import site.
+export {
+  ensureContainedDirectory,
+  resolveWorkspaceWritePath,
+  writeContainedFileBytes,
+} from '../secure-file-write';
+
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
 export interface DesktopAssistantToolDependencies {
@@ -91,6 +137,8 @@ export interface DesktopAssistantToolDependencies {
    * hermetically. In production this is omitted and runWebSearch resolves the
    * real keychain key and uses the real fetch.
    */
+  /** Same injection seam as `webSearch`, for the webExtract tool. */
+  webExtract?: WebExtractToolDependencies | undefined;
   webSearch?: WebSearchToolDependencies | undefined;
 }
 
@@ -100,6 +148,8 @@ const FIND_WORKSPACE_SYMBOL_TOOL_ID = 'brainstrike.findWorkspaceSymbol' as const
 const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
 const WRITE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.writeWorkspaceFile' as const;
 const STRING_REPLACE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile' as const;
+const DELETE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.deleteWorkspaceFile' as const;
+const RENAME_WORKSPACE_FILE_TOOL_ID = 'brainstrike.renameWorkspaceFile' as const;
 const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
 const LIST_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.listWorkspaceContext' as const;
 const READ_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.readWorkspaceContext' as const;
@@ -115,7 +165,7 @@ const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceCon
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
-const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
+export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;
 const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
@@ -133,6 +183,21 @@ type AssistantEmbeddingSpaceListing = Omit<EmbeddingSpaceListing, 'stats'> & {
 };
 
 type ToolExecuteInput<T> = { context: T } | T;
+
+/**
+ * Minimal structural view of Mastra's 2nd `execute` argument
+ * (`ToolExecutionContext`, verified against @mastra/core@1.50.0 `tools/types.d.ts`
+ * — `agent?: AgentToolExecutionContext` carries `toolCallId`). Typed loosely so it
+ * stays assignable from the concrete Mastra context by contravariance; the
+ * mutation tools read `agent.toolCallId` to key each edit's journal entry.
+ */
+interface ToolExecuteRunContext {
+  agent?: { toolCallId?: string };
+}
+
+function readToolCallId(context: ToolExecuteRunContext | undefined): string | undefined {
+  return context?.agent?.toolCallId;
+}
 
 function resolveToolExecuteInputCandidate<T>(
   schema: z.ZodType<T>,
@@ -166,6 +231,77 @@ function resolveToolExecuteInputCandidate<T>(
 
 function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecuteInput<T>): T {
   return schema.parse(resolveToolExecuteInputCandidate(schema, input));
+}
+
+/** A verbatim-chunk stream writer, in either shape Mastra exposes. */
+type StreamWriterLike = (chunk: { type: string } & Record<string, unknown>) => unknown;
+
+/**
+ * The subset of the Mastra tool-execution context executeCommand reads. Mastra
+ * passes a `createTool` instance the `writer` (ToolStream) + `agent.toolCallId`,
+ * but a plain tool OBJECT (what the desktop registry uses) gets the raw
+ * `outputWriter` fn + a top-level `toolCallId`. Both are accepted.
+ */
+interface ToolExecuteContext {
+  abortSignal?: AbortSignal;
+  agent?: { toolCallId?: string };
+  outputWriter?: StreamWriterLike;
+  toolCallId?: string;
+  writer?: { custom: StreamWriterLike };
+}
+
+/**
+ * Build a {@link ShellOutputStreamer} from whichever writer shape the context
+ * carries, or `undefined` when neither a writer nor a tool-call id is present
+ * (streaming is best-effort observability — its absence never blocks the run).
+ * Writes are fire-and-forget: `custom`/`outputWriter` enqueue synchronously so
+ * call order is emission order; a rejected enqueue is reported, never swallowed.
+ */
+function resolveShellOutputStreamer(
+  options: ToolExecuteContext | undefined,
+  onError: (error: unknown) => void
+): ShellOutputStreamer | undefined {
+  const custom: StreamWriterLike | undefined = options?.writer?.custom ?? options?.outputWriter;
+  const toolCallId = options?.agent?.toolCallId ?? options?.toolCallId;
+  if (!(custom && toolCallId)) {
+    return;
+  }
+  const writer = {
+    custom: (data: { type: string } & Record<string, unknown>) =>
+      Promise.resolve(custom(data)).then(() => undefined),
+  };
+  return (part) => {
+    void writeShellOutputChunk(writer, { ...part, toolCallId }).catch(onError);
+  };
+}
+
+function redactToolInputForLog(input: object): { fields: string[]; redacted: true } {
+  return { fields: Object.keys(input), redacted: true };
+}
+
+const REDACTED_PATH_LOG_VALUE = { redacted: true } as const;
+
+function redactToolErrorForLog(error: unknown): {
+  code?: string | number;
+  name: string;
+  redacted: true;
+} {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return {
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    name: error instanceof Error && error.name.length > 0 ? error.name : typeof error,
+    redacted: true,
+  };
+}
+
+function logToolFailure(message: string, error: unknown, input: object): void {
+  logger.error(message, {
+    error: redactToolErrorForLog(error),
+    input: redactToolInputForLog(input),
+  });
 }
 
 function escapeSelectionBoundaryTags(content: string): string {
@@ -212,128 +348,43 @@ async function resolveWorkspaceAbsolutePath(
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
-    workspacePath: normalizedWorkspacePath,
     absolutePath: canonicalAbsolutePath,
+    workspacePath: normalizedWorkspacePath,
   };
 }
 
 /**
- * Find the canonical (symlink-resolved) path of the nearest existing ancestor of
- * `absolutePath`. The target file may not exist yet (the common write case), so
- * `fs.realpath` on it would throw ENOENT. We walk up until a directory exists,
- * `realpath` THAT, then re-append the not-yet-created tail. This canonicalizes
- * every existing symlink on the path so a symlinked parent that points outside
- * the root is still caught by the containment check below.
+ * Resolve the on-disk path that a delete/rename should MUTATE. Unlike the write
+ * tools — which correctly resolve THROUGH a symlink to write its target — a
+ * delete/rename must act on the symlink itself: unlinking removes the pointer
+ * (never the target file) and renaming moves the pointer. `resolveWorkspaceWritePath`
+ * realpaths an existing leaf, so its `absolutePath` is the TARGET for a live
+ * in-root symlink. Here we canonicalize only the leaf's PARENT and re-append the
+ * leaf name, so the result is the LINK's own location for a symlink leaf (live or
+ * dangling) and the file's canonical location for a regular file. The parent's
+ * realpath is containment-checked (a symlinked parent escaping the root is
+ * refused, mirroring `ensureContainedDirectory`); a LIVE symlink whose TARGET
+ * escapes the root is already refused upstream by `resolveWorkspaceWritePath`
+ * (realpath-then-containment), so it never reaches this helper.
  */
-async function resolveCanonicalWritablePath(absolutePath: string): Promise<string> {
-  const segments: string[] = [];
-  let current = absolutePath;
-  // Walk up to the nearest existing ancestor. `path.dirname` is a fixpoint at the
-  // filesystem root, so the loop always terminates.
-  for (;;) {
-    try {
-      const canonicalExisting = await fsPromises.realpath(current);
-      return segments.length > 0
-        ? path.join(canonicalExisting, ...segments.reverse())
-        : canonicalExisting;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT') {
-        throw error;
-      }
-      const parent = path.dirname(current);
-      if (parent === current) {
-        // Reached the filesystem root without finding an existing ancestor; return
-        // the path unchanged (containment is still checked by the caller).
-        return absolutePath;
-      }
-      segments.push(path.basename(current));
-      current = parent;
-    }
-  }
-}
-
-/**
- * Resolve a virtual workspace path to a containment-checked absolute path for a
- * WRITE, where the target file (and possibly some parent directories) may not yet
- * exist. Mirrors {@link resolveWorkspaceAbsolutePath}'s guarantees: ".." is
- * clamped in `normalizeWorkspacePath`, and the canonical existing-ancestor path
- * is containment-checked against the canonical root so a symlinked directory
- * cannot redirect the write outside the workspace.
- */
-async function resolveWorkspaceWritePath(
-  rootPath: string,
+export async function resolveWorkspaceLeafMutationPath(
+  canonicalRootPath: string,
+  requestedAbsolutePath: string,
   workspacePath: string
-): Promise<{ canonicalRootPath: string; workspacePath: string; absolutePath: string }> {
-  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
-  const relativePath =
-    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
-  if (relativePath.length === 0) {
-    throw new Error(`Path "${workspacePath}" is the workspace root, not a writable file.`);
+): Promise<string> {
+  let canonicalParent: string;
+  try {
+    canonicalParent = await fsPromises.realpath(path.dirname(requestedAbsolutePath));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Path "${workspacePath}" does not exist.`);
+    }
+    throw error;
   }
-  const absolutePath = path.resolve(rootPath, relativePath);
-  const canonicalRootPath = await fsPromises.realpath(rootPath);
-  const canonicalAbsolutePath = await resolveCanonicalWritablePath(absolutePath);
-  if (!isWithinRoot(canonicalRootPath, canonicalAbsolutePath)) {
+  if (!isWithinRoot(canonicalRootPath, canonicalParent)) {
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
-  return {
-    canonicalRootPath,
-    workspacePath: normalizedWorkspacePath,
-    absolutePath: canonicalAbsolutePath,
-  };
-}
-
-/**
- * Create every missing directory between `canonicalRootPath` (which must already
- * exist) and `targetDir`, ONE component at a time, rejecting any existing
- * component that is a symlink. A plain `mkdir -p` would happily traverse a
- * symlinked intermediate directory (including a dangling one, by creating its
- * target), which is a containment-escape vector. Walking component-by-component
- * with an `lstat` guard keeps every created/traversed segment a real directory
- * inside the root.
- */
-async function ensureContainedDirectory(
-  canonicalRootPath: string,
-  targetDir: string
-): Promise<void> {
-  if (targetDir === canonicalRootPath) {
-    return;
-  }
-  const relative = path.relative(canonicalRootPath, targetDir);
-  // Defence in depth: resolveWorkspaceWritePath already guarantees containment.
-  if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`Path "${targetDir}" is outside the selected workspace root.`);
-  }
-  const segments = relative.split(path.sep).filter((segment) => segment.length > 0);
-  let current = canonicalRootPath;
-  for (const segment of segments) {
-    current = path.join(current, segment);
-    let stats: import('node:fs').Stats | undefined;
-    try {
-      stats = await fsPromises.lstat(current);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
-      }
-    }
-    if (stats) {
-      // An existing component that is a symlink (live OR dangling) could redirect
-      // the write outside the root — reject it rather than traverse it.
-      if (stats.isSymbolicLink()) {
-        throw new Error(
-          `Path component "${current}" is a symlink, which is outside the selected workspace root.`
-        );
-      }
-      if (!stats.isDirectory()) {
-        throw new Error(`Path component "${current}" is not a directory.`);
-      }
-      continue;
-    }
-    // Component does not exist: mkdir creates a REAL directory (it never follows
-    // into a symlink it did not create).
-    await fsPromises.mkdir(current);
-  }
+  return path.join(canonicalParent, path.basename(requestedAbsolutePath));
 }
 
 function sliceContentByLineRange(
@@ -346,7 +397,7 @@ function sliceContentByLineRange(
   const resolvedStart = Math.max(1, Math.min(startLine ?? 1, totalLines));
   const resolvedEnd = Math.max(resolvedStart, Math.min(endLine ?? totalLines, totalLines));
   const sliced = lines.slice(resolvedStart - 1, resolvedEnd).join('\n');
-  return { content: sliced, startLine: resolvedStart, endLine: resolvedEnd, totalLines };
+  return { content: sliced, endLine: resolvedEnd, startLine: resolvedStart, totalLines };
 }
 
 function truncateContent(
@@ -354,12 +405,12 @@ function truncateContent(
   maxChars: number
 ): { content: string; truncated: boolean; omittedChars: number } {
   if (content.length <= maxChars) {
-    return { content, truncated: false, omittedChars: 0 };
+    return { content, omittedChars: 0, truncated: false };
   }
   return {
     content: content.slice(0, maxChars),
-    truncated: true,
     omittedChars: content.length - maxChars,
+    truncated: true,
   };
 }
 
@@ -367,7 +418,9 @@ export async function readWorkspaceTextFile(args: {
   requestedPath: string;
   rootPath: string;
 }): Promise<{
+  absolutePath: string;
   content: string;
+  mtimeMs: number;
   path: string;
   size: number;
 }> {
@@ -392,10 +445,105 @@ export async function readWorkspaceTextFile(args: {
   }
 
   return {
+    absolutePath: resolved.absolutePath,
+    content: fileBuffer.toString('utf8'),
+    mtimeMs: stat.mtimeMs,
     path: resolved.workspacePath,
     size: Number(stat.size),
-    content: fileBuffer.toString('utf8'),
   };
+}
+
+/**
+ * Scope key for the read-before-write staleness tracker: one thread's
+ * observations never vouch for another's (a subagent thread must read a file
+ * itself before its knowledge of it counts as fresh). The DB-less unit tests
+ * and any pre-memory call sites fall back to a single shared sentinel scope.
+ */
+function readStateScope(runtimeData: RuntimeData | undefined): string {
+  return runtimeData?.memory?.threadId ?? '__no-thread__';
+}
+
+/**
+ * Read-before-write staleness compare (report R8), inside the per-file lock.
+ * When `scope` previously observed this file (content-bearing read or its own
+ * successful write) and disk now carries a DIFFERENT mtime, someone else
+ * changed the file since — refuse with an actionable error instead of
+ * overwriting their work (lost-update guard). Never guards a file this scope
+ * has no observation for (compare-only contract), and an observed file that
+ * has since VANISHED is treated as new — recreating it loses nothing, so the
+ * stale observation is dropped and the write proceeds.
+ */
+async function assertNoExternalEditSinceObserved(args: {
+  scope: string;
+  absolutePath: string;
+  requestedPath: string;
+}): Promise<void> {
+  const known = getKnownFileMtime(args.scope, args.absolutePath);
+  if (known === undefined) {
+    return;
+  }
+  let stat: import('node:fs').Stats;
+  try {
+    stat = await fsPromises.stat(args.absolutePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      forgetKnownFile(args.scope, args.absolutePath);
+      return;
+    }
+    throw error;
+  }
+  if (stat.mtimeMs !== known) {
+    throw buildStaleFileError(args.requestedPath);
+  }
+}
+
+/** The single actionable staleness refusal every edit tool throws (the model's
+ * recovery path is always the same: re-read, then retry with fresh content). */
+function buildStaleFileError(requestedPath: string): Error {
+  return new Error(
+    `File "${requestedPath}" changed on disk since you last read it (someone else edited it). ` +
+      'Re-read the file and retry the edit against its current content.'
+  );
+}
+
+/** Record the post-mutation mtime as this scope's fresh observation, inside the
+ * same lock as the write so no concurrent edit can slip between write and stat. */
+async function recordOwnWriteObservation(scope: string, absolutePath: string): Promise<void> {
+  const stat = await fsPromises.stat(absolutePath);
+  recordKnownFileMtime(scope, absolutePath, stat.mtimeMs);
+}
+
+/**
+ * Rename-source staleness compare (report R8), inside the rename's two-lock
+ * critical section. IDENTITY MATTERS: reads record under the realpath'd
+ * TARGET, so a symlink source compares the target's key + stat (the link's
+ * own path is never recorded); a regular file compares its own lstat. A
+ * DANGLING link has no target to compare — nothing observed, nothing guarded.
+ */
+async function assertRenameSourceUnchangedSinceObserved(args: {
+  fromMutationPath: string;
+  fromStats: import('node:fs').Stats;
+  requestedFromPath: string;
+  runtimeData: RuntimeData | undefined;
+  targetAbsolutePath: string;
+}): Promise<void> {
+  let compareKey = args.fromMutationPath;
+  let sourceMtimeMs: number | undefined = args.fromStats.mtimeMs;
+  if (args.fromStats.isSymbolicLink()) {
+    compareKey = args.targetAbsolutePath;
+    try {
+      sourceMtimeMs = (await fsPromises.stat(args.targetAbsolutePath)).mtimeMs;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      sourceMtimeMs = undefined;
+    }
+  }
+  const known = getKnownFileMtime(readStateScope(args.runtimeData), compareKey);
+  if (known !== undefined && sourceMtimeMs !== undefined && known !== sourceMtimeMs) {
+    throw buildStaleFileError(args.requestedFromPath);
+  }
 }
 
 async function runFindWorkspaceSymbol(
@@ -413,12 +561,12 @@ async function runFindWorkspaceSymbol(
   // cap, NUL-byte binary probe). Symbol scanning returns only a tiny bounded
   // result, so a multi-MB bundle or binary file must error cleanly rather than
   // be loaded and scanned in full on the main process.
-  const file = await readWorkspaceTextFile({ rootPath: root.path, requestedPath: input.path });
+  const file = await readWorkspaceTextFile({ requestedPath: input.path, rootPath: root.path });
   const { matches, totalMatches, truncated } = findSymbolMatches(file.content, input.query, {
-    maxMatches: input.maxMatches ?? 5,
     contextLines: input.contextLines ?? 2,
+    maxMatches: input.maxMatches ?? 5,
   });
-  return { rootName: root.displayName, path: file.path, totalMatches, truncated, matches };
+  return { matches, path: file.path, rootName: root.displayName, totalMatches, truncated };
 }
 
 async function runReadWorkspaceFile(
@@ -439,87 +587,37 @@ async function runReadWorkspaceFile(
 }> {
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const requestedPath = input.path;
-  const file = await readWorkspaceTextFile({ rootPath: root.path, requestedPath });
+  // Resolve first so the read + tracker record can run INSIDE the same
+  // per-file lock the write tools use. An unlocked read could stat the OLD
+  // mtime, lose the race to a concurrent locked write (which records the
+  // fresh post-write mtime), then clobber the tracker back to the stale value
+  // — making the next legitimate write falsely refuse. Never nested inside
+  // another holder of this key, so no deadlock.
+  const resolvedForLock = await resolveWorkspaceAbsolutePath(root.path, requestedPath);
+  const file = await withFileLock(resolvedForLock.absolutePath, async () => {
+    const read = await readWorkspaceTextFile({ requestedPath, rootPath: root.path });
+    // A content-bearing read is this scope's fresh observation of the file —
+    // the baseline the edit tools' staleness compare refuses against (R8).
+    recordKnownFileMtime(readStateScope(runtimeData), read.absolutePath, read.mtimeMs);
+    return read;
+  });
   const ranged = sliceContentByLineRange(file.content, input.startLine, input.endLine);
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
   const truncated = truncateContent(ranged.content, maxChars);
 
   return {
-    rootName: root.displayName,
-    path: file.path,
-    size: file.size,
-    tokenCount: null,
-    startLine: ranged.startLine,
-    endLine: ranged.endLine,
-    totalLines: ranged.totalLines,
-    truncated: truncated.truncated,
-    omittedChars: truncated.omittedChars,
     approxOutputTokens: countEstimatedTokens(truncated.content),
     content: truncated.content,
+    endLine: ranged.endLine,
+    omittedChars: truncated.omittedChars,
+    path: file.path,
+    rootName: root.displayName,
+    size: file.size,
+    startLine: ranged.startLine,
+    tokenCount: null,
+    totalLines: ranged.totalLines,
+    truncated: truncated.truncated,
   };
-}
-
-/**
- * Symlink-safe, containment-checked write of `buffer` to the already-resolved
- * workspace write path. This is the SINGLE audited write path shared by
- * `writeWorkspaceFile` and `stringReplaceWorkspaceFile` — do not fork a weaker
- * copy. It enforces every PR-2.1 guarantee:
- *  - leaf lstat rejects a symlink leaf (live OR dangling) and a directory target,
- *  - parents are created one component at a time, rejecting symlinked intermediates,
- *  - the final open uses O_NOFOLLOW to close the lstat→open TOCTOU window.
- *
- * Caller must have resolved the path through {@link resolveWorkspaceWritePath}
- * (so ".." is clamped and the canonical existing-ancestor is contained) and must
- * pass `requestedPath` only for error messages. Returns whether the file was
- * newly created.
- */
-async function writeContainedFileBytes(args: {
-  resolved: { absolutePath: string; canonicalRootPath: string };
-  buffer: Buffer;
-  requestedPath: string;
-}): Promise<{ created: boolean }> {
-  const { resolved, buffer, requestedPath } = args;
-
-  // Inspect the leaf WITHOUT following symlinks. A symlink leaf (live OR
-  // dangling) passes the canonical-ancestor containment check yet writeFile would
-  // follow it OUTSIDE the root — reject it as a containment escape. lstat also
-  // distinguishes a directory target, which cannot be overwritten with content.
-  let created = true;
-  try {
-    const leafStats = await fsPromises.lstat(resolved.absolutePath);
-    if (leafStats.isSymbolicLink()) {
-      throw new Error(`Path "${requestedPath}" is outside the selected workspace root.`);
-    }
-    if (leafStats.isDirectory()) {
-      throw new Error(
-        `Path "${requestedPath}" is a directory and cannot be overwritten with a file.`
-      );
-    }
-    created = false;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  // Create missing parents one component at a time, rejecting symlinked
-  // intermediates (a plain mkdir -p would traverse them).
-  await ensureContainedDirectory(resolved.canonicalRootPath, path.dirname(resolved.absolutePath));
-
-  // O_NOFOLLOW closes the lstat→open TOCTOU window: if the leaf is (or becomes) a
-  // symlink, the open syscall itself fails with ELOOP rather than following it.
-  // (Falls back to 0 on platforms without O_NOFOLLOW, e.g. Windows; the lstat
-  // guard above is the portable backstop.)
-  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
-  const writeFlags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | noFollow;
-  const fileHandle = await fsPromises.open(resolved.absolutePath, writeFlags);
-  try {
-    await fileHandle.writeFile(buffer);
-  } finally {
-    await fileHandle.close();
-  }
-  return { created };
 }
 
 /**
@@ -551,7 +649,7 @@ function toFileRecordRelativePath(workspacePath: string): string {
  *  - RE-INDEX FAILED on a real DB (the transaction throws): ERROR log, since a
  *    resolvable DB that then fails to re-index is a genuine, debuggable problem.
  */
-async function triggerEditedFileReindex(args: {
+export async function triggerEditedFileReindex(args: {
   runtimeData: RuntimeData | undefined;
   rootId: string;
   workspacePath: string;
@@ -561,13 +659,13 @@ async function triggerEditedFileReindex(args: {
 }): Promise<void> {
   let db: ReindexDatabaseHandle;
   try {
-    db = (await getDatabase()) as unknown as ReindexDatabaseHandle;
+    db = await getDatabase();
   } catch (error) {
     // DB unavailable (no DB initialized). Non-fatal and expected outside a
     // running app — log at debug so it is traceable without alarming.
     logger.debug('Skipped re-index: database unavailable', {
-      error,
-      path: args.workspacePath,
+      error: redactToolErrorForLog(error),
+      path: REDACTED_PATH_LOG_VALUE,
     });
     return;
   }
@@ -575,27 +673,28 @@ async function triggerEditedFileReindex(args: {
   try {
     const relativePath = toFileRecordRelativePath(args.workspacePath);
     await reindexEditedFile(db, {
-      rootId: args.rootId,
-      relativePath,
-      name: path.basename(relativePath) || relativePath,
       content: args.content,
-      size: args.size,
       mtimeMs: await statMtimeMs(args.absolutePath),
+      name: path.basename(relativePath) || relativePath,
+      relativePath,
+      rootId: args.rootId,
+      size: args.size,
       workspaceIndexEmbeddingSetId: args.runtimeData?.workspaceIndexEmbeddingSetId,
     });
   } catch (error) {
     // A resolvable DB that then fails to re-index is a genuine problem — surface
     // it (no silent swallow) but never fail the already-successful edit.
     logger.error('Failed to re-index edited file; RAG index may be stale until next sync', {
-      error,
-      path: args.workspacePath,
+      error: redactToolErrorForLog(error),
+      path: REDACTED_PATH_LOG_VALUE,
     });
   }
 }
 
 async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  toolCallId?: string
 ): Promise<{
   rootName: string;
   path: string;
@@ -621,34 +720,65 @@ async function runWriteWorkspaceFile(
   // RAG row stale relative to disk. `triggerEditedFileReindex` is already
   // non-fatal (it catches+logs internally), so it never extends the lock's
   // failure surface.
+  const scope = readStateScope(runtimeData);
   const { created } = await withFileLock(resolved.absolutePath, async () => {
+    // Staleness compare INSIDE the lock (report R8): if this scope observed the
+    // file at a different mtime than disk carries now, someone else edited it
+    // since — refuse instead of overwriting their work. New/unobserved files
+    // pass untouched.
+    await assertNoExternalEditSinceObserved({
+      absolutePath: resolved.absolutePath,
+      requestedPath: input.path,
+      scope,
+    });
+    // Snapshot the before-state for the undo journal INSIDE the lock so no
+    // concurrent same-file edit can slip newer bytes between capture and write.
+    const beforeState = await captureBeforeState(
+      resolved.absolutePath,
+      MAX_WRITE_WORKSPACE_FILE_BYTES
+    );
     const writeResult = await writeContainedFileBytes({
-      resolved,
       buffer,
       requestedPath: input.path,
+      resolved,
     });
+    // Our own write is the scope's freshest observation — consecutive writes
+    // must never trip the guard on themselves.
+    await recordOwnWriteObservation(scope, resolved.absolutePath);
     await triggerEditedFileReindex({
-      runtimeData,
-      rootId: root.rootId,
-      workspacePath: resolved.workspacePath,
       absolutePath: resolved.absolutePath,
       content: input.content,
+      rootId: root.rootId,
+      runtimeData,
       size: buffer.byteLength,
+      workspacePath: resolved.workspacePath,
+    });
+    await recordEditCheckpointForTool({
+      afterExisted: true,
+      afterHash: sha256Hex(buffer),
+      before: beforeStateToCapture(beforeState),
+      op: 'write',
+      path: resolved.workspacePath,
+      rootId: root.rootId,
+      runtimeData,
+      toolCallId,
+      toolName: WRITE_WORKSPACE_FILE_TOOL_ID,
     });
     return writeResult;
   });
 
   return {
-    rootName: root.displayName,
-    path: resolved.workspacePath,
     bytesWritten: buffer.byteLength,
     created,
+    path: resolved.workspacePath,
+    rootName: root.displayName,
   };
 }
 
 async function runStringReplaceWorkspaceFile(
   input: StringReplaceWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  toolCallId?: string
 ): Promise<{
   rootName: string;
   path: string;
@@ -666,21 +796,31 @@ async function runStringReplaceWorkspaceFile(
   // a concurrent edit (another stringReplace, or a writeWorkspaceFile) to the
   // SAME file cannot interleave and drop an update or stale the RAG row. Edits to
   // different files still run in parallel.
+  const scope = readStateScope(runtimeData);
   const result = await withFileLock(resolved.absolutePath, async () => {
     // Read through the SAME checked read path the read tools use (isFile, 2 MB
     // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
     // edit inherits PR-2.1's path-escape protection on the read side too.
     const file = await readWorkspaceTextFile({
-      rootPath: root.path,
       requestedPath: input.path,
+      rootPath: root.path,
     });
+
+    // Staleness compare (report R8): oldStr/newStr were crafted from what this
+    // scope last observed. If disk moved past that observation, applying the
+    // replacement risks semantically clobbering someone else's edit — refuse
+    // and make the model re-read. Unobserved files pass (compare-only).
+    const known = getKnownFileMtime(scope, resolved.absolutePath);
+    if (known !== undefined && known !== file.mtimeMs) {
+      throw buildStaleFileError(input.path);
+    }
 
     // Pure fuzzy-match cascade. THROWS StringReplaceError on ambiguous/not-found
     // matches — never applies a low-confidence edit (no silent fallbacks).
     const replacement = applyStringReplace({
       fileContent: file.content,
-      oldStr: input.oldStr,
       newStr: input.newStr,
+      oldStr: input.oldStr,
     });
 
     const buffer = Buffer.from(replacement.newContent, 'utf8');
@@ -690,7 +830,32 @@ async function runStringReplaceWorkspaceFile(
       );
     }
 
-    await writeContainedFileBytes({ resolved, buffer, requestedPath: input.path });
+    await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
+    // Our own write is the scope's freshest observation — a follow-up edit in
+    // the same thread must never trip the guard on it.
+    await recordOwnWriteObservation(scope, resolved.absolutePath);
+
+    // Journal the undo: the before-content was just read as `file.content` (the
+    // checked reader guarantees text — binary/oversized already threw), so this
+    // is always a revertible `ok` capture.
+    const beforeBuffer = Buffer.from(file.content, 'utf8');
+    await recordEditCheckpointForTool({
+      afterExisted: true,
+      afterHash: sha256Hex(buffer),
+      before: {
+        beforeContent: file.content,
+        beforeExisted: true,
+        beforeHash: sha256Hex(beforeBuffer),
+        beforeSize: beforeBuffer.byteLength,
+        captureStatus: 'ok',
+      },
+      op: 'string_replace',
+      path: resolved.workspacePath,
+      rootId: root.rootId,
+      runtimeData,
+      toolCallId,
+      toolName: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
+    });
 
     // Keep the RAG index coherent: re-index the edited file INSIDE the same
     // per-file critical section as the read-modify-write. Running it after the
@@ -702,12 +867,12 @@ async function runStringReplaceWorkspaceFile(
     // catches+logs internally), so it never undoes a successful edit nor
     // extends the lock's failure surface.
     await triggerEditedFileReindex({
-      runtimeData,
-      rootId: root.rootId,
-      workspacePath: resolved.workspacePath,
       absolutePath: resolved.absolutePath,
       content: replacement.newContent,
+      rootId: root.rootId,
+      runtimeData,
       size: buffer.byteLength,
+      workspacePath: resolved.workspacePath,
     });
 
     return {
@@ -717,12 +882,380 @@ async function runStringReplaceWorkspaceFile(
   });
 
   return {
-    rootName: root.displayName,
-    path: resolved.workspacePath,
     bytesWritten: result.bytesWritten,
     matchType: result.matchType,
+    path: resolved.workspacePath,
     replaced: true,
+    rootName: root.displayName,
   };
+}
+
+/**
+ * Acquire the per-file write lock for BOTH `keyA` and `keyB` before running
+ * `task`, releasing both afterward. The two locks are acquired in sorted order so
+ * two concurrent renames touching an overlapping pair of paths always take them
+ * in the SAME order and can never deadlock (classic lock-ordering). Same-key
+ * pairs (a no-op self-rename) collapse to a single lock.
+ */
+export function withTwoFileLocks<T>(
+  keyA: string,
+  keyB: string,
+  task: () => Promise<T>
+): Promise<T> {
+  if (keyA === keyB) {
+    return withFileLock(keyA, task);
+  }
+  const [first, second] = keyA < keyB ? [keyA, keyB] : [keyB, keyA];
+  return withFileLock(first, () => withFileLock(second, task));
+}
+
+/**
+ * Post-delete/-rename index coherence (mirrors {@link triggerEditedFileReindex}):
+ * remove the file's Workspace Index rows (file_records + chunks) and cancel its
+ * in-flight embed jobs via the SAME standalone seam the background watcher uses
+ * for a disappeared file. Runs AFTER the filesystem mutation and is non-fatal —
+ * the file is already gone/renamed on disk, so a failed invalidation is LOGGED
+ * (never swallowed) and reported honestly as `indexInvalidated: false` rather
+ * than failing the tool. Returns whether any indexed row was actually removed.
+ *
+ * No-op (returns false) when no Workspace Index is configured or the DB is
+ * unavailable (as in the DB-less unit tests) — there is then nothing to keep
+ * coherent.
+ */
+export async function triggerFileDeletionInvalidation(args: {
+  runtimeData: RuntimeData | undefined;
+  rootId: string;
+  workspacePath: string;
+}): Promise<{ invalidated: boolean }> {
+  const embeddingSetId = args.runtimeData?.workspaceIndexEmbeddingSetId?.trim();
+  if (!embeddingSetId) {
+    return { invalidated: false };
+  }
+
+  let db: ReindexDatabaseHandle;
+  try {
+    db = await getDatabase();
+  } catch (error) {
+    logger.debug('Skipped index invalidation: database unavailable', {
+      error: redactToolErrorForLog(error),
+      path: REDACTED_PATH_LOG_VALUE,
+    });
+    return { invalidated: false };
+  }
+
+  try {
+    const result = await invalidateManagedCacheEntriesByIdentity(
+      db as Parameters<typeof invalidateManagedCacheEntriesByIdentity>[0],
+      {
+        embeddingSetId,
+        targets: [
+          {
+            mode: 'exact',
+            relativePath: toFileRecordRelativePath(args.workspacePath),
+            rootId: args.rootId,
+          },
+        ],
+      }
+    );
+    return { invalidated: result.deletedFileRecordIds.length > 0 };
+  } catch (error) {
+    logger.error(
+      'Failed to invalidate index rows for a removed/renamed file; RAG index may be stale until next sync',
+      {
+        error: redactToolErrorForLog(error),
+        path: REDACTED_PATH_LOG_VALUE,
+      }
+    );
+    return { invalidated: false };
+  }
+}
+
+/**
+ * Best-effort re-index of a rename DESTINATION through the same seam edits use
+ * ({@link triggerEditedFileReindex}). That seam only UPDATES an existing
+ * file_records row, so for a brand-new destination path (the common case — a
+ * rename requires the target NOT to exist) it no-ops and the destination's row is
+ * imported by the background workspace sync; it matters only when the destination
+ * path had a stale row. Reading the content is bounded (2 MB + binary probe); a
+ * binary/oversized/unreadable destination simply skips (non-fatal — the file is
+ * already renamed on disk).
+ *
+ * Gated up front on `workspaceIndexEmbeddingSetId` (same derivation as
+ * {@link triggerFileDeletionInvalidation}): with no Workspace Index configured
+ * there is nothing to re-index, so this returns before paying for the up-to-2MB
+ * destination read.
+ */
+export async function triggerRenamedDestinationReindex(args: {
+  runtimeData: RuntimeData | undefined;
+  rootId: string;
+  rootPath: string;
+  workspacePath: string;
+  absolutePath: string;
+}): Promise<void> {
+  const embeddingSetId = args.runtimeData?.workspaceIndexEmbeddingSetId?.trim();
+  if (!embeddingSetId) {
+    return;
+  }
+
+  let file: { content: string; size: number };
+  try {
+    file = await readWorkspaceTextFile({
+      requestedPath: args.workspacePath,
+      rootPath: args.rootPath,
+    });
+  } catch (error) {
+    logger.debug('Skipped renamed-destination re-index: not readable as text', {
+      error: redactToolErrorForLog(error),
+      path: REDACTED_PATH_LOG_VALUE,
+    });
+    return;
+  }
+  await triggerEditedFileReindex({
+    absolutePath: args.absolutePath,
+    content: file.content,
+    rootId: args.rootId,
+    runtimeData: args.runtimeData,
+    size: file.size,
+    workspacePath: args.workspacePath,
+  });
+}
+
+async function runDeleteWorkspaceFile(
+  input: DeleteWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined,
+  toolCallId?: string
+): Promise<{
+  ok: true;
+  path: string;
+  rootName: string;
+  indexInvalidated: boolean;
+}> {
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  // Same path hardening as the write tools: clamps "..", contains symlinked
+  // ancestors, and rejects the workspace root itself. A LIVE symlink whose target
+  // escapes the root is refused here (realpath-then-containment). The delete +
+  // index invalidation run inside the per-file lock so a concurrent edit to the
+  // same path cannot interleave.
+  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+  // Act on the LINK itself, not its resolved target: deleting a symlink must
+  // remove the pointer and leave the target intact (resolved.absolutePath is the
+  // TARGET for a live in-root symlink).
+  const mutationPath = await resolveWorkspaceLeafMutationPath(
+    resolved.canonicalRootPath,
+    resolved.requestedAbsolutePath,
+    input.path
+  );
+
+  return withFileLock(mutationPath, async () => {
+    let leafStats: import('node:fs').Stats;
+    try {
+      leafStats = await fsPromises.lstat(mutationPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Path "${input.path}" does not exist.`);
+      }
+      throw error;
+    }
+    // A symlink leaf (live or dangling) is deleted AS A LINK — `unlink` removes
+    // the pointer, never the target. Only a REAL directory is refused (lstat does
+    // not follow the leaf, so a symlink-to-directory reports isDirectory() false).
+    if (leafStats.isDirectory()) {
+      throw new Error(
+        `Path "${input.path}" is a directory. Deleting directories is not supported — use executeCommand for that.`
+      );
+    }
+
+    // Snapshot the before-state for the undo journal BEFORE unlinking, so a
+    // delete can be reverted by recreating the file with its prior content.
+    const beforeState = await captureBeforeState(mutationPath, MAX_WRITE_WORKSPACE_FILE_BYTES);
+    await fsPromises.unlink(mutationPath);
+    // Drop the staleness observation with the file so a later re-creation at
+    // this path is treated as new, not compared against a ghost.
+    forgetKnownFile(readStateScope(runtimeData), mutationPath);
+    const { invalidated } = await triggerFileDeletionInvalidation({
+      rootId: root.rootId,
+      runtimeData,
+      workspacePath: resolved.workspacePath,
+    });
+    await recordEditCheckpointForTool({
+      afterExisted: false,
+      afterHash: null,
+      // A text before-state is revertible (recreate with content); a
+      // binary/oversized/absent (dangling-symlink) leaf records honestly and
+      // is refused on revert.
+      before: beforeStateToCapture(beforeState),
+      op: 'delete',
+      path: resolved.workspacePath,
+      rootId: root.rootId,
+      runtimeData,
+      toolCallId,
+      toolName: DELETE_WORKSPACE_FILE_TOOL_ID,
+    });
+
+    return {
+      indexInvalidated: invalidated,
+      ok: true,
+      path: resolved.workspacePath,
+      rootName: root.displayName,
+    };
+  });
+}
+
+async function runRenameWorkspaceFile(
+  input: RenameWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined,
+  toolCallId?: string
+): Promise<{
+  ok: true;
+  fromPath: string;
+  toPath: string;
+  rootName: string;
+  indexInvalidated: boolean;
+}> {
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const fromResolved = await resolveWorkspaceWritePath(root.path, input.fromPath);
+  const toResolved = await resolveWorkspaceWritePath(root.path, input.toPath);
+  // Both paths resolve against the SAME single `root`, so a cross-root move is not
+  // expressible through this schema; assert equal canonical roots as defense in
+  // depth (never silently accept a cross-root move).
+  if (fromResolved.canonicalRootPath !== toResolved.canonicalRootPath) {
+    throw new Error(
+      'Cross-root moves are not supported. Both paths must be in the same open folder.'
+    );
+  }
+  // Act on the LINK itself for the source: renaming a symlink must move the
+  // pointer and leave its target intact (fromResolved.absolutePath is the TARGET
+  // for a live in-root symlink). A live symlink whose target escapes the root is
+  // already refused above by resolveWorkspaceWritePath.
+  const fromMutationPath = await resolveWorkspaceLeafMutationPath(
+    fromResolved.canonicalRootPath,
+    fromResolved.requestedAbsolutePath,
+    input.fromPath
+  );
+  if (fromMutationPath === toResolved.absolutePath) {
+    throw new Error(
+      `fromPath and toPath resolve to the same file "${toResolved.workspacePath}"; nothing to rename.`
+    );
+  }
+
+  // Lock BOTH paths (sorted order → deadlock-free) so a concurrent edit or rename
+  // touching either path cannot interleave with this move.
+  return withTwoFileLocks(fromMutationPath, toResolved.absolutePath, async () => {
+    let fromStats: import('node:fs').Stats;
+    try {
+      fromStats = await fsPromises.lstat(fromMutationPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Path "${input.fromPath}" does not exist.`);
+      }
+      throw error;
+    }
+    // A symlink source is moved AS A LINK (rename(2) does not follow the final
+    // component). Only a REAL directory is refused.
+    if (fromStats.isDirectory()) {
+      throw new Error(
+        `Path "${input.fromPath}" is a directory. Renaming directories is not supported — use executeCommand for that.`
+      );
+    }
+
+    // Staleness compare (report R8): a rename decided against a stale view of
+    // the source (someone rewrote it since this scope read it) is refused the
+    // same way an edit is. Unobserved sources pass (compare-only).
+    const sourceIsSymlink = fromStats.isSymbolicLink();
+    await assertRenameSourceUnchangedSinceObserved({
+      fromMutationPath,
+      fromStats,
+      requestedFromPath: input.fromPath,
+      runtimeData,
+      targetAbsolutePath: fromResolved.absolutePath,
+    });
+
+    // Destination must NOT already exist (no overwrite in v1). lstat so a symlink
+    // at the destination also counts as "exists".
+    let destinationExists = true;
+    try {
+      await fsPromises.lstat(toResolved.absolutePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+      destinationExists = false;
+    }
+    if (destinationExists) {
+      throw new Error(
+        `Destination "${input.toPath}" already exists. Delete it first or choose another path (rename does not overwrite).`
+      );
+    }
+
+    // Create any missing destination parent directories one component at a time,
+    // rejecting symlinked intermediates (a plain mkdir -p would traverse them).
+    await ensureContainedDirectory(
+      toResolved.canonicalRootPath,
+      path.dirname(toResolved.absolutePath)
+    );
+
+    await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
+
+    // Move the observation with the file. Regular file: the source path is
+    // gone; the destination (content unchanged — rename preserves mtime) is
+    // this scope's freshest view of it. Symlink: only the LINK moved — the
+    // target file and its (realpath-keyed) observation stay valid, and the
+    // destination stat would follow the link (or throw on a dangling one), so
+    // no destination record is made.
+    forgetKnownFile(readStateScope(runtimeData), fromMutationPath);
+    if (!sourceIsSymlink) {
+      await recordOwnWriteObservation(readStateScope(runtimeData), toResolved.absolutePath);
+    }
+
+    // Index coherence: invalidate the SOURCE rows immediately (the differentiator
+    // vs a shell mv). `indexInvalidated` reflects that source removal. The
+    // DESTINATION is re-indexed through the edit seam, which no-ops for a
+    // brand-new path — a not-previously-indexed destination's row is imported by
+    // the background workspace sync (the documented staleness window: the moved
+    // file is searchable via the live grep pass immediately, and via the semantic
+    // index once the next sync imports it).
+    const { invalidated } = await triggerFileDeletionInvalidation({
+      rootId: root.rootId,
+      runtimeData,
+      workspacePath: fromResolved.workspacePath,
+    });
+    await triggerRenamedDestinationReindex({
+      absolutePath: toResolved.absolutePath,
+      rootId: root.rootId,
+      rootPath: root.path,
+      runtimeData,
+      workspacePath: toResolved.workspacePath,
+    });
+
+    // Journal the undo: a rename has no content change, so the revert is a
+    // rename-back (to_path → from_path). fromPath = original source.
+    await recordEditCheckpointForTool({
+      afterExisted: true,
+      afterHash: null,
+      before: {
+        beforeContent: null,
+        beforeExisted: true,
+        beforeHash: null,
+        beforeSize: null,
+        captureStatus: 'rename',
+      },
+      fromPath: fromResolved.workspacePath,
+      op: 'rename',
+      path: toResolved.workspacePath,
+      rootId: root.rootId,
+      runtimeData,
+      toolCallId,
+      toolName: RENAME_WORKSPACE_FILE_TOOL_ID,
+    });
+
+    return {
+      fromPath: fromResolved.workspacePath,
+      indexInvalidated: invalidated,
+      ok: true,
+      rootName: root.displayName,
+      toPath: toResolved.workspacePath,
+    };
+  });
 }
 
 interface DirectoryEntry {
@@ -790,9 +1323,9 @@ function buildDirectoryVisitContext(
   }
   return {
     childAbsolutePath: path.join(currentAbsolutePath, dirent.name),
-    childSegments,
-    childPath,
     childDepth: childSegments.length,
+    childPath,
+    childSegments,
   };
 }
 
@@ -835,9 +1368,9 @@ async function processFileEntry(
   }
 
   pushDirectoryEntry(state, {
+    depth: context.childDepth,
     path: context.childPath,
     type: 'file',
-    depth: context.childDepth,
     ...(typeof size === 'number' ? { size } : {}),
   });
 }
@@ -881,18 +1414,18 @@ async function runReadWorkspaceDirectory(
 
   const options: DirectoryTraversalOptions = {
     baseSegments: normalizedPath === '/' ? [] : toPathSegments(normalizedPath),
-    includeHidden,
-    includeDirectories,
-    includeFiles,
     depth,
     detail,
+    includeDirectories,
+    includeFiles,
+    includeHidden,
   };
   const state: DirectoryTraversalState = {
     entries: [],
     // Collect through the requested page so offset paging can skip into it.
     maxEntries: offset + maxEntries,
-    truncated: false,
     totalMatchedFiles: 0,
+    truncated: false,
   };
 
   const visit = async (currentAbsolutePath: string, relativeSegments: readonly string[]) => {
@@ -951,13 +1484,13 @@ async function runReadWorkspaceDirectory(
           `${traversalNote} Continue with offset: ${offset + entries.length}, or list a more specific subdirectory.`
         : undefined;
       return {
-        rootName: root.displayName,
-        path: normalizedPath,
-        entries,
         count: entries.length,
+        entries,
+        offset,
+        path: normalizedPath,
+        rootName: root.displayName,
         totalEntries: state.entries.length,
         totalMatchedFiles: state.totalMatchedFiles,
-        offset,
         truncated,
         ...(hint ? { hint } : {}),
       };
@@ -1004,8 +1537,8 @@ function normalizeWorkspaceContextRange(
     return null;
   }
   return {
-    startLine: range.startLine,
     endLine: range.endLine,
+    startLine: range.startLine,
     ...(typeof range.approxTokens === 'number' ? { approxTokens: range.approxTokens } : {}),
     ...(range.isActive === false ? { isActive: false } : { isActive: true }),
   };
@@ -1062,7 +1595,6 @@ interface CuratedContextSummary {
   selectedOutputApproxTokens?: number | null;
   selectedSourceApproxTokens?: number | null;
   tokenBudget?: number;
-  useTapestryRanges?: boolean;
 }
 
 /** Counts and token budgets only — the per-file range metadata stays behind detail: true. */
@@ -1073,9 +1605,6 @@ function summarizeCuratedContext(context: RuntimeWorkspaceContextMetadata): Cura
     fileCount: files.length,
     rangeCount,
     ...(context.tokenBudget === undefined ? {} : { tokenBudget: context.tokenBudget }),
-    ...(context.useTapestryRanges === undefined
-      ? {}
-      : { useTapestryRanges: context.useTapestryRanges }),
     ...(context.includeProjectTree === undefined
       ? {}
       : { includeProjectTree: context.includeProjectTree }),
@@ -1156,13 +1685,13 @@ function runListWorkspaceContext(
         `Continue with offset: ${offset + files.length}.`
       : undefined;
     return {
-      workspaceRootPath,
-      workspaceRoots,
+      offset,
       selectedFileCount: selectedFiles.length,
       selectedFiles: files,
-      workspaceIndex,
-      offset,
       truncated,
+      workspaceIndex,
+      workspaceRootPath,
+      workspaceRoots,
       ...(outsideWorkspaceCount > 0
         ? { selectedFilesOutsideWorkspace: outsideWorkspaceCount }
         : {}),
@@ -1178,8 +1707,8 @@ function runListWorkspaceContext(
       ...(input.includeTokenEstimates === true
         ? {
             tokenEstimates: files.map((filePath) => ({
-              path: filePath,
               approxTokens: curatedFilesByPath.get(filePath)?.approxTokens ?? null,
+              path: filePath,
             })),
           }
         : {}),
@@ -1227,22 +1756,26 @@ function classifyReadContextError(
 ): WorkspaceContextSkippedFile {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes('outside the selected workspace root')) {
-    return { path: workspacePath, reason: 'outsideWorkspace', message };
+    return { message, path: workspacePath, reason: 'outsideWorkspace' };
   }
   if (message.includes('is a binary file')) {
-    return { path: workspacePath, reason: 'binary', message };
+    return { message, path: workspacePath, reason: 'binary' };
   }
   if (message.includes('exceeds')) {
-    return { path: workspacePath, reason: 'oversized', message };
+    return { message, path: workspacePath, reason: 'oversized' };
   }
   if (message.includes('is not a file')) {
-    return { path: workspacePath, reason: 'notFile', message };
+    return { message, path: workspacePath, reason: 'notFile' };
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === 'ENOENT') {
     return { path: workspacePath, reason: 'missing' };
   }
-  logger.warn('Skipped workspace context file read', { path: workspacePath, code, error });
+  logger.warn('Skipped workspace context file read', {
+    code,
+    error: redactToolErrorForLog(error),
+    path: REDACTED_PATH_LOG_VALUE,
+  });
   return { path: workspacePath, reason: 'readError' };
 }
 
@@ -1265,8 +1798,8 @@ function buildRangedContextContent(args: {
   const activeRanges = args.ranges
     .filter((range) => range.isActive !== false)
     .map((range) => ({
-      startLine: Math.max(1, Math.min(range.startLine, totalLines)),
       endLine: Math.max(1, Math.min(range.endLine, totalLines)),
+      startLine: Math.max(1, Math.min(range.startLine, totalLines)),
     }))
     .filter((range) => range.endLine >= range.startLine)
     .sort((left, right) => left.startLine - right.startLine || left.endLine - right.endLine);
@@ -1275,12 +1808,12 @@ function buildRangedContextContent(args: {
     return {
       approxTokens: 0,
       content: '<selection_summary>No active tapestry ranges selected.</selection_summary>',
-      startLine: 1,
       endLine: 1,
-      totalLines,
-      truncated: false,
       omittedChars: 0,
       ranges: [],
+      startLine: 1,
+      totalLines,
+      truncated: false,
     };
   }
 
@@ -1309,10 +1842,10 @@ function buildRangedContextContent(args: {
     }
     remainingChars -= truncatedRange.content.length;
     rangeResults.push({
-      startLine: range.startLine,
-      endLine: range.endLine,
       approxTokens: countEstimatedTokens(truncatedRange.content),
       content: truncatedRange.content,
+      endLine: range.endLine,
+      startLine: range.startLine,
     });
     if (remainingChars <= 0) {
       const laterRanges = activeRanges.slice(rangeIndex + 1);
@@ -1339,12 +1872,12 @@ ${escapeSelectionBoundaryTags(range.content)}
   return {
     approxTokens: countEstimatedTokens(content),
     content,
-    startLine: activeRanges[0]?.startLine ?? 1,
     endLine: activeRanges.at(-1)?.endLine ?? 1,
-    totalLines,
-    truncated,
     omittedChars,
     ranges: rangeResults,
+    startLine: activeRanges[0]?.startLine ?? 1,
+    totalLines,
+    truncated,
   };
 }
 
@@ -1370,8 +1903,8 @@ async function readWorkspaceContextFile(args: {
 }): Promise<WorkspaceContextResolvedFile> {
   if (args.tapestryRanges && args.tapestryRanges.length > 0) {
     const rawFile = await readWorkspaceTextFile({
-      rootPath: args.rootPath,
       requestedPath: args.requestedPath,
+      rootPath: args.rootPath,
     });
     const ranged = buildRangedContextContent({
       content: rawFile.content,
@@ -1379,37 +1912,37 @@ async function readWorkspaceContextFile(args: {
       ranges: args.tapestryRanges,
     });
     return {
+      approxOutputTokens: ranged.approxTokens,
+      content: ranged.content,
+      endLine: ranged.endLine,
+      omittedChars: ranged.omittedChars,
       path: rawFile.path,
       size: rawFile.size,
       startLine: ranged.startLine,
-      endLine: ranged.endLine,
-      totalLines: ranged.totalLines,
-      truncated: ranged.truncated,
-      omittedChars: ranged.omittedChars,
-      approxOutputTokens: ranged.approxTokens,
-      content: ranged.content,
       tapestryRangeCount: ranged.ranges.length,
       tapestryRanges: ranged.ranges,
+      totalLines: ranged.totalLines,
+      truncated: ranged.truncated,
     };
   }
 
   const file = await runReadWorkspaceFile(
     {
-      path: args.requestedPath,
       maxChars: args.maxCharsPerFile,
+      path: args.requestedPath,
     },
     { workspaceRootPath: args.rootPath }
   );
   return {
+    approxOutputTokens: file.approxOutputTokens,
+    content: file.content,
+    endLine: file.endLine,
+    omittedChars: file.omittedChars,
     path: file.path,
     size: file.size,
     startLine: file.startLine,
-    endLine: file.endLine,
     totalLines: file.totalLines,
     truncated: file.truncated,
-    omittedChars: file.omittedChars,
-    approxOutputTokens: file.approxOutputTokens,
-    content: file.content,
   };
 }
 
@@ -1435,9 +1968,9 @@ async function readWorkspaceContextBatch(args: {
     args.batchPaths.map(async (requestedPath) => {
       const normalizedRequestedPath = normalizeWorkspacePath(requestedPath);
       const file = await readWorkspaceContextFile({
-        rootPath: args.workspaceRootPath,
-        requestedPath: normalizedRequestedPath,
         maxCharsPerFile: args.maxCharsPerFile,
+        requestedPath: normalizedRequestedPath,
+        rootPath: args.workspaceRootPath,
         tapestryRanges: args.tapestryRangesByPath.get(normalizedRequestedPath),
       });
       return { file, requestedPath };
@@ -1458,15 +1991,15 @@ function toWorkspaceContextFileResult(
   approxTokens: number
 ): WorkspaceContextFileResult {
   const fileResult: WorkspaceContextFileResult = {
+    approxTokens,
+    content: file.content,
+    endLine: file.endLine,
+    omittedChars: file.omittedChars,
     path: file.path,
     size: file.size,
     startLine: file.startLine,
-    endLine: file.endLine,
     totalLines: file.totalLines,
     truncated: file.truncated,
-    omittedChars: file.omittedChars,
-    approxTokens,
-    content: file.content,
   };
   if (file.tapestryRangeCount !== undefined) {
     fileResult.tapestryRangeCount = file.tapestryRangeCount;
@@ -1494,9 +2027,9 @@ function appendWorkspaceContextBatch(args: {
     const approxTokens = result.file.approxOutputTokens;
     if (nextTotalApproxTokens + approxTokens > args.tokenBudget) {
       args.skippedFiles.push({
+        message: `Including this file would exceed the ${args.tokenBudget} token budget.`,
         path: result.file.path,
         reason: 'tokenBudget',
-        message: `Including this file would exceed the ${args.tokenBudget} token budget.`,
       });
       continue;
     }
@@ -1545,10 +2078,9 @@ async function runReadWorkspaceContext(
   const maxFiles = input.maxFiles ?? DEFAULT_CONTEXT_MAX_FILES;
   const maxCharsPerFile = input.maxCharsPerFile ?? DEFAULT_CONTEXT_MAX_CHARS_PER_FILE;
   const useTapestrySelections = input.useTapestrySelections !== false;
-  const tapestryRangesByPath =
-    useTapestrySelections && getRuntimeWorkspaceContext(runtimeData)?.useTapestryRanges !== false
-      ? buildRuntimeTapestryRangesByPath(runtimeData)
-      : new Map<string, RuntimeWorkspaceContextRangeMetadata[]>();
+  const tapestryRangesByPath = useTapestrySelections
+    ? buildRuntimeTapestryRangesByPath(runtimeData)
+    : new Map<string, RuntimeWorkspaceContextRangeMetadata[]>();
   const files: WorkspaceContextFileResult[] = [];
   const skippedFiles: WorkspaceContextSkippedFile[] = [];
   let totalApproxTokens = 0;
@@ -1583,17 +2115,17 @@ async function runReadWorkspaceContext(
   }
 
   return {
-    workspaceRootPath,
+    files,
+    includedCount: files.length,
+    requestedCount: requestedPaths.length,
     rootId: root.rootId,
     rootName: root.displayName,
-    requestedCount: requestedPaths.length,
-    includedCount: files.length,
     skippedCount: skippedFiles.length,
+    skippedFiles,
     tokenBudget,
     totalApproxTokens,
     truncated: files.some((file) => file.truncated) || skippedFiles.length > 0,
-    files,
-    skippedFiles,
+    workspaceRootPath,
   };
 }
 
@@ -1613,10 +2145,10 @@ function classifySelectionPathError(
 ): WorkspaceContextSkippedPath {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes('outside the selected workspace root')) {
-    return { path: pathValue, reason: 'outsideWorkspace', message };
+    return { message, path: pathValue, reason: 'outsideWorkspace' };
   }
   if (message.includes('is not a file')) {
-    return { path: pathValue, reason: 'notFile', message };
+    return { message, path: pathValue, reason: 'notFile' };
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === 'ENOENT') {
@@ -1718,10 +2250,10 @@ function resolveWriteBackTarget(
   inputRoot: string | undefined
 ): { rootPath: string; broadcastRoot: { rootId: string; rootPath: string } | undefined } {
   if (inputRoot === undefined) {
-    return { rootPath: resolveWorkspaceRootPath(runtimeData), broadcastRoot: undefined };
+    return { broadcastRoot: undefined, rootPath: resolveWorkspaceRootPath(runtimeData) };
   }
   const root = resolveWorkspaceRoot(runtimeData, inputRoot);
-  return { rootPath: root.path, broadcastRoot: { rootId: root.rootId, rootPath: root.path } };
+  return { broadcastRoot: { rootId: root.rootId, rootPath: root.path }, rootPath: root.path };
 }
 
 async function runUpdateWorkspaceContextSelection(
@@ -1741,28 +2273,28 @@ async function runUpdateWorkspaceContextSelection(
   const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
   const mode = input.mode ?? 'add';
   const { requestedCount, selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
-    rootPath,
     filePaths: input.filePaths,
     mode,
+    rootPath,
   });
   const notifiedWindowCount =
     selectedFiles.length > 0
       ? broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_SELECTION_EVENT, {
-          folderId,
           filePaths: selectedFiles,
+          folderId,
           mode,
           ...(broadcastRoot ?? {}),
         })
       : 0;
   return {
+    appliedCount: selectedFiles.length,
     folderId,
     mode,
-    requestedCount,
-    appliedCount: selectedFiles.length,
-    skippedCount: skippedFiles.length,
-    selectedFiles,
-    skippedFiles,
     notifiedWindowCount,
+    requestedCount,
+    selectedFiles,
+    skippedCount: skippedFiles.length,
+    skippedFiles,
   };
 }
 
@@ -1785,17 +2317,17 @@ async function runUpdateWorkspaceTapestrySelections(
   const selectFiles = input.selectFiles !== false;
   const requestedPaths = input.updates.map((update) => update.path);
   const { selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
-    rootPath,
     filePaths: requestedPaths,
     mode,
+    rootPath,
   });
   const selectedFileSet = new Set(selectedFiles);
   const updates = input.updates
     .map((update) => ({
       path: normalizeWorkspacePath(update.path),
       ranges: update.ranges.map((range) => ({
-        startLine: range.startLine,
         endLine: range.endLine,
+        startLine: range.startLine,
         ...(range.isActive === undefined ? {} : { isActive: range.isActive }),
         ...(range.color === undefined ? {} : { color: range.color }),
       })),
@@ -1805,8 +2337,8 @@ async function runUpdateWorkspaceTapestrySelections(
   let notifiedWindowCount = 0;
   if (selectFiles && selectedFiles.length > 0) {
     notifiedWindowCount = broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_SELECTION_EVENT, {
-      folderId,
       filePaths: selectedFiles,
+      folderId,
       mode: 'add',
       ...(broadcastRoot ?? {}),
     });
@@ -1824,14 +2356,14 @@ async function runUpdateWorkspaceTapestrySelections(
   }
 
   return {
+    appliedFileCount: updates.length,
     folderId,
     mode,
-    requestedFileCount: normalizeWorkspacePaths(requestedPaths).length,
-    appliedFileCount: updates.length,
-    skippedFileCount: skippedFiles.length,
-    selectedFiles,
-    skippedFiles,
     notifiedWindowCount,
+    requestedFileCount: normalizeWorkspacePaths(requestedPaths).length,
+    selectedFiles,
+    skippedFileCount: skippedFiles.length,
+    skippedFiles,
   };
 }
 
@@ -1852,15 +2384,15 @@ async function runListEmbeddingSpaces(
   const mappedSpaces = listings.map((listing: EmbeddingSpaceListing) => {
     const isWorkspaceIndex = listing.id === workspaceIndex.embeddingSetId;
     const space = {
-      id: listing.id,
-      name: listing.name,
+      createdAt: listing.createdAt,
       description: listing.description,
-      modelKey: listing.modelKey,
-      modelId: listing.modelId,
       dimensions: listing.dimensions,
       distance: listing.distance,
-      createdAt: listing.createdAt,
+      id: listing.id,
       isWorkspaceIndex,
+      modelId: listing.modelId,
+      modelKey: listing.modelKey,
+      name: listing.name,
       recommendedForWorkspaceSearch: isWorkspaceIndex,
     };
     if (input.includeStats !== true || !listing.stats) {
@@ -1877,13 +2409,13 @@ async function runListEmbeddingSpaces(
     return {
       ...space,
       coverage: {
+        averageTokensPerChunk,
+        coveragePercent: totalChunks > 0 ? Math.round((embeddedChunks / totalChunks) * 100) : 0,
         embeddedChunks,
         fileCount,
         tokenizedChunkCount,
         totalChunks,
         totalTokens,
-        averageTokensPerChunk,
-        coveragePercent: totalChunks > 0 ? Math.round((embeddedChunks / totalChunks) * 100) : 0,
       },
     };
   });
@@ -1891,7 +2423,7 @@ async function runListEmbeddingSpaces(
     input.workspaceIndexOnly === true
       ? mappedSpaces.filter((space) => space.isWorkspaceIndex)
       : mappedSpaces;
-  return { count: spaces.length, workspaceIndex, spaces };
+  return { count: spaces.length, spaces, workspaceIndex };
 }
 
 function resolveQueryEmbeddingSpaceInput(
@@ -1905,63 +2437,79 @@ function resolveQueryEmbeddingSpaceInput(
 }
 
 /**
+ * True when the request targets the built-in on-device provider. Mirrors
+ * `isLocalChatProvider` in assistant-server.ts (kept separate: that module
+ * pulls in Electron IPC imports this file must stay free of for its own
+ * unit-test surface).
+ */
+function isLocalProviderRuntime(runtimeData: RuntimeData | undefined): boolean {
+  const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
+  return provider.toLowerCase() === 'local';
+}
+
+/**
  * Builds the Mastra ToolsInput for the desktop assistant server.
  */
 export function buildDesktopAssistantTools(
   runtimeData: RuntimeData | undefined,
   dependencies: DesktopAssistantToolDependencies = {}
 ): MastraTools {
+  // The built-in local model never gets the task-list tool: its persisted plan
+  // is never re-injected into local instructions either (see
+  // readThreadTaskListForTurn in assistant-server.ts and the provider gate on
+  // buildCurrentTaskListNote in agent-runtime.ts), and the tiny on-device
+  // model's WebGPU prefill budget cannot afford advertising a tool whose state
+  // it will never see reflected back.
+  const isLocalProvider = isLocalProviderRuntime(runtimeData);
   const tools: MastraTools = {
     [FIND_WORKSPACE_SYMBOL_TOOL_ID]: {
-      id: FIND_WORKSPACE_SYMBOL_TOOL_ID,
       description:
         "Find a symbol's best-effort enclosing 1-based line range in a workspace file without returning whole-file content. Matching is substring-based, so verify the returned range. Use this to get a function/type/section range, then pass it to brainstrike.updateWorkspaceTapestrySelections.",
-      inputSchema: FindWorkspaceSymbolInputSchema,
       execute: async (input: ToolExecuteInput<FindWorkspaceSymbolInput>) => {
         const resolvedInput = parseToolExecuteInput(FindWorkspaceSymbolInputSchema, input);
         try {
           return await runFindWorkspaceSymbol(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('findWorkspaceSymbol failed', { error, input: resolvedInput });
+          logToolFailure('findWorkspaceSymbol failed', error, resolvedInput);
           throw error;
         }
       },
+      id: FIND_WORKSPACE_SYMBOL_TOOL_ID,
+      inputSchema: FindWorkspaceSymbolInputSchema,
     },
     [GREP_SEARCH_TOOL_ID]: {
-      id: GREP_SEARCH_TOOL_ID,
       description:
         "Grep file content for an exact string (default) or JavaScript regex. HYBRID: searches BOTH the index AND the live on-disk files and merges, so just-edited / not-yet-reindexed files are found fresh (each match is labelled source: 'index' | 'live' | 'both'; re-grep after an edit to confirm your change is on disk). Use this FIRST for identifiers, exact strings, and error messages. Default outputMode 'files' cheaply surveys WHICH files match; then call again with outputMode 'content' and filePaths to see the matching lines. Results are truncated to a fixed budget — follow the returned hint (offset, filters) to continue.",
-      inputSchema: GrepSearchInputSchema,
       execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
         const resolvedInput = parseToolExecuteInput(GrepSearchInputSchema, input);
         try {
           return await runGrepSearch(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('grepSearch failed', { error, input: resolvedInput });
+          logToolFailure('grepSearch failed', error, resolvedInput);
           throw error;
         }
       },
+      id: GREP_SEARCH_TOOL_ID,
+      inputSchema: GrepSearchInputSchema,
     },
     [GLOB_WORKSPACE_TOOL_ID]: {
-      id: GLOB_WORKSPACE_TOOL_ID,
       description:
         'Enumerate workspace files by glob pattern (e.g. **/*.test.ts, src/**/*.tsx, **/package.json). Use this to find files by NAME/PATH shape when you do not know their content — complementary to grepSearch (content) and readWorkspaceDirectory (one level). Skips .git/node_modules/build output by default (includeIgnored to override). Results are truncated to a fixed budget — follow the returned hint (offset, narrower pattern) to continue.',
-      inputSchema: GlobWorkspaceInputSchema,
       execute: async (input: ToolExecuteInput<GlobWorkspaceInput>) => {
         const resolvedInput = parseToolExecuteInput(GlobWorkspaceInputSchema, input);
         try {
           return await runGlobWorkspace(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('globWorkspace failed', { error, input: resolvedInput });
+          logToolFailure('globWorkspace failed', error, resolvedInput);
           throw error;
         }
       },
+      id: GLOB_WORKSPACE_TOOL_ID,
+      inputSchema: GlobWorkspaceInputSchema,
     },
     [WEB_SEARCH_TOOL_ID]: {
-      id: WEB_SEARCH_TOOL_ID,
       description:
-        'Search the web via Tavily for current documentation, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily) — never include secrets or private workspace contents. Use this only for general/public web knowledge; for THIS project\'s code use grepSearch/queryEmbeddingSpace instead. Requires a Tavily API key in Settings → API Keys: when none is configured the tool returns a non-fatal "unavailable, add a key" result rather than failing. Results (title, url, snippet) are truncated to a fixed budget.',
-      inputSchema: WebSearchInputSchema,
+        'Search the web for current documentation, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider\'s built-in search when available, otherwise Tavily) — never include secrets or private workspace contents. Use this only for general/public web knowledge; for THIS project\'s code use grepSearch/queryEmbeddingSpace instead. When no provider-native search is available and no Tavily API key is configured (Settings → API Keys), the tool returns a non-fatal "unavailable, add a key" result rather than failing. Results are truncated to a fixed budget.',
       // The Tavily key is resolved server-side inside runWebSearch and never
       // returned to the model. No injected deps here → real fetch + keychain.
       execute: async (input: ToolExecuteInput<WebSearchInput>) => {
@@ -1969,112 +2517,169 @@ export function buildDesktopAssistantTools(
         try {
           return await runWebSearch(resolvedInput, dependencies.webSearch);
         } catch (error) {
-          logger.error('webSearch failed', { error });
+          logToolFailure('webSearch failed', error, resolvedInput);
           throw error;
         }
       },
+      id: WEB_SEARCH_TOOL_ID,
+      inputSchema: WebSearchInputSchema,
+    },
+    [WEB_EXTRACT_TOOL_ID]: {
+      description:
+        'Fetch the readable content of up to 5 PUBLIC web pages as markdown — the natural follow-up to webSearch results, or for a URL the user pasted. SENDS THE URLS TO AN EXTERNAL EXTRACTION SERVICE (Tavily): never pass URLs carrying secrets or pointing at private/internal hosts; non-http(s), credentialed, and private/loopback URLs are refused before anything is sent and reported per-URL. When no Tavily API key is configured (Settings → API Keys), returns a non-fatal "unavailable, add a key" result rather than failing. Content is bounded per page and to a fixed overall budget.',
+      // The Tavily key is resolved server-side inside runWebExtract and never
+      // returned to the model. No injected deps here → real fetch + keychain.
+      execute: async (input: ToolExecuteInput<WebExtractInput>) => {
+        const resolvedInput = parseToolExecuteInput(WebExtractInputSchema, input);
+        try {
+          return await runWebExtract(resolvedInput, dependencies.webExtract);
+        } catch (error) {
+          logToolFailure('webExtract failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: WEB_EXTRACT_TOOL_ID,
+      inputSchema: WebExtractInputSchema,
     },
     [READ_WORKSPACE_FILE_TOOL_ID]: {
-      id: READ_WORKSPACE_FILE_TOOL_ID,
       description:
         'Read a workspace file from the selected root. Use line ranges and maxChars to keep context efficient.',
-      inputSchema: ReadWorkspaceFileInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceFileInput>) => {
         const resolvedInput = parseToolExecuteInput(ReadWorkspaceFileInputSchema, input);
         try {
           return await runReadWorkspaceFile(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('readWorkspaceFile failed', { error, input: resolvedInput });
+          logToolFailure('readWorkspaceFile failed', error, resolvedInput);
           throw error;
         }
       },
+      id: READ_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: ReadWorkspaceFileInputSchema,
     },
     [WRITE_WORKSPACE_FILE_TOOL_ID]: {
-      id: WRITE_WORKSPACE_FILE_TOOL_ID,
       description:
         'Write or create a UTF-8 file in the selected workspace root. Overwrites existing content and creates missing parent directories. The path is clamped to the workspace root and can never escape it. Requires user approval (edit-risk).',
-      inputSchema: WriteWorkspaceFileInputSchema,
-      execute: async (input: ToolExecuteInput<WriteWorkspaceFileInput>) => {
+      execute: async (
+        input: ToolExecuteInput<WriteWorkspaceFileInput>,
+        context?: ToolExecuteRunContext
+      ) => {
         const resolvedInput = parseToolExecuteInput(WriteWorkspaceFileInputSchema, input);
         try {
-          return await runWriteWorkspaceFile(resolvedInput, runtimeData);
+          return await runWriteWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
         } catch (error) {
-          logger.error('writeWorkspaceFile failed', {
-            error,
-            input: { ...resolvedInput, content: undefined },
-          });
+          logToolFailure('writeWorkspaceFile failed', error, resolvedInput);
           throw error;
         }
       },
+      id: WRITE_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: WriteWorkspaceFileInputSchema,
     },
     [STRING_REPLACE_WORKSPACE_FILE_TOOL_ID]: {
-      id: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
       description:
         'Surgically edit an existing workspace file: replace one oldStr block with newStr. Read the file first, then pass an oldStr with enough surrounding context to identify ONE location (a single line matching several places is refused), and the newStr (empty deletes the block). Matching is fuzzy (exact → whitespace-tolerant → close-match) but ambiguous or not-found matches are refused, never guessed. The path is clamped to the workspace root. Requires user approval (edit-risk).',
-      inputSchema: StringReplaceWorkspaceFileInputSchema,
-      execute: async (input: ToolExecuteInput<StringReplaceWorkspaceFileInput>) => {
+      execute: async (
+        input: ToolExecuteInput<StringReplaceWorkspaceFileInput>,
+        context?: ToolExecuteRunContext
+      ) => {
         const resolvedInput = parseToolExecuteInput(StringReplaceWorkspaceFileInputSchema, input);
         try {
-          return await runStringReplaceWorkspaceFile(resolvedInput, runtimeData);
+          return await runStringReplaceWorkspaceFile(
+            resolvedInput,
+            runtimeData,
+            readToolCallId(context)
+          );
         } catch (error) {
-          logger.error('stringReplaceWorkspaceFile failed', {
-            error,
-            input: { ...resolvedInput, oldStr: undefined, newStr: undefined },
-          });
+          logToolFailure('stringReplaceWorkspaceFile failed', error, resolvedInput);
           throw error;
         }
       },
+      id: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: StringReplaceWorkspaceFileInputSchema,
+    },
+    [DELETE_WORKSPACE_FILE_TOOL_ID]: {
+      description:
+        'Delete a single file from the selected workspace root. FILES ONLY — a directory path is refused (use executeCommand for directory removal). The path is clamped to the workspace root and can never escape it. Removes the file from the workspace index when it was indexed. Requires user approval (edit-risk).',
+      execute: async (
+        input: ToolExecuteInput<DeleteWorkspaceFileInput>,
+        context?: ToolExecuteRunContext
+      ) => {
+        const resolvedInput = parseToolExecuteInput(DeleteWorkspaceFileInputSchema, input);
+        try {
+          return await runDeleteWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
+        } catch (error) {
+          logToolFailure('deleteWorkspaceFile failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: DELETE_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: DeleteWorkspaceFileInputSchema,
+    },
+    [RENAME_WORKSPACE_FILE_TOOL_ID]: {
+      description:
+        'Rename or move a single file within the selected workspace root. FILES ONLY. The destination must NOT already exist (rename never overwrites — delete the target first). Both paths stay inside ONE open folder (cross-root moves refused); missing destination parent directories are created. Prefer this over a shell "mv" so the workspace index stays coherent. Requires user approval (edit-risk).',
+      execute: async (
+        input: ToolExecuteInput<RenameWorkspaceFileInput>,
+        context?: ToolExecuteRunContext
+      ) => {
+        const resolvedInput = parseToolExecuteInput(RenameWorkspaceFileInputSchema, input);
+        try {
+          return await runRenameWorkspaceFile(resolvedInput, runtimeData, readToolCallId(context));
+        } catch (error) {
+          logToolFailure('renameWorkspaceFile failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: RENAME_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: RenameWorkspaceFileInputSchema,
     },
     [READ_WORKSPACE_DIRECTORY_TOOL_ID]: {
-      id: READ_WORKSPACE_DIRECTORY_TOOL_ID,
       description:
         'List workspace directory entries (path + type by default; detail: true adds sizes). Prefer specific subdirectories over the root. Truncated listings include a hint with the offset to continue from.',
-      inputSchema: ReadWorkspaceDirectoryInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {
         const resolvedInput = parseToolExecuteInput(ReadWorkspaceDirectoryInputSchema, input);
         try {
           return await runReadWorkspaceDirectory(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('readWorkspaceDirectory failed', { error, input: resolvedInput });
+          logToolFailure('readWorkspaceDirectory failed', error, resolvedInput);
           throw error;
         }
       },
+      id: READ_WORKSPACE_DIRECTORY_TOOL_ID,
+      inputSchema: ReadWorkspaceDirectoryInputSchema,
     },
     [LIST_WORKSPACE_CONTEXT_TOOL_ID]: {
-      id: LIST_WORKSPACE_CONTEXT_TOOL_ID,
       description:
         'Inspect the current workspace root, selected context paths, token budgets, and workspace index hint without returning file contents. Compact summary by default; set detail: true for per-file Tapestry ranges. Use before reading selected context.',
-      inputSchema: ListWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
         const resolvedInput = parseToolExecuteInput(ListWorkspaceContextInputSchema, input);
         try {
           return runListWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('listWorkspaceContext failed', { error, input: resolvedInput });
+          logToolFailure('listWorkspaceContext failed', error, resolvedInput);
           throw error;
         }
       },
+      id: LIST_WORKSPACE_CONTEXT_TOOL_ID,
+      inputSchema: ListWorkspaceContextInputSchema,
     },
     [READ_WORKSPACE_CONTEXT_TOOL_ID]: {
-      id: READ_WORKSPACE_CONTEXT_TOOL_ID,
       description:
         'Read selected or explicit workspace files under maxFiles, per-file, and token budgets. Uses curated Tapestry ranges by default when available. Use after semantic search when you need exact source lines. Skipped and truncated files are reported explicitly.',
-      inputSchema: ReadWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
         const resolvedInput = parseToolExecuteInput(ReadWorkspaceContextInputSchema, input);
         try {
           return await runReadWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('readWorkspaceContext failed', { error, input: resolvedInput });
+          logToolFailure('readWorkspaceContext failed', error, resolvedInput);
           throw error;
         }
       },
+      id: READ_WORKSPACE_CONTEXT_TOOL_ID,
+      inputSchema: ReadWorkspaceContextInputSchema,
     },
     [UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID]: {
-      id: UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID,
       description:
         'Bulk add, remove, or replace files selected in the workspace context explorer. Use this to curate reusable context for the user; listWorkspaceContext reports token counts afterward.',
-      inputSchema: UpdateWorkspaceContextSelectionInputSchema,
       execute: async (input: ToolExecuteInput<UpdateWorkspaceContextSelectionInput>) => {
         const resolvedInput = parseToolExecuteInput(
           UpdateWorkspaceContextSelectionInputSchema,
@@ -2083,16 +2688,16 @@ export function buildDesktopAssistantTools(
         try {
           return await runUpdateWorkspaceContextSelection(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('updateWorkspaceContextSelection failed', { error, input: resolvedInput });
+          logToolFailure('updateWorkspaceContextSelection failed', error, resolvedInput);
           throw error;
         }
       },
+      id: UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID,
+      inputSchema: UpdateWorkspaceContextSelectionInputSchema,
     },
     [UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID]: {
-      id: UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID,
       description:
         'Create, add, or clear Tapestry line selections for workspace context files using 1-based inclusive line numbers. Use after embedding search and file reads to keep only verified source ranges.',
-      inputSchema: UpdateWorkspaceTapestrySelectionsInputSchema,
       execute: async (input: ToolExecuteInput<UpdateWorkspaceTapestrySelectionsInput>) => {
         const resolvedInput = parseToolExecuteInput(
           UpdateWorkspaceTapestrySelectionsInputSchema,
@@ -2101,31 +2706,59 @@ export function buildDesktopAssistantTools(
         try {
           return await runUpdateWorkspaceTapestrySelections(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('updateWorkspaceTapestrySelections failed', { error, input: resolvedInput });
+          logToolFailure('updateWorkspaceTapestrySelections failed', error, resolvedInput);
           throw error;
         }
       },
+      id: UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID,
+      inputSchema: UpdateWorkspaceTapestrySelectionsInputSchema,
     },
     [LIST_EMBEDDING_SPACES_TOOL_ID]: {
-      id: LIST_EMBEDDING_SPACES_TOOL_ID,
       description:
         'List available embedding spaces, identify the configured Workspace Index, and optionally include coverage stats. Use this when you need to inspect non-default embedding spaces or index coverage.',
-      inputSchema: ListEmbeddingSetsInputSchema,
       execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
         const resolvedInput = parseToolExecuteInput(ListEmbeddingSetsInputSchema, input);
         try {
           return await runListEmbeddingSpaces(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('listEmbeddingSpaces failed', { error, input: resolvedInput });
+          logToolFailure('listEmbeddingSpaces failed', error, resolvedInput);
           throw error;
         }
       },
+      id: LIST_EMBEDDING_SPACES_TOOL_ID,
+      inputSchema: ListEmbeddingSetsInputSchema,
     },
+    ...(isLocalProvider
+      ? {}
+      : {
+          // The two SUSPENDING native tools are registered as the factory-returned
+          // Mastra Tool objects DIRECTLY (not re-wrapped in the registry's
+          // { description, execute, id, inputSchema } literal shape): re-wrapping
+          // would drop suspendSchema/resumeSchema and break both suspension and the
+          // hasSuspendSchema fail-safe/plan-mode keep-rule. Excluded for the
+          // built-in local provider (same WebGPU-prefill reasoning as the task-list
+          // tool and the plan-mode gate).
+          [ASK_USER_TOOL_ID]: createAskUserTool(),
+          [SUBMIT_PLAN_TOOL_ID]: createSubmitPlanTool(),
+          [MANAGE_TASK_LIST_TOOL_ID]: {
+            description:
+              'Record and update a structured plan for the current thread as a task list. Whole-list replace: pass the FULL desired list every call. When a task is multi-step, break it into tasks up front; keep exactly one task in_progress at a time and mark tasks completed as you finish them. Each task is { content (imperative label), activeForm (present-tense in-progress label), status: pending | in_progress | completed }. The list is re-injected into your instructions each turn (so it survives context truncation) and shown to the user as a progress checklist.',
+            execute: async (input: ToolExecuteInput<ManageTaskListInput>) => {
+              const resolvedInput = parseToolExecuteInput(ManageTaskListInputSchema, input);
+              try {
+                return await runManageTaskList(resolvedInput, runtimeData);
+              } catch (error) {
+                logToolFailure('manageTaskList failed', error, resolvedInput);
+                throw error;
+              }
+            },
+            id: MANAGE_TASK_LIST_TOOL_ID,
+            inputSchema: ManageTaskListInputSchema,
+          },
+        }),
     [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
-      id: QUERY_EMBEDDING_SPACE_TOOL_ID,
       description:
         'Query semantic workspace context and return bounded source text plus metadata-only chunks with persisted line ranges. For workspace/codebase searches, omit embeddingSetId to use the Workspace Index. Provide embeddingSetId only for a specific non-default embedding space; use tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
-      inputSchema: QueryEmbeddingSpaceInputSchema,
       execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
         const resolvedInput = resolveQueryEmbeddingSpaceInput(input);
         try {
@@ -2133,10 +2766,12 @@ export function buildDesktopAssistantTools(
             embeddingHostManager: dependencies.embeddingHostManager,
           });
         } catch (error) {
-          logger.error('queryEmbeddingSpace failed', { error, input: resolvedInput });
+          logToolFailure('queryEmbeddingSpace failed', error, resolvedInput);
           throw error;
         }
       },
+      id: QUERY_EMBEDDING_SPACE_TOOL_ID,
+      inputSchema: QueryEmbeddingSpaceInputSchema,
     },
   };
 
@@ -2147,26 +2782,34 @@ export function buildDesktopAssistantTools(
   // execute to 'allow'/yolo to run it unprompted, or 'deny' to omit it — that is
   // the permission gate's job now, not a registration-time conditional.
   tools[EXECUTE_COMMAND_TOOL_ID] = {
-    id: EXECUTE_COMMAND_TOOL_ID,
     description:
       "Run an arbitrary shell command on the user's machine (tests, builds, linters, git, package managers). This is ARBITRARY COMMAND EXECUTION with NO sandbox — the command can do anything the user can. The command runs in the user's shell starting in the workspace root (override with cwd, which must still be inside an open folder). On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Output is bounded to a fixed budget (most recent lines kept) — pipe through '| tail -n N' for long output. Prefer non-destructive commands; never run destructive ones (rm -rf, force pushes, resets) without an explicit user request.",
-    inputSchema: ExecuteCommandInputSchema,
     // The second arg carries the Mastra ToolExecutionContext, whose abortSignal
-    // we thread into the run so a cancelled run kills the process tree.
-    execute: async (
-      input: ToolExecuteInput<ExecuteCommandInput>,
-      options?: { abortSignal?: AbortSignal }
-    ) => {
+    // we thread into the run so a cancelled run kills the process tree, and whose
+    // stream writer + tool-call id we use to stream incremental stdout/stderr to
+    // the live tool card. Mastra hands a DIFFERENT context shape to a plain tool
+    // object (raw `outputWriter` fn + top-level `toolCallId`) vs a `createTool`
+    // instance (`writer.custom` + `agent.toolCallId`); we accept both.
+    // `resolveShellOutputStreamer` returns undefined when neither is present, so
+    // the command still runs and returns its full captured result — only the
+    // live slices are skipped (capability presence, not a policy fallback).
+    execute: async (input: ToolExecuteInput<ExecuteCommandInput>, options?: ToolExecuteContext) => {
       const resolvedInput = parseToolExecuteInput(ExecuteCommandInputSchema, input);
+      const stream = resolveShellOutputStreamer(options, (error) => {
+        logToolFailure('executeCommand output streaming failed', error, resolvedInput);
+      });
       try {
         return await runExecuteCommand(resolvedInput, runtimeData, {
           signal: options?.abortSignal,
+          ...(stream ? { stream } : {}),
         });
       } catch (error) {
-        logger.error('executeCommand failed', { error, input: resolvedInput });
+        logToolFailure('executeCommand failed', error, resolvedInput);
         throw error;
       }
     },
+    id: EXECUTE_COMMAND_TOOL_ID,
+    inputSchema: ExecuteCommandInputSchema,
   };
 
   const enabledNativeToolIds = runtimeData?.enabledNativeToolIds;

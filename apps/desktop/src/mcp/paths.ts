@@ -14,12 +14,12 @@ export async function resolvePathWithinRoot(
   requested: unknown
 ): Promise<ResolvedPathResult> {
   const result = await resolveValidatedPath({
-    rootDir,
-    requestedPath: requested,
     fallbackPath: '.',
+    requestedPath: requested,
+    rootDir,
   });
   if (!result.ok) {
-    return { ok: false, error: result.error.message };
+    return { error: result.error.message, ok: false };
   }
   return { ok: true, path: result.path };
 }

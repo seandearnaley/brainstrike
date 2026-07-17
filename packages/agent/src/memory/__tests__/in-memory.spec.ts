@@ -4,8 +4,8 @@ import { InMemoryMemoryStore } from '../in-memory';
 
 const createMessage = (id: string, text: string): AgentMessage => ({
   id,
+  parts: [{ text, type: 'text' }],
   role: 'user',
-  parts: [{ type: 'text', text }],
 });
 
 describe('InMemoryMemoryStore', () => {

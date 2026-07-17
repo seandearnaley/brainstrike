@@ -22,15 +22,20 @@ export function GlobalDownloadIndicator() {
   const progress = downloadProgress[activeId] || 0;
 
   return (
-    <div className="flex min-w-[150px] items-center gap-2 text-muted-foreground text-xs">
-      <Download className="h-3 w-3 animate-pulse" />
-      <span className="max-w-[100px] truncate">Downloading model...</span>
+    <div className="flex h-7 w-14 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[11px] text-muted-foreground lg:w-28 xl:w-auto">
+      <Download
+        aria-hidden="true"
+        className="h-3 w-3 shrink-0 animate-pulse motion-reduce:animate-none"
+      />
+      <span className="hidden max-w-[100px] truncate whitespace-nowrap xl:block">
+        Downloading model…
+      </span>
       <Progress
         aria-label="Global model download progress"
-        className="h-1.5 w-16"
+        className="h-1.5 w-8 shrink-0 lg:w-12"
         value={progress}
       />
-      <span className="w-8 text-right">{progress}%</span>
+      <span className="sr-only tabular-nums lg:not-sr-only lg:w-8 lg:text-right">{progress}%</span>
     </div>
   );
 }

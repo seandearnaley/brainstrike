@@ -13,10 +13,10 @@ interface MockRow {
 }
 
 const mockLiveQueryState = {
-  rows: [] as MockRow[],
-  loading: false,
   error: null as Error | null,
+  loading: false,
   refresh: vi.fn(),
+  rows: [] as MockRow[],
 };
 
 const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
@@ -60,10 +60,10 @@ describe('useFileCollectionStatus', () => {
           file_id: 'file-1',
           file_name: 'test.ts',
           file_path: '/test/test.ts',
+          last_indexed: '2025-11-02T10:00:00Z',
+          other_collections: '2',
           searchable_chunks: '5',
           total_chunks: '5',
-          other_collections: '2',
-          last_indexed: '2025-11-02T10:00:00Z',
         },
       ];
 
@@ -76,11 +76,11 @@ describe('useFileCollectionStatus', () => {
         fileId: 'file-1',
         fileName: 'test.ts',
         filePath: '/test/test.ts',
-        searchableInActive: true,
-        searchableChunksCount: 5,
-        totalChunksCount: 5,
-        otherCollectionsCount: 2,
         lastIndexedAt: '2025-11-02T10:00:00Z',
+        otherCollectionsCount: 2,
+        searchableChunksCount: 5,
+        searchableInActive: true,
+        totalChunksCount: 5,
       });
     });
 
@@ -90,19 +90,19 @@ describe('useFileCollectionStatus', () => {
           file_id: 'file-1',
           file_name: 'test1.ts',
           file_path: '/test/test1.ts',
+          last_indexed: '2025-11-02T10:00:00Z',
+          other_collections: '0',
           searchable_chunks: '3',
           total_chunks: '3',
-          other_collections: '0',
-          last_indexed: '2025-11-02T10:00:00Z',
         },
         {
           file_id: 'file-2',
           file_name: 'test2.ts',
           file_path: '/test/test2.ts',
+          last_indexed: null,
+          other_collections: '1',
           searchable_chunks: '0',
           total_chunks: '5',
-          other_collections: '1',
-          last_indexed: null,
         },
       ];
 
@@ -120,19 +120,19 @@ describe('useFileCollectionStatus', () => {
           file_id: 'file-searchable',
           file_name: 'searchable.ts',
           file_path: '/test/searchable.ts',
+          last_indexed: '2025-11-02T10:00:00Z',
+          other_collections: '0',
           searchable_chunks: '5',
           total_chunks: '5',
-          other_collections: '0',
-          last_indexed: '2025-11-02T10:00:00Z',
         },
         {
           file_id: 'file-not-searchable',
           file_name: 'not-searchable.ts',
           file_path: '/test/not-searchable.ts',
+          last_indexed: null,
+          other_collections: '0',
           searchable_chunks: '0',
           total_chunks: '5',
-          other_collections: '0',
-          last_indexed: null,
         },
       ];
 
@@ -153,10 +153,10 @@ describe('useFileCollectionStatus', () => {
           file_id: 'file-1',
           file_name: 'test.ts',
           file_path: '/test/test.ts',
+          last_indexed: null,
+          other_collections: '0',
           searchable_chunks: '0',
           total_chunks: '5',
-          other_collections: '0',
-          last_indexed: null,
         },
       ];
 
@@ -173,10 +173,10 @@ describe('useFileCollectionStatus', () => {
           file_id: 'file-known',
           file_name: 'known.ts',
           file_path: '/test/known.ts',
+          last_indexed: null,
+          other_collections: '0',
           searchable_chunks: '1',
           total_chunks: '1',
-          other_collections: '0',
-          last_indexed: null,
         },
       ];
 

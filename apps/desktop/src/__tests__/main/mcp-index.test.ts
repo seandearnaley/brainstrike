@@ -1,26 +1,40 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sseClient = {
-  name: 'remote',
-  transport: 'sse',
+  callTool: vi.fn(async () => 'sse-result'),
   dispose: vi.fn(),
   listTools: vi.fn(async () => ({})),
+  name: 'remote',
   supportsTool: vi.fn((toolId: string) => toolId.startsWith('remote.')),
-  callTool: vi.fn(async () => 'sse-result'),
+  transport: 'sse',
+};
+const streamableHttpClient = {
+  callTool: vi.fn(async () => 'streamable-http-result'),
+  dispose: vi.fn(),
+  listTools: vi.fn(async () => ({})),
+  name: 'streamable',
+  supportsTool: vi.fn((toolId: string) => toolId.startsWith('streamable.')),
+  transport: 'streamable-http',
 };
 const stdioClient = {
-  name: 'filesystem',
-  transport: 'stdio',
+  callTool: vi.fn(async () => 'stdio-result'),
   dispose: vi.fn(),
   listTools: vi.fn(async () => ({
     'filesystem.list_directory': { description: 'List files' },
   })),
+  name: 'filesystem',
   supportsTool: vi.fn((toolId: string) => toolId === 'filesystem.list_directory'),
-  callTool: vi.fn(async () => 'stdio-result'),
+  transport: 'stdio',
 };
 
 vi.mock('../../mcp/sse-client', () => ({
   createSseClient: vi.fn(() => sseClient),
+}));
+
+vi.mock('../../mcp/http-client', () => ({
+  createHttpClient: vi.fn((server: { transport: string }) =>
+    server.transport === 'streamable-http' ? streamableHttpClient : sseClient
+  ),
 }));
 
 vi.mock('../../mcp/stdio-client', () => ({
@@ -34,16 +48,22 @@ describe('mcp index', () => {
     vi.clearAllMocks();
   });
 
-  it('initializes clients for stdio, sse, and unsupported transports', async () => {
+  it('initializes clients for stdio, Streamable HTTP, and legacy SSE transports', async () => {
     initClients({
       servers: [
-        { name: 'filesystem', transport: 'stdio', command: 'node', args: ['/tmp'] },
+        { args: ['/tmp'], command: 'node', name: 'filesystem', transport: 'stdio' },
+        {
+          name: 'streamable',
+          transport: 'streamable-http',
+          url: 'https://example.com/sse',
+        },
         { name: 'remote', transport: 'sse', url: 'https://example.com/sse' },
-        { name: 'custom', transport: 'stdio', command: 'custom', args: [] },
+        { args: [], command: 'custom', name: 'custom', transport: 'stdio' },
       ],
     });
 
     expect(getClient('filesystem')).toBe(stdioClient);
+    expect(getClient('streamable')).toBe(streamableHttpClient);
     expect(getClient('remote')).toBe(sseClient);
     expect(getClient('custom')).toBeDefined();
   });
@@ -51,7 +71,7 @@ describe('mcp index', () => {
   it('routes tool calls to the correct client', async () => {
     initClients({
       servers: [
-        { name: 'filesystem', transport: 'stdio', command: 'node', args: ['/tmp'] },
+        { args: ['/tmp'], command: 'node', name: 'filesystem', transport: 'stdio' },
         { name: 'remote', transport: 'sse', url: 'https://example.com/sse' },
       ],
     });
@@ -63,10 +83,24 @@ describe('mcp index', () => {
     );
   });
 
+  it('rejects an unsupported transport instead of silently omitting the server', () => {
+    expect(() =>
+      initClients({
+        servers: [
+          {
+            name: 'unsupported',
+            transport: 'custom',
+            url: 'https://example.com/mcp',
+          } as never,
+        ],
+      })
+    ).toThrow('Unsupported MCP transport: custom');
+  });
+
   it('disposes all clients and clears registry', async () => {
     initClients({
       servers: [
-        { name: 'filesystem', transport: 'stdio', command: 'node', args: ['/tmp'] },
+        { args: ['/tmp'], command: 'node', name: 'filesystem', transport: 'stdio' },
         { name: 'remote', transport: 'sse', url: 'https://example.com/sse' },
       ],
     });

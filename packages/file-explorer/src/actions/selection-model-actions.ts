@@ -59,53 +59,17 @@ export const createSelectionModelActions = (
   set: SetState<FileExplorerState>,
   get: GetState<FileExplorerState>
 ): SelectionModelActions => ({
-  setSelectionMode: (mode: SelectionMode) => {
-    const currentState = get();
-    const isEnteringRulesMode = mode === 'rules' && currentState.selectionModel.mode !== 'rules';
-    const isEnteringQueryMode = mode === 'query' && currentState.selectionModel.mode !== 'query';
-
-    set((state: FileExplorerState) => ({
-      selectionModel: {
-        ...state.selectionModel,
-        mode,
-        ...(mode === 'query' ? {} : { queryDescriptor: null }),
-      },
-      ...(mode === 'query' ? {} : { querySelectionManifest: null }),
-      // Clear selectedFilePaths when entering rules mode to avoid stale explicit selections
-      // (will be repopulated by setMaterializedPaths when rules are evaluated)
-      ...(isEnteringRulesMode || isEnteringQueryMode
-        ? { selectedFilePaths: new Set<string>() }
-        : {}),
-      selectionVersion: state.selectionVersion + 1,
-    }));
-  },
-
-  setSelectionRules: (ruleSetJson: string) => {
-    set((state: FileExplorerState) => ({
-      selectionModel: {
-        ...state.selectionModel,
-        ruleSetJson,
-        // Clear materialized cache when rules change
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      },
-      querySelectionManifest: null,
-      selectionVersion: state.selectionVersion + 1,
-    }));
-  },
-
   clearSelectionRules: () => {
     set((state: FileExplorerState) => ({
+      querySelectionManifest: null,
       selectionModel: {
         ...state.selectionModel,
-        mode: 'explicit',
-        ruleSetJson: null,
-        materializedPaths: null,
         materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit',
         queryDescriptor: null,
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       selectionVersion: state.selectionVersion + 1,
     }));
   },
@@ -131,17 +95,17 @@ export const createSelectionModelActions = (
     }
 
     set({
-      selectionModel: {
-        mode: 'explicit',
-        explicitPaths,
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      },
+      querySelectionManifest: null,
       // Also update the legacy selectedFilePaths for backward compatibility
       selectedFilePaths: explicitPaths,
-      querySelectionManifest: null,
+      selectionModel: {
+        explicitPaths,
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit',
+        queryDescriptor: null,
+        ruleSetJson: null,
+      },
       selectionVersion: state.selectionVersion + 1,
     });
   },
@@ -159,13 +123,13 @@ export const createSelectionModelActions = (
       }
 
       set({
-        selectionModel: {
-          ...selectionModel,
-          materializedPaths: paths,
-          materializedAt: new Date().toISOString(),
-        },
         // Sync to selectedFilePaths so all existing components work automatically
         selectedFilePaths: compositeKeys,
+        selectionModel: {
+          ...selectionModel,
+          materializedAt: new Date().toISOString(),
+          materializedPaths: paths,
+        },
         selectionVersion: state.selectionVersion + 1,
       });
     } else {
@@ -173,8 +137,8 @@ export const createSelectionModelActions = (
       set((s: FileExplorerState) => ({
         selectionModel: {
           ...s.selectionModel,
-          materializedPaths: paths,
           materializedAt: new Date().toISOString(),
+          materializedPaths: paths,
         },
         selectionVersion: s.selectionVersion + 1,
       }));
@@ -187,16 +151,16 @@ export const createSelectionModelActions = (
     materializedPaths?: Set<string>
   ) => {
     set((state: FileExplorerState) => ({
-      selectionModel: {
-        mode: 'query',
-        explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: materializedPaths ?? null,
-        materializedAt: new Date().toISOString(),
-        queryDescriptor: descriptor,
-      },
-      selectedFilePaths: new Set<string>(),
       querySelectionManifest: manifest,
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: new Date().toISOString(),
+        materializedPaths: materializedPaths ?? null,
+        mode: 'query',
+        queryDescriptor: descriptor,
+        ruleSetJson: null,
+      },
       selectionVersion: state.selectionVersion + 1,
     }));
   },
@@ -234,5 +198,40 @@ export const createSelectionModelActions = (
         selectionModel: nextSelectionModel,
       };
     });
+  },
+  setSelectionMode: (mode: SelectionMode) => {
+    const currentState = get();
+    const isEnteringRulesMode = mode === 'rules' && currentState.selectionModel.mode !== 'rules';
+    const isEnteringQueryMode = mode === 'query' && currentState.selectionModel.mode !== 'query';
+
+    set((state: FileExplorerState) => ({
+      selectionModel: {
+        ...state.selectionModel,
+        mode,
+        ...(mode === 'query' ? {} : { queryDescriptor: null }),
+      },
+      ...(mode === 'query' ? {} : { querySelectionManifest: null }),
+      // Clear selectedFilePaths when entering rules mode to avoid stale explicit selections
+      // (will be repopulated by setMaterializedPaths when rules are evaluated)
+      ...(isEnteringRulesMode || isEnteringQueryMode
+        ? { selectedFilePaths: new Set<string>() }
+        : {}),
+      selectionVersion: state.selectionVersion + 1,
+    }));
+  },
+
+  setSelectionRules: (ruleSetJson: string) => {
+    set((state: FileExplorerState) => ({
+      querySelectionManifest: null,
+      selectionModel: {
+        ...state.selectionModel,
+        materializedAt: null,
+        // Clear materialized cache when rules change
+        materializedPaths: null,
+        queryDescriptor: null,
+        ruleSetJson,
+      },
+      selectionVersion: state.selectionVersion + 1,
+    }));
   },
 });

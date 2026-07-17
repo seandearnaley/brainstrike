@@ -11,27 +11,27 @@ const mockSession = {
 };
 
 const mockBrowserWindowInstance = {
+  getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
+  getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
+  isDestroyed: vi.fn(() => false),
+  isFullScreen: vi.fn(() => false),
+  isMaximized: vi.fn(() => false),
   loadFile: vi.fn(),
   loadURL: vi.fn(),
   maximize: vi.fn(),
-  setFullScreen: vi.fn(),
-  isFullScreen: vi.fn(() => false),
-  isMaximized: vi.fn(() => false),
-  getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
-  getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
   on: vi.fn(),
-  isDestroyed: vi.fn(() => false),
-  webContents: {
-    setWindowOpenHandler: vi.fn(),
-    on: vi.fn(),
-    openDevTools: vi.fn(),
-  },
   once: vi.fn((event: string, handler: () => void) => {
     if (event === 'ready-to-show') {
       handler();
     }
   }),
+  setFullScreen: vi.fn(),
   show: vi.fn(),
+  webContents: {
+    on: vi.fn(),
+    openDevTools: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
+  },
 };
 
 // Use function syntax for Vitest 4 constructor mocks
@@ -47,47 +47,48 @@ const whenReadyMock = vi.fn(() => Promise.resolve());
 
 const mockApp = {
   commandLine: { appendSwitch: vi.fn() },
+  getAppMetrics: vi.fn(() => []),
+  getPath: vi.fn(),
+  getVersion: vi.fn(() => '0.0.0-test'),
   isPackaged: false,
-  whenReady: whenReadyMock,
   isReady: vi.fn(() => true),
   on: vi.fn(),
-  getPath: vi.fn(),
-  getAppMetrics: vi.fn(() => []),
-  getVersion: vi.fn(() => '0.0.0-test'),
   quit: vi.fn(),
+  whenReady: whenReadyMock,
 };
 
 vi.mock('electron', () => ({
-  BrowserWindow: mockBrowserWindow,
-  session: mockSession,
   app: mockApp,
-  screen: {
-    getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1536, height: 800 } }]),
+  BrowserWindow: mockBrowserWindow,
+  clipboard: {
+    writeText: vi.fn(),
   },
   ipcMain: {
     handle: vi.fn(),
     on: vi.fn(),
-    removeHandler: vi.fn(),
     removeAllListeners: vi.fn(),
+    removeHandler: vi.fn(),
   },
   Menu: {
-    setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
+    setApplicationMenu: vi.fn(),
   },
   powerMonitor: {
     on: vi.fn(),
   },
   powerSaveBlocker: {
-    start: vi.fn(() => 1),
     isStarted: vi.fn(() => true),
+    start: vi.fn(() => 1),
     stop: vi.fn(),
   },
+  protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
+  screen: {
+    getAllDisplays: vi.fn(() => [{ workArea: { height: 800, width: 1536, x: 0, y: 0 } }]),
+  },
+  session: mockSession,
   shell: {
     openPath: vi.fn().mockResolvedValue(''),
     showItemInFolder: vi.fn(),
-  },
-  clipboard: {
-    writeText: vi.fn(),
   },
 }));
 
@@ -98,10 +99,10 @@ const accessSyncMock = vi.fn();
 const existsSyncMock = vi.fn(() => true);
 vi.mock('node:fs', () => ({
   default: {
-    statSync: statSyncMock,
     accessSync: accessSyncMock,
-    existsSync: existsSyncMock,
     constants: { W_OK: 0o200 },
+    existsSync: existsSyncMock,
+    statSync: statSyncMock,
   },
 }));
 
@@ -112,29 +113,29 @@ const {
   initializeLoggingMock,
   isDevEnvMock,
 } = vi.hoisted(() => ({
-  isDevEnvMock: vi.fn(),
-  createLoggerMock: vi.fn(() => ({
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  })),
-  initializeLoggingMock: vi.fn(),
+  applyLoggingPreferencesMock: vi.fn(),
   createDefaultLoggingPreferencesMock: vi.fn(() => ({
-    level: 'info',
-    consoleLevel: 'info',
-    includeTimestamp: false,
     consoleEnabled: true,
-    redactPaths: [],
+    consoleLevel: 'info',
     file: {
-      enabled: false,
-      destination: null,
-      level: 'info',
       append: true,
+      destination: null,
+      enabled: false,
+      level: 'info',
       mkdir: true,
     },
+    includeTimestamp: false,
+    level: 'info',
+    redactPaths: [],
   })),
-  applyLoggingPreferencesMock: vi.fn(),
+  createLoggerMock: vi.fn(() => ({
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  })),
+  initializeLoggingMock: vi.fn(),
+  isDevEnvMock: vi.fn(),
 }));
 
 const getLoggerInstance = (scope: string) => {
@@ -145,19 +146,19 @@ vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
   return {
     ...actual,
-    isDevEnv: isDevEnvMock,
+    applyLoggingPreferences: applyLoggingPreferencesMock,
+    createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
     createLogger: createLoggerMock,
     initializeLogging: initializeLoggingMock,
-    createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
-    applyLoggingPreferences: applyLoggingPreferencesMock,
+    isDevEnv: isDevEnvMock,
     LogLevel: {
-      TRACE: 'trace',
       DEBUG: 'debug',
-      INFO: 'info',
-      WARN: 'warn',
       ERROR: 'error',
       FATAL: 'fatal',
+      INFO: 'info',
       SILENT: 'silent',
+      TRACE: 'trace',
+      WARN: 'warn',
     },
   };
 });
@@ -188,15 +189,15 @@ vi.mock('@brainstrike/utils/logging-preferences', async () => {
   );
   return {
     ...actual,
-    createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
     applyLoggingPreferences: applyLoggingPreferencesMock,
+    createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
   };
 });
 
 vi.mock('../../assistant-server', () => ({
   startAssistantServer: vi.fn(async () => ({
-    url: 'http://127.0.0.1:0',
     stop: vi.fn(),
+    url: 'http://127.0.0.1:0',
   })),
 }));
 
@@ -261,11 +262,11 @@ describe('window setup', () => {
 
     expect(createDefaultLoggingPreferencesMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        level: 'info',
         consoleLevel: 'warn',
         file: expect.objectContaining({
           level: 'info',
         }),
+        level: 'info',
       })
     );
   });

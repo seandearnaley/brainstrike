@@ -48,23 +48,23 @@ function consolidateMetrics() {
         }
       } catch (error) {
         console.error(`Error processing file ${file}:`, error.message);
-        errors.push({ file, error: error.message });
+        errors.push({ error: error.message, file });
       }
     });
 
     // Create summary
     const summary = {
-      timestamp: new Date().toISOString(),
-      commit: process.env.GITHUB_SHA || 'unknown',
       branch: process.env.GITHUB_REF_NAME || 'unknown',
+      commit: process.env.GITHUB_SHA || 'unknown',
       environment: process.env.GITHUB_ACTIONS ? 'github-actions' : process.env.CI ? 'ci' : 'local',
+      errors,
       metrics: allMetrics,
       summary: {
-        total: allMetrics.length,
-        passed: allMetrics.filter((m) => m.passed !== false).length,
         failed: allMetrics.filter((m) => m.passed === false).length,
+        passed: allMetrics.filter((m) => m.passed !== false).length,
+        total: allMetrics.length,
       },
-      errors,
+      timestamp: new Date().toISOString(),
     };
 
     // Save consolidated metrics

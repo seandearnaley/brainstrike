@@ -10,11 +10,6 @@
     "types": [
       "node"
     ],
-    "paths": {
-      "@brainstrike/storage": [
-        "../storage/src"
-      ]
-    },
     "strictNullChecks": true
   },
   "include": [
@@ -26,9 +21,6 @@
     "node_modules"
   ],
   "references": [
-    {
-      "path": "../storage"
-    },
     {
       "path": "../types"
     },

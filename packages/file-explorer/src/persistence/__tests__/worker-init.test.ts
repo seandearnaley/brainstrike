@@ -6,17 +6,17 @@ import { WorkerStorage } from '../worker-storage';
 vi.mock('@brainstrike/utils/logger', () => ({
   createLogger: () => ({
     debug: vi.fn(),
-    warn: vi.fn(),
     error: vi.fn(),
+    warn: vi.fn(),
   }),
 }));
 
 vi.mock('../worker-storage', () => ({
   resolveWorkerStorageUrl: vi.fn().mockReturnValue(new URL('file:///mock-worker.js')),
   WorkerStorage: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
-    this.isWorkerAvailable = true;
-    this.destroy = vi.fn();
-    this.flushPendingWrites = vi.fn();
+    this['isWorkerAvailable'] = true;
+    this['destroy'] = vi.fn();
+    this['flushPendingWrites'] = vi.fn();
   }),
 }));
 
@@ -47,15 +47,17 @@ describe('worker-init', () => {
       visibilityState: 'visible',
     });
     vi.stubGlobal('navigator', {
-      webdriver: false,
       userAgent:
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36',
+      webdriver: false,
     });
     // Also ensure playwright is not in globalThis (Vitest may inject it)
     const originalPlaywright =
-      'playwright' in globalThis ? (globalThis as Record<string, unknown>).playwright : undefined;
+      'playwright' in globalThis
+        ? (globalThis as Record<string, unknown>)['playwright']
+        : undefined;
     if ('playwright' in globalThis) {
-      (globalThis as Record<string, unknown>).playwright = undefined;
+      (globalThis as Record<string, unknown>)['playwright'] = undefined;
     }
 
     try {
@@ -72,7 +74,7 @@ describe('worker-init', () => {
     } finally {
       // Restore playwright if it was there
       if (originalPlaywright !== undefined) {
-        (globalThis as Record<string, unknown>).playwright = originalPlaywright;
+        (globalThis as Record<string, unknown>)['playwright'] = originalPlaywright;
       }
     }
   });
@@ -90,7 +92,7 @@ describe('worker-init', () => {
 
     const result = initWorker(mockStorageAdapter, false, true);
 
-    expect(result).toEqual({ workerStorage: null, useWorker: false });
+    expect(result).toEqual({ useWorker: false, workerStorage: null });
     expect(WorkerStorage).not.toHaveBeenCalled();
   });
 
@@ -166,8 +168,8 @@ describe('worker-init', () => {
       visibilityState: 'visible',
     });
     vi.stubGlobal('navigator', {
-      webdriver: false,
       userAgent: 'Mozilla/5.0 Chrome/100.0',
+      webdriver: false,
     });
     (WorkerStorage as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(
       function failWorkerStorageInitialization(): never {

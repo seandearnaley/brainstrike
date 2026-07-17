@@ -8,7 +8,9 @@ import type { Migration } from './migration-runner';
  * optional regex support.
  */
 export const migration027ViewFilterPresets: Migration = {
-  version: 27,
+  down: `
+    DROP TABLE IF EXISTS view_filter_presets;
+  `,
   name: 'view_filter_presets',
   up: `
     -- View filter presets table
@@ -106,7 +108,5 @@ export const migration027ViewFilterPresets: Migration = {
         7
       );
   `,
-  down: `
-    DROP TABLE IF EXISTS view_filter_presets;
-  `,
+  version: 27,
 };

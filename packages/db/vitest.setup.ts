@@ -14,11 +14,11 @@ if (!(Buffer.prototype as unknown as { arrayBuffer?: () => ArrayBuffer }).arrayB
   Object.defineProperty(Buffer.prototype, 'arrayBuffer', {
     configurable: true,
     enumerable: false,
-    writable: true,
     value(this: Buffer) {
       const { buffer, byteOffset, byteLength } = this;
       return buffer.slice(byteOffset, byteOffset + byteLength);
     },
+    writable: true,
   });
 }
 

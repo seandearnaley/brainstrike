@@ -46,10 +46,10 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
   );
 
   const { rootDirectoryHandle, selectRootDirectory, isAccessLoading } = useFileSystem({
-    setCurrentFolderId,
     addActiveRoot,
     removeActiveRoot,
     setActiveRoots,
+    setCurrentFolderId,
   });
   const {
     fileTree: unsafeFileTree,
@@ -117,23 +117,23 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
 
   // Return the comprehensive API for the file explorer
   return {
-    rootDirectoryHandle,
-    isAccessLoading,
-    fileTree,
-    isTreeLoading,
-    treeError,
-    displayedFilePaths,
-    filterError,
-    fileContents,
-    isContentLoading,
-    contentError,
-    isLoading,
-    error,
     actions: {
+      clearFileContents,
       handleRootDirectorySelect,
       loadFileContent: loadFileContentCb,
-      clearFileContents,
       refreshFileExplorer,
     },
+    contentError,
+    displayedFilePaths,
+    error,
+    fileContents,
+    fileTree,
+    filterError,
+    isAccessLoading,
+    isContentLoading,
+    isLoading,
+    isTreeLoading,
+    rootDirectoryHandle,
+    treeError,
   };
 }

@@ -16,11 +16,17 @@ export interface GrepCandidateOptions {
   limit: number;
   /** Optional workspace-root filter (file_records.root_id). */
   rootId?: string;
+  /** Optional multi-root workspace filter (file_records.root_id ∈ rootIds). */
+  rootIds?: readonly string[];
 }
 
 /** One candidate chunk for JS-side line matching. */
 export interface GrepCandidate {
+  /** Owning chunk id (file_chunks.id). */
+  chunkId: string;
   content: string;
+  /** 1-based last line of the chunk within its file; null when unindexed. */
+  endLine: number | null;
   filePath: string;
   /** Owning workspace root id (file_records.root_id); null for legacy/unrooted files. */
   rootId?: string | null;

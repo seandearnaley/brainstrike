@@ -12,4 +12,4 @@ const userDataPath =
       ? path.join(process.env.APPDATA ?? path.join(homedir(), 'AppData', 'Roaming'), appName)
       : path.join(process.env.XDG_CONFIG_HOME ?? path.join(homedir(), '.config'), appName);
 
-rmSync(path.join(userDataPath, 'IndexedDB'), { recursive: true, force: true });
+rmSync(path.join(userDataPath, 'IndexedDB'), { force: true, recursive: true });

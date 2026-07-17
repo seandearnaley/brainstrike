@@ -57,11 +57,12 @@ describe('useQueueHealthMetrics', () => {
 
       useVectorStatusUIStore.setState({
         durableQueueStats: {
+          failed: 1,
+          nextRunnableAt: '2025-01-01T00:00:00Z',
           queued: 5,
           running: 2,
-          failed: 1,
           succeeded: 100,
-          nextRunnableAt: '2025-01-01T00:00:00Z',
+          succeededLifetime: 100,
         },
       });
 
@@ -72,11 +73,12 @@ describe('useQueueHealthMetrics', () => {
       });
 
       expect(result.current.metrics.durableQueue).toEqual({
+        failed: 1,
+        nextRunnableAt: '2025-01-01T00:00:00Z',
         queued: 5,
         running: 2,
-        failed: 1,
         succeeded: 100,
-        nextRunnableAt: '2025-01-01T00:00:00Z',
+        succeededLifetime: 100,
       });
     });
 
@@ -97,11 +99,12 @@ describe('useQueueHealthMetrics', () => {
 
       useVectorStatusUIStore.setState({
         durableQueueStats: {
+          failed: 0,
+          nextRunnableAt: null,
           queued: 0,
           running: 0,
-          failed: 0,
           succeeded: 0,
-          nextRunnableAt: null,
+          succeededLifetime: 0,
         },
       });
 
@@ -112,11 +115,12 @@ describe('useQueueHealthMetrics', () => {
       });
 
       expect(result.current.metrics.durableQueue).toEqual({
+        failed: 0,
+        nextRunnableAt: null,
         queued: 0,
         running: 0,
-        failed: 0,
         succeeded: 0,
-        nextRunnableAt: null,
+        succeededLifetime: 0,
       });
     });
   });
@@ -124,20 +128,20 @@ describe('useQueueHealthMetrics', () => {
   describe('ephemeral queue metrics', () => {
     it('gets metrics from EmbeddingQueueProvider when available', async () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue({
-        queue: {} as never,
         metrics: {
           active: 3,
           completed: 50,
           failed: 2,
-          totalEnqueued: 55,
           lastError: null,
-          progress: {},
-          throughputPerMinute: 10.5,
           latencyAvgMs: 150,
           latencyP50Ms: 120,
           latencyP95Ms: 300,
+          progress: {},
+          throughputPerMinute: 10.5,
+          totalEnqueued: 55,
           windowErrorCount: 0,
         },
+        queue: {} as never,
       });
 
       const { result } = renderHook(() => useQueueHealthMetrics());
@@ -150,13 +154,13 @@ describe('useQueueHealthMetrics', () => {
         active: 3,
         completed: 50,
         failed: 2,
-        totalEnqueued: 55,
         lastError: null,
-        progress: {},
-        throughputPerMinute: 10.5,
         latencyAvgMs: 150,
         latencyP50Ms: 120,
         latencyP95Ms: 300,
+        progress: {},
+        throughputPerMinute: 10.5,
+        totalEnqueued: 55,
         windowErrorCount: 0,
       });
     });
@@ -177,20 +181,20 @@ describe('useQueueHealthMetrics', () => {
   describe('worker health', () => {
     it('returns ready state when ephemeral queue is available', async () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue({
-        queue: {} as never,
         metrics: {
           active: 0,
           completed: 0,
           failed: 0,
-          totalEnqueued: 0,
           lastError: null,
-          progress: {},
-          throughputPerMinute: 0,
           latencyAvgMs: null,
           latencyP50Ms: null,
           latencyP95Ms: null,
+          progress: {},
+          throughputPerMinute: 0,
+          totalEnqueued: 0,
           windowErrorCount: 0,
         },
+        queue: {} as never,
       });
 
       const { result } = renderHook(() => useQueueHealthMetrics());
@@ -200,9 +204,9 @@ describe('useQueueHealthMetrics', () => {
       });
 
       expect(result.current.metrics.workerHealth).toEqual({
-        state: 'ready',
-        isReady: true,
         error: null,
+        isReady: true,
+        state: 'ready',
       });
     });
 
@@ -241,29 +245,30 @@ describe('useQueueHealthMetrics', () => {
   describe('combined metrics', () => {
     it('consolidates metrics from all sources', async () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue({
-        queue: {} as never,
         metrics: {
           active: 2,
           completed: 10,
           failed: 1,
-          totalEnqueued: 13,
           lastError: null,
-          progress: {},
-          throughputPerMinute: 5,
           latencyAvgMs: 100,
           latencyP50Ms: 80,
           latencyP95Ms: 200,
+          progress: {},
+          throughputPerMinute: 5,
+          totalEnqueued: 13,
           windowErrorCount: 0,
         },
+        queue: {} as never,
       });
 
       useVectorStatusUIStore.setState({
         durableQueueStats: {
+          failed: 1,
+          nextRunnableAt: null,
           queued: 5,
           running: 2,
-          failed: 1,
           succeeded: 100,
-          nextRunnableAt: null,
+          succeededLifetime: 100,
         },
       });
 

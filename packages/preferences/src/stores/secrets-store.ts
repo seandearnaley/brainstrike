@@ -18,12 +18,11 @@ interface SecretsState {
 }
 
 export const useSecretsStore = create<SecretsState>()((set) => ({
-  secretsVersion: 0,
-
   notifySecretsChanged: () =>
     set((state) => ({
       secretsVersion: state.secretsVersion + 1,
     })),
+  secretsVersion: 0,
 }));
 
 /**

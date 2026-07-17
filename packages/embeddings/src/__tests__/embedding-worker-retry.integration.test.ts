@@ -1,8 +1,9 @@
 import type { IDatabase } from '@brainstrike/db';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, it, vi } from 'vitest';
-import { startEmbeddingWorker } from '../index';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EmbeddingProviderFactory, startEmbeddingWorker } from '../index';
+import type { IEmbeddingProvider } from '../interfaces/provider';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -35,20 +36,22 @@ function createFlakyService(options: FlakyServiceOptions): EmbeddingService {
     }
 
     return {
-      embedding: new Array(768).fill(options.embeddingValue),
       dimensions: 768,
+      embedding: new Array(768).fill(options.embeddingValue),
       model: 'fake-model',
       usage: { totalTokens: options.totalTokens },
     };
   };
 
   return {
-    initialize(
-      _config?: Partial<EmbeddingConfig>,
-      _onProgress?: (progress: EmbeddingProgress) => void
-    ): Promise<void> {
-      status = 'ready';
-      return Promise.resolve();
+    calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
+      return { distance: 0, method: 'cosine', similarity: 1 };
+    },
+    async dispose(): Promise<void> {
+      status = 'disposed';
+    },
+    async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+      return generateEmbedding(text);
     },
     generateEmbedding,
     async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
@@ -67,25 +70,23 @@ function createFlakyService(options: FlakyServiceOptions): EmbeddingService {
       }) => Promise<void> | void
     ): Promise<void> {
       const results = await this.generateEmbeddings(texts);
-      await onBatch({ startIndex: 0, endIndex: results.length, results });
-    },
-    async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
-      return generateEmbedding(text);
+      await onBatch({ endIndex: results.length, results, startIndex: 0 });
     },
     async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
       return generateEmbedding(text);
     },
-    calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-      return { similarity: 1, distance: 0, method: 'cosine' };
+    getConfig(): EmbeddingConfig {
+      return { modelId: 'fake-model' };
     },
     getStatus(): EmbeddingStatus {
       return status;
     },
-    getConfig(): EmbeddingConfig {
-      return { modelId: 'fake-model' };
-    },
-    async dispose(): Promise<void> {
-      status = 'disposed';
+    initialize(
+      _config?: Partial<EmbeddingConfig>,
+      _onProgress?: (progress: EmbeddingProgress) => void
+    ): Promise<void> {
+      status = 'ready';
+      return Promise.resolve();
     },
   };
 }
@@ -107,6 +108,74 @@ async function waitFor(
   }
 }
 
+interface FlakyHostedProviderOptions {
+  dimensions: number;
+  embeddingValue: number;
+  errorMessage: string;
+  shouldFail: (attempt: number) => boolean;
+}
+
+/**
+ * Hosted providers are not served by the injected `service` — the worker routes
+ * them through `EmbeddingProviderFactory.createProvider(...).embed()`. This mock
+ * plays a transient-then-recovering hosted provider: it returns a non-terminal
+ * `api_error` (HTTP 5xx, which `classifyFailure` treats as retryable) for the
+ * first N attempts, then succeeds. The shared `attempts` counter persists across
+ * requeues because the worker re-invokes the same provider instance each attempt.
+ */
+function createFlakyHostedProvider(options: FlakyHostedProviderOptions): {
+  getAttempts: () => number;
+  provider: IEmbeddingProvider;
+} {
+  let attempts = 0;
+
+  const provider: IEmbeddingProvider = {
+    async embed(input) {
+      attempts++;
+      if (options.shouldFail(attempts)) {
+        return {
+          error: {
+            message: options.errorMessage,
+            provider: 'openai',
+            statusCode: 503,
+            type: 'api_error',
+          },
+          ok: false,
+        };
+      }
+
+      const texts = Array.isArray(input.text) ? input.text : [input.text];
+      return {
+        ok: true,
+        value: {
+          dimensions: options.dimensions,
+          embedding: new Array(options.dimensions).fill(options.embeddingValue),
+          embeddings: texts.map(() => new Array(options.dimensions).fill(options.embeddingValue)),
+          modelId: input.modelId,
+          provider: 'openai',
+        },
+      };
+    },
+    getMetadata: () => null,
+    getModelInfo: () => null,
+    isAvailable: () => Promise.resolve(true),
+    validateDimensions: () => ({ ok: true, value: undefined }),
+  };
+
+  return { getAttempts: () => attempts, provider };
+}
+
+/**
+ * Contract note: for LOCAL embedding models the worker deliberately does NOT
+ * retry an execution failure back into the model. The first failure is latched
+ * (`localModelExecutionFailure`) and every subsequent queue re-claim fail-fasts
+ * with `Local embedding execution previously failed for '<model>': <cause>`
+ * rather than re-invoking the (potentially broken) local model. The queue still
+ * records the retry/backoff attempts, but the job terminates as `failed`.
+ *
+ * (Transient retry-to-success is a HOSTED-provider behavior; the injected local
+ * fake here can only exercise the local fail-fast-latch contract.)
+ */
 describe('embedding-worker retries and backoff', () => {
   let db: PGlite;
 
@@ -115,7 +184,7 @@ describe('embedding-worker retries and backoff', () => {
     await migrate(db);
   });
 
-  it('retries after a transient failure and succeeds', async () => {
+  it('latches a transient local execution failure and fails fast on retry', async () => {
     const now = new Date().toISOString();
     const embeddingSetId = 'set-r1';
     const fileId = 'file-r1';
@@ -152,38 +221,50 @@ describe('embedding-worker retries and backoff', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
           expectedDimension: 768,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: createFlakyService({
-        shouldFail: (attempt) => attempt <= 2,
-        errorMessage: 'Temporary service failure',
         embeddingValue: 0.1,
+        // The first attempt fails; a no-latch worker would succeed on attempt 3,
+        // but the local latch fail-fasts every retry so the job never succeeds.
+        errorMessage: 'Temporary service failure',
+        shouldFail: (attempt) => attempt <= 2,
         totalTokens: 10,
       }),
     });
 
+    // Queue exhausts its retries (max_attempts=3) and terminates as failed.
     await waitFor(async () => {
       const res = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-r1'`);
       const row = res.rows[0] as Record<string, unknown> | undefined;
-      const state = String(row?.['state'] ?? '');
-      const attempts = Number(row?.['attempts'] ?? 0);
-      return state === 'succeeded' && attempts >= 2;
+      return String(row?.['state'] ?? '') === 'failed';
     });
+
+    const res = await db.query(`SELECT state, attempts, error FROM job_queue WHERE id = 'job-r1'`);
+    const row = res.rows[0] as
+      | { state: string; attempts: number; error: string | null }
+      | undefined;
+    expect(row?.state).toBe('failed');
+    // The queue re-claimed the job across its retry budget...
+    expect(row?.attempts).toBeGreaterThanOrEqual(2);
+    // ...but the latch short-circuited each retry instead of re-invoking the model.
+    expect(row?.error).toContain('Local embedding execution previously failed');
+    expect(row?.error).toContain('Temporary service failure');
 
     await controller.stop();
   });
 
-  it('retries when the worker task fails with a termination-style error', async () => {
+  it('fail-fast latches a termination-style local execution error', async () => {
     const now = new Date().toISOString();
     const embeddingSetId = 'set-r2';
     const fileId = 'file-r2';
@@ -219,22 +300,24 @@ describe('embedding-worker retries and backoff', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
           expectedDimension: 768,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: createFlakyService({
-        shouldFail: (attempt) => attempt === 1,
-        errorMessage: 'Worker terminated unexpectedly',
         embeddingValue: 0.2,
+        // Even a single first-attempt failure latches: retries fail-fast rather
+        // than re-invoking the model (which would otherwise succeed on attempt 2).
+        errorMessage: 'Worker terminated unexpectedly',
+        shouldFail: (attempt) => attempt === 1,
         totalTokens: 8,
       }),
     });
@@ -242,11 +325,114 @@ describe('embedding-worker retries and backoff', () => {
     await waitFor(async () => {
       const res = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-r2'`);
       const row = res.rows[0] as Record<string, unknown> | undefined;
+      return String(row?.['state'] ?? '') === 'failed';
+    });
+
+    const res = await db.query(`SELECT state, attempts, error FROM job_queue WHERE id = 'job-r2'`);
+    const row = res.rows[0] as
+      | { state: string; attempts: number; error: string | null }
+      | undefined;
+    expect(row?.state).toBe('failed');
+    expect(row?.attempts).toBeGreaterThanOrEqual(2);
+    expect(row?.error).toContain('Local embedding execution previously failed');
+    expect(row?.error).toContain('Worker terminated unexpectedly');
+
+    await controller.stop();
+  });
+});
+
+/**
+ * The local fail-fast latch above intentionally cannot exercise transient
+ * retry-to-success. Hosted providers have no such latch — a non-terminal
+ * provider error is requeued by the job queue (`attempts < max_attempts`) and a
+ * later attempt can succeed. This asserts that end-to-end through the worker,
+ * complementing the queue-layer retry tests in `packages/db`.
+ */
+describe('embedding-worker hosted-provider retries', () => {
+  let db: PGlite;
+
+  beforeEach(async () => {
+    db = await wasmLoader.createPGlite('memory://embedding-worker-hosted-retry');
+    await migrate(db);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('retries a transient hosted-provider failure and completes', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-h1';
+    const fileId = 'file-h1';
+    const chunkId = 'chunk-h1';
+    const modelKey = 'openai::text-embedding-3-small';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, modelKey, 'text-embedding-3-small', 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [fileId, 'hosted.ts', '/hosted.ts', 100, 'embed me', 'hhash', 10, now]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+      VALUES ($1,$2,0,$3,$4,10,'text',10,$5,$5)`,
+      [chunkId, fileId, 'embed me', 'hhash', now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      VALUES ('job-h1','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [JSON.stringify({ chunkId, embeddingSetId, expectedDimension: 768, modelKey }), now]
+    );
+
+    // Fail transiently on attempts 1 and 2, then succeed on attempt 3 (right at
+    // the max_attempts boundary), exercising two requeues through the queue.
+    const flaky = createFlakyHostedProvider({
+      dimensions: 768,
+      embeddingValue: 0.3,
+      errorMessage: 'Service temporarily unavailable',
+      shouldFail: (attempt) => attempt <= 2,
+    });
+
+    const createProviderSpy = vi
+      .spyOn(EmbeddingProviderFactory, 'createProvider')
+      .mockResolvedValue({ ok: true, value: flaky.provider });
+
+    const controller = await startEmbeddingWorker({
+      concurrency: 1,
+      db: db as unknown as IDatabase,
+      leaseMs: 1000,
+      modelKey,
+      // The injected service only bootstraps the startup dimension probe; the
+      // hosted job itself is served by the mocked provider factory above.
+      service: createFlakyService({
+        embeddingValue: 0.3,
+        errorMessage: 'unused-by-hosted-path',
+        shouldFail: () => false,
+        totalTokens: 10,
+      }),
+    });
+
+    await waitFor(async () => {
+      const res = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-h1'`);
+      const row = res.rows[0] as Record<string, unknown> | undefined;
       const state = String(row?.['state'] ?? '');
       const attempts = Number(row?.['attempts'] ?? 0);
-      return state === 'succeeded' && attempts === 2;
+      return state === 'succeeded' && attempts === 3;
     });
 
     await controller.stop();
+
+    expect(flaky.getAttempts()).toBe(3);
+    expect(createProviderSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dimensions: 768,
+        modelId: 'text-embedding-3-small',
+        provider: 'openai',
+      })
+    );
   });
 });

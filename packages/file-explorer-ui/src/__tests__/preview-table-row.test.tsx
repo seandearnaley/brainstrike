@@ -7,22 +7,22 @@ import type { TableRowData } from '../utils/grouping-configs';
 
 describe('PreviewTableRow', () => {
   const mockItem: TableRowData = {
-    id: 'id1',
     compositeKey: 'file1',
-    rootFolderId: 'root',
+    id: 'id1',
     path: '/src/components/Button.tsx',
-    type: 'tsx',
-    tokens: 1500,
+    rootFolderId: 'root',
     size: 5120,
+    tokens: 1500,
+    type: 'tsx',
   };
 
   const defaultColumnVisibility: ColumnVisibility = {
     checkbox: true,
-    rootFolderId: true,
     path: true,
-    type: true,
-    tokens: true,
+    rootFolderId: true,
     size: true,
+    tokens: true,
+    type: true,
   };
 
   const mockOnToggleSelection = vi.fn();
@@ -55,11 +55,11 @@ describe('PreviewTableRow', () => {
   it('hides columns based on visibility settings', () => {
     const partialVisibility: ColumnVisibility = {
       checkbox: false,
-      rootFolderId: false,
       path: true,
-      type: false,
-      tokens: false,
+      rootFolderId: false,
       size: false,
+      tokens: false,
+      type: false,
     };
 
     render(
@@ -221,13 +221,13 @@ describe('PreviewTableRow', () => {
 
   it('handles file in root directory without subdirectory', () => {
     const rootFileItem: TableRowData = {
-      id: 'id2',
       compositeKey: 'file2',
-      rootFolderId: 'root',
+      id: 'id2',
       path: 'README.md',
-      type: 'md',
-      tokens: 500,
+      rootFolderId: 'root',
       size: 2048,
+      tokens: 500,
+      type: 'md',
     };
 
     render(
@@ -251,10 +251,10 @@ describe('PreviewTableRow', () => {
   it('shows the root folder name for files in the root of an absolute folder path', () => {
     const absoluteRootItem: TableRowData = {
       ...mockItem,
-      id: 'id-root-absolute',
       compositeKey: 'file-absolute-root',
-      rootFolderId: 'project',
+      id: 'id-root-absolute',
       path: '/Users/me/project/file.txt',
+      rootFolderId: 'project',
       type: 'TXT',
     };
 
@@ -280,8 +280,8 @@ describe('PreviewTableRow', () => {
     const windowsPath = 'C:\\Users\\me\\project\\src\\components\\Button.tsx';
     const windowsItem: TableRowData = {
       ...mockItem,
-      rootFolderId: 'project',
       path: windowsPath,
+      rootFolderId: 'project',
     };
 
     render(
@@ -306,8 +306,8 @@ describe('PreviewTableRow', () => {
   it('displays the full root identity when the root identity is absolute', () => {
     const absoluteRootItem: TableRowData = {
       ...mockItem,
-      rootFolderId: '/Users/me/project',
       path: '/Users/me/project/src/components/Button.tsx',
+      rootFolderId: '/Users/me/project',
     };
 
     render(
@@ -333,8 +333,8 @@ describe('PreviewTableRow', () => {
       '/Users/me/Projects/brainstrike/packages/file-explorer-ui/src/components/very/deep/__tests__/PreviewTableRow.test.tsx';
     const longItem: TableRowData = {
       ...mockItem,
-      rootFolderId: 'brainstrike',
       path: longPath,
+      rootFolderId: 'brainstrike',
     };
 
     render(
@@ -473,8 +473,8 @@ describe('PreviewTableRow', () => {
   it('renders FILE type for files without extensions', () => {
     const noExtItem: TableRowData = {
       ...mockItem,
-      id: 'id-noext',
       compositeKey: 'file-noext',
+      id: 'id-noext',
       path: '/src/Makefile',
       type: 'file',
     };

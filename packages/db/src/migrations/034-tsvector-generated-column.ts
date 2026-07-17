@@ -14,24 +14,6 @@ import type { Migration } from './migration-runner';
  * the Postgres 18 upgrade, so there is no data to preserve.
  */
 export const migration034TsvectorGeneratedColumn: Migration = {
-  version: 34,
-  name: 'tsvector_generated_column',
-  up: `
-    -- Drop the legacy trigger + function if present (no-op on the drizzle path).
-    DROP TRIGGER IF EXISTS file_chunks_tsvector_update ON file_chunks;
-    DROP FUNCTION IF EXISTS file_chunks_tsvector_trigger();
-
-    -- Drop the plain column and its index, then recreate as a STORED generated column.
-    DROP INDEX IF EXISTS idx_file_chunks_content_tsvector;
-    ALTER TABLE file_chunks DROP COLUMN IF EXISTS content_tsvector;
-    ALTER TABLE file_chunks
-      ADD COLUMN content_tsvector tsvector
-      GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED;
-
-    -- Recreate the GIN index for fast full-text search.
-    CREATE INDEX IF NOT EXISTS idx_file_chunks_content_tsvector
-      ON file_chunks USING GIN (content_tsvector);
-  `,
   // `down` recreates `content_tsvector` as a PLAIN column, restores migration 019's
   // trigger + function (so FUTURE writes stay maintained), AND backfills EXISTING
   // rows (so they aren't left permanently NULL and invisible to `fullTextSearch`,
@@ -66,4 +48,22 @@ export const migration034TsvectorGeneratedColumn: Migration = {
       SET content_tsvector = to_tsvector('english', coalesce(content, ''))
       WHERE content_tsvector IS NULL;
   `,
+  name: 'tsvector_generated_column',
+  up: `
+    -- Drop the legacy trigger + function if present (no-op on the drizzle path).
+    DROP TRIGGER IF EXISTS file_chunks_tsvector_update ON file_chunks;
+    DROP FUNCTION IF EXISTS file_chunks_tsvector_trigger();
+
+    -- Drop the plain column and its index, then recreate as a STORED generated column.
+    DROP INDEX IF EXISTS idx_file_chunks_content_tsvector;
+    ALTER TABLE file_chunks DROP COLUMN IF EXISTS content_tsvector;
+    ALTER TABLE file_chunks
+      ADD COLUMN content_tsvector tsvector
+      GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED;
+
+    -- Recreate the GIN index for fast full-text search.
+    CREATE INDEX IF NOT EXISTS idx_file_chunks_content_tsvector
+      ON file_chunks USING GIN (content_tsvector);
+  `,
+  version: 34,
 };

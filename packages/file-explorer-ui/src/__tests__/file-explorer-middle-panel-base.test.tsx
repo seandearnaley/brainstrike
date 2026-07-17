@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => {
   return {
     copyContext: vi.fn(async () => {}),
     downloadContext: vi.fn(async () => {}),
-    setSelectedFilesFromList: vi.fn(),
     loadMultipleFileContents: vi.fn(async () => {}),
     openFileInTab: vi.fn(),
     performUndoableAction: vi.fn(),
@@ -18,6 +17,7 @@ const mocks = vi.hoisted(() => {
     previewProps,
     setFolderSummaryThreshold: vi.fn(),
     setIncludeProjectTree: vi.fn(),
+    setSelectedFilesFromList: vi.fn(),
     setTokenBudget: vi.fn(),
   };
 });
@@ -40,7 +40,7 @@ vi.mock('../indexing/use-token-counting', () => ({
 }));
 
 vi.mock('../indexing/use-text-token-count', () => ({
-  useTextTokenCount: () => ({ tokenCount: 12, loading: false }),
+  useTextTokenCount: () => ({ loading: false, tokenCount: 12 }),
 }));
 
 vi.mock('../preview/use-preview-panel-report-actions', () => ({
@@ -63,15 +63,15 @@ vi.mock('../utils/persist-file-explorer-state', () => ({
 
 vi.mock('../shell/file-explorer-provider', () => {
   const storeState = {
-    tokenBudget: 1000,
-    setTokenBudget: mocks.setTokenBudget,
-    includeProjectTree: false,
-    setIncludeProjectTree: mocks.setIncludeProjectTree,
-    includeFilters: ['src/**'],
     excludeFilters: ['dist/**'],
-    useRegex: false,
     folderSummaryThreshold: 25,
+    includeFilters: ['src/**'],
+    includeProjectTree: false,
     setFolderSummaryThreshold: mocks.setFolderSummaryThreshold,
+    setIncludeProjectTree: mocks.setIncludeProjectTree,
+    setTokenBudget: mocks.setTokenBudget,
+    tokenBudget: 1000,
+    useRegex: false,
   };
 
   return {
@@ -86,29 +86,29 @@ const selectedFileKey = encodeFileSelection('root', 'src/a.ts');
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: () => ({
     fileContents: { [selectedFileKey]: 'const a = 1;' },
-    loadingFiles: new Set<string>(),
     fileTree: [
       {
-        type: 'file',
+        depth: 1,
         name: 'a.ts',
         path: 'src/a.ts',
         rootFolderId: 'root',
         size: 123,
-        depth: 1,
+        type: 'file',
       },
     ],
+    loadingFiles: new Set<string>(),
+    loadMultipleFileContents: mocks.loadMultipleFileContents,
+    rootDirectoryHandle: { name: 'workspace', path: '/workspace' },
     unfilteredFileTree: [
       {
-        type: 'file',
+        depth: 1,
         name: 'a.ts',
         path: 'src/a.ts',
         rootFolderId: 'root',
         size: 123,
-        depth: 1,
+        type: 'file',
       },
     ],
-    rootDirectoryHandle: { path: '/workspace', name: 'workspace' },
-    loadMultipleFileContents: mocks.loadMultipleFileContents,
   }),
 }));
 
@@ -166,8 +166,8 @@ describe('FileExplorerMiddlePanelBase', () => {
     const onUndo = vi.fn();
     props.performUndoableAction('remove-selection', selectedFileKey, {
       actionName: 'Remove file',
-      itemDescription: 'src/a.ts',
       getStateSnapshot: () => undoSnapshot,
+      itemDescription: 'src/a.ts',
       onUndo,
     });
     expect(mocks.performUndoableAction).toHaveBeenCalledWith(
@@ -185,7 +185,6 @@ describe('FileExplorerMiddlePanelBase', () => {
     const exportOptions = {
       projectTreeUsesViewFilters: false,
       selectedLineRangesByFile: {},
-      useTapestryRanges: false,
     };
     props.onDownloadContext?.(exportOptions);
     props.onCopyContext?.(exportOptions);

@@ -11,6 +11,8 @@ import type { ComponentType } from 'react';
  * panel just invokes `execute()` and the app surfaces the `ActionOutcome`.
  */
 export interface SlashCommand {
+  /** Optional one-line description: fuzzy-searched by the adapter + shown as the item tooltip. */
+  readonly description?: string | undefined;
   /** Pre-bound action: runs the command and surfaces its outcome (toast+log on failure). */
   readonly execute: () => void;
   /** Optional leading icon rendered in the popover item. */
@@ -24,21 +26,30 @@ export interface SlashCommand {
 /**
  * Maps the app's passed slash commands to the library's
  * `unstable_useSlashCommandAdapter` command shape. The library keys items by
- * `name` (we use the command `id`) and renders a `/${name}` fallback label when
- * none is provided — we always pass the human label. `icon` is intentionally
- * omitted here: the library's `icon` is a string identifier, but our popover
- * renders the React icon component itself (resolved by `id`), so the icon stays
- * with the `SlashCommand` and never round-trips through the adapter.
+ * `id` (renamed from `name` in @assistant-ui/react 0.12.26) and renders a
+ * `/${id}` fallback label when none is provided — we always pass the human
+ * label. `icon` is intentionally omitted here: the library's `icon` is a
+ * string identifier, but our popover renders the React icon component itself
+ * (resolved by `id`), so the icon stays with the `SlashCommand` and never
+ * round-trips through the adapter.
+ *
+ * `removeOnExecute: true` matches the pre-0.12.26 `Unstable_SlashCommandRoot`
+ * behavior exactly (its docs: "the /command text is removed from the
+ * composer"). The new hook defaults `removeOnExecute` to `false` (it now
+ * favors leaving a directive chip behind as an audit trail), which would be a
+ * silent behavior regression for our app-command triggers if left unset.
  */
 export function toSlashCommandAdapterOptions(
   commands: readonly SlashCommand[]
 ): Unstable_UseSlashCommandAdapterOptions {
   return {
     commands: commands.map((command) => ({
-      name: command.id,
-      label: command.label,
       execute: command.execute,
+      id: command.id,
+      label: command.label,
+      ...(command.description === undefined ? {} : { description: command.description }),
     })),
+    removeOnExecute: true,
   };
 }
 

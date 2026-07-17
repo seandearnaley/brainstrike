@@ -17,33 +17,43 @@ vi.mock('../use-toast', async (importOriginal) => {
 });
 
 const copyName = defineContextAction({
+  appliesTo: ['file-entry'] as const,
+  group: 'copy',
   id: 'file.copy-name',
   label: 'Copy Name',
-  group: 'copy',
-  appliesTo: ['file-entry'] as const,
   requiredCapabilities: ['clipboard'] as const,
   run: async (target, services) => {
     if (!services.clipboard) {
-      return { ok: false, error: 'Clipboard service unavailable' };
+      return { error: 'Clipboard service unavailable', ok: false };
     }
     const outcome = await services.clipboard.writeText(target.name);
-    return outcome.ok ? { ok: true, message: 'Name copied' } : outcome;
+    return outcome.ok ? { message: 'Name copied', ok: true } : outcome;
   },
 });
 
 const revealAction = defineContextAction({
+  appliesTo: ['file-entry'] as const,
+  group: 'navigate',
   id: 'file.reveal',
   label: 'Reveal in Finder',
-  group: 'navigate',
-  appliesTo: ['file-entry'] as const,
   requiredCapabilities: ['fs.reveal'] as const,
   run: () => Promise.resolve({ ok: true }),
 });
 
-function Harness({ localActions = [] }: { localActions?: readonly AnyContextAction[] }) {
+function Harness({
+  localActions = [],
+  onOpenChange,
+}: {
+  localActions?: readonly AnyContextAction[];
+  onOpenChange?: (open: boolean) => void;
+}) {
   const controller = useContextMenuTarget();
   return (
-    <ActionContextMenu controller={controller} localActions={localActions}>
+    <ActionContextMenu
+      controller={controller}
+      localActions={localActions}
+      onOpenChange={onOpenChange}
+    >
       <div onContextMenuCapture={() => controller.setTarget(null)} role="treegrid">
         {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: test harness exercising right-click target claiming */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: test harness exercising right-click target claiming */}
@@ -51,11 +61,11 @@ function Harness({ localActions = [] }: { localActions?: readonly AnyContextActi
           data-testid="row-a"
           onContextMenu={() =>
             controller.setTarget({
+              absolutePath: '/root/docs/notes.md',
+              entryType: 'file',
               kind: 'file-entry',
               name: 'notes.md',
               relativePath: 'docs/notes.md',
-              absolutePath: '/root/docs/notes.md',
-              entryType: 'file',
               rootFolderId: '/root',
             })
           }
@@ -73,6 +83,7 @@ function renderHarness(
     actions?: readonly AnyContextAction[];
     capabilities?: readonly CapabilityKey[];
     localActions?: readonly AnyContextAction[];
+    onOpenChange?: (open: boolean) => void;
   } = {}
 ) {
   const { registry, writtenTexts } = createTestActionRegistry({
@@ -81,7 +92,10 @@ function renderHarness(
   });
   render(
     <ActionRegistryProvider registry={registry}>
-      <Harness {...(options.localActions ? { localActions: options.localActions } : {})} />
+      <Harness
+        {...(options.localActions ? { localActions: options.localActions } : {})}
+        {...(options.onOpenChange ? { onOpenChange: options.onOpenChange } : {})}
+      />
     </ActionRegistryProvider>
   );
   return { writtenTexts };
@@ -140,6 +154,17 @@ describe('ActionContextMenu', () => {
     expect(screen.getByRole('menuitem', { name: 'Reveal in Finder' })).toBeInTheDocument();
   });
 
+  it('reports open-state transitions to the owning surface', async () => {
+    const onOpenChange = vi.fn();
+    renderHarness({ onOpenChange });
+
+    await openMenuOnRow();
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
   it('hides capability-gated actions when the capability is missing', async () => {
     renderHarness({ capabilities: ['clipboard'] });
     fireEvent.contextMenu(screen.getByTestId('row-a'), { clientX: 10, clientY: 10 });
@@ -172,11 +197,11 @@ describe('ActionContextMenu', () => {
 
   it('toasts destructively and logs when an action resolves a failure outcome', async () => {
     const failing = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'danger',
       id: 'file.fail',
       label: 'Fail',
-      group: 'danger',
-      appliesTo: ['file-entry'] as const,
-      run: () => Promise.resolve({ ok: false, error: 'boom' }),
+      run: () => Promise.resolve({ error: 'boom', ok: false }),
     });
     renderHarness({ localActions: [failing] });
     await openMenuOnRow();
@@ -197,10 +222,10 @@ describe('ActionContextMenu', () => {
 
   it('surfaces a rejecting action as an unexpected failure', async () => {
     const rejecting = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'danger',
       id: 'file.reject',
       label: 'Reject',
-      group: 'danger',
-      appliesTo: ['file-entry'] as const,
       run: () => Promise.reject(new Error('kaboom')),
     });
     renderHarness({ localActions: [rejecting] });
@@ -219,10 +244,10 @@ describe('ActionContextMenu', () => {
 
   it('surfaces a synchronously-throwing action instead of letting it escape onSelect', async () => {
     const throwing = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'danger',
       id: 'file.throw',
       label: 'Throw',
-      group: 'danger',
-      appliesTo: ['file-entry'] as const,
       run: () => {
         throw new Error('sync-kaboom');
       },
@@ -251,12 +276,12 @@ describe('ActionContextMenu', () => {
 
   it('renders gated items disabled and does not run them on click', async () => {
     const gated = defineContextAction({
-      id: 'file.copy-gated',
-      label: 'Copy (loading)',
-      group: 'copy',
       appliesTo: ['file-entry'] as const,
-      requiredCapabilities: ['clipboard'] as const,
+      group: 'copy',
+      id: 'file.copy-gated',
       isEnabled: () => false,
+      label: 'Copy (loading)',
+      requiredCapabilities: ['clipboard'] as const,
       run: async (target, services) => {
         await services.clipboard?.writeText(target.name);
         return { ok: true };
@@ -273,14 +298,33 @@ describe('ActionContextMenu', () => {
 
   it('renders a function label computed from the target', async () => {
     const labelled = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
       id: 'file.labelled',
       label: (target) => `Copy "${target.name}"`,
-      group: 'copy',
-      appliesTo: ['file-entry'] as const,
       run: () => Promise.resolve({ ok: true }),
     });
     renderHarness({ localActions: [labelled] });
     await openMenuOnRow();
     expect(screen.getByRole('menuitem', { name: 'Copy "notes.md"' })).toBeInTheDocument();
+  });
+
+  it('renders a semantic platform shortcut without coupling actions to display strings', async () => {
+    const platformSpy = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32');
+    try {
+      const shortcutAction = defineContextAction({
+        appliesTo: ['file-entry'] as const,
+        group: 'copy',
+        id: 'file.copy-shortcut',
+        label: 'Copy',
+        run: () => Promise.resolve({ ok: true }),
+        shortcut: { key: 'C', modifiers: ['primary'] as const },
+      });
+      renderHarness({ localActions: [shortcutAction] });
+      await openMenuOnRow();
+      expect(screen.getByText('Ctrl+C')).toBeInTheDocument();
+    } finally {
+      platformSpy.mockRestore();
+    }
   });
 });

@@ -3,11 +3,11 @@
   "description": "Platform detection utilities",
   "version": "0.1.0",
   "devDependencies": {
-    "@types/node": "^25.6.0",
-    "happy-dom": "^20.9.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "@types/node": "catalog:",
+    "happy-dom": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "exports": {
     ".": {
@@ -19,7 +19,7 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "scripts": {
-    "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup src/index.ts --format esm,cjs --dts --out-dir dist",
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",

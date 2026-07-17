@@ -95,7 +95,7 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
@@ -121,7 +121,7 @@ describe('embedding-backfill', () => {
         if (statsCalls > 1) {
           currentTime = 11;
         }
-        return [{ queue: 'embeddings', queued: 1, running: 0, failed: 0, succeeded: 0 }];
+        return [{ failed: 0, queue: 'embeddings', queued: 1, running: 0, succeeded: 0 }];
       }),
     };
 
@@ -146,12 +146,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 1, failed: 0, succeeded: 0 }],
+            rows: [{ failed: 0, queued: 0, running: 1, succeeded: 0 }],
           };
         }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
@@ -177,7 +177,7 @@ describe('embedding-backfill', () => {
     const jobQueue = {
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -198,12 +198,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 96 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 96 }],
           };
         }
         if (
@@ -224,9 +224,9 @@ describe('embedding-backfill', () => {
             rows: Array.from({ length: Math.max(0, Math.min(limit, 96 - start)) }, (_, index) => {
               const id = start + index + 1;
               return {
-                id: String(id),
-                fileRecordId: String(id + 1000),
                 contentHash: `hash-${id}`,
+                fileRecordId: String(id + 1000),
+                id: String(id),
               };
             }),
           };
@@ -243,12 +243,12 @@ describe('embedding-backfill', () => {
     };
 
     const statsSequence: MockQueueStatsRow[] = [
-      { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 32, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 24, running: 8, failed: 0, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 32, running: 0, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 64, running: 0, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 24, running: 8, succeeded: 0 },
     ];
-    const finalStats = { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 96 };
+    const finalStats = { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 96 };
 
     const jobQueue = {
       enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
@@ -289,7 +289,7 @@ describe('embedding-backfill', () => {
     expect(progressUpdates[0]).toEqual({ done: 0, total: 96 });
     expect(progressUpdates.at(-1)).toEqual({ done: 96, total: 96 });
     expect(progressUpdates.length).toBeLessThanOrEqual(4);
-    expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 96 });
+    expect(counts).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 96 });
   });
 
   it('drains existing scoped jobs before running global candidate scans', async () => {
@@ -300,7 +300,7 @@ describe('embedding-backfill', () => {
         if (sql.includes('FROM embedding_sets')) {
           queryOrder.push('metadata');
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (
@@ -314,7 +314,7 @@ describe('embedding-backfill', () => {
         if (sql.includes('COUNT(*) FILTER')) {
           queryOrder.push('final-counts');
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 64 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 64 }],
           };
         }
         if (sql.includes('COUNT(*)::int AS count')) {
@@ -334,7 +334,7 @@ describe('embedding-backfill', () => {
     const jobQueue = {
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 64, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -342,7 +342,7 @@ describe('embedding-backfill', () => {
       enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
         backlogPollMs: 1,
       })
-    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 64 });
+    ).resolves.toEqual({ failed: 0, queued: 0, running: 0, succeeded: 64 });
 
     expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
     expect(queryOrder).toEqual([
@@ -362,7 +362,7 @@ describe('embedding-backfill', () => {
         if (sql.includes('FROM embedding_sets')) {
           queryOrder.push('metadata');
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
@@ -382,15 +382,15 @@ describe('embedding-backfill', () => {
           }
           return {
             rows: [
-              { id: '10', fileRecordId: '110', contentHash: 'hash-10' },
-              { id: '11', fileRecordId: '111', contentHash: 'hash-11' },
+              { contentHash: 'hash-10', fileRecordId: '110', id: '10' },
+              { contentHash: 'hash-11', fileRecordId: '111', id: '11' },
             ],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           queryOrder.push('final-counts');
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 4 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 4 }],
           };
         }
         if (sql.startsWith('VACUUM')) {
@@ -411,7 +411,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
     };
     const progressUpdates: Array<{ done: number; total: number }> = [];
@@ -456,7 +456,7 @@ describe('embedding-backfill', () => {
       'pending',
       'final-counts',
     ]);
-    expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 4 });
+    expect(counts).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 4 });
   });
 
   it('suspends dimension HNSW maintenance during scoped backfill and rebuilds after drain', async () => {
@@ -467,7 +467,7 @@ describe('embedding-backfill', () => {
         if (sql.includes('FROM embedding_sets')) {
           queryOrder.push('metadata');
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
@@ -477,6 +477,22 @@ describe('embedding-backfill', () => {
         }
         if (sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384')) {
           queryOrder.push('drop-index');
+          return { rows: [] };
+        }
+        if (sql.includes('FROM file_chunks WHERE embedding IS NOT NULL')) {
+          // Benchmark-scale row count so the rebuild engages the
+          // maintenance_work_mem tuning path around the CREATE INDEX.
+          queryOrder.push('estimate-embedded-rows');
+          return { rows: [{ count: '200000' }] };
+        }
+        // Order matters: 'RESET maintenance_work_mem' contains the substring
+        // 'SET maintenance_work_mem'.
+        if (sql.includes('RESET maintenance_work_mem')) {
+          queryOrder.push('reset-index-memory');
+          return { rows: [] };
+        }
+        if (sql.includes('SET maintenance_work_mem')) {
+          queryOrder.push('tune-index-memory');
           return { rows: [] };
         }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
@@ -491,13 +507,13 @@ describe('embedding-backfill', () => {
         if (sql.includes('ORDER BY c.id::text ASC')) {
           queryOrder.push('candidate-batch');
           return {
-            rows: [{ id: '10', fileRecordId: '110', contentHash: 'hash-10' }],
+            rows: [{ contentHash: 'hash-10', fileRecordId: '110', id: '10' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           queryOrder.push('final-counts');
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 1 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 1 }],
           };
         }
         if (sql.startsWith('VACUUM')) {
@@ -528,7 +544,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -545,7 +561,7 @@ describe('embedding-backfill', () => {
           maxQueueDepth: 64,
         }
       )
-    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 1 });
+    ).resolves.toEqual({ failed: 0, queued: 0, running: 0, succeeded: 1 });
 
     expect(queryOrder).toEqual([
       'metadata',
@@ -558,13 +574,23 @@ describe('embedding-backfill', () => {
       'final-counts',
       'vacuum-chunks',
       'vacuum-jobs',
+      'estimate-embedded-rows',
+      'tune-index-memory',
       'rebuild-index',
+      'reset-index-memory',
       'resume-index',
     ]);
-    expect(maintenanceDb.maintenance.exec).toHaveBeenCalledWith(
+    // maintenance_work_mem is session-local: the SET/RESET around the build
+    // MUST ride the same maintenance channel as the CREATE INDEX, or a future
+    // dedicated maintenance connection would silently run the build untuned.
+    const maintenanceStatements = vi
+      .mocked(maintenanceDb.maintenance.exec)
+      .mock.calls.map(([sql]) => String(sql).replace(/\s+/g, ' ').trim());
+    expect(maintenanceStatements).toEqual([
+      expect.stringContaining("SET maintenance_work_mem = '"),
       expect.stringContaining('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384'),
-      undefined
-    );
+      'RESET maintenance_work_mem',
+    ]);
   });
 
   it('can leave dimension HNSW rebuild suspended after a background indexing drain', async () => {
@@ -574,7 +600,7 @@ describe('embedding-backfill', () => {
         if (sql.includes('FROM embedding_sets')) {
           queryOrder.push('metadata');
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
@@ -597,13 +623,13 @@ describe('embedding-backfill', () => {
         if (sql.includes('ORDER BY c.id::text ASC')) {
           queryOrder.push('candidate-batch');
           return {
-            rows: [{ id: '10', fileRecordId: '110', contentHash: 'hash-10' }],
+            rows: [{ contentHash: 'hash-10', fileRecordId: '110', id: '10' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           queryOrder.push('final-counts');
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 1 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 1 }],
           };
         }
         if (sql.startsWith('VACUUM')) {
@@ -643,7 +669,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -657,12 +683,12 @@ describe('embedding-backfill', () => {
         () => undefined,
         {
           backlogPollMs: 1,
-          maxQueueDepth: 64,
           dimensionIndexMaintenanceStrategy: 'regular',
+          maxQueueDepth: 64,
           rebuildDimensionIndexOnCompletion: false,
         }
       )
-    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 1 });
+    ).resolves.toEqual({ failed: 0, queued: 0, running: 0, succeeded: 1 });
 
     expect(queryOrder).toEqual([
       'metadata',
@@ -690,7 +716,7 @@ describe('embedding-backfill', () => {
         if (sql.includes('FROM embedding_sets')) {
           queryOrder.push('metadata');
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
@@ -772,7 +798,7 @@ describe('embedding-backfill', () => {
         if (sql.includes('FROM embedding_sets')) {
           queryOrder.push('metadata');
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
@@ -799,7 +825,7 @@ describe('embedding-backfill', () => {
           return { rows: [] };
         }
         if (isDimensionIndexMaintenanceQuery(sql) || sql.includes('COUNT(*) FILTER')) {
-          return { rows: [{ queued: 2, running: 0, failed: 0, succeeded: 0 }] };
+          return { rows: [{ failed: 0, queued: 2, running: 0, succeeded: 0 }] };
         }
 
         throw new Error('Unexpected query: ');
@@ -859,7 +885,7 @@ describe('embedding-backfill', () => {
         if (sql.includes('FROM embedding_sets')) {
           queryOrder.push('metadata');
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('INSERT INTO embedding_dimension_index_suspensions')) {
@@ -887,7 +913,7 @@ describe('embedding-backfill', () => {
           return { rows: [] };
         }
         if (isDimensionIndexMaintenanceQuery(sql) || sql.includes('COUNT(*) FILTER')) {
-          return { rows: [{ queued: 2, running: 0, failed: 0, succeeded: 0 }] };
+          return { rows: [{ failed: 0, queued: 2, running: 0, succeeded: 0 }] };
         }
 
         throw new Error('Unexpected query: ');
@@ -937,7 +963,7 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
@@ -947,9 +973,9 @@ describe('embedding-backfill', () => {
           return {
             rows: [
               {
+                failed: 0,
                 queued: 0,
                 running: 0,
-                failed: 0,
                 succeeded: succeededCounts.shift() ?? 3,
               },
             ],
@@ -971,7 +997,7 @@ describe('embedding-backfill', () => {
     const jobQueue = {
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 2, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 2, running: 0, succeeded: 0 },
       ]),
     };
     const drainTicks: number[] = [];
@@ -994,7 +1020,7 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*)::int AS count') && sql.includes('FROM file_chunks')) {
@@ -1010,7 +1036,7 @@ describe('embedding-backfill', () => {
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 0 }],
           };
         }
         if (sql.startsWith('VACUUM')) {
@@ -1027,7 +1053,7 @@ describe('embedding-backfill', () => {
     const jobQueue = {
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
       repairUnclaimableQueued: vi.fn(async () => {
         queuedRepaired = true;
@@ -1053,12 +1079,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::model::variant', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::model::variant' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 1 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 1 }],
           };
         }
         if (
@@ -1077,7 +1103,7 @@ describe('embedding-backfill', () => {
             return { rows: [] };
           }
           return {
-            rows: [{ id: '1', fileRecordId: '101', contentHash: 'hash-1' }],
+            rows: [{ contentHash: 'hash-1', fileRecordId: '101', id: '1' }],
           };
         }
         if (sql.startsWith('VACUUM')) {
@@ -1099,7 +1125,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 1 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 1 },
       ]),
     };
 
@@ -1164,12 +1190,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 4 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 4 }],
           };
         }
         if (
@@ -1193,9 +1219,9 @@ describe('embedding-backfill', () => {
           }
           return {
             rows: Array.from({ length: 4 }, (_, index) => ({
-              id: String(index + 1),
-              fileRecordId: String(index + 101),
               contentHash: `hash-${index + 1}`,
+              fileRecordId: String(index + 101),
+              id: String(index + 1),
             })),
           };
         }
@@ -1213,7 +1239,7 @@ describe('embedding-backfill', () => {
     const jobQueue = {
       enqueueBatch: vi.fn(async (jobs: unknown[]) => jobs),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -1246,12 +1272,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 96 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 96 }],
           };
         }
         if (
@@ -1272,9 +1298,9 @@ describe('embedding-backfill', () => {
             rows: Array.from({ length: Math.max(0, Math.min(limit, 96 - start)) }, (_, index) => {
               const id = start + index + 1;
               return {
-                id: String(id),
-                fileRecordId: String(id + 1000),
                 contentHash: `hash-${id}`,
+                fileRecordId: String(id + 1000),
+                id: String(id),
               };
             }),
           };
@@ -1298,7 +1324,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -1332,12 +1358,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 2 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 2 }],
           };
         }
         if (
@@ -1358,9 +1384,9 @@ describe('embedding-backfill', () => {
             rows: Array.from({ length: Math.max(0, Math.min(limit, 64 - start)) }, (_, index) => {
               const id = start + index + 1;
               return {
-                id: String(id),
-                fileRecordId: String(id + 100),
                 contentHash: `hash-${id}`,
+                fileRecordId: String(id + 100),
+                id: String(id),
               };
             }),
           };
@@ -1379,7 +1405,7 @@ describe('embedding-backfill', () => {
     const jobQueue = {
       enqueueBatch: vi.fn(async () => []),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -1399,12 +1425,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 64, running: 0, failed: 0, succeeded: 0 }],
+            rows: [{ failed: 0, queued: 64, running: 0, succeeded: 0 }],
           };
         }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
@@ -1421,9 +1447,9 @@ describe('embedding-backfill', () => {
             rows: Array.from({ length: Math.max(0, Math.min(limit, 96 - start)) }, (_, index) => {
               const id = start + index + 1;
               return {
-                id: String(id),
-                fileRecordId: String(id + 1000),
                 contentHash: `hash-${id}`,
+                fileRecordId: String(id + 1000),
+                id: String(id),
               };
             }),
           };
@@ -1449,22 +1475,22 @@ describe('embedding-backfill', () => {
       getQueueStats: vi
         .fn()
         .mockResolvedValueOnce([
-          { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+          { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
         ])
         .mockResolvedValue([
-          { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+          { failed: 0, queue: 'embeddings', queued: 64, running: 0, succeeded: 0 },
         ]),
     };
 
     await expect(
       enqueueTestEmbeddingBackfill(db, withQueueRepair(jobQueue), 'set-123', () => undefined, {
-        backlogPollMs: 1,
-        maxQueueDepth: 64,
         assertCanContinue: () => {
           if (vi.mocked(jobQueue.enqueueBatch).mock.calls.length >= 1) {
             throw new Error('Embedding host entered an error state during backfill.');
           }
         },
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
       })
     ).rejects.toThrow('Embedding host entered an error state during backfill.');
 
@@ -1477,12 +1503,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 4 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 4 }],
           };
         }
         if (sql.includes('COUNT(*)::int AS count') && sql.includes('FROM file_chunks')) {
@@ -1495,9 +1521,9 @@ describe('embedding-backfill', () => {
           }
           return {
             rows: Array.from({ length: 4 }, (_, index) => ({
-              id: String(index + 1),
-              fileRecordId: String(index + 100),
               contentHash: `hash-${index + 1}`,
+              fileRecordId: String(index + 100),
+              id: String(index + 1),
             })),
           };
         }
@@ -1527,7 +1553,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 4 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 4 },
       ]),
     };
 
@@ -1555,12 +1581,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 2 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 2 }],
           };
         }
         if (sql.includes('COUNT(*)::int AS count') && sql.includes('FROM file_chunks')) {
@@ -1573,9 +1599,9 @@ describe('embedding-backfill', () => {
           }
           return {
             rows: Array.from({ length: 2 }, (_, index) => ({
-              id: String(index + 1),
-              fileRecordId: String(index + 100),
               contentHash: `hash-${index + 1}`,
+              fileRecordId: String(index + 100),
+              id: String(index + 1),
             })),
           };
         }
@@ -1605,7 +1631,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 2 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 2 },
       ]),
     };
 
@@ -1619,7 +1645,7 @@ describe('embedding-backfill', () => {
         backlogPollMs: 1,
         maxQueueDepth: 64,
       })
-    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
+    ).resolves.toEqual({ failed: 0, queued: 0, running: 0, succeeded: 2 });
   });
 
   it('reports only succeeded deltas to drain maintenance callbacks', async () => {
@@ -1630,16 +1656,16 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
             rows: [
               {
+                failed: 0,
                 queued: 0,
                 running: pendingCounts[0] ?? 0,
-                failed: 0,
                 succeeded: succeededCounts.shift() ?? 3,
               },
             ],
@@ -1655,9 +1681,9 @@ describe('embedding-backfill', () => {
           }
           return {
             rows: Array.from({ length: 3 }, (_, index) => ({
-              id: String(index + 1),
-              fileRecordId: String(index + 100),
               contentHash: `hash-${index + 1}`,
+              fileRecordId: String(index + 100),
+              id: String(index + 1),
             })),
           };
         }
@@ -1687,7 +1713,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 3 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 3 },
       ]),
     };
 
@@ -1709,12 +1735,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: pendingCounts[0] ?? 0, failed: 0, succeeded: 1 }],
+            rows: [{ failed: 0, queued: 0, running: pendingCounts[0] ?? 0, succeeded: 1 }],
           };
         }
         if (sql.includes('COUNT(*)::int AS count') && sql.includes('FROM file_chunks')) {
@@ -1727,9 +1753,9 @@ describe('embedding-backfill', () => {
           }
           return {
             rows: Array.from({ length: 2 }, (_, index) => ({
-              id: String(index + 1),
-              fileRecordId: String(index + 100),
               contentHash: `hash-${index + 1}`,
+              fileRecordId: String(index + 100),
+              id: String(index + 1),
             })),
           };
         }
@@ -1759,7 +1785,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 2 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 2 },
       ]),
     };
 
@@ -1771,7 +1797,7 @@ describe('embedding-backfill', () => {
           throw new Error('maintenance failed');
         },
       })
-    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 1 });
+    ).resolves.toEqual({ failed: 0, queued: 0, running: 0, succeeded: 1 });
   });
 
   it('fails when the embedding set drain completes with failed jobs', async () => {
@@ -1779,12 +1805,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 2, succeeded: 2 }],
+            rows: [{ failed: 2, queued: 0, running: 0, succeeded: 2 }],
           };
         }
         if (sql.includes('COUNT(*)::int AS count') && sql.includes('FROM file_chunks')) {
@@ -1797,9 +1823,9 @@ describe('embedding-backfill', () => {
           }
           return {
             rows: Array.from({ length: 4 }, (_, index) => ({
-              id: String(index + 1),
-              fileRecordId: String(index + 100),
               contentHash: `hash-${index + 1}`,
+              fileRecordId: String(index + 100),
+              id: String(index + 1),
             })),
           };
         }
@@ -1829,7 +1855,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 4 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 4 },
       ]),
     };
 
@@ -1847,7 +1873,7 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*)::int AS count') && sql.includes('FROM file_chunks')) {
@@ -1860,9 +1886,9 @@ describe('embedding-backfill', () => {
           }
           return {
             rows: Array.from({ length: 4 }, (_, index) => ({
-              id: String(index + 1),
-              fileRecordId: String(index + 100),
               contentHash: `hash-${index + 1}`,
+              fileRecordId: String(index + 100),
+              id: String(index + 1),
             })),
           };
         }
@@ -1877,7 +1903,7 @@ describe('embedding-backfill', () => {
         if (sql.includes('COUNT(*) FILTER')) {
           expect(params?.[2]).toEqual(expect.any(String));
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 4 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 4 }],
           };
         }
         if (sql.startsWith('VACUUM')) {
@@ -1899,7 +1925,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 3, succeeded: 40 },
+        { failed: 3, queue: 'embeddings', queued: 0, running: 0, succeeded: 40 },
       ]),
     };
 
@@ -1909,7 +1935,7 @@ describe('embedding-backfill', () => {
         maxQueueDepth: 64,
         progressIntervalBatches: 1,
       })
-    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 4 });
+    ).resolves.toEqual({ failed: 0, queued: 0, running: 0, succeeded: 4 });
   });
 
   it('fails fast when queue capacity never becomes available', async () => {
@@ -1918,7 +1944,7 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
@@ -1939,7 +1965,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 64, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -1971,12 +1997,12 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 1, failed: 0, succeeded: 0 }],
+            rows: [{ failed: 0, queued: 0, running: 1, succeeded: 0 }],
           };
         }
         if (isBackfillCandidateCountQuery(sql)) {
@@ -1988,7 +2014,7 @@ describe('embedding-backfill', () => {
             return { rows: [] };
           }
           return {
-            rows: [{ id: '1', fileRecordId: '100', contentHash: 'hash-1' }],
+            rows: [{ contentHash: 'hash-1', fileRecordId: '100', id: '1' }],
           };
         }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
@@ -2014,7 +2040,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -2025,8 +2051,8 @@ describe('embedding-backfill', () => {
       () => undefined,
       {
         backlogPollMs: 1,
-        maxQueueDepth: 64,
         drainTimeoutMs: 50,
+        maxQueueDepth: 64,
       }
     );
     const rejection = expect(backfillPromise).rejects.toThrow(
@@ -2048,7 +2074,7 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
@@ -2056,7 +2082,7 @@ describe('embedding-backfill', () => {
             drainSucceededCounts[Math.min(drainSucceededIndex, drainSucceededCounts.length - 1)];
           drainSucceededIndex += 1;
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded }],
           };
         }
         if (isDirectEmbeddingSetPendingCountQuery(sql)) {
@@ -2082,9 +2108,9 @@ describe('embedding-backfill', () => {
           }
           return {
             rows: Array.from({ length: 3 }, (_, index) => ({
-              id: String(index + 1),
-              fileRecordId: String(index + 100),
               contentHash: `hash-${index + 1}`,
+              fileRecordId: String(index + 100),
+              id: String(index + 1),
             })),
           };
         }
@@ -2107,7 +2133,7 @@ describe('embedding-backfill', () => {
         }))
       ),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
       ]),
     };
 
@@ -2129,7 +2155,7 @@ describe('embedding-backfill', () => {
     );
 
     expect(drainDeltas).toEqual([2, 1]);
-    expect(result).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 3 });
+    expect(result).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 3 });
   });
 
   it('reports drain progress while waiting for queue capacity between enqueue passes', async () => {
@@ -2140,18 +2166,18 @@ describe('embedding-backfill', () => {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           succeededCountCalls += 1;
           if (succeededCountCalls === 1) {
             return {
-              rows: [{ queued: 1, running: 0, failed: 0, succeeded: 1 }],
+              rows: [{ failed: 0, queued: 1, running: 0, succeeded: 1 }],
             };
           }
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 2 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 2 }],
           };
         }
         if (
@@ -2169,14 +2195,14 @@ describe('embedding-backfill', () => {
           const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
           if (afterChunkId === '1') {
             return {
-              rows: [{ id: '2', fileRecordId: '102', contentHash: 'hash-2' }],
+              rows: [{ contentHash: 'hash-2', fileRecordId: '102', id: '2' }],
             };
           }
           if (afterChunkId) {
             return { rows: [] };
           }
           return {
-            rows: [{ id: '1', fileRecordId: '101', contentHash: 'hash-1' }],
+            rows: [{ contentHash: 'hash-1', fileRecordId: '101', id: '1' }],
           };
         }
         if (sql.startsWith('VACUUM')) {
@@ -2191,9 +2217,9 @@ describe('embedding-backfill', () => {
     };
 
     const queueStats = [
-      { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 1, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 1 },
+      { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 1, running: 0, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 1 },
     ];
     const jobQueue = {
       enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
@@ -2223,7 +2249,7 @@ describe('embedding-backfill', () => {
     );
 
     expect(drainDeltas).toEqual([1, 1]);
-    expect(result).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
+    expect(result).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 2 });
   });
 
   it('vacuums backfill tables only after scoped jobs drain', async () => {
@@ -2244,7 +2270,7 @@ describe('embedding-backfill', () => {
         }
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
@@ -2252,9 +2278,9 @@ describe('embedding-backfill', () => {
           return {
             rows: [
               {
+                failed: 0,
                 queued: succeededCountCalls < 2 ? 1 : 0,
                 running: 0,
-                failed: 0,
                 succeeded: succeededCountCalls,
               },
             ],
@@ -2276,14 +2302,14 @@ describe('embedding-backfill', () => {
           const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
           if (afterChunkId === '1') {
             return {
-              rows: [{ id: '2', fileRecordId: '102', contentHash: 'hash-2' }],
+              rows: [{ contentHash: 'hash-2', fileRecordId: '102', id: '2' }],
             };
           }
           if (afterChunkId) {
             return { rows: [] };
           }
           return {
-            rows: [{ id: '1', fileRecordId: '101', contentHash: 'hash-1' }],
+            rows: [{ contentHash: 'hash-1', fileRecordId: '101', id: '1' }],
           };
         }
         if (sql.startsWith('VACUUM')) {
@@ -2298,9 +2324,9 @@ describe('embedding-backfill', () => {
     };
 
     const queueStats = [
-      { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 1, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 1 },
+      { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 1, running: 0, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 1 },
     ];
     const jobQueue = {
       enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
@@ -2354,16 +2380,16 @@ describe('embedding-backfill', () => {
         }
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
           };
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
             rows: [
               {
+                failed: 0,
                 queued: 0,
                 running: 0,
-                failed: 0,
                 succeeded: candidateCount,
               },
             ],
@@ -2388,9 +2414,9 @@ describe('embedding-backfill', () => {
               (_, index) => {
                 const id = afterChunkId + index + 1;
                 return {
-                  id: String(id),
-                  fileRecordId: String(id + 100_000),
                   contentHash: `hash-${id}`,
+                  fileRecordId: String(id + 100_000),
+                  id: String(id),
                 };
               }
             ),
@@ -2418,9 +2444,9 @@ describe('embedding-backfill', () => {
         queueStatsCalls += 1;
         currentTime += 250;
         if (queueStatsCalls % 2 === 1) {
-          return [{ queue: 'embeddings', queued: 32, running: 0, failed: 0, succeeded: 0 }];
+          return [{ failed: 0, queue: 'embeddings', queued: 32, running: 0, succeeded: 0 }];
         }
-        return [{ queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 }];
+        return [{ failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0 }];
       }),
     };
 

@@ -74,13 +74,13 @@ export interface JobQueueLike {
    * Enqueue a single job.
    * Should be idempotent based on dedupeKey.
    */
-  enqueue(params: EnqueueJobParams): Promise<EnqueuedJob>;
+  enqueue: (params: EnqueueJobParams) => Promise<EnqueuedJob>;
 
   /**
    * Optional batch enqueue for better performance.
    * If not provided, falls back to individual enqueue calls.
    */
-  enqueueBatch?(params: EnqueueJobParams[]): Promise<EnqueuedJob[]>;
+  enqueueBatch?: (params: EnqueueJobParams[]) => Promise<EnqueuedJob[]>;
 }
 
 // =============================================================================
@@ -205,11 +205,11 @@ export interface EmbeddingStage {
   /**
    * Enqueue embedding jobs for chunks from multiple files.
    */
-  enqueueBatch(input: EmbeddingBatchInput): Promise<EmbeddingBatchResult>;
+  enqueueBatch: (input: EmbeddingBatchInput) => Promise<EmbeddingBatchResult>;
   /**
    * Enqueue embedding jobs for chunks from a single file.
    */
-  enqueueChunks(input: EnqueueChunksInput): Promise<EnqueueChunksOutput>;
+  enqueueChunks: (input: EnqueueChunksInput) => Promise<EnqueueChunksOutput>;
 }
 
 // =============================================================================
@@ -265,12 +265,12 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
   ): EmbedJobPayloadInternal {
     return {
       chunkId,
-      fileRecordId: fileId,
-      embeddingSetId,
-      modelKey,
-      expectedDimension,
-      contentHash: chunk.contentHash,
       chunkIndex: chunk.chunkIndex,
+      contentHash: chunk.contentHash,
+      embeddingSetId,
+      expectedDimension,
+      fileRecordId: fileId,
+      modelKey,
     };
   }
 
@@ -283,11 +283,11 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
    */
   function buildEmptyChunksOutput(fileId: FileId): EnqueueChunksOutput {
     return {
-      fileId,
-      jobsEnqueued: 0,
-      jobsDeduped: 0,
       chunkIds: [],
+      fileId,
       jobIds: [],
+      jobsDeduped: 0,
+      jobsEnqueued: 0,
       skipped: true,
       skipReason: 'No chunks to enqueue',
     };
@@ -333,10 +333,10 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
       const dedupeKey = buildEmbedJobDedupeKey(chunkId, embeddingSetId, modelKey);
 
       params.push({
-        queue: queueName,
+        dedupeKey,
         jobType: 'embed_chunk',
         payload,
-        dedupeKey,
+        queue: queueName,
       });
     }
     return params;
@@ -355,11 +355,11 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
     const dedupedCount = Math.max(0, totalChunks - enqueuedJobs.length);
 
     return {
-      fileId,
-      jobsEnqueued: enqueuedJobs.length,
-      jobsDeduped: dedupedCount,
       chunkIds,
+      fileId,
       jobIds,
+      jobsDeduped: dedupedCount,
+      jobsEnqueued: enqueuedJobs.length,
       skipped: false,
     };
   }
@@ -440,10 +440,10 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
 
   function createBatchState(): BatchState {
     return {
-      results: [],
-      totalJobsEnqueued: 0,
-      totalJobsDeduped: 0,
       failedCount: 0,
+      results: [],
+      totalJobsDeduped: 0,
+      totalJobsEnqueued: 0,
     };
   }
 
@@ -485,12 +485,12 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
     }
 
     const progress: EmbeddingEnqueueProgress = {
-      totalFiles,
       completedFiles,
-      failedFiles: state.failedCount,
-      totalJobsEnqueued: state.totalJobsEnqueued,
-      totalJobsDeduped: state.totalJobsDeduped,
       elapsedMs: Date.now() - startTime,
+      failedFiles: state.failedCount,
+      totalFiles,
+      totalJobsDeduped: state.totalJobsDeduped,
+      totalJobsEnqueued: state.totalJobsEnqueued,
     };
 
     if (currentFile !== undefined) {
@@ -506,19 +506,19 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
     startTime: number
   ): EmbeddingBatchResult {
     return {
-      results: state.results,
-      totalFiles,
-      successCount: state.results.length - state.failedCount,
-      errorCount: state.failedCount,
-      totalJobsEnqueued: state.totalJobsEnqueued,
-      totalJobsDeduped: state.totalJobsDeduped,
       durationMs: Date.now() - startTime,
+      errorCount: state.failedCount,
+      results: state.results,
+      successCount: state.results.length - state.failedCount,
+      totalFiles,
+      totalJobsDeduped: state.totalJobsDeduped,
+      totalJobsEnqueued: state.totalJobsEnqueued,
     };
   }
 
   return {
-    enqueueChunks,
     enqueueBatch,
+    enqueueChunks,
   };
 }
 
@@ -556,11 +556,11 @@ async function enqueueJobsBatch(
  */
 function buildFailedOutput(fileId: FileId, error: string): EnqueueChunksOutput {
   return {
-    fileId,
-    jobsEnqueued: 0,
-    jobsDeduped: 0,
     chunkIds: [],
+    fileId,
     jobIds: [],
+    jobsDeduped: 0,
+    jobsEnqueued: 0,
     skipped: true,
     skipReason: error,
   };
@@ -571,12 +571,12 @@ function buildFailedOutput(fileId: FileId, error: string): EnqueueChunksOutput {
  */
 function buildEmptyBatchResult(totalFiles: number, startTime: number): EmbeddingBatchResult {
   return {
-    results: [],
-    totalFiles,
-    successCount: 0,
-    errorCount: 0,
-    totalJobsEnqueued: 0,
-    totalJobsDeduped: 0,
     durationMs: Date.now() - startTime,
+    errorCount: 0,
+    results: [],
+    successCount: 0,
+    totalFiles,
+    totalJobsDeduped: 0,
+    totalJobsEnqueued: 0,
   };
 }

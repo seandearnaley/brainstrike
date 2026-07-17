@@ -96,6 +96,28 @@ describe('SelectionCounter', () => {
       expect(screen.getByTestId('selection-max')).toBeInTheDocument();
     });
 
+    it('keeps the selected count visible in very narrow headers while preserving the full accessible value', () => {
+      render(<SelectionCounter compact maxSelectionCount={100} selectedCount={5} />);
+
+      expect(
+        screen.getByRole('button', {
+          name: '5 of 100 files selected. Selection count (read-only)',
+        })
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('selection-count-suffix')).toHaveClass('hidden', '@[96px]:inline');
+    });
+
+    it('compacts four-digit selected counts without losing the exact accessible value', () => {
+      render(<SelectionCounter compact maxSelectionCount={8000} selectedCount={1234} />);
+
+      expect(
+        screen.getByRole('button', {
+          name: '1234 of 8000 files selected. Selection count (read-only)',
+        })
+      ).toHaveClass('px-1', 'text-xs', '@[72px]:px-1.5', '@[72px]:text-sm', '@[96px]:px-2');
+      expect(screen.getByTestId('selection-count')).toHaveTextContent('1.2K');
+    });
+
     it('applies correct button styling', () => {
       const { container } = render(<SelectionCounter maxSelectionCount={100} selectedCount={5} />);
 

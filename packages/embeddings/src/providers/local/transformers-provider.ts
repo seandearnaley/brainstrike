@@ -43,11 +43,11 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
     if (typeof modelConfigOrId === 'string') {
       // Create minimal config from model ID (for backward compatibility with factory tests)
       this.modelConfig = {
+        description: 'Dynamically created config from model ID',
+        dimensions: DEFAULT_DIMENSIONS,
         id: modelConfigOrId,
         name: modelConfigOrId,
-        dimensions: DEFAULT_DIMENSIONS,
         quantized: false,
-        description: 'Dynamically created config from model ID',
         tags: ['local'],
       };
     } else {
@@ -105,13 +105,14 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
       // Generate embedding using the service
       let embeddings: number[][];
       let dimensions: number;
+      const executionOptions = input.signal ? { signal: input.signal } : undefined;
 
       if (Array.isArray(input.text)) {
-        const results = await this.service.generateEmbeddings(input.text);
+        const results = await this.service.generateEmbeddings(input.text, executionOptions);
         embeddings = results.map((r) => r.embedding);
         dimensions = results[0]?.dimensions || 0;
       } else {
-        const result = await this.service.generateDocEmbedding(input.text);
+        const result = await this.service.generateDocEmbedding(input.text, executionOptions);
         embeddings = [result.embedding];
         dimensions = result.dimensions;
       }
@@ -132,9 +133,9 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
 
       // Map to new output format
       const output: EmbeddingOutput = {
+        dimensions,
         embedding: embeddings[0] ?? [],
         embeddings,
-        dimensions,
         modelId: input.modelId,
         provider: 'local',
       };
@@ -142,13 +143,13 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
       return { ok: true, value: output };
     } catch (error) {
       return {
-        ok: false,
         error: {
-          type: 'model_load_failed',
-          provider: 'local',
           modelId: input.modelId,
+          provider: 'local',
           reason: error instanceof Error ? error.message : String(error),
+          type: 'model_load_failed',
         },
+        ok: false,
       };
     }
   }
@@ -188,11 +189,11 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
       return null;
     }
     return {
-      providerId: 'local',
-      modelKey: this.modelConfig.id,
       dimensions: this.modelConfig.dimensions,
-      distance: DEFAULT_DISTANCE_METRIC,
       displayName: this.modelConfig.name,
+      distance: DEFAULT_DISTANCE_METRIC,
+      modelKey: this.modelConfig.id,
+      providerId: 'local',
       ...(this.modelConfig.contextWindow !== undefined && {
         contextWindow: this.modelConfig.contextWindow,
       }),
@@ -210,13 +211,13 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
 
     if (actualDimensions !== expectedDimensions) {
       return {
-        ok: false,
         error: {
-          type: 'dimension_mismatch',
           expected: expectedDimensions,
-          received: actualDimensions,
           modelId: this.modelConfig.id,
+          received: actualDimensions,
+          type: 'dimension_mismatch',
         },
+        ok: false,
       };
     }
 

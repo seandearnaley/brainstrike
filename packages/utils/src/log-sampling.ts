@@ -129,8 +129,6 @@ export function createLogSampler(options?: LogSamplerOptions): LogSampler {
   };
 
   return {
-    shouldLog: shouldLogInternal,
-
     forceLog() {
       totalCalls++;
       loggedCalls++;
@@ -139,10 +137,10 @@ export function createLogSampler(options?: LogSamplerOptions): LogSampler {
     getStats() {
       const effectiveSampleRate = totalCalls > 0 ? loggedCalls / totalCalls : 1;
       return {
-        totalCalls,
         loggedCalls,
-        skippedCalls: totalCalls - loggedCalls,
         sampleRate: effectiveSampleRate,
+        skippedCalls: totalCalls - loggedCalls,
+        totalCalls,
       };
     },
 
@@ -154,6 +152,7 @@ export function createLogSampler(options?: LogSamplerOptions): LogSampler {
       totalCalls = 0;
       loggedCalls = 0;
     },
+    shouldLog: shouldLogInternal,
   };
 }
 
@@ -162,7 +161,7 @@ export function createLogSampler(options?: LogSamplerOptions): LogSampler {
  * Convenience wrapper around createLogSampler.
  */
 export function createEveryNthSampler(n: number, alwaysLogFirst = 1): LogSampler {
-  return createLogSampler({ everyNth: n, alwaysLogFirst });
+  return createLogSampler({ alwaysLogFirst, everyNth: n });
 }
 
 /**
@@ -173,7 +172,7 @@ export function createEveryNthSampler(n: number, alwaysLogFirst = 1): LogSampler
  */
 export function createPercentSampler(percent: number, alwaysLogFirst = 1): LogSampler {
   const rate = Math.max(0, Math.min(100, percent)) / 100;
-  return createLogSampler({ sampleRate: rate, alwaysLogFirst });
+  return createLogSampler({ alwaysLogFirst, sampleRate: rate });
 }
 
 /**
@@ -195,15 +194,6 @@ export function createMilestoneSampler(totalItems: number): LogSampler {
   let loggedCalls = 0;
 
   return {
-    shouldLog() {
-      const shouldLog = milestones.has(currentIndex);
-      if (shouldLog) {
-        loggedCalls++;
-      }
-      currentIndex++;
-      return shouldLog;
-    },
-
     forceLog() {
       loggedCalls++;
       currentIndex++;
@@ -211,10 +201,10 @@ export function createMilestoneSampler(totalItems: number): LogSampler {
 
     getStats() {
       return {
-        totalCalls: currentIndex,
         loggedCalls,
-        skippedCalls: currentIndex - loggedCalls,
         sampleRate: currentIndex > 0 ? loggedCalls / currentIndex : 1,
+        skippedCalls: currentIndex - loggedCalls,
+        totalCalls: currentIndex,
       };
     },
 
@@ -225,6 +215,14 @@ export function createMilestoneSampler(totalItems: number): LogSampler {
     reset() {
       currentIndex = 0;
       loggedCalls = 0;
+    },
+    shouldLog() {
+      const shouldLog = milestones.has(currentIndex);
+      if (shouldLog) {
+        loggedCalls++;
+      }
+      currentIndex++;
+      return shouldLog;
     },
   };
 }

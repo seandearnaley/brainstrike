@@ -9,7 +9,13 @@ import { formatProviderModelKey } from '@brainstrike/utils';
 import { useMemo } from 'react';
 
 interface AvailableModel {
-  capabilities: DbModel['capabilities'];
+  // Picker-dialect capabilities: the DB catalog stores `vision` as a boolean
+  // jsonb flag while ModelPickerModel expects the tri-state; translated in
+  // useAvailableModels (moot for the embedding-only rows this hook surfaces,
+  // but keeps the shapes honest instead of casting).
+  capabilities: Omit<DbModel['capabilities'], 'vision'> & {
+    vision?: 'supported' | 'unsupported' | 'unknown';
+  };
   description: string;
   id: string;
   modelId: string;
@@ -30,8 +36,8 @@ const LOCAL_RUNTIME_PROVIDER_METADATA: Record<
   LocalRuntimeId,
   Readonly<{ name: string; icon: null }>
 > = {
-  ollama: { name: 'Ollama', icon: null },
-  lmstudio: { name: 'LM Studio', icon: null },
+  lmstudio: { icon: null, name: 'LM Studio' },
+  ollama: { icon: null, name: 'Ollama' },
 } as const;
 
 function resolveKnownDimension(
@@ -45,6 +51,18 @@ function resolveKnownDimension(
     return null;
   }
   return candidate;
+}
+
+function toPickerCapabilities(
+  capabilities: DbModel['capabilities']
+): AvailableModel['capabilities'] {
+  const { vision, ...rest } = capabilities;
+  return {
+    ...rest,
+    ...(vision === undefined
+      ? {}
+      : { vision: vision ? ('supported' as const) : ('unsupported' as const) }),
+  };
 }
 
 function toRuntimeEmbeddingModels(catalog: LocalRuntimeModelCatalogMap | null): AvailableModel[] {
@@ -69,18 +87,18 @@ function toRuntimeEmbeddingModels(catalog: LocalRuntimeModelCatalogMap | null): 
       }
 
       runtimeModels.push({
-        id: model.modelKey,
-        modelId: model.modelId,
-        providerId: runtimeId,
-        name: model.modelId,
+        capabilities: {
+          defaultDimension: knownDimension,
+          type: 'embedding',
+        },
         description:
           model.displayName === model.modelId
             ? `${knownDimension}D • Local runtime`
             : `${model.displayName} • ${knownDimension}D • Local runtime`,
-        capabilities: {
-          type: 'embedding',
-          defaultDimension: knownDimension,
-        },
+        id: model.modelKey,
+        modelId: model.modelId,
+        name: model.modelId,
+        providerId: runtimeId,
       });
     }
   }
@@ -116,12 +134,12 @@ export function useAvailableModels(
     const registryModels = models
       .filter((m) => m.isEnabled && m.capabilities.type === 'embedding')
       .map((m) => ({
+        capabilities: toPickerCapabilities(m.capabilities),
+        description: m.description ?? '',
         id: formatProviderModelKey(m.providerId, m.id),
         modelId: m.id,
-        providerId: m.providerId,
         name: m.name,
-        description: m.description ?? '',
-        capabilities: m.capabilities,
+        providerId: m.providerId,
         ...(m.parameters && 'pricePer1MTokens' in m.parameters
           ? {
               pricePer1MTokensInput: (m.parameters as { pricePer1MTokens: number })
@@ -171,9 +189,9 @@ export function useAvailableProviders(
     const registryProviders = providers
       .filter((p) => p.isEnabled)
       .map((p) => ({
+        icon: p.icon,
         id: p.id,
         name: p.name,
-        icon: p.icon,
       }));
 
     const merged = new Map<string, AvailableProvider>(
@@ -188,7 +206,7 @@ export function useAvailableProviders(
         continue;
       }
       const metadata = LOCAL_RUNTIME_PROVIDER_METADATA[runtimeId];
-      merged.set(runtimeId, { id: runtimeId, name: metadata.name, icon: metadata.icon });
+      merged.set(runtimeId, { icon: metadata.icon, id: runtimeId, name: metadata.name });
     }
 
     return Array.from(merged.values());

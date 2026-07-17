@@ -76,18 +76,18 @@ describe('path-display utilities', () => {
       expect(
         formatDirPathForDisplay({
           dirPath: '/workspace/project/packages/very-long-component-name/src/deeply/nested',
-          rootFolderId: '/workspace/project',
           maxDisplayChars: 24,
           maxSegmentChars: 8,
+          rootFolderId: '/workspace/project',
         })
       ).toBe('packages/…/deeply/nested');
 
       expect(
         formatDirPathForDisplay({
           dirPath: 'extremely-long-segment-name-without-useful-breaks',
-          rootFolderId: '',
-          maxDisplayChars: 15,
           headSegments: 0,
+          maxDisplayChars: 15,
+          rootFolderId: '',
           tailSegments: 0,
         })
       ).toBe('extrem…l-breaks');
@@ -137,9 +137,9 @@ describe('path-display utilities', () => {
       expect(
         getDirectoryGroupDisplayName({
           groupKey: JSON.stringify({
-            rootFolderId: 'project',
-            relativeDirPath: 'src',
             allowExistingRootPrefix: false,
+            relativeDirPath: 'src',
+            rootFolderId: 'project',
           }),
         })
       ).toBe('project/src');
@@ -166,9 +166,9 @@ describe('path-display utilities', () => {
       expect(
         formatFilePathSubtitle({
           filePath: '/Users/sean/project/src/app.ts',
+          rootDisplayName: 'project',
           rootFolderId: ROOT_ID,
           rootPath: '/Users/sean/project',
-          rootDisplayName: 'project',
         })
       ).toBe('project/src');
     });
@@ -176,18 +176,18 @@ describe('path-display utilities', () => {
     it('directory group keys carry the displayName and relativize by the root path', () => {
       const groupKey = getDirectoryGroupKey({
         filePath: '/Users/sean/project/src/app.ts',
+        rootDisplayName: 'project',
         rootFolderId: ROOT_ID,
         rootPath: '/Users/sean/project',
-        rootDisplayName: 'project',
       });
 
       expect(getDirectoryGroupDisplayName({ groupKey })).toBe('project/src');
       // Same relative dir in two roots groups separately (identity = rootId).
       const otherGroupKey = getDirectoryGroupKey({
         filePath: '/Users/sean/other/src/app.ts',
+        rootDisplayName: 'project',
         rootFolderId: '22222222-0000-4000-8000-000000000022',
         rootPath: '/Users/sean/other',
-        rootDisplayName: 'project',
       });
       expect(otherGroupKey).not.toBe(groupKey);
       // Canonical (disambiguated) label stays readable — displayName plus a
@@ -201,9 +201,9 @@ describe('path-display utilities', () => {
       expect(
         formatFilePathSubtitle({
           filePath: '/project-b/src/app.ts',
+          rootDisplayName: 'project-b',
           rootFolderId: ROOT_ID,
           rootPath: '/project-b',
-          rootDisplayName: 'project-b',
         })
       ).toBe('project-b/src');
     });

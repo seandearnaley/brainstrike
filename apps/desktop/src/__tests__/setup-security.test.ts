@@ -5,10 +5,10 @@ import { desktopSecurityLogger, setupSecurity } from '../setup-security';
 
 vi.mock('@brainstrike/utils/logger', () => ({
   createLogger: vi.fn(() => ({
+    debug: vi.fn(),
+    error: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
   })),
 }));
 
@@ -43,7 +43,7 @@ describe('setupSecurity', () => {
   it('should configure CSP for development mode', () => {
     const mockCSP = 'dev-csp-policy';
     vi.mocked(getCSP).mockReturnValue(mockCSP);
-    Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+    Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
 
     setupSecurity();
 
@@ -58,7 +58,7 @@ describe('setupSecurity', () => {
   it('should configure CSP for production mode', () => {
     const mockCSP = 'prod-csp-policy';
     vi.mocked(getCSP).mockReturnValue(mockCSP);
-    Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
+    Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: true });
 
     setupSecurity();
 
@@ -81,16 +81,16 @@ describe('setupSecurity', () => {
 
     const details = {
       id: 1,
-      url: 'http://localhost:3000',
       method: 'GET',
-      resourceType: 'mainFrame',
       referrer: '',
-      timestamp: Date.now(),
-      statusLine: 'HTTP/1.1 200 OK',
-      statusCode: 200,
+      resourceType: 'mainFrame',
       responseHeaders: {
         'X-Frame-Options': ['DENY'],
       },
+      statusCode: 200,
+      statusLine: 'HTTP/1.1 200 OK',
+      timestamp: Date.now(),
+      url: 'http://localhost:3000',
     } as any;
 
     const callback = vi.fn();
@@ -99,11 +99,11 @@ describe('setupSecurity', () => {
     expect(callback).toHaveBeenCalledWith({
       responseHeaders: {
         'Content-Security-Policy': [mockCSP],
+        'Permissions-Policy': ['camera=(), microphone=(), geolocation=(), payment=()'],
+        'Referrer-Policy': ['strict-origin-when-cross-origin'],
         'X-Content-Type-Options': ['nosniff'],
         'X-Frame-Options': ['DENY'],
         'X-XSS-Protection': ['0'],
-        'Referrer-Policy': ['strict-origin-when-cross-origin'],
-        'Permissions-Policy': ['camera=(), microphone=(), geolocation=(), payment=()'],
       },
     });
   });
@@ -119,13 +119,13 @@ describe('setupSecurity', () => {
 
     const details = {
       id: 1,
-      url: 'http://localhost:3000',
       method: 'GET',
-      resourceType: 'mainFrame',
       referrer: '',
-      timestamp: Date.now(),
-      statusLine: 'HTTP/1.1 200 OK',
+      resourceType: 'mainFrame',
       statusCode: 200,
+      statusLine: 'HTTP/1.1 200 OK',
+      timestamp: Date.now(),
+      url: 'http://localhost:3000',
     } as any;
     const callback = vi.fn();
 
@@ -134,11 +134,11 @@ describe('setupSecurity', () => {
     expect(callback).toHaveBeenCalledWith({
       responseHeaders: {
         'Content-Security-Policy': [mockCSP],
+        'Permissions-Policy': ['camera=(), microphone=(), geolocation=(), payment=()'],
+        'Referrer-Policy': ['strict-origin-when-cross-origin'],
         'X-Content-Type-Options': ['nosniff'],
         'X-Frame-Options': ['DENY'],
         'X-XSS-Protection': ['0'],
-        'Referrer-Policy': ['strict-origin-when-cross-origin'],
-        'Permissions-Policy': ['camera=(), microphone=(), geolocation=(), payment=()'],
       },
     });
   });

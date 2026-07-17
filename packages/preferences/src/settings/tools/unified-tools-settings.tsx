@@ -110,12 +110,12 @@ type ToolsDataAction =
   | { type: 'INCREMENT_BOUNDARY_KEY' };
 
 const initialToolsDataState: ToolsDataState = {
-  tools: [],
-  mcpServers: [],
-  mcpConfigInfo: null,
-  loading: true,
   error: null,
   errorBoundaryKey: 0,
+  loading: true,
+  mcpConfigInfo: null,
+  mcpServers: [],
+  tools: [],
 };
 
 function toolsDataReducer(state: ToolsDataState, action: ToolsDataAction): ToolsDataState {
@@ -136,8 +136,8 @@ function toolsDataReducer(state: ToolsDataState, action: ToolsDataAction): Tools
     case 'RESET':
       return {
         ...initialToolsDataState,
-        loading: action.loading,
         errorBoundaryKey: state.errorBoundaryKey,
+        loading: action.loading,
       };
     case 'INCREMENT_BOUNDARY_KEY':
       return { ...state, errorBoundaryKey: state.errorBoundaryKey + 1 };
@@ -165,12 +165,12 @@ type ToolsUiAction =
   | { type: 'RESET_FILTERS' };
 
 const initialToolsUiState: ToolsUiState = {
-  searchQuery: '',
-  categoryFilter: 'all',
-  tierFilter: 'all',
-  expandedToolId: null,
-  configAlertDismissed: false,
   activeTab: 'tools',
+  categoryFilter: 'all',
+  configAlertDismissed: false,
+  expandedToolId: null,
+  searchQuery: '',
+  tierFilter: 'all',
 };
 
 function toolsUiReducer(state: ToolsUiState, action: ToolsUiAction): ToolsUiState {
@@ -188,7 +188,7 @@ function toolsUiReducer(state: ToolsUiState, action: ToolsUiAction): ToolsUiStat
     case 'SET_ACTIVE_TAB':
       return { ...state, activeTab: action.tab };
     case 'RESET_FILTERS':
-      return { ...state, searchQuery: '', categoryFilter: 'all', tierFilter: 'all' };
+      return { ...state, categoryFilter: 'all', searchQuery: '', tierFilter: 'all' };
     default:
       return state;
   }
@@ -217,19 +217,19 @@ function useToolsDataManager({
     try {
       const [toolsData, stats] = await Promise.all([operations.getTools(), operations.getStats()]);
       statsRef.current = stats;
-      dispatch({ type: 'SET_TOOLS', tools: toolsData });
+      dispatch({ tools: toolsData, type: 'SET_TOOLS' });
     } catch (err) {
       dispatch({
-        type: 'SET_ERROR',
         error: err instanceof Error ? err.message : 'Failed to load tools',
+        type: 'SET_ERROR',
       });
     }
-    dispatch({ type: 'SET_LOADING', loading: false });
+    dispatch({ loading: false, type: 'SET_LOADING' });
   }, [operations, statsRef, dispatch]);
 
   const loadToolsData = useCallback(async () => {
-    dispatch({ type: 'SET_LOADING', loading: true });
-    dispatch({ type: 'SET_ERROR', error: null });
+    dispatch({ loading: true, type: 'SET_LOADING' });
+    dispatch({ error: null, type: 'SET_ERROR' });
     await fetchAndApplyTools();
   }, [fetchAndApplyTools, dispatch]);
 
@@ -241,28 +241,28 @@ function useToolsDataManager({
     try {
       if (operations.getMcpServerStatus) {
         const servers = await operations.getMcpServerStatus();
-        dispatch({ type: 'SET_MCP_SERVERS', servers });
+        dispatch({ servers, type: 'SET_MCP_SERVERS' });
       }
       if (operations.getMcpConfigInfo) {
         const configInfo = await operations.getMcpConfigInfo();
-        dispatch({ type: 'SET_MCP_CONFIG_INFO', info: configInfo });
+        dispatch({ info: configInfo, type: 'SET_MCP_CONFIG_INFO' });
         if (configInfo) {
           const configError = configInfo.error;
           if (configError) {
             lastMcpErrorRef.current = configError;
-            dispatch({ type: 'SET_ERROR', error: configError });
+            dispatch({ error: configError, type: 'SET_ERROR' });
             return;
           }
         }
       }
       if (lastMcpErrorRef.current) {
         lastMcpErrorRef.current = null;
-        dispatch({ type: 'SET_ERROR', error: null });
+        dispatch({ error: null, type: 'SET_ERROR' });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load MCP tools';
       lastMcpErrorRef.current = message;
-      dispatch({ type: 'SET_ERROR', error: message });
+      dispatch({ error: message, type: 'SET_ERROR' });
     }
   }, [operations, mcpAvailable, dispatch, lastMcpErrorRef]);
 
@@ -283,8 +283,8 @@ function useToolsDataManager({
         await liveQuery.refresh();
       } catch (err) {
         dispatch({
-          type: 'SET_ERROR',
           error: err instanceof Error ? err.message : 'Failed to refresh tools',
+          type: 'SET_ERROR',
         });
       }
       return;
@@ -326,7 +326,7 @@ export function UnifiedToolsSettings({
     ...(liveQueryConfig?.select === undefined ? {} : { select: liveQueryConfig.select }),
     enabled: liveQueryEnabled,
     ...(liveQueryConfig?.mode === 'incremental'
-      ? { mode: 'incremental' as const, key: liveQueryConfig.key }
+      ? { key: liveQueryConfig.key, mode: 'incremental' as const }
       : {}),
   };
   const liveQuery = usePGliteLiveQuery<ToolDisplayMetadata>(liveQueryOptions);
@@ -356,9 +356,9 @@ export function UnifiedToolsSettings({
   });
 
   const handleErrorBoundaryReset = useCallback(() => {
-    dispatch({ type: 'RESET', loading: !liveQueryEnabled });
+    dispatch({ loading: !liveQueryEnabled, type: 'RESET' });
     dispatch({ type: 'INCREMENT_BOUNDARY_KEY' });
-    uiDispatch({ type: 'SET_EXPANDED_TOOL_ID', toolId: null });
+    uiDispatch({ toolId: null, type: 'SET_EXPANDED_TOOL_ID' });
     if (liveQueryEnabled) {
       void liveQuery.refresh();
     } else {
@@ -378,8 +378,8 @@ export function UnifiedToolsSettings({
         await refreshTools();
       } catch (err) {
         dispatch({
-          type: 'SET_ERROR',
           error: err instanceof Error ? err.message : 'Failed to toggle tool',
+          type: 'SET_ERROR',
         });
         return;
       }
@@ -421,7 +421,7 @@ export function UnifiedToolsSettings({
       if (result.success) {
         await handleMcpConfigUpdated();
       } else if (result.error) {
-        dispatch({ type: 'SET_ERROR', error: `Failed to create sample config: ${result.error}` });
+        dispatch({ error: `Failed to create sample config: ${result.error}`, type: 'SET_ERROR' });
       }
     }
   }, [handleMcpConfigUpdated, operations]);
@@ -447,8 +447,8 @@ export function UnifiedToolsSettings({
   const handleExpandTool = useCallback(
     (toolId: string) => {
       uiDispatch({
-        type: 'SET_EXPANDED_TOOL_ID',
         toolId: expandedToolId === toolId ? null : toolId,
+        type: 'SET_EXPANDED_TOOL_ID',
       });
     },
     [expandedToolId]
@@ -467,7 +467,7 @@ export function UnifiedToolsSettings({
           : server.status === 'error'
             ? 'error'
             : 'disconnected';
-      statusMap.set(server.name, { status, error: server.error ?? null });
+      statusMap.set(server.name, { error: server.error ?? null, status });
     }
     return statusMap;
   }, [mcpServers]);
@@ -486,8 +486,8 @@ export function UnifiedToolsSettings({
   const searchableTools = useMemo(
     () =>
       tools.map((tool) => ({
-        tool,
         searchText: [tool.id, tool.description, tool.serverName ?? ''].join(' ').toLowerCase(),
+        tool,
       })),
     [tools]
   );
@@ -543,7 +543,7 @@ export function UnifiedToolsSettings({
       hasTools={hasTools}
       loading={loading}
       mcpConfigInfo={mcpConfigInfo}
-      onCategoryChange={(category) => uiDispatch({ type: 'SET_CATEGORY_FILTER', category })}
+      onCategoryChange={(category) => uiDispatch({ category, type: 'SET_CATEGORY_FILTER' })}
       onCreateSample={operations.createSampleConfig ? handleCreateSampleConfig : undefined}
       onDisableGroup={handleDisableGroup}
       onDismissConfigAlert={handleDismissConfigAlert}
@@ -553,9 +553,9 @@ export function UnifiedToolsSettings({
       onRefreshMcp={handleRefreshMcp}
       onResetConfig={handleResetMcpConfig}
       onResetFilters={handleResetFilters}
-      onSearchChange={(query) => uiDispatch({ type: 'SET_SEARCH_QUERY', query })}
+      onSearchChange={(query) => uiDispatch({ query, type: 'SET_SEARCH_QUERY' })}
       onSelectConfig={handleSelectMcpConfig}
-      onTierChange={(tier) => uiDispatch({ type: 'SET_TIER_FILTER', tier })}
+      onTierChange={(tier) => uiDispatch({ tier, type: 'SET_TIER_FILTER' })}
       onToggleTool={handleToggleTool}
       operations={operations}
       searchQuery={searchQuery}
@@ -572,8 +572,8 @@ export function UnifiedToolsSettings({
         <Tabs
           onValueChange={(value) =>
             uiDispatch({
-              type: 'SET_ACTIVE_TAB',
               tab: value === 'mcp-config' ? 'mcp-config' : 'tools',
+              type: 'SET_ACTIVE_TAB',
             })
           }
           value={activeTab}

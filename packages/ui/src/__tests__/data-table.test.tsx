@@ -30,16 +30,16 @@ interface Row {
 
 const columns: DataTableColumn<Row>[] = [
   {
-    id: 'name',
-    header: ({ column }) => `Header-${column.id}`,
-    sortable: true,
     cell: ({ row }) => row.name,
+    header: ({ column }) => `Header-${column.id}`,
+    id: 'name',
+    sortable: true,
   },
   {
-    id: 'score',
-    header: 'Score',
-    className: 'score-cell',
     cell: ({ row, rowIndex }) => `${row.score}:${rowIndex}`,
+    className: 'score-cell',
+    header: 'Score',
+    id: 'score',
   },
 ];
 

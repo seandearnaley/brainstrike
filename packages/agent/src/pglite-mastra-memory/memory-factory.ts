@@ -51,10 +51,15 @@ function buildObservationalMemoryOption(
     scope: settings.scope,
     ...(settings.retrievalMode === 'messages' ? { retrieval: { scope: settings.scope } } : {}),
     ...(settings.retrievalMode === 'vector'
-      ? { retrieval: { vector: true, scope: settings.scope } }
+      ? { retrieval: { scope: settings.scope, vector: true } }
       : {}),
     observation: {
       messageTokens: settings.messageTokens,
+      // Opt into the built-in observer thread-title extractor so threads are
+      // auto-named as observations run. The extracted title lands in
+      // mastra_threads.title through PgliteMemoryStore.updateThread, which
+      // guards user-owned titles from being clobbered.
+      threadTitle: true,
     },
     reflection: {
       observationTokens: settings.observationTokens,
@@ -68,9 +73,9 @@ function buildSemanticRecallOption(settings: RuntimeAssistantMemorySettings['sem
   }
 
   return {
-    topK: settings.topK,
     messageRange: settings.messageRange,
     scope: settings.scope,
+    topK: settings.topK,
   };
 }
 
@@ -88,16 +93,16 @@ function buildMastraMemoryOptions({
   return {
     ...memoryOptions,
     lastMessages: memoryOptions?.lastMessages ?? DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+    observationalMemory: buildObservationalMemoryOption(
+      memorySettings.observationalMemory,
+      observationalMemoryModel
+    ),
     // Hosted memory settings own provider-backed features; runtime options
     // control Mastra's local window/working-memory behavior for this store.
     semanticRecall: semanticRecall
       ? true
       : buildSemanticRecallOption(memorySettings.semanticRecall),
     workingMemory: memoryOptions?.workingMemory ?? DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-    observationalMemory: buildObservationalMemoryOption(
-      memorySettings.observationalMemory,
-      observationalMemoryModel
-    ),
   };
 }
 
@@ -132,8 +137,8 @@ export async function createPgliteMastraMemory({
   const workflows = new PgliteWorkflowsStore({ database });
   await workflows.init();
   const storage = new MastraCompositeStore({
-    id: `${id}-storage`,
     domains: { memory: store, workflows },
+    id: `${id}-storage`,
   });
   const vector = new PgliteVectorStore({
     database,

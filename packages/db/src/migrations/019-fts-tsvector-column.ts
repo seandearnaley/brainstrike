@@ -16,7 +16,20 @@ import type { Migration } from './migration-runner';
  */
 
 export const migration019FtsTsvectorColumn: Migration = {
-  version: 19,
+  down: `
+    -- Remove trigger first
+    DROP TRIGGER IF EXISTS file_chunks_tsvector_update ON file_chunks;
+
+    -- Remove trigger function
+    DROP FUNCTION IF EXISTS file_chunks_tsvector_trigger();
+
+    -- Remove GIN index
+    DROP INDEX IF EXISTS idx_file_chunks_content_tsvector;
+
+    -- Remove tsvector column
+    ALTER TABLE file_chunks
+      DROP COLUMN IF EXISTS content_tsvector;
+  `,
   name: 'fts_tsvector_column',
   up: `
     -- Add tsvector column for full-text search
@@ -53,18 +66,5 @@ export const migration019FtsTsvectorColumn: Migration = {
       SET content_tsvector = to_tsvector('english', coalesce(content, ''))
       WHERE content_tsvector IS NULL;
   `,
-  down: `
-    -- Remove trigger first
-    DROP TRIGGER IF EXISTS file_chunks_tsvector_update ON file_chunks;
-
-    -- Remove trigger function
-    DROP FUNCTION IF EXISTS file_chunks_tsvector_trigger();
-
-    -- Remove GIN index
-    DROP INDEX IF EXISTS idx_file_chunks_content_tsvector;
-
-    -- Remove tsvector column
-    ALTER TABLE file_chunks
-      DROP COLUMN IF EXISTS content_tsvector;
-  `,
+  version: 19,
 };

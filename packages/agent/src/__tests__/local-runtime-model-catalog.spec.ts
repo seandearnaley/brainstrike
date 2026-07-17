@@ -16,10 +16,10 @@ function getRequestUrl(input: FetchMockInput): string {
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
-    status,
     headers: {
       'content-type': 'application/json',
     },
+    status,
   });
 }
 
@@ -30,20 +30,26 @@ describe('local-runtime-model-catalog', () => {
   });
 
   it('lists and normalizes Ollama models from /api/tags with family hints', async () => {
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       const url = getRequestUrl(input);
       if (url.endsWith('/api/tags')) {
         return jsonResponse({
           models: [
             {
-              name: 'nomic-embed-text:latest',
               details: { families: ['nomic-bert'] },
+              name: 'nomic-embed-text:latest',
             },
             {
-              name: 'qwen2.5:latest',
               details: { families: ['qwen2'] },
+              name: 'qwen2.5:latest',
             },
           ],
+        });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        return jsonResponse({
+          capabilities: body.model === 'nomic-embed-text:latest' ? ['embedding'] : ['completion'],
         });
       }
       if (url.endsWith('/v1/models')) {
@@ -58,8 +64,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -78,11 +84,89 @@ describe('local-runtime-model-catalog', () => {
     expect(result.models[0]?.capabilitySource).toBe('provider_reported');
     expect(result.models[0]?.modelType).toBe('embeddings');
     expect(result.models[1]?.capabilities.embeddings).toBe('unsupported');
-    expect(result.models[1]?.capabilitySource).toBe('inferred');
+    expect(result.models[1]?.capabilitySource).toBe('provider_reported');
+  });
+
+  it('uses Ollama /api/show capabilities so image-only models are not exposed as LLMs', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({
+          models: [{ name: 'qwen3:30b' }, { name: 'x/flux2-klein:9b' }],
+        });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        return jsonResponse({
+          capabilities: body.model === 'x/flux2-klein:9b' ? ['image'] : ['completion', 'tools'],
+        });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1250,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('loaded_non_empty');
+    if (result.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    expect(result.models).toEqual([
+      expect.objectContaining({
+        capabilities: expect.objectContaining({ llm: true }),
+        capabilitySource: 'provider_reported',
+        modelId: 'qwen3:30b',
+      }),
+      expect.objectContaining({
+        capabilities: expect.objectContaining({ embeddings: 'unsupported', llm: false }),
+        capabilitySource: 'provider_reported',
+        modelId: 'x/flux2-klein:9b',
+      }),
+    ]);
+  });
+
+  it('fails the Ollama catalog visibly when authoritative capabilities cannot be resolved', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({ models: [{ name: 'qwen3:30b' }] });
+      }
+      if (url.endsWith('/v1/models')) {
+        return jsonResponse({ data: [{ id: 'qwen3:30b' }] });
+      }
+      if (url.endsWith('/api/show')) {
+        return new Response('server error', { status: 500 });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1300,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('failed');
+    if (result.state !== 'failed') {
+      throw new Error('Expected failed state');
+    }
+    expect(result.message).toContain('/api/show');
+    expect(result.message).toContain('500');
   });
 
   it('falls back to Ollama /v1/models when /api/tags is unavailable', async () => {
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       const url = getRequestUrl(input);
       if (url.endsWith('/api/tags')) {
         return new Response('not found', { status: 404 });
@@ -90,6 +174,12 @@ describe('local-runtime-model-catalog', () => {
       if (url.endsWith('/v1/models')) {
         return jsonResponse({
           data: [{ id: 'nomic-embed-text' }, { id: 'qwen2.5:latest' }],
+        });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        return jsonResponse({
+          capabilities: body.model === 'nomic-embed-text' ? ['embedding'] : ['completion'],
         });
       }
       return jsonResponse({});
@@ -101,8 +191,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -112,8 +202,40 @@ describe('local-runtime-model-catalog', () => {
 
     expect(result.endpoint).toBe('http://127.0.0.1:11434/v1/models');
     expect(result.source).toBe('openai_v1_models');
-    // Without a family hint, embedding classification falls back to name regex.
     expect(result.models[0]?.capabilitySource).toBe('inferred');
+    expect(fetchMock.mock.calls.some(([input]) => getRequestUrl(input).endsWith('/api/show'))).toBe(
+      false
+    );
+  });
+
+  it('explains that Ollama must expose documented capabilities when /api/show omits them', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({ models: [{ name: 'qwen3:30b' }] });
+      }
+      if (url.endsWith('/api/show')) {
+        return jsonResponse({ details: { family: 'qwen3' } });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1400,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('failed');
+    if (result.state !== 'failed') {
+      throw new Error('Expected failed state');
+    }
+    expect(result.message).toContain('capabilities array');
+    expect(result.message).toContain('Update Ollama');
   });
 
   it('uses LM Studio native /api/v1/models with authoritative type discriminant', async () => {
@@ -124,10 +246,10 @@ describe('local-runtime-model-catalog', () => {
           data: [
             {
               id: 'text-embedding-nomic-embed-text-v1.5',
-              type: 'embeddings',
               state: 'loaded',
+              type: 'embeddings',
             },
-            { id: 'qwen2.5', type: 'llm', state: 'not-loaded' },
+            { id: 'qwen2.5', state: 'not-loaded', type: 'llm' },
           ],
         });
       }
@@ -143,8 +265,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('lmstudio', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -174,7 +296,7 @@ describe('local-runtime-model-catalog', () => {
   it('returns stale_cached when model list probing fails after a prior success', async () => {
     let phase: 'ok' | 'fail' = 'ok';
 
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
       const url = getRequestUrl(input);
       if (url.endsWith('/api/version')) {
         return jsonResponse({ version: '0.6.1' });
@@ -182,7 +304,7 @@ describe('local-runtime-model-catalog', () => {
       if (url.endsWith('/api/tags')) {
         if (phase === 'ok') {
           return jsonResponse({
-            models: [{ name: 'nomic-embed-text', details: { families: ['nomic-bert'] } }],
+            models: [{ details: { families: ['nomic-bert'] }, name: 'nomic-embed-text' }],
           });
         }
         return new Response('down', { status: 503 });
@@ -195,6 +317,9 @@ describe('local-runtime-model-catalog', () => {
         // realistic case so the stale fallback surfaces a useful error message.
         return new Response('down', { status: 503 });
       }
+      if (url.endsWith('/api/show') && init?.method === 'POST' && phase === 'ok') {
+        return jsonResponse({ capabilities: ['embedding'] });
+      }
       return jsonResponse({});
     });
 
@@ -205,8 +330,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const first = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(first.state).toBe('loaded_non_empty');
@@ -214,8 +339,8 @@ describe('local-runtime-model-catalog', () => {
     phase = 'fail';
 
     const second = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(second.state).toBe('stale_cached');
@@ -226,6 +351,56 @@ describe('local-runtime-model-catalog', () => {
     expect(second.models.map((model) => model.modelId)).toEqual(['nomic-embed-text']);
     expect(second.models[0]?.freshness).toBe('stale_cached');
     expect(second.message).toContain('503');
+  });
+
+  it('forces fresh Ollama capability lookups when the model catalog is force-refreshed', async () => {
+    let capability: 'completion' | 'embedding' = 'completion';
+    let showCalls = 0;
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({ models: [{ name: 'mutable-model:latest' }] });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        showCalls += 1;
+        return jsonResponse({ capabilities: [capability] });
+      }
+      if (url.endsWith('/v1/models')) {
+        return jsonResponse({ data: [] });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 5000,
+      successTtlMs: 30_000,
+    });
+
+    const first = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+    expect(first.state).toBe('loaded_non_empty');
+    if (first.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    expect(first.models[0]?.capabilities).toMatchObject({
+      embeddings: 'unsupported',
+      llm: true,
+    });
+
+    capability = 'embedding';
+    const second = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+    expect(second.state).toBe('loaded_non_empty');
+    if (second.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    expect(second.models[0]?.capabilities).toMatchObject({ embeddings: 'supported', llm: false });
+    expect(showCalls).toBe(2);
   });
 
   it('optionally verifies embedding dimensions through /v1/embeddings', async () => {
@@ -254,10 +429,10 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('lmstudio', {
-      surface: 'desktop',
       force: true,
-      verifyEmbeddingDimensions: true,
       maxVerificationModels: 1,
+      surface: 'desktop',
+      verifyEmbeddingDimensions: true,
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -284,8 +459,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('lmstudio', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('failed');
@@ -407,8 +582,11 @@ describe('local-runtime-model-catalog', () => {
       observedAuth.push(headers.get('authorization'));
       if (url === 'https://gpu.lan:11434/api/tags') {
         return jsonResponse({
-          models: [{ name: 'phi4:latest', details: { families: ['phi4'] } }],
+          models: [{ details: { families: ['phi4'] }, name: 'phi4:latest' }],
         });
+      }
+      if (url === 'https://gpu.lan:11434/api/show' && init?.method === 'POST') {
+        return jsonResponse({ capabilities: ['completion'] });
       }
       return new Response('missing', { status: 404 });
     });
@@ -419,12 +597,12 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
-      force: true,
       endpoint: {
-        baseUrl: 'https://gpu.lan:11434/v1/',
         apiToken: 'tok_abc',
+        baseUrl: 'https://gpu.lan:11434/v1/',
       },
+      force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -453,7 +631,7 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.resolveOllamaCapabilities('bge-m3:latest', {
-      endpoint: { baseUrl: 'https://gpu.lan:11434', apiToken: 'tok_xyz' },
+      endpoint: { apiToken: 'tok_xyz', baseUrl: 'https://gpu.lan:11434' },
     });
 
     expect(result.state).toBe('resolved');
@@ -463,5 +641,115 @@ describe('local-runtime-model-catalog', () => {
     expect(result.endpoint).toBe('https://gpu.lan:11434/api/show');
     expect(result.embedding).toBe(true);
     expect(result.llm).toBe(true);
+  });
+
+  it('propagates the Ollama vision capability into normalized model capabilities', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/tags')) {
+        return jsonResponse({
+          models: [{ name: 'llava:13b' }, { name: 'qwen3:30b' }],
+        });
+      }
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        return jsonResponse({
+          capabilities:
+            body.model === 'llava:13b' ? ['completion', 'vision'] : ['completion', 'tools'],
+        });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 12_000,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('loaded_non_empty');
+    if (result.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    const visionModel = result.models.find((model) => model.modelId === 'llava:13b');
+    expect(visionModel?.capabilities.vision).toBe('supported');
+    const textModel = result.models.find((model) => model.modelId === 'qwen3:30b');
+    expect(textModel?.capabilities.vision).toBe('unsupported');
+  });
+
+  it('derives LM Studio vision from the native type discriminant (vlm vs llm)', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/v1/models')) {
+        return jsonResponse({
+          data: [
+            { id: 'qwen2-vl-7b-instruct', state: 'loaded', type: 'vlm' },
+            { id: 'qwen2.5', state: 'not-loaded', type: 'llm' },
+            { id: 'text-embedding-nomic-embed-text-v1.5', state: 'loaded', type: 'embeddings' },
+          ],
+        });
+      }
+      if (url.endsWith('/v1/models')) {
+        return new Response('missing', { status: 404 });
+      }
+      return jsonResponse({});
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 13_000,
+    });
+
+    const result = await service.listRuntimeModels('lmstudio', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('loaded_non_empty');
+    if (result.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    const vlm = result.models.find((model) => model.modelId === 'qwen2-vl-7b-instruct');
+    expect(vlm?.capabilities.vision).toBe('supported');
+    const llm = result.models.find((model) => model.modelId === 'qwen2.5');
+    expect(llm?.capabilities.vision).toBe('unsupported');
+    const embedding = result.models.find(
+      (model) => model.modelId === 'text-embedding-nomic-embed-text-v1.5'
+    );
+    expect(embedding?.capabilities.vision).toBe('unsupported');
+  });
+
+  it('reports vision as unknown for name-inferred OpenAI-compat catalog entries', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      // Only the OpenAI-compat list responds: no type discriminant, no
+      // /api/show — vision cannot be resolved and must stay 'unknown',
+      // never silently coerced to unsupported.
+      if (url.endsWith('/v1/models') && !url.endsWith('/api/v1/models')) {
+        return jsonResponse({ data: [{ id: 'mystery-model-7b' }] });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 14_000,
+    });
+
+    const result = await service.listRuntimeModels('lmstudio', {
+      force: true,
+      surface: 'desktop',
+    });
+
+    expect(result.state).toBe('loaded_non_empty');
+    if (result.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    expect(result.models[0]?.capabilitySource).toBe('inferred');
+    expect(result.models[0]?.capabilities.vision).toBe('unknown');
   });
 });

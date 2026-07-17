@@ -91,14 +91,21 @@ for await (const chunk of stream) {
 import { streamMastraAgent, parseMcpConfig } from '@brainstrike/agent';
 
 // Configure MCP servers
-const mcpConfig = parseMcpConfig({
-  mcpServers: {
-    filesystem: {
+const mcpConfig = parseMcpConfig(JSON.stringify({
+  servers: [
+    {
+      name: 'filesystem',
+      transport: 'stdio',
       command: 'npx',
       args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/files']
+    },
+    {
+      name: 'remote-api',
+      transport: 'streamable-http',
+      url: 'https://your-host.example.com/mcp'
     }
-  }
-});
+  ]
+}));
 
 // Use MCP-enabled agent
 const stream = await streamMastraAgent(messages, {
@@ -480,13 +487,20 @@ ipcMain.handle('agent:stream', async (event, messages, options) => {
 ```typescript
 // Ensure MCP server is installed and accessible
 const mcpConfig = {
-  mcpServers: {
-    filesystem: {
+  servers: [
+    {
+      name: 'filesystem',
+      transport: 'stdio',
       command: 'npx',
       args: ['-y', '@modelcontextprotocol/server-filesystem'],
       env: { NODE_ENV: 'production' } // Add environment variables if needed
+    },
+    {
+      name: 'legacy-remote-api',
+      transport: 'sse', // Use only for legacy HTTP+SSE servers
+      url: 'https://your-host.example.com/mcp/sse'
     }
-  }
+  ]
 };
 ```
 

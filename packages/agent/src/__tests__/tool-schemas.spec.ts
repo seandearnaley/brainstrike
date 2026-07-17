@@ -42,7 +42,7 @@ describe('tool schemas', () => {
       updates: [
         {
           path: '/src/main.ts',
-          ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+          ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
         },
       ],
     });
@@ -54,7 +54,7 @@ describe('tool schemas', () => {
       updates: [
         {
           path: '/src/main.ts',
-          ranges: [{ startLine: 12, endLine: 4 }],
+          ranges: [{ endLine: 4, startLine: 12 }],
         },
       ],
     });
@@ -94,18 +94,18 @@ describe('tool schemas', () => {
     expect(validateToolInput('brainstrike.globWorkspace', { pattern: '**/*.ts' }).ok).toBe(true);
     expect(
       validateToolInput('brainstrike.globWorkspace', {
-        pattern: 'src/**',
-        root: 'app',
+        includeIgnored: true,
         limit: 50,
         offset: 0,
-        includeIgnored: true,
+        pattern: 'src/**',
+        root: 'app',
       }).ok
     ).toBe(true);
     // Missing required pattern → invalid.
     expect(validateToolInput('brainstrike.globWorkspace', {}).ok).toBe(false);
     // Unknown field → rejected by .strict().
     expect(
-      validateToolInput('brainstrike.globWorkspace', { pattern: '*.ts', bogus: true }).ok
+      validateToolInput('brainstrike.globWorkspace', { bogus: true, pattern: '*.ts' }).ok
     ).toBe(false);
   });
 
@@ -133,31 +133,31 @@ describe('tool schemas', () => {
     expect(validateToolInput('brainstrike.grepSearch', { pattern: 'a(b' }).ok).toBe(true);
     // A valid regex with isRegex=true is accepted.
     expect(
-      validateToolInput('brainstrike.grepSearch', { pattern: 'foo.*bar', isRegex: true }).ok
+      validateToolInput('brainstrike.grepSearch', { isRegex: true, pattern: 'foo.*bar' }).ok
     ).toBe(true);
     // An INVALID regex with isRegex=true is rejected at parse — not deferred to execution
     // (fail-fast / no silent fallback).
-    expect(validateToolInput('brainstrike.grepSearch', { pattern: 'a(b', isRegex: true }).ok).toBe(
+    expect(validateToolInput('brainstrike.grepSearch', { isRegex: true, pattern: 'a(b' }).ok).toBe(
       false
     );
     expect(
-      validateToolInput('brainstrike.grepSearch', { pattern: '[z-a]', isRegex: true }).ok
+      validateToolInput('brainstrike.grepSearch', { isRegex: true, pattern: '[z-a]' }).ok
     ).toBe(false);
   });
 
   it('validates webSearch input and rejects unknown fields (strict)', () => {
     expect(validateToolInput('brainstrike.webSearch', { query: 'react useEffect' }).ok).toBe(true);
     expect(
-      validateToolInput('brainstrike.webSearch', { query: 'react useEffect', maxResults: 3 }).ok
+      validateToolInput('brainstrike.webSearch', { maxResults: 3, query: 'react useEffect' }).ok
     ).toBe(true);
     // Missing required query → invalid.
     expect(validateToolInput('brainstrike.webSearch', {}).ok).toBe(false);
     // maxResults over the cap → invalid.
-    expect(validateToolInput('brainstrike.webSearch', { query: 'x y', maxResults: 50 }).ok).toBe(
+    expect(validateToolInput('brainstrike.webSearch', { maxResults: 50, query: 'x y' }).ok).toBe(
       false
     );
     // Unknown field → rejected by .strict().
-    expect(validateToolInput('brainstrike.webSearch', { query: 'react', bogus: true }).ok).toBe(
+    expect(validateToolInput('brainstrike.webSearch', { bogus: true, query: 'react' }).ok).toBe(
       false
     );
   });
@@ -173,11 +173,119 @@ describe('tool schemas', () => {
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeDefined();
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeDefined();
   });
+
+  it('validates manageTaskList input and rejects malformed lists (strict)', () => {
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        tasks: [
+          { activeForm: 'Reading the spec', content: 'Read the spec', status: 'completed' },
+          {
+            activeForm: 'Implementing the parser',
+            content: 'Implement parser',
+            status: 'in_progress',
+          },
+        ],
+      }).ok
+    ).toBe(true);
+    // An empty list is a valid whole-list-replace (clears the plan).
+    expect(validateToolInput('brainstrike.manageTaskList', { tasks: [] }).ok).toBe(true);
+    // Unknown status → rejected.
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        tasks: [{ activeForm: 'Doing', content: 'Do', status: 'blocked' }],
+      }).ok
+    ).toBe(false);
+    // Missing activeForm → rejected.
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        tasks: [{ content: 'Do', status: 'pending' }],
+      }).ok
+    ).toBe(false);
+    // Over the 50-task cap → rejected.
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        tasks: Array.from({ length: 51 }, (_, index) => ({
+          activeForm: `Doing ${index}`,
+          content: `Do ${index}`,
+          status: 'pending' as const,
+        })),
+      }).ok
+    ).toBe(false);
+    // Unknown field → rejected by .strict().
+    expect(
+      validateToolInput('brainstrike.manageTaskList', {
+        bogus: true,
+        tasks: [{ activeForm: 'Doing', content: 'Do', status: 'pending' }],
+      }).ok
+    ).toBe(false);
+  });
+
+  it('documents manageTaskList in schema display metadata', () => {
+    const display = getToolSchemaDisplay('brainstrike.manageTaskList');
+    expect(display).toBeDefined();
+    expect(display?.parameters.find((param) => param.name === 'tasks')?.required).toBe(true);
+    expect(display?.parameters.find((param) => param.name === 'tasks')?.type).toBe('array');
+  });
+
+  it('validates submitPlan input and rejects malformed plans (strict)', () => {
+    expect(
+      validateToolInput('brainstrike.submitPlan', {
+        overview: 'Refactor the parser.',
+        steps: [{ title: 'Read the code' }, { detail: 'carefully', title: 'Rewrite it' }],
+        title: 'Parser refactor',
+      }).ok
+    ).toBe(true);
+    // Missing required overview → invalid.
+    expect(
+      validateToolInput('brainstrike.submitPlan', { steps: [{ title: 'x' }], title: 't' }).ok
+    ).toBe(false);
+    // Empty steps → invalid (min 1).
+    expect(
+      validateToolInput('brainstrike.submitPlan', { overview: 'o', steps: [], title: 't' }).ok
+    ).toBe(false);
+    // Unknown field → rejected by .strict().
+    expect(
+      validateToolInput('brainstrike.submitPlan', {
+        bogus: true,
+        overview: 'o',
+        steps: [{ title: 'x' }],
+        title: 't',
+      }).ok
+    ).toBe(false);
+  });
+
+  it('validates askUser input and rejects malformed questions (strict)', () => {
+    expect(validateToolInput('brainstrike.askUser', { question: 'What city?' }).ok).toBe(true);
+    expect(
+      validateToolInput('brainstrike.askUser', {
+        options: [{ label: 'A' }, { description: 'the other', label: 'B' }],
+        question: 'Pick one',
+        selectionMode: 'multi_select',
+      }).ok
+    ).toBe(true);
+    // Missing required question → invalid.
+    expect(validateToolInput('brainstrike.askUser', {}).ok).toBe(false);
+    // Unknown selectionMode → rejected.
+    expect(
+      validateToolInput('brainstrike.askUser', { question: 'q', selectionMode: 'triple' }).ok
+    ).toBe(false);
+    // Unknown field → rejected by .strict().
+    expect(validateToolInput('brainstrike.askUser', { bogus: true, question: 'q' }).ok).toBe(false);
+  });
+
+  it('documents submitPlan and askUser in schema display metadata', () => {
+    const submitPlan = getToolSchemaDisplay('brainstrike.submitPlan');
+    expect(submitPlan).toBeDefined();
+    expect(submitPlan?.parameters.find((param) => param.name === 'steps')?.required).toBe(true);
+    const askUser = getToolSchemaDisplay('brainstrike.askUser');
+    expect(askUser).toBeDefined();
+    expect(askUser?.parameters.find((param) => param.name === 'question')?.required).toBe(true);
+  });
 });
 
 describe('UpdateWorkspaceTapestrySelectionsInputSchema color', () => {
   const base = {
-    updates: [{ path: '/a.ts', ranges: [{ startLine: 1, endLine: 3 }] }],
+    updates: [{ path: '/a.ts', ranges: [{ endLine: 3, startLine: 1 }] }],
   };
 
   it('accepts an omitted color', () => {
@@ -186,14 +294,14 @@ describe('UpdateWorkspaceTapestrySelectionsInputSchema color', () => {
 
   it('accepts a valid named color', () => {
     const input = {
-      updates: [{ path: '/a.ts', ranges: [{ startLine: 1, endLine: 3, color: 'blue' }] }],
+      updates: [{ path: '/a.ts', ranges: [{ color: 'blue', endLine: 3, startLine: 1 }] }],
     };
     expect(UpdateWorkspaceTapestrySelectionsInputSchema.safeParse(input).success).toBe(true);
   });
 
   it('rejects an unknown color name (no silent fallback)', () => {
     const input = {
-      updates: [{ path: '/a.ts', ranges: [{ startLine: 1, endLine: 3, color: 'chartreuse' }] }],
+      updates: [{ path: '/a.ts', ranges: [{ color: 'chartreuse', endLine: 3, startLine: 1 }] }],
     };
     expect(UpdateWorkspaceTapestrySelectionsInputSchema.safeParse(input).success).toBe(false);
   });

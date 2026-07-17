@@ -122,8 +122,7 @@ function resolveImmediateQueryManifest(args: {
 
   if (
     exactMaterializedManifest &&
-    (!latestManifest ||
-      latestManifest.status !== 'ready' ||
+    (latestManifest?.status !== 'ready' ||
       latestManifest.fingerprint !== descriptor.manifestFingerprint ||
       latestManifest.snapshotId !== descriptor.manifestSnapshotId)
   ) {
@@ -278,9 +277,9 @@ export function useSelectionResolver(): SelectionResolverState {
         }
         setManifest(
           createErroredQuerySelectionManifest({
+            errorMessage: error instanceof Error ? error.message : String(error),
             fingerprint: descriptor.manifestFingerprint,
             snapshotId: descriptor.manifestSnapshotId,
-            errorMessage: error instanceof Error ? error.message : String(error),
           })
         );
       });

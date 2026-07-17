@@ -8,12 +8,12 @@ type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 const handlers = new Map<string, IpcHandler>();
 
 vi.mock('electron', () => ({
+  app: { getPath: vi.fn(() => '/Users/test/Documents') },
   ipcMain: {
     handle: vi.fn((channel: string, listener: IpcHandler) => {
       handlers.set(channel, listener);
     }),
   },
-  app: { getPath: vi.fn(() => '/Users/test/Documents') },
 }));
 
 import { registerIpcHandlers } from '../../ipc-handlers';
@@ -30,19 +30,19 @@ describe('ipc-handlers error branches', () => {
     process.env['NODE_ENV'] = 'development';
 
     fsAdapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(async () => true),
       readDirectory: vi.fn(),
       readFile: vi.fn(),
-      exists: vi.fn(async () => true),
+      requestDirectoryAccess: vi.fn(),
       watchDirectory: vi.fn(),
     } as unknown as ElectronFileSystemAdapter;
 
     storage = {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
       clear: vi.fn(),
       getAllKeys: vi.fn(),
+      getItem: vi.fn(),
+      removeItem: vi.fn(),
+      setItem: vi.fn(),
     } as unknown as ElectronStorageAdapter;
 
     store = {};
@@ -50,22 +50,22 @@ describe('ipc-handlers error branches', () => {
     registerIpcHandlers(fsAdapter, storage, store as never);
   });
 
-  it('fs:restoreLastFolder swallows storage error and returns null', async () => {
+  it('fs:restoreLastFolder propagates storage errors', async () => {
     const handler = handlers.get('fs:restoreLastFolder');
     (storage.getItem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('boom')
     );
-    const res = await handler?.({} as unknown as IpcMainInvokeEvent);
-    expect(res).toBeNull();
+    await expect(handler?.({} as unknown as IpcMainInvokeEvent)).rejects.toThrow('boom');
   });
 
-  it('fs:saveLastFolder swallows storage.setItem error', async () => {
+  it('fs:saveLastFolder propagates storage.setItem errors', async () => {
     const handler = handlers.get('fs:saveLastFolder');
     (storage.setItem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('boom')
     );
-    // Should not throw
-    await handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/folder');
+    await expect(handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/folder')).rejects.toThrow(
+      'boom'
+    );
     expect(storage.setItem).toHaveBeenCalled();
   });
 });

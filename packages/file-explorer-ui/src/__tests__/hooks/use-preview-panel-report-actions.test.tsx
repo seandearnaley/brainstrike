@@ -36,10 +36,10 @@ const createMockStore = (initialContents: Record<string, string>) => {
     () => ({ fileContents });
 
   return {
-    store,
     setFileContents: (next: Record<string, string>) => {
       fileContents = next;
     },
+    store,
   };
 };
 
@@ -51,8 +51,8 @@ describe('usePreviewPanelReportActions', () => {
       generateContextWithContent,
     });
     mockUseReportManager.mockReturnValue({
-      handleDownloadContext: vi.fn(),
       handleCopyContext: vi.fn(),
+      handleDownloadContext: vi.fn(),
     });
   });
 
@@ -65,8 +65,8 @@ describe('usePreviewPanelReportActions', () => {
       generateContextWithContent,
     });
     mockUseReportManager.mockReturnValue({
-      handleDownloadContext,
       handleCopyContext,
+      handleDownloadContext,
     });
 
     const { store } = createMockStore({});
@@ -74,16 +74,16 @@ describe('usePreviewPanelReportActions', () => {
     const { result } = renderHook(
       () =>
         usePreviewPanelReportActions({
-          store,
-          selectedFiles: new Set(['file-a']),
-          fileContents: {},
-          rootDirectoryHandle: null,
-          includeFilters: [],
           excludeFilters: [],
-          useRegex: false,
-          includeProjectTree: false,
+          fileContents: {},
           folderSummaryThreshold: 0,
+          includeFilters: [],
+          includeProjectTree: false,
           loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
+          rootDirectoryHandle: null,
+          selectedFiles: new Set(['file-a']),
+          store,
+          useRegex: false,
         }),
       { wrapper: createWrapper() }
     );
@@ -107,16 +107,16 @@ describe('usePreviewPanelReportActions', () => {
     renderHook(
       () =>
         usePreviewPanelReportActions({
-          store,
-          selectedFiles: new Set(['fileA', 'fileB']),
-          fileContents: { fileA: 'content' },
-          rootDirectoryHandle: null,
-          includeFilters: ['include'],
           excludeFilters: ['exclude'],
-          useRegex: true,
-          includeProjectTree: true,
+          fileContents: { fileA: 'content' },
           folderSummaryThreshold: 42,
+          includeFilters: ['include'],
+          includeProjectTree: true,
           loadMultipleFileContents,
+          rootDirectoryHandle: null,
+          selectedFiles: new Set(['fileA', 'fileB']),
+          store,
+          useRegex: true,
         }),
       { wrapper: createWrapper() }
     );
@@ -174,24 +174,24 @@ describe('usePreviewPanelReportActions', () => {
         includeProjectTree: boolean;
       }) =>
         usePreviewPanelReportActions({
-          store: props.store,
-          selectedFiles: props.selectedFiles,
-          fileContents: props.fileContents,
-          rootDirectoryHandle: props.rootDirectoryHandle,
-          includeFilters: [],
           excludeFilters: [],
-          useRegex: false,
-          includeProjectTree: props.includeProjectTree,
+          fileContents: props.fileContents,
           folderSummaryThreshold: 0,
+          includeFilters: [],
+          includeProjectTree: props.includeProjectTree,
           loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
+          rootDirectoryHandle: props.rootDirectoryHandle,
+          selectedFiles: props.selectedFiles,
+          store: props.store,
+          useRegex: false,
         }),
       {
         initialProps: {
-          store,
-          selectedFiles: new Set(['fileA']),
           fileContents: { fileA: 'initial' },
-          rootDirectoryHandle: null,
           includeProjectTree: false,
+          rootDirectoryHandle: null,
+          selectedFiles: new Set(['fileA']),
+          store,
         },
         wrapper: createWrapper(),
       }
@@ -208,11 +208,11 @@ describe('usePreviewPanelReportActions', () => {
     expect(getFileContentsFirst?.()).toEqual({ fileA: 'updated', fileB: 'new' });
 
     rerender({
-      store,
-      selectedFiles: new Set(['fileA', 'fileB']),
       fileContents: { fileA: 'initial' },
-      rootDirectoryHandle: null,
       includeProjectTree: true,
+      rootDirectoryHandle: null,
+      selectedFiles: new Set(['fileA', 'fileB']),
+      store,
     });
 
     const getFileContentsSecond = (

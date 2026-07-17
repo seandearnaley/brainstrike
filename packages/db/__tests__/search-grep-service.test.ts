@@ -13,24 +13,29 @@ function stubRepository(candidates: GrepCandidate[], calls: GrepCandidateOptions
 }
 
 const CHUNK_A: GrepCandidate = {
+  chunkId: 'chunk-a',
+  content: 'const gate = createGate();\nawait gate.open();\nreturn gate;',
+  endLine: 12,
   filePath: 'src/alpha.ts',
   startLine: 10,
-  content: 'const gate = createGate();\nawait gate.open();\nreturn gate;',
 };
 
 describe('GrepSearchService', () => {
   it('returns line-accurate matches with context from chunk content', async () => {
     const repo = stubRepository([CHUNK_A]);
     const service = new GrepSearchService(repo);
-    const result = await service.search({ pattern: 'gate.open', contextLines: 1 });
+    const result = await service.search({ contextLines: 1, pattern: 'gate.open' });
 
     expect(result.matches).toEqual([
       {
-        path: 'src/alpha.ts',
+        after: ['return gate;'],
+        before: ['const gate = createGate();'],
+        chunkEndLine: 12,
+        chunkId: 'chunk-a',
+        chunkStartLine: 10,
         line: 11,
         lineText: 'await gate.open();',
-        before: ['const gate = createGate();'],
-        after: ['return gate;'],
+        path: 'src/alpha.ts',
       },
     ]);
     expect(result.truncated).toBe(false);
@@ -42,7 +47,7 @@ describe('GrepSearchService', () => {
     const service = new GrepSearchService(repo);
     const insensitive = await service.search({ pattern: 'CREATEGATE' });
     expect(insensitive.matches).toHaveLength(1);
-    const sensitive = await service.search({ pattern: 'CREATEGATE', caseSensitive: true });
+    const sensitive = await service.search({ caseSensitive: true, pattern: 'CREATEGATE' });
     expect(sensitive.matches).toHaveLength(0);
   });
 
@@ -57,37 +62,55 @@ describe('GrepSearchService', () => {
   it('prefilters regex mode on the longest extracted literal', async () => {
     const calls: GrepCandidateOptions[] = [];
     const service = new GrepSearchService(stubRepository([], calls));
-    await service.search({ pattern: 'embedding\\s+gate', isRegex: true });
+    await service.search({ isRegex: true, pattern: 'embedding\\s+gate' });
     expect(calls[0]?.likePattern).toBe('embedding');
   });
 
   it('matches with real JS regex semantics', async () => {
     const repo = stubRepository([CHUNK_A]);
     const service = new GrepSearchService(repo);
-    const result = await service.search({ pattern: 'gate\\.\\w+\\(\\)', isRegex: true });
+    const result = await service.search({ isRegex: true, pattern: 'gate\\.\\w+\\(\\)' });
     expect(result.matches.map((m) => m.line)).toEqual([11]);
   });
 
   it('flags scanLimited when a regex has no extractable literal', async () => {
     const calls: GrepCandidateOptions[] = [];
     const service = new GrepSearchService(stubRepository([CHUNK_A], calls));
-    const result = await service.search({ pattern: '\\d+\\.\\d+', isRegex: true });
+    const result = await service.search({ isRegex: true, pattern: '\\d+\\.\\d+' });
     expect(calls[0]?.likePattern).toBeNull();
     expect(result.scanLimited).toBe(true);
   });
 
   it('throws a structured error for an invalid regex (no literal fallback)', async () => {
     const service = new GrepSearchService(stubRepository([]));
-    await expect(service.search({ pattern: '([unclosed', isRegex: true })).rejects.toThrow(
+    await expect(service.search({ isRegex: true, pattern: '([unclosed' })).rejects.toThrow(
       /Invalid regular expression pattern/
     );
   });
 
   it('dedupes overlapping chunks on (path, line) and sorts by path then line', async () => {
     const overlapping: GrepCandidate[] = [
-      { filePath: 'src/b.ts', startLine: 5, content: 'needle here\nfiller' },
-      { filePath: 'src/b.ts', startLine: 4, content: 'previous\nneedle here' },
-      { filePath: 'src/a.ts', startLine: 1, content: 'needle first' },
+      {
+        chunkId: 'chunk-b2',
+        content: 'needle here\nfiller',
+        endLine: 6,
+        filePath: 'src/b.ts',
+        startLine: 5,
+      },
+      {
+        chunkId: 'chunk-b1',
+        content: 'previous\nneedle here',
+        endLine: 5,
+        filePath: 'src/b.ts',
+        startLine: 4,
+      },
+      {
+        chunkId: 'chunk-a',
+        content: 'needle first',
+        endLine: 1,
+        filePath: 'src/a.ts',
+        startLine: 1,
+      },
     ];
     const service = new GrepSearchService(stubRepository(overlapping));
     const result = await service.search({ pattern: 'needle' });
@@ -97,10 +120,16 @@ describe('GrepSearchService', () => {
 
   it('caps results at maxResults and reports truncation + totalMatches', async () => {
     const many: GrepCandidate[] = [
-      { filePath: 'src/c.ts', startLine: 1, content: 'hit\nhit\nhit\nhit' },
+      {
+        chunkId: 'chunk-c',
+        content: 'hit\nhit\nhit\nhit',
+        endLine: 4,
+        filePath: 'src/c.ts',
+        startLine: 1,
+      },
     ];
     const service = new GrepSearchService(stubRepository(many));
-    const result = await service.search({ pattern: 'hit', maxResults: 2 });
+    const result = await service.search({ maxResults: 2, pattern: 'hit' });
     expect(result.matches).toHaveLength(2);
     expect(result.totalMatches).toBe(4);
     expect(result.truncated).toBe(true);
@@ -108,7 +137,13 @@ describe('GrepSearchService', () => {
 
   it('skips chunks without startLine and counts them', async () => {
     const noLines: GrepCandidate[] = [
-      { filePath: 'src/d.ts', startLine: null, content: 'needle but no line metadata' },
+      {
+        chunkId: 'chunk-d',
+        content: 'needle but no line metadata',
+        endLine: null,
+        filePath: 'src/d.ts',
+        startLine: null,
+      },
     ];
     const service = new GrepSearchService(stubRepository(noLines));
     const result = await service.search({ pattern: 'needle' });
@@ -124,11 +159,13 @@ describe('GrepSearchService', () => {
   it('carries rootId and rootName from the candidate onto each match', async () => {
     const rooted: GrepCandidate[] = [
       {
-        filePath: 'src/x.ts',
-        startLine: 1,
+        chunkId: 'chunk-x',
         content: 'needle here',
+        endLine: 1,
+        filePath: 'src/x.ts',
         rootId: 'r1',
         rootName: 'Alpha',
+        startLine: 1,
       },
     ];
     const service = new GrepSearchService(stubRepository(rooted));
@@ -142,18 +179,22 @@ describe('GrepSearchService', () => {
     // is that a (path, line) dedupe key collapses these into one match.
     const sameRelativePath: GrepCandidate[] = [
       {
-        filePath: 'README.md',
-        startLine: 1,
+        chunkId: 'chunk-readme-a',
         content: 'needle',
+        endLine: 1,
+        filePath: 'README.md',
         rootId: 'root-a',
         rootName: 'ProjectA',
+        startLine: 1,
       },
       {
-        filePath: 'README.md',
-        startLine: 1,
+        chunkId: 'chunk-readme-b',
         content: 'needle',
+        endLine: 1,
+        filePath: 'README.md',
         rootId: 'root-b',
         rootName: 'ProjectB',
+        startLine: 1,
       },
     ];
     const service = new GrepSearchService(stubRepository(sameRelativePath));

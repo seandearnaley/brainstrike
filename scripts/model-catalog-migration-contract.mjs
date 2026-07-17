@@ -4,19 +4,21 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
-const MIGRATION_EXPORT_PATTERN = /export\s+const\s+(migration\d{3}[A-Za-z0-9_]*)\s*:\s*Migration\s*=/;
+const MIGRATION_EXPORT_PATTERN =
+  /export\s+const\s+(migration\d{3}[A-Za-z0-9_]*)\s*:\s*Migration\s*=/;
 // Keep this literal table list in sync with the model catalog schema. The check
 // intentionally scans whole migration files, including down blocks/comments, so
 // ambiguous catalog mentions fail closed instead of silently bypassing ledger checks.
 const CATALOG_ROW_MUTATION_PATTERN =
   /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?(?:models|providers)"?\b/i;
-const ASSISTANT_MODEL_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google', 'openrouter', 'local']);
-const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
+const ASSISTANT_MODEL_PROVIDER_IDS = new Set([
   'openai',
   'anthropic',
   'google',
   'openrouter',
+  'local',
 ]);
+const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google', 'openrouter']);
 // The removed-model remap contract was introduced with the 2026 frontier
 // catalog refresh. Earlier migrations are historical input used to reconstruct
 // the catalog snapshot; future deletions from this version onward are enforced.
@@ -38,8 +40,7 @@ function extractMigrationArrayNames(source) {
 
 function extractCustomMigrationNames(source) {
   const names = new Set();
-  const pattern =
-    /customMigration\(\s*['"][^'"]+['"]\s*,\s*(migration\d{3}[A-Za-z0-9_]*)/g;
+  const pattern = /customMigration\(\s*['"][^'"]+['"]\s*,\s*(migration\d{3}[A-Za-z0-9_]*)/g;
   for (const match of source.matchAll(pattern)) {
     names.add(match[1]);
   }
@@ -149,7 +150,9 @@ function extractNestedStringRecord(source, constName, fileName) {
   }
 
   for (const property of initializer.properties) {
-    if (!ts.isPropertyAssignment(property) || !ts.isObjectLiteralExpression(property.initializer)) {
+    if (
+      !(ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer))
+    ) {
       continue;
     }
 
@@ -272,7 +275,7 @@ function extractProviderRegistryModels(source, constants = new Map()) {
   const rows = [];
   const claimedModelKeys = new Set();
 
-  if (!providerDefinitions || !ts.isArrayLiteralExpression(providerDefinitions)) {
+  if (!(providerDefinitions && ts.isArrayLiteralExpression(providerDefinitions))) {
     failures.push({
       file: 'packages/assistant-contract/src/provider-registry.ts',
       message:
@@ -286,13 +289,16 @@ function extractProviderRegistryModels(source, constants = new Map()) {
     if (!ts.isObjectLiteralExpression(provider)) {
       failures.push({
         file: 'packages/assistant-contract/src/provider-registry.ts',
-        message: 'PROVIDER_DEFINITIONS entries must be object literals for model catalog validation.',
+        message:
+          'PROVIDER_DEFINITIONS entries must be object literals for model catalog validation.',
       });
       continue;
     }
 
     const providerIdNode = getObjectProperty(provider, 'id');
-    const providerId = providerIdNode ? stringLiteralOrConstValue(providerIdNode, resolvedConstants) : null;
+    const providerId = providerIdNode
+      ? stringLiteralOrConstValue(providerIdNode, resolvedConstants)
+      : null;
     if (!providerId) {
       failures.push({
         file: 'packages/assistant-contract/src/provider-registry.ts',
@@ -304,7 +310,7 @@ function extractProviderRegistryModels(source, constants = new Map()) {
 
     const modelsInitializer = getObjectProperty(provider, 'models');
     const modelsNode = modelsInitializer ? unwrapExpression(modelsInitializer) : null;
-    if (!modelsNode || !ts.isArrayLiteralExpression(modelsNode)) {
+    if (!(modelsNode && ts.isArrayLiteralExpression(modelsNode))) {
       failures.push({
         file: 'packages/assistant-contract/src/provider-registry.ts',
         message: `Static provider-registry provider ${providerId} models must be a static array literal.`,
@@ -325,7 +331,9 @@ function extractProviderRegistryModels(source, constants = new Map()) {
       const modelIdNode = getObjectProperty(model, 'id');
       const modelTypeNode = getObjectProperty(model, 'type');
       const id = modelIdNode ? stringLiteralOrConstValue(modelIdNode, resolvedConstants) : null;
-      const type = modelTypeNode ? stringLiteralOrConstValue(modelTypeNode, resolvedConstants) : null;
+      const type = modelTypeNode
+        ? stringLiteralOrConstValue(modelTypeNode, resolvedConstants)
+        : null;
       if (!id) {
         failures.push({
           file: 'packages/assistant-contract/src/provider-registry.ts',
@@ -389,7 +397,7 @@ function readSqlStringLiteral(sql, startIndex) {
       continue;
     }
 
-    return { value, endIndex: index + 1 };
+    return { endIndex: index + 1, value };
   }
 
   return null;
@@ -511,10 +519,12 @@ function extractInsertedModelRows(sql) {
     const blocks = extractTopLevelParenthesizedBlocks(sql, valuesStart);
 
     for (const block of blocks) {
-      const values = splitTopLevelCommaValues(block).map((value) => extractSqlStringLiterals(value)[0]);
+      const values = splitTopLevelCommaValues(block).map(
+        (value) => extractSqlStringLiterals(value)[0]
+      );
       const id = values[columnIndex.get('id')];
       const providerId = values[columnIndex.get('provider_id')];
-      if (!id || !providerId) {
+      if (!(id && providerId)) {
         continue;
       }
 
@@ -531,21 +541,23 @@ function extractInsertedModelRows(sql) {
 function extractModelCatalogOperations(sql) {
   const operations = [];
 
-  const deleteIdsPattern = /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bid\s+IN\s*\(([\s\S]*?)\)/gi;
+  const deleteIdsPattern =
+    /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bid\s+IN\s*\(([\s\S]*?)\)/gi;
   for (const match of sql.matchAll(deleteIdsPattern)) {
     operations.push({
+      ids: extractSqlStringLiterals(match[1]),
       index: match.index,
       kind: 'delete-ids',
-      ids: extractSqlStringLiterals(match[1]),
     });
   }
 
-  const deleteIdPattern = /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bid\s*=\s*'((?:''|[^'])*)'/gi;
+  const deleteIdPattern =
+    /DELETE\s+FROM\s+"?models"?[\s\S]*?\bWHERE\b[\s\S]*?\bid\s*=\s*'((?:''|[^'])*)'/gi;
   for (const match of sql.matchAll(deleteIdPattern)) {
     operations.push({
+      ids: [match[1].replaceAll("''", "'")],
       index: match.index,
       kind: 'delete-ids',
-      ids: [match[1].replaceAll("''", "'")],
     });
   }
 
@@ -778,7 +790,10 @@ function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
     }
 
     const target = memoryModelTarget(row);
-    if (OBSERVATIONAL_MEMORY_PROVIDER_IDS.has(row.providerId) && !memoryModelTargetRemaps.has(target)) {
+    if (
+      OBSERVATIONAL_MEMORY_PROVIDER_IDS.has(row.providerId) &&
+      !memoryModelTargetRemaps.has(target)
+    ) {
       failures.push({
         file: 'packages/preferences/src/stores/assistant-memory-preferences-store.ts',
         message: `Removed assistant memory model target ${target} is missing from MEMORY_MODEL_TARGET_MIGRATIONS.`,
@@ -848,8 +863,8 @@ export function analyzeModelCatalogMigrationContract(input) {
       .map((migration) => migration.exportName ?? migration.file),
     customMigrations: [...customMigrationNames],
     failures,
-    migrations: [...migrationNames],
     knownMigrationCount: migrationByName.size,
+    migrations: [...migrationNames],
   };
 }
 
@@ -882,7 +897,10 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
     readMigrationFiles(rootDir),
     readFile(path.join(rootDir, 'packages/db/src/migrations/index.ts'), 'utf8'),
     readFile(path.join(rootDir, 'packages/db/src/drizzle/migrate.ts'), 'utf8'),
-    readFile(path.join(rootDir, 'packages/preferences/src/stores/assistant-preferences-store.ts'), 'utf8'),
+    readFile(
+      path.join(rootDir, 'packages/preferences/src/stores/assistant-preferences-store.ts'),
+      'utf8'
+    ),
     readFile(
       path.join(rootDir, 'packages/preferences/src/stores/assistant-memory-preferences-store.ts'),
       'utf8'

@@ -22,7 +22,10 @@ import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { dbHolder } = vi.hoisted(() => ({ dbHolder: { db: null as unknown } }));
+const { dbHolder, loggerErrorMock } = vi.hoisted(() => ({
+  dbHolder: { db: null as unknown },
+  loggerErrorMock: vi.fn(),
+}));
 
 vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(async () => dbHolder.db),
@@ -31,6 +34,19 @@ vi.mock('../../db-main', () => ({
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
+
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => ({
+      debug: vi.fn(),
+      error: loggerErrorMock,
+      info: vi.fn(),
+      warn: vi.fn(),
+    })),
+  };
+});
 
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 
@@ -46,9 +62,9 @@ let rootPath: string;
 
 function runtime(): RuntimeData {
   return {
-    workspaceRoots: [{ rootId: ROOT_ID, displayName: 'Project', path: rootPath }],
     workspaceIndexEmbeddingSetId: EMBEDDING_SET_ID,
     workspaceIndexingEnabled: true,
+    workspaceRoots: [{ displayName: 'Project', path: rootPath, rootId: ROOT_ID }],
   } as unknown as RuntimeData;
 }
 
@@ -133,12 +149,13 @@ beforeEach(async () => {
      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
     [EMBEDDING_SET_ID, 'local::test-embed', 'test-embed', 768, 'cosine']
   );
+  loggerErrorMock.mockReset();
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
   await db.close();
-  await fsPromises.rm(rootPath, { recursive: true, force: true });
+  await fsPromises.rm(rootPath, { force: true, recursive: true });
 });
 
 describe('re-index on edit (writeWorkspaceFile)', () => {
@@ -157,8 +174,8 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
 
     const newContent = 'export const value = 999;\n// edited by agent\n';
     const result = (await writeTool?.execute?.({
-      path: `/${INDEXED_REL_PATH}`,
       content: newContent,
+      path: `/${INDEXED_REL_PATH}`,
     })) as { bytesWritten: number } | undefined;
 
     expect(result?.bytesWritten).toBe(Buffer.byteLength(newContent, 'utf8'));
@@ -192,8 +209,8 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
     const writeTool = tools['brainstrike.writeWorkspaceFile'];
 
     const result = (await writeTool?.execute?.({
-      path: '/src/not-indexed.ts',
       content: 'export const fresh = true;\n',
+      path: '/src/not-indexed.ts',
     })) as { bytesWritten: number } | undefined;
 
     expect(result?.bytesWritten).toBeGreaterThan(0);
@@ -230,13 +247,21 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
 
     const newContent = 'export const value = 42;\n';
     const result = (await writeTool?.execute?.({
-      path: `/${INDEXED_REL_PATH}`,
       content: newContent,
+      path: `/${INDEXED_REL_PATH}`,
     })) as { bytesWritten: number } | undefined;
 
     // Edit succeeded despite the re-index failure.
     expect(result?.bytesWritten).toBe(Buffer.byteLength(newContent, 'utf8'));
     expect(failing.transaction).toHaveBeenCalled();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'Failed to re-index edited file; RAG index may be stale until next sync',
+      expect.objectContaining({
+        path: { redacted: true },
+      })
+    );
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(INDEXED_REL_PATH);
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(rootPath);
     const onDisk = await fsPromises.readFile(path.join(rootPath, 'src', 'indexed.ts'), 'utf8');
     expect(onDisk).toBe(newContent);
   });
@@ -254,9 +279,9 @@ describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
     expect(replaceTool).toBeDefined();
 
     const result = (await replaceTool?.execute?.({
-      path: `/${INDEXED_REL_PATH}`,
-      oldStr: 'export const value = 1;',
       newStr: 'export const value = 4321;',
+      oldStr: 'export const value = 1;',
+      path: `/${INDEXED_REL_PATH}`,
     })) as { replaced: boolean } | undefined;
 
     expect(result?.replaced).toBe(true);
@@ -317,14 +342,14 @@ describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
     const replaceTool = tools['brainstrike.stringReplaceWorkspaceFile'];
 
     const editAlpha = replaceTool?.execute?.({
-      path: `/${INDEXED_REL_PATH}`,
-      oldStr: 'export const alpha = 1;',
       newStr: 'export const alpha = 111;',
+      oldStr: 'export const alpha = 1;',
+      path: `/${INDEXED_REL_PATH}`,
     }) as Promise<{ replaced: boolean }>;
     const editBeta = replaceTool?.execute?.({
-      path: `/${INDEXED_REL_PATH}`,
-      oldStr: 'export const beta = 2;',
       newStr: 'export const beta = 222;',
+      oldStr: 'export const beta = 2;',
+      path: `/${INDEXED_REL_PATH}`,
     }) as Promise<{ replaced: boolean }>;
 
     // Wait until the FIRST edit's re-index transaction is in flight (so its write
@@ -379,16 +404,16 @@ describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
     // Runtime without a workspace index set → trigger must no-op even though a
     // matching file_records row exists for another set.
     const noIndexRuntime = {
-      workspaceRoots: [{ rootId: ROOT_ID, displayName: 'Project', path: rootPath }],
+      workspaceRoots: [{ displayName: 'Project', path: rootPath, rootId: ROOT_ID }],
     } as unknown as RuntimeData;
 
     const tools = buildDesktopAssistantTools(noIndexRuntime);
     const replaceTool = tools['brainstrike.stringReplaceWorkspaceFile'];
 
     const result = (await replaceTool?.execute?.({
-      path: `/${INDEXED_REL_PATH}`,
-      oldStr: 'const a = 1;',
       newStr: 'const a = 2;',
+      oldStr: 'const a = 1;',
+      path: `/${INDEXED_REL_PATH}`,
     })) as { replaced: boolean } | undefined;
 
     expect(result?.replaced).toBe(true);

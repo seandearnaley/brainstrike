@@ -29,8 +29,52 @@ describe('DatabaseTab', () => {
     const { DatabaseTab } = await import('../database-tab');
 
     render(<DatabaseTab />);
-    expect(screen.getByTestId('database-tab-loading')).toBeInTheDocument();
+    const stableFrame = screen.getByTestId('database-tab-frame');
+    expect(stableFrame).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('database-tab-loading')).toHaveClass('h-full');
+    expect(screen.getByTestId('database-tab-loading-toolbar')).toHaveClass('h-12');
+    expect(screen.getByTestId('database-tab-loading-toolbar')).toHaveClass(
+      '@container/database-toolbar'
+    );
+    expect(screen.getByTestId('database-tab-loading-settings')).toHaveClass('@[360px]:w-20', 'w-7');
+    expect(screen.getByTestId('database-tab-loading-top-panel')).toHaveClass('flex-[38]');
+    expect(screen.getByTestId('database-tab-loading-actions')).toHaveClass('h-12');
     expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
+    expect(screen.getByTestId('database-tab-frame')).toBe(stableFrame);
+    expect(stableFrame).toHaveAttribute('aria-busy', 'false');
+  });
+
+  it('keeps the stable loading frame mounted until the embedding queue is ready', async () => {
+    const { DatabaseTab } = await import('../database-tab');
+    let resolveQueue: ((queue: QueueAdapter) => void) | undefined;
+    const queueLoader = vi.fn(
+      () =>
+        new Promise<QueueAdapter>((resolve) => {
+          resolveQueue = resolve;
+        })
+    );
+
+    render(<DatabaseTab loadEmbeddingQueue={queueLoader} />);
+
+    const stableFrame = screen.getByTestId('database-tab-frame');
+    expect(stableFrame).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('Database overview chunk')).not.toBeInTheDocument();
+
+    resolveQueue?.({
+      add: vi.fn(),
+      addBulk: vi.fn(),
+      cancel: vi.fn(),
+      drain: vi.fn(),
+      isPaused: false,
+      isProcessing: false,
+      onProgress: vi.fn(() => () => {}),
+      pause: vi.fn(),
+      resume: vi.fn(),
+    });
+
+    expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
+    expect(screen.getByTestId('database-tab-frame')).toBe(stableFrame);
+    expect(stableFrame).toHaveAttribute('aria-busy', 'false');
   });
 
   it('renders the database tab chunk content once the lazy module resolves', async () => {
@@ -56,11 +100,11 @@ describe('DatabaseTab', () => {
           addBulk: vi.fn(),
           cancel: vi.fn(),
           drain: vi.fn(),
+          isPaused: false,
+          isProcessing: false,
           onProgress: vi.fn(() => () => {}),
           pause: vi.fn(),
           resume: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
         }) satisfies QueueAdapter
     );
 
@@ -81,5 +125,6 @@ describe('DatabaseTab', () => {
     expect(await screen.findByTestId('database-tab-load-error')).toHaveTextContent(
       'Failed to load database tools: queue exploded'
     );
+    expect(screen.getByRole('alert')).toHaveTextContent('queue exploded');
   });
 });

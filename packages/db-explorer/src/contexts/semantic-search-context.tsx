@@ -70,16 +70,16 @@ export interface SemanticSearchProviderProps {
 
 // Default context value (used when provider is not present)
 const defaultContextValue: SemanticSearchContextValue = {
-  searchResults: [],
-  isSearching: false,
-  hasSearched: false,
+  clearResults: () => {},
   error: null,
   executeSearch: async () => {
     // No-op when provider is not present - errors are handled via the error state
   },
-  clearResults: () => {},
-  setSearchResults: () => {},
+  hasSearched: false,
+  isSearching: false,
+  searchResults: [],
   setError: () => {},
+  setSearchResults: () => {},
 };
 
 /**
@@ -132,9 +132,9 @@ export function SemanticSearchProvider({
   const executeSearch = useCallback(
     async (query: string, config: SearchConfig, embeddingSetId: string | null) => {
       logger.info('executeSearch called', {
-        query: query.slice(0, 50),
         embeddingSetId,
         hasExecutor: !!searchExecutor,
+        query: query.slice(0, 50),
       });
 
       // Validate inputs BEFORE setting loading state to prevent flash
@@ -180,14 +180,14 @@ export function SemanticSearchProvider({
   // Memoize context value to prevent unnecessary re-renders
   const contextValue = useMemo<SemanticSearchContextValue>(
     () => ({
-      searchResults,
-      isSearching,
-      hasSearched,
+      clearResults,
       error,
       executeSearch,
-      clearResults,
-      setSearchResults,
+      hasSearched,
+      isSearching,
+      searchResults,
       setError,
+      setSearchResults,
     }),
     [searchResults, isSearching, hasSearched, error, executeSearch, clearResults]
   );

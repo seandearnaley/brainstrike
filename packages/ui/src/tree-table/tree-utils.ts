@@ -18,9 +18,9 @@ import type {
  */
 const DEFAULT_ARIA: TreeRowAriaAttributes = {
   ariaLevel: 1,
-  ariaSetSize: 1,
   ariaPosInSet: 1,
   ariaRowIndex: 1,
+  ariaSetSize: 1,
 };
 
 /**
@@ -35,7 +35,7 @@ function computeSiblingAria<T>(
   for (let i = 0; i < siblings.length; i++) {
     const sibling = siblings[i];
     if (sibling) {
-      result.set(sibling.id, { setSize, posInSet: i + 1 });
+      result.set(sibling.id, { posInSet: i + 1, setSize });
     }
   }
   return result;
@@ -56,12 +56,12 @@ interface ResolvedFlattenOptions {
 
 function resolveOptions(options: FlattenOptions): ResolvedFlattenOptions {
   const resolved: ResolvedFlattenOptions = {
-    expandedIds: options.expandedIds,
-    selectedId: options.selectedId ?? null,
-    multiSelectedIds: options.multiSelectedIds ?? new Set<string>(),
-    highlightedIds: options.highlightedIds ?? new Set<string>(),
     contextNodeIds: options.contextNodeIds ?? new Set<string>(),
+    expandedIds: options.expandedIds,
+    highlightedIds: options.highlightedIds ?? new Set<string>(),
+    multiSelectedIds: options.multiSelectedIds ?? new Set<string>(),
     rowIndexOffset: options.rowIndexOffset ?? 2,
+    selectedId: options.selectedId ?? null,
   };
   if (options.filterFn) {
     resolved.filterFn = options.filterFn;
@@ -89,20 +89,20 @@ function appendRow<T>(
   const rowIndex = rows.length;
   const aria: TreeRowAriaAttributes = {
     ariaLevel: node.depth + 1,
-    ariaSetSize: siblingInfo?.setSize ?? 1,
     ariaPosInSet: siblingInfo?.posInSet ?? 1,
     ariaRowIndex: rowIndex + opts.rowIndexOffset,
+    ariaSetSize: siblingInfo?.setSize ?? 1,
   };
 
   const row: FlattenedRow<T> = {
-    node,
+    aria,
     index: rowIndex,
     isExpanded,
-    isSelected,
     isHighlighted,
-    matchesFilter,
     isInContext,
-    aria,
+    isSelected,
+    matchesFilter,
+    node,
   };
 
   indexMap.set(node.id, rows.length);
@@ -111,7 +111,7 @@ function appendRow<T>(
 }
 
 function buildResult<T>(rows: FlattenedRow<T>[], indexMap: Map<string, number>): FlattenResult<T> {
-  return { rows, indexMap, visibleCount: rows.length };
+  return { indexMap, rows, visibleCount: rows.length };
 }
 
 /**
@@ -574,7 +574,7 @@ export function filterTreeNodes<T>(
   }
 
   traverse(nodes, []);
-  return { matchingIds, ancestorIds };
+  return { ancestorIds, matchingIds };
 }
 
 /**
@@ -649,6 +649,39 @@ export function computeCheckboxState(
     return 'checked';
   }
   return 'indeterminate';
+}
+
+function flattenedRowsEqual<T>(a: FlattenedRow<T>, b: FlattenedRow<T>): boolean {
+  return (
+    a.node === b.node &&
+    a.index === b.index &&
+    a.isExpanded === b.isExpanded &&
+    a.isHighlighted === b.isHighlighted &&
+    a.isInContext === b.isInContext &&
+    a.isSelected === b.isSelected &&
+    a.matchesFilter === b.matchesFilter &&
+    a.aria.ariaLevel === b.aria.ariaLevel &&
+    a.aria.ariaPosInSet === b.aria.ariaPosInSet &&
+    a.aria.ariaRowIndex === b.aria.ariaRowIndex &&
+    a.aria.ariaSetSize === b.aria.ariaSetSize
+  );
+}
+
+/**
+ * Structural sharing across flatten passes: reuse the previous pass's row
+ * object when a row's computed fields are value-equal, so the memo'd
+ * TreeTableRow bails out for rows a selection/highlight/focus change did not
+ * touch. Without this, every flatten (which depends on the selection sets)
+ * mints fresh row objects for ALL rows and re-renders every visible row.
+ */
+export function reuseEqualFlattenedRows<T>(
+  previousById: ReadonlyMap<string, FlattenedRow<T>>,
+  rows: FlattenedRow<T>[]
+): FlattenedRow<T>[] {
+  return rows.map((row) => {
+    const previous = previousById.get(row.node.id);
+    return previous && flattenedRowsEqual(previous, row) ? previous : row;
+  });
 }
 
 // Re-export DEFAULT_ARIA for use in tests

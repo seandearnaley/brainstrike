@@ -32,24 +32,39 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
     return { rows: [] };
   });
   return {
-    query: baseQuery,
-    exec: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
+    exec: vi.fn(async () => {}),
+    query: baseQuery,
     ...overrides,
   };
 }
 
+function isStructuredError(value: unknown, error: Error): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'name' in value &&
+    value.name === error.name &&
+    'message' in value &&
+    value.message === error.message
+  );
+}
+
 function hasStructuredErrorArg(record: LogRecord, error: Error): boolean {
   return record.args.some(
-    (arg) => typeof arg === 'object' && arg !== null && 'err' in arg && arg.err === error
+    (arg) =>
+      isStructuredError(arg, error) ||
+      (typeof arg === 'object' && arg !== null && 'err' in arg && isStructuredError(arg.err, error))
   );
 }
 
 describe('DbProvider', () => {
   beforeEach(() => {
-    // Reset logger configuration to defaults
-    const { resetLogger } = require('@brainstrike/utils');
-    resetLogger();
+    // Reset logger configuration to defaults. Use the ESM namespace import —
+    // a bare CJS require() bypasses vite aliases (native node resolution) and
+    // resets the DIST logger copy instead of the src instance under test
+    // (incident #1066 class; surfaced by the threads-pool mutation lane).
+    utilsModule.resetLogger();
   });
 
   afterEach(async () => {
@@ -240,7 +255,7 @@ describe('DbProvider', () => {
             record.level === LogLevel.ERROR &&
             record.scope === 'DbProvider' &&
             record.message === 'Failed to close database:' &&
-            record.args.includes(closeError)
+            hasStructuredErrorArg(record, closeError)
         )
       ).toBe(true);
     });

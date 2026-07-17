@@ -23,7 +23,7 @@ import { useQuickOpenStore } from './stores/quick-open-store';
  * both project the SAME global commands from one source of truth.
  */
 export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHandlers {
-  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+  const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const { theme, setTheme } = useTheme();
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const openQuickOpen = useQuickOpenStore((state) => state.open);
@@ -45,10 +45,6 @@ export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHand
     };
   }, [repository, createThread]);
 
-  const openSettings = useCallback(() => {
-    setActiveTab('settings');
-  }, [setActiveTab]);
-
   const toggleTheme = useCallback(() => {
     // Resolve `system` toward its effective value, then flip — so a single
     // invocation always produces a visible change.
@@ -69,12 +65,12 @@ export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHand
       // faked no-op (the no-silent-fallbacks contract). Once the DB is ready a
       // re-render supplies the handler and the command appears.
       ...(newThread ? { newThread } : {}),
-      openSettings,
-      toggleTheme,
       // ⌘P quick-open is wired here in PR-6.3: opening the store flips the
       // QuickOpenHost's palette open. This un-gates the previously hidden
       // `palette.quickOpen` global command (it now has a real handler).
       openQuickOpen,
+      openSettings,
+      toggleTheme,
     }),
     [newThread, openSettings, toggleTheme, openQuickOpen]
   );

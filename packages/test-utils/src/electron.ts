@@ -13,12 +13,6 @@ export function createIpcMainMock(): IpcMainMock {
   const handlers = new Map<string, IpcHandler>();
 
   return {
-    handle: vi.fn((channel: string, handler: IpcHandler) => {
-      handlers.set(channel, handler);
-    }),
-    removeHandler: vi.fn((channel: string) => {
-      handlers.delete(channel);
-    }),
     // Utility for tests: trigger an invoke handler directly
     __invoke: async (channel: string, ...args: unknown[]) => {
       const handler = handlers.get(channel);
@@ -27,6 +21,12 @@ export function createIpcMainMock(): IpcMainMock {
       }
       return handler({} as unknown, ...args);
     },
+    handle: vi.fn((channel: string, handler: IpcHandler) => {
+      handlers.set(channel, handler);
+    }),
+    removeHandler: vi.fn((channel: string) => {
+      handlers.delete(channel);
+    }),
   };
 }
 
@@ -46,8 +46,8 @@ export function createIpcRendererMock(): IpcRendererMock {
     ),
     on: vi.fn(),
     once: vi.fn(),
-    removeListener: vi.fn(),
     removeAllListeners: vi.fn(),
+    removeListener: vi.fn(),
     send: vi.fn(),
   };
 }
@@ -86,16 +86,16 @@ export function createAppMock(opts?: {
 
   return {
     commandLine: { appendSwitch: vi.fn() },
-    whenReady: vi.fn(() => whenReadyPromise),
-    isReady: vi.fn(() => whenReadyResolved),
     getAppPath: vi.fn(() => '/app'),
     getPath: vi.fn((key: string) => (key === 'documents' ? documentsPath : '/mock/path')),
     getVersion: vi.fn(() => '0.0.0-test'),
     isPackaged: false,
-    quit: vi.fn(),
-    setPath: vi.fn(),
+    isReady: vi.fn(() => whenReadyResolved),
     on: vi.fn(),
     once: vi.fn(),
+    quit: vi.fn(),
+    setPath: vi.fn(),
+    whenReady: vi.fn(() => whenReadyPromise),
   };
 }
 
@@ -109,7 +109,7 @@ interface ScreenMock {
 }
 
 export function createScreenMock(): ScreenMock {
-  const defaultWorkArea = { x: 0, y: 0, width: 1920, height: 1080 };
+  const defaultWorkArea = { height: 1080, width: 1920, x: 0, y: 0 };
   return {
     getAllDisplays: vi.fn(() => [{ workArea: defaultWorkArea }]),
     getPrimaryDisplay: vi.fn(() => ({ workArea: defaultWorkArea })),
@@ -139,19 +139,19 @@ export function installElectronModuleMocks(parts?: {
 
   vi.doMock('electron', () => ({
     app,
-    ipcMain,
-    ipcRenderer,
-    contextBridge,
-    screen,
     // biome-ignore lint/style/useNamingConvention: Electron API uses PascalCase
     BrowserWindow: vi.fn(),
-    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    contextBridge,
     dialog: {},
-    shell: {},
+    ipcMain,
+    ipcRenderer,
     nativeTheme: { shouldUseDarkColors: false },
+    screen,
+    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    shell: {},
   }));
 
-  return { app, ipcMain, ipcRenderer, contextBridge, screen };
+  return { app, contextBridge, ipcMain, ipcRenderer, screen };
 }
 
 interface ElectronCjsMocks extends ElectronMocks {
@@ -183,9 +183,9 @@ export function installElectronCjsMocks(parts?: {
     if (id === 'electron') {
       return {
         app,
+        contextBridge,
         ipcMain,
         ipcRenderer,
-        contextBridge,
         screen,
       };
     }
@@ -196,5 +196,5 @@ export function installElectronCjsMocks(parts?: {
     Module._load = originalLoad as typeof Module._load;
   };
 
-  return { app, ipcMain, ipcRenderer, contextBridge, screen, restore };
+  return { app, contextBridge, ipcMain, ipcRenderer, restore, screen };
 }

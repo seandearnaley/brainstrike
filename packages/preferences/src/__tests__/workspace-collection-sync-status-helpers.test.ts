@@ -8,18 +8,6 @@ describe('workspace collection sync status helpers', () => {
   it('builds metric rows for each populated sync phase', () => {
     expect(
       getWorkspaceCollectionSyncMetricRows({
-        scanSummary: {
-          changedFiles: 2,
-          discoveredFiles: 10,
-          excludedEntries: 3,
-          unchangedFiles: 8,
-        },
-        importProgress: {
-          completed: 2,
-          current: '/workspace/src/a.ts',
-          errorCount: 1,
-          total: 4,
-        },
         chunkingProgress: {
           chunksCreated: 18,
           currentFile: '/workspace/src/a.ts',
@@ -33,6 +21,12 @@ describe('workspace collection sync status helpers', () => {
           modelName: 'all-MiniLM-L6-v2',
           totalChunks: 18,
         },
+        importProgress: {
+          completed: 2,
+          current: '/workspace/src/a.ts',
+          errorCount: 1,
+          total: 4,
+        },
         queueProgress: {
           failed: 1,
           lastError: null,
@@ -41,11 +35,22 @@ describe('workspace collection sync status helpers', () => {
           processed: 8,
           totalQueued: 11,
         },
+        scanSummary: {
+          changedFiles: 2,
+          discoveredFiles: 10,
+          excludedEntries: 3,
+          unchangedFiles: 8,
+        },
+        unindexableFileCount: 2,
       })
     ).toEqual([
       {
         label: 'Scan',
         value: '10 eligible • 8 unchanged • 2 to update • 3 excluded entries',
+      },
+      {
+        label: 'Coverage',
+        value: '2 files skipped — content cannot be indexed (binary or unreadable)',
       },
       {
         label: 'Import files',
@@ -69,13 +74,6 @@ describe('workspace collection sync status helpers', () => {
   it('omits metric rows when the corresponding phase has no useful data', () => {
     expect(
       getWorkspaceCollectionSyncMetricRows({
-        scanSummary: null,
-        importProgress: {
-          completed: 0,
-          current: null,
-          errorCount: 0,
-          total: 0,
-        },
         chunkingProgress: {
           chunksCreated: 0,
           currentFile: null,
@@ -89,6 +87,12 @@ describe('workspace collection sync status helpers', () => {
           modelName: null,
           totalChunks: 0,
         },
+        importProgress: {
+          completed: 0,
+          current: null,
+          errorCount: 0,
+          total: 0,
+        },
         queueProgress: {
           failed: 0,
           lastError: null,
@@ -97,60 +101,89 @@ describe('workspace collection sync status helpers', () => {
           processed: 0,
           totalQueued: 0,
         },
+        scanSummary: null,
+        unindexableFileCount: 0,
       })
     ).toEqual([]);
+  });
+
+  it('omits the coverage row when the unindexable count is unknown', () => {
+    expect(
+      getWorkspaceCollectionSyncMetricRows({
+        chunkingProgress: null,
+        embeddingProgress: null,
+        importProgress: null,
+        queueProgress: null,
+        scanSummary: null,
+        unindexableFileCount: null,
+      })
+    ).toEqual([]);
+  });
+
+  it('uses singular phrasing for one unindexable file', () => {
+    expect(
+      getWorkspaceCollectionSyncMetricRows({
+        chunkingProgress: null,
+        embeddingProgress: null,
+        importProgress: null,
+        queueProgress: null,
+        scanSummary: null,
+        unindexableFileCount: 1,
+      })
+    ).toEqual([
+      {
+        label: 'Coverage',
+        value: '1 file skipped — content cannot be indexed (binary or unreadable)',
+      },
+    ]);
   });
 
   it('returns the right current-activity label for each sync state', () => {
     expect(
       getWorkspaceCollectionSyncCurrentActivity({
-        state: 'recovering',
-        currentFilePath: '/workspace/src/fallback.ts',
-        pauseReasons: [],
-        importProgress: null,
         chunkingProgress: null,
+        currentFilePath: '/workspace/src/fallback.ts',
         embeddingProgress: {
           chunksProcessed: 3,
           currentChunk: 'chunk-3',
           modelName: null,
           totalChunks: 9,
         },
+        importProgress: null,
+        pauseReasons: [],
+        state: 'recovering',
       })
     ).toEqual({ label: 'Reattaching backfill', value: 'chunk-3' });
 
     expect(
       getWorkspaceCollectionSyncCurrentActivity({
-        state: 'scanning',
-        currentFilePath: '/workspace/src/scan.ts',
-        pauseReasons: [],
-        importProgress: null,
         chunkingProgress: null,
+        currentFilePath: '/workspace/src/scan.ts',
         embeddingProgress: null,
+        importProgress: null,
+        pauseReasons: [],
+        state: 'scanning',
       })
     ).toEqual({ label: 'Scanning', value: '/workspace/src/scan.ts' });
 
     expect(
       getWorkspaceCollectionSyncCurrentActivity({
-        state: 'importing',
+        chunkingProgress: null,
         currentFilePath: '/workspace/src/import.ts',
-        pauseReasons: [],
+        embeddingProgress: null,
         importProgress: {
           completed: 1,
           current: '/workspace/src/current-import.ts',
           errorCount: 0,
           total: 4,
         },
-        chunkingProgress: null,
-        embeddingProgress: null,
+        pauseReasons: [],
+        state: 'importing',
       })
     ).toEqual({ label: 'Importing file', value: '/workspace/src/current-import.ts' });
 
     expect(
       getWorkspaceCollectionSyncCurrentActivity({
-        state: 'chunking',
-        currentFilePath: '/workspace/src/chunk.ts',
-        pauseReasons: [],
-        importProgress: null,
         chunkingProgress: {
           chunksCreated: 4,
           currentFile: '/workspace/src/current-chunk.ts',
@@ -158,45 +191,49 @@ describe('workspace collection sync status helpers', () => {
           strategyUsed: null,
           totalFiles: 2,
         },
+        currentFilePath: '/workspace/src/chunk.ts',
         embeddingProgress: null,
+        importProgress: null,
+        pauseReasons: [],
+        state: 'chunking',
       })
     ).toEqual({ label: 'Chunking file', value: '/workspace/src/current-chunk.ts' });
 
     expect(
       getWorkspaceCollectionSyncCurrentActivity({
-        state: 'embedding',
-        currentFilePath: '/workspace/src/embed.ts',
-        pauseReasons: [],
-        importProgress: null,
         chunkingProgress: null,
+        currentFilePath: '/workspace/src/embed.ts',
         embeddingProgress: {
           chunksProcessed: 4,
           currentChunk: 'chunk-4',
           modelName: null,
           totalChunks: 10,
         },
+        importProgress: null,
+        pauseReasons: [],
+        state: 'embedding',
       })
     ).toEqual({ label: 'Embedding chunk', value: 'chunk-4' });
 
     expect(
       getWorkspaceCollectionSyncCurrentActivity({
-        state: 'paused',
-        currentFilePath: null,
-        pauseReasons: ['Paused for local assistant'],
-        importProgress: null,
         chunkingProgress: null,
+        currentFilePath: null,
         embeddingProgress: null,
+        importProgress: null,
+        pauseReasons: ['Paused for local assistant'],
+        state: 'paused',
       })
     ).toEqual({ label: 'Paused by', value: 'Paused for local assistant' });
 
     expect(
       getWorkspaceCollectionSyncCurrentActivity({
-        state: 'idle',
-        currentFilePath: null,
-        pauseReasons: [],
-        importProgress: null,
         chunkingProgress: null,
+        currentFilePath: null,
         embeddingProgress: null,
+        importProgress: null,
+        pauseReasons: [],
+        state: 'idle',
       })
     ).toBeNull();
   });

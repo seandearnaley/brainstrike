@@ -121,11 +121,11 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   const workerScript = options.workerUrl;
   const minWorkers = options.minWorkers ?? 1;
   const poolOptions: WorkerPoolOptions = {
-    minWorkers,
-    maxWorkers: Math.max(minWorkers, maxWorkers),
     maxQueueSize: options.maxQueueSize ?? Number.POSITIVE_INFINITY,
-    workerType: 'web',
+    maxWorkers: Math.max(minWorkers, maxWorkers),
+    minWorkers,
     workerOpts: { type: 'module' },
+    workerType: 'web',
   };
   const pool: Pool = workerpool.pool(workerScript, poolOptions);
 
@@ -200,43 +200,43 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     const pendingTasks = readPendingTasks();
     const statsMetadata = readStatsMetadata();
     const telemetry: QueueTelemetryEvent = {
-      timestamp: Date.now(),
+      activeBefore: activeTasks,
       adapter: 'workerpool',
       event: 'enqueue',
-      taskId: task.id,
       model: task.model,
-      activeBefore: activeTasks,
+      taskId: task.id,
+      timestamp: Date.now(),
       ...(pendingTasks === undefined ? {} : { pending: pendingTasks }),
       ...(statsMetadata === undefined ? {} : { metadata: statsMetadata }),
     };
     emitQueueTelemetry(telemetry);
 
-    return { promise: execPromise, cancelable: execPromise, startedAt };
+    return { cancelable: execPromise, promise: execPromise, startedAt };
   };
 
   const onTaskComplete = (task: TaskPayload, startedAt: number) => {
     const pendingTasks = readPendingTasks();
     const statsMetadata = readStatsMetadata();
     const telemetry: QueueTelemetryEvent = {
-      timestamp: Date.now(),
-      adapter: 'workerpool',
-      event: 'complete',
-      taskId: task.id,
-      model: task.model,
-      elapsedMs: calculateElapsed(startedAt),
-      activeBefore: activeTasks,
       activeAfter: Math.max(activeTasks - 1, 0),
+      activeBefore: activeTasks,
+      adapter: 'workerpool',
+      elapsedMs: calculateElapsed(startedAt),
+      event: 'complete',
+      model: task.model,
+      taskId: task.id,
+      timestamp: Date.now(),
       ...(pendingTasks === undefined ? {} : { pending: pendingTasks }),
       ...(statsMetadata === undefined ? {} : { metadata: statsMetadata }),
     };
     emitQueueTelemetry(telemetry);
     // Use debug level for per-task completion to reduce log noise during bulk operations
     logger.debug('Workerpool embedding task complete', {
-      taskId: task.id,
-      elapsedMs: calculateElapsed(startedAt),
-      activeBeforeRelease: activeTasks,
       activeAfterRelease: Math.max(activeTasks - 1, 0),
+      activeBeforeRelease: activeTasks,
+      elapsedMs: calculateElapsed(startedAt),
       pending: pendingTasks,
+      taskId: task.id,
     });
   };
 
@@ -265,27 +265,27 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     }
 
     const telemetry: QueueTelemetryEvent = {
-      timestamp: Date.now(),
-      adapter: 'workerpool',
-      event: 'error',
-      taskId: task.id,
-      model: task.model,
-      elapsedMs: calculateElapsed(startedAt),
-      activeBefore: activeTasks,
       activeAfter: Math.max(activeTasks - 1, 0),
+      activeBefore: activeTasks,
+      adapter: 'workerpool',
+      elapsedMs: calculateElapsed(startedAt),
       errorMessage,
+      event: 'error',
+      model: task.model,
+      taskId: task.id,
+      timestamp: Date.now(),
     };
     emitQueueTelemetry(telemetry);
     logger.debug('Workerpool embedding task failed', {
-      taskId: task.id,
-      model: task.model,
-      elapsedMs: calculateElapsed(startedAt),
-      activeBeforeRelease: activeTasks,
       activeAfterRelease: Math.max(activeTasks - 1, 0),
-      error: errorMessage,
-      stack: errorStack,
+      activeBeforeRelease: activeTasks,
       details: errorDetails,
+      elapsedMs: calculateElapsed(startedAt),
+      error: errorMessage,
+      model: task.model,
       rawError: typeof error === 'object' ? JSON.stringify(error) : String(error),
+      stack: errorStack,
+      taskId: task.id,
     });
   };
 
@@ -336,24 +336,6 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       const promises = tasks.map((task) => execute(task, opts));
       return Promise.all(promises);
     },
-    onProgress(listener) {
-      return emitter.add(listener);
-    },
-    pause() {
-      paused = true;
-      logger.debug('Workerpool adapter paused');
-    },
-    resume() {
-      if (!paused) {
-        return;
-      }
-      paused = false;
-      logger.debug('Workerpool adapter resumed');
-      while (resumeWaiters.length > 0) {
-        const resolve = resumeWaiters.shift();
-        resolve?.();
-      }
-    },
     async cancel() {
       await terminateInternal('canceled');
     },
@@ -373,6 +355,24 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     },
     get isProcessing() {
       return activeTasks > 0;
+    },
+    onProgress(listener) {
+      return emitter.add(listener);
+    },
+    pause() {
+      paused = true;
+      logger.debug('Workerpool adapter paused');
+    },
+    resume() {
+      if (!paused) {
+        return;
+      }
+      paused = false;
+      logger.debug('Workerpool adapter resumed');
+      while (resumeWaiters.length > 0) {
+        const resolve = resumeWaiters.shift();
+        resolve?.();
+      }
     },
   };
 }

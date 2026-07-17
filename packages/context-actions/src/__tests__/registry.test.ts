@@ -3,11 +3,11 @@ import { createActionRegistry } from '../registry';
 import { type ActionOutcome, type ContextTarget, defineContextAction } from '../types';
 
 const fileTarget: ContextTarget = {
+  absolutePath: '/Users/dev/project/docs/notes.md',
+  entryType: 'file',
   kind: 'file-entry',
   name: 'notes.md',
   relativePath: 'docs/notes.md',
-  absolutePath: '/Users/dev/project/docs/notes.md',
-  entryType: 'file',
   rootFolderId: '/Users/dev/project',
 };
 
@@ -17,44 +17,44 @@ const webFileTarget: ContextTarget = {
   rootFolderId: 'root-uuid',
 };
 
-const chunkTarget: ContextTarget = { kind: 'chunk', id: 'c1', content: 'hello' };
+const chunkTarget: ContextTarget = { content: 'hello', id: 'c1', kind: 'chunk' };
 
 const ok: ActionOutcome = { ok: true };
 
 function makeActions() {
   return {
-    copyName: defineContextAction({
-      id: 'file.copy-name',
-      label: 'Copy Name',
+    copyContent: defineContextAction({
+      appliesTo: ['chunk'] as const,
       group: 'copy',
-      appliesTo: ['file-entry'] as const,
+      id: 'collection.copy-content',
+      label: 'Copy Content',
       requiredCapabilities: ['clipboard'] as const,
       run: async () => ok,
     }),
     copyFullPath: defineContextAction({
-      id: 'file.copy-full-path',
-      label: 'Copy Full Path',
-      group: 'copy',
       appliesTo: ['file-entry'] as const,
-      requiredCapabilities: ['clipboard'] as const,
+      group: 'copy',
+      id: 'file.copy-full-path',
       isVisible: (target) => target.absolutePath !== null,
+      label: 'Copy Full Path',
+      requiredCapabilities: ['clipboard'] as const,
+      run: async () => ok,
+    }),
+    copyName: defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      id: 'file.copy-name',
+      label: 'Copy Name',
+      requiredCapabilities: ['clipboard'] as const,
       run: async () => ok,
     }),
     reveal: defineContextAction({
-      id: 'file.reveal',
-      label: 'Reveal in Finder',
-      group: 'navigate',
       appliesTo: ['file-entry'] as const,
-      requiredCapabilities: ['fs.reveal'] as const,
+      group: 'navigate',
+      id: 'file.reveal',
       isVisible: (target) => target.absolutePath !== null,
-      run: async () => ok,
-    }),
-    copyContent: defineContextAction({
-      id: 'collection.copy-content',
-      label: 'Copy Content',
-      group: 'copy',
-      appliesTo: ['chunk'] as const,
-      requiredCapabilities: ['clipboard'] as const,
+      label: 'Reveal in Finder',
+      requiredCapabilities: ['fs.reveal'] as const,
       run: async () => ok,
     }),
   };
@@ -100,7 +100,7 @@ describe('createActionRegistry', () => {
     expect(ids).toEqual(['file.copy-name']);
   });
 
-  it('orders groups tree → copy → navigate → inspect → danger and omits empty groups', () => {
+  it('orders groups primary → tree → copy → navigate → inspect → danger and omits empty groups', () => {
     const actions = makeActions();
     const registry = createActionRegistry({
       actions: Object.values(actions),
@@ -113,11 +113,11 @@ describe('createActionRegistry', () => {
 
   it('does not filter on isEnabled — disabled actions remain listed', () => {
     const disabled = defineContextAction({
-      id: 'file.disabled',
-      label: 'Disabled Action',
-      group: 'copy',
       appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      id: 'file.disabled',
       isEnabled: () => false,
+      label: 'Disabled Action',
       run: async () => ok,
     });
     const registry = createActionRegistry({
@@ -139,13 +139,103 @@ describe('createActionRegistry', () => {
       services: {},
     });
     const local = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'tree',
       id: 'local.expand',
       label: 'Expand',
-      group: 'tree',
-      appliesTo: ['file-entry'] as const,
       run: async () => ok,
     });
-    const groups = registry.actionsFor(fileTarget, [local]);
-    expect(groups.map((group) => group.group)).toEqual(['tree', 'copy']);
+    const primary = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'primary',
+      id: 'local.open',
+      label: 'Open',
+      run: async () => ok,
+    });
+    const groups = registry.actionsFor(fileTarget, [local, primary]);
+    expect(groups.map((group) => group.group)).toEqual(['primary', 'tree', 'copy']);
+  });
+
+  it('projects serializable menu descriptors without renderer functions or icon components', () => {
+    const action = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      icon: () => null,
+      id: 'file.copy-name',
+      isEnabled: () => false,
+      label: (target) => `Copy ${target.name}`,
+      run: async () => ok,
+      shortcut: { key: 'C', modifiers: ['primary', 'shift'] as const },
+    });
+    const registry = createActionRegistry({
+      actions: [action],
+      capabilities: new Set(),
+      services: {},
+    });
+
+    const descriptors = registry.descriptorsFor(fileTarget);
+
+    expect(descriptors).toEqual([
+      {
+        actions: [
+          {
+            enabled: false,
+            group: 'copy',
+            id: 'file.copy-name',
+            label: 'Copy notes.md',
+            shortcut: { key: 'C', modifiers: ['primary', 'shift'] },
+          },
+        ],
+        group: 'copy',
+      },
+    ]);
+    expect(JSON.parse(JSON.stringify(descriptors))).toEqual(descriptors);
+  });
+
+  it('rejects duplicate global action ids at registry construction', () => {
+    const first = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      id: 'file.duplicate',
+      label: 'First',
+      run: async () => ok,
+    });
+    const second = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'inspect',
+      id: 'file.duplicate',
+      label: 'Second',
+      run: async () => ok,
+    });
+
+    expect(() =>
+      createActionRegistry({ actions: [first, second], capabilities: new Set(), services: {} })
+    ).toThrowError('Duplicate context action id: file.duplicate');
+  });
+
+  it('rejects a local action id that collides with a global action', () => {
+    const global = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      id: 'file.copy-name',
+      label: 'Global',
+      run: async () => ok,
+    });
+    const local = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'primary',
+      id: 'file.copy-name',
+      label: 'Local',
+      run: async () => ok,
+    });
+    const registry = createActionRegistry({
+      actions: [global],
+      capabilities: new Set(),
+      services: {},
+    });
+
+    expect(() => registry.actionsFor(fileTarget, [local])).toThrowError(
+      'Duplicate context action id: file.copy-name'
+    );
   });
 });

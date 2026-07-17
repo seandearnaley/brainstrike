@@ -7,15 +7,15 @@ import { useBackgroundTokenIndexer } from '../use-background-token-indexer';
 
 const { mockLogger, mockEmitIndexedFile, mockEmitIndexingBacklog, mockEmitIndexingError } =
   vi.hoisted(() => ({
-    mockLogger: {
-      error: vi.fn(),
-      warn: vi.fn(),
-      info: vi.fn(),
-      debug: vi.fn(),
-    },
     mockEmitIndexedFile: vi.fn(),
     mockEmitIndexingBacklog: vi.fn(),
     mockEmitIndexingError: vi.fn(),
+    mockLogger: {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    },
   }));
 
 vi.mock('@brainstrike/utils', () => ({
@@ -123,14 +123,14 @@ describe('useBackgroundTokenIndexer', () => {
 
   it('clears isIndexing when worker returns only skipped results', async () => {
     const cachedEntry: TokenCacheEntry = {
-      folderId: 'folder',
-      filePath: 'file.txt',
       contentHash: 'hash',
+      countingMode: 'heuristic',
+      filePath: 'file.txt',
       fileSize: 128,
+      folderId: 'folder',
+      modelEncoding: TOKEN_ESTIMATOR_ID,
       mtimeMs: null,
       tokenCount: 42,
-      countingMode: 'heuristic',
-      modelEncoding: TOKEN_ESTIMATOR_ID,
     };
 
     const store = {
@@ -142,9 +142,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store,
         mode: 'heuristic',
         onFileIndexed,
+        store,
       })
     );
 
@@ -154,7 +154,7 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|file.txt', folderId: 'folder', filePath: 'file.txt' },
+        { compositeKey: 'folder|@|file.txt', filePath: 'file.txt', folderId: 'folder' },
       ]);
     });
 
@@ -168,15 +168,15 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.emitEvent('message', {
         data: {
-          type: 'result',
-          skipped: true,
           compositeKey: 'folder|@|file.txt',
-          folderId: 'folder',
-          filePath: 'file.txt',
           contentHash: 'hash',
+          filePath: 'file.txt',
           fileSize: 128,
+          folderId: 'folder',
           mode: 'heuristic',
+          skipped: true,
           tokenCount: 42,
+          type: 'result',
         },
       } as MessageEvent);
     });
@@ -189,14 +189,14 @@ describe('useBackgroundTokenIndexer', () => {
 
   it('does not send cachedHash for cache entries from an old estimator identity', async () => {
     const cachedEntry: TokenCacheEntry = {
-      folderId: 'folder',
-      filePath: 'file.txt',
       contentHash: 'stale-hash',
+      countingMode: 'heuristic',
+      filePath: 'file.txt',
       fileSize: 128,
+      folderId: 'folder',
+      modelEncoding: 'o200k_base',
       mtimeMs: null,
       tokenCount: 42,
-      countingMode: 'heuristic',
-      modelEncoding: 'o200k_base',
     };
 
     const store = {
@@ -206,8 +206,8 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store,
         mode: 'heuristic',
+        store,
       })
     );
 
@@ -216,7 +216,7 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|file.txt', folderId: 'folder', filePath: 'file.txt' },
+        { compositeKey: 'folder|@|file.txt', filePath: 'file.txt', folderId: 'folder' },
       ]);
     });
 
@@ -227,22 +227,22 @@ describe('useBackgroundTokenIndexer', () => {
 
     const [message] = mockWorkers[0]!.postMessage.mock.calls[0] ?? [];
     expect(message).toMatchObject({
-      type: 'index-batch',
       requests: [expect.not.objectContaining({ cachedHash: 'stale-hash' })],
+      type: 'index-batch',
     });
 
     await act(async () => {
       mockWorkers[0]!.emitEvent('message', {
         data: {
-          type: 'result',
-          skipped: false,
           compositeKey: 'folder|@|file.txt',
-          folderId: 'folder',
-          filePath: 'file.txt',
           contentHash: 'fresh-hash',
+          filePath: 'file.txt',
           fileSize: 128,
+          folderId: 'folder',
           mode: 'heuristic',
+          skipped: false,
           tokenCount: 21,
+          type: 'result',
         },
       } as MessageEvent);
     });
@@ -253,8 +253,8 @@ describe('useBackgroundTokenIndexer', () => {
   it('uses an explicit workerUrl override when provided', async () => {
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'heuristic',
+        store: null,
         workerUrl: 'http://localhost/custom-background-indexer.worker.js',
       })
     );
@@ -272,9 +272,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store,
         mode: 'accurate',
         onFileIndexed,
+        store,
       })
     );
 
@@ -283,7 +283,7 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|legacy.txt', folderId: 'folder', filePath: 'legacy.txt' },
+        { compositeKey: 'folder|@|legacy.txt', filePath: 'legacy.txt', folderId: 'folder' },
       ]);
     });
 
@@ -292,29 +292,29 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.emitEvent('message', {
         data: {
-          type: 'result',
-          skipped: false,
           compositeKey: 'folder|@|legacy.txt',
-          folderId: 'folder',
-          filePath: 'legacy.txt',
           contentHash: 'hash',
+          filePath: 'legacy.txt',
           fileSize: 128,
+          folderId: 'folder',
           mode: 'accurate',
+          skipped: false,
           tokenCount: 99,
+          type: 'result',
         },
       } as MessageEvent);
     });
 
     await expect(indexPromise).resolves.toBeUndefined();
     expect(store.set).toHaveBeenCalledWith({
-      folderId: 'folder',
-      filePath: 'legacy.txt',
       contentHash: 'hash',
+      countingMode: 'heuristic',
+      filePath: 'legacy.txt',
       fileSize: 128,
+      folderId: 'folder',
+      modelEncoding: TOKEN_ESTIMATOR_ID,
       mtimeMs: null,
       tokenCount: 99,
-      countingMode: 'heuristic',
-      modelEncoding: TOKEN_ESTIMATOR_ID,
     });
     expect(onFileIndexed).toHaveBeenCalledWith('folder|@|legacy.txt', 99, 128);
   });
@@ -323,8 +323,8 @@ describe('useBackgroundTokenIndexer', () => {
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
         autoStart: false,
-        store: null,
         mode: 'heuristic',
+        store: null,
       })
     );
 
@@ -340,8 +340,8 @@ describe('useBackgroundTokenIndexer', () => {
   it('routes non-terminal worker logs to the matching logger levels', async () => {
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
+        store: null,
       })
     );
 
@@ -352,10 +352,10 @@ describe('useBackgroundTokenIndexer', () => {
       for (const level of ['error', 'warn', 'info', 'debug'] as const) {
         worker.emitEvent('message', {
           data: {
-            type: 'log',
+            data: { source: level },
             level,
             message: `${level} message`,
-            data: { source: level },
+            type: 'log',
           },
         } as MessageEvent);
       }
@@ -377,9 +377,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -390,8 +390,8 @@ describe('useBackgroundTokenIndexer', () => {
       indexPromise = result.current.indexFiles([
         {
           compositeKey: 'folder|@|bad.txt',
-          folderId: 'folder',
           filePath: 'bad.txt',
+          folderId: 'folder',
         },
       ]);
     });
@@ -405,10 +405,10 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.emitEvent('message', {
         data: {
-          type: 'error',
           compositeKey: 'folder|@|bad.txt',
           error: 'boom',
           id: '1',
+          type: 'error',
         },
       } as MessageEvent);
     });
@@ -431,9 +431,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -444,8 +444,8 @@ describe('useBackgroundTokenIndexer', () => {
       indexPromise = result.current.indexFiles([
         {
           compositeKey: 'folder|@|special.ts',
-          folderId: 'folder',
           filePath: 'special.ts',
+          folderId: 'folder',
         },
       ]);
     });
@@ -459,11 +459,11 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.emitEvent('message', {
         data: {
-          type: 'error',
           compositeKey: 'folder|@|special.ts',
           error:
             'Accurate token counting failed: The text contains a special token that is not allowed: <|endoftext|>',
           id: '1',
+          type: 'error',
         },
       } as MessageEvent);
     });
@@ -486,9 +486,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -496,10 +496,10 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.onerror?.(
         new ErrorEvent('error', {
-          message: 'runtime boom',
+          colno: 3,
           filename: 'background-indexer.worker.js',
           lineno: 17,
-          colno: 3,
+          message: 'runtime boom',
         })
       );
     });
@@ -523,10 +523,10 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
         onFileIndexed,
+        store: null,
       })
     );
 
@@ -535,10 +535,10 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.onerror?.(
         new ErrorEvent('error', {
-          message: 'runtime boom',
+          colno: 3,
           filename: 'background-indexer.worker.js',
           lineno: 17,
-          colno: 3,
+          message: 'runtime boom',
         })
       );
     });
@@ -555,7 +555,7 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|recovered.txt', folderId: 'folder', filePath: 'recovered.txt' },
+        { compositeKey: 'folder|@|recovered.txt', filePath: 'recovered.txt', folderId: 'folder' },
       ]);
     });
 
@@ -565,15 +565,15 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[1]!.emitEvent('message', {
         data: {
-          type: 'result',
-          skipped: false,
           compositeKey: 'folder|@|recovered.txt',
-          folderId: 'folder',
-          filePath: 'recovered.txt',
           contentHash: 'hash',
+          filePath: 'recovered.txt',
           fileSize: 128,
+          folderId: 'folder',
           mode: 'accurate',
+          skipped: false,
           tokenCount: 99,
+          type: 'result',
         },
       } as MessageEvent);
     });
@@ -589,9 +589,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -602,8 +602,8 @@ describe('useBackgroundTokenIndexer', () => {
         mockWorkers[index]!.emitEvent(
           'error',
           new ErrorEvent('error', {
-            message: `recoverable boom ${index + 1}`,
             filename: 'background-indexer.worker.js',
+            message: `recoverable boom ${index + 1}`,
           })
         );
       });
@@ -617,8 +617,8 @@ describe('useBackgroundTokenIndexer', () => {
       mockWorkers[2]!.emitEvent(
         'error',
         new ErrorEvent('error', {
-          message: 'recoverable boom 3',
           filename: 'background-indexer.worker.js',
+          message: 'recoverable boom 3',
         })
       );
     });
@@ -644,9 +644,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -657,8 +657,8 @@ describe('useBackgroundTokenIndexer', () => {
         mockWorkers[index]!.emitEvent(
           'error',
           new ErrorEvent('error', {
-            message: `recoverable boom ${index + 1}`,
             filename: 'background-indexer.worker.js',
+            message: `recoverable boom ${index + 1}`,
           })
         );
       });
@@ -673,8 +673,8 @@ describe('useBackgroundTokenIndexer', () => {
       mockWorkers[2]!.emitEvent(
         'error',
         new ErrorEvent('error', {
-          message: 'recoverable boom 3',
           filename: 'background-indexer.worker.js',
+          message: 'recoverable boom 3',
         })
       );
     });
@@ -693,9 +693,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -708,8 +708,8 @@ describe('useBackgroundTokenIndexer', () => {
         mockWorkers[index]!.emitEvent(
           'error',
           new ErrorEvent('error', {
-            message: `pre-window recoverable boom ${index + 1}`,
             filename: 'background-indexer.worker.js',
+            message: `pre-window recoverable boom ${index + 1}`,
           })
         );
       });
@@ -729,8 +729,8 @@ describe('useBackgroundTokenIndexer', () => {
       mockWorkers[2]!.emitEvent(
         'error',
         new ErrorEvent('error', {
-          message: 'post-window recoverable boom',
           filename: 'background-indexer.worker.js',
+          message: 'post-window recoverable boom',
         })
       );
     });
@@ -757,9 +757,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -768,8 +768,8 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.onerror?.(
         new ErrorEvent('error', {
-          message: 'runtime boom',
           filename: 'background-indexer.worker.js',
+          message: 'runtime boom',
         })
       );
     });
@@ -790,9 +790,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -801,8 +801,8 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.onerror?.(
         new ErrorEvent('error', {
-          message: 'runtime boom',
           filename: 'background-indexer.worker.js',
+          message: 'runtime boom',
         })
       );
     });
@@ -819,7 +819,7 @@ describe('useBackgroundTokenIndexer', () => {
 
     await expect(
       result.current.indexFiles([
-        { compositeKey: 'folder|@|race.ts', folderId: 'folder', filePath: 'race.ts' },
+        { compositeKey: 'folder|@|race.ts', filePath: 'race.ts', folderId: 'folder' },
       ])
     ).rejects.toThrow('new worker failed during backoff');
 
@@ -834,9 +834,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -845,10 +845,10 @@ describe('useBackgroundTokenIndexer', () => {
       worker.emitEvent(
         'error',
         new ErrorEvent('error', {
-          message: 'event boom',
+          colno: 4,
           filename: 'background-indexer.worker.js',
           lineno: 18,
-          colno: 4,
+          message: 'event boom',
         })
       );
     });
@@ -872,9 +872,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -883,11 +883,11 @@ describe('useBackgroundTokenIndexer', () => {
       worker.emitEvent(
         'error',
         new ErrorEvent('error', {
-          message: 'event boom',
-          filename: 'background-indexer.worker.js',
-          lineno: 22,
           colno: 9,
           error: eventError,
+          filename: 'background-indexer.worker.js',
+          lineno: 22,
+          message: 'event boom',
         })
       );
     });
@@ -896,16 +896,16 @@ describe('useBackgroundTokenIndexer', () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(
       'Background token indexer restarting after recoverable worker failure',
       expect.objectContaining({
+        colno: 9,
         context: 'worker.addEventListener(error)',
         error: expect.stringContaining('Worker error event: event boom'),
-        type: 'error',
-        filename: 'background-indexer.worker.js',
-        lineno: 22,
-        colno: 9,
-        eventMessage: 'event boom',
         eventError: 'worker script exploded',
         eventErrorName: 'Error',
         eventErrorStack: eventError.stack,
+        eventMessage: 'event boom',
+        filename: 'background-indexer.worker.js',
+        lineno: 22,
+        type: 'error',
       })
     );
     expect(mockLogger.warn.mock.calls[0]?.[1]).not.toHaveProperty('terminalWorkerErrorDetails');
@@ -916,9 +916,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -927,9 +927,9 @@ describe('useBackgroundTokenIndexer', () => {
       worker.emitEvent(
         'error',
         new ErrorEvent('error', {
-          message: 'event boom',
-          lineno: 0,
           colno: 0,
+          lineno: 0,
+          message: 'event boom',
         })
       );
     });
@@ -940,8 +940,8 @@ describe('useBackgroundTokenIndexer', () => {
       expect.objectContaining({
         context: 'worker.addEventListener(error)',
         error: expect.stringContaining('Worker error event: event boom'),
-        type: 'error',
         eventMessage: 'event boom',
+        type: 'error',
       })
     );
     expect(logMetadata).not.toHaveProperty('lineno');
@@ -953,9 +953,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -963,19 +963,19 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.onerror?.(
         new ErrorEvent('error', {
-          message: 'runtime boom',
+          colno: 2,
           filename: 'background-indexer.worker.js',
           lineno: 31,
-          colno: 2,
+          message: 'runtime boom',
         })
       );
       worker.emitEvent(
         'error',
         new ErrorEvent('error', {
-          message: 'runtime boom',
+          colno: 2,
           filename: 'background-indexer.worker.js',
           lineno: 31,
-          colno: 2,
+          message: 'runtime boom',
         })
       );
     });
@@ -997,17 +997,17 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
     await act(async () => {
       const worker = mockWorkers[0]!;
       worker.onmessageerror?.({
-        type: 'messageerror',
         data: { bad: true },
+        type: 'messageerror',
       } as MessageEvent);
     });
 
@@ -1029,9 +1029,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -1062,9 +1062,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -1096,9 +1096,9 @@ describe('useBackgroundTokenIndexer', () => {
       ({ autoStart }: { autoStart: boolean }) =>
         useBackgroundTokenIndexer({
           autoStart,
-          store: null,
           mode: 'accurate',
           onFileError,
+          store: null,
         }),
       { initialProps: { autoStart: true } }
     );
@@ -1124,16 +1124,16 @@ describe('useBackgroundTokenIndexer', () => {
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
         autoStart: false,
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
     await act(async () => {
       await expect(
         result.current.indexFiles([
-          { compositeKey: 'folder|@|file.ts', folderId: 'folder', filePath: 'file.ts' },
+          { compositeKey: 'folder|@|file.ts', filePath: 'file.ts', folderId: 'folder' },
         ])
       ).rejects.toThrow('worker constructor failed');
     });
@@ -1157,9 +1157,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -1168,8 +1168,8 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
-        { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
+        { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+        { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' },
       ]);
     });
     void indexPromise.catch(() => {});
@@ -1181,10 +1181,10 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.emitEvent('message', {
         data: {
-          type: 'error',
-          id: '__batch__',
           compositeKey: '__batch__',
           error: 'batch worker failed',
+          id: '__batch__',
+          type: 'error',
         },
       } as MessageEvent);
     });
@@ -1206,9 +1206,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -1217,8 +1217,8 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
-        { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
+        { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+        { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' },
       ]);
     });
     void indexPromise.catch(() => {});
@@ -1232,21 +1232,21 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.emitEvent('message', {
         data: {
-          type: 'error',
-          id: '1',
           compositeKey: 'folder|@|a.ts',
           error:
             'Error: Accurate token counting unavailable: tiktoken encoder failed to initialize',
+          id: '1',
+          type: 'error',
         },
       } as MessageEvent);
 
       // Simulate a trailing queued message from the terminated worker.
       worker.emitEvent('message', {
         data: {
-          type: 'error',
-          id: '2',
           compositeKey: 'folder|@|b.ts',
           error: 'Accurate token counting unavailable: tiktoken encoder failed to initialize',
+          id: '2',
+          type: 'error',
         },
       } as MessageEvent);
     });
@@ -1268,9 +1268,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -1279,8 +1279,8 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
-        { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
+        { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+        { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' },
       ]);
     });
     void indexPromise.catch(() => {});
@@ -1294,24 +1294,24 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.emitEvent('message', {
         data: {
-          type: 'log',
-          level: 'error',
-          message: 'processFile failed',
           data: {
             message: 'Accurate token counting unavailable: tiktoken encoder failed to initialize',
           },
+          level: 'error',
+          message: 'processFile failed',
+          type: 'log',
         },
       } as MessageEvent);
 
       // Simulate duplicate queued signals after failure latch.
       worker.emitEvent('message', {
         data: {
-          type: 'log',
-          level: 'error',
-          message: 'processBatch failed',
           data: {
             message: 'Accurate token counting unavailable: tiktoken encoder failed to initialize',
           },
+          level: 'error',
+          message: 'processBatch failed',
+          type: 'log',
         },
       } as MessageEvent);
     });
@@ -1333,9 +1333,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -1344,13 +1344,13 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.emitEvent('message', {
         data: {
-          type: 'log',
+          data: {
+            cause: 'Accurate token counting unavailable: tiktoken encoder failed to initialize',
+            error: 'Error: tiktoken encoder failed to initialize',
+          },
           level: 'error',
           message: 'encoder init failed',
-          data: {
-            error: 'Error: tiktoken encoder failed to initialize',
-            cause: 'Accurate token counting unavailable: tiktoken encoder failed to initialize',
-          },
+          type: 'log',
         },
       } as MessageEvent);
     });
@@ -1375,29 +1375,37 @@ describe('useBackgroundTokenIndexer', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
     await act(async () => {
       mockWorkers[0]!.emitEvent('messageerror', {
+        reason: { field: 'fileHandle', kind: 'clone-error' },
         type: 'messageerror',
-        reason: { kind: 'clone-error', field: 'fileHandle' },
       } as unknown as Event);
     });
 
     expect(onFileError).not.toHaveBeenCalled();
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      'Background token indexer restarting after recoverable worker failure',
+    const restartLog = mockLogger.warn.mock.calls.find(
+      ([message]) =>
+        message === 'Background token indexer restarting after recoverable worker failure'
+    );
+    expect(restartLog).toBeDefined();
+    const details = restartLog?.[1] as { reason?: string };
+    expect(details).toEqual(
       expect.objectContaining({
         context: 'worker.onmessageerror',
         error: 'Worker message channel error (onmessageerror)',
-        reason: '{"kind":"clone-error","field":"fileHandle"}',
         type: 'messageerror',
       })
     );
+    expect(JSON.parse(details.reason ?? '{}')).toEqual({
+      field: 'fileHandle',
+      kind: 'clone-error',
+    });
   });
 
   it('tracks progress and cancels pending batch promises explicitly', async () => {
@@ -1405,9 +1413,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onProgress,
+        store: null,
       })
     );
 
@@ -1416,8 +1424,8 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
-        { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
+        { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+        { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' },
       ]);
     });
     void indexPromise.catch(() => {});
@@ -1427,28 +1435,28 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.emitEvent('message', {
         data: {
-          type: 'progress',
           completed: 1,
-          total: 2,
           currentId: 'folder|@|b.ts',
+          total: 2,
+          type: 'progress',
         },
       } as MessageEvent);
     });
 
     expect(result.current.progress).toEqual({
       completed: 1,
-      total: 2,
       currentFile: 'folder|@|b.ts',
+      total: 2,
     });
     expect(onProgress).toHaveBeenCalledWith({
       completed: 1,
-      total: 2,
       currentFile: 'folder|@|b.ts',
+      total: 2,
     });
     expect(mockEmitIndexingBacklog).toHaveBeenCalledWith({
-      inFlight: 2,
-      batchTotal: 2,
       batchCompleted: 1,
+      batchTotal: 2,
+      inFlight: 2,
     });
 
     act(() => {
@@ -1465,9 +1473,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'heuristic',
         onFileIndexed,
+        store: null,
       })
     );
 
@@ -1478,8 +1486,8 @@ describe('useBackgroundTokenIndexer', () => {
     act(() => {
       indexPromise = result.current
         .indexFiles([
-          { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
-          { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
+          { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+          { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' },
         ])
         .then(() => {
           settled = true;
@@ -1491,15 +1499,15 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.emitEvent('message', {
         data: {
-          type: 'result',
-          skipped: false,
           compositeKey: 'folder|@|a.ts',
-          folderId: 'folder',
-          filePath: 'a.ts',
           contentHash: 'hash-a',
+          filePath: 'a.ts',
           fileSize: 100,
+          folderId: 'folder',
           mode: 'heuristic',
+          skipped: false,
           tokenCount: 10,
+          type: 'result',
         },
       } as MessageEvent);
       await Promise.resolve();
@@ -1511,15 +1519,15 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.emitEvent('message', {
         data: {
-          type: 'result',
-          skipped: false,
           compositeKey: 'folder|@|b.ts',
-          folderId: 'folder',
-          filePath: 'b.ts',
           contentHash: 'hash-b',
+          filePath: 'b.ts',
           fileSize: 200,
+          folderId: 'folder',
           mode: 'heuristic',
+          skipped: false,
           tokenCount: 20,
+          type: 'result',
         },
       } as MessageEvent);
     });
@@ -1540,9 +1548,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store,
         mode: 'heuristic',
         onFileIndexed,
+        store,
       })
     );
 
@@ -1551,7 +1559,7 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|missing.txt', folderId: 'folder', filePath: 'missing.txt' },
+        { compositeKey: 'folder|@|missing.txt', filePath: 'missing.txt', folderId: 'folder' },
       ]);
     });
 
@@ -1560,15 +1568,15 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.emitEvent('message', {
         data: {
-          type: 'result',
-          skipped: true,
           compositeKey: 'folder|@|missing.txt',
-          folderId: 'folder',
-          filePath: 'missing.txt',
           contentHash: 'hash',
+          filePath: 'missing.txt',
           fileSize: 128,
+          folderId: 'folder',
           mode: 'heuristic',
+          skipped: true,
           tokenCount: 42,
+          type: 'result',
         },
       } as MessageEvent);
     });
@@ -1580,14 +1588,14 @@ describe('useBackgroundTokenIndexer', () => {
 
   it('does not notify indexed callback when skipped cache entry has an old estimator identity', async () => {
     const cachedEntry: TokenCacheEntry = {
-      folderId: 'folder',
-      filePath: 'stale.txt',
       contentHash: 'hash',
+      countingMode: 'heuristic',
+      filePath: 'stale.txt',
       fileSize: 128,
+      folderId: 'folder',
+      modelEncoding: 'o200k_base',
       mtimeMs: null,
       tokenCount: 42,
-      countingMode: 'heuristic',
-      modelEncoding: 'o200k_base',
     };
     const onFileIndexed = vi.fn();
     const store = {
@@ -1597,9 +1605,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store,
         mode: 'heuristic',
         onFileIndexed,
+        store,
       })
     );
 
@@ -1608,7 +1616,7 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|stale.txt', folderId: 'folder', filePath: 'stale.txt' },
+        { compositeKey: 'folder|@|stale.txt', filePath: 'stale.txt', folderId: 'folder' },
       ]);
     });
 
@@ -1617,15 +1625,15 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       mockWorkers[0]!.emitEvent('message', {
         data: {
-          type: 'result',
-          skipped: true,
           compositeKey: 'folder|@|stale.txt',
-          folderId: 'folder',
-          filePath: 'stale.txt',
           contentHash: 'hash',
+          filePath: 'stale.txt',
           fileSize: 128,
+          folderId: 'folder',
           mode: 'heuristic',
+          skipped: true,
           tokenCount: 42,
+          type: 'result',
         },
       } as MessageEvent);
     });
@@ -1641,9 +1649,9 @@ describe('useBackgroundTokenIndexer', () => {
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
         autoStart: false,
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -1654,8 +1662,8 @@ describe('useBackgroundTokenIndexer', () => {
       indexPromise = result.current.indexFiles([
         {
           compositeKey: 'folder|@|slow.txt',
-          folderId: 'folder',
           filePath: 'slow.txt',
+          folderId: 'folder',
         },
       ]);
     });
@@ -1669,10 +1677,10 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       worker.emitEvent('message', {
         data: {
-          type: 'error',
           compositeKey: 'folder|@|slow.txt',
           error: 'boom',
           id: 'req-1',
+          type: 'error',
         },
       } as MessageEvent);
     });
@@ -1695,9 +1703,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store,
         mode: 'accurate',
         onFileError,
+        store,
       })
     );
 
@@ -1708,8 +1716,8 @@ describe('useBackgroundTokenIndexer', () => {
         result.current.indexFiles([
           {
             compositeKey: 'folder|@|file.txt',
-            folderId: 'folder',
             filePath: 'file.txt',
+            folderId: 'folder',
           },
         ])
       ).rejects.toThrow('Cache lookup failed for folder|@|file.txt: db unreachable');
@@ -1737,10 +1745,10 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store,
         mode: 'accurate',
-        onFileIndexed,
         onFileError,
+        onFileIndexed,
+        store,
       })
     );
 
@@ -1751,8 +1759,8 @@ describe('useBackgroundTokenIndexer', () => {
       indexPromise = result.current.indexFiles([
         {
           compositeKey: 'folder|@|file.txt',
-          folderId: 'folder',
           filePath: 'file.txt',
+          folderId: 'folder',
         },
       ]);
     });
@@ -1766,15 +1774,15 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.emitEvent('message', {
         data: {
-          type: 'result',
-          skipped: false,
           compositeKey: 'folder|@|file.txt',
-          folderId: 'folder',
-          filePath: 'file.txt',
           contentHash: 'hash',
+          filePath: 'file.txt',
           fileSize: 128,
+          folderId: 'folder',
           mode: 'accurate',
+          skipped: false,
           tokenCount: 99,
+          type: 'result',
         },
       } as MessageEvent);
     });
@@ -1791,9 +1799,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -1802,8 +1810,8 @@ describe('useBackgroundTokenIndexer', () => {
     let indexPromise!: Promise<void>;
     act(() => {
       indexPromise = result.current.indexFiles([
-        { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
-        { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
+        { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+        { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' },
       ]);
     });
     void indexPromise.catch(() => {});
@@ -1817,10 +1825,10 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.emitEvent('message', {
         data: {
-          type: 'error',
-          id: '__batch__',
           compositeKey: '__batch__',
           error: 'Accurate token counting unavailable: tiktoken encoder failed to initialize',
+          id: '__batch__',
+          type: 'error',
         },
       } as MessageEvent);
     });
@@ -1843,9 +1851,9 @@ describe('useBackgroundTokenIndexer', () => {
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
-        store: null,
         mode: 'accurate',
         onFileError,
+        store: null,
       })
     );
 
@@ -1855,10 +1863,10 @@ describe('useBackgroundTokenIndexer', () => {
       const worker = mockWorkers[0]!;
       worker.emitEvent('message', {
         data: {
-          type: 'error',
-          id: '__batch__',
           compositeKey: '__batch__',
           error: 'Accurate token counting unavailable: tiktoken encoder failed to initialize',
+          id: '__batch__',
+          type: 'error',
         },
       } as MessageEvent);
     });
@@ -1868,9 +1876,9 @@ describe('useBackgroundTokenIndexer', () => {
     await act(async () => {
       await expect(
         result.current.indexFiles([
-          { compositeKey: 'folder|@|a.ts', folderId: 'folder', filePath: 'a.ts' },
-          { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
-          { compositeKey: 'folder|@|c.ts', folderId: 'folder', filePath: 'c.ts' },
+          { compositeKey: 'folder|@|a.ts', filePath: 'a.ts', folderId: 'folder' },
+          { compositeKey: 'folder|@|b.ts', filePath: 'b.ts', folderId: 'folder' },
+          { compositeKey: 'folder|@|c.ts', filePath: 'c.ts', folderId: 'folder' },
         ])
       ).rejects.toThrow(
         'Accurate token counting unavailable: tiktoken encoder failed to initialize'

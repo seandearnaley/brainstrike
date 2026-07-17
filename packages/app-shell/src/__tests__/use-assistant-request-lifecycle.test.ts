@@ -1,3 +1,12 @@
+import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import {
+  __resetPermissionPolicyStoreForTests,
+  usePermissionPolicyStore,
+} from '@brainstrike/preferences/stores/permission-policy-store';
+import {
+  __resetWorkspaceCollectionSyncStatusStoreForTests,
+  useWorkspaceCollectionSyncStatusStore,
+} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -15,14 +24,15 @@ function createRepositoryStub(
     completeThreadRun: vi.fn(async () => {}),
     createThread: vi.fn(),
     createThreadRun: vi.fn(async (input) => ({ ...input, createdAt: 0, status: 'running' })),
-    getThreadCumulativeUsage: vi.fn(async () => null),
-    getCrossRootUsage: vi.fn(async () => []),
-    recordRunUsage: vi.fn(),
     deleteThread: vi.fn(),
+    getCrossRootUsage: vi.fn(async () => []),
+    getThreadCumulativeUsage: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
+    listThreadCheckpoints: vi.fn(async () => []),
     listThreadRunEvents: vi.fn(async () => []),
     listThreads: vi.fn(async () => []),
+    recordRunUsage: vi.fn(),
     renameThread: vi.fn(),
     updateThreadMetadata: vi.fn(),
     ...overrides,
@@ -46,6 +56,9 @@ describe('useAssistantRequestLifecycle', () => {
   afterEach(() => {
     __resetAssistantForegroundActivityForTests();
     vi.useRealTimers();
+    useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
+    __resetWorkspaceCollectionSyncStatusStoreForTests();
+    __resetPermissionPolicyStoreForTests();
   });
 
   it('creates a run record, injects its id into memory, and releases the lease on completion', async () => {
@@ -64,6 +77,8 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: { maxOutputTokens: 512 },
+        permissionEnforceable: false,
+        planModeAvailable: false,
         providerOptions: { openai: { reasoningEffort: 'medium' } },
         requestData: baseRequestData,
         resolvedModelName: 'gpt-5.2',
@@ -132,6 +147,8 @@ describe('useAssistantRequestLifecycle', () => {
           focusedRootId: props.focusedRootId,
           memoryResourceId: 'workspace-a',
           modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: false,
           providerOptions: undefined,
           requestData: baseRequestData,
           resolvedModelName: props.model,
@@ -140,9 +157,9 @@ describe('useAssistantRequestLifecycle', () => {
         }),
       {
         initialProps: {
-          provider: 'openai',
-          model: 'gpt-5.2',
           focusedRootId: 'root-a',
+          model: 'gpt-5.2',
+          provider: 'openai',
         } as PickerProps,
       }
     );
@@ -157,15 +174,15 @@ describe('useAssistantRequestLifecycle', () => {
 
     // The user switches BOTH the model picker AND the focused root MID-RUN
     // (before usage fires).
-    rerender({ provider: 'anthropic', model: 'claude-opus-4-8', focusedRootId: 'root-b' });
+    rerender({ focusedRootId: 'root-b', model: 'claude-opus-4-8', provider: 'anthropic' });
 
     // The active run's usage context must still reflect the REQUEST-START
     // model AND root, not the new picker/focus selection.
     expect(result.current.getActiveRunUsageContext()).toEqual({
-      runId: 'run-attribution',
-      provider: 'openai',
       model: 'gpt-5.2',
+      provider: 'openai',
       rootId: 'root-a',
+      runId: 'run-attribution',
     });
 
     // After completion the snapshot is cleared.
@@ -192,6 +209,8 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: null,
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
+        permissionEnforceable: false,
+        planModeAvailable: false,
         providerOptions: undefined,
         requestData: baseRequestData,
         resolvedModelName: 'gpt-5.2',
@@ -205,10 +224,10 @@ describe('useAssistantRequestLifecycle', () => {
     });
 
     expect(result.current.getActiveRunUsageContext()).toEqual({
-      runId: 'run-no-root',
-      provider: 'openai',
       model: 'gpt-5.2',
+      provider: 'openai',
       rootId: null,
+      runId: 'run-no-root',
     });
   });
 
@@ -226,6 +245,8 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
+        permissionEnforceable: false,
+        planModeAvailable: false,
         providerOptions: undefined,
         requestData: baseRequestData,
         resolvedModelName: 'gpt-5.2',
@@ -249,6 +270,8 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
+        permissionEnforceable: false,
+        planModeAvailable: false,
         providerOptions: undefined,
         requestData: { enabledNativeToolIds: [] },
         resolvedModelName: 'gpt-5.2',
@@ -270,6 +293,8 @@ describe('useAssistantRequestLifecycle', () => {
         focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
+        permissionEnforceable: false,
+        planModeAvailable: false,
         providerOptions: undefined,
         requestData: baseRequestData,
         resolvedModelName: 'gpt-5.2',
@@ -287,5 +312,342 @@ describe('useAssistantRequestLifecycle', () => {
         'boom'
       )
     ).rejects.toThrow('Assistant run completion requires an active thread repository.');
+  });
+
+  describe('plan-mode freshness at the request-composition seam', () => {
+    // The reviewer's option-b acceptance criterion: approving a plan calls
+    // `setPlanModeEnabled(false)` and then immediately composes the resume
+    // request in the SAME synchronous handler — there is no guarantee a React
+    // re-render lands in between, so `requestData.planMode` (fixed at the
+    // render that produced it) is not a reliable source for the composed
+    // request. `prepareRequestData` must read the store's CURRENT state at
+    // call time instead. These tests flip the store directly, between the
+    // hook's render and the `prepareRequestData()` call, with no rerender —
+    // proving the fix reads live state rather than the render-captured prop.
+
+    it('OFF-fresh wins over a stale ON requestData snapshot (the approve-exits-plan-mode fix)', async () => {
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(true);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-plan-exit',
+          status: 'running',
+        })),
+      });
+
+      // Render captures requestData with planMode:true, mirroring
+      // buildAssistantRequestData's output while the toggle is on.
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: true,
+          providerOptions: undefined,
+          requestData: { ...baseRequestData, planMode: true },
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      // The approve handler flips the store off, then immediately composes
+      // the request — no intervening re-render.
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      // Presence-means-on: the composed request must NOT carry a truthy
+      // planMode, despite the stale requestData prop saying `true`.
+      expect(prepared['planMode']).toBeUndefined();
+    });
+
+    it('ON-fresh wins over a stale OFF/absent requestData snapshot (symmetric correctness)', async () => {
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-plan-enter',
+          status: 'running',
+        })),
+      });
+
+      // Render captures requestData with no planMode key at all (the toggle
+      // was off at render time).
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: true,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      // The toggle flips on after render, still with no intervening re-render.
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(true);
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['planMode']).toBe(true);
+    });
+
+    it('planModeAvailable=false gates plan mode off even when the store is on (built-in local provider)', async () => {
+      useAssistantPreferencesStore.getState().setPlanModeEnabled(true);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-plan-unavailable',
+          status: 'running',
+        })),
+      });
+
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['planMode']).toBeUndefined();
+    });
+  });
+
+  describe('workspace-index freshness at the request-composition seam', () => {
+    // The wrapper no longer live-subscribes to per-file indexing progress
+    // (during initial indexing that re-rendered the whole assistant panel per
+    // processed file), so `requestData.workspaceIndex` can be thousands of
+    // progress patches stale by the time the user hits send. Same seam as
+    // plan mode above: prepareRequestData must re-read the sync-status store
+    // at call time.
+    it('overrides the render-captured workspaceIndex status fields from the live store', async () => {
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-ws-index',
+          status: 'running',
+        })),
+      });
+      const staleWorkspaceIndex = {
+        blockedReason: null,
+        embeddingSetId: 'set-a',
+        enabled: true,
+        lastError: null,
+        mode: 'auto',
+        paused: false,
+        queueProgress: null,
+        statusState: 'idle',
+      };
+
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: { ...baseRequestData, workspaceIndex: staleWorkspaceIndex },
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      // The store advances AFTER the render that captured requestData, with
+      // no re-render in between.
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          queueProgress: {
+            failed: 0,
+            lastError: null,
+            lastEvent: null,
+            pending: 3,
+            processed: 7,
+            totalQueued: 10,
+          },
+          state: 'importing',
+        });
+      });
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['workspaceIndex']).toMatchObject({
+        // Preference-shaped fields stay from the render-captured object…
+        embeddingSetId: 'set-a',
+        enabled: true,
+        mode: 'auto',
+        // …status-shaped fields are read fresh at request time.
+        queueProgress: { pending: 3, processed: 7, totalQueued: 10 },
+        statusState: 'importing',
+      });
+    });
+
+    it('leaves requestData without workspaceIndex untouched', async () => {
+      const repository = createRepositoryStub();
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['workspaceIndex']).toBeUndefined();
+    });
+  });
+
+  describe('permission-policy freshness at the request-composition seam', () => {
+    // Same class of race as plan mode above: the approval notice's grant
+    // actions ("Always allow" / "Allow <category> this session") write the
+    // store and then, in the SAME synchronous handler, approve the pending call
+    // — resuming the run through prepareRequestData. `requestData.permissionPolicyRequest`
+    // is fixed at the render that produced the closure, so it must NOT be
+    // trusted: prepareRequestData reads the store's CURRENT posture. These tests
+    // reproduce the tight window: mutate the store AFTER the hook renders, then
+    // prepare with no rerender in between.
+    it('a per-tool override granted after render reaches the resumed run (the grant-and-approve race fix)', async () => {
+      usePermissionPolicyStore.getState().setEnforce(true);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-grant',
+          status: 'running',
+        })),
+      });
+
+      // Render captures requestData with NO permission snapshot, mirroring a
+      // pre-grant render (nothing overridden yet).
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: true,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      // The grant action fires here, synchronously before the resume.
+      usePermissionPolicyStore.getState().setToolOverride('brainstrike.executeCommand', 'allow');
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      const snapshot = prepared['permissionPolicyRequest'] as
+        | { enforce: boolean; perToolOverrides: Record<string, string> }
+        | undefined;
+      expect(snapshot?.enforce).toBe(true);
+      expect(snapshot?.perToolOverrides['brainstrike.executeCommand']).toBe('allow');
+    });
+
+    it('permissionEnforceable=false drops the snapshot even when the store enforces (non-data-stream transport)', async () => {
+      usePermissionPolicyStore.getState().setEnforce(true);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-web',
+          status: 'running',
+        })),
+      });
+
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: false,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['permissionPolicyRequest']).toBeUndefined();
+    });
+
+    it('a fresh enforce=OFF drops a stale snapshot inherited from requestData (presence-means-on)', async () => {
+      usePermissionPolicyStore.getState().setEnforce(false);
+      const repository = createRepositoryStub({
+        createThreadRun: vi.fn(async (input) => ({
+          ...input,
+          createdAt: 0,
+          id: 'run-optout',
+          status: 'running',
+        })),
+      });
+
+      // requestData carries a stale enforcing snapshot (a render from before the
+      // user opted out); the fresh read must override it to undefined.
+      const { result } = renderHook(() =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: 'root-a',
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          permissionEnforceable: true,
+          planModeAvailable: false,
+          providerOptions: undefined,
+          requestData: {
+            ...baseRequestData,
+            permissionPolicyRequest: { enforce: true, perToolOverrides: {} },
+          },
+          resolvedModelName: 'gpt-5.2',
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: 'openai',
+        })
+      );
+
+      const prepared = await act(async () => result.current.prepareRequestData());
+
+      expect(prepared['permissionPolicyRequest']).toBeUndefined();
+    });
   });
 });

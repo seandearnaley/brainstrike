@@ -234,26 +234,26 @@ export async function fetchJsonWithTimeout(
     }
 
     const response = await options.fetchImpl(endpoint, {
-      method: options.method ?? 'GET',
       headers,
+      method: options.method ?? 'GET',
       ...(options.body ? { body: options.body } : {}),
       signal: controller.signal,
     });
     const latencyMs = Date.now() - startedAt;
 
     if (!response.ok) {
-      return { response, payload: undefined, parseError: null, latencyMs };
+      return { latencyMs, parseError: null, payload: undefined, response };
     }
 
     try {
       const payload = await response.json();
-      return { response, payload, parseError: null, latencyMs };
+      return { latencyMs, parseError: null, payload, response };
     } catch (error) {
       return {
-        response,
-        payload: undefined,
-        parseError: error instanceof Error ? error : new Error(String(error)),
         latencyMs,
+        parseError: error instanceof Error ? error : new Error(String(error)),
+        payload: undefined,
+        response,
       };
     }
   } finally {

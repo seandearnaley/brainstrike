@@ -10,18 +10,18 @@ describe('FileStatusBadge', () => {
     fileId: 'file-1',
     fileName: 'test.ts',
     filePath: '/test/path/test.ts',
-    searchableInActive: false,
-    searchableChunksCount: 0,
-    totalChunksCount: 0,
     otherCollectionsCount: 0,
+    searchableChunksCount: 0,
+    searchableInActive: false,
+    totalChunksCount: 0,
     ...overrides,
   });
 
   describe('Searchable status', () => {
     it('shows searchable badge when file has embeddings in active collection', () => {
       const status = createStatus({
-        searchableInActive: true,
         searchableChunksCount: 5,
+        searchableInActive: true,
         totalChunksCount: 5,
       });
 
@@ -33,8 +33,8 @@ describe('FileStatusBadge', () => {
 
     it('shows singular "chunk" for single chunk', () => {
       const status = createStatus({
-        searchableInActive: true,
         searchableChunksCount: 1,
+        searchableInActive: true,
         totalChunksCount: 1,
       });
 
@@ -45,10 +45,10 @@ describe('FileStatusBadge', () => {
 
     it('shows last indexed time when available', () => {
       const status = createStatus({
-        searchableInActive: true,
-        searchableChunksCount: 3,
-        totalChunksCount: 3,
         lastIndexedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
+        searchableChunksCount: 3,
+        searchableInActive: true,
+        totalChunksCount: 3,
       });
 
       render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
@@ -59,10 +59,10 @@ describe('FileStatusBadge', () => {
 
     it('shows other collections count when file is in multiple collections', () => {
       const status = createStatus({
-        searchableInActive: true,
-        searchableChunksCount: 3,
-        totalChunksCount: 3,
         otherCollectionsCount: 2,
+        searchableChunksCount: 3,
+        searchableInActive: true,
+        totalChunksCount: 3,
       });
 
       render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
@@ -72,10 +72,10 @@ describe('FileStatusBadge', () => {
 
     it('shows singular "collection" for one other collection', () => {
       const status = createStatus({
-        searchableInActive: true,
-        searchableChunksCount: 3,
-        totalChunksCount: 3,
         otherCollectionsCount: 1,
+        searchableChunksCount: 3,
+        searchableInActive: true,
+        totalChunksCount: 3,
       });
 
       render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
@@ -87,8 +87,8 @@ describe('FileStatusBadge', () => {
   describe('Not searchable status', () => {
     it('shows not searchable badge when file has no embeddings', () => {
       const status = createStatus({
-        searchableInActive: false,
         searchableChunksCount: 0,
+        searchableInActive: false,
         totalChunksCount: 5,
       });
 
@@ -99,8 +99,8 @@ describe('FileStatusBadge', () => {
 
     it('shows chunk count and needs indexing message', () => {
       const status = createStatus({
-        searchableInActive: false,
         searchableChunksCount: 0,
+        searchableInActive: false,
         totalChunksCount: 10,
       });
 
@@ -112,8 +112,8 @@ describe('FileStatusBadge', () => {
 
     it('shows singular "chunk" for single chunk not indexed', () => {
       const status = createStatus({
-        searchableInActive: false,
         searchableChunksCount: 0,
+        searchableInActive: false,
         totalChunksCount: 1,
       });
 
@@ -126,9 +126,9 @@ describe('FileStatusBadge', () => {
   describe('Relative time formatting', () => {
     it('shows "just now" for very recent timestamps', () => {
       const status = createStatus({
-        searchableInActive: true,
-        searchableChunksCount: 3,
         lastIndexedAt: new Date(Date.now() - 30 * 1000).toISOString(), // 30 seconds ago
+        searchableChunksCount: 3,
+        searchableInActive: true,
       });
 
       render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
@@ -138,9 +138,9 @@ describe('FileStatusBadge', () => {
 
     it('shows minutes for recent timestamps', () => {
       const status = createStatus({
-        searchableInActive: true,
-        searchableChunksCount: 3,
         lastIndexedAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15 minutes ago
+        searchableChunksCount: 3,
+        searchableInActive: true,
       });
 
       render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
@@ -150,9 +150,9 @@ describe('FileStatusBadge', () => {
 
     it('shows hours for timestamps within 24 hours', () => {
       const status = createStatus({
-        searchableInActive: true,
-        searchableChunksCount: 3,
         lastIndexedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), // 5 hours ago
+        searchableChunksCount: 3,
+        searchableInActive: true,
       });
 
       render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
@@ -162,9 +162,9 @@ describe('FileStatusBadge', () => {
 
     it('shows days for timestamps within a week', () => {
       const status = createStatus({
-        searchableInActive: true,
-        searchableChunksCount: 3,
         lastIndexedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
+        searchableChunksCount: 3,
+        searchableInActive: true,
       });
 
       render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);

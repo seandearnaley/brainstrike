@@ -1,4 +1,4 @@
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
+import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -30,23 +30,14 @@ const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 
 const DEFAULTS: InspectorFields = {
   includeInReport: true,
-  summaryLevel: 5,
   note: '',
+  summaryLevel: 5,
 };
 
 export const useInspectorViewStore = create<InspectorViewStore>()(
   persist(
     (set, get) => ({
       byContext: {},
-      setFields: (ctx, fields) => set((s) => ({ byContext: { ...s.byContext, [ctx]: fields } })),
-      updateFields: (ctx, patch) =>
-        set((s) => ({
-          byContext: {
-            ...s.byContext,
-            [ctx]: { ...(s.byContext[ctx] ?? DEFAULTS), ...patch },
-          },
-        })),
-      getFields: (ctx) => get().byContext[ctx] ?? DEFAULTS,
       clear: (ctx) => {
         if (!ctx) {
           set({ byContext: {} });
@@ -56,12 +47,21 @@ export const useInspectorViewStore = create<InspectorViewStore>()(
         const { [ctx]: _drop, ...rest } = byContext;
         set({ byContext: rest });
       },
+      getFields: (ctx) => get().byContext[ctx] ?? DEFAULTS,
+      setFields: (ctx, fields) => set((s) => ({ byContext: { ...s.byContext, [ctx]: fields } })),
+      updateFields: (ctx, patch) =>
+        set((s) => ({
+          byContext: {
+            ...s.byContext,
+            [ctx]: { ...(s.byContext[ctx] ?? DEFAULTS), ...patch },
+          },
+        })),
     }),
     {
       name: STORE_NAME,
-      version: 1,
-      storage,
       partialize: (s) => ({ byContext: s.byContext }),
+      storage,
+      version: 1,
     }
   )
 );

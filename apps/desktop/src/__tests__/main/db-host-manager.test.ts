@@ -36,10 +36,10 @@ class FakeUtilityProcess extends EventEmitter {
 
   reject(message: PostedMessage, error: string): void {
     this.emit('message', {
+      error: { message: error },
       id: message.id,
       kind: 'response',
       ok: false,
-      error: { message: error },
     });
   }
 }
@@ -138,8 +138,8 @@ describe('DbHostManager', () => {
       kind: 'request',
       request: {
         kind: 'query',
-        sql: 'SELECT $1::text AS value',
         params: ['ok'],
+        sql: 'SELECT $1::text AS value',
       },
     });
     latestProcess().reply(queryMessage as PostedMessage, { rows: [{ value: 'ok' }] });
@@ -245,14 +245,14 @@ describe('DbHostManager', () => {
 
     void manager.getDiagnostics();
     latestProcess().emit('message', {
-      kind: 'log',
-      level: 'info',
-      message: 'DB host init completed',
       context: {
         logSource: 'db-host',
         pid: 123,
         runtime: 'db-host',
       },
+      kind: 'log',
+      level: 'info',
+      message: 'DB host init completed',
     });
 
     expect(loggerInfoMock).toHaveBeenCalledWith(
@@ -273,13 +273,13 @@ describe('DbHostManager', () => {
     const diagnosticsMessage = latestProcess().messages.at(-1);
     expect(diagnosticsMessage?.request.kind).toBe('diagnostics');
     latestProcess().reply(diagnosticsMessage as PostedMessage, {
-      hasDatabaseHandle: true,
       dataDir: '/mock/pgdata',
+      hasDatabaseHandle: true,
     });
 
     await expect(diagnosticsPromise).resolves.toMatchObject({
-      hasDatabaseHandle: true,
       dataDir: '/mock/pgdata',
+      hasDatabaseHandle: true,
     });
     expect(forkMock).toHaveBeenCalledTimes(1);
   });
@@ -372,8 +372,8 @@ describe('DbHostManager', () => {
     const database = await databasePromise;
 
     const livePromise = database.live.query({
-      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
       params: ['needle'],
+      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
     });
     const liveMessage = latestProcess().messages.at(-1);
 
@@ -381,14 +381,14 @@ describe('DbHostManager', () => {
       request: {
         kind: 'live:start',
         payload: {
-          query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
           params: ['needle'],
+          query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
         },
       },
     });
     latestProcess().reply(liveMessage as PostedMessage, {
-      liveId: 'live-1',
       initialResults: { rows: [] },
+      liveId: 'live-1',
     });
 
     await expect(livePromise).resolves.toMatchObject({
@@ -404,8 +404,8 @@ describe('DbHostManager', () => {
     const database = await databasePromise;
 
     const livePromise = database.live.query({
-      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
       params: ['needle'],
+      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
     });
     const liveMessage = latestProcess().messages.at(-1);
     latestProcess().reject(liveMessage as PostedMessage, 'too few arguments for format()');
@@ -433,8 +433,8 @@ describe('DbHostManager', () => {
     const livePromise = database.live.query({ query: 'SELECT 1' });
     const liveMessage = latestProcess().messages.at(-1);
     latestProcess().reply(liveMessage as PostedMessage, {
-      liveId: 'live-1',
       initialResults: { rows: [] },
+      liveId: 'live-1',
     });
     const liveQuery = await livePromise;
 
@@ -508,6 +508,147 @@ describe('DbHostManager', () => {
           timeoutMs: 5,
         }),
         'DB host request timed out'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('logs when a timed-out request eventually completes instead of dropping the late response silently', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      const queryPromise = database.query('SELECT COUNT(*) FROM job_queue', []);
+      const timeoutAssertion = expect(queryPromise).rejects.toThrow(
+        'DB host request timed out: query'
+      );
+      const queryMessage = latestProcess().messages.at(-1) as PostedMessage;
+      await vi.advanceTimersByTimeAsync(5);
+      await timeoutAssertion;
+      loggerWarnMock.mockClear();
+
+      // The DB host executes one statement at a time, so a timed-out request
+      // usually means the statement is STILL RUNNING and still blocking the
+      // host. Its eventual completion must be visible in logs, not vanish.
+      await vi.advanceTimersByTimeAsync(20);
+      latestProcess().reply(queryMessage, { rows: [] });
+      await flushMicrotasks();
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 25,
+          ok: true,
+          requestKind: 'query',
+          timeoutMs: 5,
+        }),
+        'DB host request completed after timeout'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the oldest abandoned request under an eviction burst so the head-of-line culprit still gets its late-completion log', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      // One wedged statement makes every request queued behind it time out
+      // too — far more than the abandoned-map capacity. The FIRST request is
+      // the one actually executing; its entry must survive the burst.
+      const promises = Array.from({ length: 70 }, (_, index) =>
+        database.query(`SELECT ${index}`, [])
+      );
+      for (const promise of promises) {
+        promise.catch(() => undefined);
+      }
+      const firstMessage = latestProcess().messages.at(-70) as PostedMessage;
+      await vi.advanceTimersByTimeAsync(5);
+      loggerWarnMock.mockClear();
+
+      await vi.advanceTimersByTimeAsync(20);
+      latestProcess().reply(firstMessage, { rows: [] });
+      await flushMicrotasks();
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 25,
+          ok: true,
+          requestKind: 'query',
+        }),
+        'DB host request completed after timeout'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('evicts a permanently-abandoned entry once it exceeds the staleness ceiling, so the map cannot stay wedged full forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        maintenanceRequestTimeoutMs: 50,
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      // Fill the abandoned-request map to capacity with requests that never
+      // reply — the "wedged host, never terminated" scenario the bounded map
+      // must still recover from.
+      const fillPromises = Array.from({ length: 64 }, (_, index) =>
+        database.query(`SELECT ${index}`, [])
+      );
+      for (const promise of fillPromises) {
+        promise.catch(() => undefined);
+      }
+      await vi.advanceTimersByTimeAsync(5);
+
+      // None of the 64 ever reply. Once they've outlived the maintenance
+      // staleness ceiling, a new timeout must still be able to evict the
+      // oldest one and get tracked — not be dropped as "map full" forever.
+      await vi.advanceTimersByTimeAsync(50);
+      const lateQueryPromise = database.query('SELECT 64', []);
+      lateQueryPromise.catch(() => undefined);
+      const lateMessage = latestProcess().messages.at(-1) as PostedMessage;
+      await vi.advanceTimersByTimeAsync(5);
+      loggerWarnMock.mockClear();
+
+      await vi.advanceTimersByTimeAsync(20);
+      latestProcess().reply(lateMessage, { rows: [] });
+      await flushMicrotasks();
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 25,
+          ok: true,
+          requestKind: 'query',
+        }),
+        'DB host request completed after timeout'
       );
     } finally {
       vi.useRealTimers();
@@ -666,7 +807,7 @@ describe('DbHostManager', () => {
       const queryPromise = tx.query('SELECT 1');
       const queryMessage = latestProcess().messages.at(-1);
       expect(queryMessage).toMatchObject({
-        request: { kind: 'transaction:query', transactionId, sql: 'SELECT 1' },
+        request: { kind: 'transaction:query', sql: 'SELECT 1', transactionId },
       });
       latestProcess().reply(queryMessage as PostedMessage, { rows: [{ value: 1 }] });
       return (await queryPromise).rows[0];

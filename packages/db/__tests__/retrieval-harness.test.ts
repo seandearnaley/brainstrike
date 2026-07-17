@@ -8,11 +8,11 @@ describe('retrieval regression harness', () => {
 
     for (const result of report.queries) {
       console.info('[retrieval-harness] query metrics', {
-        id: result.id,
-        query: result.query,
-        precisionAt1: result.precisionAt1,
-        topFiles: result.topFiles.map((entry) => entry.filePath),
         expected: result.expectedFilePaths,
+        id: result.id,
+        precisionAt1: result.precisionAt1,
+        query: result.query,
+        topFiles: result.topFiles.map((entry) => entry.filePath),
       });
 
       expect(result.precisionAt1, `precision@1 for ${result.id}`).toBe(1);

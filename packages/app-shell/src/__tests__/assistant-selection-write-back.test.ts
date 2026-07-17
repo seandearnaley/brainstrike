@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeRootPathForLookup,
   resolveWriteBackFolderId,
-} from '../assistant-ui-panel-wrapper';
+} from '../assistant-selection-write-back';
 
 const PATH_TO_CLIENT_ROOT_ID = new Map<string, string>([
   ['/work/ProjectA', 'client-a'],
@@ -13,7 +13,7 @@ describe('resolveWriteBackFolderId (multi-root write-back routing)', () => {
   it('routes a payload rootPath to the matching client RootId', () => {
     expect(
       resolveWriteBackFolderId(
-        { folderId: 'client-a', rootPath: '/work/ProjectB', rootId: 'db-b' },
+        { folderId: 'client-a', rootId: 'db-b', rootPath: '/work/ProjectB' },
         PATH_TO_CLIENT_ROOT_ID
       )
     ).toBe('client-b');
@@ -28,7 +28,7 @@ describe('resolveWriteBackFolderId (multi-root write-back routing)', () => {
   it('returns null when the rootPath matches no open client root (caller must skip)', () => {
     expect(
       resolveWriteBackFolderId(
-        { folderId: 'client-a', rootPath: '/work/NotOpen', rootId: 'db-x' },
+        { folderId: 'client-a', rootId: 'db-x', rootPath: '/work/NotOpen' },
         PATH_TO_CLIENT_ROOT_ID
       )
     ).toBeNull();

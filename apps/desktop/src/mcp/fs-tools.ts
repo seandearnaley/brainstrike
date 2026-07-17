@@ -55,7 +55,7 @@ export async function handleFilesystemRead(
         encoding === 'base64'
           ? buf.toString('base64', 0, bytesRead)
           : buf.toString('utf8', 0, bytesRead);
-      return { path: filePath, size, encoding, content, truncated };
+      return { content, encoding, path: filePath, size, truncated };
     } finally {
       await fh.close();
     }
@@ -99,7 +99,7 @@ export async function handleFilesystemSearch(
     type: 'file' | 'dir';
   }
   const results: Item[] = [];
-  const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  const queue: Array<{ dir: string; depth: number }> = [{ depth: 0, dir: root }];
   try {
     while (queue.length > 0 && results.length < maxResults) {
       const next = queue.shift();
@@ -132,7 +132,7 @@ export async function handleFilesystemSearch(
             results.push({ name: e.name, path: itemPath, type: 'dir' });
           }
           if (depth < maxDepth) {
-            queue.push({ dir: itemPath, depth: depth + 1 });
+            queue.push({ depth: depth + 1, dir: itemPath });
           }
           continue;
         }

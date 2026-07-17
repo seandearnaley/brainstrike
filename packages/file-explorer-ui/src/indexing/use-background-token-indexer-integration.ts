@@ -196,13 +196,13 @@ function lookupSelectedFileSize(params: {
     normalizedPath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
   } catch (error) {
     logger.debug('Failed to normalize selection path during size prefetch lookup', {
+      error,
       folderId,
       selectionPath,
-      error,
     });
     return null;
   }
-  return { folderId, normalizedPath, fileSize: handleInfo.fileSize };
+  return { fileSize: handleInfo.fileSize, folderId, normalizedPath };
 }
 
 // Foreground selection-driven dispatch is intentionally NOT gated on
@@ -368,8 +368,8 @@ export function useBackgroundTokenIndexerIntegration({
       preloadedFoldersRef.current.clear();
       bumpInFlightPulse((v) => v + 1);
       logger.debug('Cleared caches due to root folder change', {
-        previousRootIds: prev,
         nextRootIds: rootFingerprint,
+        previousRootIds: prev,
       });
     }
 
@@ -416,8 +416,8 @@ export function useBackgroundTokenIndexerIntegration({
       // This avoids expensive tree traversal when the map won't be used
       if (currentSelectedSize === 0 && inFlightRef.current.size === 0) {
         logger.debug('Skipping handle map rebuild - no active operations', {
-          selectedCount: currentSelectedSize,
           inFlightCount: inFlightRef.current.size,
+          selectedCount: currentSelectedSize,
         });
         return;
       }
@@ -433,9 +433,9 @@ export function useBackgroundTokenIndexerIntegration({
       // that runs regardless of whether FileTreeIndex or local map is used.
 
       logger.debug('File handle map built', {
-        size: map.size,
         hasElectron: [...map.values()].some((h) => h.electronHandle),
         hasWeb: [...map.values()].some((h) => h.webHandle),
+        size: map.size,
       });
     }, 500); // Wait 500ms for tree to stabilize before rebuilding
   }, []); // Empty deps - uses refs for all values
@@ -489,10 +489,10 @@ export function useBackgroundTokenIndexerIntegration({
     }
 
     logger.debug('Selection transition 0 → >0, checking if rebuild needed', {
-      newSize: selectedFiles.size,
+      hasIndex: !!indexGetHandleRef.current,
       isStale: fileHandleMapStaleRef.current,
       mapSize: fileHandleMapRef.current.size,
-      hasIndex: !!indexGetHandleRef.current,
+      newSize: selectedFiles.size,
     });
 
     // Note: scheduleRebuildIfNeeded will short-circuit if FileTreeIndex is available
@@ -521,9 +521,9 @@ export function useBackgroundTokenIndexerIntegration({
       } catch (error) {
         logger.warn('Skipping hot-cache writeback for unsafe indexed path', {
           compositeKey,
+          error: error instanceof Error ? error.message : String(error),
           folderId,
           path,
-          error: error instanceof Error ? error.message : String(error),
         });
         return;
       }
@@ -564,10 +564,10 @@ export function useBackgroundTokenIndexerIntegration({
   // Use the background token indexer when context is available
   const backgroundIndexer = useBackgroundTokenIndexer({
     autoStart: false,
-    store: tokenCache?.store ?? null,
     mode: tokenCache?.countingMode ?? 'heuristic',
-    onFileIndexed: handleFileIndexed,
     onFileError: handleFileError,
+    onFileIndexed: handleFileIndexed,
+    store: tokenCache?.store ?? null,
     workerUrl: resolveBackgroundIndexerWorkerUrlHref(),
   });
 
@@ -599,9 +599,9 @@ export function useBackgroundTokenIndexerIntegration({
       if (!cache?.isOperational) {
         // Use debug level - this is expected during startup before everything initializes
         logger.debug('triggerIndexing blocked - not ready', {
-          tokenCacheOperational: cache?.isOperational ?? false,
           backgroundIndexerReady: indexer.isReady,
           requestedFiles: compositeKeys.length,
+          tokenCacheOperational: cache?.isOperational ?? false,
         });
         return;
       }
@@ -629,8 +629,8 @@ export function useBackgroundTokenIndexerIntegration({
           await indexer.indexFiles(batch);
           await yieldIfMoreTokenIndexingBatches({
             nextIndex: i + INDEX_BATCH_SIZE,
-            totalCount: files.length,
             onYield: () => undefined,
+            totalCount: files.length,
           });
         }
       };
@@ -749,35 +749,35 @@ export function useBackgroundTokenIndexerIntegration({
       const estimatedElectronBytes = dispatchPlan.estimatedElectronBytes;
 
       const emitLargeSelectionDiagnostics = shouldEmitLargeSelectionDiagnostics({
-        totalFileCount: compositeKeys.length,
         electronFileCount: electronFilesToRead.length,
         estimatedElectronBytes,
+        totalFileCount: compositeKeys.length,
       });
 
       if (emitLargeSelectionDiagnostics) {
         logger.info('Background token indexing prepared large selection', {
-          requestedFiles: compositeKeys.length,
-          webFiles: webFilesToIndex.length,
           electronFiles: electronFilesToRead.length,
           estimatedElectronBytes,
           indexedCount: indexedFilesRef.current.size,
           inFlightCount: inFlightRef.current.size,
+          requestedFiles: compositeKeys.length,
           skippedBinary,
           skippedInvalidPath,
           skippedNoHandle,
           skippedTooLarge,
+          webFiles: webFilesToIndex.length,
         });
       }
 
       logger.debug('Background token indexing classified files', {
-        requestedFiles: compositeKeys.length,
-        webFiles: webFilesToIndex.length,
-        webResolverFiles: webResolverQueue.length,
         electronFiles: electronFilesToRead.length,
+        requestedFiles: compositeKeys.length,
         skippedBinary,
         skippedInvalidPath,
         skippedNoHandle,
         skippedTooLarge,
+        webFiles: webFilesToIndex.length,
+        webResolverFiles: webResolverQueue.length,
       });
 
       if (webFilesToIndex.length > 0) {
@@ -809,13 +809,13 @@ export function useBackgroundTokenIndexerIntegration({
               batch.map(async (item) => {
                 try {
                   const resolution = await webResolver(item.absolutePath);
-                  return { ...item, resolution, error: null as Error | null };
+                  return { ...item, error: null as Error | null, resolution };
                 } catch (error) {
                   const wrapped = error instanceof Error ? error : new Error(String(error));
                   return {
                     ...item,
-                    resolution: null as WebFileForIndexingResolution | null,
                     error: wrapped,
+                    resolution: null as WebFileForIndexingResolution | null,
                   };
                 }
               })
@@ -873,8 +873,8 @@ export function useBackgroundTokenIndexerIntegration({
                 resolvedBatchToIndex.push({
                   compositeKey: result.compositeKey,
                   content: result.resolution.content,
-                  fileSize: result.resolution.fileSize,
                   filePath: result.filePath,
+                  fileSize: result.resolution.fileSize,
                   folderId: result.folderId,
                 });
               }
@@ -892,10 +892,10 @@ export function useBackgroundTokenIndexerIntegration({
 
             await yieldIfMoreTokenIndexingBatches({
               nextIndex: i + TOKEN_INDEXER_IO_BATCH_SIZE,
-              totalCount: webResolverQueue.length,
               onYield: () => {
                 webResolverYieldedBatches += 1;
               },
+              totalCount: webResolverQueue.length,
             });
           }
 
@@ -905,10 +905,10 @@ export function useBackgroundTokenIndexerIntegration({
               elapsedMs: Date.now() - webResolverStartedAt,
               queuedFiles: webResolverQueue.length,
               remainingFiles: 0,
-              yieldedBatchCount: webResolverYieldedBatches,
               webHandlesResolved,
               webResolverFailures,
               webResolverSkippedTooLarge,
+              yieldedBatchCount: webResolverYieldedBatches,
             });
           }
         } else {
@@ -941,16 +941,16 @@ export function useBackgroundTokenIndexerIntegration({
             batch.map(async ({ compositeKey, folderId, filePath, fileSize, handle }) => {
               try {
                 const content = await fileReader(handle);
-                return { compositeKey, folderId, filePath, fileSize, content, error: null };
+                return { compositeKey, content, error: null, filePath, fileSize, folderId };
               } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 return {
                   compositeKey,
-                  folderId,
-                  filePath,
-                  fileSize,
                   content: null,
                   error: message,
+                  filePath,
+                  fileSize,
+                  folderId,
                 };
               }
             })
@@ -981,19 +981,19 @@ export function useBackgroundTokenIndexerIntegration({
             electronBytesRead += result.fileSize ?? new Blob([result.content]).size;
             electronFilesReady.push({
               compositeKey: result.compositeKey,
-              folderId: result.folderId,
-              filePath: result.filePath,
               content: result.content,
+              filePath: result.filePath,
               fileSize: result.fileSize ?? new Blob([result.content]).size,
+              folderId: result.folderId,
             });
           }
 
           logger.debug('Background token indexing dispatched Electron batch', {
-            batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
             batchFilesReady: electronFilesReady.length,
+            batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
+            elapsedMs: Date.now() - electronStartedAt,
             electronBytesRead,
             electronFilesRead,
-            elapsedMs: Date.now() - electronStartedAt,
             estimatedElectronBytes,
             remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
             yieldedBatchCount: electronYieldedBatches,
@@ -1005,9 +1005,9 @@ export function useBackgroundTokenIndexerIntegration({
           ) {
             logger.info('Background token indexing dispatched Electron batches', {
               batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
+              elapsedMs: Date.now() - electronStartedAt,
               electronBytesRead,
               electronFilesRead,
-              elapsedMs: Date.now() - electronStartedAt,
               estimatedElectronBytes,
               queuedFiles: electronFilesToRead.length,
               remainingFiles: 0,
@@ -1025,31 +1025,31 @@ export function useBackgroundTokenIndexerIntegration({
 
           await yieldIfMoreTokenIndexingBatches({
             nextIndex: i + TOKEN_INDEXER_IO_BATCH_SIZE,
-            totalCount: electronFilesToRead.length,
             onYield: () => {
               electronYieldedBatches += 1;
             },
+            totalCount: electronFilesToRead.length,
           });
         }
       }
 
       logger.debug('triggerIndexing prepared', {
-        toIndex: webFilesToIndex.length + electronFilesToRead.length,
-        skippedNoHandle,
-        skippedBinary,
-        skippedTooLarge,
-        skippedInvalidPath,
         electronFiles: electronFilesToRead.length,
+        skippedBinary,
+        skippedInvalidPath,
+        skippedNoHandle,
+        skippedTooLarge,
+        toIndex: webFilesToIndex.length + electronFilesToRead.length,
         webFiles: webFilesToIndex.length,
       });
 
       // Log upfront filtering summary at info level when files are skipped
       if (skippedBinary > 0 || skippedTooLarge > 0) {
         logger.info('Upfront filtering applied', {
+          remaining: webFilesToIndex.length + electronFilesToRead.length,
           skippedBinary,
           skippedTooLarge,
           totalSkipped: skippedBinary + skippedTooLarge,
-          remaining: webFilesToIndex.length + electronFilesToRead.length,
         });
       }
     },
@@ -1103,10 +1103,10 @@ export function useBackgroundTokenIndexerIntegration({
 
     if (
       shouldReconcileShrink({
-        previousSize,
-        nextSize: selectedFiles.size,
         inFlightSize: inFlightRef.current.size,
+        nextSize: selectedFiles.size,
         pendingNoHandleSize: pendingNoHandleRef.current.size,
+        previousSize,
       })
     ) {
       // Previously, any shrink cleared the entire in-flight set, which threw
@@ -1116,13 +1116,13 @@ export function useBackgroundTokenIndexerIntegration({
       // hard-cancels the worker batch only when every in-flight key was
       // deselected.
       handleSelectionShrink({
-        previousSize,
-        previousSelectedFiles,
-        selectedFiles,
-        inFlight: inFlightRef.current,
-        pendingNoHandle: pendingNoHandleRef.current,
         cancelBatch: () => indexer.cancelIndexing(),
+        inFlight: inFlightRef.current,
         onPulse: () => bumpInFlightPulse((value) => value + 1),
+        pendingNoHandle: pendingNoHandleRef.current,
+        previousSelectedFiles,
+        previousSize,
+        selectedFiles,
       });
     }
 
@@ -1137,8 +1137,8 @@ export function useBackgroundTokenIndexerIntegration({
     // When FileTreeIndex is available, skip the local map size check since we use index lookups.
     const hasHandleSource = indexGetHandleRef.current || fileHandleMapRef.current.size > 0;
     const skipReason = getSelectionSkipState({
-      selectedCount: selectedFiles.size,
       hasHandleSource: Boolean(hasHandleSource),
+      selectedCount: selectedFiles.size,
     });
     if (skipReason) {
       // Track the last skip reason to avoid log thrash when the skip persists
@@ -1168,8 +1168,8 @@ export function useBackgroundTokenIndexerIntegration({
     const debounceMs = getAdaptiveDebounceMs(newFiles.length);
 
     logger.debug('Selection debounce configured', {
-      newFileCount: newFiles.length,
       debounceMs,
+      newFileCount: newFiles.length,
     });
 
     const timeoutId = setTimeout(() => {
@@ -1256,8 +1256,8 @@ export function useBackgroundTokenIndexerIntegration({
     if (previousPersistedStateRef.current !== currentPersisted) {
       if (previousPersistedStateRef.current !== undefined) {
         logger.debug('Clearing preload memo due to persistence state change', {
-          previous: previousPersistedStateRef.current,
           current: currentPersisted,
+          previous: previousPersistedStateRef.current,
         });
         preloadedFoldersRef.current.clear();
       }
@@ -1297,9 +1297,9 @@ export function useBackgroundTokenIndexerIntegration({
           normalizedPath = normalizeSelectionPathForTokenCache(folderId, path);
         } catch (error) {
           logger.warn('Skipping warm-cache lookup for unsafe path', {
+            error: error instanceof Error ? error.message : String(error),
             folderId,
             path,
-            error: error instanceof Error ? error.message : String(error),
           });
           continue;
         }
@@ -1341,9 +1341,9 @@ export function useBackgroundTokenIndexerIntegration({
       if (warmCacheSkipReasonRef.current !== 'already-preloaded') {
         warmCacheSkipReasonRef.current = 'already-preloaded';
         logger.debug('Warm cache effect skipped - folders already preloaded', {
+          cacheVersion: currentCacheVersion,
           folderCount: folderIds.size,
           totalFiles: selectedFiles.size,
-          cacheVersion: currentCacheVersion,
         });
       }
       return;
@@ -1352,10 +1352,10 @@ export function useBackgroundTokenIndexerIntegration({
     warmCacheSkipReasonRef.current = null;
 
     logger.debug('Warm cache effect: preloading folders', {
+      cacheVersion: currentCacheVersion,
       folderCount: folderIds.size,
       foldersToPreload: foldersToPreload.length,
       totalFiles: selectedFiles.size,
-      cacheVersion: currentCacheVersion,
     });
 
     // Only preload folders that haven't been preloaded at this cache version
@@ -1406,15 +1406,15 @@ export function useBackgroundTokenIndexerIntegration({
           if (hydrated > 0 || entries.size > 0) {
             logger.debug('Warm cache: hydrated from store', {
               folderId,
-              requested: folderSelection.normalizedPaths.length,
               foundInStore: entries.size,
               hydrated,
+              requested: folderSelection.normalizedPaths.length,
               skippedAlreadyIndexed: skipped,
             });
           }
         })
         .catch((error) => {
-          logger.warn('Failed to hydrate hot cache from store', { folderId, error });
+          logger.warn('Failed to hydrate hot cache from store', { error, folderId });
         });
     }
     // NOTE: tokenCacheIsPersisted is included to re-run when persistence becomes available.
@@ -1435,18 +1435,18 @@ export function useBackgroundTokenIndexerIntegration({
   }, []);
 
   return {
-    isIndexing: backgroundIndexer.isIndexing,
-    triggerIndexing,
-    isReady: backgroundIndexer.isReady && (tokenCache?.isOperational ?? false),
-    progress: backgroundIndexer.progress,
     diagnostics: {
-      indexedCount: indexedFilesRef.current.size,
-      inFlightCount: inFlightRef.current.size,
-      fileHandleMapSize: fileHandleMapRef.current.size,
-      workerReady: backgroundIndexer.isReady,
       cacheOperational: tokenCache?.isOperational ?? false,
       cachePersisted: tokenCache?.isPersisted ?? false,
       clearIndexedCache,
+      fileHandleMapSize: fileHandleMapRef.current.size,
+      indexedCount: indexedFilesRef.current.size,
+      inFlightCount: inFlightRef.current.size,
+      workerReady: backgroundIndexer.isReady,
     },
+    isIndexing: backgroundIndexer.isIndexing,
+    isReady: backgroundIndexer.isReady && (tokenCache?.isOperational ?? false),
+    progress: backgroundIndexer.progress,
+    triggerIndexing,
   };
 }

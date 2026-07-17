@@ -102,12 +102,12 @@ describe('ExpandableTextarea', () => {
     const onKeyDown = vi.fn();
     render(<ExpandableTextarea onChange={onChange} onKeyDown={onKeyDown} value="" />);
 
-    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(screen.getByRole('textbox'), { ctrlKey: true, key: 'Enter' });
 
     expect(onKeyDown).toHaveBeenCalledWith(
       expect.objectContaining({
-        key: 'Enter',
         ctrlKey: true,
+        key: 'Enter',
       })
     );
   });

@@ -17,10 +17,10 @@ import {
 } from '../tools/retrieval-tool';
 
 const createMockEmbeddingSet = (overrides: Partial<EmbeddingSetInfo> = {}): EmbeddingSetInfo => ({
-  modelKey: 'openai/text-embedding-3-small',
-  modelId: 'text-embedding-3-small',
   dimensions: 1536,
   distance: 'cosine',
+  modelId: 'text-embedding-3-small',
+  modelKey: 'openai/text-embedding-3-small',
   ...overrides,
 });
 
@@ -30,21 +30,21 @@ const createMockChunkResult = (
   const { chunk: chunkOverrides, ...resultOverrides } = overrides;
   return {
     chunk: {
-      id: 'chunk-001',
-      content: 'This is test chunk content.',
-      tokenCount: 10,
       chunkIndex: 0,
       chunkType: 'text',
-      startLine: 1,
+      content: 'This is test chunk content.',
+      embeddingSetId: 'set-001',
       endLine: 2,
-      startOffset: 0,
       endOffset: 27,
       fileRecordId: 'file-001',
-      embeddingSetId: 'set-001',
+      id: 'chunk-001',
+      startLine: 1,
+      startOffset: 0,
+      tokenCount: 10,
       ...chunkOverrides,
     },
-    similarity: 0.85,
     rank: 1,
+    similarity: 0.85,
     ...resultOverrides,
   };
 };
@@ -60,10 +60,10 @@ const createMockFileRecord = (overrides: Partial<FileRecordInfo> = {}): FileReco
 const createMockDependencies = (
   overrides: Partial<RetrievalToolDependencies> = {}
 ): RetrievalToolDependencies => ({
-  resolveEmbeddingSet: vi.fn().mockResolvedValue(createMockEmbeddingSet()),
   generateQueryEmbedding: vi.fn().mockResolvedValue(new Array(1536).fill(0.1)),
-  searchSimilarChunks: vi.fn().mockResolvedValue([createMockChunkResult()]),
+  resolveEmbeddingSet: vi.fn().mockResolvedValue(createMockEmbeddingSet()),
   resolveFileRecords: vi.fn().mockResolvedValue(new Map([['file-001', createMockFileRecord()]])),
+  searchSimilarChunks: vi.fn().mockResolvedValue([createMockChunkResult()]),
   ...overrides,
 });
 
@@ -115,8 +115,8 @@ describe('createRetrievalTool', () => {
     const tool = createRetrievalTool(undefined, deps);
 
     const result = await runTool(tool, {
-      query: 'How does authentication work?',
       embeddingSetId: 'set-001',
+      query: 'How does authentication work?',
     });
 
     expect(result).toBeDefined();
@@ -165,29 +165,29 @@ describe('createRetrievalTool', () => {
   it('returns structured workspace index status when the default workspace index is blocked', async () => {
     const deps = createMockDependencies();
     const runtime: RuntimeData = {
+      workspaceIndexBlockedReason: 'missing-provider-key',
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
       workspaceIndexingEnabled: true,
       workspaceIndexingPaused: false,
-      workspaceIndexStatusState: 'blocked',
-      workspaceIndexBlockedReason: 'missing-provider-key',
       workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
       workspaceIndexQueueProgress: {
         failed: 1,
+        lastError: 'provider key unavailable',
         pending: 3,
         processed: 7,
         totalQueued: 11,
-        lastError: 'provider key unavailable',
       },
+      workspaceIndexStatusState: 'blocked',
     };
     const tool = createRetrievalTool(runtime, deps);
 
     const result = await runTool(tool, { query: 'test query' });
 
     expect(result).toEqual({
-      status: 'unavailable',
-      reason: 'workspace-index-blocked',
       message: 'Workspace Index is blocked: missing-provider-key.',
       query: 'test query',
+      reason: 'workspace-index-blocked',
+      status: 'unavailable',
       workspaceIndex: {
         blockedReason: 'missing-provider-key',
         embeddingSetId: 'workspace-index-set',
@@ -212,7 +212,7 @@ describe('createRetrievalTool', () => {
     const runtime: RuntimeData = { embeddingSetId: 'runtime-set' };
     const tool = createRetrievalTool(runtime, deps);
 
-    const result = await runTool(tool, { query: 'test', embeddingSetId: 'input-set' });
+    const result = await runTool(tool, { embeddingSetId: 'input-set', query: 'test' });
 
     const r = result as { embeddingSetId: string };
     expect(r.embeddingSetId).toBe('input-set');
@@ -228,7 +228,7 @@ describe('createRetrievalTool', () => {
     };
     const tool = createRetrievalTool(runtime, deps);
 
-    const result = await runTool(tool, { query: 'test', embeddingSetId: 'input-set' });
+    const result = await runTool(tool, { embeddingSetId: 'input-set', query: 'test' });
 
     const r = result as { embeddingSetId: string };
     expect(r.embeddingSetId).toBe('input-set');
@@ -284,7 +284,7 @@ describe('createRetrievalTool', () => {
     const deps = createMockDependencies();
     const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
 
-    await runTool(tool, { query: 'test', limit: 5, threshold: 0.7 });
+    await runTool(tool, { limit: 5, query: 'test', threshold: 0.7 });
 
     expect(deps.searchSimilarChunks).toHaveBeenCalledWith(
       expect.any(Array),
@@ -355,18 +355,18 @@ describe('createRetrievalTool', () => {
       searchSimilarChunks: vi.fn().mockResolvedValue([
         createMockChunkResult({
           chunk: {
-            id: 'chunk-1',
-            content: 'First chunk content',
             chunkIndex: 0,
+            content: 'First chunk content',
             fileRecordId: 'file-001',
+            id: 'chunk-1',
           },
         }),
         createMockChunkResult({
           chunk: {
-            id: 'chunk-2',
-            content: 'Second chunk content',
             chunkIndex: 1,
+            content: 'Second chunk content',
             fileRecordId: 'file-001',
+            id: 'chunk-2',
           },
           rank: 2,
         }),
@@ -389,10 +389,10 @@ describe('createRetrievalTool', () => {
       searchSimilarChunks: vi.fn().mockResolvedValue([
         createMockChunkResult({
           chunk: {
-            id: 'chunk-1',
-            content: 'Content',
             chunkIndex: 3,
+            content: 'Content',
             fileRecordId: 'file-001',
+            id: 'chunk-1',
           },
         }),
       ]),
@@ -447,21 +447,21 @@ describe('createRetrievalTool', () => {
     const deps = createMockDependencies({
       searchSimilarChunks: vi.fn().mockResolvedValue([
         createMockChunkResult({
-          chunk: { id: 'c1', content: 'One', chunkIndex: 0, fileRecordId: 'f1' },
+          chunk: { chunkIndex: 0, content: 'One', fileRecordId: 'f1', id: 'c1' },
         }),
         createMockChunkResult({
-          chunk: { id: 'c2', content: 'Two', chunkIndex: 1, fileRecordId: 'f1' },
+          chunk: { chunkIndex: 1, content: 'Two', fileRecordId: 'f1', id: 'c2' },
           rank: 2,
         }),
         createMockChunkResult({
-          chunk: { id: 'c3', content: 'Three', chunkIndex: 2, fileRecordId: 'f1' },
+          chunk: { chunkIndex: 2, content: 'Three', fileRecordId: 'f1', id: 'c3' },
           rank: 3,
         }),
       ]),
     });
     const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
 
-    const result = await runTool(tool, { query: 'test', maxChunks: 2 });
+    const result = await runTool(tool, { maxChunks: 2, query: 'test' });
 
     const r = result as { chunks: unknown[]; context: string; skipped: number };
     expect(r.chunks).toHaveLength(2);
@@ -497,8 +497,8 @@ describe('createRetrievalTool', () => {
   it('logs debug messages when logger provided', async () => {
     const logger = {
       debug: vi.fn(),
-      warn: vi.fn(),
       error: vi.fn(),
+      warn: vi.fn(),
     };
     const deps = createMockDependencies({ logger });
     const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
@@ -542,17 +542,17 @@ describe('createRetrievalTool', () => {
     };
     const withSourceRange = createMockChunkResult({
       chunk: {
-        id: 'chunk-002',
-        content: 'Line-aware content.',
-        tokenCount: 5,
         chunkIndex: 1,
         chunkType: 'code',
-        startLine: 8,
+        content: 'Line-aware content.',
+        embeddingSetId: 'set-001',
         endLine: 9,
-        startOffset: 30,
         endOffset: 51,
         fileRecordId: 'file-001',
-        embeddingSetId: 'set-001',
+        id: 'chunk-002',
+        startLine: 8,
+        startOffset: 30,
+        tokenCount: 5,
       },
       rank: 2,
     });
@@ -598,6 +598,26 @@ describe('createRetrievalTool', () => {
     );
   });
 
+  it('does not expose raw retrieval errors in development mode', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    const deps = createMockDependencies({
+      searchSimilarChunks: vi
+        .fn()
+        .mockRejectedValue(new Error('Database connection failed for /private/workspace')),
+    });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
+
+    try {
+      await expect(runTool(tool, { query: 'test' })).rejects.toThrow(
+        RETRIEVAL_ERROR_MESSAGES.retrievalFailed
+      );
+      await expect(runTool(tool, { query: 'test' })).rejects.not.toThrow('/private/workspace');
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
   it('passes through safe error messages unchanged', async () => {
     const deps = createMockDependencies({
       resolveEmbeddingSet: vi
@@ -626,9 +646,9 @@ describe('buildToolsWithRetrieval', () => {
     const deps = createMockDependencies();
     const base = {
       'custom.tool': {
-        id: 'custom.tool',
         description: 'A custom tool',
         execute: vi.fn(),
+        id: 'custom.tool',
       },
     };
     const tools = buildToolsWithRetrieval(undefined, deps, base);
@@ -640,9 +660,9 @@ describe('buildToolsWithRetrieval', () => {
   it('overrides existing retrieval tool if present', () => {
     const deps = createMockDependencies();
     const oldTool = {
-      id: RETRIEVAL_TOOL_ID,
       description: 'Old version',
       execute: vi.fn(),
+      id: RETRIEVAL_TOOL_ID,
     };
     const base = { [RETRIEVAL_TOOL_ID]: oldTool };
     const tools = buildToolsWithRetrieval(undefined, deps, base);

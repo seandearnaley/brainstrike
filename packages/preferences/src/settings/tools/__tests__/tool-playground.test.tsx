@@ -44,15 +44,15 @@ vi.mock('@brainstrike/ui', () => ({
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
   return {
-    getItem: vi.fn((key: string) => store[key] ?? null),
-    setItem: vi.fn((key: string, value: string) => {
-      store[key] = value;
+    clear: vi.fn(() => {
+      store = {};
     }),
+    getItem: vi.fn((key: string) => store[key] ?? null),
     removeItem: vi.fn((key: string) => {
       delete store[key];
     }),
-    clear: vi.fn(() => {
-      store = {};
+    setItem: vi.fn((key: string, value: string) => {
+      store[key] = value;
     }),
   };
 })();
@@ -178,9 +178,9 @@ describe('ToolPlayground', () => {
   describe('execution', () => {
     it('executes with parsed JSON input', async () => {
       mockOnExecute.mockResolvedValue({
-        success: true,
-        result: { data: 'test' },
         durationMs: 100,
+        result: { data: 'test' },
+        success: true,
       });
 
       render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);
@@ -216,9 +216,9 @@ describe('ToolPlayground', () => {
 
       // Resolve the promise
       resolveExecution!({
-        success: true,
-        result: {},
         durationMs: 50,
+        result: {},
+        success: true,
       });
 
       await waitFor(() => {
@@ -228,9 +228,9 @@ describe('ToolPlayground', () => {
 
     it('displays success result', async () => {
       mockOnExecute.mockResolvedValue({
-        success: true,
-        result: { message: 'Hello World' },
         durationMs: 150,
+        result: { message: 'Hello World' },
+        success: true,
       });
 
       render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);
@@ -247,9 +247,9 @@ describe('ToolPlayground', () => {
 
     it('displays error result', async () => {
       mockOnExecute.mockResolvedValue({
-        success: false,
-        error: 'Something went wrong',
         durationMs: 50,
+        error: 'Something went wrong',
+        success: false,
       });
 
       render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);
@@ -280,14 +280,14 @@ describe('ToolPlayground', () => {
     it('clears previous result when executing again', async () => {
       mockOnExecute
         .mockResolvedValueOnce({
-          success: true,
-          result: { first: true },
           durationMs: 100,
+          result: { first: true },
+          success: true,
         })
         .mockResolvedValueOnce({
-          success: true,
-          result: { second: true },
           durationMs: 200,
+          result: { second: true },
+          success: true,
         });
 
       render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);
@@ -312,9 +312,9 @@ describe('ToolPlayground', () => {
   describe('result styling', () => {
     it('applies success styling for successful execution', async () => {
       mockOnExecute.mockResolvedValue({
-        success: true,
-        result: {},
         durationMs: 50,
+        result: {},
+        success: true,
       });
 
       render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);
@@ -329,9 +329,9 @@ describe('ToolPlayground', () => {
 
     it('applies error styling for failed execution', async () => {
       mockOnExecute.mockResolvedValue({
-        success: false,
-        error: 'Failed',
         durationMs: 50,
+        error: 'Failed',
+        success: false,
       });
 
       render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);

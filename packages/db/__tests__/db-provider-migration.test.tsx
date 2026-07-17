@@ -16,15 +16,15 @@ function wrapper({ children }: { children: React.ReactNode }) {
 function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   const now = new Date().toISOString();
   return {
+    chunkingStrategy: overrides.chunkingStrategy ?? 'sentence',
+    chunksCount: overrides.chunksCount ?? 0,
+    createdAt: overrides.createdAt ?? now,
     id: overrides.id ?? `test-id-${Math.random().toString(36).slice(2)}`,
     name: overrides.name ?? 'test-file.txt',
     path: overrides.path ?? '/tmp/test-file.txt',
     size: overrides.size ?? 1234,
-    chunksCount: overrides.chunksCount ?? 0,
-    chunkingStrategy: overrides.chunkingStrategy ?? 'sentence',
-    createdAt: overrides.createdAt ?? now,
-    updatedAt: overrides.updatedAt ?? now,
     tokenCount: overrides.tokenCount ?? 0,
+    updatedAt: overrides.updatedAt ?? now,
     ...overrides,
   };
 }

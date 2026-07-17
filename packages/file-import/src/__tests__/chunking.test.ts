@@ -10,39 +10,39 @@ import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 function createMockPortableChunk(overrides: Partial<PortableChunk> = {}): PortableChunk {
   return {
     chunkIndex: 0,
+    chunkSize: 100,
+    chunkType: 'sentence',
     content: 'Chunk content',
     contentHash: 'hash-1',
-    tokenCount: 10,
-    chunkType: 'sentence',
-    chunkSize: 100,
-    startLine: 1,
     endLine: 1,
-    startOffset: 0,
     endOffset: 13,
+    startLine: 1,
+    startOffset: 0,
+    tokenCount: 10,
     ...overrides,
   };
 }
 
 function createMockChunkingWorkerPort(overrides?: Partial<ChunkingWorkerPort>): ChunkingWorkerPort {
   return {
-    transportKind: 'local-worker',
+    chunkBatch: vi.fn().mockResolvedValue([]),
+    chunkFile: vi.fn().mockResolvedValue({
+      chunks: [createMockPortableChunk()],
+      fileRecordId: 'file-1',
+      skipped: false,
+      strategyUsed: 'sentence',
+      totalTokens: 10,
+    }),
+    chunkFileById: vi.fn().mockResolvedValue({
+      chunks: [createMockPortableChunk()],
+      fileRecordId: 'file-1',
+      skipped: false,
+      strategyUsed: 'sentence',
+      totalTokens: 10,
+    }),
     isReady: vi.fn().mockReturnValue(true),
     terminate: vi.fn(),
-    chunkFile: vi.fn().mockResolvedValue({
-      fileRecordId: 'file-1',
-      chunks: [createMockPortableChunk()],
-      strategyUsed: 'sentence',
-      totalTokens: 10,
-      skipped: false,
-    }),
-    chunkBatch: vi.fn().mockResolvedValue([]),
-    chunkFileById: vi.fn().mockResolvedValue({
-      fileRecordId: 'file-1',
-      chunks: [createMockPortableChunk()],
-      strategyUsed: 'sentence',
-      totalTokens: 10,
-      skipped: false,
-    }),
+    transportKind: 'local-worker',
     ...overrides,
   };
 }
@@ -70,15 +70,15 @@ vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual('@brainstrike/db');
   return {
     ...actual,
-    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     CHUNKING_CONFIG: {
+      chunkPreviewLength: 50,
       defaultMaxTokens: 1000,
       defaultOverlap: 100,
       embeddingInitializationDelay: 100,
       embeddingProcessingDelay: 10,
-      chunkPreviewLength: 50,
       veryLargeContentThreshold: 50,
     },
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   };
 });
 
@@ -145,11 +145,11 @@ describe('processFileChunking', () => {
   it('throws error when repository is not available', async () => {
     await expect(
       processFileChunking(
-        { id: 'file-1', imported: true, existed: false },
+        { existed: false, id: 'file-1', imported: true },
         0,
         1,
         0,
-        { repository: null, chunkRepository: mockChunkRepository as never },
+        { chunkRepository: mockChunkRepository as never, repository: null },
         { updateProgress: mockUpdateProgress }
       )
     ).rejects.toThrow('Repository not available');
@@ -158,11 +158,11 @@ describe('processFileChunking', () => {
   it('throws error when chunkRepository is not available', async () => {
     await expect(
       processFileChunking(
-        { id: 'file-1', imported: true, existed: false },
+        { existed: false, id: 'file-1', imported: true },
         0,
         1,
         0,
-        { repository: mockRepository as never, chunkRepository: null },
+        { chunkRepository: null, repository: mockRepository as never },
         { updateProgress: mockUpdateProgress }
       )
     ).rejects.toThrow('Repository not available');
@@ -170,11 +170,11 @@ describe('processFileChunking', () => {
 
   it('returns early when file was not imported or existed', async () => {
     const result = await processFileChunking(
-      { id: 'file-1', imported: false, existed: false },
+      { existed: false, id: 'file-1', imported: false },
       0,
       1,
       0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       { updateProgress: mockUpdateProgress }
     );
 
@@ -184,11 +184,11 @@ describe('processFileChunking', () => {
 
   it('returns early when result has error', async () => {
     const result = await processFileChunking(
-      { id: 'file-1', imported: true, existed: false, error: 'Import error' },
+      { error: 'Import error', existed: false, id: 'file-1', imported: true },
       0,
       1,
       0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       { updateProgress: mockUpdateProgress }
     );
 
@@ -200,11 +200,11 @@ describe('processFileChunking', () => {
     mockRepository.findById.mockResolvedValue(null);
 
     const result = await processFileChunking(
-      { id: 'file-1', imported: true, existed: false },
+      { existed: false, id: 'file-1', imported: true },
       0,
       1,
       0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       { updateProgress: mockUpdateProgress }
     );
 
@@ -220,11 +220,11 @@ describe('processFileChunking', () => {
     });
 
     const result = await processFileChunking(
-      { id: 'file-1', imported: true, existed: false },
+      { existed: false, id: 'file-1', imported: true },
       0,
       1,
       0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       { updateProgress: mockUpdateProgress }
     );
 
@@ -233,19 +233,19 @@ describe('processFileChunking', () => {
 
   it('successfully processes file chunks via worker', async () => {
     mockRepository.findById.mockResolvedValue({
+      content: 'File content to be chunked',
       id: 'file-1',
       name: 'test.txt',
       path: '/test.txt',
-      content: 'File content to be chunked',
     });
 
     const result = await processFileChunking(
-      { id: 'file-1', imported: true, existed: false },
+      { existed: false, id: 'file-1', imported: true },
       0,
       1,
       0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: mockWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(result.enhancedResult.chunksCreated).toBe(1);
@@ -259,22 +259,22 @@ describe('processFileChunking', () => {
 
   it('can skip retaining inserted chunks when the caller does not need post-processing payloads', async () => {
     mockRepository.findById.mockResolvedValue({
+      content: 'File content to be chunked',
       id: 'file-1',
       name: 'test.txt',
       path: '/test.txt',
-      content: 'File content to be chunked',
     });
 
     const result = await processFileChunking(
-      { id: 'file-1', imported: true, existed: false },
+      { existed: false, id: 'file-1', imported: true },
       0,
       1,
       0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       {
-        updateProgress: mockUpdateProgress,
         chunkingWorkerPort: mockWorkerPort,
         retainInsertedChunks: false,
+        updateProgress: mockUpdateProgress,
       }
     );
 
@@ -286,31 +286,31 @@ describe('processFileChunking', () => {
 
   it('handles chunking skipped scenario via worker', async () => {
     mockRepository.findById.mockResolvedValue({
+      content: 'Short',
       id: 'file-1',
       name: 'test.txt',
       path: '/test.txt',
-      content: 'Short',
     });
 
     // Configure worker port to return skipped result
     const skippedWorkerPort = createMockChunkingWorkerPort({
       chunkFile: vi.fn().mockResolvedValue({
-        fileRecordId: 'file-1',
         chunks: [],
+        fileRecordId: 'file-1',
         skipped: true,
         skipReason: 'Content too short',
-        totalTokens: 0,
         strategyUsed: 'sentence',
+        totalTokens: 0,
       }),
     });
 
     const result = await processFileChunking(
-      { id: 'file-1', imported: true, existed: false },
+      { existed: false, id: 'file-1', imported: true },
       0,
       1,
       0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: skippedWorkerPort }
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: skippedWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(result.enhancedResult.chunksCreated).toBe(0);
@@ -321,27 +321,27 @@ describe('processFileChunking', () => {
 
   it('uses custom chunk size and overlap when provided via worker', async () => {
     mockRepository.findById.mockResolvedValue({
+      content: 'File content',
       id: 'file-1',
       name: 'test.txt',
       path: '/test.txt',
-      content: 'File content',
     });
 
     const customWorkerPort = createMockChunkingWorkerPort();
 
     await processFileChunking(
-      { id: 'file-1', imported: true, existed: false },
+      { existed: false, id: 'file-1', imported: true },
       0,
       1,
       0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       {
-        updateProgress: mockUpdateProgress,
-        chunkSize: 500,
-        chunkOverlap: 50,
-        tokenLimit: 2048,
         chunkingStrategy: 'recursive',
         chunkingWorkerPort: customWorkerPort,
+        chunkOverlap: 50,
+        chunkSize: 500,
+        tokenLimit: 2048,
+        updateProgress: mockUpdateProgress,
       }
     );
 
@@ -351,31 +351,31 @@ describe('processFileChunking', () => {
       'test.txt',
       '/test.txt',
       expect.objectContaining({
-        strategy: 'recursive',
-        maxTokens: 500,
-        overlap: 50,
-        maxTokensCap: 2048,
         ignoreFileTypeRecommendations: true,
+        maxTokens: 500,
+        maxTokensCap: 2048,
+        overlap: 50,
+        strategy: 'recursive',
       })
     );
   });
 
   it('throws error when worker port is not provided (no main-thread fallback)', async () => {
     mockRepository.findById.mockResolvedValue({
+      content: 'File content to be chunked',
       id: 'file-1',
       name: 'test.txt',
       path: '/test.txt',
-      content: 'File content to be chunked',
     });
 
     // CRITICAL: Main-thread fallback is disabled. Must throw when worker not provided.
     await expect(
       processFileChunking(
-        { id: 'file-1', imported: true, existed: false },
+        { existed: false, id: 'file-1', imported: true },
         0,
         1,
         0,
-        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
         { updateProgress: mockUpdateProgress }
       )
     ).rejects.toThrow('Chunking worker is required but not available');
@@ -383,10 +383,10 @@ describe('processFileChunking', () => {
 
   it('fails fast when the worker becomes unavailable at execution time', async () => {
     mockRepository.findById.mockResolvedValue({
+      content: 'File content to be chunked',
       id: 'file-1',
       name: 'test.txt',
       path: '/test.txt',
-      content: 'File content to be chunked',
     });
 
     const notReadyWorkerPort = createMockChunkingWorkerPort({
@@ -395,12 +395,12 @@ describe('processFileChunking', () => {
 
     await expect(
       processFileChunking(
-        { id: 'file-1', imported: true, existed: false },
+        { existed: false, id: 'file-1', imported: true },
         0,
         1,
         0,
-        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-        { updateProgress: mockUpdateProgress, chunkingWorkerPort: notReadyWorkerPort }
+        { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+        { chunkingWorkerPort: notReadyWorkerPort, updateProgress: mockUpdateProgress }
       )
     ).rejects.toThrow('Chunking worker is not ready at chunk execution time');
 
@@ -409,28 +409,28 @@ describe('processFileChunking', () => {
 
   it('updates progress correctly via worker', async () => {
     mockRepository.findById.mockResolvedValue({
+      content: 'File content',
       id: 'file-1',
       name: 'test.txt',
       path: '/test.txt',
-      content: 'File content',
     });
 
     await processFileChunking(
-      { id: 'file-1', imported: true, existed: false },
+      { existed: false, id: 'file-1', imported: true },
       2,
       5,
       10,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: mockWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(mockUpdateProgress).toHaveBeenCalledTimes(2);
     const [initialUpdater, finalUpdater] = mockUpdateProgress.mock.calls.map(([fn]) => fn);
     const initialProgress = initialUpdater?.({
-      phase: 'importing',
-      total: 5,
       completed: 2,
       errors: [],
+      phase: 'importing',
+      total: 5,
     } as EnhancedImportProgress);
 
     expect(initialProgress?.phase).toBe('chunking');
@@ -452,24 +452,24 @@ describe('processFileChunking', () => {
     const largeContent =
       'This is a very large file content that should trigger streaming mode because it exceeds the threshold.';
     mockRepository.findById.mockResolvedValue({
+      content: largeContent,
       id: 'file-large',
       name: 'large.txt',
       path: '/large.txt',
-      content: largeContent,
     });
 
     // CRITICAL: Streaming fallback is disabled. Must throw when worker not provided, even for large files.
     await expect(
       processFileChunking(
-        { id: 'file-large', imported: true, existed: false },
+        { existed: false, id: 'file-large', imported: true },
         0,
         1,
         0,
-        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
         {
+          streamBatchSize: 2,
           updateProgress: mockUpdateProgress,
           useStreamingForLargeFiles: true,
-          streamBatchSize: 2,
         }
       )
     ).rejects.toThrow('Chunking worker is required but not available');
@@ -480,24 +480,24 @@ describe('processFileChunking', () => {
     const largeContent =
       'This is a very large file content that should trigger streaming mode because it exceeds the threshold.';
     mockRepository.findById.mockResolvedValue({
+      content: largeContent,
       id: 'file-large-embed',
       name: 'large-embed.txt',
       path: '/large-embed.txt',
-      content: largeContent,
     });
 
     // CRITICAL: Streaming fallback is disabled. Must throw when worker not provided.
     await expect(
       processFileChunking(
-        { id: 'file-large-embed', imported: true, existed: false },
+        { existed: false, id: 'file-large-embed', imported: true },
         0,
         1,
         0,
-        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
         {
+          targetEmbeddingSetId: 'set-123',
           updateProgress: mockUpdateProgress,
           useStreamingForLargeFiles: true,
-          targetEmbeddingSetId: 'set-123',
         }
       )
     ).rejects.toThrow('Chunking worker is required but not available');
@@ -514,17 +514,17 @@ describe('processChunking', () => {
   beforeEach(() => {
     mockRepository = {
       findById: vi.fn().mockResolvedValue({
+        content: 'File content',
         id: 'file-1',
         name: 'test.txt',
         path: '/test.txt',
-        content: 'File content',
       }),
       findByIds: vi.fn().mockImplementation(async (ids: readonly string[]) =>
         ids.map((id) => ({
+          content: `File content for ${id}`,
           id,
           name: `${id}.txt`,
           path: `/${id}.txt`,
-          content: `File content for ${id}`,
         }))
       ),
       update: vi.fn().mockResolvedValue(undefined),
@@ -544,8 +544,8 @@ describe('processChunking', () => {
   it('throws error when repository is not available', async () => {
     await expect(
       processChunking(
-        [{ id: 'file-1', imported: true, existed: false }],
-        { repository: null, chunkRepository: mockChunkRepository as never },
+        [{ existed: false, id: 'file-1', imported: true }],
+        { chunkRepository: mockChunkRepository as never, repository: null },
         { updateProgress: mockUpdateProgress }
       )
     ).rejects.toThrow('Repository not available for chunking');
@@ -554,8 +554,8 @@ describe('processChunking', () => {
   it('throws when processChunking is called without a worker port', async () => {
     await expect(
       processChunking(
-        [{ id: 'file-1', imported: true, existed: false }],
-        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        [{ existed: false, id: 'file-1', imported: true }],
+        { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
         { updateProgress: mockUpdateProgress }
       )
     ).rejects.toThrow('Chunking worker is required for imports but was not provided');
@@ -572,9 +572,9 @@ describe('processChunking', () => {
       });
 
       const chunkingPromise = processChunking(
-        [{ id: 'file-1', imported: true, existed: false }],
-        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-        { updateProgress: mockUpdateProgress, chunkingWorkerPort: unavailableWorkerPort }
+        [{ existed: false, id: 'file-1', imported: true }],
+        { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+        { chunkingWorkerPort: unavailableWorkerPort, updateProgress: mockUpdateProgress }
       );
       const rejection = expect(chunkingPromise).rejects.toThrow(
         'Chunking worker failed to become ready within 5000ms'
@@ -591,18 +591,18 @@ describe('processChunking', () => {
 
   it('processes multiple files successfully via worker', async () => {
     const importResults: FileImportResult[] = [
-      { id: 'file-1', imported: true, existed: false },
-      { id: 'file-2', imported: false, existed: true },
+      { existed: false, id: 'file-1', imported: true },
+      { existed: true, id: 'file-2', imported: false },
     ];
     mockRepository.findByIds.mockResolvedValueOnce([
-      { id: 'file-1', name: 'test1.txt', path: '/test1.txt', content: 'File 1 content' },
-      { id: 'file-2', name: 'test2.txt', path: '/test2.txt', content: 'File 2 content' },
+      { content: 'File 1 content', id: 'file-1', name: 'test1.txt', path: '/test1.txt' },
+      { content: 'File 2 content', id: 'file-2', name: 'test2.txt', path: '/test2.txt' },
     ]);
 
     const results = await processChunking(
       importResults,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: mockWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(results).toHaveLength(2);
@@ -612,24 +612,24 @@ describe('processChunking', () => {
 
   it('prefetches local-worker file records in bounded windows instead of one full-corpus fetch', async () => {
     const importResults: FileImportResult[] = Array.from({ length: 45 }, (_, index) => ({
+      existed: false,
       id: `file-${index + 1}`,
       imported: true,
-      existed: false,
     }));
 
     mockRepository.findByIds.mockImplementation(async (ids: readonly string[]) =>
       ids.map((id) => ({
+        content: `File content for ${id}`,
         id,
         name: `${id}.txt`,
         path: `/${id}.txt`,
-        content: `File content for ${id}`,
       }))
     );
 
     await processChunking(
       importResults,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: mockWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(mockRepository.findByIds.mock.calls.length).toBeGreaterThan(1);
@@ -642,13 +642,13 @@ describe('processChunking', () => {
 
   it('processes embeddings when enabled via worker', async () => {
     await processChunking(
-      [{ id: 'file-1', imported: true, existed: false }],
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      [{ existed: false, id: 'file-1', imported: true }],
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       {
-        updateProgress: mockUpdateProgress,
+        chunkingWorkerPort: mockWorkerPort,
         enableEmbedding: true,
         processEmbeddings: mockProcessEmbeddings,
-        chunkingWorkerPort: mockWorkerPort,
+        updateProgress: mockUpdateProgress,
       }
     );
 
@@ -664,9 +664,9 @@ describe('processChunking', () => {
 
     await expect(
       processChunking(
-        [{ id: 'file-1', imported: true, existed: false }],
-        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-        { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+        [{ existed: false, id: 'file-1', imported: true }],
+        { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+        { chunkingWorkerPort: mockWorkerPort, updateProgress: mockUpdateProgress }
       )
     ).rejects.toThrow('Database error');
   });
@@ -676,9 +676,9 @@ describe('processChunking', () => {
 
     await expect(
       processChunking(
-        [{ id: 'file-1', imported: true, existed: false }],
-        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-        { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+        [{ existed: false, id: 'file-1', imported: true }],
+        { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+        { chunkingWorkerPort: mockWorkerPort, updateProgress: mockUpdateProgress }
       )
     ).rejects.toThrow('Batch prefetch failed');
   });
@@ -689,9 +689,9 @@ describe('processChunking', () => {
     });
 
     await processChunking(
-      [{ id: 'file-1', imported: true, existed: false }],
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: hostProxyWorkerPort }
+      [{ existed: false, id: 'file-1', imported: true }],
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: hostProxyWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(mockRepository.findByIds).not.toHaveBeenCalled();
@@ -704,35 +704,35 @@ describe('processChunking', () => {
 
   it('persists host-proxy chunks onto the target embedding set', async () => {
     const hostProxyWorkerPort = createMockChunkingWorkerPort({
-      transportKind: 'host-proxy',
       chunkFileById: vi.fn().mockResolvedValue({
-        fileRecordId: 'file-1',
         chunks: [
           createMockPortableChunk({
             content: 'Scoped chunk content',
             contentHash: 'scoped-hash-1',
           }),
         ],
+        fileRecordId: 'file-1',
+        skipped: false,
         strategyUsed: 'sentence',
         totalTokens: 10,
-        skipped: false,
       }),
+      transportKind: 'host-proxy',
     });
 
     await processChunking(
-      [{ id: 'file-1', imported: true, existed: false }],
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      [{ existed: false, id: 'file-1', imported: true }],
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       {
-        updateProgress: mockUpdateProgress,
         chunkingWorkerPort: hostProxyWorkerPort,
         targetEmbeddingSetId: 'set-123',
+        updateProgress: mockUpdateProgress,
       }
     );
 
     expect(mockChunkRepository.insertMany).toHaveBeenCalledWith([
       expect.objectContaining({
-        fileRecordId: 'file-1',
         embeddingSetId: 'set-123',
+        fileRecordId: 'file-1',
       }),
     ]);
   });
@@ -747,14 +747,14 @@ describe('processChunking', () => {
     const runInTransaction = vi.fn(runInTransactionBase) as typeof runInTransactionBase;
 
     await processChunking(
-      [{ id: 'file-1', imported: true, existed: false }],
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      [{ existed: false, id: 'file-1', imported: true }],
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       {
-        updateProgress: mockUpdateProgress,
         chunkingWorkerPort: mockWorkerPort,
         embedQueueEnabled: true,
-        runInTransaction,
         enqueueJobsForChunksTx,
+        runInTransaction,
+        updateProgress: mockUpdateProgress,
       }
     );
 
@@ -786,16 +786,16 @@ describe('processChunking', () => {
 
     mockRepository.findByIds.mockResolvedValue([
       {
+        content: 'export const one = 1;',
         id: 'file-1',
         name: 'file-1.ts',
         path: '/file-1.ts',
-        content: 'export const one = 1;',
       },
       {
+        content: 'export const two = 2;',
         id: 'file-2',
         name: 'file-2.ts',
         path: '/file-2.ts',
-        content: 'export const two = 2;',
       },
     ]);
     const workerPort = createMockChunkingWorkerPort({
@@ -805,7 +805,6 @@ describe('processChunking', () => {
         }
         chunkedFileIds.push(fileRecordId);
         return {
-          fileRecordId,
           chunks: [
             createMockPortableChunk({
               content: `Chunk content for ${fileRecordId}`,
@@ -813,9 +812,10 @@ describe('processChunking', () => {
               endOffset: `Chunk content for ${fileRecordId}`.length,
             }),
           ],
+          fileRecordId,
+          skipped: false,
           strategyUsed: 'sentence',
           totalTokens: 10,
-          skipped: false,
         };
       }),
     });
@@ -830,15 +830,15 @@ describe('processChunking', () => {
 
     const chunkingPromise = processChunking(
       [
-        { id: 'file-1', imported: true, existed: false },
-        { id: 'file-2', imported: true, existed: false },
+        { existed: false, id: 'file-1', imported: true },
+        { existed: false, id: 'file-2', imported: true },
       ],
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
       {
-        updateProgress: mockUpdateProgress,
         chunkingWorkerPort: workerPort,
         embedQueueEnabled: true,
         insertChunksAndEnqueueEmbeddingJobs,
+        updateProgress: mockUpdateProgress,
       }
     );
 
@@ -857,14 +857,12 @@ describe('processChunking', () => {
     let maxActiveRequests = 0;
 
     const hostProxyWorkerPort = createMockChunkingWorkerPort({
-      transportKind: 'host-proxy',
       chunkFileById: vi.fn().mockImplementation(async (fileRecordId: string) => {
         activeRequests += 1;
         maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
         await new Promise((resolve) => setTimeout(resolve, 5));
         activeRequests -= 1;
         return {
-          fileRecordId,
           chunks: [
             createMockPortableChunk({
               content: `Chunk content for ${fileRecordId}`,
@@ -872,23 +870,25 @@ describe('processChunking', () => {
               endOffset: `Chunk content for ${fileRecordId}`.length,
             }),
           ],
+          fileRecordId,
+          skipped: false,
           strategyUsed: 'sentence',
           totalTokens: 10,
-          skipped: false,
         };
       }),
+      transportKind: 'host-proxy',
     });
 
     const importResults = Array.from({ length: 40 }, (_, index) => ({
+      existed: false,
       id: `file-${index + 1}`,
       imported: true,
-      existed: false,
     }));
 
     await processChunking(
       importResults,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: hostProxyWorkerPort }
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: hostProxyWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(maxActiveRequests).toBeGreaterThan(1);
@@ -901,7 +901,6 @@ describe('processChunking', () => {
     const processedFileIds: string[] = [];
 
     const hostProxyWorkerPort = createMockChunkingWorkerPort({
-      transportKind: 'host-proxy',
       chunkFileById: vi.fn().mockImplementation(async (fileRecordId: string) => {
         const index = Number(fileRecordId.replace('file-', ''));
         const delayMs = (index % 4) * 3;
@@ -909,7 +908,6 @@ describe('processChunking', () => {
         processedFileIds.push(fileRecordId);
 
         return {
-          fileRecordId,
           chunks: [
             createMockPortableChunk({
               content: `Chunk content for ${fileRecordId}`,
@@ -917,23 +915,25 @@ describe('processChunking', () => {
               endOffset: `Chunk content for ${fileRecordId}`.length,
             }),
           ],
+          fileRecordId,
+          skipped: false,
           strategyUsed: 'sentence',
           totalTokens: 10,
-          skipped: false,
         };
       }),
+      transportKind: 'host-proxy',
     });
 
     const importResults = Array.from({ length: 16 }, (_, index) => ({
+      existed: false,
       id: `file-${index + 1}`,
       imported: true,
-      existed: false,
     }));
 
     const results = await processChunking(
       importResults,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: hostProxyWorkerPort }
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: hostProxyWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(results).toHaveLength(importResults.length);
@@ -944,14 +944,14 @@ describe('processChunking', () => {
   it('keeps cumulative chunk progress accurate when local-worker completions resolve out of order', async () => {
     const progressSnapshots: EnhancedImportProgress[] = [];
     let currentProgress: EnhancedImportProgress | null = {
+      chunkingProgress: {
+        chunksCreated: 0,
+        filesProcessed: 0,
+        totalFiles: 20,
+      },
       completed: 0,
       errors: [],
       phase: 'chunking',
-      chunkingProgress: {
-        filesProcessed: 0,
-        totalFiles: 20,
-        chunksCreated: 0,
-      },
       total: 20,
     };
 
@@ -963,7 +963,6 @@ describe('processChunking', () => {
     });
 
     const delayedWorkerPort = createMockChunkingWorkerPort({
-      transportKind: 'local-worker',
       chunkFile: vi
         .fn()
         .mockImplementation(
@@ -978,7 +977,6 @@ describe('processChunking', () => {
             const delayMs = (20 - index) % 5;
             await new Promise((resolve) => setTimeout(resolve, delayMs));
             return {
-              fileRecordId,
               chunks: [
                 createMockPortableChunk({
                   content: `Chunk content for ${fileRecordId}`,
@@ -986,44 +984,46 @@ describe('processChunking', () => {
                   endOffset: `Chunk content for ${fileRecordId}`.length,
                 }),
               ],
+              fileRecordId,
+              skipped: false,
               strategyUsed: 'sentence',
               totalTokens: 10,
-              skipped: false,
             };
           }
         ),
+      transportKind: 'local-worker',
     });
 
     const importResults: FileImportResult[] = Array.from({ length: 20 }, (_, index) => ({
+      existed: false,
       id: `file-${index + 1}`,
       imported: true,
-      existed: false,
     }));
 
     await processChunking(
       importResults,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: delayedWorkerPort }
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: delayedWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(progressSnapshots.at(-1)).toEqual({
+      chunkingProgress: {
+        chunksCreated: 20,
+        filesProcessed: 20,
+        totalFiles: 20,
+      },
       completed: 0,
       errors: [],
       phase: 'complete',
-      chunkingProgress: {
-        filesProcessed: 20,
-        totalFiles: 20,
-        chunksCreated: 20,
-      },
       total: 20,
     });
   });
 
   it('updates final progress correctly via worker', async () => {
     await processChunking(
-      [{ id: 'file-1', imported: true, existed: false }],
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+      [{ existed: false, id: 'file-1', imported: true }],
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: mockWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     const lastCall = mockUpdateProgress.mock.calls.at(-1)?.[0];
@@ -1038,15 +1038,15 @@ describe('processChunking', () => {
 
   it('skips undefined results in array via worker', async () => {
     const importResults = [
-      { id: 'file-1', imported: true, existed: false },
+      { existed: false, id: 'file-1', imported: true },
       undefined as unknown as FileImportResult,
-      { id: 'file-2', imported: true, existed: false },
+      { existed: false, id: 'file-2', imported: true },
     ];
 
     const results = await processChunking(
       importResults,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { chunkingWorkerPort: mockWorkerPort, updateProgress: mockUpdateProgress }
     );
 
     expect(results).toHaveLength(2);

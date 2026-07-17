@@ -7,19 +7,19 @@ vi.mock('node:fs', async () => {
   const statSync = vi.fn(() => ({ isDirectory: () => true }));
   const statAsync = vi.fn(async () => ({
     isDirectory: () => true,
-    size: 128,
     mtimeMs: Date.now(),
+    size: 128,
   }));
   const accessAsync = vi.fn(async () => undefined);
 
   const mockedFs = {
     ...actual,
-    statSync,
     promises: {
       ...actual.promises,
       access: accessAsync,
       stat: statAsync,
     },
+    statSync,
   };
   return {
     ...mockedFs,
@@ -31,8 +31,8 @@ vi.mock('node:fs', async () => {
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');
   const app = electronUtils.createAppMock({
-    whenReadyResolved: true,
     documentsPath: '/mock/userData',
+    whenReadyResolved: true,
   });
   const ipcMain = electronUtils.createIpcMainMock();
   Object.assign(ipcMain, {
@@ -48,23 +48,23 @@ vi.mock('electron', async () => {
     (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).__invoke(channel, ...args)
   );
   const mockBrowserWindowInstance = {
-    once: vi.fn(),
-    on: vi.fn(),
-    show: vi.fn(),
+    getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
+    getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
+    isFullScreen: vi.fn(() => false),
+    isMaximized: vi.fn(() => false),
     loadFile: vi.fn(),
     loadURL: vi.fn(),
     maximize: vi.fn(),
-    isFullScreen: vi.fn(() => false),
-    isMaximized: vi.fn(() => false),
-    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
-    getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
+    on: vi.fn(),
+    once: vi.fn(),
+    show: vi.fn(),
     webContents: {
-      setWindowOpenHandler: vi.fn(),
-      on: vi.fn(),
-      openDevTools: vi.fn(),
       getAllWebContents: vi.fn(() => []),
       getType: vi.fn(() => 'window'),
+      on: vi.fn(),
+      openDevTools: vi.fn(),
       send: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
     },
   };
   const BrowserWindow = vi.fn();
@@ -76,36 +76,37 @@ vi.mock('electron', async () => {
 
   return {
     app,
-    ipcMain,
-    ipcRenderer,
-    screen,
     BrowserWindow,
-    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
-    Menu: {
-      setApplicationMenu: vi.fn(),
-      buildFromTemplate: vi.fn(),
-    },
-    dialog: {
-      showSaveDialog: vi.fn(),
-      showMessageBox: vi.fn(),
-      showErrorBox: vi.fn(),
-    },
-    shell: {
-      showItemInFolder: vi.fn(),
-    },
     clipboard: {
       writeText: vi.fn(),
     },
-    webContents: {
-      getAllWebContents: vi.fn(() => []),
+    dialog: {
+      showErrorBox: vi.fn(),
+      showMessageBox: vi.fn(),
+      showSaveDialog: vi.fn(),
+    },
+    ipcMain,
+    ipcRenderer,
+    Menu: {
+      buildFromTemplate: vi.fn(),
+      setApplicationMenu: vi.fn(),
     },
     powerMonitor: {
       on: vi.fn(),
     },
     powerSaveBlocker: {
-      start: vi.fn(() => 1),
       isStarted: vi.fn(() => true),
+      start: vi.fn(() => 1),
       stop: vi.fn(),
+    },
+    protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
+    screen,
+    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    shell: {
+      showItemInFolder: vi.fn(),
+    },
+    webContents: {
+      getAllWebContents: vi.fn(() => []),
     },
   };
 });
@@ -148,8 +149,8 @@ vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual('@brainstrike/utils');
   return {
     ...actual,
+    createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
     initializeLogging: vi.fn(),
-    createLogger: () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() }),
   };
 });
 
@@ -169,18 +170,18 @@ describe('logging IPC handler performance', () => {
 
   it('uses asynchronous fs.promises.stat (Optimized)', async () => {
     const newPreferences: LoggingPreferences = {
-      level: LogLevel.INFO,
       consoleEnabled: true,
       consoleLevel: LogLevel.INFO,
-      includeTimestamp: true,
-      redactPaths: [],
       file: {
-        enabled: true,
-        destination: '/mock/userData/logs/test.log',
-        level: LogLevel.DEBUG,
         append: true,
+        destination: '/mock/userData/logs/test.log',
+        enabled: true,
+        level: LogLevel.DEBUG,
         mkdir: true,
       },
+      includeTimestamp: true,
+      level: LogLevel.INFO,
+      redactPaths: [],
     };
 
     // We need to spy on the imported fs methods to verify calls
@@ -199,28 +200,28 @@ describe('logging IPC handler performance', () => {
     statMock
       .mockResolvedValueOnce({
         isDirectory: () => true,
-        size: 100,
         mtimeMs: 1000,
+        size: 100,
       } as unknown as Awaited<ReturnType<typeof fs.promises.stat>>)
       .mockResolvedValueOnce({
         isDirectory: () => true,
-        size: 220,
         mtimeMs: 2000,
+        size: 220,
       } as unknown as Awaited<ReturnType<typeof fs.promises.stat>>);
 
     const newPreferences: LoggingPreferences = {
-      level: LogLevel.INFO,
       consoleEnabled: true,
       consoleLevel: LogLevel.INFO,
-      includeTimestamp: true,
-      redactPaths: [],
       file: {
-        enabled: true,
-        destination: '/mock/userData/logs/test.log',
-        level: LogLevel.DEBUG,
         append: true,
+        destination: '/mock/userData/logs/test.log',
+        enabled: true,
+        level: LogLevel.DEBUG,
         mkdir: true,
       },
+      includeTimestamp: true,
+      level: LogLevel.INFO,
+      redactPaths: [],
     };
 
     await ipcRenderer.invoke('logging:set-preferences', newPreferences);

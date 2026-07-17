@@ -20,9 +20,9 @@ export class ImportProgressTracker {
     this.total = total;
     this.onProgress = listener;
     this.progress = {
-      total,
       completed: 0,
       errors: [],
+      total,
     };
   }
 

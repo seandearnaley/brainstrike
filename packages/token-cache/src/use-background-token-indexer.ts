@@ -253,14 +253,14 @@ async function persistResultToStore(
   }
 
   const entry: TokenCacheEntry = {
-    folderId: result.folderId,
-    filePath: result.filePath,
     contentHash: result.contentHash,
+    countingMode: 'heuristic',
+    filePath: result.filePath,
     fileSize: result.fileSize,
+    folderId: result.folderId,
+    modelEncoding: TOKEN_ESTIMATOR_ID,
     mtimeMs: null,
     tokenCount: result.tokenCount,
-    countingMode: 'heuristic',
-    modelEncoding: TOKEN_ESTIMATOR_ID,
   };
 
   await store.set(entry);
@@ -423,7 +423,7 @@ export function useBackgroundTokenIndexer({
     const normalized =
       error instanceof Error
         ? // Keep both keys for log-schema compatibility while consolidating to one log event.
-          { message: error.message, error: error.message, stack: error.stack }
+          { error: error.message, message: error.message, stack: error.stack }
         : { error: String(error) };
     logger.error('Background token indexer entered failed state', {
       context,
@@ -590,9 +590,9 @@ export function useBackgroundTokenIndexer({
 
       logger.warn('Background token indexer restarting after recoverable worker failure', {
         attempt: history.length,
+        context,
         maxAttempts: MAX_RECOVERABLE_WORKER_RESTARTS,
         windowMs: RECOVERABLE_WORKER_RESTART_WINDOW_MS,
-        context,
         ...getTerminalWorkerErrorDetails(error),
         error: error.message,
         pendingFilesDropped: pendingCount,
@@ -892,13 +892,13 @@ export function useBackgroundTokenIndexer({
         // Emit telemetry for successful indexing (BST-154)
         emitIndexedFile({
           compositeKey: result.compositeKey,
-          folderId: result.folderId,
-          filePath: result.filePath,
-          tokenCount: result.tokenCount,
-          mode: result.mode,
-          fileSize: result.fileSize,
           elapsedMs: result.elapsedMs,
+          filePath: result.filePath,
+          fileSize: result.fileSize,
+          folderId: result.folderId,
+          mode: result.mode,
           skipped: result.skipped,
+          tokenCount: result.tokenCount,
         });
 
         // Get latest callback and store from refs
@@ -920,9 +920,9 @@ export function useBackgroundTokenIndexer({
         // Emit telemetry for persistence error (BST-154)
         emitIndexingError({
           compositeKey: result.compositeKey,
-          folderId: result.folderId,
-          filePath: result.filePath,
           errorMessage: `Persistence failed: ${formatErrorMessage(error)}`,
+          filePath: result.filePath,
+          folderId: result.folderId,
         });
         const currentOnFileError = onFileErrorRef.current;
         if (currentOnFileError) {
@@ -946,17 +946,17 @@ export function useBackgroundTokenIndexer({
   const handleProgress = useCallback((progressMsg: IndexerProgress) => {
     const newProgress: IndexingProgress = {
       completed: progressMsg.completed,
-      total: progressMsg.total,
       currentFile: progressMsg.currentId,
+      total: progressMsg.total,
     };
     setProgress(newProgress);
     onProgressRef.current?.(newProgress);
 
     // Emit backlog telemetry (BST-154)
     emitIndexingBacklog({
-      inFlight: pendingFilesRef.current.size,
-      batchTotal: progressMsg.total,
       batchCompleted: progressMsg.completed,
+      batchTotal: progressMsg.total,
+      inFlight: pendingFilesRef.current.size,
     });
   }, []);
 
@@ -1019,8 +1019,8 @@ export function useBackgroundTokenIndexer({
           `Background token indexer unavailable: ${workerFailure.message}. ` +
           `Requested files dropped: ${files.length}.`;
         logger.error('indexFiles rejected - worker previously failed', {
-          fileCount: files.length,
           error: workerFailure.message,
+          fileCount: files.length,
         });
         emitTerminalIndexingError(message);
         pendingFilesRef.current.clear();
@@ -1032,9 +1032,9 @@ export function useBackgroundTokenIndexer({
       if (!(workerRef.current && workerRuntimeRef.current?.isReady())) {
         const message = `Background token indexer worker is not ready. Requested files dropped: ${files.length}.`;
         logger.error('indexFiles rejected - worker not ready', {
+          fileCount: files.length,
           hasWorker: !!workerRef.current,
           isReady: workerRuntimeRef.current?.isReady() ?? false,
-          fileCount: files.length,
         });
         emitTerminalIndexingError(message);
         pendingFilesRef.current.clear();
@@ -1073,11 +1073,11 @@ export function useBackgroundTokenIndexer({
           }
 
           requests.push({
-            id: createRequestId(),
-            compositeKey: file.compositeKey,
-            folderId: file.folderId,
-            filePath: file.filePath,
             cachedHash,
+            compositeKey: file.compositeKey,
+            filePath: file.filePath,
+            folderId: file.folderId,
+            id: createRequestId(),
             mode: currentMode,
             // Include pre-loaded content for Electron files
             ...(file.content === undefined ? {} : { content: file.content }),
@@ -1095,8 +1095,8 @@ export function useBackgroundTokenIndexer({
 
         // Send batch to worker
         const batchMessage: IndexerBatchRequest = {
-          type: 'index-batch',
           requests,
+          type: 'index-batch',
         };
 
         const trackedCompositeKeys = requests.map((request) => request.compositeKey);
@@ -1107,10 +1107,10 @@ export function useBackgroundTokenIndexer({
           rejectBatch = reject;
         });
         const tracker: PendingBatchTracker = {
+          done: false,
+          reject: rejectBatch,
           remainingCompositeKeys: new Set(trackedCompositeKeys),
           resolve: resolveBatch,
-          reject: rejectBatch,
-          done: false,
         };
 
         pendingBatchTrackersRef.current.push(tracker);
@@ -1153,10 +1153,10 @@ export function useBackgroundTokenIndexer({
   }, [rejectAllPendingBatchTrackers]);
 
   return {
-    indexFiles,
     cancelIndexing,
+    indexFiles,
     isIndexing,
-    progress,
     isReady,
+    progress,
   };
 }

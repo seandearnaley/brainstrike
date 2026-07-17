@@ -13,19 +13,19 @@ interface RecordedQueue {
 function createRecordedQueue(): RecordedQueue {
   return {
     enqueue: vi.fn(async (params: unknown) => ({
-      id: 'job-1',
-      queue: (params as { queue: string }).queue,
-      jobType: (params as { jobType: string }).jobType,
-      state: 'queued',
       dedupeKey: (params as { dedupeKey: string }).dedupeKey,
+      id: 'job-1',
+      jobType: (params as { jobType: string }).jobType,
+      queue: (params as { queue: string }).queue,
+      state: 'queued',
     })),
     enqueueBatch: vi.fn(async (params: unknown[]) =>
       params.map((param, index) => ({
-        id: `job-${index + 1}`,
-        queue: (param as { queue: string }).queue,
-        jobType: (param as { jobType: string }).jobType,
-        state: 'queued',
         dedupeKey: (param as { dedupeKey: string }).dedupeKey,
+        id: `job-${index + 1}`,
+        jobType: (param as { jobType: string }).jobType,
+        queue: (param as { queue: string }).queue,
+        state: 'queued',
       }))
     ),
   };
@@ -36,23 +36,23 @@ describe('createEmbeddingJobQueuePort', () => {
     const db = { kind: 'db' };
     const queue = createRecordedQueue();
     const createQueue = vi.fn(() => queue);
-    const port = createEmbeddingJobQueuePort({ db, createQueue });
+    const port = createEmbeddingJobQueuePort({ createQueue, db });
 
     await port.enqueueBatch(
       [
         {
-          id: 'chunk-1',
           contentHash: 'hash-1',
           embeddingSetId: 'chunk-set',
+          id: 'chunk-1',
         },
       ],
       'file-1',
       {
-        model: 'local::bge-m3',
-        targetEmbeddingSetId: 'target-set',
-        targetDimension: 768,
-        provider: 'local' satisfies EmbeddingProviderType,
         dimensionParameter: 'dimensions' satisfies ProviderDimensionParameter,
+        model: 'local::bge-m3',
+        provider: 'local' satisfies EmbeddingProviderType,
+        targetDimension: 768,
+        targetEmbeddingSetId: 'target-set',
       }
     );
 
@@ -60,18 +60,18 @@ describe('createEmbeddingJobQueuePort', () => {
     expect(queue.enqueueBatch).toHaveBeenCalledOnce();
     expect(queue.enqueueBatch).toHaveBeenCalledWith([
       {
-        queue: 'embeddings',
+        dedupeKey: 'chunk-1:target-set:hash-1',
         jobType: 'embed_chunk',
         payload: {
           chunkId: 'chunk-1',
-          fileRecordId: 'file-1',
+          dimensionParameter: 'dimensions',
           embeddingSetId: 'target-set',
           expectedDimension: 768,
+          fileRecordId: 'file-1',
           modelKey: 'local::bge-m3',
           provider: 'local',
-          dimensionParameter: 'dimensions',
         },
-        dedupeKey: 'chunk-1:target-set:hash-1',
+        queue: 'embeddings',
       },
     ]);
     expect(queue.enqueue).not.toHaveBeenCalled();
@@ -82,9 +82,9 @@ describe('createEmbeddingJobQueuePort', () => {
     const tx = { kind: 'tx' };
     const queue = createRecordedQueue();
     const createQueue = vi.fn(() => queue);
-    const port = createEmbeddingJobQueuePort({ db, createQueue });
+    const port = createEmbeddingJobQueuePort({ createQueue, db });
 
-    await port.enqueueBatch([{ id: 'chunk-1', contentHash: 'hash-1' }], 'file-1', {
+    await port.enqueueBatch([{ contentHash: 'hash-1', id: 'chunk-1' }], 'file-1', {
       model: 'local::bge-m3',
       transaction: tx,
     });
@@ -94,12 +94,12 @@ describe('createEmbeddingJobQueuePort', () => {
 
   it('fails fast instead of silently skipping chunks without required queue identity', async () => {
     const port = createEmbeddingJobQueuePort({
-      db: { kind: 'db' },
       createQueue: () => createRecordedQueue(),
+      db: { kind: 'db' },
     });
 
     await expect(
-      port.enqueueBatch([{ id: '', contentHash: 'hash-1' }], 'file-1', { model: 'local::bge-m3' })
+      port.enqueueBatch([{ contentHash: 'hash-1', id: '' }], 'file-1', { model: 'local::bge-m3' })
     ).rejects.toThrow('Cannot enqueue embedding job for chunk without id.');
   });
 });

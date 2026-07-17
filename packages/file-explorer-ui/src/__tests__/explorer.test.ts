@@ -41,15 +41,15 @@ describe('fileExplorer', () => {
       });
 
       const subdir = createDirectoryNode({
+        children: [subFile1, subFile2],
         name: 'subdir',
         path: '/root/subdir',
-        children: [subFile1, subFile2],
       });
 
       const root = createDirectoryNode({
+        children: [file1, file2, subdir],
         name: 'root',
         path: '/root',
-        children: [file1, file2, subdir],
       });
 
       const paths = fileExplorer.getAllFilePathsInDirectory(root);
@@ -84,23 +84,23 @@ describe('fileExplorer', () => {
       });
 
       const dir1 = createDirectoryNode({
+        children: [fileB],
         name: 'dir1',
         path: '/root/dir1',
-        children: [fileB],
         rootFolderId: 'root1',
       });
 
       const dir2 = createDirectoryNode({
+        children: [fileC],
         name: 'dir2',
         path: '/root/dir2',
-        children: [fileC],
         rootFolderId: 'root2',
       });
 
       const root = createDirectoryNode({
+        children: [fileA, dir1, dir2],
         name: 'root',
         path: '/root',
-        children: [fileA, dir1, dir2],
         rootFolderId: 'root1',
       });
 
@@ -190,9 +190,9 @@ describe('fileExplorer', () => {
     it('should track isComplete status correctly', () => {
       // Create a directory with one child marked as not complete
       const childWithIssue = createDirectoryNode({
+        children: [],
         name: 'incomplete',
         path: '/root/incomplete',
-        children: [],
       });
 
       // Manually modify the child node to simulate an incomplete state
@@ -209,9 +209,9 @@ describe('fileExplorer', () => {
       });
 
       const parent = createDirectoryNode({
+        children: [createFileNode(), childWithIssue],
         name: 'root',
         path: '/root',
-        children: [createFileNode(), childWithIssue],
       });
 
       const parentResult = fileExplorer.getFolderFileCount(parent);
@@ -226,21 +226,21 @@ describe('fileExplorer', () => {
     it('should generate a text representation of the folder tree', () => {
       const fileTree = [
         createDirectoryNode({
-          name: 'root',
-          path: '/root',
           children: [
             createFileNode({ name: 'fileA.txt', path: '/root/fileA.txt' }),
             createDirectoryNode({
-              name: 'dir1',
-              path: '/root/dir1',
               children: [
                 createFileNode({
                   name: 'fileB.js',
                   path: '/root/dir1/fileB.js',
                 }),
               ],
+              name: 'dir1',
+              path: '/root/dir1',
             }),
           ],
+          name: 'root',
+          path: '/root',
         }),
       ];
 
@@ -257,13 +257,13 @@ describe('fileExplorer', () => {
     it('should apply include filters', () => {
       const fileTree = [
         createDirectoryNode({
-          name: 'root',
-          path: '/root',
           children: [
             createFileNode({ name: 'fileA.txt', path: '/root/fileA.txt' }),
             createFileNode({ name: 'fileB.js', path: '/root/fileB.js' }),
             createFileNode({ name: 'fileC.css', path: '/root/fileC.css' }),
           ],
+          name: 'root',
+          path: '/root',
         }),
       ];
 
@@ -278,13 +278,13 @@ describe('fileExplorer', () => {
     it('should apply exclude filters', () => {
       const fileTree = [
         createDirectoryNode({
-          name: 'root',
-          path: '/root',
           children: [
             createFileNode({ name: 'fileA.txt', path: '/root/fileA.txt' }),
             createFileNode({ name: 'fileB.js', path: '/root/fileB.js' }),
             createFileNode({ name: 'fileC.css', path: '/root/fileC.css' }),
           ],
+          name: 'root',
+          path: '/root',
         }),
       ];
 
@@ -300,13 +300,13 @@ describe('fileExplorer', () => {
     it('should use regex filters when useRegex is true', () => {
       const fileTree = [
         createDirectoryNode({
-          name: 'root',
-          path: '/root',
           children: [
             createFileNode({ name: 'fileA.txt', path: '/root/fileA.txt' }),
             createFileNode({ name: 'fileB.js', path: '/root/fileB.js' }),
             createFileNode({ name: 'fileC.css', path: '/root/fileC.css' }),
           ],
+          name: 'root',
+          path: '/root',
         }),
       ];
 
@@ -320,22 +320,22 @@ describe('fileExplorer', () => {
     it('should sort directories before files and sort alphabetically within types', () => {
       const fileTree = [
         createDirectoryNode({
-          name: 'root',
-          path: '/root',
           children: [
             createFileNode({ name: 'fileZ.txt', path: '/root/fileZ.txt' }),
             createFileNode({ name: 'fileA.txt', path: '/root/fileA.txt' }),
             createDirectoryNode({
+              children: [],
               name: 'dirB',
               path: '/root/dirB',
-              children: [],
             }),
             createDirectoryNode({
+              children: [],
               name: 'dirA',
               path: '/root/dirA',
-              children: [],
             }),
           ],
+          name: 'root',
+          path: '/root',
         }),
       ];
 

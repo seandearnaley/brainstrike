@@ -14,22 +14,8 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 //   affect CI uploads or gating; keep them roughly aligned with package configs for local runs.
 export default defineConfig({
   test: {
-    projects: ['packages/*', 'apps/*'],
-    // Disable CSS processing for faster unit test execution
-    css: false,
-    // Enable dependency optimization for better performance
-    deps: {
-      optimizer: {
-        client: { enabled: true },
-      },
-    },
     coverage: {
       enabled: coverageEnabled,
-      // Local aggregate coverage only. CI ignores this and relies on per‑package reporters.
-      provider: 'v8',
-      reportsDirectory: './coverage',
-      reporter: ['text', 'lcov', 'json'],
-      include: ['packages/**/src/**/*.{ts,tsx}', 'apps/**/src/**/*.{ts,tsx}'],
       exclude: [
         '**/*.test.*',
         '**/__tests__/**',
@@ -40,14 +26,28 @@ export default defineConfig({
         'apps/desktop/src/main.ts',
         'apps/desktop/src/preload.ts',
       ],
+      include: ['packages/**/src/**/*.{ts,tsx}', 'apps/**/src/**/*.{ts,tsx}'],
+      // Local aggregate coverage only. CI ignores this and relies on per‑package reporters.
+      provider: 'v8',
+      reporter: ['text', 'lcov', 'json'],
+      reportsDirectory: './coverage',
       // Minimum thresholds for local aggregate runs.
       // CI thresholds are enforced per‑package in scripts/enforce-coverage.mjs.
       thresholds: {
-        lines: 72,
-        functions: 62,
         branches: 62,
+        functions: 62,
+        lines: 72,
         statements: 72,
       },
     },
+    // Disable CSS processing for faster unit test execution
+    css: false,
+    // Enable dependency optimization for better performance
+    deps: {
+      optimizer: {
+        client: { enabled: true },
+      },
+    },
+    projects: ['packages/*', 'apps/*'],
   },
 });

@@ -1,5 +1,5 @@
 import { IdeLayout } from '@brainstrike/ui';
-import { PanelLeftClose, PanelRightClose } from 'lucide-react';
+import { LibraryBig, PanelRightClose } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
 export interface AgentWorkspaceLayoutProps {
@@ -9,26 +9,29 @@ export interface AgentWorkspaceLayoutProps {
 }
 
 const AGENT_LEFT_PANEL_CHROME = {
-  title: 'Agent',
-  showButtonLabel: 'Show agent panel',
-  showButtonTestId: 'show-threads-panel',
-  hideButtonLabel: 'Hide agent panel',
+  hideButtonLabel: 'Hide library panel',
   hideButtonTestId: 'hide-threads-panel',
-  icon: PanelLeftClose,
+  icon: LibraryBig,
+  showButtonLabel: 'Show library panel',
+  showButtonTestId: 'show-threads-panel',
+  title: 'Library',
 } as const;
 
 const AGENT_RIGHT_PANEL_CHROME = {
-  title: 'Workspace',
-  showButtonLabel: 'Show workspace panel',
-  showButtonTestId: 'show-workspace-panel',
   hideButtonLabel: 'Hide workspace panel',
   hideButtonTestId: 'hide-workspace-panel',
   icon: PanelRightClose,
+  showButtonLabel: 'Show workspace panel',
+  showButtonTestId: 'show-workspace-panel',
+  title: 'Workspace',
 } as const;
 
 const AGENT_PANEL_CONSTRAINTS = {
-  mainContentMinSize: '25%',
+  leftPanelMaxSize: '70%',
+  leftPanelMinSize: '180px',
+  mainContentMinSize: '15%',
   rightPanelMaxSize: '75%',
+  rightPanelMinSize: '15%',
 } as const;
 
 export function AgentWorkspaceLayout({

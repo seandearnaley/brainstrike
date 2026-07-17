@@ -1,5 +1,6 @@
 import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
 import type { DbHandle, IDatabase } from '@brainstrike/db';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createLogger } from '@brainstrike/utils/logger';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -8,7 +9,6 @@ import {
   getModelRegistryFetchErrorTestOverride,
   getModelRegistrySnapshotTestOverride,
 } from '../settings-test-runtime-access';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
@@ -27,6 +27,8 @@ export interface DbModel {
     type: 'llm' | 'embedding';
     streaming?: boolean;
     defaultDimension?: number;
+    /** Image-input support (LLM rows only; backfilled by migration 061). */
+    vision?: boolean;
   };
   description: string | null;
   icon: string | null;
@@ -98,28 +100,28 @@ async function checkLlmModelInCache(modelId: string): Promise<boolean> {
   try {
     return await hasDownloadedBuiltInLocalLlmModel(modelId);
   } catch (err) {
-    logger.debug('Failed to check Cache API for model', { modelId, err });
+    logger.debug('Failed to check Cache API for model', { err, modelId });
     return false;
   }
 }
 
 function parseDbModel(row: RawModel): DbModel {
   return {
-    id: row.id,
-    providerId: row.provider_id,
-    name: row.name,
-    description: row.description,
-    tagline: row.tagline,
     bestFor: typeof row.best_for === 'string' ? JSON.parse(row.best_for) : row.best_for,
-    icon: row.icon,
-    isEnabled: Boolean(row.is_enabled),
     capabilities:
       typeof row.capabilities === 'string' ? JSON.parse(row.capabilities) : row.capabilities,
+    description: row.description,
+    icon: row.icon,
+    id: row.id,
+    isEnabled: Boolean(row.is_enabled),
+    name: row.name,
     parameters:
       typeof row.parameters === 'string' && row.parameters
         ? JSON.parse(row.parameters)
         : row.parameters,
+    providerId: row.provider_id,
     sortOrder: row.sort_order,
+    tagline: row.tagline,
   } as DbModel;
 }
 
@@ -202,15 +204,15 @@ async function checkDownloadedModels(
 }
 
 const initialState = {
-  providers: [] as DbProvider[],
-  models: [] as DbModel[],
-  isLoading: false,
+  downloadedModels: {} as Record<string, boolean>,
+  downloadProgress: {} as Record<string, number>,
   error: null as string | null,
   hasLoaded: false,
-  modelCacheDir: null as string | null,
-  downloadProgress: {} as Record<string, number>,
   isDownloading: {} as Record<string, boolean>,
-  downloadedModels: {} as Record<string, boolean>,
+  isLoading: false,
+  modelCacheDir: null as string | null,
+  models: [] as DbModel[],
+  providers: [] as DbProvider[],
 };
 
 export const useModelRegistryStore = create<ModelRegistryState>()(
@@ -238,14 +240,14 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       },
 
       fetchRegistry: async (db: IDatabase) => {
-        set({ isLoading: true, error: null });
+        set({ error: null, isLoading: true });
         try {
           const fetchErrorMessage = getModelRegistryFetchErrorTestOverride();
           if (fetchErrorMessage !== undefined && fetchErrorMessage !== null) {
             set({
               error: fetchErrorMessage,
-              isLoading: false,
               hasLoaded: false,
+              isLoading: false,
             });
             return;
           }
@@ -253,13 +255,13 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           const snapshotOverride = getModelRegistrySnapshotTestOverride();
           if (snapshotOverride) {
             set({
-              providers: snapshotOverride.providers ?? [],
-              models: snapshotOverride.models ?? [],
               downloadedModels: snapshotOverride.downloadedModels ?? {},
-              modelCacheDir: snapshotOverride.modelCacheDir ?? get().modelCacheDir,
-              isLoading: false,
-              hasLoaded: true,
               error: null,
+              hasLoaded: true,
+              isLoading: false,
+              modelCacheDir: snapshotOverride.modelCacheDir ?? get().modelCacheDir,
+              models: snapshotOverride.models ?? [],
+              providers: snapshotOverride.providers ?? [],
             });
             return;
           }
@@ -274,10 +276,10 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           const models = modelsResult.rows.map(parseDbModel);
 
           const providers = providersResult.rows.map((row: RawProvider) => ({
-            id: row.id,
-            name: row.name,
             icon: row.icon,
+            id: row.id,
             isEnabled: Boolean(row.is_enabled),
+            name: row.name,
             sortOrder: row.sort_order,
           }));
 
@@ -288,10 +290,61 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             get().downloadedModels
           );
 
-          set({ providers, models, downloadedModels, isLoading: false, hasLoaded: true });
+          set({ downloadedModels, hasLoaded: true, isLoading: false, models, providers });
         } catch (error) {
           logger.error('Failed to fetch model registry', error);
           set({ error: (error as Error).message, isLoading: false });
+        }
+      },
+
+      setDownloading: (modelId: string, isDownloading: boolean) => {
+        set((state) => ({
+          isDownloading: { ...state.isDownloading, [modelId]: isDownloading },
+        }));
+      },
+
+      setDownloadProgress: (modelId: string, progress: number) => {
+        const roundedProgress = Math.min(100, Math.max(0, Math.round(progress)));
+        const currentState = get();
+        const completesDownload =
+          roundedProgress === 100 && currentState.downloadedModels[modelId] !== true;
+        if (currentState.downloadProgress[modelId] === roundedProgress && !completesDownload) {
+          return;
+        }
+        set((state) => ({
+          downloadedModels: completesDownload
+            ? { ...state.downloadedModels, [modelId]: true }
+            : state.downloadedModels,
+          downloadProgress: {
+            ...state.downloadProgress,
+            [modelId]: roundedProgress,
+          },
+        }));
+      },
+
+      setModelCacheDir: (dir: string) => {
+        set({ modelCacheDir: dir });
+      },
+
+      toggleModel: async (db: IDatabase, modelId: string, enabled: boolean) => {
+        try {
+          // Optimistic update
+          set((state) => ({
+            models: state.models.map((m) => (m.id === modelId ? { ...m, isEnabled: enabled } : m)),
+          }));
+
+          await db.query('UPDATE models SET is_enabled = $1, updated_at = NOW() WHERE id = $2', [
+            enabled,
+            modelId,
+          ]);
+          await syncDurableDatabaseWrites(db);
+
+          set((state) => ({
+            models: state.models.map((m) => (m.id === modelId ? { ...m, isEnabled: enabled } : m)),
+          }));
+        } catch (error) {
+          logger.error('Failed to toggle model', error);
+          void get().fetchRegistry(db);
         }
       },
 
@@ -321,59 +374,14 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           void get().fetchRegistry(db);
         }
       },
-
-      toggleModel: async (db: IDatabase, modelId: string, enabled: boolean) => {
-        try {
-          // Optimistic update
-          set((state) => ({
-            models: state.models.map((m) => (m.id === modelId ? { ...m, isEnabled: enabled } : m)),
-          }));
-
-          await db.query('UPDATE models SET is_enabled = $1, updated_at = NOW() WHERE id = $2', [
-            enabled,
-            modelId,
-          ]);
-          await syncDurableDatabaseWrites(db);
-
-          set((state) => ({
-            models: state.models.map((m) => (m.id === modelId ? { ...m, isEnabled: enabled } : m)),
-          }));
-        } catch (error) {
-          logger.error('Failed to toggle model', error);
-          void get().fetchRegistry(db);
-        }
-      },
-
-      setModelCacheDir: (dir: string) => {
-        set({ modelCacheDir: dir });
-      },
-
-      setDownloadProgress: (modelId: string, progress: number) => {
-        set((state) => {
-          const downloadedModels = { ...state.downloadedModels };
-          if (progress === 100) {
-            downloadedModels[modelId] = true;
-          }
-          return {
-            downloadProgress: { ...state.downloadProgress, [modelId]: progress },
-            downloadedModels,
-          };
-        });
-      },
-
-      setDownloading: (modelId: string, isDownloading: boolean) => {
-        set((state) => ({
-          isDownloading: { ...state.isDownloading, [modelId]: isDownloading },
-        }));
-      },
     }),
     {
       name: 'model-registry-storage',
-      storage: createJSONStorage(() => createBrowserJsonStorage()),
       partialize: (state) => ({
-        modelCacheDir: state.modelCacheDir,
         downloadedModels: state.downloadedModels,
+        modelCacheDir: state.modelCacheDir,
       }),
+      storage: createJSONStorage(() => createBrowserJsonStorage()),
     }
   )
 );

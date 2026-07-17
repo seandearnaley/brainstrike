@@ -31,10 +31,12 @@ interface ColumnSizesPersistEnvelope {
 
 async function ensureDatabasePanelVisible(page: Page): Promise<void> {
   await ensureRightPanelVisible(page);
-  const databaseTab = page.getByRole('tab', { name: /database/i });
+  const databaseTab = page.getByRole('tab', { name: /collections/i });
   await expect(databaseTab).toBeVisible({ timeout: 15_000 });
   await databaseTab.click();
-  await expect(page.getByRole('tabpanel', { name: /database/i })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('tabpanel', { name: /collections/i })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
 }
 
@@ -71,9 +73,10 @@ async function importOneFile(page: Page): Promise<void> {
   await importButton.click();
   // Wait for the collection summary to report at least one imported file.
   await expect(databasePanel.getByRole('listbox', { name: 'Search Collection' })).toContainText(
-    /\d+\s+files?/,
+    /[1-9]\d*\s+files?/,
     { timeout: 120_000 }
   );
+  await expect(importButton).toBeEnabled({ timeout: 120_000 });
 }
 
 function nameResizeHandle(page: Page): Locator {
@@ -123,6 +126,121 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
     await createCollection(page, `Tree Table Resize ${Date.now()}`);
     await importOneFile(page);
 
+    // The source pager belongs to the same resizable panel as the tree. Opening
+    // and resizing the inspector must resize the pager instead of leaving it
+    // fixed to the full CollectionBrowserView width.
+    const databasePanel = page.getByTestId('database-demo-panel');
+    const treeRegion = databasePanel.getByTestId('collection-tree-region');
+    const treegrid = treeRegion.getByRole('treegrid', { name: 'Collection browser' });
+    const firstVisibleDataRow = treegrid.getByRole('row', { name: /beta\.ts/ });
+    await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
+    const paginationBar = databasePanel.getByTestId('table-pagination');
+    await expect(paginationBar).toBeVisible();
+    const fullPagerWidth = await widthOf(paginationBar);
+
+    // The mocked live-query harness keeps its refresh overlay active after the
+    // imported rows are ready. Dispatch only the context-menu setup event so
+    // this layout test can use the real Inspect action and panel drag below.
+    await firstVisibleDataRow.dispatchEvent('contextmenu', {
+      bubbles: true,
+      button: 2,
+      cancelable: true,
+    });
+    const contextMenu = page.getByRole('menu');
+    await expect(contextMenu).toBeVisible();
+    await contextMenu.getByRole('menuitem', { exact: true, name: 'Inspect' }).click();
+
+    const collapseInspector = databasePanel.getByRole('button', { name: 'Collapse inspector' });
+    await expect(collapseInspector).toBeVisible({ timeout: 15_000 });
+
+    const browserPanel = treegrid.locator('xpath=ancestor::*[@data-panel][1]');
+    await expect(browserPanel.getByTestId('table-pagination')).toBeVisible();
+    await expect
+      .poll(async () => await widthOf(paginationBar), { timeout: 5000 })
+      .toBeLessThan(fullPagerWidth - 20);
+
+    const readPagerGeometry = async () =>
+      await browserPanel.evaluate((panel) => {
+        const pager = panel.querySelector('[data-testid="table-pagination"]');
+        if (!pager) {
+          throw new Error('Resizable browser panel is missing its pagination bar');
+        }
+        const panelRect = panel.getBoundingClientRect();
+        const pagerRect = pager.getBoundingClientRect();
+        return {
+          clientWidth: pager.clientWidth,
+          leftDelta: pagerRect.left - panelRect.left,
+          rightDelta: panelRect.right - pagerRect.right,
+          scrollWidth: pager.scrollWidth,
+          width: pagerRect.width,
+        };
+      });
+
+    const openedGeometry = await readPagerGeometry();
+    expect(Math.abs(openedGeometry.leftDelta)).toBeLessThanOrEqual(1);
+    expect(Math.abs(openedGeometry.rightDelta)).toBeLessThanOrEqual(1);
+    expect(openedGeometry.scrollWidth).toBeLessThanOrEqual(openedGeometry.clientWidth + 1);
+
+    const inspectorPanel = collapseInspector.locator('xpath=ancestor::*[@data-panel][1]');
+    const inspectorSeparator = inspectorPanel.locator(
+      'xpath=preceding-sibling::*[@data-separator][1]'
+    );
+    const separatorBox = await inspectorSeparator.boundingBox();
+    if (!separatorBox) {
+      throw new Error('Inspector resize separator not found');
+    }
+    const inspectorDragStart = {
+      clientX: separatorBox.x + separatorBox.width / 2,
+      clientY: separatorBox.y + separatorBox.height / 2,
+    };
+    await inspectorSeparator.dispatchEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      buttons: 1,
+      cancelable: true,
+      ...inspectorDragStart,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: 'mouse',
+    });
+    await page.evaluate(({ clientX, clientY }) => {
+      document.body.dispatchEvent(
+        new PointerEvent('pointermove', {
+          bubbles: true,
+          buttons: 1,
+          cancelable: true,
+          clientX: clientX - 60,
+          clientY,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        })
+      );
+      document.body.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+          cancelable: true,
+          clientX: clientX - 60,
+          clientY,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        })
+      );
+    }, inspectorDragStart);
+
+    await expect
+      .poll(async () => (await readPagerGeometry()).width, { timeout: 5000 })
+      .toBeLessThan(openedGeometry.width - 30);
+    const resizedGeometry = await readPagerGeometry();
+    expect(Math.abs(resizedGeometry.leftDelta)).toBeLessThanOrEqual(1);
+    expect(Math.abs(resizedGeometry.rightDelta)).toBeLessThanOrEqual(1);
+    expect(resizedGeometry.scrollWidth).toBeLessThanOrEqual(resizedGeometry.clientWidth + 1);
+
+    await collapseInspector.click();
+    await expect(collapseInspector).not.toBeVisible();
+
     // ── Resize handle is rendered with the right ARIA contract ───────────────
     const handle = nameResizeHandle(page);
     await expect(handle).toBeVisible({ timeout: 15_000 });
@@ -149,13 +267,13 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
     const startY = box.y + box.height / 2;
     await handle.dispatchEvent('pointerdown', {
       bubbles: true,
-      cancelable: true,
       button: 0,
-      pointerId: 1,
-      pointerType: 'mouse',
-      isPrimary: true,
+      cancelable: true,
       clientX: startX,
       clientY: startY,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: 'mouse',
     });
     // pointermove must hit the window listener, which is what the handle
     // installs after pointerdown. Dispatch from document.body so the event
@@ -165,11 +283,11 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
         const event = new PointerEvent('pointermove', {
           bubbles: true,
           cancelable: true,
-          pointerId: 1,
-          pointerType: 'mouse',
-          isPrimary: true,
           clientX,
           clientY,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
         });
         window.dispatchEvent(event);
       },
@@ -180,11 +298,11 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
         const event = new PointerEvent('pointerup', {
           bubbles: true,
           cancelable: true,
-          pointerId: 1,
-          pointerType: 'mouse',
-          isPrimary: true,
           clientX,
           clientY,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
         });
         window.dispatchEvent(event);
       },
@@ -212,7 +330,7 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
     // The Name header is sortable — recording state before & after a handle click.
     // Clicking the handle itself should bubble nothing into the header onClick.
     const sortIndicatorBefore = await nameHeader.getAttribute('aria-sort');
-    await handle.click({ position: { x: 1, y: box.height / 2 }, force: true });
+    await handle.click({ force: true, position: { x: 1, y: box.height / 2 } });
     const sortIndicatorAfter = await nameHeader.getAttribute('aria-sort');
     expect(sortIndicatorAfter).toBe(sortIndicatorBefore);
 
@@ -242,15 +360,15 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
     await setPersistedSizesRaw(
       page,
       JSON.stringify({
-        version: 1,
         state: {
           sizes: {
+            mystery: 9999,
             name: Number.NaN,
             size: 'not-a-number',
             status: -10,
-            mystery: 9999,
           },
         },
+        version: 1,
       })
     );
     await page.reload();

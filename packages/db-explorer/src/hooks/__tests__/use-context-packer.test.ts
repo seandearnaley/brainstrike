@@ -10,13 +10,13 @@ import { packSearchResults, useContextPacker } from '../use-context-packer';
 const createMockSearchResult = (
   overrides: Partial<SemanticSearchResult> = {}
 ): SemanticSearchResult => ({
-  nodeId: 'chunk-abc123',
   chunkId: 'abc123',
-  fileRecordId: 'file-001',
-  similarity: 0.85,
   content: 'This is test content for the chunk.',
   fileName: 'example.ts',
   filePath: '/src/example.ts',
+  fileRecordId: 'file-001',
+  nodeId: 'chunk-abc123',
+  similarity: 0.85,
   ...overrides,
 });
 

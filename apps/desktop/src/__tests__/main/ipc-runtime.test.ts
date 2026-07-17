@@ -25,25 +25,25 @@ const {
   resolveOllamaCapabilitiesMock,
   verifyEmbeddingDimensionsMock,
 } = vi.hoisted(() => ({
+  listRuntimeModelsMock: vi.fn().mockResolvedValue({
+    models: [],
+    runtime: 'ollama',
+    state: 'loaded_non_empty',
+  }),
   probeRuntimeMock: vi.fn().mockResolvedValue({
-    state: 'available',
     checkedAt: 100,
     endpoint: 'http://127.0.0.1:11434/api/tags',
     latencyMs: 2,
-  }),
-  listRuntimeModelsMock: vi.fn().mockResolvedValue({
-    state: 'loaded_non_empty',
-    runtime: 'ollama',
-    models: [],
+    state: 'available',
   }),
   resolveOllamaCapabilitiesMock: vi.fn().mockResolvedValue({
-    state: 'resolved',
-    modelId: 'qwen3:latest',
     capabilities: ['completion'],
+    modelId: 'qwen3:latest',
+    state: 'resolved',
   }),
   verifyEmbeddingDimensionsMock: vi.fn().mockResolvedValue({
-    state: 'verified',
     dimensions: 768,
+    state: 'verified',
   }),
 }));
 
@@ -124,14 +124,14 @@ describe('ipc-runtime main-process probe bridge', () => {
 
     const result = await handler({} as IpcMainInvokeEvent, 'ollama', {
       diagnosticLogLevel: 'debug',
-      force: true,
       endpoint: { baseUrl: 'http://gpu.lan:11434' },
+      force: true,
     });
 
     expect(probeRuntimeMock).toHaveBeenCalledWith('ollama', {
       diagnosticLogLevel: 'debug',
-      force: true,
       endpoint: { baseUrl: 'http://gpu.lan:11434' },
+      force: true,
     });
     expect(result).toMatchObject({ state: 'available' });
   });
@@ -218,25 +218,25 @@ describe('ipc-runtime main-process probe bridge', () => {
 
     await handler({} as IpcMainInvokeEvent, 'ollama', {
       diagnosticLogLevel: 'warn',
-      force: true,
       endpoint: {
-        baseUrl: 'http://safe.lan:11434',
-        apiToken: 'tok',
         __proto__: { evil: true },
+        apiToken: 'tok',
+        baseUrl: 'http://safe.lan:11434',
         extraField: 'should be dropped',
       },
-      signal: 'not-a-real-abort-signal',
+      force: true,
       injectedAction: () => 'boom',
+      signal: 'not-a-real-abort-signal',
     });
 
     const [, forwardedOptions] = probeRuntimeMock.mock.calls[0] ?? [];
     expect(forwardedOptions).toEqual({
       diagnosticLogLevel: 'warn',
-      force: true,
       endpoint: {
-        baseUrl: 'http://safe.lan:11434',
         apiToken: 'tok',
+        baseUrl: 'http://safe.lan:11434',
       },
+      force: true,
     });
   });
 });

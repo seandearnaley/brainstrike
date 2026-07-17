@@ -27,16 +27,16 @@ describe('@brainstrike/indexing-contract', () => {
     expect(resolveChunkingStrategyForFile('src/search/index.ts', 'markdown')).toBe('markdown');
     expect(
       resolveEffectiveChunkingStrategy({
+        isCode: false,
         requested: 'auto',
         resolvedAutoStrategy: 'recursive',
-        isCode: false,
       })
     ).toBe('sentence');
     expect(
       resolveEffectiveChunkingStrategy({
+        isCode: true,
         requested: 'json',
         resolvedAutoStrategy: 'recursive',
-        isCode: true,
       })
     ).toBe('json');
   });
@@ -64,18 +64,18 @@ describe('@brainstrike/indexing-contract', () => {
       'openai::text-embedding-3-small'
     );
     expect(parseEmbeddingProviderModelKey('openai::text-embedding-3-small')).toEqual({
-      provider: 'openai',
       modelId: 'text-embedding-3-small',
+      provider: 'openai',
     });
     expect(parseEmbeddingProviderModelKey('openai:text-embedding-3-small')).toEqual({
-      provider: 'openai',
       modelId: 'text-embedding-3-small',
+      provider: 'openai',
     });
     expect(parseEmbeddingProviderModelKey('unknown::model')).toBeNull();
     expect(canonicalizeEmbeddingProviderModelKey('text-embedding-3-small', 'openai')).toEqual({
-      provider: 'openai',
-      modelId: 'text-embedding-3-small',
       composite: 'openai::text-embedding-3-small',
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
     });
   });
 

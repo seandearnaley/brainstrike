@@ -1,101 +1,59 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
-import { disposeClients, getClient, initClients } from '../../mcp';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-let port = 0;
-const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
-let fetchSpy: ReturnType<typeof vi.spyOn> | null = null;
-const encoder = new TextEncoder();
+const httpClient = {
+  callTool: vi.fn(
+    async (
+      _toolId: string,
+      _params?: Record<string, unknown>,
+      opts?: { onProgress?: (payload: unknown, meta?: { id?: string }) => void }
+    ) => {
+      opts?.onProgress?.({ message: 'working', progress: 1, total: 1 }, {});
+      return { content: [{ text: 'done', type: 'text' }] };
+    }
+  ),
+  dispose: vi.fn(),
+  listTools: vi.fn(async () => ({ 'web.echo': {} })),
+  name: 'web',
+  supportsTool: vi.fn((toolId: string) => toolId === 'web.echo'),
+  transport: 'sse' as const,
+};
 
-describe('mcp-clients (sse progress)', () => {
-  beforeAll(async () => {
-    port = 0;
-    fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = typeof input === 'string' ? input : input.url;
-      const method = init?.method ?? 'GET';
+vi.mock('../../mcp/http-client', () => ({
+  createHttpClient: vi.fn(() => httpClient),
+}));
 
-      if (method === 'POST' && url.endsWith('/request')) {
-        try {
-          const body = typeof init?.body === 'string' ? init.body : '';
-          const parsed = JSON.parse(body) as { id: string; tool: string };
-          setTimeout(() => {
-            const progressPayload = encoder.encode(
-              [
-                'event: tool-progress',
-                `id: ${parsed.id}`,
-                `data: ${JSON.stringify({ id: parsed.id, step: 'starting' })}`,
-                '',
-                '',
-              ].join('\n')
-            );
-            const resultPayload = encoder.encode(
-              [
-                'event: tool-result',
-                `id: ${parsed.id}`,
-                `data: ${JSON.stringify({ id: parsed.id, result: { ok: true } })}`,
-                '',
-                '',
-              ].join('\n')
-            );
-            streams.forEach((controller) => {
-              controller.enqueue(progressPayload);
-              controller.enqueue(resultPayload);
-            });
-          }, 5);
-          return new Response('accepted', { status: 202 });
-        } catch {
-          return new Response('bad json', { status: 400 });
-        }
-      }
+import { callTool, disposeClients, initClients } from '../../mcp';
 
-      if (method === 'GET' && url.endsWith('/sse')) {
-        const stream = new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(encoder.encode(': ok\n\n'));
-            streams.push(controller);
-          },
-          cancel() {
-            // Remove any controllers that were registered for this stream
-            streams.splice(0, streams.length);
-          },
-        });
-        return new Response(stream, {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/event-stream',
-            Connection: 'keep-alive',
-            'Cache-Control': 'no-cache',
-          },
-        });
-      }
-
-      return new Response('not found', { status: 404 });
-    });
-  });
-
-  afterAll(async () => {
-    fetchSpy?.mockRestore();
-    fetchSpy = null;
+// mcp-http-client.integration.test.ts proves real SDK progress delivery. This unit test
+// keeps the registry-to-client callback contract covered independently.
+describe('mcp-clients (progress delegation)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   afterEach(async () => {
     await disposeClients();
   });
 
-  test('invokes onProgress callback before result', async () => {
+  test('forwards progress before returning the canonical tool result', async () => {
     initClients({
-      servers: [{ transport: 'sse', name: 'web', url: `http://127.0.0.1:${port}/sse` }],
+      servers: [{ name: 'web', transport: 'sse', url: 'https://example.com/mcp' }],
     });
-    const client = getClient('web');
-    expect(client).toBeTruthy();
-    const seen: unknown[] = [];
-    const res = await (client as NonNullable<typeof client>).callTool(
+    const events: string[] = [];
+
+    const result = await callTool(
       'web.echo',
       { text: 'hi' },
       {
-        onProgress: (payload) => seen.push(payload),
+        onProgress: (payload) => {
+          expect(payload).toEqual({ message: 'working', progress: 1, total: 1 });
+          events.push('progress');
+        },
       }
     );
-    expect(seen.length).toBeGreaterThan(0);
-    expect(res).toBeTruthy();
+    events.push('result');
+
+    expect(events).toEqual(['progress', 'result']);
+    expect(result).toEqual({ content: [{ text: 'done', type: 'text' }] });
   });
 });

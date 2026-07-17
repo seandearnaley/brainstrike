@@ -14,13 +14,13 @@ import {
 const createMockSearchResult = (
   overrides: Partial<SemanticSearchResult> = {}
 ): SemanticSearchResult => ({
-  nodeId: 'chunk-abc123',
   chunkId: 'abc123',
-  fileRecordId: 'file-001',
-  similarity: 0.85,
   content: 'This is test content for the chunk.',
   fileName: 'example.ts',
   filePath: '/src/example.ts',
+  fileRecordId: 'file-001',
+  nodeId: 'chunk-abc123',
+  similarity: 0.85,
   ...overrides,
 });
 
@@ -30,16 +30,16 @@ describe('toContextPackerChunk', () => {
     const chunk = toContextPackerChunk(result, 0);
 
     expect(chunk).toEqual({
-      id: 'abc123',
       content: 'This is test content for the chunk.',
-      score: 0.85,
-      filePath: '/src/example.ts',
       fileName: 'example.ts',
+      filePath: '/src/example.ts',
+      id: 'abc123',
       metadata: {
         fileRecordId: 'file-001',
         nodeId: 'chunk-abc123',
         rank: 1,
       },
+      score: 0.85,
     });
   });
 
@@ -48,10 +48,10 @@ describe('toContextPackerChunk', () => {
     const chunk = toContextPackerChunk(result, 0);
 
     expect(chunk.metadata).toEqual({
+      embeddingSetId: 'set-123',
       fileRecordId: 'file-001',
       nodeId: 'chunk-abc123',
       rank: 1,
-      embeddingSetId: 'set-123',
     });
   });
 
@@ -84,8 +84,8 @@ describe('toContextPackerChunk', () => {
 
   it('handles missing optional fields', () => {
     const result = createMockSearchResult({
-      filePath: '',
       fileName: '',
+      filePath: '',
     });
 
     const chunk = toContextPackerChunk(result, 0);
@@ -178,7 +178,7 @@ describe('formatPackedContext', () => {
   });
 
   it('includes chunk index label when present', () => {
-    const chunks = [{ content: 'Content.', filePath: '/src/file.ts', chunkIndex: 3 }];
+    const chunks = [{ chunkIndex: 3, content: 'Content.', filePath: '/src/file.ts' }];
 
     const formatted = formatPackedContext(chunks);
 

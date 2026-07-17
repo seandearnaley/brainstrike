@@ -29,18 +29,18 @@ export interface EmbeddingCacheInterface {
    * Get a cached embedding by content hash and model key.
    * Returns hit: true with the entry if found, or hit: false if not cached.
    */
-  get(
+  get: (
     contentHash: string,
     modelKey: string
-  ): Promise<{ hit: true; entry: CachedEmbedding } | { hit: false; entry: null }>;
+  ) => Promise<{ hit: true; entry: CachedEmbedding } | { hit: false; entry: null }>;
 
   /**
    * Get multiple cached embeddings in a single query.
    * Returns a Map keyed by "contentHash:modelKey".
    */
-  getBatch(
+  getBatch: (
     requests: ReadonlyArray<{ contentHash: string; modelKey: string }>
-  ): Promise<Map<string, CachedEmbedding>>;
+  ) => Promise<Map<string, CachedEmbedding>>;
 
   /**
    * Return cache diagnostics for worker metrics/log output.
@@ -55,22 +55,22 @@ export interface EmbeddingCacheInterface {
   /**
    * Store an embedding in the cache.
    */
-  set(
+  set: (
     contentHash: string,
     modelKey: string,
     embedding: number[],
     dimensions: number
-  ): Promise<unknown>;
+  ) => Promise<unknown>;
 
   /**
    * Store multiple embeddings in the cache atomically.
    */
-  setBatch(
+  setBatch: (
     entries: ReadonlyArray<{
       contentHash: string;
       modelKey: string;
       embedding: number[];
       dimensions: number;
     }>
-  ): Promise<number>;
+  ) => Promise<number>;
 }

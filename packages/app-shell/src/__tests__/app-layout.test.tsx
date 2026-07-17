@@ -5,8 +5,14 @@ import { AppLayout } from '../app-layout';
 import type { AppShellConfig, NavigationItem } from '../types';
 
 vi.mock('@brainstrike/preferences', () => ({
-  useDatabaseStatusSync: () => {},
   GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
+  useDatabaseStatusSync: () => {},
+}));
+vi.mock('@brainstrike/preferences/components/global-download-indicator', () => ({
+  GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
+}));
+vi.mock('@brainstrike/preferences/hooks/use-database-status-sync', () => ({
+  useDatabaseStatusSync: () => {},
 }));
 
 // Mock the shell barrel to avoid worker/provider setup in layout tests.
@@ -27,13 +33,12 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 // Mock the UI package
 vi.mock('@brainstrike/ui', () => ({
-  ThemeProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="theme-provider">{children}</div>
-  ),
-  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="tooltip-provider">{children}</div>
-  ),
-  Toaster: () => <div data-testid="toaster" />,
+  // biome-ignore lint/style/useReactFunctionComponents: Class component needed for ErrorBoundary mock
+  ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
+    override render() {
+      return <div data-testid="error-boundary">{this.props.children}</div>;
+    }
+  },
   NavigationSidebar: ({
     currentPath,
     onItemClick,
@@ -50,7 +55,6 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </div>
   ),
-  ThemeToggle: () => <div data-testid="theme-toggle" />,
   StatusBar: ({
     leftContent,
     centerContent,
@@ -66,28 +70,18 @@ vi.mock('@brainstrike/ui', () => ({
       <div data-testid="status-bar-right">{rightContent}</div>
     </div>
   ),
-  // biome-ignore lint/style/useReactFunctionComponents: Class component needed for ErrorBoundary mock
-  ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
-    override render() {
-      return <div data-testid="error-boundary">{this.props.children}</div>;
-    }
-  },
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="theme-provider">{children}</div>
+  ),
+  ThemeToggle: () => <div data-testid="theme-toggle" />,
+  Toaster: () => <div data-testid="toaster" />,
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="tooltip-provider">{children}</div>
+  ),
 }));
 
 // Mock the status items. AppLayout imports the direct modules so React Doctor
 // can verify there is no status-items barrel import in the production path.
-vi.mock('../status-items', () => ({
-  CollectionSyncStatusItem: () => (
-    <div data-testid="collection-sync-status-item">Workspace Index Cache Status</div>
-  ),
-  DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
-  IndexingStatusItem: () => <div data-testid="indexing-status-item">Indexing Status</div>,
-}));
-vi.mock('../status-items/collection-sync-status-item', () => ({
-  CollectionSyncStatusItem: () => (
-    <div data-testid="collection-sync-status-item">Workspace Index Cache Status</div>
-  ),
-}));
 vi.mock('../status-items/database-status-item', () => ({
   DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
 }));
@@ -98,16 +92,16 @@ vi.mock('../status-items/indexing-status-item', () => ({
 // Mock the file-explorer-hooks package
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
-    storageAdapter: {},
     fileSystemAdapter: {},
+    storageAdapter: {},
   }),
 }));
 
 const mockConfig: AppShellConfig = {
-  themeStorageKey: 'test-theme',
-  navigationItems: [{ name: 'Home', path: '/', icon: () => null }],
-  title: 'Test App',
   description: 'A test application',
+  navigationItems: [{ icon: () => null, name: 'Home', path: '/' }],
+  themeStorageKey: 'test-theme',
+  title: 'Test App',
 };
 
 describe('AppLayout', () => {
@@ -125,7 +119,7 @@ describe('AppLayout', () => {
     expect(screen.getByText('Page Content')).toBeInTheDocument();
   });
 
-  it('should render the status bar with database status', () => {
+  it('places the unified indexing surface at the far right after downloads', () => {
     render(
       <AppLayout config={mockConfig} currentPath="/">
         <div>Page Content</div>
@@ -134,7 +128,20 @@ describe('AppLayout', () => {
     expect(screen.getByTestId('status-bar')).toBeInTheDocument();
     expect(screen.getByTestId('database-status-item')).toBeInTheDocument();
     expect(screen.getByTestId('indexing-status-item')).toBeInTheDocument();
-    expect(screen.getByTestId('collection-sync-status-item')).toBeInTheDocument();
+    expect(screen.getByTestId('status-bar-center')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('status-bar-right')).toContainElement(
+      screen.getByTestId('global-download-indicator')
+    );
+    expect(screen.getByTestId('status-bar-right')).toContainElement(
+      screen.getByTestId('indexing-status-item')
+    );
+    expect(
+      screen
+        .getByTestId('global-download-indicator')
+        .compareDocumentPosition(screen.getByTestId('indexing-status-item')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(screen.queryByTestId('collection-sync-status-item')).not.toBeInTheDocument();
     expect(screen.queryByTestId('queue-status-item')).not.toBeInTheDocument();
   });
 

@@ -191,7 +191,6 @@ export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promis
       { timeout: effectiveTimeout }
     );
     await connectedHandle.dispose();
-    return;
   } catch (error) {
     const snapshot = await readDatabaseReadinessSnapshot(page).catch(
       (): DatabaseReadinessSnapshot => ({
@@ -252,22 +251,22 @@ export interface PanelElements {
  */
 export function getPanelElements(page: Page): PanelElements {
   return {
-    // Main panels - v4 uses id attribute for panel identification
-    leftPanel: page.locator(AGENT_SIDEBAR_PANEL_SELECTOR),
-    rightPanel: page.locator(AGENT_WORKSPACE_PANEL_SELECTOR),
     consolePanel: page.locator(CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR),
-    mainContentPanel: page.locator(AGENT_MAIN_PANEL_SELECTOR),
-    middlePanel: page.locator(AGENT_MIDDLE_PANEL_SELECTOR),
 
     // Hide buttons (when panels are open)
     hideAgentPanelButton: page.locator('[data-testid="hide-threads-panel"]'),
-    hideRightPanelButton: page.locator('[data-testid="hide-workspace-panel"]'),
     hideConsoleButton: page.locator('[data-testid="hide-console-panel"]'),
+    hideRightPanelButton: page.locator('[data-testid="hide-workspace-panel"]'),
+    // Main panels - v4 uses id attribute for panel identification
+    leftPanel: page.locator(AGENT_SIDEBAR_PANEL_SELECTOR),
+    mainContentPanel: page.locator(AGENT_MAIN_PANEL_SELECTOR),
+    middlePanel: page.locator(AGENT_MIDDLE_PANEL_SELECTOR),
+    rightPanel: page.locator(AGENT_WORKSPACE_PANEL_SELECTOR),
 
     // Show shims (when panels are closed)
     showAgentPanelShim: page.locator('[data-testid="show-threads-panel"]'),
-    showRightPanelShim: page.locator('[data-testid="show-workspace-panel"]'),
     showConsoleShim: page.locator('[data-testid="show-console-panel"]'),
+    showRightPanelShim: page.locator('[data-testid="show-workspace-panel"]'),
   };
 }
 
@@ -365,8 +364,8 @@ export async function waitForAppLoad(
           `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
         );
         logWarn('waitForAppLoad networkidle timeout', {
-          timeoutMs: networkIdleTimeout,
           error: errorMessage,
+          timeoutMs: networkIdleTimeout,
         });
       }
     });
@@ -419,10 +418,10 @@ export async function waitForAppLoad(
     .catch((error) => {
       const errorMessage = resolveErrorMessage(error);
       logWarn('Main content panel selector did not attach after primary readiness check.', {
+        error: errorMessage,
+        isCI,
         selector: `${AGENT_MAIN_PANEL_SELECTOR}, ${CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR}`,
         timeoutMs: effectiveTimeout,
-        isCI,
-        error: errorMessage,
       });
       if (isCI) {
         console.warn(
@@ -445,7 +444,7 @@ export async function waitForAppLoad(
  */
 export function contextExplorerActiveNavLocator(page: Page) {
   return page
-    .getByRole('button', { name: 'Context Explorer', exact: true })
+    .getByRole('button', { exact: true, name: 'Context Explorer' })
     .and(page.locator('[aria-current="page"]'));
 }
 
@@ -462,7 +461,7 @@ export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise
     await expect(loadingFallback).not.toBeVisible({ timeout });
   }
 
-  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({
+  await expect(page.getByRole('heading', { exact: true, name: 'Settings' })).toBeVisible({
     timeout,
   });
 }
@@ -472,7 +471,7 @@ export async function activateSidebarNavigation(
   label: 'Context Explorer' | 'Settings'
 ): Promise<void> {
   const expect = await getPlaywrightExpect();
-  const navigationButton = page.getByRole('button', { name: label, exact: true });
+  const navigationButton = page.getByRole('button', { exact: true, name: label });
   await expect(navigationButton).toBeVisible();
   await expect(navigationButton).toBeEnabled();
   // Playwright's native click retries kept racing this sidebar's rerender path.

@@ -12,9 +12,9 @@ type ToasterToast = ToastProps & {
 
 const actionTypes = {
   ADD_TOAST: 'ADD_TOAST',
-  UPDATE_TOAST: 'UPDATE_TOAST',
   DISMISS_TOAST: 'DISMISS_TOAST',
   REMOVE_TOAST: 'REMOVE_TOAST',
+  UPDATE_TOAST: 'UPDATE_TOAST',
 } as const;
 
 let count = 0;
@@ -116,9 +116,9 @@ function clearToastTimeout(toastId: string): void {
 function scheduleToastAutoDismiss(toastId: string, duration: number): void {
   clearToastTimeout(toastId);
   const timeoutId = setTimeout(() => {
-    dispatch({ type: 'DISMISS_TOAST', toastId });
+    dispatch({ toastId, type: 'DISMISS_TOAST' });
     setTimeout(() => {
-      dispatch({ type: 'REMOVE_TOAST', toastId });
+      dispatch({ toastId, type: 'REMOVE_TOAST' });
       clearToastTimeout(toastId);
     }, TOAST_REMOVE_DELAY_MS);
   }, duration);
@@ -132,28 +132,28 @@ function toast({ ...props }: Toast) {
 
   const update = (props: ToasterToast) =>
     dispatch({
-      type: 'UPDATE_TOAST',
       toast: { ...props, id },
+      type: 'UPDATE_TOAST',
     });
-  const dismiss = () => dispatch({ type: 'DISMISS_TOAST', toastId: id });
+  const dismiss = () => dispatch({ toastId: id, type: 'DISMISS_TOAST' });
 
   dispatch({
-    type: 'ADD_TOAST',
     toast: {
       ...props,
       id,
-      open: true,
       onOpenChange: (open) => {
         if (!open) {
           dismiss();
           // Remove toast after animation
           setTimeout(() => {
-            dispatch({ type: 'REMOVE_TOAST', toastId: id });
+            dispatch({ toastId: id, type: 'REMOVE_TOAST' });
             clearToastTimeout(id);
           }, 100);
         }
       },
+      open: true,
     },
+    type: 'ADD_TOAST',
   });
 
   if (typeof props.duration === 'number' && props.duration > 0) {
@@ -161,8 +161,8 @@ function toast({ ...props }: Toast) {
   }
 
   return {
-    id,
     dismiss,
+    id,
     update,
   };
 }
@@ -182,7 +182,6 @@ function useToast() {
 
   return {
     ...state,
-    toast,
     dismiss: (toastId?: string) => {
       dispatch({
         type: 'DISMISS_TOAST',
@@ -190,6 +189,7 @@ function useToast() {
         ...(toastId && { toastId }),
       });
     },
+    toast,
   };
 }
 

@@ -72,13 +72,13 @@ describe('Migration System Integration', () => {
 
       // Test creating a record
       const testRecord: FileRecord = {
+        createdAt: new Date().toISOString(),
         id: 'test-id-1',
         name: 'test.txt',
         path: '/test/test.txt',
         size: 1024,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
         tokenCount: 0,
+        updatedAt: new Date().toISOString(),
       };
 
       await repository.create(testRecord);
@@ -104,13 +104,13 @@ describe('Migration System Integration', () => {
       // Create some test data
       const repository = createFileRecordRepository(db);
       const testRecord: FileRecord = {
+        createdAt: new Date().toISOString(),
         id: 'rollback-test',
         name: 'rollback.txt',
         path: '/test/rollback.txt',
         size: 512,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
         tokenCount: 0,
+        updatedAt: new Date().toISOString(),
       };
       await repository.create(testRecord);
 
@@ -170,21 +170,21 @@ describe('Migration System Integration', () => {
       // Create test data
       const repository = createFileRecordRepository(db);
       const testRecord: FileRecord = {
+        createdAt: new Date().toISOString(),
         id: 'integrity-test',
         name: 'integrity.txt',
         path: '/test/integrity.txt',
         size: 256,
-        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       await repository.create(testRecord);
 
       // Create a bad migration that should fail
       const badMigration = {
-        version: 99,
+        down: 'ALTER TABLE file_records DROP COLUMN bad_column;',
         name: 'bad_migration',
         up: 'ALTER TABLE file_records ADD COLUMN bad_column INVALID_TYPE;',
-        down: 'ALTER TABLE file_records DROP COLUMN bad_column;',
+        version: 99,
       };
 
       // Migration should fail

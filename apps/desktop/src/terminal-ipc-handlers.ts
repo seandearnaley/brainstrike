@@ -37,6 +37,7 @@
  * throw across IPC and never a silent success.
  */
 
+import { randomUUID } from 'node:crypto';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
@@ -137,12 +138,9 @@ const liveTerminals = new Map<string, LiveTerminal>();
  */
 const reaperAttachedOwners = new WeakSet<WebContents>();
 
-let terminalSequence = 0;
-
 /** Generate a process-unique, non-guessable terminal id. */
 function nextTerminalId(): string {
-  terminalSequence += 1;
-  return `pty-${Date.now().toString(36)}-${terminalSequence}-${Math.random().toString(36).slice(2, 8)}`;
+  return `pty-${randomUUID()}`;
 }
 
 /**
@@ -200,7 +198,7 @@ function killTerminalTree(entry: LiveTerminal): void {
   //    separate-process-group background job is still a descendant by ppid.
   treeKill(entry.pid, 'SIGKILL', (error) => {
     if (error && !/no such process/i.test(error.message)) {
-      logger.warn('tree-kill failed for terminal', { pid: entry.pid, error: error.message });
+      logger.warn('tree-kill failed for terminal', { error: error.message, pid: entry.pid });
     }
     // 2) POSIX process-group backstop for same-group children (covers anything
     //    that DID stay in the shell's group). Windows has no process groups and
@@ -219,7 +217,7 @@ function killTerminalTree(entry: LiveTerminal): void {
         //    race, not a real denial. Any OTHER code is unexpected → warn (no
         //    silent fallback).
         if (code !== 'ESRCH' && code !== 'EPERM') {
-          logger.warn('Process-group kill failed for terminal', { pid: entry.pid, code });
+          logger.warn('Process-group kill failed for terminal', { code, pid: entry.pid });
         }
       }
     }
@@ -247,19 +245,19 @@ export interface TerminalIpcHandlersOptions {
 }
 
 export interface TerminalIpcHandlers {
-  create(
+  create: (
     owner: WebContents,
     params: TerminalCreateParams
-  ): Promise<TerminalResult<TerminalCreateResult>>;
+  ) => Promise<TerminalResult<TerminalCreateResult>>;
   /**
    * `requesterId` is the calling renderer's `WebContents.id` (from
    * `event.sender`). write/resize/destroy reject when it does not match the
    * terminal's owner, so one renderer cannot drive (or kill) another's shell by
    * guessing its id — the hidden host renderers also hold the bridge.
    */
-  destroy(params: TerminalDestroyParams, requesterId: number): TerminalResult;
-  resize(params: TerminalResizeParams, requesterId: number): TerminalResult;
-  write(params: TerminalWriteParams, requesterId: number): TerminalResult;
+  destroy: (params: TerminalDestroyParams, requesterId: number) => TerminalResult;
+  resize: (params: TerminalResizeParams, requesterId: number) => TerminalResult;
+  write: (params: TerminalWriteParams, requesterId: number) => TerminalResult;
 }
 
 export function createTerminalIpcHandlers({
@@ -270,7 +268,7 @@ export function createTerminalIpcHandlers({
     if (entry.webContents.isDestroyed()) {
       return;
     }
-    const payload: TerminalDataEvent = { terminalId, data };
+    const payload: TerminalDataEvent = { data, terminalId };
     entry.webContents.send(DESKTOP_IPC_CHANNELS.terminal.data, payload);
   }
 
@@ -296,24 +294,24 @@ export function createTerminalIpcHandlers({
     let ptyProcess: IPty;
     try {
       ptyProcess = spawn(shell, [], {
-        name: 'xterm-256color',
-        cwd: cwd.value,
         cols,
-        rows,
+        cwd: cwd.value,
         // biome-ignore lint/style/useNamingConvention: TERM is a standard env var name (must be uppercase).
         env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+        name: 'xterm-256color',
+        rows,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.error('Failed to spawn pty', { shell, cwd: cwd.value, error: message });
-      return { ok: false, error: `Failed to start terminal: ${message}` };
+      logger.error('Failed to spawn pty', { cwd: cwd.value, error: message, shell });
+      return { error: `Failed to start terminal: ${message}`, ok: false };
     }
 
     const terminalId = nextTerminalId();
     const entry: LiveTerminal = {
       ownerId: owner.id,
-      process: ptyProcess,
       pid: ptyProcess.pid,
+      process: ptyProcess,
       webContents: owner,
     };
     liveTerminals.set(terminalId, entry);
@@ -349,15 +347,15 @@ export function createTerminalIpcHandlers({
       // collide with the dying entry.
       liveTerminals.delete(terminalId);
       sendExit(entry, {
-        terminalId,
         exitCode,
         signal: typeof signal === 'number' ? signal : null,
+        terminalId,
       });
-      logger.debug('pty exited', { terminalId, exitCode, signal: signal ?? null });
+      logger.debug('pty exited', { exitCode, signal: signal ?? null, terminalId });
     });
 
-    logger.info('Spawned terminal', { terminalId, shell, cwd: cwd.value, cols, rows });
-    return { ok: true, value: { terminalId, cwd: cwd.value } };
+    logger.info('Spawned terminal', { cols, cwd: cwd.value, rows, shell, terminalId });
+    return { ok: true, value: { cwd: cwd.value, terminalId } };
   }
 
   /**
@@ -376,9 +374,9 @@ export function createTerminalIpcHandlers({
     }
     if (entry.ownerId !== requesterId) {
       logger.warn('Rejected terminal op from non-owner renderer', {
-        terminalId,
         ownerId: entry.ownerId,
         requesterId,
+        terminalId,
       });
       return { error: `No live terminal "${terminalId}".` };
     }
@@ -388,25 +386,25 @@ export function createTerminalIpcHandlers({
   function write(params: TerminalWriteParams, requesterId: number): TerminalResult {
     const entry = resolveOwnedTerminal(params?.terminalId, requesterId);
     if ('error' in entry) {
-      return { ok: false, error: entry.error };
+      return { error: entry.error, ok: false };
     }
     if (typeof params.data !== 'string') {
-      return { ok: false, error: 'terminal:write requires a string data payload.' };
+      return { error: 'terminal:write requires a string data payload.', ok: false };
     }
     try {
       entry.process.write(params.data);
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.warn('Write to terminal failed', { terminalId: params.terminalId, error: message });
-      return { ok: false, error: `Write failed: ${message}` };
+      logger.warn('Write to terminal failed', { error: message, terminalId: params.terminalId });
+      return { error: `Write failed: ${message}`, ok: false };
     }
   }
 
   function resize(params: TerminalResizeParams, requesterId: number): TerminalResult {
     const entry = resolveOwnedTerminal(params?.terminalId, requesterId);
     if ('error' in entry) {
-      return { ok: false, error: entry.error };
+      return { error: entry.error, ok: false };
     }
     const cols = clampDimension(params?.cols, DEFAULT_COLS);
     const rows = clampDimension(params?.rows, DEFAULT_ROWS);
@@ -415,15 +413,15 @@ export function createTerminalIpcHandlers({
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.warn('Resize of terminal failed', { terminalId: params.terminalId, error: message });
-      return { ok: false, error: `Resize failed: ${message}` };
+      logger.warn('Resize of terminal failed', { error: message, terminalId: params.terminalId });
+      return { error: `Resize failed: ${message}`, ok: false };
     }
   }
 
   function destroy(params: TerminalDestroyParams, requesterId: number): TerminalResult {
     const entry = resolveOwnedTerminal(params?.terminalId, requesterId);
     if ('error' in entry) {
-      return { ok: false, error: entry.error };
+      return { error: entry.error, ok: false };
     }
     // Remove from the registry FIRST so the onExit handler (which also deletes)
     // is a no-op and cannot double-fire teardown.
@@ -433,7 +431,7 @@ export function createTerminalIpcHandlers({
     return { ok: true };
   }
 
-  return { create, write, resize, destroy };
+  return { create, destroy, resize, write };
 }
 
 /**
@@ -465,7 +463,7 @@ export function disposeTerminalsForWebContents(ownerId: number): number {
     reaped += 1;
   }
   if (reaped > 0) {
-    logger.info('Reaped terminals for destroyed renderer', { ownerId, count: reaped });
+    logger.info('Reaped terminals for destroyed renderer', { count: reaped, ownerId });
   }
   return reaped;
 }

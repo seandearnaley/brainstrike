@@ -4,6 +4,10 @@ import { cn } from '../lib/utils';
 export type StatusBarItemStatus = 'connected' | 'disconnected' | 'loading' | 'warning';
 
 export interface StatusBarItemProps {
+  /** Announce value changes as a polite, atomic live status */
+  announce?: boolean;
+  /** Explicit screen-reader text when the compact visual label omits state */
+  announcement?: string;
   /** Additional CSS classes */
   className?: string;
   /** Icon component to display */
@@ -19,10 +23,10 @@ export interface StatusBarItemProps {
 }
 
 const statusClasses: Record<StatusBarItemStatus, string> = {
-  connected: 'text-green-600',
-  disconnected: 'text-red-600',
-  warning: 'text-yellow-600',
-  loading: 'text-muted-foreground animate-pulse',
+  connected: 'text-emerald-700 dark:text-emerald-300',
+  disconnected: 'text-red-700 dark:text-red-300',
+  loading: 'text-muted-foreground',
+  warning: 'text-amber-700 dark:text-amber-300',
 };
 
 /**
@@ -30,6 +34,8 @@ const statusClasses: Record<StatusBarItemStatus, string> = {
  * Displays an optional icon, label, and value with color based on status.
  */
 export function StatusBarItem({
+  announce = false,
+  announcement,
   icon: Icon,
   label,
   value,
@@ -37,14 +43,42 @@ export function StatusBarItem({
   className,
   testId,
 }: StatusBarItemProps): React.ReactElement {
+  const visualContent = (
+    <>
+      {Icon && (
+        <Icon
+          className={cn(
+            'h-3 w-3 shrink-0',
+            status === 'loading' && 'animate-pulse motion-reduce:animate-none'
+          )}
+        />
+      )}
+      {label && <span className="min-w-0 flex-1 truncate whitespace-nowrap">{label}</span>}
+      {value && <span className="shrink-0 whitespace-nowrap tabular-nums">{value}</span>}
+    </>
+  );
+
   return (
     <span
-      className={cn('flex items-center gap-1', statusClasses[status], className)}
+      aria-atomic={announce ? true : undefined}
+      className={cn(
+        'flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-1.5 leading-none',
+        statusClasses[status],
+        className
+      )}
       data-testid={testId}
+      role={announce ? 'status' : undefined}
     >
-      {Icon && <Icon className="h-3 w-3" />}
-      {label && <span>{label}</span>}
-      {value && <span>{value}</span>}
+      {announcement ? (
+        <>
+          <span aria-hidden="true" className="contents">
+            {visualContent}
+          </span>
+          <span className="sr-only">{announcement}</span>
+        </>
+      ) : (
+        visualContent
+      )}
     </span>
   );
 }

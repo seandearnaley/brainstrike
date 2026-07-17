@@ -58,10 +58,10 @@ export function PanelLayoutProvider({
     const state: PanelLayoutState = controlledState
       ? controlledState
       : {
-          sizes: uncontrolled.sizes,
           showConsole: uncontrolled.showConsole,
           showLeftPanel: uncontrolled.showLeftPanel,
           showRightPanel: uncontrolled.showRightPanel,
+          sizes: uncontrolled.sizes,
         };
 
     const setState = (next: PanelLayoutState) => {

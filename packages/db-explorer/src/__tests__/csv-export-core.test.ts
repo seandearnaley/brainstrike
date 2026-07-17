@@ -229,10 +229,10 @@ describe('generateCSV', () => {
   }
 
   const columns: CSVColumn<TestRecord>[] = [
-    { header: 'ID', getValue: (record) => record.id },
-    { header: 'Name', getValue: (record) => record.name },
-    { header: 'Email', getValue: (record) => record.email },
-    { header: 'Active', getValue: (record) => (record.active ? 'Yes' : 'No') },
+    { getValue: (record) => record.id, header: 'ID' },
+    { getValue: (record) => record.name, header: 'Name' },
+    { getValue: (record) => record.email, header: 'Email' },
+    { getValue: (record) => (record.active ? 'Yes' : 'No'), header: 'Active' },
   ];
 
   it('should generate CSV with headers only for empty records', () => {
@@ -242,7 +242,7 @@ describe('generateCSV', () => {
 
   it('should generate CSV with single record', () => {
     const records: TestRecord[] = [
-      { id: 1, name: 'John Doe', email: 'john@example.com', active: true },
+      { active: true, email: 'john@example.com', id: 1, name: 'John Doe' },
     ];
 
     const csv = generateCSV(records, columns);
@@ -255,9 +255,9 @@ describe('generateCSV', () => {
 
   it('should generate CSV with multiple records', () => {
     const records: TestRecord[] = [
-      { id: 1, name: 'John Doe', email: 'john@example.com', active: true },
-      { id: 2, name: 'Jane Smith', email: 'jane@example.com', active: false },
-      { id: 3, name: 'Bob Johnson', email: 'bob@example.com', active: true },
+      { active: true, email: 'john@example.com', id: 1, name: 'John Doe' },
+      { active: false, email: 'jane@example.com', id: 2, name: 'Jane Smith' },
+      { active: true, email: 'bob@example.com', id: 3, name: 'Bob Johnson' },
     ];
 
     const csv = generateCSV(records, columns);
@@ -272,7 +272,7 @@ describe('generateCSV', () => {
 
   it('should escape values with commas', () => {
     const records: TestRecord[] = [
-      { id: 1, name: 'Doe, John', email: 'john@example.com', active: true },
+      { active: true, email: 'john@example.com', id: 1, name: 'Doe, John' },
     ];
 
     const csv = generateCSV(records, columns);
@@ -283,7 +283,7 @@ describe('generateCSV', () => {
 
   it('should escape values with quotes', () => {
     const records: TestRecord[] = [
-      { id: 1, name: 'John "The Boss" Doe', email: 'john@example.com', active: true },
+      { active: true, email: 'john@example.com', id: 1, name: 'John "The Boss" Doe' },
     ];
 
     const csv = generateCSV(records, columns);
@@ -294,7 +294,7 @@ describe('generateCSV', () => {
 
   it('should escape values with newlines', () => {
     const records: TestRecord[] = [
-      { id: 1, name: 'John\nDoe', email: 'john@example.com', active: true },
+      { active: true, email: 'john@example.com', id: 1, name: 'John\nDoe' },
     ];
 
     const csv = generateCSV(records, columns);
@@ -313,14 +313,14 @@ describe('generateCSV', () => {
     }
 
     const nullableColumns: CSVColumn<NullableRecord>[] = [
-      { header: 'ID', getValue: (record) => record.id },
-      { header: 'Name', getValue: (record) => record.name },
-      { header: 'Email', getValue: (record) => record.email },
+      { getValue: (record) => record.id, header: 'ID' },
+      { getValue: (record) => record.name, header: 'Name' },
+      { getValue: (record) => record.email, header: 'Email' },
     ];
 
     const records: NullableRecord[] = [
-      { id: 1, name: null, email: undefined },
-      { id: 2, name: 'John', email: 'john@example.com' },
+      { email: undefined, id: 1, name: null },
+      { email: 'john@example.com', id: 2, name: 'John' },
     ];
 
     const csv = generateCSV(records, nullableColumns);
@@ -332,7 +332,7 @@ describe('generateCSV', () => {
 
   it('should handle empty columns array', () => {
     const records: TestRecord[] = [
-      { id: 1, name: 'John', email: 'john@example.com', active: true },
+      { active: true, email: 'john@example.com', id: 1, name: 'John' },
     ];
 
     const csv = generateCSV(records, []);
@@ -341,13 +341,13 @@ describe('generateCSV', () => {
 
   it('should handle headers with special characters', () => {
     const specialColumns: CSVColumn<TestRecord>[] = [
-      { header: 'ID#', getValue: (record) => record.id },
-      { header: 'Name (Full)', getValue: (record) => record.name },
-      { header: 'Email, Address', getValue: (record) => record.email },
+      { getValue: (record) => record.id, header: 'ID#' },
+      { getValue: (record) => record.name, header: 'Name (Full)' },
+      { getValue: (record) => record.email, header: 'Email, Address' },
     ];
 
     const records: TestRecord[] = [
-      { id: 1, name: 'John', email: 'john@example.com', active: true },
+      { active: true, email: 'john@example.com', id: 1, name: 'John' },
     ];
 
     const csv = generateCSV(records, specialColumns);
@@ -367,18 +367,18 @@ describe('generateCSV', () => {
     }
 
     const complexColumns: CSVColumn<ComplexRecord>[] = [
-      { header: 'Nested Value', getValue: (record) => record.data.nested.value },
-      { header: 'Array Length', getValue: (record) => record.array.length },
+      { getValue: (record) => record.data.nested.value, header: 'Nested Value' },
+      { getValue: (record) => record.array.length, header: 'Array Length' },
       {
-        header: 'First Item',
         getValue: (record) => record.array[0] ?? 'N/A',
+        header: 'First Item',
       },
     ];
 
     const records: ComplexRecord[] = [
       {
-        data: { nested: { value: 42 } },
         array: ['first', 'second'],
+        data: { nested: { value: 42 } },
       },
     ];
 
@@ -390,10 +390,10 @@ describe('generateCSV', () => {
 
   it('should handle large datasets', () => {
     const largeRecords: TestRecord[] = Array.from({ length: 1000 }, (_, index) => ({
+      active: index % 2 === 0,
+      email: `user${index + 1}@example.com`,
       id: index + 1,
       name: `User ${index + 1}`,
-      email: `user${index + 1}@example.com`,
-      active: index % 2 === 0,
     }));
 
     const csv = generateCSV(largeRecords, columns);

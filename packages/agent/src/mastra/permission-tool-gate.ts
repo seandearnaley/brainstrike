@@ -118,11 +118,11 @@ function resolveToolGateDecision(
   const originalName = toolNameMap.get(sanitizedId) ?? sanitizedId;
   const riskCategory = riskForTool(snapshot, originalName, sanitizedId);
   const decision = resolvePermissionDecision({
-    riskCategory,
-    toolId: originalName,
     policies: snapshot.policies,
-    yolo: snapshot.yolo,
+    riskCategory,
     sessionGrants: sessionGrantSet,
+    toolId: originalName,
+    yolo: snapshot.yolo,
     ...(snapshot.perToolOverrides ? { perToolOverrides: snapshot.perToolOverrides } : {}),
   });
   return { decision, originalName, riskCategory };
@@ -188,7 +188,7 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
 ): FilterToolsByPermissionResult<TMap> {
   // Production-unchanged path: no policy threaded → no filtering, no approval.
   if (!snapshot) {
-    return { tools: guardedTools, askToolIds: new Set<string>(), askTools: new Map() };
+    return { askToolIds: new Set<string>(), askTools: new Map(), tools: guardedTools };
   }
 
   // The resolver expects a ReadonlySet; the serializable snapshot carries an
@@ -212,9 +212,9 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
     if (decision === 'deny') {
       logger.info('Tool omitted by permission policy (deny)', {
         code: 'permission_tool_gate_deny',
-        tool: originalName,
-        sanitizedId,
         riskCategory,
+        sanitizedId,
+        tool: originalName,
       });
       continue;
     }
@@ -231,14 +231,14 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
       askTools.set(sanitizedId, { originalName, riskCategory });
       logger.info("Tool gated to 'ask' by permission policy (will suspend for per-call approval)", {
         code: 'permission_tool_gate_ask_suspend',
-        tool: originalName,
-        sanitizedId,
         riskCategory,
+        sanitizedId,
+        tool: originalName,
       });
     } else {
       filtered[sanitizedId] = tool;
     }
   }
 
-  return { tools: filtered as TMap, askToolIds, askTools };
+  return { askToolIds, askTools, tools: filtered as TMap };
 }

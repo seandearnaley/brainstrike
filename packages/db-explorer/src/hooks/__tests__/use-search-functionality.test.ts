@@ -80,44 +80,44 @@ describe('useSearchFunctionality', () => {
     mockDb.query.mockResolvedValue({
       rows: [
         {
-          modelKey: 'jinaai/jina-embeddings-v3',
           dimensions: 768,
+          modelKey: 'jinaai/jina-embeddings-v3',
         },
       ],
     });
     initializeWithModel.mockResolvedValue(undefined);
     generateQueryEmbedding.mockResolvedValue({ embedding: new Float32Array([0.1, 0.2, 0.3]) });
     useModelRegistryStore.setState({
+      error: null,
+      hasLoaded: true,
+      isLoading: false,
       models: [
         {
-          id: 'jinaai/jina-embeddings-v3',
-          providerId: 'transformers',
-          name: 'Jina Code',
-          description: 'Code-optimized embeddings',
-          tagline: null,
           bestFor: ['code', 'default'],
+          capabilities: { defaultDimension: 768, type: 'embedding' },
+          description: 'Code-optimized embeddings',
           icon: null,
+          id: 'jinaai/jina-embeddings-v3',
           isEnabled: true,
-          capabilities: { type: 'embedding', defaultDimension: 768 },
+          name: 'Jina Code',
           parameters: { size: '~300MB' },
+          providerId: 'transformers',
           sortOrder: 1,
+          tagline: null,
         },
       ],
       providers: [],
-      isLoading: false,
-      hasLoaded: true,
-      error: null,
     });
     useVectorPreferencesStore.setState({
-      hasHydrated: true,
       devicePref: 'wasm',
       devicePrefConfigured: true,
+      hasHydrated: true,
       reinitEveryN: 200,
-      verboseOrtLogs: false,
       setDetectedDevicePref: vi.fn(),
       setDevicePref: vi.fn(),
       setReinitEveryN: vi.fn(),
       setVerboseOrtLogs: vi.fn(),
+      verboseOrtLogs: false,
     });
   });
 
@@ -151,31 +151,31 @@ describe('useSearchFunctionality', () => {
     const toast = vi.fn() as unknown as ToastFn;
 
     const chunk1 = {
-      id: 'c1',
-      fileRecordId: 'f1',
       chunkIndex: 0,
       content: 'hello world',
-      tokenCount: 10,
       createdAt: new Date().toISOString(),
+      fileRecordId: 'f1',
+      id: 'c1',
+      tokenCount: 10,
       updatedAt: new Date().toISOString(),
     } as unknown as FileChunk;
 
     const chunk2 = {
-      id: 'c2',
-      fileRecordId: 'f1',
       chunkIndex: 1,
       content: 'hello line 10',
-      tokenCount: 12,
       createdAt: new Date().toISOString(),
+      fileRecordId: 'f1',
+      id: 'c2',
+      tokenCount: 12,
       updatedAt: new Date().toISOString(),
     } as unknown as FileChunk;
 
     const file = {
+      createdAt: new Date().toISOString(),
       id: 'f1',
       name: 'app.tsx',
       path: '/repo/app.tsx',
       size: 123,
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     } as unknown as FileRecord;
 
@@ -224,12 +224,12 @@ describe('useSearchFunctionality', () => {
     process.env['SEARCH_DEFAULT_THRESHOLD'] = '0.9';
     const toast = vi.fn() as unknown as ToastFn;
     const chunk = {
-      id: 'c1',
-      fileRecordId: 'missing-file',
       chunkIndex: 0,
       content: 'export function runSearch() { return true; }',
-      tokenCount: 10,
       createdAt: '2026-06-01T00:00:00.000Z',
+      fileRecordId: 'missing-file',
+      id: 'c1',
+      tokenCount: 10,
       updatedAt: '2026-06-01T00:00:00.000Z',
     } as unknown as FileChunk;
     const searchSimilar = vi.fn().mockResolvedValue([{ chunk, similarity: 0.7 }]);
@@ -253,10 +253,10 @@ describe('useSearchFunctionality', () => {
     const [embeddingArg, optionsArg] = searchSimilar.mock.calls[0] ?? [];
     expect(embeddingArg).toEqual([expect.closeTo(0.1), expect.closeTo(0.2), expect.closeTo(0.3)]);
     expect(optionsArg).toEqual({
-      limit: 20,
-      threshold: 0.65,
       chunkType: 'recursive',
       embeddingSetId: 'set-1',
+      limit: 20,
+      threshold: 0.65,
     });
     expect(findById).toHaveBeenCalledWith('missing-file');
     expect(result.current.searchResults[0]?.fileRecord).toMatchObject({
@@ -280,8 +280,8 @@ describe('useSearchFunctionality', () => {
     mockDb.query.mockResolvedValue({
       rows: [
         {
-          modelKey: 'openai::text-embedding-3-small',
           dimensions: 1536,
+          modelKey: 'openai::text-embedding-3-small',
         },
       ],
     });
@@ -300,19 +300,19 @@ describe('useSearchFunctionality', () => {
     });
 
     expect(EmbeddingProviderFactory.createProvider).toHaveBeenCalledWith({
-      runtime: 'hosted',
-      provider: 'openai',
-      modelId: 'text-embedding-3-small',
       dimensions: 1536,
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
+      runtime: 'hosted',
     });
     expect(embed).toHaveBeenCalledWith({
-      text: 'hosted search',
       modelId: 'text-embedding-3-small',
+      text: 'hosted search',
     });
     expect(searchSimilar).toHaveBeenCalledWith([0.4, 0.5, 0.6], {
+      embeddingSetId: 'set-1',
       limit: 20,
       threshold: 0.5,
-      embeddingSetId: 'set-1',
     });
   });
 
@@ -321,30 +321,30 @@ describe('useSearchFunctionality', () => {
       'google',
       'text-embedding-004',
       {
-        runtime: 'hosted',
-        provider: 'google',
         modelId: 'text-embedding-004',
         outputDimensionality: 768,
+        provider: 'google',
+        runtime: 'hosted',
       },
     ],
     [
       'cohere',
       'embed-v4.0',
       {
-        runtime: 'hosted',
-        provider: 'cohere',
-        modelId: 'embed-v4.0',
         inputType: 'search_query',
+        modelId: 'embed-v4.0',
+        provider: 'cohere',
+        runtime: 'hosted',
       },
     ],
     [
       'voyage',
       'voyage-3-large',
       {
-        runtime: 'hosted',
-        provider: 'voyage',
-        modelId: 'voyage-3-large',
         inputType: 'query',
+        modelId: 'voyage-3-large',
+        provider: 'voyage',
+        runtime: 'hosted',
       },
     ],
   ] as const)('builds %s hosted embedding config for semantic search', async (provider, modelId, expectedConfig) => {
@@ -360,8 +360,8 @@ describe('useSearchFunctionality', () => {
     mockDb.query.mockResolvedValue({
       rows: [
         {
-          modelKey: `${provider}::${modelId}`,
           dimensions: 768,
+          modelKey: `${provider}::${modelId}`,
         },
       ],
     });
@@ -380,22 +380,22 @@ describe('useSearchFunctionality', () => {
 
     expect(EmbeddingProviderFactory.createProvider).toHaveBeenCalledWith(expectedConfig);
     expect(embed).toHaveBeenCalledWith({
-      text: `${provider} query`,
       modelId,
+      text: `${provider} query`,
     });
   });
 
   it('surfaces hosted provider initialization failures through the search toast', async () => {
     const toast = vi.fn() as unknown as ToastFn;
     vi.mocked(EmbeddingProviderFactory.createProvider).mockResolvedValue({
-      ok: false,
       error: { type: 'api_key_missing' },
+      ok: false,
     } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
     mockDb.query.mockResolvedValue({
       rows: [
         {
-          modelKey: 'openai::text-embedding-3-small',
           dimensions: 1536,
+          modelKey: 'openai::text-embedding-3-small',
         },
       ],
     });
@@ -413,8 +413,8 @@ describe('useSearchFunctionality', () => {
 
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Search Failed',
         description: 'Failed to initialize hosted provider: api_key_missing',
+        title: 'Search Failed',
         variant: 'destructive',
       })
     );
@@ -423,11 +423,11 @@ describe('useSearchFunctionality', () => {
   it('surfaces hosted embedding failures with original provider error messages', async () => {
     const toast = vi.fn() as unknown as ToastFn;
     const embed = vi.fn().mockResolvedValue({
-      ok: false,
       error: {
-        type: 'provider_error',
         originalError: new Error('provider is unavailable'),
+        type: 'provider_error',
       },
+      ok: false,
     });
     vi.mocked(EmbeddingProviderFactory.createProvider).mockResolvedValue({
       ok: true,
@@ -436,8 +436,8 @@ describe('useSearchFunctionality', () => {
     mockDb.query.mockResolvedValue({
       rows: [
         {
-          modelKey: 'openai::text-embedding-3-small',
           dimensions: 1536,
+          modelKey: 'openai::text-embedding-3-small',
         },
       ],
     });
@@ -463,12 +463,12 @@ describe('useSearchFunctionality', () => {
   it('uses synthesized file records when search runs without a file repository', async () => {
     const toast = vi.fn() as unknown as ToastFn;
     const chunk = {
-      id: 'chunk-without-repo',
-      fileRecordId: 'file-without-repo',
       chunkIndex: 0,
       content: 'searchable content',
-      tokenCount: 10,
       createdAt: '2026-06-01T00:00:00.000Z',
+      fileRecordId: 'file-without-repo',
+      id: 'chunk-without-repo',
+      tokenCount: 10,
       updatedAt: '2026-06-01T00:00:00.000Z',
     } as unknown as FileChunk;
     const searchSimilar = vi.fn().mockResolvedValue([{ chunk, similarity: 0.8 }]);
@@ -528,8 +528,8 @@ describe('useSearchFunctionality', () => {
 
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Search Failed',
         description: 'Select an active embedding set in Vector Status, then retry.',
+        title: 'Search Failed',
         variant: 'destructive',
       })
     );
@@ -539,11 +539,11 @@ describe('useSearchFunctionality', () => {
   it('surfaces missing local model configuration through the search toast', async () => {
     const toast = vi.fn() as unknown as ToastFn;
     useModelRegistryStore.setState({
+      error: null,
+      hasLoaded: true,
+      isLoading: false,
       models: [],
       providers: [],
-      isLoading: false,
-      hasLoaded: true,
-      error: null,
     });
     const chunkRepository = { searchSimilar: vi.fn() } as unknown as FileChunkRepository;
 
@@ -559,9 +559,9 @@ describe('useSearchFunctionality', () => {
 
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Search Failed',
         description:
           'Embedding set references unknown model: jinaai/jina-embeddings-v3. Available models: none. If the model exists but is disabled, enable it in Settings > Models.',
+        title: 'Search Failed',
         variant: 'destructive',
       })
     );
@@ -611,8 +611,8 @@ describe('useSearchFunctionality', () => {
 
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Search Failed',
         description: 'Select an active embedding set in Vector Status, then retry.',
+        title: 'Search Failed',
         variant: 'destructive',
       })
     );

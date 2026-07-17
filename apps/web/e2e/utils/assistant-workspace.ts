@@ -1,5 +1,5 @@
 import type { ModelRegistrySnapshotOverride } from '@brainstrike/preferences/settings-test-runtime-access';
-import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/preferences/stores/assistant-preferences-store-version';
 import { expect, type Page } from '@playwright/test';
 import { resetAppState } from './app-state';
 import { waitForAppLoad } from './layout-helpers';
@@ -47,8 +47,8 @@ function createLocalAssistantModelFixture(): LocalAssistantModelFixture {
           lmstudio: { localRuntimeEnabled: 'off' },
           ollama: { localRuntimeEnabled: 'off' },
         },
-        selectedProvider: 'local',
         selectedModel,
+        selectedProvider: 'local',
       },
       version: ASSISTANT_PREFERENCES_STORE_VERSION,
     },
@@ -57,7 +57,7 @@ function createLocalAssistantModelFixture(): LocalAssistantModelFixture {
       models: [
         {
           bestFor: ['assistant'],
-          capabilities: { type: 'llm', streaming: false },
+          capabilities: { streaming: false, type: 'llm' },
           description: 'Mocked local assistant model for E2E tests',
           icon: null,
           id: LOCAL_ASSISTANT_MODEL_ID,

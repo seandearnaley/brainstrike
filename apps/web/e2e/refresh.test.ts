@@ -4,7 +4,7 @@ import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
-test.describe('Refresh Workflow', { tag: '@smoke' }, () => {
+test.describe('Refresh Workflow', () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
       'old-file.ts': null,
@@ -42,8 +42,8 @@ test.describe('Refresh Workflow', { tag: '@smoke' }, () => {
       await w.__BRAINSTRIKE_LOAD_FIXTURE__({
         name: 'test-root',
         tree: {
-          'old-file.ts': null,
           'new-file.ts': 'test content',
+          'old-file.ts': null,
         },
       });
     });

@@ -24,11 +24,11 @@ function createStatus(
   overrides?: Partial<EmbeddingRuntimeStatus>
 ): EmbeddingRuntimeStatus {
   return {
-    runtimeKind: 'embedding-worker',
-    runtimeId: 'embedding-worker:test',
-    state,
     active: false,
     lastError: null,
+    runtimeId: 'embedding-worker:test',
+    runtimeKind: 'embedding-worker',
+    state,
     ...overrides,
   };
 }
@@ -99,8 +99,8 @@ describe('useEmbeddingWorkerControls', () => {
 
     const { result } = renderHook(() =>
       useEmbeddingWorkerControls({
-        controller: mockController.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: mockController.controller,
         onBackfill: vi.fn(async () => {}),
         toast,
       })
@@ -126,8 +126,8 @@ describe('useEmbeddingWorkerControls', () => {
 
     const { result } = renderHook(() =>
       useEmbeddingWorkerControls({
-        controller: mockController.controller,
         activeEmbeddingSetId: null,
+        controller: mockController.controller,
         onBackfill: vi.fn(async () => {}),
         toast,
       })
@@ -140,8 +140,8 @@ describe('useEmbeddingWorkerControls', () => {
     expect(mockController.startMock).toHaveBeenCalledTimes(1);
     expect(result.current.workerLocalRunning).toBe(true);
     expect(toast).toHaveBeenCalledWith({
-      title: 'Worker started',
       description: 'Local embedding worker is running.',
+      title: 'Worker started',
     });
   });
 
@@ -151,8 +151,8 @@ describe('useEmbeddingWorkerControls', () => {
 
     const { result } = renderHook(() =>
       useEmbeddingWorkerControls({
-        controller: mockController.controller,
         activeEmbeddingSetId: null,
+        controller: mockController.controller,
         onBackfill: vi.fn(async () => {}),
         toast,
       })
@@ -164,8 +164,8 @@ describe('useEmbeddingWorkerControls', () => {
 
     expect(result.current.startWorkerError).toBe('runtime start failed');
     expect(toast).toHaveBeenCalledWith({
-      title: 'Failed to start worker',
       description: 'runtime start failed',
+      title: 'Failed to start worker',
       variant: 'destructive',
     });
   });
@@ -175,8 +175,8 @@ describe('useEmbeddingWorkerControls', () => {
 
     const { result } = renderHook(() =>
       useEmbeddingWorkerControls({
-        controller: mockController.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: mockController.controller,
         onBackfill: vi.fn(async () => {}),
         toast,
       })
@@ -198,8 +198,8 @@ describe('useEmbeddingWorkerControls', () => {
 
     const { result } = renderHook(() =>
       useEmbeddingWorkerControls({
-        controller: mockController.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: mockController.controller,
         onBackfill: vi.fn(async () => {}),
         toast,
       })
@@ -211,8 +211,8 @@ describe('useEmbeddingWorkerControls', () => {
 
     expect(result.current.startWorkerError).toBe('stop failed');
     expect(toast).toHaveBeenCalledWith({
-      title: 'Failed to stop worker',
       description: 'stop failed',
+      title: 'Failed to stop worker',
       variant: 'destructive',
     });
   });
@@ -225,8 +225,8 @@ describe('useEmbeddingWorkerControls', () => {
 
     const { result } = renderHook(() =>
       useEmbeddingWorkerControls({
-        controller: mockController.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: mockController.controller,
         onBackfill: vi.fn(async () => {}),
         toast,
       })
@@ -238,8 +238,8 @@ describe('useEmbeddingWorkerControls', () => {
 
     expect(result.current.startWorkerError).toBe('reset failed');
     expect(toast).toHaveBeenCalledWith({
-      title: 'Worker reset failed',
       description: 'reset failed',
+      title: 'Worker reset failed',
       variant: 'destructive',
     });
   });

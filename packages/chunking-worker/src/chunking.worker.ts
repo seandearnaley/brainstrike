@@ -65,9 +65,9 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 // Log level priority (higher = more severe)
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0,
+  error: 3,
   info: 1,
   warn: 2,
-  error: 3,
 };
 
 // Default to 'info' to suppress debug logs - set WORKER_LOG_LEVEL=debug for verbose output
@@ -111,8 +111,8 @@ function postLog(level: LogLevel, message: string, data?: Record<string, unknown
   }
   try {
     const payload: WorkerLog = data
-      ? { type: 'log', level, message, data }
-      : { type: 'log', level, message };
+      ? { data, level, message, type: 'log' }
+      : { level, message, type: 'log' };
     self.postMessage(payload);
   } catch {
     // Ignore structured-clone errors; console log still fired below
@@ -180,19 +180,19 @@ function installChunkWarningFilter(): () => void {
  */
 function handleGlobalError(event: ErrorEvent): void {
   const payload = {
-    type: event.type,
-    message: event.message,
-    filename: event.filename,
-    lineno: event.lineno,
     colno: event.colno,
     error: event.error ? formatError(event.error) : undefined,
+    filename: event.filename,
+    lineno: event.lineno,
+    message: event.message,
+    type: event.type,
   };
   log('error', 'global error event', payload);
   self.postMessage({
-    type: 'error',
-    id: '__init__',
-    fileRecordId: '__init__',
     error: `global error: ${payload.message ?? 'unknown'}`,
+    fileRecordId: '__init__',
+    id: '__init__',
+    type: 'error',
   } satisfies ChunkError);
 }
 
@@ -203,10 +203,10 @@ function handleUnhandledRejection(event: PromiseRejectionEvent): void {
   const formatted = formatError(event.reason);
   log('error', 'unhandledrejection', { reason: formatted });
   self.postMessage({
-    type: 'error',
-    id: '__init__',
-    fileRecordId: '__init__',
     error: `unhandledrejection: ${formatted.message}`,
+    fileRecordId: '__init__',
+    id: '__init__',
+    type: 'error',
   } satisfies ChunkError);
 }
 
@@ -252,16 +252,16 @@ async function processFileWithTimeout(
     const formatted = formatError(error);
     log('error', 'processFile timeout or race error', {
       ...formatted,
-      id: request.id,
-      fileRecordId: request.fileRecordId,
       fileName: request.fileName,
+      fileRecordId: request.fileRecordId,
+      id: request.id,
       phase: 'timeout',
     });
     const errorResult: ChunkError = {
-      type: 'error',
-      id: request.id,
-      fileRecordId: request.fileRecordId,
       error: formatted.message,
+      fileRecordId: request.fileRecordId,
+      id: request.id,
+      type: 'error',
     };
     if (formatted.stack !== undefined) {
       errorResult.stack = formatted.stack;
@@ -279,12 +279,12 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
 
   try {
     log('debug', 'processFile start', {
-      id: request.id,
-      fileRecordId: request.fileRecordId,
-      fileName: request.fileName,
       contentLength,
-      strategy,
+      fileName: request.fileName,
+      fileRecordId: request.fileRecordId,
+      id: request.id,
       phase: 'start',
+      strategy,
     });
 
     const result: PortableChunkingResult = await chunkContent(request.content, {
@@ -294,32 +294,32 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
     });
 
     log('debug', 'processFile completed', {
-      id: request.id,
-      fileRecordId: request.fileRecordId,
       chunksCreated: result.chunks.length,
-      totalTokens: result.totalTokens,
-      strategyUsed: result.strategyUsed,
+      fileRecordId: request.fileRecordId,
+      id: request.id,
+      phase: 'complete',
       skipped: result.skipped,
       sourceRangeSkippedChunks: result.sourceRangeSkippedChunks,
-      phase: 'complete',
+      strategyUsed: result.strategyUsed,
+      totalTokens: result.totalTokens,
     });
 
     // Report progress for this file
     self.postMessage({
-      type: 'progress',
-      id: request.id,
-      fileRecordId: request.fileRecordId,
       chunksCreated: result.chunks.length,
+      fileRecordId: request.fileRecordId,
+      id: request.id,
+      type: 'progress',
     } satisfies ChunkProgress);
 
     const chunkResult: ChunkResult = {
-      type: 'result',
-      id: request.id,
-      fileRecordId: request.fileRecordId,
       chunks: result.chunks,
+      fileRecordId: request.fileRecordId,
+      id: request.id,
+      skipped: result.skipped,
       strategyUsed: result.strategyUsed,
       totalTokens: result.totalTokens,
-      skipped: result.skipped,
+      type: 'result',
     };
     // Only include skipReason if it's defined (exactOptionalPropertyTypes compliance)
     if (result.skipReason !== undefined) {
@@ -333,18 +333,18 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
     const formatted = formatError(error);
     log('error', 'processFile failed', {
       ...formatted,
-      id: request.id,
-      fileRecordId: request.fileRecordId,
-      fileName: request.fileName,
       contentLength,
-      strategy,
+      fileName: request.fileName,
+      fileRecordId: request.fileRecordId,
+      id: request.id,
       phase: 'error',
+      strategy,
     });
     const errorResult: ChunkError = {
-      type: 'error',
-      id: request.id,
-      fileRecordId: request.fileRecordId,
       error: formatted.message,
+      fileRecordId: request.fileRecordId,
+      id: request.id,
+      type: 'error',
     };
     // Only include stack if it's defined (exactOptionalPropertyTypes compliance)
     if (formatted.stack !== undefined) {
@@ -367,10 +367,10 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
 
   for (const [i, request] of requests.entries()) {
     log('debug', 'processBatch item start', {
+      fileName: request.fileName,
+      id: request.id,
       index: i,
       total,
-      id: request.id,
-      fileName: request.fileName,
     });
 
     // Use timeout-protected processing
@@ -382,11 +382,11 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
     if (result.type === 'error') {
       self.postMessage(result);
       log('error', 'processBatch aborted after file error', {
+        error: result.error,
+        fileRecordId: request.fileRecordId,
+        id: request.id,
         index: i,
         total,
-        id: request.id,
-        fileRecordId: request.fileRecordId,
-        error: result.error,
       });
       return;
     }
@@ -394,20 +394,20 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
     self.postMessage(result);
 
     log('debug', 'processBatch item posted', {
+      id: request.id,
       index: i,
       total,
-      id: request.id,
       type: result.type,
     });
 
     // Report batch progress
     self.postMessage({
-      type: 'progress',
-      id: request.id,
-      fileRecordId: request.fileRecordId,
       chunksCreated: result.type === 'result' ? result.chunks.length : 0,
       currentIndex: i,
+      fileRecordId: request.fileRecordId,
+      id: request.id,
       totalFiles: total,
+      type: 'progress',
     } satisfies ChunkProgress);
 
     // Yield to prevent blocking (every BATCH_YIELD_INTERVAL files)
@@ -421,10 +421,10 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
 
 function postChunkError(id: string, fileRecordId: string, error: string, stack?: string): void {
   const payload: ChunkError = {
-    type: 'error',
-    id,
-    fileRecordId,
     error,
+    fileRecordId,
+    id,
+    type: 'error',
   };
   if (stack !== undefined) {
     payload.stack = stack;
@@ -442,9 +442,9 @@ function postContentSizeValidationError(
   }
 
   log('warn', 'Content size validation failed', {
+    contentLength: request.content.length,
     context,
     fileRecordId: request.fileRecordId,
-    contentLength: request.content.length,
     maxSize: MAX_CONTENT_SIZE,
   });
   postChunkError(request.id, request.fileRecordId, sizeError);
@@ -476,8 +476,8 @@ async function handleChunkBatchRequestMessage(message: ChunkBatchRequest): Promi
 
 function handleInvalidMessage(message: unknown, messageType: unknown): void {
   log('warn', 'Invalid or unknown message structure', {
-    type: messageType,
     hasRequests: Array.isArray((message as { requests?: unknown })?.requests),
+    type: messageType,
   });
   postChunkError('__init__', '__init__', `Invalid message structure: type=${String(messageType)}`);
 }
@@ -577,9 +577,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'onmessage handler failed', {
-      type: messageType,
       error: formatted,
       phase: 'message-handler',
+      type: messageType,
     });
     postChunkError('__init__', '__init__', formatted.message);
   }

@@ -74,6 +74,6 @@ describe('CHUNKING_CONFIG', () => {
       'embeddingProcessingDelay',
     ];
 
-    expect(Object.keys(CHUNKING_CONFIG)).toEqual(expectedKeys);
+    expect(Object.keys(CHUNKING_CONFIG).sort()).toEqual(expectedKeys.sort());
   });
 });

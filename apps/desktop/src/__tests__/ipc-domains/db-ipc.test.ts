@@ -46,7 +46,7 @@ vi.mock('../../db-main', () => ({
       const queries: { sql: string; params?: unknown[] }[] = [];
       const result = await fn({
         query: async (sql: string, params?: unknown[]) => {
-          queries.push({ sql, params });
+          queries.push({ params, sql });
           return { rows: [{ sql }] };
         },
       });
@@ -54,8 +54,8 @@ vi.mock('../../db-main', () => ({
       return result;
     },
   })),
-  isCorruptionError: () => false,
   handleRuntimeCorruption: vi.fn(),
+  isCorruptionError: () => false,
 }));
 vi.mock('../../db-host-manager', () => ({
   getDbHostManager: vi.fn(() => dbHostManagerMock),
@@ -147,7 +147,7 @@ describe('database IPC domain', () => {
       {} as IpcMainInvokeEvent,
       [
         { sql: "SET LOCAL hnsw.ef_search = '120'" },
-        { sql: 'SELECT id FROM file_chunks WHERE embedding_set_id = $1', params: ['set-1'] },
+        { params: ['set-1'], sql: 'SELECT id FROM file_chunks WHERE embedding_set_id = $1' },
       ],
       1
     );

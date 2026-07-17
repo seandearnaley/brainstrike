@@ -13,8 +13,8 @@ import {
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
-  info: vi.fn(),
   debug: vi.fn(),
+  info: vi.fn(),
   warn: vi.fn(),
 }));
 
@@ -50,8 +50,6 @@ function createMockFileHandle(
   } = options;
 
   const handle: Partial<FileSystemFileHandle> = {
-    kind: 'file' as const,
-    name,
     getFile: vi.fn().mockImplementation(() => {
       if (getFileResult === 'throw') {
         return Promise.reject(new Error('File not found'));
@@ -59,6 +57,8 @@ function createMockFileHandle(
       return Promise.resolve(new File(['content'], name));
     }),
     isSameEntry: vi.fn(),
+    kind: 'file' as const,
+    name,
   };
 
   // Add permission methods unless 'unsupported'
@@ -154,8 +154,8 @@ describe('tab-persistence', () => {
 
     it('should return not-found when file no longer exists', async () => {
       const handle = createMockFileHandle('test.txt', {
-        queryPermissionResult: 'granted',
         getFileResult: 'throw',
+        queryPermissionResult: 'granted',
       });
       const handles = new Map([['folder1::path/to/test.txt', handle]]);
       const cache = createMockHandleCache(handles);
@@ -252,9 +252,9 @@ describe('tab-persistence', () => {
       const cache = createMockHandleCache(handles);
 
       const tabs = [
-        { tabId: 'tab-1', compositeKey: 'folder1::granted.txt' },
-        { tabId: 'tab-2', compositeKey: 'folder1::prompt.txt' },
-        { tabId: 'tab-3', compositeKey: 'folder1::missing.txt' },
+        { compositeKey: 'folder1::granted.txt', tabId: 'tab-1' },
+        { compositeKey: 'folder1::prompt.txt', tabId: 'tab-2' },
+        { compositeKey: 'folder1::missing.txt', tabId: 'tab-3' },
       ];
 
       const result = await restoreAllTabFileHandles(tabs, cache);
@@ -278,9 +278,9 @@ describe('tab-persistence', () => {
       const cache = createMockHandleCache(handles);
 
       const tabs = [
-        { tabId: 'tab-1', compositeKey: 'folder1::file1.txt' },
-        { tabId: 'tab-2', compositeKey: 'folder1::file2.txt' },
-        { tabId: 'tab-3', compositeKey: 'folder1::file3.txt' },
+        { compositeKey: 'folder1::file1.txt', tabId: 'tab-1' },
+        { compositeKey: 'folder1::file2.txt', tabId: 'tab-2' },
+        { compositeKey: 'folder1::file3.txt', tabId: 'tab-3' },
       ];
 
       const result = await restoreAllTabFileHandles(tabs, cache);
@@ -292,9 +292,9 @@ describe('tab-persistence', () => {
 
       // Verify logging
       expect(mockLogger.info).toHaveBeenCalledWith('restoreAllTabFileHandles: completed', {
-        restored: 3,
         needsPermission: 0,
         notFound: 0,
+        restored: 3,
       });
     });
 
@@ -317,8 +317,8 @@ describe('tab-persistence', () => {
       const cache = createMockHandleCache(handles);
 
       const tabs = Array.from({ length: 50 }, (_, i) => ({
-        tabId: `tab-${i}`,
         compositeKey: `folder1::file${i}.txt`,
+        tabId: `tab-${i}`,
       }));
 
       const startTime = Date.now();
@@ -342,8 +342,8 @@ describe('tab-persistence', () => {
       const cache = createMockHandleCache(handles);
 
       const tabs = [
-        { tabId: 'tab-1', compositeKey: 'folder-1::path/to/file with spaces.txt' },
-        { tabId: 'tab-2', compositeKey: 'folder_2::path/to/file.test.spec.ts' },
+        { compositeKey: 'folder-1::path/to/file with spaces.txt', tabId: 'tab-1' },
+        { compositeKey: 'folder_2::path/to/file.test.spec.ts', tabId: 'tab-2' },
       ];
 
       const result = await restoreAllTabFileHandles(tabs, cache);
@@ -360,9 +360,9 @@ describe('tab-persistence', () => {
       const cache = createMockHandleCache(handles);
 
       const tabs = [
-        { tabId: 'tab-1', compositeKey: 'folder-A::src/index.ts' },
-        { tabId: 'tab-2', compositeKey: 'folder-B::lib/utils.ts' },
-        { tabId: 'tab-3', compositeKey: 'folder-C::tests/app.test.ts' },
+        { compositeKey: 'folder-A::src/index.ts', tabId: 'tab-1' },
+        { compositeKey: 'folder-B::lib/utils.ts', tabId: 'tab-2' },
+        { compositeKey: 'folder-C::tests/app.test.ts', tabId: 'tab-3' },
       ];
 
       const result = await restoreAllTabFileHandles(tabs, cache);
@@ -388,19 +388,19 @@ describe('tab-persistence', () => {
         [
           'folder1::deleted.txt',
           createMockFileHandle('deleted.txt', {
-            queryPermissionResult: 'granted',
             getFileResult: 'throw',
+            queryPermissionResult: 'granted',
           }),
         ],
       ]);
       const cache = createMockHandleCache(handles);
 
       const tabs = [
-        { tabId: 'tab-1', compositeKey: 'folder1::granted.txt' },
-        { tabId: 'tab-2', compositeKey: 'folder1::prompt.txt' },
-        { tabId: 'tab-3', compositeKey: 'folder1::denied.txt' },
-        { tabId: 'tab-4', compositeKey: 'folder1::deleted.txt' },
-        { tabId: 'tab-5', compositeKey: 'folder1::missing.txt' },
+        { compositeKey: 'folder1::granted.txt', tabId: 'tab-1' },
+        { compositeKey: 'folder1::prompt.txt', tabId: 'tab-2' },
+        { compositeKey: 'folder1::denied.txt', tabId: 'tab-3' },
+        { compositeKey: 'folder1::deleted.txt', tabId: 'tab-4' },
+        { compositeKey: 'folder1::missing.txt', tabId: 'tab-5' },
       ];
 
       const result = await restoreAllTabFileHandles(tabs, cache);
@@ -568,7 +568,7 @@ describe('tab-persistence', () => {
       };
 
       // Even with multiple tabs, all should be categorized
-      const tabs = [{ tabId: 'tab-1', compositeKey: 'folder1::missing.txt' }];
+      const tabs = [{ compositeKey: 'folder1::missing.txt', tabId: 'tab-1' }];
 
       const result = await restoreAllTabFileHandles(tabs, cache);
 

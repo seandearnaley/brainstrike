@@ -84,11 +84,11 @@ async function commitSelectAllQuerySelection(args: {
   const { db, excludeFilters, filePaths, folderId, includeFilters, setQuerySelection, useRegex } =
     args;
   const manifestFingerprint = buildQuerySelectionFingerprint({
-    kind: 'recursive-select-all',
-    folderId,
-    rootPath: null,
-    includeFilters,
     excludeFilters,
+    folderId,
+    includeFilters,
+    kind: 'recursive-select-all',
+    rootPath: null,
     useRegex,
   });
   const snapshotId = await createQuerySelectionSnapshot(db, filePaths);
@@ -99,18 +99,18 @@ async function commitSelectAllQuerySelection(args: {
   });
   setQuerySelection(
     buildQuerySelectionDescriptor({
-      kind: 'recursive-select-all',
-      folderId,
-      rootPath: null,
       coveredDirectoryPaths: collectAncestorDirectories(filePaths),
-      includeFilters,
+      excludedPaths: [],
       excludeFilters,
-      useRegex,
-      totalSelectedCount: filePaths.length,
+      folderId,
+      includedPaths: [],
+      includeFilters,
+      kind: 'recursive-select-all',
       manifestFingerprint,
       manifestSnapshotId: snapshotId,
-      includedPaths: [],
-      excludedPaths: [],
+      rootPath: null,
+      totalSelectedCount: filePaths.length,
+      useRegex,
     }),
     manifest,
     new Set(filePaths)
@@ -219,10 +219,10 @@ async function commitSelectAllResult(args: {
   }
 
   return {
-    success: true,
     filePaths: result.filePaths,
-    totalAvailable: result.filePaths.length,
     limitReached: result.limitReached,
+    success: true,
+    totalAvailable: result.filePaths.length,
   };
 }
 
@@ -240,22 +240,22 @@ function notifyEmptySelectAllResult(args: {
 }): SelectAllResult {
   const { excludeFilters, filesVisited, folderId, includeFilters, quiet, showToast } = args;
   logger.warn('Select all matched no files', {
-    folderId,
-    includeFilters,
     excludeFilters,
     filesVisited,
+    folderId,
+    includeFilters,
   });
   if (quiet) {
-    return { success: true, filePaths: [], totalAvailable: 0 };
+    return { filePaths: [], success: true, totalAvailable: 0 };
   }
   showToast({
-    title: 'No selectable files in view',
     description:
       includeFilters.length > 0 || excludeFilters.length > 0
         ? 'Everything is hidden by the current view filters. Adjust the workspace filters to select files.'
         : 'There are no files to select.',
+    title: 'No selectable files in view',
   });
-  return { success: true, filePaths: [], totalAvailable: 0 };
+  return { filePaths: [], success: true, totalAvailable: 0 };
 }
 
 function notifyCappedSelectAllResult(args: {
@@ -268,8 +268,8 @@ function notifyCappedSelectAllResult(args: {
     return;
   }
   args.showToast({
-    title: `Selection limit reached (${args.selectionLimit})`,
     description: `Selected ${args.fileCount} files before hitting the limit. Raise the limit to select more.`,
+    title: `Selection limit reached (${args.selectionLimit})`,
     variant: 'destructive',
   });
 }
@@ -281,9 +281,9 @@ function handleSelectAllError(err: unknown, onError?: (error: Error) => void): S
   }
 
   return {
-    success: false,
-    filePaths: [],
     cancelled: isCancelled,
+    filePaths: [],
+    success: false,
     ...(isCancelled ? {} : { error: err instanceof Error ? err.message : String(err) }),
   };
 }
@@ -293,10 +293,10 @@ function validateSelectAllInput(
   filteredTree: IFileNode[]
 ): SelectAllResult | null {
   if (filteredTree.length === 0) {
-    return { success: false, filePaths: [], error: 'No files in tree' };
+    return { error: 'No files in tree', filePaths: [], success: false };
   }
   if (!fileSystemAdapter) {
-    return { success: false, filePaths: [], error: 'File system adapter not ready' };
+    return { error: 'File system adapter not ready', filePaths: [], success: false };
   }
   return null;
 }
@@ -430,7 +430,7 @@ export function useRecursiveSelectAll(
       }
       const adapter = fileSystemAdapter as FileSystemAdapter;
       if (isOperationInProgressRef.current) {
-        return { success: false, filePaths: [], error: 'Operation already in progress' };
+        return { error: 'Operation already in progress', filePaths: [], success: false };
       }
 
       // Whole-forest cap: the scan budget is what's left after every OTHER
@@ -439,12 +439,12 @@ export function useRecursiveSelectAll(
       if (scanCap === 0) {
         if (!options?.quiet) {
           showToast({
-            title: `Selection limit reached (${maxSelectionCount})`,
             description: 'Deselect files in other folders or raise the limit to select more.',
+            title: `Selection limit reached (${maxSelectionCount})`,
             variant: 'destructive',
           });
         }
-        return { success: true, filePaths: [], limitReached: true, totalAvailable: 0 };
+        return { filePaths: [], limitReached: true, success: true, totalAvailable: 0 };
       }
 
       isOperationInProgressRef.current = true;
@@ -458,14 +458,13 @@ export function useRecursiveSelectAll(
 
       try {
         const result = await querySelectableFiles({
-          roots: filteredTree,
           fileSystemAdapter: adapter,
+          roots: filteredTree,
           ...(internalFilterTreeFn ? { filterTreeFn: internalFilterTreeFn } : {}),
-          includeFilters,
-          excludeFilters,
-          maxResults: scanCap,
-          useRegex,
           abortSignal: abortController.signal,
+          excludeFilters,
+          includeFilters,
+          maxResults: scanCap,
           onProgress: (progress) => {
             setState((current) => ({
               ...current,
@@ -475,6 +474,7 @@ export function useRecursiveSelectAll(
               },
             }));
           },
+          useRegex,
         });
 
         return await commitSelectAllResult({
@@ -482,7 +482,6 @@ export function useRecursiveSelectAll(
           addMultipleSelectedFiles,
           addMultipleSelectedFilesChunked,
           currentFolderId,
-          quiet: options?.quiet,
           db,
           excludeFilters,
           folderId,
@@ -490,6 +489,7 @@ export function useRecursiveSelectAll(
           includeFilters,
           maxSelectionCount: scanCap,
           onTreeUpdate,
+          quiet: options?.quiet,
           result,
           selectionLimit: maxSelectionCount,
           setQuerySelection,
@@ -529,10 +529,10 @@ export function useRecursiveSelectAll(
   );
 
   return {
+    cancelSelectAll,
     isLoadingForSelectAll: state.isLoadingForSelectAll,
+    isLoadingForSelectAllRef,
     loadingProgress: state.loadingProgress,
     selectAllRecursively,
-    cancelSelectAll,
-    isLoadingForSelectAllRef,
   };
 }

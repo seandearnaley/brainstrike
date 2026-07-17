@@ -25,9 +25,9 @@ interface FileExplorerMiddlePanelBaseProps {
   estimateTokenCost?: (tokens: number) => number;
 }
 
-export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBaseProps> = ({
+export const FileExplorerMiddlePanelBase = ({
   estimateTokenCost,
-}) => {
+}: FileExplorerMiddlePanelBaseProps) => {
   const {
     fileContents,
     loadingFiles,
@@ -146,17 +146,17 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
   }, [fileNodeCache, selectedFilePaths]);
 
   const reportActions = usePreviewPanelReportActions({
-    store,
-    selectedFiles: selectedFilePaths,
-    fileContents,
-    rootDirectoryHandle,
-    includeFilters,
     excludeFilters,
-    useRegex,
-    includeProjectTree,
-    projectTreeUsesViewFilters,
+    fileContents,
     folderSummaryThreshold,
+    includeFilters,
+    includeProjectTree,
     loadMultipleFileContents,
+    projectTreeUsesViewFilters,
+    rootDirectoryHandle,
+    selectedFiles: selectedFilePaths,
+    store,
+    useRegex,
   });
   const handleDownloadContext = reportActions.handleDownloadContext;
   const handleCopyContext = reportActions.handleCopyContext;
@@ -182,8 +182,8 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
 
   const { tokenCount: projectTreeTokenCount, loading: projectTreeTokenCountLoading } =
     useTextTokenCount({
-      text: projectTreeText,
       enabled: selectedFilePaths.size > 0,
+      text: projectTreeText,
     });
 
   const { performUndoableAction } = useUndoableAction();
@@ -201,8 +201,8 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     ) => {
       performUndoableAction(key, opts.getStateSnapshot(), {
         actionName: opts.actionName,
-        itemDescription: opts.itemDescription,
         getStateSnapshot: opts.getStateSnapshot,
+        itemDescription: opts.itemDescription,
         // Adapt onUndo signature to match VirtualizedPreviewPanelTabbed expectation
         onUndo: (_item: unknown, snapshot: unknown) => opts.onUndo(key, snapshot as Set<string>),
       });

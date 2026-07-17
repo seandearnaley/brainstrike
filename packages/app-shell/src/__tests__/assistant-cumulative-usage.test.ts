@@ -3,8 +3,8 @@ import { resolveCumulativeUsageDisplay } from '../assistant-cumulative-usage';
 import type { ThreadCumulativeUsage } from '../assistant-memory-repository';
 
 const PRICING: Record<string, { inputPerMTok: number; outputPerMTok: number }> = {
-  'openai:gpt-5.2': { inputPerMTok: 1.25, outputPerMTok: 10 },
   'anthropic:claude-opus-4-8': { inputPerMTok: 15, outputPerMTok: 120 },
+  'openai:gpt-5.2': { inputPerMTok: 1.25, outputPerMTok: 10 },
 };
 
 function resolvePricing(provider: string, model: string) {
@@ -18,22 +18,22 @@ describe('resolveCumulativeUsageDisplay', () => {
 
   it('sums tokens and prices each model with its own rate', () => {
     const usage: ThreadCumulativeUsage = {
-      totalInputTokens: 1500,
-      totalOutputTokens: 300,
       perModel: [
         {
-          provider: 'openai',
-          model: 'gpt-5.2',
           inputTokens: 1000,
+          model: 'gpt-5.2',
           outputTokens: 200,
+          provider: 'openai',
         },
         {
-          provider: 'anthropic',
-          model: 'claude-opus-4-8',
           inputTokens: 500,
+          model: 'claude-opus-4-8',
           outputTokens: 100,
+          provider: 'anthropic',
         },
       ],
+      totalInputTokens: 1500,
+      totalOutputTokens: 300,
     };
 
     const display = resolveCumulativeUsageDisplay(usage, resolvePricing);
@@ -44,23 +44,73 @@ describe('resolveCumulativeUsageDisplay', () => {
     // total = 0.02275
     if (display?.cost.available) {
       expect(display.cost.usdAmount).toBeCloseTo(0.022_75, 8);
-      expect(display.cost.provenance).toBe('exact-pricing');
+      expect(display.cost.provenance).toBe('captured-usage-estimate');
     }
   });
 
   it('reports unpriced_model (NOT a partial cost) when any model lacks pricing', () => {
     const usage: ThreadCumulativeUsage = {
+      perModel: [
+        { inputTokens: 500, model: 'gpt-5.2', outputTokens: 100, provider: 'openai' },
+        // local model has no registry pricing
+        { inputTokens: 500, model: 'gemma', outputTokens: 100, provider: 'local' },
+      ],
       totalInputTokens: 1000,
       totalOutputTokens: 200,
-      perModel: [
-        { provider: 'openai', model: 'gpt-5.2', inputTokens: 500, outputTokens: 100 },
-        // local model has no registry pricing
-        { provider: 'local', model: 'gemma', inputTokens: 500, outputTokens: 100 },
-      ],
     };
 
     const display = resolveCumulativeUsageDisplay(usage, resolvePricing);
     expect(display?.totalTokens).toBe(1200);
     expect(display?.cost).toEqual({ available: false, reason: 'unpriced_model' });
+  });
+
+  it('uses exact provider-reported cost without requiring static pricing', () => {
+    const usage: ThreadCumulativeUsage = {
+      perModel: [
+        {
+          billedCostUsd: 0.0042,
+          estimatedInputTokens: 0,
+          estimatedOutputTokens: 0,
+          inputTokens: 1000,
+          model: 'dynamic-model',
+          outputTokens: 200,
+          provider: 'openrouter',
+        },
+      ],
+      totalInputTokens: 1000,
+      totalOutputTokens: 200,
+    };
+
+    const display = resolveCumulativeUsageDisplay(usage, () => undefined);
+    expect(display?.cost).toEqual({
+      available: true,
+      provenance: 'provider-reported',
+      usdAmount: 0.0042,
+    });
+  });
+
+  it('adds exact cost to the static estimate for legacy unreported runs', () => {
+    const usage: ThreadCumulativeUsage = {
+      perModel: [
+        {
+          billedCostUsd: 0.004,
+          estimatedInputTokens: 1000,
+          estimatedOutputTokens: 200,
+          inputTokens: 2000,
+          model: 'gpt-5.2',
+          outputTokens: 400,
+          provider: 'openai',
+        },
+      ],
+      totalInputTokens: 2000,
+      totalOutputTokens: 400,
+    };
+
+    const display = resolveCumulativeUsageDisplay(usage, resolvePricing);
+    expect(display?.cost).toEqual({
+      available: true,
+      provenance: 'captured-usage-estimate',
+      usdAmount: 0.007_25,
+    });
   });
 });

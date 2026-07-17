@@ -5,12 +5,13 @@
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
+    "emitDeclarationOnly": true,
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
     "paths": {
       "@brainstrike/utils/*": [
-        "../utils/src/*"
+        "../utils/dist/*.d.ts"
       ]
     },
     "types": [
@@ -28,6 +29,9 @@
     "**/*.test.tsx"
   ],
   "references": [
+    {
+      "path": "../context-actions"
+    },
     {
       "path": "../types"
     },

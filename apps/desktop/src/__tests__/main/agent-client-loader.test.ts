@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import Module, { createRequire } from 'node:module';
+import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,10 +8,10 @@ const loggerWarn = vi.fn();
 
 vi.mock('@brainstrike/utils', () => ({
   createLogger: () => ({
-    warn: loggerWarn,
-    info: vi.fn(),
-    error: vi.fn(),
     debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: loggerWarn,
   }),
 }));
 
@@ -51,47 +51,27 @@ describe('agent-client-loader', () => {
     const { clearCachedAgentClient, listAgentProviders, getAgentProviderEnvKeys } = await import(
       '../../agent-client-loader'
     );
-    const requireForTest = createRequire(import.meta.url);
-    const fallbackProviders = [
-      'openai',
-      'anthropic',
-      'google',
-      'openrouter',
-      'cohere',
-      'voyage',
-      'local',
-    ];
-    const fallbackOpenAiKeys = [
-      'BRAINSTRIKE_OPENAI_API_KEY',
-      'BS_OPENAI_API_KEY',
-      'OPENAI_API_KEY',
-      'AI_OPENAI_API_KEY',
-      'OPENAI_API_KEY_V1',
-      'OPENAI_API_KEY_V2',
-    ];
+    // SOURCE-backed truth (no hand-maintained duplicate): vi.importActual
+    // bypasses the global setup.ts mock of '@brainstrike/agent/client' and
+    // resolves through the vitest alias (browser-safe agent subpath map)
+    // straight to packages/agent/src/client.ts, so it works with or without
+    // agent's dist and always reflects the current provider metadata. It
+    // anchors BOTH loader outcomes:
+    //  - agent dist present: the loader requires dist (raw node require —
+    //    aliases don't apply to it), whose values must match source;
+    //  - agent dist absent (the normal CI state since B4 removed
+    //    test.dependsOn ^build): the loader returns its static
+    //    FALLBACK_PROVIDERS / FALLBACK_ENV_KEYS, which this assertion pins to
+    //    the source truth — if a provider is added to the agent client and the
+    //    loader's fallback is not updated, this test fails.
+    const agentClientSource = (await vi.importActual('@brainstrike/agent/client')) as {
+      listProviders: () => { id: string }[];
+      providerEnvKeys: (provider: string) => string[];
+    };
+    const expectedProviders = agentClientSource.listProviders().map((provider) => provider.id);
+    const expectedOpenAiKeys = agentClientSource.providerEnvKeys('openai');
 
     clearCachedAgentClient();
-
-    let expectedProviders = fallbackProviders;
-    let expectedOpenAiKeys = fallbackOpenAiKeys;
-
-    try {
-      const agentClient = requireForTest('@brainstrike/agent/client') as {
-        listProviders: () => { id: string }[];
-        providerEnvKeys: (provider: string) => string[];
-      };
-      expectedProviders = agentClient.listProviders().map((provider) => provider.id);
-      expectedOpenAiKeys = agentClient.providerEnvKeys('openai');
-    } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-      if (
-        error.code &&
-        error.code !== 'MODULE_NOT_FOUND' &&
-        error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED'
-      ) {
-        throw err;
-      }
-    }
 
     expect(listAgentProviders()).toEqual(expectedProviders);
     expect(getAgentProviderEnvKeys('openai')).toEqual(expectedOpenAiKeys);
@@ -139,6 +119,6 @@ describe('agent-client-loader', () => {
 
     cwdSpy.mockRestore();
     loadSpy.mockRestore();
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { force: true, recursive: true });
   });
 });

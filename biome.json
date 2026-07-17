@@ -1,11 +1,6 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "extends": [
-    "ultracite/core",
-    "ultracite/react",
-    "ultracite/biome/core",
-    "ultracite/biome/react"
-  ],
+  "extends": ["ultracite/biome/core", "ultracite/biome/react"],
   "files": {
     "ignoreUnknown": true,
     "includes": [
@@ -58,30 +53,50 @@
         "noParameterProperties": "off",
         "noExportedImports": "off",
         "useConsistentMemberAccessibility": "off",
-        "useDefaultSwitchClause": "off"
+        "useDefaultSwitchClause": "off",
+        "noIncrementDecrement": "off",
+        "useConsistentMethodSignatures": "off",
+        "useDestructuring": "off",
+        "useErrorCause": "off",
+        "useForOf": "off"
       },
       "suspicious": {
         "noConsole": "error",
         "noEmptyBlockStatements": "off",
         "useAwait": "off",
         "noBitwiseOperators": "off",
-        "noEvolvingTypes": "off"
+        "noEvolvingTypes": "off",
+        "noLeakedRender": "off",
+        "noNestedPromises": "off",
+        "noReturnAssign": "off",
+        "noShadow": "off",
+        "noUnnecessaryConditions": "off",
+        "useArraySortCompare": "off"
       },
       "complexity": {
         "useLiteralKeys": "off",
         "noForEach": "off",
-        "noVoid": "off"
+        "noVoid": "off",
+        "noRedundantDefaultExport": "off",
+        "noStaticOnlyClass": "off",
+        "noUselessReturn": "off",
+        "useArrayFind": "off"
+      },
+      "correctness": {
+        "noUnusedInstantiation": "off"
+      },
+      "a11y": {
+        "noSvgWithoutTitle": "off"
       },
       "performance": {
+        "noAwaitInLoops": "off",
         "noBarrelFile": "off",
+        "noJsxPropsBind": "off",
         "noNamespaceImport": "off",
         "useTopLevelRegex": "off"
       },
       "nursery": {
-        "noFloatingPromises": "error",
-        "noLeakedRender": "off",
-        "noShadow": "off",
-        "noIncrementDecrement": "off"
+        "noFloatingPromises": "error"
       }
     }
   },
@@ -189,6 +204,16 @@
           },
           "suspicious": {
             "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/desktop/src/assistant-server/hooks/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
           }
         }
       }
@@ -367,7 +392,6 @@
     },
     {
       "includes": [
-        "packages/queue-telemetry-collector/test/**",
         "packages/embedding-worker/test/**",
         "packages/queue/test/**"
       ],

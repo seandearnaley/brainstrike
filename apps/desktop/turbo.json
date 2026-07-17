@@ -1,0 +1,20 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // vite-config.test.ts asserts desktop/web Vite alias parity by reading
+      // apps/web/vite.config.mts — a CROSS-PACKAGE file turbo's default input
+      // hash for this package does not cover. Without this, a web-only Vite
+      // config change could replay a stale cached green for the parity guard.
+      // $TURBO_DEFAULT$ keeps the normal inputs; the extra entry adds the web
+      // config to the hash. (Mirror of apps/web/turbo.json, which declares the
+      // reverse-direction read of apps/desktop/index.html.)
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/vite.config.mts"]
+    },
+    "test:coverage": {
+      // Same cross-package input: the coverage lane runs the full suite
+      // including vite-config.test.ts.
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/vite.config.mts"]
+    }
+  }
+}

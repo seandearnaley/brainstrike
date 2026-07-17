@@ -12,6 +12,13 @@ import { ToolGroupAccordion } from '../tool-group-accordion';
 
 // Mock @brainstrike/ui - Accordion components
 vi.mock('@brainstrike/ui', () => ({
+  AccordionContent: ({
+    children,
+    'data-testid': testId,
+  }: {
+    children: React.ReactNode;
+    'data-testid'?: string;
+  }) => <div data-testid={testId}>{children}</div>,
   AccordionItem: ({
     children,
     value,
@@ -38,13 +45,6 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </button>
   ),
-  AccordionContent: ({
-    children,
-    'data-testid': testId,
-  }: {
-    children: React.ReactNode;
-    'data-testid'?: string;
-  }) => <div data-testid={testId}>{children}</div>,
   Badge: ({ children, variant }: { children: React.ReactNode; variant?: string }) => (
     <span data-testid="badge" data-variant={variant}>
       {children}
@@ -79,17 +79,6 @@ vi.mock('@brainstrike/ui', () => ({
   DropdownMenu: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="dropdown-menu">{children}</div>
   ),
-  DropdownMenuTrigger: ({
-    children,
-    asChild,
-  }: {
-    children: React.ReactNode;
-    asChild?: boolean;
-  }) => (
-    <div data-as-child={asChild} data-testid="dropdown-menu-trigger">
-      {children}
-    </div>
-  ),
   DropdownMenuContent: ({ children, align }: { children: React.ReactNode; align?: string }) => (
     <div data-align={align} data-testid="dropdown-menu-content">
       {children}
@@ -109,6 +98,17 @@ vi.mock('@brainstrike/ui', () => ({
     </button>
   ),
   DropdownMenuSeparator: () => <hr data-testid="dropdown-separator" />,
+  DropdownMenuTrigger: ({
+    children,
+    asChild,
+  }: {
+    children: React.ReactNode;
+    asChild?: boolean;
+  }) => (
+    <div data-as-child={asChild} data-testid="dropdown-menu-trigger">
+      {children}
+    </div>
+  ),
 }));
 
 // Mock lucide-react icons
@@ -123,14 +123,14 @@ vi.mock('lucide-react', () => ({
 
 describe('ToolGroupAccordion', () => {
   const defaultProps = {
+    description: 'Built-in BrainStrike tools',
+    enabledCount: 8,
     id: 'native-tools',
     label: 'Native Tools',
-    description: 'Built-in BrainStrike tools',
-    source: 'native' as const,
-    enabledCount: 8,
-    totalCount: 12,
-    onEnableAll: vi.fn(),
     onDisableAll: vi.fn(),
+    onEnableAll: vi.fn(),
+    source: 'native' as const,
+    totalCount: 12,
   };
 
   beforeEach(() => {
@@ -194,10 +194,10 @@ describe('ToolGroupAccordion', () => {
     it('shows connected status for MCP groups', () => {
       const mcpProps = {
         ...defaultProps,
+        connectionStatus: 'connected' as McpConnectionStatus,
         id: 'mcp-github',
         label: 'GitHub MCP',
         source: 'mcp' as const,
-        connectionStatus: 'connected' as McpConnectionStatus,
       };
 
       render(
@@ -214,10 +214,10 @@ describe('ToolGroupAccordion', () => {
     it('shows connecting status for MCP groups', () => {
       const mcpProps = {
         ...defaultProps,
+        connectionStatus: 'connecting' as McpConnectionStatus,
         id: 'mcp-github',
         label: 'GitHub MCP',
         source: 'mcp' as const,
-        connectionStatus: 'connecting' as McpConnectionStatus,
       };
 
       render(
@@ -234,10 +234,10 @@ describe('ToolGroupAccordion', () => {
     it('shows disconnected status for MCP groups', () => {
       const mcpProps = {
         ...defaultProps,
+        connectionStatus: 'disconnected' as McpConnectionStatus,
         id: 'mcp-github',
         label: 'GitHub MCP',
         source: 'mcp' as const,
-        connectionStatus: 'disconnected' as McpConnectionStatus,
       };
 
       render(
@@ -254,11 +254,11 @@ describe('ToolGroupAccordion', () => {
     it('shows error status with message for MCP groups', () => {
       const mcpProps = {
         ...defaultProps,
+        connectionStatus: 'error' as McpConnectionStatus,
+        errorMessage: 'Connection failed',
         id: 'mcp-github',
         label: 'GitHub MCP',
         source: 'mcp' as const,
-        connectionStatus: 'error' as McpConnectionStatus,
-        errorMessage: 'Connection failed',
       };
 
       render(
@@ -315,11 +315,11 @@ describe('ToolGroupAccordion', () => {
     it('shows Refresh Connection option for MCP groups', () => {
       const mcpProps = {
         ...defaultProps,
+        connectionStatus: 'connected' as McpConnectionStatus,
         id: 'mcp-github',
         label: 'GitHub MCP',
-        source: 'mcp' as const,
-        connectionStatus: 'connected' as McpConnectionStatus,
         onRefreshConnection: vi.fn(),
+        source: 'mcp' as const,
       };
 
       render(
@@ -335,11 +335,11 @@ describe('ToolGroupAccordion', () => {
       const onRefreshConnection = vi.fn();
       const mcpProps = {
         ...defaultProps,
+        connectionStatus: 'connected' as McpConnectionStatus,
         id: 'mcp-github',
         label: 'GitHub MCP',
-        source: 'mcp' as const,
-        connectionStatus: 'connected' as McpConnectionStatus,
         onRefreshConnection,
+        source: 'mcp' as const,
       };
 
       render(
@@ -357,11 +357,11 @@ describe('ToolGroupAccordion', () => {
     it('shows Open Config File option for MCP groups', () => {
       const mcpProps = {
         ...defaultProps,
+        connectionStatus: 'connected' as McpConnectionStatus,
         id: 'mcp-github',
         label: 'GitHub MCP',
-        source: 'mcp' as const,
-        connectionStatus: 'connected' as McpConnectionStatus,
         onOpenConfigFile: vi.fn(),
+        source: 'mcp' as const,
       };
 
       render(
@@ -377,11 +377,11 @@ describe('ToolGroupAccordion', () => {
       const onOpenConfigFile = vi.fn();
       const mcpProps = {
         ...defaultProps,
+        connectionStatus: 'connected' as McpConnectionStatus,
         id: 'mcp-github',
         label: 'GitHub MCP',
-        source: 'mcp' as const,
-        connectionStatus: 'connected' as McpConnectionStatus,
         onOpenConfigFile,
+        source: 'mcp' as const,
       };
 
       render(

@@ -604,7 +604,7 @@ export async function waitForEmbeddingHostIdleAndQueueDrain(
       queueStats.queued === 0 &&
       queueStats.running === 0
     ) {
-      return { status, queueStats };
+      return { queueStats, status };
     }
 
     await page.waitForTimeout(250);
@@ -677,6 +677,7 @@ export async function installLargeImportFileSystemMock(
     readDirectoryCalls: [],
     readFileByPathCalls: [],
     readFileCalls: [],
+    requestDirectoryAccessCount: 0,
     rootHandle: {
       id: 'mock-directory-handle',
       kind: 'directory',
@@ -685,7 +686,6 @@ export async function installLargeImportFileSystemMock(
       platform: 'electron',
       type: 'directory',
     },
-    requestDirectoryAccessCount: 0,
   };
 
   fixture.directoriesByPath[options.rootPath] = Array.from(
@@ -701,13 +701,7 @@ export async function installLargeImportFileSystemMock(
       fixture.fileContentsByPath[path] = sentences.join('\n');
 
       return {
-        name: fileName,
-        path,
-        type: 'file' as const,
-        size: fixture.fileContentsByPath[path].length,
         depth: 1,
-        selectionState: 'unchecked' as const,
-        rootFolderId: fixture.rootHandle.path,
         handle: {
           id: `mock-stress-file-${index}`,
           kind: 'file' as const,
@@ -715,6 +709,12 @@ export async function installLargeImportFileSystemMock(
           path,
           platform: 'electron' as const,
         },
+        name: fileName,
+        path,
+        rootFolderId: fixture.rootHandle.path,
+        selectionState: 'unchecked' as const,
+        size: fixture.fileContentsByPath[path].length,
+        type: 'file' as const,
       };
     }
   );
@@ -839,14 +839,14 @@ export async function setImportSettingsForStressTest(page: Page): Promise<void> 
       'import-settings.v1',
       JSON.stringify({
         state: {
-          enableChunking: true,
           chunkingPreset: 'custom',
           chunkingStrategy: 'sentence',
           chunkingStrategyExplicit: true,
-          chunkSize: 512,
           chunkOverlap: 0,
-          tokenTrueSizing: true,
+          chunkSize: 512,
           chunkTokenLimit: 4096,
+          enableChunking: true,
+          tokenTrueSizing: true,
         },
         version: 7,
       })
@@ -972,8 +972,8 @@ export function parseMainProcessHealthSamples(
             }
 
             return {
-              runtimeKind,
               osProcessId: parseNumericLogField(metric['osProcessId']),
+              runtimeKind,
               workingSetKB: parseNumericLogField(metric['workingSetKb']),
             } satisfies MainProcessHealthRuntimeMetric;
           })
@@ -1053,9 +1053,9 @@ export async function readRendererHeapSnapshot(page: Page, label: string): Promi
 
     return {
       label: snapshotLabel,
-      usedMB: Math.round((memory.usedJSHeapSize / 1024 / 1024) * 10) / 10,
-      totalMB: Math.round((memory.totalJSHeapSize / 1024 / 1024) * 10) / 10,
       limitMB: Math.round((memory.jsHeapSizeLimit / 1024 / 1024) * 10) / 10,
+      totalMB: Math.round((memory.totalJSHeapSize / 1024 / 1024) * 10) / 10,
+      usedMB: Math.round((memory.usedJSHeapSize / 1024 / 1024) * 10) / 10,
     };
   }, label);
 }
@@ -1094,22 +1094,22 @@ export async function readDesktopProcessSnapshot(
         const osProcessId = browserWindow.webContents.getOSProcessId();
         if (typeof webContents.getProcessMemoryInfo !== 'function') {
           return {
-            runtimeKind,
             osProcessId,
-            workingSetMB: null,
             privateMB: null,
+            runtimeKind,
             sharedMB: null,
+            workingSetMB: null,
           };
         }
 
         const memory = await webContents.getProcessMemoryInfo();
 
         return {
-          runtimeKind,
           osProcessId,
-          workingSetMB: toMBFromKilobytes(memory.residentSet),
           privateMB: toMBFromKilobytes(memory.private),
+          runtimeKind,
           sharedMB: toMBFromKilobytes(memory.shared),
+          workingSetMB: toMBFromKilobytes(memory.residentSet),
         };
       })
     );
@@ -1117,8 +1117,8 @@ export async function readDesktopProcessSnapshot(
     const mainMemory = process.memoryUsage();
     return {
       mainProcess: {
-        rssMB: Math.round((mainMemory.rss / 1024 / 1024) * 10) / 10,
         heapUsedMB: Math.round((mainMemory.heapUsed / 1024 / 1024) * 10) / 10,
+        rssMB: Math.round((mainMemory.rss / 1024 / 1024) * 10) / 10,
       },
       runtimes: runtimes.sort((left, right) => left.runtimeKind.localeCompare(right.runtimeKind)),
     };
@@ -1148,9 +1148,9 @@ export function scoreNumericSamples(samples: readonly number[]): NumericSampleSc
   const sorted = [...samples].sort((left, right) => left - right);
   const medianIndex = Math.floor(sorted.length / 2);
   return {
-    min: sorted[0] ?? 0,
-    median: sorted[medianIndex] ?? 0,
     max: sorted.at(-1) ?? 0,
+    median: sorted[medianIndex] ?? 0,
+    min: sorted[0] ?? 0,
   };
 }
 
@@ -1301,13 +1301,13 @@ export function scoreGpuWorkingSetSamples(
   const medianIndex = Math.floor(withTotals.length / 2);
 
   return {
-    minGpuKB: gpuValues[0] ?? 0,
-    medianGpuKB: gpuValues[medianIndex] ?? 0,
     maxGpuKB: gpuValues.at(-1) ?? 0,
-    minTotalKB: totalValues[0] ?? 0,
-    medianTotalKB: totalValues[medianIndex] ?? 0,
     maxTotalKB: totalValues.at(-1) ?? 0,
+    medianGpuKB: gpuValues[medianIndex] ?? 0,
+    medianTotalKB: totalValues[medianIndex] ?? 0,
+    minGpuKB: gpuValues[0] ?? 0,
     minSample: minEntry.sample,
+    minTotalKB: totalValues[0] ?? 0,
   };
 }
 
@@ -1348,10 +1348,10 @@ export async function readCombinedMemorySnapshot(
   ]);
 
   return {
-    label,
-    visibleHeap,
     hostHeap,
+    label,
     process,
+    visibleHeap,
   };
 }
 
@@ -1373,8 +1373,8 @@ export async function sampleMemoryWhileBackfillActive(
 
     samples.push({
       elapsedMs: Date.now() - startedAt,
-      snapshot,
       queueStats,
+      snapshot,
     });
 
     if (index < sampleCount - 1) {
@@ -1476,8 +1476,8 @@ export async function createTestBackfillJob(page: Page): Promise<{
           JSON.stringify({
             chunkId,
             embeddingSetId,
-            modelKey,
             expectedDimension,
+            modelKey,
           }),
           now,
         ]
@@ -1777,8 +1777,6 @@ export async function createLargeBackfillCorpusFixture(
           const fileRecordId = `${embeddingSetId}-file-${fileIndex}`;
           for (let chunkIndex = 0; chunkIndex < chunksPerFile; chunkIndex += 1) {
             chunkRows.push({
-              id: `${fileRecordId}-chunk-${chunkIndex}`,
-              fileRecordId,
               chunkIndex,
               content: [
                 `export const fileIndex = ${fileIndex};`,
@@ -1786,6 +1784,8 @@ export async function createLargeBackfillCorpusFixture(
                 `export const corpusId = "${embeddingSetId}";`,
                 'export const note = "backfill-memory-regression";',
               ].join('\n'),
+              fileRecordId,
+              id: `${fileRecordId}-chunk-${chunkIndex}`,
             });
 
             if (chunkRows.length === chunkBatchSize) {
@@ -1823,9 +1823,9 @@ export async function createLargeBackfillCorpusFixture(
     },
     {
       chunkContentBytes: options.chunkContentBytes ?? 0,
-      fileCount: options.fileCount,
-      fileContentBytes: options.fileContentBytes ?? 0,
       chunksPerFile: options.chunksPerFile,
+      fileContentBytes: options.fileContentBytes ?? 0,
+      fileCount: options.fileCount,
       persistActiveSet: options.persistActiveSet ?? true,
     }
   );
@@ -2161,9 +2161,9 @@ export async function getEmbeddingSetCounts(
       throw new Error('Embedding-set counts query returned no rows');
     }
     return {
+      embeddedChunks: Number(row['embeddedChunks'] ?? 0),
       fileCount: Number(row['fileCount'] ?? 0),
       totalChunks: Number(row['totalChunks'] ?? 0),
-      embeddedChunks: Number(row['embeddedChunks'] ?? 0),
     };
   }, embeddingSetId);
 }
@@ -2185,9 +2185,9 @@ export function parseCollectionSummaryCounts(summaryText: string): CollectionSum
   }
 
   return {
+    embeddedChunks: Number(match[3]),
     fileCount: Number(match[1]),
     totalChunks: Number(match[2]),
-    embeddedChunks: Number(match[3]),
   };
 }
 
@@ -2259,7 +2259,7 @@ export async function createImportTargetCollection(
       })
     );
 
-    return { embeddingSetId, collectionName: name ?? 'Import Backfill Test' };
+    return { collectionName: name ?? 'Import Backfill Test', embeddingSetId };
   }, collectionName);
 }
 
@@ -2344,27 +2344,27 @@ export async function createChunkedImportFixture(
       const now = new Date().toISOString();
       const files = [
         {
-          id: `import-file-${crypto.randomUUID()}`,
-          name: 'mock-file1.txt',
-          path: '/mock/test/directory/mock-file1.txt',
           chunks: [
             'This is a deterministic imported text fixture used to validate desktop chunking and immediate manual backfill.',
             'The second chunk ensures manual backfill sees multiple persisted chunks for the same imported file.',
           ],
           content:
             'This is a deterministic imported text fixture used to validate desktop chunking and immediate manual backfill.\nThe second chunk ensures manual backfill sees multiple persisted chunks for the same imported file.',
+          id: `import-file-${crypto.randomUUID()}`,
+          name: 'mock-file1.txt',
+          path: '/mock/test/directory/mock-file1.txt',
           strategy: 'sentence',
         },
         {
-          id: `import-file-${crypto.randomUUID()}`,
-          name: 'mock-file2.ts',
-          path: '/mock/test/directory/mock-file2.ts',
           chunks: [
             'export function fixtureValue(): string { return "desktop import backfill regression"; }',
             'export const fixtureLines = ["alpha", "beta", "gamma", "delta"];',
           ],
           content:
             'export function fixtureValue(): string { return "desktop import backfill regression"; }\nexport const fixtureLines = ["alpha", "beta", "gamma", "delta"];',
+          id: `import-file-${crypto.randomUUID()}`,
+          name: 'mock-file2.ts',
+          path: '/mock/test/directory/mock-file2.ts',
           strategy: 'recursive',
         },
       ] as const;
@@ -2586,8 +2586,8 @@ export async function startBackfillViaBridge(page: Page, embeddingSetId: string)
     }
 
     const state = {
-      embeddingSetId: id,
       done: false,
+      embeddingSetId: id,
       error: null as string | null,
     };
     (
@@ -2876,8 +2876,8 @@ export async function waitForReclaimCycleAndResumedProcessing(
     }
 
     const observedMaintenanceCycles = detectObservedMaintenanceCycles({
-      initialRuntimeId,
       finalRuntimeId: status.runtimeId,
+      initialRuntimeId,
       logsSinceBaseline: mainLogs.slice(baselineLogCount),
     });
     const resumedOnFreshRuntime =
@@ -2981,9 +2981,9 @@ export async function prepareRealWorldMixedStateScenario(
       timeout: 120_000,
     })
     .toMatchObject({
+      embeddedChunks: searchableFixture.totalChunks,
       fileCount: searchableFixture.fileCount,
       totalChunks: searchableFixture.totalChunks,
-      embeddedChunks: searchableFixture.totalChunks,
     });
 
   const importCollectionName = `Mixed State Import ${Date.now()}`;
@@ -3092,16 +3092,16 @@ export async function prepareRealWorldMixedStateScenario(
       timeout: 30_000,
     })
     .toMatchObject({
+      embeddedChunks: 0,
       fileCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
       totalChunks: expect.any(Number),
-      embeddedChunks: 0,
     });
 
   await waitForDatabaseDemoImportIdle(activeWindow);
 
   const backgroundFixture = await createLargeBackfillCorpusFixture(activeWindow, {
-    fileCount: REAL_WORLD_BACKGROUND_FILE_COUNT,
     chunksPerFile: REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE,
+    fileCount: REAL_WORLD_BACKGROUND_FILE_COUNT,
     persistActiveSet: false,
   });
 
@@ -3168,21 +3168,21 @@ test.beforeAll(async ({ electron }) => {
     ).electronAPI;
 
     if (!api?.db?.test) {
-      return { ok: false, message: 'Database API not available' };
+      return { message: 'Database API not available', ok: false };
     }
 
     try {
       await api.db.test();
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      return { message: error instanceof Error ? error.message : String(error), ok: false };
     }
 
     if (!api.db.clearAll) {
-      return { ok: true, message: null };
+      return { message: null, ok: true };
     }
 
     const result = await api.db.clearAll('CONFIRM_CLEAR_DATABASE');
-    return { ok: result.success, message: result.message ?? null };
+    return { message: result.message ?? null, ok: result.success };
   });
 
   if (!dbStatus.ok) {

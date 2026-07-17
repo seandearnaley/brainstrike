@@ -48,11 +48,11 @@ interface LiveQueryShape {
 
 const liveQueryRefresh = {
   activeSetQueueCounts: vi.fn(async () => {}),
-  queueCounts: vi.fn(async () => {}),
-  throughput: vi.fn(async () => {}),
+  coverage: vi.fn(async () => {}),
   lastError: vi.fn(async () => {}),
   latency: vi.fn(async () => {}),
-  coverage: vi.fn(async () => {}),
+  queueCounts: vi.fn(async () => {}),
+  throughput: vi.fn(async () => {}),
 };
 
 const liveQueryState: Record<
@@ -60,13 +60,10 @@ const liveQueryState: Record<
   LiveQueryShape
 > = {
   activeSetQueueCounts: {
-    rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
+    rows: [{ failed: 0, queued: 0, running: 0, succeeded: 0 }],
   },
-  queueCounts: {
-    rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
-  },
-  throughput: {
-    rows: [{ count: 0 }],
+  coverage: {
+    rows: [],
   },
   lastError: {
     rows: [],
@@ -74,8 +71,11 @@ const liveQueryState: Record<
   latency: {
     rows: [],
   },
-  coverage: {
-    rows: [],
+  queueCounts: {
+    rows: [{ failed: 0, queued: 0, running: 0, succeeded: 0 }],
+  },
+  throughput: {
+    rows: [{ count: 0 }],
   },
 };
 
@@ -86,58 +86,58 @@ vi.mock('@brainstrike/db', async () => {
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     usePGliteLiveQuery: vi.fn((options: UsePGliteLiveQueryOptions<unknown>) => {
       if (!options.enabled) {
-        return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
+        return { error: null, loading: false, refresh: vi.fn(async () => {}), rows: [] };
       }
       const query = options.query;
       if (query.includes('chunksWithEmbeddingsForSet')) {
         return {
-          rows: liveQueryState.coverage.rows,
-          loading: false,
           error: null,
+          loading: false,
           refresh: liveQueryRefresh.coverage,
+          rows: liveQueryState.coverage.rows,
         };
       }
       if (query.includes('embedding_set_id')) {
         return {
-          rows: liveQueryState.activeSetQueueCounts.rows,
-          loading: false,
           error: null,
+          loading: false,
           refresh: liveQueryRefresh.activeSetQueueCounts,
+          rows: liveQueryState.activeSetQueueCounts.rows,
         };
       }
       if (query.includes("FILTER (WHERE state = 'queued'")) {
         return {
-          rows: liveQueryState.queueCounts.rows,
-          loading: false,
           error: null,
+          loading: false,
           refresh: liveQueryRefresh.queueCounts,
+          rows: liveQueryState.queueCounts.rows,
         };
       }
       if (query.includes("INTERVAL '60 seconds'")) {
         return {
-          rows: liveQueryState.throughput.rows,
-          loading: false,
           error: null,
+          loading: false,
           refresh: liveQueryRefresh.throughput,
+          rows: liveQueryState.throughput.rows,
         };
       }
       if (query.includes("state = 'failed'")) {
         return {
-          rows: liveQueryState.lastError.rows,
-          loading: false,
           error: null,
+          loading: false,
           refresh: liveQueryRefresh.lastError,
+          rows: liveQueryState.lastError.rows,
         };
       }
       if (query.includes("INTERVAL '5 minutes'")) {
         return {
-          rows: liveQueryState.latency.rows,
-          loading: false,
           error: null,
+          loading: false,
           refresh: liveQueryRefresh.latency,
+          rows: liveQueryState.latency.rows,
         };
       }
-      return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
+      return { error: null, loading: false, refresh: vi.fn(async () => {}), rows: [] };
     }),
   };
 });
@@ -166,32 +166,32 @@ function createRuntimeStatus(
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping'
 ): Awaited<ReturnType<EmbeddingRuntimeController['getStatus']>> {
   return {
-    runtimeKind: 'embedding-worker',
-    runtimeId: 'embedding-worker:test',
-    state,
     active: false,
     lastError: null,
+    runtimeId: 'embedding-worker:test',
+    runtimeKind: 'embedding-worker',
+    state,
   };
 }
 
 function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQueueService {
   return {
-    backfill: vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 })),
-    validateApiKeyForSet: vi.fn(async () => ({ valid: true as const })),
+    backfill: vi.fn(async () => ({ failed: 0, queued: 0, running: 0, succeeded: 0 })),
+    clearQueue: vi.fn(async () => {}),
     reembedSet: vi.fn(async () => ({
       clearedCount: 0,
-      queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+      queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
     })),
-    retryFailed: vi.fn(async () => {}),
-    clearQueue: vi.fn(async () => {}),
-    wipeQueue: vi.fn(async () => {}),
     refresh: vi.fn(async () => ({
       coverage: null,
       lastError: null,
       latency: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
-      queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+      queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
       throughput: 0,
     })),
+    retryFailed: vi.fn(async () => {}),
+    validateApiKeyForSet: vi.fn(async () => ({ valid: true as const })),
+    wipeQueue: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -205,11 +205,11 @@ function createMockController(): MockController {
   }));
 
   return {
-    cancelBackfillMock,
     cancelAllBackfillsMock,
+    cancelBackfillMock,
     controller: {
-      cancelBackfill: cancelBackfillMock,
       cancelAllBackfills: cancelAllBackfillsMock,
+      cancelBackfill: cancelBackfillMock,
       enqueueBackfill: enqueueBackfillMock,
       ensureStarted: vi.fn(async () => createRuntimeStatus('running')),
       getBackfillsInFlight: vi.fn(async () => []),
@@ -259,8 +259,8 @@ function createDesktopElectronApiStub(): ElectronAPI {
 }
 
 function resetLiveQueryData(): void {
-  liveQueryState.activeSetQueueCounts.rows = [{ queued: 0, running: 0, failed: 0, succeeded: 0 }];
-  liveQueryState.queueCounts.rows = [{ queued: 0, running: 0, failed: 0, succeeded: 0 }];
+  liveQueryState.activeSetQueueCounts.rows = [{ failed: 0, queued: 0, running: 0, succeeded: 0 }];
+  liveQueryState.queueCounts.rows = [{ failed: 0, queued: 0, running: 0, succeeded: 0 }];
   liveQueryState.throughput.rows = [{ count: 0 }];
   liveQueryState.lastError.rows = [];
   liveQueryState.latency.rows = [];
@@ -289,47 +289,47 @@ describe('useVectorQueueState', () => {
     };
     Object.defineProperty(testWindow, 'electronAPI', {
       configurable: true,
-      writable: true,
       value: undefined,
+      writable: true,
     });
     Object.defineProperty(testWindow, 'embeddingHost', {
       configurable: true,
-      writable: true,
       value: undefined,
+      writable: true,
     });
   });
 
   it('reads queue and coverage state from live queries', () => {
-    liveQueryState.activeSetQueueCounts.rows = [{ queued: 1, running: 2, failed: 0, succeeded: 3 }];
-    liveQueryState.queueCounts.rows = [{ queued: 3, running: 1, failed: 2, succeeded: 9 }];
+    liveQueryState.activeSetQueueCounts.rows = [{ failed: 0, queued: 1, running: 2, succeeded: 3 }];
+    liveQueryState.queueCounts.rows = [{ failed: 2, queued: 3, running: 1, succeeded: 9 }];
     liveQueryState.throughput.rows = [{ count: 14 }];
     liveQueryState.lastError.rows = [{ error: 'embedding failed' }];
     liveQueryState.latency.rows = [
       { runAt: '2026-03-08T00:00:00.000Z', updatedAt: '2026-03-08T00:00:00.100Z' },
       { runAt: '2026-03-08T00:00:01.000Z', updatedAt: '2026-03-08T00:00:01.300Z' },
     ];
-    liveQueryState.coverage.rows = [{ totalChunks: 12, chunksWithEmbeddingsForSet: 7 }];
-    patchMockQueueMetrics({ throughputPerMinute: 999, windowErrorCount: 4, latencyP95Ms: 25 });
+    liveQueryState.coverage.rows = [{ chunksWithEmbeddingsForSet: 7, totalChunks: 12 }];
+    patchMockQueueMetrics({ latencyP95Ms: 25, throughputPerMinute: 999, windowErrorCount: 4 });
 
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: createMockController().controller,
         activeEmbeddingSetId: 'set-1',
+        controller: createMockController().controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
 
     expect(result.current.queueCounts).toEqual({
+      failed: 2,
       queued: 3,
       running: 1,
-      failed: 2,
       succeeded: 9,
     });
     expect(result.current.activeSetQueueCounts).toEqual({
+      failed: 0,
       queued: 1,
       running: 2,
-      failed: 0,
       succeeded: 3,
     });
     expect(result.current.throughput).toBe(14);
@@ -343,26 +343,26 @@ describe('useVectorQueueState', () => {
   it('falls back to durable queue stats when live query rows are unavailable', () => {
     liveQueryState.queueCounts.rows = [];
     vectorStatusUiStoreState.durableQueueStats = {
+      failed: 2,
+      nextRunnableAt: null,
       queued: 8,
       running: 1,
-      failed: 2,
       succeeded: 34,
-      nextRunnableAt: null,
     };
 
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: createMockController().controller,
         activeEmbeddingSetId: 'set-1',
+        controller: createMockController().controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
 
     expect(result.current.queueCounts).toEqual({
+      failed: 2,
       queued: 8,
       running: 1,
-      failed: 2,
       succeeded: 34,
     });
   });
@@ -371,9 +371,9 @@ describe('useVectorQueueState', () => {
     const controller = createMockController();
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service: null,
-        controller: controller.controller,
         activeEmbeddingSetId: null,
+        controller: controller.controller,
+        service: null,
         shouldAutoBackfill: false,
       })
     );
@@ -393,11 +393,11 @@ describe('useVectorQueueState', () => {
     const { rerender } = renderHook(
       (isImporting: boolean) =>
         useVectorQueueState({
-          service,
-          controller: controller.controller,
           activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
+          controller: controller.controller,
           isImporting,
+          service,
+          shouldAutoBackfill: false,
         }),
       { initialProps: true }
     );
@@ -416,9 +416,9 @@ describe('useVectorQueueState', () => {
   it('uses incremental live queries only for stable keyed queue detail rows', () => {
     renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: createMockController().controller,
         activeEmbeddingSetId: 'set-1',
+        controller: createMockController().controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -448,7 +448,7 @@ describe('useVectorQueueState', () => {
     expect(lastErrorCall).not.toHaveProperty('mode', 'incremental');
     expect(activeSetQueueCountsCall).not.toHaveProperty('mode', 'incremental');
     expect(throughputCall).not.toHaveProperty('mode', 'incremental');
-    expect(latencyCall).toEqual(expect.objectContaining({ mode: 'incremental', key: 'id' }));
+    expect(latencyCall).toEqual(expect.objectContaining({ key: 'id', mode: 'incremental' }));
     expect(coverageCall).not.toHaveProperty('mode', 'incremental');
   });
 
@@ -456,28 +456,28 @@ describe('useVectorQueueState', () => {
     const controller = createMockController();
     controller.enqueueBackfillMock.mockImplementationOnce(async (embeddingSetId: string) => {
       controller.emitBackfillProgress({
+        current: 2,
         embeddingSetId,
         requestId: 'embedding-backfill:test',
         source: 'manual',
         stage: 'backfill',
-        current: 2,
         total: 5,
       });
       controller.emitBackfillProgress({
+        current: 5,
         embeddingSetId,
         requestId: 'embedding-backfill:test',
         source: 'manual',
         stage: 'backfill',
-        current: 5,
         total: 5,
       });
     });
 
     const { result, rerender } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -509,28 +509,28 @@ describe('useVectorQueueState', () => {
     const controller = createMockController();
     controller.enqueueBackfillMock.mockImplementationOnce(async (embeddingSetId: string) => {
       controller.emitBackfillProgress({
+        current: 9,
         embeddingSetId: 'set-2',
         requestId: 'embedding-backfill:other',
         source: 'manual',
         stage: 'backfill',
-        current: 9,
         total: 10,
       });
       controller.emitBackfillProgress({
+        current: 1,
         embeddingSetId,
         requestId: 'embedding-backfill:active',
         source: 'manual',
         stage: 'backfill',
-        current: 1,
         total: 10,
       });
     });
 
     const { result, rerender } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -547,20 +547,20 @@ describe('useVectorQueueState', () => {
     const controller = createMockController();
     controller.enqueueBackfillMock.mockImplementationOnce(async (embeddingSetId: string) => {
       controller.emitBackfillProgress({
+        current: 3,
         embeddingSetId,
         requestId: 'embedding-backfill:shared',
         source: 'manual',
         stage: 'backfill',
-        current: 3,
         total: 10,
       });
     });
 
     const firstRender = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -573,9 +573,9 @@ describe('useVectorQueueState', () => {
 
     const secondRender = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -589,15 +589,15 @@ describe('useVectorQueueState', () => {
   it('keeps backfill progress visible even when the active collection changes mid-backfill', () => {
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-1',
-      requestId: 'embedding-backfill:shared',
       progress: { done: 7, total: 10 },
+      requestId: 'embedding-backfill:shared',
     };
 
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: createMockController().controller,
         activeEmbeddingSetId: 'set-2',
+        controller: createMockController().controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -612,8 +612,8 @@ describe('useVectorQueueState', () => {
     window.electronAPI = createDesktopElectronApiStub();
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-1',
-      requestId: 'embedding-backfill:stale',
       progress: { done: 7, total: 10 },
+      requestId: 'embedding-backfill:stale',
     };
     vectorStatusUiStoreState.isJobQueueActive = true;
 
@@ -622,9 +622,9 @@ describe('useVectorQueueState', () => {
 
     renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -640,8 +640,8 @@ describe('useVectorQueueState', () => {
     window.electronAPI = createDesktopElectronApiStub();
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-2',
-      requestId: 'embedding-backfill:other-set',
       progress: { done: 4, total: 10 },
+      requestId: 'embedding-backfill:other-set',
     };
     vectorStatusUiStoreState.isJobQueueActive = true;
 
@@ -650,9 +650,9 @@ describe('useVectorQueueState', () => {
 
     renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -662,8 +662,8 @@ describe('useVectorQueueState', () => {
     });
     expect(vectorStatusUiStoreState.activeBackfill).toEqual({
       embeddingSetId: 'set-2',
-      requestId: 'embedding-backfill:other-set',
       progress: { done: 4, total: 10 },
+      requestId: 'embedding-backfill:other-set',
     });
     expect(vectorStatusUiStoreState.isJobQueueActive).toBe(true);
   });
@@ -684,9 +684,9 @@ describe('useVectorQueueState', () => {
 
     const { unmount } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -694,40 +694,40 @@ describe('useVectorQueueState', () => {
     await waitFor(() => {
       expect(vectorStatusUiStoreState.activeBackfill).toEqual({
         embeddingSetId: 'set-1',
-        requestId: 'recovered:set-1:1781020800000',
         progress: null,
+        requestId: 'recovered:set-1:1781020800000',
       });
     });
     expect(vectorStatusUiStoreState.isJobQueueActive).toBe(true);
 
     controller.emitBackfillProgress({
+      current: 3,
       embeddingSetId: 'set-1',
       requestId: 'embedding-backfill:restored',
       source: 'manual',
       stage: 'backfill',
-      current: 3,
       total: 9,
     });
 
     expect(vectorStatusUiStoreState.activeBackfill).toEqual({
       embeddingSetId: 'set-1',
-      requestId: 'embedding-backfill:restored',
       progress: { done: 3, total: 9 },
+      requestId: 'embedding-backfill:restored',
     });
 
     unmount();
     controller.emitBackfillProgress({
+      current: 4,
       embeddingSetId: 'set-1',
       requestId: 'embedding-backfill:after-unmount',
       source: 'manual',
       stage: 'backfill',
-      current: 4,
       total: 9,
     });
     expect(vectorStatusUiStoreState.activeBackfill).toEqual({
       embeddingSetId: 'set-1',
-      requestId: 'embedding-backfill:restored',
       progress: { done: 3, total: 9 },
+      requestId: 'embedding-backfill:restored',
     });
     nowSpy.mockRestore();
   });
@@ -736,8 +736,8 @@ describe('useVectorQueueState', () => {
     window.electronAPI = createDesktopElectronApiStub();
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-1',
-      requestId: 'embedding-backfill:real',
       progress: { done: 2, total: 10 },
+      requestId: 'embedding-backfill:real',
     };
 
     const controller = createMockController();
@@ -752,9 +752,9 @@ describe('useVectorQueueState', () => {
 
     renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -764,8 +764,8 @@ describe('useVectorQueueState', () => {
     });
     expect(vectorStatusUiStoreState.activeBackfill).toEqual({
       embeddingSetId: 'set-1',
-      requestId: 'embedding-backfill:real',
       progress: { done: 2, total: 10 },
+      requestId: 'embedding-backfill:real',
     });
   });
 
@@ -777,9 +777,9 @@ describe('useVectorQueueState', () => {
 
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -807,9 +807,9 @@ describe('useVectorQueueState', () => {
 
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -856,9 +856,9 @@ describe('useVectorQueueState', () => {
 
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -903,30 +903,30 @@ describe('useVectorQueueState', () => {
 
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
 
     const firstRun = result.current.backfillActiveSet();
     controller.emitBackfillProgress({
+      current: 1,
       embeddingSetId: 'set-1',
       requestId: 'embedding-backfill:first',
       source: 'manual',
       stage: 'backfill',
-      current: 1,
       total: 10,
     });
 
     const secondRun = result.current.backfillActiveSet();
     controller.emitBackfillProgress({
+      current: 4,
       embeddingSetId: 'set-1',
       requestId: 'embedding-backfill:second',
       source: 'manual',
       stage: 'backfill',
-      current: 4,
       total: 10,
     });
 
@@ -941,8 +941,8 @@ describe('useVectorQueueState', () => {
 
     expect(vectorStatusUiStoreState.activeBackfill).toEqual({
       embeddingSetId: 'set-1',
-      requestId: 'embedding-backfill:second',
       progress: { done: 4, total: 10 },
+      requestId: 'embedding-backfill:second',
     });
     expect(vectorStatusUiStoreState.setIsJobQueueActive).not.toHaveBeenCalledWith(false);
 
@@ -973,16 +973,16 @@ describe('useVectorQueueState', () => {
     });
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-1',
-      requestId: 'embedding-backfill:wipe-me',
       progress: { done: 2, total: 10 },
+      requestId: 'embedding-backfill:wipe-me',
     };
     vectorStatusUiStoreState.isJobQueueActive = true;
 
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service,
-        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
+        controller: controller.controller,
+        service,
         shouldAutoBackfill: false,
       })
     );
@@ -1002,9 +1002,9 @@ describe('useVectorQueueState', () => {
   it('refreshes live queries when the queue drained event targets the active embedding set', async () => {
     renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: createMockController().controller,
         activeEmbeddingSetId: 'set-1',
+        controller: createMockController().controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -1030,9 +1030,9 @@ describe('useVectorQueueState', () => {
   it('ignores queue drained events for a different embedding set', async () => {
     renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: createMockController().controller,
         activeEmbeddingSetId: 'set-1',
+        controller: createMockController().controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -1058,16 +1058,16 @@ describe('useVectorQueueState', () => {
     // for this set must clear it.
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-1',
-      requestId: 'recovered:set-1:1700000000000',
       progress: { done: 10, total: 10 },
+      requestId: 'recovered:set-1:1700000000000',
     };
     vectorStatusUiStoreState.isJobQueueActive = true;
 
     renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: createMockController().controller,
         activeEmbeddingSetId: 'set-1',
+        controller: createMockController().controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -1090,15 +1090,15 @@ describe('useVectorQueueState', () => {
     // queue-drained event (possibly between batches) must not wipe it.
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-1',
-      requestId: 'embedding-backfill:real',
       progress: { done: 5, total: 10 },
+      requestId: 'embedding-backfill:real',
     };
 
     renderHook(() =>
       useVectorQueueState({
-        service: createMockService(),
-        controller: createMockController().controller,
         activeEmbeddingSetId: 'set-1',
+        controller: createMockController().controller,
+        service: createMockService(),
         shouldAutoBackfill: false,
       })
     );
@@ -1116,25 +1116,25 @@ describe('useVectorQueueState', () => {
 
   it('delegates API key validation to the queue service for the active set', async () => {
     const validateApiKeyForSet = vi.fn(async () => ({
-      valid: false as const,
-      reason: 'missing-provider-key' as const,
       message: 'Missing API key',
+      reason: 'missing-provider-key' as const,
+      valid: false as const,
     }));
     const service = createMockService({ validateApiKeyForSet });
 
     const { result } = renderHook(() =>
       useVectorQueueState({
-        service,
-        controller: createMockController().controller,
         activeEmbeddingSetId: 'set-1',
+        controller: createMockController().controller,
+        service,
         shouldAutoBackfill: false,
       })
     );
 
     await expect(result.current.validateApiKey()).resolves.toEqual({
-      valid: false,
-      reason: 'missing-provider-key',
       message: 'Missing API key',
+      reason: 'missing-provider-key',
+      valid: false,
     });
     expect(validateApiKeyForSet).toHaveBeenCalledWith('set-1');
   });

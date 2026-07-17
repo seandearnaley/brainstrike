@@ -91,9 +91,9 @@ export async function mockBrowserApis(
 ): Promise<void> {
   const payload: MockBrowserApisPayload = {
     directoryReadDelayMs: options.directoryReadDelayMs ?? 0,
+    enableClipboard: options.clipboard ?? false,
     rootName,
     tree,
-    enableClipboard: options.clipboard ?? false,
   };
   await page.addInitScript(buildMockBrowserApisScript(payload));
 }

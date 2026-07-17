@@ -59,12 +59,12 @@ function updateRegexCacheIfNeeded(
  */
 export function useFileFilters() {
   const regexCache = useRef<RegexCache>({
-    includeRegex: [],
+    excludeGlobs: [],
     excludeRegex: [],
     includeGlobs: [],
-    excludeGlobs: [],
-    lastIncludePatterns: [],
+    includeRegex: [],
     lastExcludePatterns: [],
+    lastIncludePatterns: [],
     lastUseRegex: false,
   });
   const [filterError, setFilterError] = useState<string | null>(null);

@@ -1,4 +1,9 @@
-import type { ActionOutcome, AnyContextAction, ContextTarget } from '@brainstrike/context-actions';
+import type {
+  ActionOutcome,
+  ActionShortcut,
+  AnyContextAction,
+  ContextTarget,
+} from '@brainstrike/context-actions';
 import { createLogger } from '@brainstrike/utils';
 import {
   Fragment,
@@ -9,6 +14,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { isMacPlatform } from '../command-palette/platform-accelerator';
 import { toast } from '../use-toast';
 import { useActionRegistry } from './action-registry-provider';
 import {
@@ -16,10 +22,37 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuTrigger,
 } from './context-menu';
 
 const logger = createLogger('ContextActions');
+
+function formatShortcut(shortcut: ActionShortcut): string {
+  const key = shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key;
+  if (isMacPlatform()) {
+    const modifiers = shortcut.modifiers.map((modifier) => {
+      if (modifier === 'primary') {
+        return '⌘';
+      }
+      if (modifier === 'shift') {
+        return '⇧';
+      }
+      return '⌥';
+    });
+    return `${modifiers.join('')}${key}`;
+  }
+  const modifiers = shortcut.modifiers.map((modifier) => {
+    if (modifier === 'primary') {
+      return 'Ctrl';
+    }
+    if (modifier === 'shift') {
+      return 'Shift';
+    }
+    return 'Alt';
+  });
+  return [...modifiers, key].join('+');
+}
 
 export interface ContextMenuTargetController {
   setTarget: (target: ContextTarget | null) => void;
@@ -48,7 +81,7 @@ export function useContextMenuTarget(): ContextMenuTargetController {
     targetRef.current = next;
     setTargetState(next);
   }, []);
-  return { target, targetRef, setTarget };
+  return { setTarget, target, targetRef };
 }
 
 export interface ActionContextMenuProps {
@@ -60,9 +93,17 @@ export interface ActionContextMenuProps {
    */
   controller: ContextMenuTargetController;
   localActions?: readonly AnyContextAction[];
+  onActionStart?: ((actionId: string, target: ContextTarget) => void) | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
 }
 
-export function ActionContextMenu({ controller, localActions, children }: ActionContextMenuProps) {
+export function ActionContextMenu({
+  controller,
+  localActions,
+  onActionStart,
+  onOpenChange,
+  children,
+}: ActionContextMenuProps) {
   const registry = useActionRegistry();
   const { target, targetRef } = controller;
   const groups = target ? registry.actionsFor(target, localActions) : [];
@@ -104,12 +145,13 @@ export function ActionContextMenu({ controller, localActions, children }: Action
         });
       };
       try {
+        onActionStart?.(action.id, currentTarget);
         void action.run(currentTarget, registry.services).then(onOutcome).catch(onUnexpected);
       } catch (error) {
         onUnexpected(error);
       }
     },
-    [registry.services]
+    [onActionStart, registry.services]
   );
 
   const handleWrapperContextMenu = useCallback(
@@ -134,7 +176,7 @@ export function ActionContextMenu({ controller, localActions, children }: Action
   // capture-reset + row-claim protocol never runs on touch — the menu can open
   // against a stale (or null) target there.
   return (
-    <ContextMenu modal={false}>
+    <ContextMenu modal={false} {...(onOpenChange ? { onOpenChange } : {})}>
       <ContextMenuTrigger asChild>
         {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: layout-neutral trigger wrapper; the handler only vetoes Radix's open for unclaimed right-clicks */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: see above — `display: contents` wrapper, not an interactive control */}
@@ -164,6 +206,9 @@ export function ActionContextMenu({ controller, localActions, children }: Action
                     >
                       {Icon ? <Icon className="mr-2 h-4 w-4" /> : null}
                       {label}
+                      {action.shortcut ? (
+                        <ContextMenuShortcut>{formatShortcut(action.shortcut)}</ContextMenuShortcut>
+                      ) : null}
                     </ContextMenuItem>
                   );
                 })}

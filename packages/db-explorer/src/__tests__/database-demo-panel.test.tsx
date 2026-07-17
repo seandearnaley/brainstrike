@@ -19,6 +19,7 @@ import {
 import { useVectorStatusUIStore as useVectorStatusUIStoreDirect } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
+import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
@@ -31,53 +32,57 @@ import { setActiveEmbeddingSetId } from '../vector-preferences';
 // Helper to wrap renders with TooltipProvider and the context-action registry
 // (CollectionBrowserView mounts the shared ActionContextMenu, whose
 // useActionRegistry throws without a provider).
-const renderWithProviders = (ui: React.ReactElement) =>
-  render(
-    <ActionRegistryProvider
-      registry={createTestActionRegistry({ actions: collectionActions }).registry}
-    >
+const withProviders = (ui: React.ReactElement) => (
+  <ActionRegistryProvider
+    registry={createTestActionRegistry({ actions: collectionActions }).registry}
+  >
+    <SearchEmbedderProvider>
       <TooltipProvider>{ui}</TooltipProvider>
-    </ActionRegistryProvider>
-  );
+    </SearchEmbedderProvider>
+  </ActionRegistryProvider>
+);
+const renderWithProviders = (ui: React.ReactElement) => render(withProviders(ui));
 
-const { ensureStartedMock } = vi.hoisted(() => ({
+const { dbProviderErrorMock, ensureStartedMock, useFileRecordRepositoryMock } = vi.hoisted(() => ({
+  dbProviderErrorMock: { current: null as Error | null },
   ensureStartedMock: vi.fn(async () => ({
-    transportKind: 'local-worker' as const,
-    chunkFile: vi.fn(),
     chunkBatch: vi.fn(),
+    chunkFile: vi.fn(),
     isReady: vi.fn(() => true),
     terminate: vi.fn(),
+    transportKind: 'local-worker' as const,
   })),
+  useFileRecordRepositoryMock: vi.fn(),
 }));
 
 // Mock all external dependencies at the top level
 const mockRepository = {
-  findAll: vi.fn(),
-  findAllWithContent: vi.fn(),
   count: vi.fn(),
   create: vi.fn(),
+  delete: vi.fn(),
+  findAll: vi.fn(),
+  findAllWithContent: vi.fn(),
   findById: vi.fn(),
   update: vi.fn(),
-  delete: vi.fn(),
 };
 
 const mockChunkRepository = {
-  findAll: vi.fn(),
   create: vi.fn(),
-  findById: vi.fn(),
-  update: vi.fn(),
   delete: vi.fn(),
+  findAll: vi.fn(),
   findByFileRecordId: vi.fn(),
+  findById: vi.fn(),
   searchSimilar: vi.fn(),
+  update: vi.fn(),
 };
 
 const mockEmbeddingService = {
   dispose: vi.fn(),
   generateEmbedding: vi.fn(),
   generateQueryEmbedding: vi.fn(),
-  search: vi.fn(),
   getStatus: vi.fn().mockReturnValue('ready'),
   initializeWithModel: vi.fn(),
+  search: vi.fn(),
 };
 
 const mockToast = vi.fn();
@@ -91,14 +96,14 @@ vi.mock('@brainstrike/embeddings', async () => {
     await vi.importActual<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
   const mockModels = {
     'all-MiniLM-L6-v2': {
-      name: 'all-MiniLM-L6-v2',
       dimensions: 384,
       maxTokens: 512,
+      name: 'all-MiniLM-L6-v2',
     },
     'bge-m3': {
-      name: 'BGE-M3',
       dimensions: 1024,
       maxTokens: 8192,
+      name: 'BGE-M3',
     },
   };
 
@@ -107,8 +112,8 @@ vi.mock('@brainstrike/embeddings', async () => {
     SimpleEmbeddingService: Object.assign(
       vi.fn().mockImplementation(() => mockEmbeddingService),
       {
-        listModels: vi.fn().mockReturnValue(mockModels),
         getDefaultModelKey: vi.fn().mockReturnValue('all-MiniLM-L6-v2'),
+        listModels: vi.fn().mockReturnValue(mockModels),
       }
     ),
   };
@@ -116,38 +121,38 @@ vi.mock('@brainstrike/embeddings', async () => {
 
 // Create stable mock results outside the mock function to prevent infinite loops
 const mockRecordLiveQueryResult = {
-  rows: [] as unknown[],
-  loading: false,
   error: null,
+  loading: false,
   refresh: vi.fn().mockResolvedValue(undefined),
+  rows: [] as unknown[],
 };
 
 const mockChunkLiveQueryResult = {
-  rows: [] as unknown[],
-  loading: false,
   error: null,
+  loading: false,
   refresh: vi.fn().mockResolvedValue(undefined),
+  rows: [] as unknown[],
 };
 
 const mockCollectionCountLiveQueryResult = {
+  error: null,
+  loading: false,
+  refresh: vi.fn().mockResolvedValue(undefined),
   rows: [
     {
-      embeddingsetid: TEST_COLLECTION_ID,
-      recordsCount: 1,
       chunksCount: 1,
       embeddingsCount: 1,
+      embeddingsetid: TEST_COLLECTION_ID,
+      recordsCount: 1,
     },
   ] as unknown[],
-  loading: false,
-  error: null,
-  refresh: vi.fn().mockResolvedValue(undefined),
 };
 
 const mockCollectionLiveQueryResult = {
-  rows: [] as unknown[],
-  loading: false,
   error: null,
+  loading: false,
   refresh: vi.fn().mockResolvedValue(undefined),
+  rows: [] as unknown[],
 };
 
 const mockDatabase = {
@@ -158,14 +163,6 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/db')>();
   return {
     ...actual,
-    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    useFileRecordRepository: () => mockRepository,
-    usePGliteDatabase: () => mockDatabase,
-    useFileChunkRepository: () => mockChunkRepository,
-    useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
-    useDbProviderError: () => null,
-    useFactoryReset: () => null,
-    useVectorEnabled: () => true,
     MigrationRunner: class MockMigrationRunner {
       async initialize() {
         return Promise.resolve();
@@ -174,7 +171,14 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
         return Promise.resolve();
       }
     },
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     migrations: [],
+    useClearAllData: () => vi.fn(() => Promise.resolve({ deletedChunks: 0, deletedFiles: 0 })),
+    useDbProviderError: () => dbProviderErrorMock.current,
+    useFactoryReset: () => null,
+    useFileChunkRepository: () => mockChunkRepository,
+    useFileRecordRepository: useFileRecordRepositoryMock,
+    usePGliteDatabase: () => mockDatabase,
     usePGliteLiveQuery: (options: { query: string }) => {
       // Return stable object references based on query type. The active-collection
       // counts query is a live aggregate over file_records/file_chunks, so match it
@@ -193,6 +197,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
       }
       return mockRecordLiveQueryResult;
     },
+    useVectorEnabled: () => true,
   };
 });
 
@@ -200,11 +205,6 @@ vi.mock('@brainstrike/ui', async () => {
   const actual = await vi.importActual('@brainstrike/ui');
   return {
     ...actual,
-    useToast: () => ({
-      toast: mockToast,
-    }),
-    useTheme: () => ({ theme: 'light', setTheme: vi.fn() }),
-    ModelPicker: () => <div data-testid="mock-model-picker" />,
     CollectionPicker: ({
       collections,
       selectedId,
@@ -235,6 +235,11 @@ vi.mock('@brainstrike/ui', async () => {
         ))}
       </div>
     ),
+    ModelPicker: () => <div data-testid="mock-model-picker" />,
+    useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
+    useToast: () => ({
+      toast: mockToast,
+    }),
   };
 });
 
@@ -243,6 +248,33 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/vector-management')>();
   return {
     ...actual,
+    CreateEmbeddingSetDialog: ({
+      onSetCreated,
+    }: {
+      onSetCreated: (newSetId: string, newSet: EmbeddingSet) => void;
+    }) => (
+      <button
+        data-testid="mock-create-embedding-set-dialog"
+        onClick={() =>
+          onSetCreated('created-set-id', {
+            category: 'local',
+            createdAt: '2026-05-03T01:00:00.000Z',
+            description: 'Created from the dialog',
+            dimensions: 768,
+            distance: 'cosine',
+            id: 'created-set-id',
+            modelId: 'created-model',
+            modelKey: 'local:created-model',
+            name: 'Created Collection',
+            tags: 'new,dialog',
+          })
+        }
+        type="button"
+      >
+        Finish creating collection
+      </button>
+    ),
+    EmbeddingActionsDropdown: () => <div data-testid="mock-embedding-actions-dropdown" />,
     useEmbeddingControls: () => ({
       dropdownProps: {
         backfilling: false,
@@ -256,47 +288,20 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
         onClearQueue: vi.fn(),
         onRetryFailed: vi.fn(),
         onWipeQueue: vi.fn(),
-        queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+        queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
         startingWorker: false,
         willAutoStartWorker: false,
       },
+      hasDb: true,
       statusBarProps: {
         latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
-        queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+        queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
         telemetryTrend: [],
         throughput: 0,
         vectorEnabled: true,
         workerStatus: 'disabled' as const,
       },
-      hasDb: true,
     }),
-    EmbeddingActionsDropdown: () => <div data-testid="mock-embedding-actions-dropdown" />,
-    CreateEmbeddingSetDialog: ({
-      onSetCreated,
-    }: {
-      onSetCreated: (newSetId: string, newSet: EmbeddingSet) => void;
-    }) => (
-      <button
-        data-testid="mock-create-embedding-set-dialog"
-        onClick={() =>
-          onSetCreated('created-set-id', {
-            id: 'created-set-id',
-            modelKey: 'local:created-model',
-            modelId: 'created-model',
-            dimensions: 768,
-            distance: 'cosine',
-            createdAt: '2026-05-03T01:00:00.000Z',
-            name: 'Created Collection',
-            description: 'Created from the dialog',
-            tags: 'new,dialog',
-            category: 'local',
-          })
-        }
-        type="button"
-      >
-        Finish creating collection
-      </button>
-    ),
   };
 });
 
@@ -304,8 +309,8 @@ const { mockEnsureModelRegistry, mockUseLocalRuntimeEmbeddingModelCatalog } = vi
   const ensureModelRegistry = vi.fn();
   const useLocalRuntimeEmbeddingModelCatalog = vi.fn(() => ({
     catalog: null,
-    isLoading: false,
     error: null,
+    isLoading: false,
     refresh: vi.fn().mockResolvedValue(undefined),
   }));
   return {
@@ -345,21 +350,21 @@ vi.mock('file-saver', () => ({
 
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   useChunkingWorkerContext: vi.fn().mockReturnValue({
-    port: null,
-    isReady: false,
-    isProcessing: false,
-    error: null,
     ensureStarted: ensureStartedMock,
+    error: null,
+    isProcessing: false,
+    isReady: false,
+    port: null,
     reinitialize: vi.fn(),
   }),
 }));
 
 vi.mock('./enhanced-file-import-service', () => ({
   useEnhancedFileImportService: vi.fn().mockReturnValue({
+    chunkRepository: mockChunkRepository,
+    importFiles: mockImportFiles,
     isImporting: false,
     progress: null,
-    importFiles: mockImportFiles,
-    chunkRepository: mockChunkRepository,
   }),
 }));
 
@@ -375,8 +380,8 @@ vi.mock('./file-import-service', () => ({
 // Mock the file explorer hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
-    fileSystemAdapter: null,
     databaseAdapter: null,
+    fileSystemAdapter: null,
   }),
 }));
 
@@ -421,7 +426,9 @@ vi.mock('react-resizable-panels', () => {
         _ref: React.Ref<unknown>
       ) => <div data-testid={`panel-${id}`}>{children}</div>
     ),
-    Separator: () => <div data-testid="resize-handle" />,
+    Separator: (props: React.HTMLAttributes<HTMLHRElement>) => (
+      <hr data-testid="resize-handle" {...props} />
+    ),
   };
 });
 
@@ -435,7 +442,10 @@ describe('DatabaseDemoPanel', () => {
     __resetVectorStatusUIStoreForTests();
     resetEmbeddingQueueFactory();
     vi.clearAllMocks();
+    dbProviderErrorMock.current = null;
     ensureStartedMock.mockClear();
+    useFileRecordRepositoryMock.mockReset();
+    useFileRecordRepositoryMock.mockReturnValue(mockRepository);
     mockImportFiles.mockReset();
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
     useVectorStatusUIStore.getState().setSchemaVerified(true);
@@ -464,11 +474,11 @@ describe('DatabaseDemoPanel', () => {
       addBulk: vi.fn(),
       cancel: vi.fn(),
       drain: vi.fn(),
+      isPaused: false,
+      isProcessing: false,
       onProgress: vi.fn(),
       pause: vi.fn(),
       resume: vi.fn(),
-      isPaused: false,
-      isProcessing: false,
     } as unknown as QueueAdapter;
 
     const view = renderWithProviders(<DatabaseDemoPanel embeddingQueue={mockQueue} />);
@@ -492,11 +502,13 @@ describe('DatabaseDemoPanel', () => {
         <ActionRegistryProvider
           registry={createTestActionRegistry({ actions: collectionActions }).registry}
         >
-          <TooltipProvider>
-            <React.Profiler id="database-demo-panel-perf" onRender={onRender}>
-              <DatabaseDemoPanel />
-            </React.Profiler>
-          </TooltipProvider>
+          <SearchEmbedderProvider>
+            <TooltipProvider>
+              <React.Profiler id="database-demo-panel-perf" onRender={onRender}>
+                <DatabaseDemoPanel />
+              </React.Profiler>
+            </TooltipProvider>
+          </SearchEmbedderProvider>
         </ActionRegistryProvider>
       );
 
@@ -519,6 +531,55 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Basic Rendering', () => {
+    it('keeps a provider error detail visible when Error.message is empty', () => {
+      const emptyMessageError = new Error('placeholder');
+      emptyMessageError.message = '';
+      dbProviderErrorMock.current = emptyMessageError;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Database failed to initialize');
+      expect(screen.getByTestId('db-init-error')).toHaveTextContent('Error');
+      // The surface is named Collections (matching its Library tab); only the
+      // engine-level error copy still speaks about the database itself.
+      expect(screen.getByTestId('database-panel-loading-label')).toHaveTextContent(
+        'Collections unavailable'
+      );
+    });
+
+    it('preserves one split-panel shell while the database repository initializes', async () => {
+      useFileRecordRepositoryMock.mockReturnValue(null);
+
+      const view = renderWithProviders(<DatabaseDemoPanel />);
+
+      const stablePanel = screen.getByTestId('database-demo-panel');
+      expect(stablePanel).toHaveAttribute('aria-busy', 'true');
+      expect(screen.getByTestId('database-panel-toolbar')).toHaveClass('h-12');
+      expect(screen.getByTestId('database-panel-toolbar')).toHaveClass(
+        '@container/database-toolbar'
+      );
+      expect(screen.getByTestId('database-panel-loading-label')).toHaveClass(
+        '@[360px]:inline',
+        'hidden'
+      );
+      expect(screen.getByTestId('database-panel-loading-label')).toHaveTextContent('Collections');
+      expect(screen.getByTestId('database-panel-loading-settings')).toHaveClass(
+        '@[360px]:w-20',
+        'w-7'
+      );
+      expect(screen.getByTestId('database-panel-loading-top')).toHaveClass('flex-[38]');
+      expect(screen.getByTestId('database-panel-loading-body')).toBeInTheDocument();
+      expect(screen.getByTestId('database-panel-loading-actions')).toHaveClass('h-12');
+
+      useFileRecordRepositoryMock.mockReturnValue(mockRepository);
+      view.rerender(withProviders(<DatabaseDemoPanel />));
+
+      await waitFor(() => {
+        expect(stablePanel).toHaveAttribute('aria-busy', 'false');
+      });
+      expect(screen.getByTestId('database-demo-panel')).toBe(stablePanel);
+    });
+
     it('renders database demo panel', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
@@ -595,13 +656,21 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByText(/Create or select a collection/i)).toBeInTheDocument();
     });
 
-    it('fetches model registry on mount', async () => {
+    it('defers runtime model catalog loading until collection creation', async () => {
+      const user = userEvent.setup();
       renderWithProviders(<DatabaseDemoPanel />);
 
-      await waitFor(() => {
-        expect(mockEnsureModelRegistry).toHaveBeenCalledWith(
-          expect.objectContaining({ db: mockDatabase })
-        );
+      expect(mockUseLocalRuntimeEmbeddingModelCatalog).not.toHaveBeenCalled();
+      const registryHookCallsBeforeCreate = mockEnsureModelRegistry.mock.calls.length;
+
+      await user.click(screen.getByRole('button', { name: 'New' }));
+
+      expect(mockEnsureModelRegistry.mock.calls.length).toBeGreaterThan(
+        registryHookCallsBeforeCreate
+      );
+      expect(mockUseLocalRuntimeEmbeddingModelCatalog).toHaveBeenCalledWith({
+        maxVerificationModels: 8,
+        verifyEmbeddingDimensions: true,
       });
     });
   });
@@ -687,9 +756,9 @@ describe('DatabaseDemoPanel', () => {
     it('disables manual import when the active collection is managed by background indexing', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
+        hasHydrated: true,
         managedCollectionId: TEST_COLLECTION_ID,
         mode: 'root-folder-cache',
-        hasHydrated: true,
       });
 
       renderWithProviders(<DatabaseDemoPanel />);
@@ -705,26 +774,26 @@ describe('DatabaseDemoPanel', () => {
     it('disables manual import when the loaded active collection is the managed collection', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
+        hasHydrated: true,
         managedCollectionId: TEST_COLLECTION_ID,
         mode: 'root-folder-cache',
-        hasHydrated: true,
       });
       useVectorStatusUIStoreDirect.getState().setCachedCollections([
         {
-          id: TEST_COLLECTION_ID,
-          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-          modelId: 'Xenova/all-MiniLM-L6-v2',
+          category: null,
+          chunkCount: 0,
+          createdAt: '2026-06-07T00:00:00Z',
+          description: null,
           dimensions: 384,
           distance: 'cosine',
-          createdAt: '2026-06-07T00:00:00Z',
-          name: 'Managed Import Guard',
-          description: null,
-          tags: null,
-          category: null,
-          fileCount: 0,
-          chunkCount: 0,
           embeddingCount: 0,
+          fileCount: 0,
+          id: TEST_COLLECTION_ID,
+          modelId: 'Xenova/all-MiniLM-L6-v2',
+          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+          name: 'Managed Import Guard',
           systemRole: null,
+          tags: null,
         },
       ]);
 
@@ -738,52 +807,52 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
     });
 
-    it('disables manual import when the active collection has the workspace index system role', async () => {
+    it('clears an active workspace index and keeps manual import unavailable', async () => {
       useVectorStatusUIStoreDirect.getState().setCachedCollections([
         {
-          id: TEST_COLLECTION_ID,
-          modelKey: 'openai::text-embedding-3-small',
-          modelId: 'text-embedding-3-small',
+          category: null,
+          chunkCount: 1,
+          createdAt: '2026-06-07T00:00:00Z',
+          description: 'System-managed workspace index for assistant retrieval.',
           dimensions: 1536,
           distance: 'cosine',
-          createdAt: '2026-06-07T00:00:00Z',
-          name: 'Workspace Index',
-          description: 'System-managed workspace index for assistant retrieval.',
-          tags: null,
-          category: null,
-          fileCount: 1,
-          chunkCount: 1,
           embeddingCount: 1,
+          fileCount: 1,
+          id: TEST_COLLECTION_ID,
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Workspace Index',
           systemRole: 'workspace-index',
+          tags: null,
         },
       ]);
       mockCollectionLiveQueryResult.rows = [
         {
-          id: TEST_COLLECTION_ID,
-          modelKey: 'openai::text-embedding-3-small',
-          modelId: 'text-embedding-3-small',
+          category: null,
+          chunkCount: '1',
+          createdAt: '2026-06-07T00:00:00Z',
+          description: 'System-managed workspace index for assistant retrieval.',
           dimensions: 1536,
           distance: 'cosine',
-          createdAt: '2026-06-07T00:00:00Z',
-          name: 'Workspace Index',
-          description: 'System-managed workspace index for assistant retrieval.',
-          tags: null,
-          category: null,
-          fileCount: '1',
-          chunkCount: '1',
           embeddingCount: '1',
+          fileCount: '1',
+          id: TEST_COLLECTION_ID,
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Workspace Index',
           systemRole: 'workspace-index',
+          tags: null,
         },
       ];
 
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+        expect(useVectorStatusUIStoreDirect.getState().activeEmbeddingSetId).toBeNull();
       });
 
       expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
-      expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
+      expect(screen.queryByText(/manual db imports are disabled/i)).not.toBeInTheDocument();
     });
 
     it('attempts to call import function when import button is clicked', async () => {
@@ -829,17 +898,45 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Data Loading', () => {
+    it('keeps an already loaded collection interactive while live data revalidates', async () => {
+      mockRecordLiveQueryResult.rows = [
+        {
+          createdAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
+          id: 'loaded-record',
+          name: 'loaded.txt',
+          path: '/loaded.txt',
+          size: 100,
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      const view = renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByText('loaded.txt')).toBeInTheDocument();
+      });
+
+      mockRecordLiveQueryResult.loading = true;
+      view.rerender(withProviders(<DatabaseDemoPanel />));
+
+      expect(screen.getByTestId('collection-tree-region')).toHaveAttribute('aria-busy', 'false');
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+      expect(screen.getByText('loaded.txt')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+    });
+
     it('loads file records and provides them to collection browser', async () => {
       const mockRecords = [
         {
+          content: 'test content',
+          createdAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
           id: '1',
           name: 'test.txt',
           path: '/test.txt',
-          size: 100,
-          content: 'test content',
-          createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
-          embeddingSetId: TEST_COLLECTION_ID,
+          size: 100,
         },
       ];
 
@@ -903,8 +1000,10 @@ describe('DatabaseDemoPanel', () => {
       });
 
       const toolbar = screen.getByTestId('database-panel-toolbar');
+      expect(toolbar).toHaveClass('@container/database-toolbar', 'h-12');
       const newButton = within(toolbar).getByRole('button', { name: /^New$/ });
       expect(newButton).toBeInTheDocument();
+      expect(within(newButton).getByText('New')).toHaveClass('hidden', '@[360px]:inline');
 
       const toolbarButtons = within(toolbar).getAllByRole('button');
       expect(toolbarButtons[0]).toBe(newButton);
@@ -920,6 +1019,7 @@ describe('DatabaseDemoPanel', () => {
       const toolbar = screen.getByTestId('database-panel-toolbar');
       const settingsButton = within(toolbar).getByRole('button', { name: /Import Settings/ });
       expect(settingsButton).toBeInTheDocument();
+      expect(within(settingsButton).getByText('Settings')).toHaveClass('hidden', '@[360px]:inline');
 
       const toolbarButtons = within(toolbar).getAllByRole('button');
       expect(toolbarButtons.at(-1)).toBe(settingsButton);
@@ -961,9 +1061,13 @@ describe('DatabaseDemoPanel', () => {
       });
 
       const footer = screen.getByTestId('database-panel-actions');
-      expect(within(footer).getByRole('button', { name: /^Export$/ })).toBeInTheDocument();
-      expect(within(footer).getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
-      expect(within(footer).getByTestId('mock-embedding-actions-dropdown')).toBeInTheDocument();
+      const footerRow = screen.getByTestId('database-panel-actions-row');
+      expect(footer).toHaveClass('@container/database-actions');
+      expect(footerRow).toHaveClass('h-12', 'justify-center');
+      expect(within(footerRow).getByRole('button', { name: /^Export$/ })).toBeInTheDocument();
+      expect(within(footerRow).getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      expect(within(footerRow).getByTestId('mock-embedding-actions-dropdown')).toBeInTheDocument();
+      expect(within(footerRow).getByText('Import')).toHaveClass('hidden', '@[420px]:inline');
 
       const toolbar = screen.getByTestId('database-panel-toolbar');
       expect(within(toolbar).queryByRole('button', { name: /^Export$/ })).not.toBeInTheDocument();
@@ -973,6 +1077,26 @@ describe('DatabaseDemoPanel', () => {
       expect(
         within(toolbar).queryByTestId('mock-embedding-actions-dropdown')
       ).not.toBeInTheDocument();
+    });
+
+    it('disables refresh rotation when reduced motion is requested', async () => {
+      mockRecordLiveQueryResult.loading = true;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      const refreshButton = await screen.findByRole('button', { name: 'Refresh' });
+      expect(refreshButton.querySelector('svg')).toHaveClass(
+        'animate-spin',
+        'motion-reduce:animate-none'
+      );
+    });
+
+    it('names the database split resize separator', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      expect(
+        await screen.findByRole('separator', { name: 'Resize database panels' })
+      ).toBeInTheDocument();
     });
   });
 
@@ -993,19 +1117,19 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(upsertCachedCollection).toHaveBeenCalledWith({
-          id: 'created-set-id',
-          modelKey: 'local:created-model',
-          modelId: 'created-model',
+          category: 'local',
+          chunkCount: 0,
+          createdAt: '2026-05-03T01:00:00.000Z',
+          description: 'Created from the dialog',
           dimensions: 768,
           distance: 'cosine',
-          createdAt: '2026-05-03T01:00:00.000Z',
-          name: 'Created Collection',
-          description: 'Created from the dialog',
-          tags: 'new,dialog',
-          category: 'local',
-          fileCount: 0,
-          chunkCount: 0,
           embeddingCount: 0,
+          fileCount: 0,
+          id: 'created-set-id',
+          modelId: 'created-model',
+          modelKey: 'local:created-model',
+          name: 'Created Collection',
+          tags: 'new,dialog',
         });
         expect(useVectorStatusUIStoreDirect.getState().activeEmbeddingSetId).toBe('created-set-id');
       });

@@ -21,9 +21,9 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 // Log level priority (higher = more severe)
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0,
+  error: 3,
   info: 1,
   warn: 2,
-  error: 3,
 };
 
 // Default to 'info' to suppress debug logs - set WORKER_LOG_LEVEL=debug for verbose output
@@ -70,8 +70,8 @@ function postLog(level: LogLevel, message: string, data?: Record<string, unknown
   }
   try {
     const payload: WorkerLog = data
-      ? { type: 'log', level, message, data }
-      : { type: 'log', level, message };
+      ? { data, level, message, type: 'log' }
+      : { level, message, type: 'log' };
     self.postMessage(payload);
   } catch {
     // Ignore structured-clone errors; console log still fired below
@@ -158,19 +158,19 @@ let tokenUtilsPromise: Promise<{
 
 self.addEventListener('error', (event) => {
   const payload = {
-    type: event.type,
-    message: event.message,
-    filename: event.filename,
-    lineno: event.lineno,
     colno: event.colno,
     error: event.error ? formatError(event.error) : undefined,
+    filename: event.filename,
+    lineno: event.lineno,
+    message: event.message,
+    type: event.type,
   };
   log('error', 'global error event', payload);
   self.postMessage({
-    type: 'error',
-    id: '__init__',
     compositeKey: '__init__',
     error: `global error: ${payload.message ?? 'unknown'}`,
+    id: '__init__',
+    type: 'error',
   } satisfies IndexerError);
 });
 
@@ -178,10 +178,10 @@ self.addEventListener('unhandledrejection', (event) => {
   const formatted = formatError(event.reason);
   log('error', 'unhandledrejection', { reason: formatted });
   self.postMessage({
-    type: 'error',
-    id: '__init__',
     compositeKey: '__init__',
     error: `unhandledrejection: ${formatted.message}`,
+    id: '__init__',
+    type: 'error',
   } satisfies IndexerError);
 });
 
@@ -218,10 +218,10 @@ async function getTokenUtils(): Promise<{
   if (!tokenUtilsPromise) {
     tokenUtilsPromise = import('./token-utils-lite')
       .then((mod) => ({
-        supportsAccurateTokenCounting: mod.supportsAccurateTokenCounting,
-        getAccurateTokenCountingFailureReason: mod.getAccurateTokenCountingFailureReason,
         countTokensAccurate: mod.countTokensAccurate,
         countTokensHeuristic: mod.countTokensHeuristic,
+        getAccurateTokenCountingFailureReason: mod.getAccurateTokenCountingFailureReason,
+        supportsAccurateTokenCounting: mod.supportsAccurateTokenCounting,
       }))
       .catch((error) => {
         const formatted = formatError(error);
@@ -287,13 +287,13 @@ async function processFile(
 
   try {
     log('debug', 'processFile start', {
-      id: request.id,
       compositeKey: request.compositeKey,
       filePath: request.filePath,
-      mode: request.mode,
       hasCachedHash: Boolean(request.cachedHash),
-      hasFileHandle: Boolean(request.fileHandle),
       hasContent: request.content !== undefined,
+      hasFileHandle: Boolean(request.fileHandle),
+      id: request.id,
+      mode: request.mode,
     });
     // Read file content using appropriate method
     const { content, fileSize } = await readFileContent(request);
@@ -302,14 +302,14 @@ async function processFile(
     // Check for binary content
     if (isBinaryContent(content)) {
       log('warn', 'processFile binary content detected', {
-        id: request.id,
         filePath: request.filePath,
+        id: request.id,
       });
       return {
-        type: 'error',
-        id: request.id,
         compositeKey: request.compositeKey,
         error: 'Binary file - cannot count tokens',
+        id: request.id,
+        type: 'error',
       };
     }
 
@@ -320,52 +320,52 @@ async function processFile(
     // Check if hash matches cached - skip counting if so
     if (request.cachedHash && request.cachedHash === contentHash) {
       const elapsedMs = performance.now() - startTime;
-      log('debug', 'processFile cache hit; skipping count', { id: request.id, elapsedMs });
+      log('debug', 'processFile cache hit; skipping count', { elapsedMs, id: request.id });
       return {
-        type: 'result',
-        id: request.id,
         compositeKey: request.compositeKey,
-        folderId: request.folderId,
-        filePath: request.filePath,
-        tokenCount: 0, // Will use cached count
         contentHash,
-        mode: request.mode,
-        fileSize,
-        skipped: true,
         elapsedMs,
+        filePath: request.filePath,
+        fileSize,
+        folderId: request.folderId,
+        id: request.id,
+        mode: request.mode,
+        skipped: true,
+        tokenCount: 0, // Will use cached count
+        type: 'result',
       };
     }
 
     // Count tokens
     const tokenCount = await countTokensForMode(request.mode, content, getTokenUtils);
     const elapsedMs = performance.now() - startTime;
-    log('debug', 'processFile token counted', { tokenCount, mode: request.mode, elapsedMs });
+    log('debug', 'processFile token counted', { elapsedMs, mode: request.mode, tokenCount });
 
     return {
-      type: 'result',
-      id: request.id,
       compositeKey: request.compositeKey,
-      folderId: request.folderId,
-      filePath: request.filePath,
-      tokenCount,
       contentHash,
-      mode: request.mode,
-      fileSize,
-      skipped: false,
       elapsedMs,
+      filePath: request.filePath,
+      fileSize,
+      folderId: request.folderId,
+      id: request.id,
+      mode: request.mode,
+      skipped: false,
+      tokenCount,
+      type: 'result',
     };
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'processFile failed', {
       ...formatted,
-      id: request.id,
       filePath: request.filePath,
+      id: request.id,
     });
     return {
-      type: 'error',
-      id: request.id,
       compositeKey: request.compositeKey,
       error: formatted.message,
+      id: request.id,
+      type: 'error',
     };
   }
 }
@@ -402,7 +402,7 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
     const total = requests.length;
 
     for (const [i, request] of requests.entries()) {
-      log('debug', 'processBatch item start', { index: i, total, id: request.id });
+      log('debug', 'processBatch item start', { id: request.id, index: i, total });
       const result = await processFile(request, hasher);
 
       // Fail fast only when the tokenizer runtime is unavailable. File-content
@@ -413,18 +413,18 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
 
       self.postMessage(result);
       log('debug', 'processBatch item posted', {
+        id: request.id,
         index: i,
         total,
-        id: request.id,
         type: result.type,
       });
 
       // Report progress
       self.postMessage({
-        type: 'progress',
         completed: i + 1,
-        total,
         currentId: request.id,
+        total,
+        type: 'progress',
       } satisfies IndexerProgress);
 
       // Yield to prevent blocking (every 5 files)
@@ -436,10 +436,10 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
     const formatted = formatError(error);
     log('error', 'processBatch failed', formatted);
     self.postMessage({
-      type: 'error',
-      id: '__batch__',
       compositeKey: '__batch__',
       error: formatted.message,
+      id: '__batch__',
+      type: 'error',
     } satisfies IndexerError);
   }
 }
@@ -462,14 +462,14 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'onmessage handler failed', {
-      type: (message as { type?: unknown }).type,
       error: formatted,
+      type: (message as { type?: unknown }).type,
     });
     self.postMessage({
-      type: 'error',
-      id: '__init__',
       compositeKey: '__init__',
       error: formatted.message,
+      id: '__init__',
+      type: 'error',
     } satisfies IndexerError);
   }
 };
@@ -481,10 +481,10 @@ const bootstrap = async (): Promise<void> => {
     const formatted = formatError(error);
     log('error', 'worker bootstrap failed', formatted);
     self.postMessage({
-      type: 'error',
-      id: '__init__',
       compositeKey: '__init__',
       error: `bootstrap failed: ${formatted.message}`,
+      id: '__init__',
+      type: 'error',
     } satisfies IndexerError);
     return;
   }

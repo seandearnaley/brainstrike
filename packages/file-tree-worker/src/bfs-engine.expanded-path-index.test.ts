@@ -25,13 +25,13 @@ const { BFSEngine } = await import('./bfs-engine');
 
 function createDirectoryNode(overrides: Partial<WorkerFileNode> = {}): WorkerFileNode {
   return {
+    children: [],
+    depth: 1,
+    loadState: 'loaded',
     name: 'dir',
     path: '/root/dir',
-    type: 'directory',
-    depth: 1,
     rootFolderId: 'root',
-    loadState: 'loaded',
-    children: [],
+    type: 'directory',
     ...overrides,
   };
 }
@@ -51,22 +51,22 @@ describe('BFSEngine expanded-path index', () => {
   it('does not scan unrelated expanded siblings for each directory update', () => {
     const siblingDirectories = Array.from({ length: 5000 }, (_, index) =>
       createDirectoryNode({
+        children: undefined,
         name: `sibling-${index}`,
         path: `/root/sibling-${index}`,
-        children: undefined,
       })
     );
     const targetChild = createDirectoryNode({
+      depth: 2,
       name: 'child',
       path: '/root/target/child',
-      depth: 2,
     });
     engine.setTree(
       [
         createDirectoryNode({
+          children: [targetChild],
           name: 'target',
           path: '/root/target',
-          children: [targetChild],
         }),
         ...siblingDirectories,
       ],

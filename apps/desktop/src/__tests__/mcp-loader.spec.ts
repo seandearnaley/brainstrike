@@ -4,11 +4,14 @@ vi.mock(
   'electron',
   () =>
     ({
-      safeStorage: {
-        decryptString: (buf: Buffer) => `dec:${buf.toString('utf-8')}`,
-        isEncryptionAvailable: () => true,
-      },
       app: { getPath: () => '/tmp' },
+      safeStorage: {
+        decryptStringAsync: async (buf: Buffer) => ({
+          result: `dec:${buf.toString('utf-8')}`,
+          shouldReEncrypt: false,
+        }),
+        isAsyncEncryptionAvailable: async () => true,
+      },
     }) as unknown as typeof import('electron')
 );
 
@@ -19,8 +22,8 @@ describe('mcp-loader decryption helpers', () => {
     // no-op; isolated per test
   });
 
-  it('decrypts *Encrypted header keys into plain keys and preserves others', () => {
-    const headers = applyDecryptionToHeaders({
+  it('decrypts *Encrypted header keys into plain keys and preserves others', async () => {
+    const headers = await applyDecryptionToHeaders({
       AuthorizationEncrypted: Buffer.from('sek').toString('base64'),
       'X-Trace': 'on',
     });
@@ -33,8 +36,8 @@ describe('mcp-loader decryption helpers', () => {
     expect(Object.keys(headers || {})).not.toContain('AuthorizationEncrypted');
   });
 
-  it('decrypts *Encrypted env vars into plain keys and preserves others', () => {
-    const env = applyDecryptionToEnv({
+  it('decrypts *Encrypted env vars into plain keys and preserves others', async () => {
+    const env = await applyDecryptionToEnv({
       API_KEYEncrypted: Buffer.from('abc').toString('base64'),
       NODE_ENV: 'test',
     });

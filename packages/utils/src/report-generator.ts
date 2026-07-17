@@ -38,7 +38,6 @@ export interface ContextGenerationOptions {
    */
   rootDisplayInfoById?: Record<string, RootDisplayInfo>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
-  useTapestryRanges?: boolean;
 }
 
 /**
@@ -128,10 +127,10 @@ function createFileNodeBase(
   return {
     ...node,
     depth,
-    selectionState: 'unchecked',
-    rootFolderId,
-    isSymbolicLink: false,
     isDepthTruncated: false,
+    isSymbolicLink: false,
+    rootFolderId,
+    selectionState: 'unchecked',
   };
 }
 
@@ -140,11 +139,11 @@ function createChildDirectoryHandle(
   parentHandle: DirectoryHandle
 ): DirectoryHandle {
   return {
-    path: node.path,
-    name: node.name,
-    kind: 'directory',
-    platform: parentHandle.platform,
     _internal: node.handle,
+    kind: 'directory',
+    name: node.name,
+    path: node.path,
+    platform: parentHandle.platform,
   };
 }
 
@@ -181,7 +180,7 @@ function clampRange(range: ContextLineRange, totalLines: number): ContextLineRan
   const maxStart = Math.max(safeTotalLines - 1, 0);
   const startLine = Math.min(Math.max(Math.floor(range.startLine), 0), maxStart);
   const endLine = Math.min(Math.max(Math.floor(range.endLine), startLine + 1), safeTotalLines);
-  return { ...range, startLine, endLine };
+  return { ...range, endLine, startLine };
 }
 
 export function normalizeContextLineRanges(
@@ -229,9 +228,8 @@ function buildFileContextContent(args: {
   displayPath?: string;
   fileContents: Record<string, string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
-  useTapestryRanges: boolean;
 }): string {
-  const { filePath, displayPath, fileContents, selectedLineRangesByFile, useTapestryRanges } = args;
+  const { filePath, displayPath, fileContents, selectedLineRangesByFile } = args;
   const escapedFilePath = escapeXmlAttribute(displayPath ?? filePath);
   const content =
     fileContents[filePath] ?? `Unable to read file content for ${displayPath ?? filePath}`;
@@ -239,13 +237,19 @@ function buildFileContextContent(args: {
 ${content}
 </file>`;
 
-  if (!(useTapestryRanges && filePath in fileContents)) {
+  // A file whose content was never loaded cannot be sliced by ranges — emit the
+  // full/fallback `<file>` path instead of an empty selection.
+  if (!(filePath in fileContents)) {
     return fullFileContextContent;
   }
 
-  const hasExplicitRangesForFile = selectedLineRangesByFile
-    ? Object.hasOwn(selectedLineRangesByFile, filePath)
-    : false;
+  // Invariant: absence of ranges = whole file. A present-but-EMPTY array is
+  // equivalent to absence (empty ≡ absent), so it must be treated as whole file
+  // too — only a present, NON-EMPTY range list is "explicit". A present list of
+  // all-inactive ranges stays explicit (length > 0) and falls through to the
+  // <selection_summary> exclusion notice below.
+  const explicitRanges = selectedLineRangesByFile?.[filePath];
+  const hasExplicitRangesForFile = explicitRanges !== undefined && explicitRanges.length > 0;
 
   // If a file has no explicit tapestry ranges, treat it as fully selected.
   // This preserves expected "default hot" behavior for context export.
@@ -297,13 +301,12 @@ function generateContextContent(
 ${Array.from(selectedFiles)
   .map((filePath) =>
     buildFileContextContent({
-      filePath,
       displayPath: formatContextFilePath(filePath, options.rootDisplayInfoById),
       fileContents,
+      filePath,
       ...(options.selectedLineRangesByFile
         ? { selectedLineRangesByFile: options.selectedLineRangesByFile }
         : {}),
-      useTapestryRanges: options.useTapestryRanges ?? false,
     })
   )
   .join('\n')}
@@ -401,9 +404,9 @@ async function readFullFileTreeFromAdapter(
 
   const config: FileTreeProcessingConfig = {
     depth,
+    maxDepth,
     rootFolderId,
     visitedPaths: newVisitedPaths,
-    maxDepth,
   };
 
   try {
@@ -425,9 +428,9 @@ async function readFullFileTreeFromAdapter(
     return entries;
   } catch (error) {
     logger.warn('Failed to read directory contents, returning empty node list', {
-      path: directoryHandle.path,
       depth,
       error,
+      path: directoryHandle.path,
     });
     return [];
   }
@@ -442,10 +445,10 @@ function resolveProjectTreeFilterMode(
   const useViewFilters = options.projectTreeUsesViewFilters ?? false;
 
   if (!useViewFilters) {
-    return { includeFilters: [], excludeFilters: [], useRegex: false };
+    return { excludeFilters: [], includeFilters: [], useRegex: false };
   }
 
-  return { includeFilters, excludeFilters, useRegex };
+  return { excludeFilters, includeFilters, useRegex };
 }
 
 // Platform-agnostic version that works with our adapter pattern

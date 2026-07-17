@@ -23,22 +23,21 @@ vi.mock('@brainstrike/utils', () => ({
 
 function createRunOptions(): ChatModelRunOptions {
   return {
+    abortSignal: new AbortController().signal,
+    context: {},
     messages: [
       {
-        id: 'user-1',
-        role: 'user',
-        createdAt: new Date('2026-04-10T00:00:00.000Z'),
-        content: [{ type: 'text', text: 'Tell me a joke' }],
         attachments: [],
+        content: [{ text: 'Tell me a joke', type: 'text' }],
+        createdAt: new Date('2026-04-10T00:00:00.000Z'),
+        id: 'user-1',
         metadata: {
           custom: {},
         },
+        role: 'user',
       },
     ],
     runConfig: {},
-    abortSignal: new AbortController().signal,
-    context: {},
-    config: {},
     unstable_getMessage() {
       throw new Error('not needed in local adapter tests');
     },
@@ -50,11 +49,11 @@ function createGenerationResult(
 ): LocalLlmGenerationResult {
   return {
     finishReason: 'stop',
-    text: 'Why do programmers prefer dark mode?\nBecause light attracts bugs.',
     reasoningText: 'Analyze request.\nSelect safe joke.\nPrepare answer.',
+    text: 'Why do programmers prefer dark mode?\nBecause light attracts bugs.',
     usage: {
-      promptTokens: 8,
       completionTokens: 12,
+      promptTokens: 8,
       totalTokens: 20,
     },
     ...overrides,
@@ -94,31 +93,31 @@ describe('createLocalModelAdapter', () => {
     const warmup = vi.fn().mockResolvedValue(undefined);
     const generate = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'req-1',
         payload: {
           clientRequestId: requestId,
           kind: 'stage',
           message: 'reasoning',
         },
+        requestId: requestId ?? 'req-1',
+        type: 'progress',
       });
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'req-1',
         payload: {
           clientRequestId: requestId,
           kind: 'reasoning',
           reasoningText: 'Analyze request.\nSelect safe joke.\nPrepare answer.',
         },
+        requestId: requestId ?? 'req-1',
+        type: 'progress',
       });
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'req-1',
         payload: {
           clientRequestId: requestId,
           kind: 'text',
           text: 'Why do programmers prefer dark mode?\nBecause light attracts bugs.',
         },
+        requestId: requestId ?? 'req-1',
+        type: 'progress',
       });
       return createGenerationResult();
     });
@@ -126,7 +125,6 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: (callback: (progress: unknown) => void) => {
           progressListener = callback;
@@ -134,6 +132,7 @@ describe('createLocalModelAdapter', () => {
             progressListener = null;
           };
         },
+        warmup,
       },
     });
 
@@ -152,22 +151,22 @@ describe('createLocalModelAdapter', () => {
     expect(progress).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        stage: 'loading',
         message: 'Starting local model host...',
+        stage: 'loading',
       })
     );
     expect(progress).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        stage: 'generating',
         message: 'Thinking...',
+        stage: 'generating',
       })
     );
     expect(progress).toHaveBeenNthCalledWith(
       3,
       expect.objectContaining({
-        stage: 'ready',
         message: 'Response complete.',
+        stage: 'ready',
       })
     );
 
@@ -178,16 +177,16 @@ describe('createLocalModelAdapter', () => {
     expect(updates).toContainEqual({
       content: expect.arrayContaining([
         {
-          type: 'reasoning',
           text: 'Analyze request.\nSelect safe joke.\nPrepare answer.',
+          type: 'reasoning',
         },
       ]),
     });
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([
         {
-          type: 'text',
           text: 'Why do programmers prefer dark mode?\nBecause light attracts bugs.',
+          type: 'text',
         },
       ]),
     });
@@ -198,29 +197,28 @@ describe('createLocalModelAdapter', () => {
     const warmup = vi.fn().mockResolvedValue(undefined);
     const generate = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'req-activity',
         payload: {
           clientRequestId: requestId,
           kind: 'reasoning',
           reasoningText: 'Thinking about it.',
         },
+        requestId: requestId ?? 'req-activity',
+        type: 'progress',
       });
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'req-activity',
         payload: {
           clientRequestId: requestId,
           kind: 'text',
           text: 'Here is the answer.',
         },
+        requestId: requestId ?? 'req-activity',
+        type: 'progress',
       });
       return createGenerationResult({ text: 'Here is the answer.' });
     });
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: (callback: (progress: unknown) => void) => {
           progressListener = callback;
@@ -228,6 +226,7 @@ describe('createLocalModelAdapter', () => {
             progressListener = null;
           };
         },
+        warmup,
       },
     });
 
@@ -248,8 +247,8 @@ describe('createLocalModelAdapter', () => {
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([
         {
-          type: 'text',
           text: 'Here is the answer.',
+          type: 'text',
         },
       ]),
     });
@@ -275,8 +274,8 @@ describe('createLocalModelAdapter', () => {
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([
         {
-          type: 'text',
           text: 'No message content to process.',
+          type: 'text',
         },
       ]),
     });
@@ -287,9 +286,9 @@ describe('createLocalModelAdapter', () => {
     const initialize = vi.fn(
       async ({ onProgress }: Parameters<LocalLlmBackend['initialize']>[0]) => {
         onProgress?.({
-          stage: 'loading',
-          progress: 33,
           message: 'Loading browser Gemma runtime',
+          progress: 33,
+          stage: 'loading',
         });
       }
     );
@@ -297,8 +296,8 @@ describe('createLocalModelAdapter', () => {
       async (messages: Parameters<LocalLlmBackend['generate']>[0], options) => {
         expect(messages).toEqual([
           {
-            role: 'user',
             content: 'Tell me a joke',
+            role: 'user',
           },
         ]);
         options?.stream?.onStageChange?.('responding');
@@ -352,20 +351,20 @@ describe('createLocalModelAdapter', () => {
     expect(updates).toContainEqual({
       content: expect.arrayContaining([
         {
-          type: 'reasoning',
           text: 'Browser reasoning.',
+          type: 'reasoning',
         },
         {
-          type: 'text',
           text: 'Browser stream text.',
+          type: 'text',
         },
       ]),
     });
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([
         {
-          type: 'text',
           text: 'Browser final text.',
+          type: 'text',
         },
       ]),
     });
@@ -407,13 +406,13 @@ describe('createLocalModelAdapter', () => {
     const warmup = vi.fn().mockResolvedValue(undefined);
     const generate = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'req-2',
         payload: {
           clientRequestId: requestId,
           kind: 'text',
           text: 'Why do programmers prefer dark mode?\nBecause light attracts bugs.',
         },
+        requestId: requestId ?? 'req-2',
+        type: 'progress',
       });
       return createGenerationResult();
     });
@@ -421,7 +420,6 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: (callback: (progress: unknown) => void) => {
           progressListener = callback;
@@ -429,6 +427,7 @@ describe('createLocalModelAdapter', () => {
             progressListener = null;
           };
         },
+        warmup,
       },
     });
 
@@ -447,8 +446,8 @@ describe('createLocalModelAdapter', () => {
     expect(releaseBackgroundWorkPauseReasonMock).toHaveBeenCalledTimes(2);
     expect(progress).toHaveBeenCalledWith(
       expect.objectContaining({
-        stage: 'ready',
         message: 'Response complete.',
+        stage: 'ready',
       })
     );
   });
@@ -473,11 +472,11 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         cancel,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -514,11 +513,11 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         cancel,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -540,7 +539,7 @@ describe('createLocalModelAdapter', () => {
     abortController.abort();
 
     await expect(updatesPromise).resolves.toContainEqual({
-      content: expect.arrayContaining([{ type: 'text', text: 'Generation cancelled.' }]),
+      content: expect.arrayContaining([{ text: 'Generation cancelled.', type: 'text' }]),
     });
     expect(cancel).not.toHaveBeenCalled();
     expect(generate).not.toHaveBeenCalled();
@@ -564,8 +563,8 @@ describe('createLocalModelAdapter', () => {
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([
         {
-          type: 'text',
           text: expect.stringContaining('Desktop llm host does not implement warmup.'),
+          type: 'text',
         },
       ]),
     });
@@ -575,15 +574,15 @@ describe('createLocalModelAdapter', () => {
     let progressListener: ((progress: unknown) => void) | null = null;
     const warmup = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'warmup-req',
         payload: {
           clientRequestId: requestId,
+          file: 'onnx/embed_tokens_q4f16.onnx',
           kind: 'loading',
           message: 'Downloading onnx/embed_tokens_q4f16.onnx',
           progress: 42,
-          file: 'onnx/embed_tokens_q4f16.onnx',
         },
+        requestId: requestId ?? 'warmup-req',
+        type: 'progress',
       });
     });
     const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Loaded.' }));
@@ -591,7 +590,6 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: (callback: (progress: unknown) => void) => {
           progressListener = callback;
@@ -600,6 +598,7 @@ describe('createLocalModelAdapter', () => {
           };
         },
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -612,9 +611,9 @@ describe('createLocalModelAdapter', () => {
 
     expect(progress).toHaveBeenCalledWith(
       expect.objectContaining({
-        stage: 'loading',
-        progress: 42,
         file: 'onnx/embed_tokens_q4f16.onnx',
+        progress: 42,
+        stage: 'loading',
       })
     );
   });
@@ -623,15 +622,15 @@ describe('createLocalModelAdapter', () => {
     let progressListener: ((progress: unknown) => void) | null = null;
     const warmup = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'warmup-req',
         payload: {
           clientRequestId: requestId,
+          file: 'onnx/embed_tokens_q4f16.onnx',
           kind: 'loading',
           message: 'Downloading onnx/embed_tokens_q4f16.onnx',
           progress: 42,
-          file: 'onnx/embed_tokens_q4f16.onnx',
         },
+        requestId: requestId ?? 'warmup-req',
+        type: 'progress',
       });
     });
     const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Loaded.' }));
@@ -648,7 +647,6 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: (callback: (progress: unknown) => void) => {
           progressListener = callback;
@@ -657,6 +655,7 @@ describe('createLocalModelAdapter', () => {
           };
         },
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -680,7 +679,6 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: (callback: (status: { runtimeKind: 'llm-host'; state: string }) => void) => {
@@ -689,6 +687,7 @@ describe('createLocalModelAdapter', () => {
             statusListener = null;
           };
         },
+        warmup,
       },
     });
 
@@ -721,10 +720,10 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -756,10 +755,10 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -782,10 +781,10 @@ describe('createLocalModelAdapter', () => {
     generationResolvers[1]?.(createGenerationResult({ text: 'Second response.' }));
 
     await expect(firstRun).resolves.toContainEqual({
-      content: expect.arrayContaining([{ type: 'text', text: 'First response.' }]),
+      content: expect.arrayContaining([{ text: 'First response.', type: 'text' }]),
     });
     await expect(secondRun).resolves.toContainEqual({
-      content: expect.arrayContaining([{ type: 'text', text: 'Second response.' }]),
+      content: expect.arrayContaining([{ text: 'Second response.', type: 'text' }]),
     });
   });
 
@@ -801,10 +800,10 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -837,7 +836,7 @@ describe('createLocalModelAdapter', () => {
     });
     generationResolvers[1]?.(createGenerationResult({ text: 'Second response.' }));
     await expect(secondRun).resolves.toContainEqual({
-      content: expect.arrayContaining([{ type: 'text', text: 'Second response.' }]),
+      content: expect.arrayContaining([{ text: 'Second response.', type: 'text' }]),
     });
   });
 
@@ -854,11 +853,11 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         cancel,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -888,10 +887,10 @@ describe('createLocalModelAdapter', () => {
     resolveWarmup?.();
 
     await expect(joinerRun).resolves.toContainEqual({
-      content: expect.arrayContaining([{ type: 'text', text: 'Generation cancelled.' }]),
+      content: expect.arrayContaining([{ text: 'Generation cancelled.', type: 'text' }]),
     });
     await expect(ownerRun).resolves.toContainEqual({
-      content: expect.arrayContaining([{ type: 'text', text: 'Ready.' }]),
+      content: expect.arrayContaining([{ text: 'Ready.', type: 'text' }]),
     });
     expect(cancel).not.toHaveBeenCalled();
     expect(generate).toHaveBeenCalledTimes(1);
@@ -910,11 +909,11 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         cancel,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -943,13 +942,13 @@ describe('createLocalModelAdapter', () => {
     ownerAbort.abort();
 
     await expect(ownerRun).resolves.toContainEqual({
-      content: expect.arrayContaining([{ type: 'text', text: 'Generation cancelled.' }]),
+      content: expect.arrayContaining([{ text: 'Generation cancelled.', type: 'text' }]),
     });
     expect(cancel).not.toHaveBeenCalled();
     warmupResolvers.at(-1)?.();
 
     await expect(joinerRun).resolves.toContainEqual({
-      content: expect.arrayContaining([{ type: 'text', text: 'Ready.' }]),
+      content: expect.arrayContaining([{ text: 'Ready.', type: 'text' }]),
     });
     expect(warmup).toHaveBeenCalledTimes(1);
   });
@@ -959,22 +958,22 @@ describe('createLocalModelAdapter', () => {
     const warmup = vi.fn().mockResolvedValue(undefined);
     const generate = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'req-3',
         payload: {
           clientRequestId: requestId,
           kind: 'stage',
           message: 'responding',
         },
+        requestId: requestId ?? 'req-3',
+        type: 'progress',
       });
       progressListener?.({
-        type: 'progress',
-        requestId: requestId ?? 'req-3',
         payload: {
           clientRequestId: requestId,
           kind: 'text',
           text: 'Finished response.',
         },
+        requestId: requestId ?? 'req-3',
+        type: 'progress',
       });
       return createGenerationResult({
         text: 'Finished response.',
@@ -984,7 +983,6 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: (callback: (progress: unknown) => void) => {
           progressListener = callback;
@@ -992,6 +990,7 @@ describe('createLocalModelAdapter', () => {
             progressListener = null;
           };
         },
+        warmup,
       },
     });
 
@@ -1008,8 +1007,8 @@ describe('createLocalModelAdapter', () => {
     expect(warmup).toHaveBeenCalledTimes(1);
     expect(progress).toHaveBeenCalledWith(
       expect.objectContaining({
-        stage: 'ready',
         message: 'Response complete.',
+        stage: 'ready',
       })
     );
   });
@@ -1022,12 +1021,12 @@ describe('createLocalModelAdapter', () => {
           text: '',
           toolCalls: [
             {
+              function: {
+                arguments: JSON.stringify({ topic: 'bugs' }),
+                name: 'tell_joke',
+              },
               id: 'tool-1',
               type: 'function',
-              function: {
-                name: 'tell_joke',
-                arguments: JSON.stringify({ topic: 'bugs' }),
-              },
             },
           ],
         })
@@ -1038,18 +1037,18 @@ describe('createLocalModelAdapter', () => {
         })
       );
     const execute = vi.fn().mockResolvedValue({
-      success: true,
+      durationMs: 7,
       result: {
         joke: 'bugs',
       },
-      durationMs: 7,
+      success: true,
     });
 
     Object.assign(window as Window & { llmHost?: unknown; tools?: unknown }, {
       llmHost: {
-        warmup: vi.fn().mockResolvedValue(undefined),
         generate,
         onProgress: vi.fn(() => () => {}),
+        warmup: vi.fn().mockResolvedValue(undefined),
       },
       tools: {
         execute,
@@ -1060,14 +1059,14 @@ describe('createLocalModelAdapter', () => {
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       tools: [
         {
-          id: 'tell_joke',
           description: 'Return a joke',
+          id: 'tell_joke',
           inputSchema: {
-            type: 'object',
             properties: {
               topic: { type: 'string' },
             },
             required: ['topic'],
+            type: 'object',
           },
           isLocalRuntimeRunnable: true,
         },
@@ -1081,8 +1080,8 @@ describe('createLocalModelAdapter', () => {
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([
         {
-          type: 'text',
           text: 'Here is a bugs joke.',
+          type: 'text',
         },
       ]),
     });
@@ -1094,39 +1093,39 @@ describe('createLocalModelAdapter', () => {
       .fn()
       .mockResolvedValueOnce(
         createGenerationResult({
-          text: '',
           reasoningText: 'Need to read the workspace file before answering.',
+          text: '',
           toolCalls: [
             {
+              function: {
+                arguments: JSON.stringify({ path: '/README.md' }),
+                name: 'filesystem.read_file',
+              },
               id: 'tool-1',
               type: 'function',
-              function: {
-                name: 'filesystem.read_file',
-                arguments: JSON.stringify({ path: '/README.md' }),
-              },
             },
           ],
         })
       )
       .mockResolvedValueOnce(
         createGenerationResult({
-          text: 'The README says hello.',
           reasoningText: 'Summarize the tool result.',
+          text: 'The README says hello.',
         })
       );
     const execute = vi.fn().mockResolvedValue({
-      success: true,
+      durationMs: 12,
       result: {
         content: 'hello',
       },
-      durationMs: 12,
+      success: true,
     });
 
     Object.assign(window as Window & { llmHost?: unknown; tools?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: vi.fn(() => () => {}),
+        warmup,
       },
       tools: {
         execute,
@@ -1140,17 +1139,17 @@ describe('createLocalModelAdapter', () => {
       },
       tools: [
         {
-          id: 'filesystem.read_file',
           description: 'Read a file',
+          id: 'filesystem.read_file',
           inputSchema: {
-            type: 'object',
             properties: {
               path: {
-                type: 'string',
                 description: 'Workspace-relative path',
+                type: 'string',
               },
             },
             required: ['path'],
+            type: 'object',
           },
           isLocalRuntimeRunnable: true,
         },
@@ -1174,21 +1173,21 @@ describe('createLocalModelAdapter', () => {
         options: expect.objectContaining({
           tools: [
             {
-              type: 'function',
               function: {
-                name: 'filesystem.read_file',
                 description: 'Read a file',
+                name: 'filesystem.read_file',
                 parameters: {
-                  type: 'object',
                   properties: {
                     path: {
-                      type: 'string',
                       description: 'Workspace-relative path',
+                      type: 'string',
                     },
                   },
                   required: ['path'],
+                  type: 'object',
                 },
               },
+              type: 'function',
             },
           ],
         }),
@@ -1226,15 +1225,15 @@ describe('createLocalModelAdapter', () => {
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([
         expect.objectContaining({
-          type: 'tool-call',
-          toolName: 'filesystem.read_file',
           result: {
             content: 'hello',
           },
+          toolName: 'filesystem.read_file',
+          type: 'tool-call',
         }),
         expect.objectContaining({
-          type: 'text',
           text: 'The README says hello.',
+          type: 'text',
         }),
       ]),
     });
@@ -1243,16 +1242,16 @@ describe('createLocalModelAdapter', () => {
   it('reports why local tools are unavailable when the model returns a tool call', async () => {
     const generate = vi.fn().mockResolvedValue(
       createGenerationResult({
-        text: '',
         reasoningText: 'Need a tool.',
+        text: '',
         toolCalls: [
           {
+            function: {
+              arguments: '{}',
+              name: 'brainstrike.listWorkspaceContext',
+            },
             id: 'tool-1',
             type: 'function',
-            function: {
-              name: 'brainstrike.listWorkspaceContext',
-              arguments: '{}',
-            },
           },
         ],
       })
@@ -1260,9 +1259,9 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown; tools?: unknown }, {
       llmHost: {
-        warmup: vi.fn().mockResolvedValue(undefined),
         generate,
         onProgress: vi.fn(() => () => {}),
+        warmup: vi.fn().mockResolvedValue(undefined),
       },
       tools: undefined,
     });
@@ -1271,11 +1270,11 @@ describe('createLocalModelAdapter', () => {
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       tools: [
         {
-          id: 'brainstrike.listWorkspaceContext',
           description: 'List workspace context',
+          id: 'brainstrike.listWorkspaceContext',
           inputSchema: {
-            type: 'object',
             properties: {},
+            type: 'object',
           },
           isLocalRuntimeRunnable: true,
         },
@@ -1307,12 +1306,12 @@ describe('createLocalModelAdapter', () => {
           text: '',
           toolCalls: [
             {
+              function: {
+                arguments: JSON.stringify({ query: 'coverage', tags: ['unit'] }),
+                name: 'brainstrike.search_notes',
+              },
               id: 'tool-schema-1',
               type: 'function',
-              function: {
-                name: 'brainstrike.search_notes',
-                arguments: JSON.stringify({ query: 'coverage', tags: ['unit'] }),
-              },
             },
           ],
         })
@@ -1351,29 +1350,29 @@ describe('createLocalModelAdapter', () => {
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       tools: [
         {
-          id: 'brainstrike.search_notes',
           description: 'Search workspace notes',
+          id: 'brainstrike.search_notes',
           inputSchema: {
-            type: 'object',
             properties: {
-              query: {
-                type: 'string',
-                description: 'Search query',
-                enum: ['coverage', 'vitest'],
-              },
-              tags: {
-                type: 'array',
-                description: 'Filter tags',
-                items: {
-                  type: 'string',
-                  description: 'Tag value',
-                },
-              },
               ignoredWithoutType: {
                 description: 'Not a valid JSON schema property',
               },
+              query: {
+                description: 'Search query',
+                enum: ['coverage', 'vitest'],
+                type: 'string',
+              },
+              tags: {
+                description: 'Filter tags',
+                items: {
+                  description: 'Tag value',
+                  type: 'string',
+                },
+                type: 'array',
+              },
             },
             required: ['query', 'tags'],
+            type: 'object',
           },
           isLocalRuntimeRunnable: true,
         },
@@ -1388,30 +1387,30 @@ describe('createLocalModelAdapter', () => {
       expect.objectContaining({
         tools: [
           {
-            type: 'function',
             function: {
-              name: 'brainstrike.search_notes',
               description: 'Search workspace notes',
+              name: 'brainstrike.search_notes',
               parameters: {
-                type: 'object',
                 properties: {
                   query: {
-                    type: 'string',
                     description: 'Search query',
                     enum: ['coverage', 'vitest'],
+                    type: 'string',
                   },
                   tags: {
-                    type: 'array',
                     description: 'Filter tags',
                     items: {
-                      type: 'string',
                       description: 'Tag value',
+                      type: 'string',
                     },
+                    type: 'array',
                   },
                 },
                 required: ['query', 'tags'],
+                type: 'object',
               },
             },
+            type: 'function',
           },
         ],
       })
@@ -1424,8 +1423,8 @@ describe('createLocalModelAdapter', () => {
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([
         expect.objectContaining({
-          type: 'text',
           text: 'Found coverage notes.',
+          type: 'text',
         }),
       ]),
     });
@@ -1447,8 +1446,8 @@ describe('createLocalModelAdapter', () => {
       name: 'disabled tools',
       tools: [
         {
-          id: 'brainstrike.disabled',
           enabled: false,
+          id: 'brainstrike.disabled',
           inputSchema: {
             type: 'object',
           },
@@ -1489,12 +1488,12 @@ describe('createLocalModelAdapter', () => {
         text: '',
         toolCalls: [
           {
+            function: {
+              arguments: '{}',
+              name: 'brainstrike.missing',
+            },
             id: 'tool-unavailable-1',
             type: 'function',
-            function: {
-              name: 'brainstrike.missing',
-              arguments: '{}',
-            },
           },
         ],
       })
@@ -1545,12 +1544,12 @@ describe('createLocalModelAdapter', () => {
           text: '',
           toolCalls: [
             {
+              function: {
+                arguments: '["array input"]',
+                name: 'brainstrike.echo',
+              },
               id: 'tool-array-args',
               type: 'function',
-              function: {
-                name: 'brainstrike.echo',
-                arguments: '["array input"]',
-              },
             },
           ],
         })
@@ -1621,12 +1620,12 @@ describe('createLocalModelAdapter', () => {
           text: '',
           toolCalls: [
             {
+              function: {
+                arguments: JSON.stringify({ path: '/missing.md' }),
+                name: 'filesystem.read_file',
+              },
               id: 'tool-2',
               type: 'function',
-              function: {
-                name: 'filesystem.read_file',
-                arguments: JSON.stringify({ path: '/missing.md' }),
-              },
             },
           ],
         })
@@ -1637,16 +1636,16 @@ describe('createLocalModelAdapter', () => {
         })
       );
     const execute = vi.fn().mockResolvedValue({
-      success: false,
-      error: 'missing',
       durationMs: 5,
+      error: 'missing',
+      success: false,
     });
 
     Object.assign(window as Window & { llmHost?: unknown; tools?: unknown }, {
       llmHost: {
-        warmup: vi.fn().mockResolvedValue(undefined),
         generate,
         onProgress: vi.fn(() => () => {}),
+        warmup: vi.fn().mockResolvedValue(undefined),
       },
       tools: {
         execute,
@@ -1657,16 +1656,16 @@ describe('createLocalModelAdapter', () => {
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       tools: [
         {
-          id: 'filesystem.read_file',
           description: 'Read a file',
+          id: 'filesystem.read_file',
           inputSchema: {
-            type: 'object',
             properties: {
               path: {
                 type: 'string',
               },
             },
             required: ['path'],
+            type: 'object',
           },
           isLocalRuntimeRunnable: true,
         },
@@ -1713,17 +1712,17 @@ describe('createLocalModelAdapter', () => {
     const generate = vi.fn().mockResolvedValue(
       createGenerationResult({
         text: 'Token-counted answer.',
-        usage: { promptTokens: 50, completionTokens: 20, totalTokens: 70 },
+        usage: { completionTokens: 20, promptTokens: 50, totalTokens: 70 },
       })
     );
     const onUsage = vi.fn();
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -1744,7 +1743,7 @@ describe('createLocalModelAdapter', () => {
       generate: vi.fn(async () =>
         createGenerationResult({
           text: 'Browser token-counted answer.',
-          usage: { promptTokens: 50, completionTokens: 20, totalTokens: 70 },
+          usage: { completionTokens: 20, promptTokens: 50, totalTokens: 70 },
         })
       ),
       initialize: vi.fn(async () => {}),
@@ -1772,34 +1771,34 @@ describe('createLocalModelAdapter', () => {
       .mockResolvedValueOnce(
         createGenerationResult({
           text: '',
-          usage: { promptTokens: 30, completionTokens: 10, totalTokens: 40 },
           toolCalls: [
             {
+              function: {
+                arguments: '{}',
+                name: 'brainstrike.echo',
+              },
               id: 'tool-usage-1',
               type: 'function',
-              function: {
-                name: 'brainstrike.echo',
-                arguments: '{}',
-              },
             },
           ],
+          usage: { completionTokens: 10, promptTokens: 30, totalTokens: 40 },
         })
       )
       .mockResolvedValueOnce(
         createGenerationResult({
           text: 'Final answer after tool.',
-          usage: { promptTokens: 60, completionTokens: 25, totalTokens: 85 },
+          usage: { completionTokens: 25, promptTokens: 60, totalTokens: 85 },
         })
       );
-    const execute = vi.fn().mockResolvedValue({ success: true, result: 'ok', durationMs: 1 });
+    const execute = vi.fn().mockResolvedValue({ durationMs: 1, result: 'ok', success: true });
     const onUsage = vi.fn();
 
     Object.assign(window as Window & { llmHost?: unknown; tools?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
       tools: { execute },
     });
@@ -1810,7 +1809,7 @@ describe('createLocalModelAdapter', () => {
       tools: [
         {
           id: 'brainstrike.echo',
-          inputSchema: { type: 'object', properties: {} },
+          inputSchema: { properties: {}, type: 'object' },
           isLocalRuntimeRunnable: true,
         },
       ],
@@ -1830,16 +1829,16 @@ describe('createLocalModelAdapter', () => {
     const generate = vi.fn().mockResolvedValue(
       createGenerationResult({
         text: 'Answer without usage callback.',
-        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        usage: { completionTokens: 5, promptTokens: 10, totalTokens: 15 },
       })
     );
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -1864,10 +1863,10 @@ describe('createLocalModelAdapter', () => {
 
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         generate,
         onProgress: vi.fn(() => () => {}),
         onStatus: vi.fn(() => () => {}),
+        warmup,
       },
     });
 
@@ -1882,8 +1881,8 @@ describe('createLocalModelAdapter', () => {
     expect(updates.at(-1)).toMatchObject({
       content: expect.arrayContaining([
         {
-          type: 'text',
           text: 'Answer without usage data.',
+          type: 'text',
         },
       ]),
     });
@@ -1911,21 +1910,20 @@ describe('desktop llm-host helpers for the data-stream local transport', () => {
       .fn()
       .mockImplementation(({ requestId }: { modelId: string; requestId: string }) => {
         progressListener?.({
-          type: 'progress',
-          requestId,
           payload: {
             clientRequestId: requestId,
-            kind: 'loading',
-            progress: 40,
-            message: 'Downloading model',
             file: 'model.onnx',
+            kind: 'loading',
+            message: 'Downloading model',
+            progress: 40,
           },
+          requestId,
+          type: 'progress',
         });
         return Promise.resolve();
       });
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
-        warmup,
         onProgress: (callback: (progress: unknown) => void) => {
           progressListener = callback;
           return () => {
@@ -1933,6 +1931,7 @@ describe('desktop llm-host helpers for the data-stream local transport', () => {
           };
         },
         onStatus: () => () => {},
+        warmup,
       },
     });
 
@@ -1947,10 +1946,10 @@ describe('desktop llm-host helpers for the data-stream local transport', () => {
     );
     expect(onLoadingProgress).toHaveBeenCalledWith(
       expect.objectContaining({
-        stage: 'loading',
-        progress: 40,
-        message: 'Downloading model',
         file: 'model.onnx',
+        message: 'Downloading model',
+        progress: 40,
+        stage: 'loading',
       })
     );
   });

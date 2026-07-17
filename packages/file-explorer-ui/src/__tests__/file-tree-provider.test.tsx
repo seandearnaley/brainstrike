@@ -31,8 +31,8 @@ const {
   getNodeMock: vi.fn(),
   setExpandedPathsMock: vi.fn(),
   storeMock: vi.fn(),
-  useExpandSelectedFileParentDirectoriesMock: vi.fn(),
   useExpandedPathRestorationMock: vi.fn(),
+  useExpandSelectedFileParentDirectoriesMock: vi.fn(),
   useFileTreeMock: vi.fn(),
 }));
 
@@ -76,11 +76,11 @@ vi.mock('../tree/file-tree-index', () => ({
 }));
 
 const rootHandle = {
+  _internal: undefined,
   kind: 'directory',
   name: 'workspace',
   path: '/workspace',
   platform: 'electron',
-  _internal: undefined,
 } as const;
 
 function Consumer(): ReactNode {
@@ -112,10 +112,10 @@ describe('FileTreeProvider', () => {
       __internalNormalizedTreeVersion: 7,
       cancelChildLoading: vi.fn(),
       cancelExpandAll: vi.fn(),
+      cancellable: false,
       cancelOperation: vi.fn(),
       cancelRecursiveSelect: vi.fn(),
       cancelSelectAll: vi.fn(),
-      cancellable: false,
       error: null,
       expandAllProgress: null,
       expandAllProgressively: vi.fn(),
@@ -123,13 +123,13 @@ describe('FileTreeProvider', () => {
       isCancelling: false,
       isExpandingAll: false,
       isLoading: false,
-      isLoadingForSelection: false,
       isLoadingForSelectAll: false,
+      isLoadingForSelection: false,
       loadChildren: vi.fn(),
-      loadSpecificPaths: vi.fn(),
       loadingPathForSelection: null,
       loadingPaths: new Set<string>(),
       loadingProgress: { isInitialLoading: false, loadingCount: 0 },
+      loadSpecificPaths: vi.fn(),
       refreshDirectory: vi.fn(),
       refreshTree: vi.fn(),
       selectAllRecursively: vi.fn(),
@@ -235,6 +235,34 @@ describe('FileTreeProvider', () => {
     expect(useExpandedPathRestorationMock).toHaveBeenCalledWith(
       expect.objectContaining({ currentRootFolderId: ROOT_UUID })
     );
+  });
+
+  it('keeps FileTreeContext value identity stable across re-renders when deps are unchanged', () => {
+    // Mount may re-render once for index registration (version bump); that must
+    // NOT mint a new FileTreeContext value when fileTree/restoration/root deps
+    // are unchanged.
+    const seen: unknown[] = [];
+    function ValueProbe(): null {
+      seen.push(useFileTreeContext());
+      return null;
+    }
+
+    const { rerender } = render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle}>
+        <ValueProbe />
+      </FileTreeProvider>
+    );
+    const afterMount = seen.at(-1);
+    expect(afterMount).toBeDefined();
+    const lengthAfterMount = seen.length;
+
+    rerender(
+      <FileTreeProvider rootDirectoryHandle={rootHandle}>
+        <ValueProbe />
+      </FileTreeProvider>
+    );
+    expect(seen.length).toBeGreaterThan(lengthAfterMount);
+    expect(seen.at(-1)).toBe(afterMount);
   });
 
   it('throws for required hooks outside the provider and returns null for optional hooks', () => {

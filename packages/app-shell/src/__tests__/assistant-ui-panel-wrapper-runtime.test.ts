@@ -17,8 +17,10 @@ import {
   hasValidProviderModelSelection,
   isLocalRuntimeProvider,
   type LocalRuntimeModelCatalogMap,
+  reconcileProviderSettingsForModel,
   resolveAssistantMemoryDisabledReason,
   resolveAssistantProviderDisabledReason,
+  resolveComposerAttachmentsAvailability,
   resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveProviderModelSelection,
@@ -35,14 +37,15 @@ function createRepositoryStub(
       throw new Error('not used');
     },
     createThreadRun,
-    getThreadCumulativeUsage: async () => null,
-    getCrossRootUsage: async () => [],
-    recordRunUsage: async () => {},
     deleteThread: async () => {},
+    getCrossRootUsage: async () => [],
+    getThreadCumulativeUsage: async () => null,
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],
+    listThreadCheckpoints: vi.fn(async () => []),
     listThreadRunEvents: async () => [],
     listThreads: async () => [],
+    recordRunUsage: async () => {},
     renameThread: async () => {},
     updateThreadMetadata: async () => {},
   };
@@ -55,8 +58,8 @@ const baseMemoryReasonArgs = {
   dbError: null,
   dbInitializing: false,
   desktopAssistantBackendAvailable: true,
-  memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   memoryLoadState: { status: 'ready' as const },
+  memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   selectedMemoryThreadId: 'thread-1',
   selectedProvider: 'openai' as const,
   workspaceRootPath: '/workspace',
@@ -117,7 +120,7 @@ describe('assistant runtime helpers', () => {
     expect(
       resolveAssistantMemoryDisabledReason({
         ...baseMemoryReasonArgs,
-        memoryLoadState: { status: 'error', error: 'bad schema' },
+        memoryLoadState: { error: 'bad schema', status: 'error' },
       })
     ).toBe('Assistant memory failed to load: bad schema');
     expect(
@@ -136,8 +139,8 @@ describe('assistant runtime helpers', () => {
           ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
           semanticRecall: {
             ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-            enabled: true,
             embeddingModelTarget: 'cohere/embed-english-v3.0',
+            enabled: true,
           },
         },
       })
@@ -158,8 +161,8 @@ describe('assistant runtime helpers', () => {
           },
           semanticRecall: {
             ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-            enabled: false,
             embeddingModelTarget: 'cohere/embed-english-v3.0',
+            enabled: false,
           },
         },
       })
@@ -179,8 +182,8 @@ describe('assistant runtime helpers', () => {
           },
           semanticRecall: {
             ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-            enabled: false,
             embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+            enabled: false,
           },
         },
       })
@@ -189,10 +192,10 @@ describe('assistant runtime helpers', () => {
 
   it('creates assistant thread run records with copied settings', async () => {
     const createThreadRun = vi.fn(async (input) => ({
-      id: input.id,
       completedAt: null,
       createdAt: new Date('2026-01-01T00:00:00Z'),
       error: null,
+      id: input.id,
       model: input.model,
       provider: input.provider,
       resourceId: input.resourceId,
@@ -202,7 +205,13 @@ describe('assistant runtime helpers', () => {
       threadId: input.threadId,
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     }));
-    const modelSettings = { maxOutputTokens: 512 };
+    const modelSettings = {
+      frequencyPenalty: -0.25,
+      maxOutputTokens: 512,
+      presencePenalty: 0.5,
+      temperature: 0.3,
+      topP: 0.9,
+    };
     const providerOptions = { openai: { reasoningEffort: 'high' } };
 
     const runId = await createAssistantThreadRunPromise({
@@ -263,7 +272,6 @@ describe('assistant runtime helpers', () => {
         projectTreeTokenCountLoading: false,
         selectedOutputApproxTokens: 0,
         selectedSourceApproxTokens: 0,
-        useTapestryRanges: false,
       },
       workspaceIndex: {
         ...baseWorkspaceIndex,
@@ -320,16 +328,139 @@ describe('assistant runtime helpers', () => {
 
     const snapshot: PermissionToolGateSnapshotInput = {
       enforce: true,
-      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
-      yolo: false,
-      sessionGrants: ['execute'],
       perToolOverrides: {},
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      sessionGrants: ['execute'],
+      yolo: false,
     };
     const withSnapshot = buildAssistantRequestData({
       ...baseArgs,
       permissionPolicyRequest: snapshot,
     });
     expect(withSnapshot['permissionPolicyRequest']).toEqual(snapshot);
+  });
+
+  it('attaches planMode only when true (presence-means-on, no false residue)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('planMode');
+    expect(buildAssistantRequestData({ ...baseArgs, planMode: false })).not.toHaveProperty(
+      'planMode'
+    );
+    expect(buildAssistantRequestData({ ...baseArgs, planMode: true })['planMode']).toBe(true);
+  });
+
+  it('attaches workspaceInstructionsPreference only when provided (desktop transport gate)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    // Absent (web / non-data-stream) → nothing attached.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty(
+      'workspaceInstructionsPreference'
+    );
+
+    const preference = { masterEnabled: true, oversizedOptInByRootId: { 'root-a': true } };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, workspaceInstructionsPreference: preference })[
+        'workspaceInstructionsPreference'
+      ]
+    ).toEqual(preference);
+
+    // Agent Skills preference rides the same opt-in gate: absent → nothing
+    // attached; present → the exact snapshot.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('skillsPreference');
+    const skillsPreference = {
+      disabledSkillKeys: ['root:root-a:pdf-processing'],
+      masterEnabled: true,
+    };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, skillsPreference })['skillsPreference']
+    ).toEqual(skillsPreference);
+  });
+
+  it('attaches subagentPersonasRequest only when provided (desktop transport gate)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    // Absent (defaults / web / non-data-stream) -> nothing attached.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('subagentPersonasRequest');
+
+    const request = { delegationEnabled: false, disabledPersonaIds: ['explore'] };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, subagentPersonasRequest: request })[
+        'subagentPersonasRequest'
+      ]
+    ).toEqual(request);
+  });
+
+  it('attaches hookTrustRequest only when provided (desktop transport gate)', () => {
+    const baseArgs = {
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      permissionPolicyRequest: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
+    };
+
+    // Absent (web / non-data-stream) → nothing attached.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('hookTrustRequest');
+
+    const request = { approvals: [{ approvedAt: 1, rootId: 'r1', sha256: 'hash-1' }] };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, hookTrustRequest: request })['hookTrustRequest']
+    ).toEqual(request);
   });
 
   it('surfaces the count of selected files from OTHER roots (multi-root, never silently dropped)', () => {
@@ -373,13 +504,20 @@ describe('assistant runtime helpers', () => {
 
   it('resolves provider and local runtime model selections', () => {
     const models = [
-      { id: 'fast', label: 'Fast', type: 'llm' as const, default: false, contextWindow: 200_000 },
+      {
+        contextWindow: 200_000,
+        default: false,
+        id: 'fast',
+        label: 'Fast',
+        type: 'llm' as const,
+        vision: 'supported' as const,
+      },
     ];
     expect(
       resolveProviderModelSelection({
-        provider: 'openai',
         getProviderLlmModels: () => models,
         isModelEnabled: (_provider, modelId) => modelId === 'fast',
+        provider: 'openai',
       })
     ).toBe('fast');
     expect(
@@ -407,20 +545,17 @@ describe('assistant runtime helpers', () => {
     const catalog: LocalRuntimeModelCatalogMap = {
       ollama: {
         availability: {
-          state: 'available',
           checkedAt: 1,
           endpoint: 'http://localhost',
           latencyMs: 1,
+          state: 'available',
         },
         checkedAt: 1,
         endpoint: 'http://localhost',
         freshness: 'live',
-        runtime: 'ollama',
-        source: 'ollama_api_tags',
-        state: 'loaded_non_empty',
         models: [
           {
-            capabilities: { llm: true, embeddings: 'unsupported' },
+            capabilities: { embeddings: 'unsupported', llm: true, vision: 'supported' },
             capabilitySource: 'provider_reported',
             dimensionsKnown: { state: 'not_applicable' },
             displayName: 'Llama',
@@ -433,7 +568,7 @@ describe('assistant runtime helpers', () => {
             source: 'ollama_api_tags',
           },
           {
-            capabilities: { llm: false, embeddings: 'supported' },
+            capabilities: { embeddings: 'supported', llm: false, vision: 'unsupported' },
             capabilitySource: 'provider_reported',
             dimensionsKnown: { state: 'needs_verification' },
             displayName: 'Embed',
@@ -446,29 +581,34 @@ describe('assistant runtime helpers', () => {
             source: 'ollama_api_tags',
           },
         ],
+        runtime: 'ollama',
+        source: 'ollama_api_tags',
+        state: 'loaded_non_empty',
       },
     };
 
+    // Vision rides through from the runtime-reported capability so the
+    // composer attachment gate can read it off the synthesized definition.
     expect(toRuntimeProviderModels('ollama', catalog)).toEqual([
-      expect.objectContaining({ id: 'llama', default: true }),
+      expect.objectContaining({ default: true, id: 'llama', vision: 'supported' }),
     ]);
     expect(
       buildEnabledModelIdSet({
-        shouldFallbackToPreferences: false,
         configuredProviders: ['local'],
         enabledModelsByProvider: {
           anthropic: [],
           cohere: [],
           google: [],
-          local: ['local-gemma'],
           lmstudio: [],
+          local: ['local-gemma'],
           ollama: [],
           openai: [],
           openrouter: [],
           voyage: [],
         },
-        registryEnabledModelIds: new Set(['registry-model']),
         localRuntimeModels: catalog,
+        registryEnabledModelIds: new Set(['registry-model']),
+        shouldFallbackToPreferences: false,
       })
     ).toEqual(new Set(['registry-model', 'local-gemma', 'llama']));
   });
@@ -478,16 +618,16 @@ describe('assistant runtime helpers', () => {
     expect(
       getEnabledBuiltInLocalRegistryModelIds({ 'local-a': true, 'local-b': false }, [
         {
-          id: 'local-a',
-          providerId: 'local',
-          isEnabled: true,
           capabilities: { type: 'llm' },
+          id: 'local-a',
+          isEnabled: true,
+          providerId: 'local',
         },
         {
-          id: 'local-b',
-          providerId: 'local',
-          isEnabled: true,
           capabilities: { type: 'llm' },
+          id: 'local-b',
+          isEnabled: true,
+          providerId: 'local',
         },
       ])
     ).toEqual(['local-a']);
@@ -497,9 +637,9 @@ describe('assistant runtime helpers', () => {
 
   it('builds provider-specific model, agent loop, and provider options', () => {
     expect(buildModelSettings({ maxOutputTokens: 42.9 })).toEqual({ maxOutputTokens: 42 });
-    expect(buildAgentLoopSettings({ agentMaxSteps: 4.8, agentInputTokenLimit: 2048.2 })).toEqual({
-      maxSteps: 4,
+    expect(buildAgentLoopSettings({ agentInputTokenLimit: 2048.2, agentMaxSteps: 4.8 })).toEqual({
       inputTokenLimit: 2048,
+      maxSteps: 4,
     });
     expect(
       buildProviderOptions('anthropic', 'claude-sonnet-4-5', {
@@ -507,8 +647,53 @@ describe('assistant runtime helpers', () => {
         anthropicThinkingBudgetTokens: 1024.8,
       })
     ).toEqual({
-      anthropic: { effort: 'high', thinking: { type: 'enabled', budgetTokens: 1024 } },
+      anthropic: { effort: 'high', thinking: { budgetTokens: 1024, type: 'enabled' } },
     });
+    expect(
+      buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
+        reasoningEffort: 'high',
+        reasoningSummary: 'detailed',
+      })
+    ).toEqual({
+      openrouter: { reasoning: { effort: 'high', summary: 'detailed' } },
+    });
+    expect(
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ openrouter: { reasoning: { effort: 'max' } } });
+    expect(() =>
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'high',
+      })
+    ).toThrow(/Kimi K3.*does not support.*high/i);
+    expect(() =>
+      buildProviderOptions('openrouter', 'meta/muse-spark-1.1', {
+        reasoningEffort: 'none',
+      })
+    ).toThrow(/Muse Spark 1\.1.*does not support.*none/i);
+    expect(() =>
+      buildProviderOptions('openrouter', 'moonshotai/kimi-k2.6', {
+        reasoningEffort: 'max',
+      })
+    ).toThrow(/Kimi K2\.6.*does not declare.*reasoning effort/i);
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
+        maxOutputTokens: 2048,
+        reasoningEffort: 'high',
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k3', {
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ reasoningEffort: 'max' });
+    expect(
+      reconcileProviderSettingsForModel('openrouter', 'moonshotai/kimi-k2.6', {
+        maxOutputTokens: 2048,
+        reasoningEffort: 'max',
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
     expect(
       buildProviderOptions('ollama', 'llama', {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
@@ -553,7 +738,7 @@ describe('buildAgentLoopSettings input-token budget', () => {
 
   it('keeps an explicit user pref over the derived value', () => {
     const settings = buildAgentLoopSettings(
-      { agentMaxSteps: 5, agentInputTokenLimit: 50_000 },
+      { agentInputTokenLimit: 50_000, agentMaxSteps: 5 },
       { contextWindow: 200_000, maxOutputTokens: 64_000 }
     );
     expect(settings?.inputTokenLimit).toBe(50_000);
@@ -590,5 +775,72 @@ describe('buildAgentLoopSettings input-token budget', () => {
     // budget = 32_768 − 4_096 (DEFAULT) − max(1024, ceil(32_768 × 0.05)) = 32_768 − 4_096 − 1_639 = 27_033
     const settings = buildAgentLoopSettings(undefined, { contextWindow: 32_768 });
     expect(settings?.inputTokenLimit).toBe(27_033);
+  });
+});
+
+describe('resolveComposerAttachmentsAvailability', () => {
+  it('hides the affordance entirely when the provider gate fails (built-in local provider)', () => {
+    expect(
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: false,
+        selectedModel: { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', vision: 'supported' },
+      })
+    ).toBeUndefined();
+  });
+
+  it('enables attachments for a vision-capable model', () => {
+    expect(
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: true,
+        selectedModel: { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', vision: 'supported' },
+      })
+    ).toEqual({ state: 'enabled' });
+  });
+
+  it('disables with a visible reason naming the model when vision is unsupported', () => {
+    const availability = resolveComposerAttachmentsAvailability({
+      providerGateAvailable: true,
+      selectedModel: {
+        id: 'qwen/qwen3-coder-next',
+        label: 'Qwen3 Coder Next (OpenRouter)',
+        vision: 'unsupported',
+      },
+    });
+    expect(availability?.state).toBe('disabled');
+    if (availability?.state !== 'disabled') {
+      throw new Error('Expected disabled availability');
+    }
+    expect(availability.reason).toContain('Qwen3 Coder Next (OpenRouter)');
+    expect(availability.reason).toMatch(/image/i);
+  });
+
+  it('falls back to the model id in the reason when no label exists', () => {
+    const availability = resolveComposerAttachmentsAvailability({
+      providerGateAvailable: true,
+      selectedModel: { id: 'mystery-text-model', vision: 'unsupported' },
+    });
+    if (availability?.state !== 'disabled') {
+      throw new Error('Expected disabled availability');
+    }
+    expect(availability.reason).toContain('mystery-text-model');
+  });
+
+  it('stays optimistic for unknown vision support and unresolved model definitions', () => {
+    // 'unknown' (runtime-discovered model with no capability signal) and a
+    // missing definition (e.g. runtime catalog still loading) both enable the
+    // affordance: a wrong guess surfaces as a visible provider error, never a
+    // silently blocked composer.
+    expect(
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: true,
+        selectedModel: { id: 'mystery-7b', label: 'Mystery 7B', vision: 'unknown' },
+      })
+    ).toEqual({ state: 'enabled' });
+    expect(
+      resolveComposerAttachmentsAvailability({
+        providerGateAvailable: true,
+        selectedModel: undefined,
+      })
+    ).toEqual({ state: 'enabled' });
   });
 });

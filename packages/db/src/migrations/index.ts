@@ -47,6 +47,19 @@ import { migration045DimensionIndexMaintenance } from './045-dimension-index-mai
 import { migration046AssistantRunUsage } from './046-assistant-run-usage.js';
 import { migration047RunUsageRootId } from './047-run-usage-root-id.js';
 import { migration048FileRecordsNameTrgm } from './048-file-records-name-trgm.js';
+import { migration049JobQueueMetrics } from './049-job-queue-metrics.js';
+import { migration050AssistantTaskLists } from './050-assistant-task-lists.js';
+import { migration051PromptLibrary } from './051-prompt-library.js';
+import { migration052AssistantEditCheckpoints } from './052-assistant-edit-checkpoints.js';
+import { migration053Bm25ContentIndex } from './053-bm25-content-index.js';
+import { migration054AssistantThreadGroups } from './054-assistant-thread-groups.js';
+import { migration055AssistantMessageParents } from './055-assistant-message-parents.js';
+import { migration056AssistantThreadGroupPresentation } from './056-assistant-thread-group-presentation.js';
+import { migration057UpdateProviderModels202607 } from './057-update-provider-models-2026-07.js';
+import { migration058ProviderBilledCost } from './058-provider-billed-cost.js';
+import { migration059AssistantThreadGroupIcons } from './059-assistant-thread-group-icons.js';
+import { migration060OpenRouterSparkKimiK3 } from './060-openrouter-spark-kimi-k3.js';
+import { migration061ModelVisionCapability } from './061-model-vision-capability.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -100,6 +113,19 @@ export const migrations: Migration[] = [
   migration046AssistantRunUsage,
   migration047RunUsageRootId,
   migration048FileRecordsNameTrgm,
+  migration049JobQueueMetrics,
+  migration050AssistantTaskLists,
+  migration051PromptLibrary,
+  migration052AssistantEditCheckpoints,
+  migration053Bm25ContentIndex,
+  migration054AssistantThreadGroups,
+  migration055AssistantMessageParents,
+  migration056AssistantThreadGroupPresentation,
+  migration057UpdateProviderModels202607,
+  migration058ProviderBilledCost,
+  migration059AssistantThreadGroupIcons,
+  migration060OpenRouterSparkKimiK3,
+  migration061ModelVisionCapability,
 ];
 
 // Export base migrations (without chunks table) for test environments

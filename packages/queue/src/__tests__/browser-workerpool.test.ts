@@ -63,33 +63,33 @@ function createCancelablePromise<T>(): {
   promise.cancel = vi.fn(() => {
     reject(new Error('canceled'));
   });
-  return { promise, resolve, reject };
+  return { promise, reject, resolve };
 }
 
 function createTask(id: string): TaskPayload {
   return {
+    deviceHint: 'webgpu',
     id,
     kind: 'embed',
-    texts: ['hello'],
     model: 'local:test',
-    deviceHint: 'webgpu',
+    texts: ['hello'],
   };
 }
 
 function createResult(id: string): QueueResult {
   return {
     id,
-    type: 'result',
-    vectors: [new Float32Array([1, 2, 3])],
     metadata: {
-      model: 'local:test',
-      device: 'webgpu',
-      dtype: 'fp16',
       batchSize: 1,
+      device: 'webgpu',
+      dimensions: 3,
+      dtype: 'fp16',
       elapsedMs: 10,
       fallbackApplied: false,
-      dimensions: 3,
+      model: 'local:test',
     },
+    type: 'result',
+    vectors: [new Float32Array([1, 2, 3])],
   };
 }
 
@@ -130,8 +130,8 @@ describe('createWorkerpoolAdapter', () => {
     const { promise, resolve } = createCancelablePromise<QueueResult>();
     poolExecMock.mockImplementation(
       (_method, _args, options?: { on?: (event: unknown) => void }) => {
-        options?.on?.({ type: 'progress', completed: 1, total: 1, id: 'task-1' });
-        options?.on?.({ type: 'ignored', completed: 99 });
+        options?.on?.({ completed: 1, id: 'task-1', total: 1, type: 'progress' });
+        options?.on?.({ completed: 99, type: 'ignored' });
         return promise;
       }
     );
@@ -147,16 +147,16 @@ describe('createWorkerpoolAdapter', () => {
     off();
 
     expect(progressListener).toHaveBeenCalledWith({
-      type: 'progress',
       completed: 1,
-      total: 1,
       id: 'task-1',
+      total: 1,
+      type: 'progress',
     });
     expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'enqueue', taskId: 'task-1', pending: 2 })
+      expect.objectContaining({ event: 'enqueue', pending: 2, taskId: 'task-1' })
     );
     expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'complete', taskId: 'task-1', pending: 2 })
+      expect.objectContaining({ event: 'complete', pending: 2, taskId: 'task-1' })
     );
     expect(loggerMock.debug).toHaveBeenCalledWith(
       'Workerpool embedding task complete',
@@ -178,7 +178,7 @@ describe('createWorkerpoolAdapter', () => {
     );
     expect(promise.cancel).toHaveBeenCalledTimes(1);
     expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'error', taskId: 'task-2', errorMessage: 'canceled' })
+      expect.objectContaining({ errorMessage: 'canceled', event: 'error', taskId: 'task-2' })
     );
   });
 
@@ -226,17 +226,17 @@ describe('createWorkerpoolAdapter', () => {
     await expect(addPromise).rejects.toEqual(objectError);
     expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        errorMessage: 'object failure',
         event: 'error',
         taskId: 'task-4',
-        errorMessage: 'object failure',
       })
     );
     expect(loggerMock.debug).toHaveBeenCalledWith(
       'Workerpool embedding task failed',
       expect.objectContaining({
-        taskId: 'task-4',
-        error: 'object failure',
         details: objectError,
+        error: 'object failure',
+        taskId: 'task-4',
       })
     );
   });

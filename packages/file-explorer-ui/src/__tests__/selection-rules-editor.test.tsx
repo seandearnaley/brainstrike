@@ -5,12 +5,12 @@ import { FileExplorerTestWrapper } from './test-helpers';
 
 // Mock the store context with proper typing
 const mockSelectionModel: SelectionModel = {
-  mode: 'explicit',
   explicitPaths: new Set<string>(),
-  ruleSetJson: null,
-  materializedPaths: null,
   materializedAt: null,
+  materializedPaths: null,
+  mode: 'explicit',
   queryDescriptor: null,
+  ruleSetJson: null,
 };
 
 const mockSetSelectionMode = vi.fn();
@@ -22,10 +22,10 @@ vi.mock('../shell/file-explorer-provider', async (importOriginal) => {
   const useFileExplorerStoreContext = vi.fn(() => {
     const mockStore = vi.fn((selector: (state: unknown) => unknown) =>
       selector({
+        clearSelectionRules: mockClearSelectionRules,
         selectionModel: mockSelectionModel,
         setSelectionMode: mockSetSelectionMode,
         setSelectionRules: mockSetSelectionRules,
-        clearSelectionRules: mockClearSelectionRules,
       })
     );
     return mockStore;
@@ -218,21 +218,21 @@ describe('SelectionRulesEditor', () => {
   describe('loading existing rules', () => {
     it('parses existing rules and displays patterns', async () => {
       const existingRuleSet = {
-        version: 1,
         folderId: 'test-folder',
-        rules: [
-          {
-            id: 'rule-1',
-            type: 'glob-include',
-            patterns: ['**/*.ts', '**/*.tsx'],
-            enabled: true,
-            createdAt: '2024-01-01T00:00:00.000Z',
-          },
-        ],
         metadata: {
           createdAt: '2024-01-01T00:00:00.000Z',
           updatedAt: '2024-01-01T00:00:00.000Z',
         },
+        rules: [
+          {
+            createdAt: '2024-01-01T00:00:00.000Z',
+            enabled: true,
+            id: 'rule-1',
+            patterns: ['**/*.ts', '**/*.tsx'],
+            type: 'glob-include',
+          },
+        ],
+        version: 1,
       };
       mockSelectionModel.ruleSetJson = JSON.stringify(existingRuleSet);
 
@@ -252,35 +252,35 @@ describe('SelectionRulesEditor', () => {
 
     it('exposes accessible names and titles on icon-only remove buttons', () => {
       const existingRuleSet = {
-        version: 1,
         folderId: 'test-folder',
-        rules: [
-          {
-            id: 'rule-1',
-            type: 'glob-include',
-            patterns: ['**/*.ts'],
-            enabled: true,
-            createdAt: '2024-01-01T00:00:00.000Z',
-          },
-          {
-            id: 'rule-2',
-            type: 'root-exclude',
-            roots: ['node_modules'],
-            enabled: true,
-            createdAt: '2024-01-01T00:00:00.000Z',
-          },
-          {
-            id: 'rule-3',
-            type: 'glob-exclude',
-            patterns: ['**/*.test.ts'],
-            enabled: true,
-            createdAt: '2024-01-01T00:00:00.000Z',
-          },
-        ],
         metadata: {
           createdAt: '2024-01-01T00:00:00.000Z',
           updatedAt: '2024-01-01T00:00:00.000Z',
         },
+        rules: [
+          {
+            createdAt: '2024-01-01T00:00:00.000Z',
+            enabled: true,
+            id: 'rule-1',
+            patterns: ['**/*.ts'],
+            type: 'glob-include',
+          },
+          {
+            createdAt: '2024-01-01T00:00:00.000Z',
+            enabled: true,
+            id: 'rule-2',
+            roots: ['node_modules'],
+            type: 'root-exclude',
+          },
+          {
+            createdAt: '2024-01-01T00:00:00.000Z',
+            enabled: true,
+            id: 'rule-3',
+            patterns: ['**/*.test.ts'],
+            type: 'glob-exclude',
+          },
+        ],
+        version: 1,
       };
       mockSelectionModel.ruleSetJson = JSON.stringify(existingRuleSet);
 

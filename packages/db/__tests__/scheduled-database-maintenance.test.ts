@@ -56,30 +56,68 @@ describe('scheduled database maintenance', () => {
     await migrate(db);
   });
 
-  it('skips pruning and vacuum while job queue work is active', async () => {
-    const query = vi.fn(async (sql: string) => {
-      if (sql.includes('GROUP BY state')) {
-        return { rows: [{ count: '2', state: 'queued' }] };
-      }
-      return { rows: [{ count: '0' }] };
-    });
-    const exec = vi.fn(async () => undefined);
+  it('prunes finished jobs without vacuum while job queue work is active', async () => {
+    // A long backfill keeps the queue active for days; "skip everything while
+    // active" let succeeded rows pile into a 1GB table that every status
+    // query then scanned. Active passes must still prune succeeded/canceled
+    // rows (bounded), keep failed rows for the error UI, and defer VACUUM.
+    const queue = new JobQueue(db);
+    await createJobWithState(db, queue, 'queued', RECENT_ISO);
+    await createJobWithState(db, queue, 'succeeded', OLD_ISO);
+    await createJobWithState(db, queue, 'succeeded', OLD_ISO);
+    await createJobWithState(db, queue, 'canceled', OLD_ISO);
+    await createJobWithState(db, queue, 'failed', OLD_ISO);
+    await createJobWithState(db, queue, 'succeeded', RECENT_ISO);
 
-    const result = await runScheduledDatabaseMaintenance(
-      { exec, query },
-      {
-        now: () => new Date(NOW_ISO),
-        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
-      }
-    );
+    const result = await runScheduledDatabaseMaintenance(db, {
+      now: () => new Date(NOW_ISO),
+      terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+    });
 
     expect(result).toMatchObject({
-      activeJobs: 2,
+      activeJobs: 1,
+      prunedTerminalJobs: 3,
       reason: 'active-job-queue',
-      status: 'skipped',
+      status: 'partial',
+      vacuumedTables: [],
     });
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(exec).not.toHaveBeenCalled();
+    expect(await countJobs(db)).toBe(3);
+    const remainingStates = await db.query<{ state: string }>(
+      'SELECT state FROM job_queue ORDER BY state'
+    );
+    expect(remainingStates.rows.map((row) => row.state)).toEqual(['failed', 'queued', 'succeeded']);
+  });
+
+  it('bounds the active-queue prune batch so a huge backlog cannot block the engine', async () => {
+    const queue = new JobQueue(db);
+    await createJobWithState(db, queue, 'queued', RECENT_ISO);
+    await createJobWithState(db, queue, 'succeeded', OLD_ISO);
+    await createJobWithState(db, queue, 'succeeded', OLD_ISO);
+    await createJobWithState(db, queue, 'succeeded', OLD_ISO);
+
+    const result = await runScheduledDatabaseMaintenance(db, {
+      activePruneLimit: 2,
+      now: () => new Date(NOW_ISO),
+      terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+    });
+
+    expect(result).toMatchObject({
+      activeJobs: 1,
+      prunedTerminalJobs: 2,
+      status: 'partial',
+    });
+    expect(await countJobs(db)).toBe(2);
+  });
+
+  it('rejects a malformed activePruneLimit even when the queue is idle', async () => {
+    // No silent fallbacks: a bad option must throw on every pass, not lie
+    // dormant until the first active-queue pass exercises the branch.
+    await expect(
+      runScheduledDatabaseMaintenance(db, {
+        activePruneLimit: 0,
+        now: () => new Date(NOW_ISO),
+      })
+    ).rejects.toThrow('activePruneLimit must be a positive integer');
   });
 
   it('prunes old terminal jobs and vacuums job_queue when the queue is idle', async () => {
@@ -130,13 +168,13 @@ describe('scheduled database maintenance', () => {
     await createJobWithState(db, queue, 'succeeded', OLD_ISO);
     await createJobWithState(db, queue, 'failed', RECENT_ISO);
     const failingVacuumDb = {
-      query: db.query.bind(db),
       exec: vi.fn(async (sql: string) => {
         if (sql.startsWith('VACUUM')) {
           throw new Error('vacuum exploded after prune');
         }
         return await db.exec(sql);
       }),
+      query: db.query.bind(db),
     };
 
     await expect(

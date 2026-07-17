@@ -8,25 +8,28 @@ const startupMocks = vi.hoisted(() => ({
   ensureVectorPreferencesHydrated: vi.fn(async () => ({})),
   registerWebEmbeddingRuntimeConfig: vi.fn(),
 }));
+const sharedRootLayoutCapture = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}));
 const mockEmbeddingQueue = {
   add: vi.fn(),
   addBulk: vi.fn(),
-  onProgress: vi.fn(() => () => {}),
-  pause: vi.fn(),
-  resume: vi.fn(),
   drain: vi.fn(),
   isPaused: false,
   isProcessing: false,
+  onProgress: vi.fn(() => () => {}),
+  pause: vi.fn(),
+  resume: vi.fn(),
 };
 
 // Mock the chunking worker context to prevent worker initialization during tests
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   ChunkingWorkerProvider: ({ children }: { children: React.ReactNode }) => children,
   useChunkingWorkerContext: vi.fn(() => ({
-    port: null,
-    isReady: false,
-    isProcessing: false,
     error: null,
+    isProcessing: false,
+    isReady: false,
+    port: null,
     reinitialize: vi.fn(),
   })),
 }));
@@ -35,25 +38,25 @@ vi.mock('@brainstrike/file-import/browser-queue-port', () => ({
   createBrowserEmbeddingQueuePort: vi.fn(() => ({
     add: vi.fn(),
     addBulk: vi.fn(),
+    drain: vi.fn(),
     onProgress: vi.fn(() => () => {}),
     pause: vi.fn(),
     resume: vi.fn(),
-    drain: vi.fn(),
   })),
 }));
 
 vi.mock('@brainstrike/file-import/enhanced-import', () => ({
   runEnhancedImport: vi.fn(async () => ({
-    totalFiles: 0,
-    importedFiles: 0,
-    skippedFiles: 0,
     chunkedFiles: 0,
     embeddedFiles: 0,
-    totalChunks: 0,
-    totalTokens: 0,
-    errors: [],
     embeddingErrors: [],
+    errors: [],
+    importedFiles: 0,
+    skippedFiles: 0,
     skippedPaths: [],
+    totalChunks: 0,
+    totalFiles: 0,
+    totalTokens: 0,
   })),
 }));
 
@@ -61,10 +64,10 @@ vi.mock('@brainstrike/file-import/enhanced-import', () => ({
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: vi.fn(() => ({
     storageAdapter: {
+      delete: vi.fn(),
       // Mock storage adapter
       get: vi.fn(),
       set: vi.fn(),
-      delete: vi.fn(),
     },
   })),
 }));
@@ -101,9 +104,9 @@ vi.mock('@brainstrike/queue/browser', async () => {
 
 // Mock create-embedding-queue to prevent module-level worker pool creation
 vi.mock('../../create-embedding-queue', () => ({
+  createBrowserEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
   getEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
   registerWebEmbeddingRuntimeConfig: startupMocks.registerWebEmbeddingRuntimeConfig,
-  createBrowserEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
 }));
 
 vi.mock('@brainstrike/preferences/stores/background-indexing-preferences-store', () => ({
@@ -133,26 +136,20 @@ let capturedOnNavigationClick: ((path: string) => void) | undefined;
 
 vi.mock('@brainstrike/app-shell/navigation', () => ({
   navigationItems: [
-    { path: '/', label: 'Explorer' },
-    { path: '/settings', label: 'Settings' },
-    { path: '/prompts', label: 'Prompts' },
+    { label: 'Explorer', path: '/' },
+    { label: 'Settings', path: '/settings' },
   ],
 }));
 
-vi.mock('@brainstrike/app-shell', () => ({
-  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
-}));
-
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
-  RootLayoutContent({
-    contextExplorerPageContent,
-    settingsPageContent,
-    navigationItems,
-  }: {
+  RootLayoutContent(props: {
     contextExplorerPageContent: React.ReactNode;
-    settingsPageContent: React.ReactNode;
     navigationItems: unknown[];
+    promptsPageContent?: React.ReactNode;
+    settingsPageContent: React.ReactNode;
   }) {
+    sharedRootLayoutCapture.props = props as Record<string, unknown>;
+    const { contextExplorerPageContent, navigationItems, settingsPageContent } = props;
     const [activeTab, setActiveTab] = React.useState<'explorer' | 'settings'>('explorer');
 
     const handleNavigationClick = (path: string) => {
@@ -218,6 +215,7 @@ describe('RootLayoutContent', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    sharedRootLayoutCapture.props = null;
     homeMountCount = 0;
     currentDb = null;
   });
@@ -254,9 +252,10 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('app-config-title')).toHaveTextContent('BrainStrike.ai');
   });
 
-  it('includes three navigation items in the configuration', () => {
+  it('keeps root navigation to Explorer and Settings without a prompts route prop', () => {
     render(<RootLayoutContent />);
-    expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('3');
+    expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('2');
+    expect(sharedRootLayoutCapture.props).not.toHaveProperty('promptsPageContent');
   });
 
   it('shows settings page when navigation callback is triggered', async () => {
@@ -290,7 +289,7 @@ describe('RootLayoutContent', () => {
     );
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
 
     rerender(<RootLayoutContent />);
@@ -309,7 +308,7 @@ describe('RootLayoutContent', () => {
     const { rerender } = render(<RootLayoutContent />);
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
 
     rerender(<RootLayoutContent />);

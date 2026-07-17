@@ -46,6 +46,7 @@ export function ModelPicker({
     (modelId: string) => {
       if (mode === 'single') {
         onChange?.(modelId);
+        setSearchQuery('');
         setOpen(false);
       } else {
         const currentValues = Array.isArray(value) ? value : value ? [value] : [];
@@ -60,13 +61,20 @@ export function ModelPicker({
 
   const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
 
+  const handleOpenChange = React.useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setSearchQuery('');
+    }
+  }, []);
+
   return (
     // modal=false: composes inside parent Radix Dialogs (also modal) without
     // dueling FocusScopes that steal focus and block item selection.
-    <Popover modal={false} onOpenChange={setOpen} open={open}>
+    <Popover modal={false} onOpenChange={handleOpenChange} open={open}>
       <PopoverTrigger asChild>
         {renderTrigger ? (
-          renderTrigger({ value, models, providers, placeholder, disabled })
+          renderTrigger({ disabled, models, placeholder, providers, value })
         ) : (
           <ModelPickerTrigger
             className={className}
@@ -88,8 +96,9 @@ export function ModelPicker({
       <PopoverContent
         align="start"
         aria-describedby="model-picker-description"
-        className="pointer-events-auto z-[60] w-[min(400px,calc(100vw-2rem))] p-0"
+        className="pointer-events-auto z-[60] w-[min(420px,calc(100vw-2rem))] overflow-hidden rounded-xl border-border/70 bg-popover/98 p-0 shadow-black/10 shadow-xl"
         portal={false}
+        sideOffset={6}
       >
         <span className="sr-only" id="model-picker-description">
           Select a model from the list

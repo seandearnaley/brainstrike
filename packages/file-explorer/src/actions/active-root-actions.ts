@@ -27,13 +27,6 @@ export const createActiveRootActions = (
   set: SetState<FileExplorerState>,
   _get: GetState<FileExplorerState>
 ): ActiveRootActions => ({
-  setActiveRoots: (roots: StoredRootDescriptor[]) => {
-    set({
-      activeRootIds: roots.map((r) => r.rootId),
-      rootDescriptors: Object.fromEntries(roots.map((r) => [r.rootId, r])),
-    });
-  },
-
   addActiveRoot: (root: StoredRootDescriptor) => {
     set((state: FileExplorerState) => {
       const alreadyPresent = state.activeRootIds.includes(root.rootId);
@@ -59,6 +52,12 @@ export const createActiveRootActions = (
         folderStates: remainingFolderStates,
         rootDescriptors: remainingDescriptors,
       };
+    });
+  },
+  setActiveRoots: (roots: StoredRootDescriptor[]) => {
+    set({
+      activeRootIds: roots.map((r) => r.rootId),
+      rootDescriptors: Object.fromEntries(roots.map((r) => [r.rootId, r])),
     });
   },
 });

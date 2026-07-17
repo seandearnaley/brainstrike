@@ -14,20 +14,20 @@ export interface BrowserNodeDescriptor {
 export function browserNodeToTarget(descriptor: BrowserNodeDescriptor): ContextTarget | null {
   switch (descriptor.nodeType) {
     case 'collection':
-      return { kind: 'collection', id: descriptor.originalId, name: descriptor.name ?? '' };
+      return { id: descriptor.originalId, kind: 'collection', name: descriptor.name ?? '' };
     case 'file':
       return {
-        kind: 'collection-file',
         id: descriptor.originalId,
+        kind: 'collection-file',
         name: descriptor.name ?? '',
         path: descriptor.path ?? null,
       };
     case 'chunk':
-      return { kind: 'chunk', id: descriptor.originalId, content: descriptor.content ?? '' };
+      return { content: descriptor.content ?? '', id: descriptor.originalId, kind: 'chunk' };
     case 'embedding':
       return {
-        kind: 'embedding',
         id: descriptor.originalId,
+        kind: 'embedding',
         vectorId: descriptor.vectorId ?? descriptor.originalId,
       };
     default:

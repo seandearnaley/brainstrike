@@ -1,4 +1,4 @@
-import type { FileExplorerState } from '@brainstrike/types';
+import type { FileExplorerState, SelectionModel } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileSelectionActions } from '../file-selection-actions';
 import { consoleSpy, createMockState, mockSet } from './file-selection-actions-test-support';
@@ -131,8 +131,8 @@ describe('file-selection-actions', () => {
       // Arrange
       const mockState = createMockState({
         currentFolderId: 'folder1',
-        selectedFilePaths: new Set(['folder1|@|file1.ts']),
         maxSelectionCount: 1,
+        selectedFilePaths: new Set(['folder1|@|file1.ts']),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -244,35 +244,35 @@ describe('file-selection-actions', () => {
   describe('query-backed selection mutations', () => {
     it('returns an empty patch when query mutation targets a different folder id', () => {
       const mockState = createMockState({
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 2]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/index.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/index.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder-2',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder-2',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 2,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts', '/src/utils.ts'],
-          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
-          directoryCounts: new Map([['/src', 2]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -289,35 +289,35 @@ describe('file-selection-actions', () => {
 
     it('keeps query mode and records an excluded path when removing a selected query file', () => {
       const mockState = createMockState({
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 2]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/index.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/index.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 2,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts', '/src/utils.ts'],
-          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
-          directoryCounts: new Map([['/src', 2]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -339,35 +339,35 @@ describe('file-selection-actions', () => {
 
     it('keeps query mode and records an included path when re-adding an excluded query file', () => {
       const mockState = createMockState({
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 2]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/utils.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/utils.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: ['/src/index.ts'],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 1,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts', '/src/utils.ts'],
-          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
-          directoryCounts: new Map([['/src', 2]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -387,35 +387,35 @@ describe('file-selection-actions', () => {
     it('does not re-include an excluded manifest path when query selection is already at the max limit', () => {
       const mockState = createMockState({
         maxSelectionCount: 1,
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 2]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/utils.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/utils.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: ['/src/index.ts'],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 1,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts', '/src/utils.ts'],
-          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
-          directoryCounts: new Map([['/src', 2]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -432,35 +432,35 @@ describe('file-selection-actions', () => {
 
     it('adds a non-manifest query path as an included override and syncs compatibility keys', () => {
       const mockState = createMockState({
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 2]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/utils.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/utils.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 2,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts', '/src/utils.ts'],
-          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
-          directoryCounts: new Map([['/src', 2]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -481,35 +481,35 @@ describe('file-selection-actions', () => {
 
     it('toggles a query-backed selected path off using the canonical manifest membership', () => {
       const mockState = createMockState({
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 2]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/index.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/index.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 2,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts', '/src/utils.ts'],
-          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
-          directoryCounts: new Map([['/src', 2]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -529,35 +529,35 @@ describe('file-selection-actions', () => {
 
     it('adds and removes multiple paths in query mode without leaving query mode', () => {
       const baseState = createMockState({
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 2]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/index.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/index.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 2,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts', '/src/utils.ts'],
-          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
-          directoryCounts: new Map([['/src', 2]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(baseState);
@@ -583,35 +583,35 @@ describe('file-selection-actions', () => {
 
     it('returns an empty patch while the query manifest is still loading', () => {
       const mockState = createMockState({
+        querySelectionManifest: {
+          directoryCounts: new Map<string, number>(),
+          errorMessage: null,
+          filePaths: [],
+          fingerprint: 'fp-1',
+          pathSet: new Set<string>(),
+          snapshotId: 'snapshot-1',
+          status: 'loading',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/index.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/index.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 2,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: [],
-          pathSet: new Set<string>(),
-          directoryCounts: new Map<string, number>(),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'loading',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn().mockReturnValue(mockState);
@@ -692,8 +692,8 @@ describe('file-selection-actions', () => {
       // Arrange
       const mockState = createMockState({
         currentFolderId: 'folder1',
-        selectedFilePaths: new Set(['folder1|@|file1.ts']),
         maxSelectionCount: 1,
+        selectedFilePaths: new Set(['folder1|@|file1.ts']),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -750,12 +750,12 @@ describe('file-selection-actions', () => {
       const mockState = createMockState({
         selectedFilePaths: new Set(['folder1|@|file.ts']),
         selectionModel: {
-          mode: 'explicit',
           explicitPaths: new Set(['folder1|@|file.ts']),
-          ruleSetJson: null,
-          materializedPaths: null,
           materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit',
           queryDescriptor: null,
+          ruleSetJson: null,
         },
         selectionVersion: 5,
       });
@@ -767,8 +767,9 @@ describe('file-selection-actions', () => {
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
       // Check that set was called with a function that clears files and increments version
-      const setCallback = mockSet.mock.calls[0][0] as (state: typeof mockState) => {
+      const setCallback = mockSet.mock.calls[0]?.[0] as (state: typeof mockState) => {
         selectedFilePaths: Set<string>;
+        selectionModel: SelectionModel;
         selectionVersion: number;
       };
       const result = setCallback(mockState);
@@ -782,8 +783,8 @@ describe('file-selection-actions', () => {
     it('should add multiple files to selected files', () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|existing.ts']),
         maxSelectionCount: 10,
+        selectedFilePaths: new Set(['folder1|@|existing.ts']),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -815,8 +816,8 @@ describe('file-selection-actions', () => {
     it('should respect max selection count limit', () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|existing1.ts', 'folder1|@|existing2.ts']),
         maxSelectionCount: 4, // Only 2 more slots available
+        selectedFilePaths: new Set(['folder1|@|existing1.ts', 'folder1|@|existing2.ts']),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -847,8 +848,8 @@ describe('file-selection-actions', () => {
     it('should not add files that are already selected', () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file2.ts']),
         maxSelectionCount: 10,
+        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file2.ts']),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -875,8 +876,8 @@ describe('file-selection-actions', () => {
     it('should handle empty paths array', () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|existing.ts']),
         maxSelectionCount: 10,
+        selectedFilePaths: new Set(['folder1|@|existing.ts']),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -900,8 +901,8 @@ describe('file-selection-actions', () => {
     it('should handle case where max selection count is already reached', () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file2.ts']),
         maxSelectionCount: 2, // Already at max
+        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file2.ts']),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -929,8 +930,8 @@ describe('file-selection-actions', () => {
     it('should handle large batch operations efficiently', () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set(),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set(),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -961,6 +962,7 @@ describe('file-selection-actions', () => {
     it('should remove multiple files from selected files', () => {
       // Arrange
       const mockState = createMockState({
+        maxSelectionCount: 10,
         selectedFilePaths: new Set([
           'folder1|@|file1.ts',
           'folder1|@|file2.ts',
@@ -968,7 +970,6 @@ describe('file-selection-actions', () => {
           'folder1|@|file4.ts',
           'folder1|@|file5.ts',
         ]),
-        maxSelectionCount: 10,
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1001,8 +1002,8 @@ describe('file-selection-actions', () => {
     it('should handle removing files that are not selected', () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file3.ts']),
         maxSelectionCount: 10,
+        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file3.ts']),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1028,8 +1029,8 @@ describe('file-selection-actions', () => {
     it('should handle empty paths array', () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file2.ts']),
         maxSelectionCount: 10,
+        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file2.ts']),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1054,12 +1055,12 @@ describe('file-selection-actions', () => {
     it('should remove all files when all selected files are in the removal list', () => {
       // Arrange
       const mockState = createMockState({
+        maxSelectionCount: 10,
         selectedFilePaths: new Set([
           'folder1|@|file1.ts',
           'folder1|@|file2.ts',
           'folder1|@|file3.ts',
         ]),
-        maxSelectionCount: 10,
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1084,8 +1085,8 @@ describe('file-selection-actions', () => {
       // Arrange
       const initialFiles = Array.from({ length: 1000 }, (_, i) => `folder1|@|file${i}.ts`);
       const mockState = createMockState({
-        selectedFilePaths: new Set(initialFiles),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set(initialFiles),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1115,13 +1116,13 @@ describe('file-selection-actions', () => {
     it('should handle mixed folder IDs correctly', () => {
       // Arrange
       const mockState = createMockState({
+        maxSelectionCount: 10,
         selectedFilePaths: new Set([
           'folder1|@|file1.ts',
           'folder1|@|file2.ts',
           'folder2|@|file1.ts',
           'folder2|@|file2.ts',
         ]),
-        maxSelectionCount: 10,
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1151,35 +1152,35 @@ describe('file-selection-actions', () => {
     it('uses query mutation in the small selection path when the store is already in query mode', async () => {
       let currentState = createMockState({
         maxSelectionCount: 10,
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 1]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/index.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/index.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 1,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts'],
-          pathSet: new Set(['/src/index.ts']),
-          directoryCounts: new Map([['/src', 1]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn(() => currentState);
@@ -1191,8 +1192,8 @@ describe('file-selection-actions', () => {
           currentState = {
             ...currentState,
             ...result,
-            selectionModel: result.selectionModel ?? currentState.selectionModel,
             selectedFilePaths: result.selectedFilePaths ?? currentState.selectedFilePaths,
+            selectionModel: result.selectionModel ?? currentState.selectionModel,
           };
         }
       });
@@ -1213,35 +1214,35 @@ describe('file-selection-actions', () => {
     it('uses query mutation in the large selection path when the store is already in query mode', async () => {
       let currentState = createMockState({
         maxSelectionCount: 10,
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 1]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/index.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/index.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 1,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts'],
-          pathSet: new Set(['/src/index.ts']),
-          directoryCounts: new Map([['/src', 1]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn(() => currentState);
@@ -1254,8 +1255,8 @@ describe('file-selection-actions', () => {
           currentState = {
             ...currentState,
             ...result,
-            selectionModel: result.selectionModel ?? currentState.selectionModel,
             selectedFilePaths: result.selectedFilePaths ?? currentState.selectedFilePaths,
+            selectionModel: result.selectionModel ?? currentState.selectionModel,
           };
         }
       });
@@ -1282,35 +1283,35 @@ describe('file-selection-actions', () => {
     it('uses the updater state for query-path result deltas even if get() changes after set()', async () => {
       let currentState = createMockState({
         maxSelectionCount: 10,
+        querySelectionManifest: {
+          directoryCounts: new Map([['/src', 1]]),
+          errorMessage: null,
+          filePaths: ['/src/index.ts'],
+          fingerprint: 'fp-1',
+          pathSet: new Set(['/src/index.ts']),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
         selectionModel: {
-          mode: 'query',
           explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: new Set(['/src/index.ts']),
           materializedAt: new Date().toISOString(),
+          materializedPaths: new Set(['/src/index.ts']),
+          mode: 'query',
           queryDescriptor: {
-            kind: 'recursive-select-all',
-            folderId: 'folder1',
-            rootPath: null,
             coveredDirectoryPaths: ['/src'],
-            includeFilters: ['**/*.ts'],
-            excludeFilters: [],
-            includedPaths: [],
             excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder1',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
             manifestFingerprint: 'fp-1',
             manifestSnapshotId: 'snapshot-1',
+            rootPath: null,
             totalSelectedCount: 1,
             useRegex: false,
           },
-        },
-        querySelectionManifest: {
-          filePaths: ['/src/index.ts'],
-          pathSet: new Set(['/src/index.ts']),
-          directoryCounts: new Map([['/src', 1]]),
-          fingerprint: 'fp-1',
-          snapshotId: 'snapshot-1',
-          status: 'ready',
-          errorMessage: null,
+          ruleSetJson: null,
         },
       });
       const get = vi.fn(() => currentState);
@@ -1323,8 +1324,8 @@ describe('file-selection-actions', () => {
           currentState = {
             ...currentState,
             ...result,
-            selectionModel: result.selectionModel ?? currentState.selectionModel,
             selectedFilePaths: result.selectedFilePaths ?? currentState.selectedFilePaths,
+            selectionModel: result.selectionModel ?? currentState.selectionModel,
           };
           authoritativeSelectedCount =
             currentState.selectionModel.queryDescriptor?.totalSelectedCount ?? 0;
@@ -1356,8 +1357,8 @@ describe('file-selection-actions', () => {
     it('should add files for small selections (under chunk size)', async () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1388,8 +1389,8 @@ describe('file-selection-actions', () => {
     it('should process large selections in chunks', async () => {
       // Arrange
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1434,8 +1435,8 @@ describe('file-selection-actions', () => {
     it('should respect max selection count limit', async () => {
       // Arrange
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 50,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1469,8 +1470,8 @@ describe('file-selection-actions', () => {
 
     it('does not report limitReached when chunked additions exactly fill the remaining budget', async () => {
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 160,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1503,8 +1504,8 @@ describe('file-selection-actions', () => {
     it('should support cancellation via AbortSignal', async () => {
       // Arrange
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1529,13 +1530,13 @@ describe('file-selection-actions', () => {
         pathsToAdd,
         {
           chunkSize: 50,
-          signal: abortController.signal,
           onProgress: (processed) => {
             // Cancel after first chunk is computed
             if (processed >= 50) {
               abortController.abort();
             }
           },
+          signal: abortController.signal,
         }
       );
 
@@ -1550,8 +1551,8 @@ describe('file-selection-actions', () => {
     it('should call onProgress callback with progress updates', async () => {
       // Arrange
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1588,8 +1589,8 @@ describe('file-selection-actions', () => {
     it('should not add duplicate files', async () => {
       // Arrange
       let currentState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|file0.ts', 'folder1|@|file1.ts']),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set(['folder1|@|file0.ts', 'folder1|@|file1.ts']),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1621,8 +1622,8 @@ describe('file-selection-actions', () => {
     it('should handle empty paths array', async () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|existing.ts']),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set(['folder1|@|existing.ts']),
       });
       const get = vi.fn(() => mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1639,8 +1640,8 @@ describe('file-selection-actions', () => {
     it('should handle cancellation before any chunks are processed (already aborted)', async () => {
       // Arrange
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1679,8 +1680,8 @@ describe('file-selection-actions', () => {
     it('should respect max selection count in small (synchronous) path', async () => {
       // Arrange - use small paths array (under chunk size) with limit already near max
       let currentState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|existing1.ts', 'folder1|@|existing2.ts']),
         maxSelectionCount: 3, // Only 1 more slot
+        selectedFilePaths: new Set(['folder1|@|existing1.ts', 'folder1|@|existing2.ts']),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1711,8 +1712,8 @@ describe('file-selection-actions', () => {
 
     it('should not let duplicate input paths consume the optimistic large-selection budget', async () => {
       let currentState = createMockState({
-        selectedFilePaths: new Set(['folder1|@|existing.ts']),
         maxSelectionCount: 2, // one remaining slot
+        selectedFilePaths: new Set(['folder1|@|existing.ts']),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1744,8 +1745,8 @@ describe('file-selection-actions', () => {
     it('should handle max limit reached during Phase 2 atomic update', async () => {
       // Arrange - large selection that hits limit during Phase 2 state update
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 10, // Tight budget
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1777,8 +1778,8 @@ describe('file-selection-actions', () => {
 
     it('uses the updater state for explicit-path result deltas even if get() changes after set()', async () => {
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 5,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1819,8 +1820,8 @@ describe('file-selection-actions', () => {
     it('should call onProgress for small (synchronous) selections', async () => {
       // Arrange
       const mockState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn().mockReturnValue(mockState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1847,8 +1848,8 @@ describe('file-selection-actions', () => {
     it('should handle cancellation after scheduleChunk yield (post-yield abort)', async () => {
       // This tests the abort check at line 122 (after await scheduleChunk())
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1874,7 +1875,6 @@ describe('file-selection-actions', () => {
         pathsToAdd,
         {
           chunkSize: 50,
-          signal: abortController.signal,
           onProgress: () => {
             chunkCount++;
             // Abort after the first chunk's onProgress fires
@@ -1883,6 +1883,7 @@ describe('file-selection-actions', () => {
               abortController.abort();
             }
           },
+          signal: abortController.signal,
         }
       );
 
@@ -1897,8 +1898,8 @@ describe('file-selection-actions', () => {
       // This tests lines 359-361: limit reached during Phase 2 atomic update
       // We simulate a concurrent mutation by changing maxSelectionCount between phases
       let currentState = createMockState({
-        selectedFilePaths: new Set<string>(),
         maxSelectionCount: 1000, // Phase 1 sees plenty of budget
+        selectedFilePaths: new Set<string>(),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
@@ -1915,10 +1916,10 @@ describe('file-selection-actions', () => {
             // so the limit is hit during Phase 2
             currentState = {
               ...currentState,
+              maxSelectionCount: 200, // Only 5 slots remain
               selectedFilePaths: new Set(
                 Array.from({ length: 195 }, (_, i) => `folder1|@|existing${i}.ts`)
               ),
-              maxSelectionCount: 200, // Only 5 slots remain
             };
           }
           const result = updater(currentState);
@@ -1946,8 +1947,8 @@ describe('file-selection-actions', () => {
     it('should handle duplicate keys in chunked Phase 2 (already selected)', async () => {
       // Arrange - some files already selected, large enough for chunked path
       let currentState = createMockState({
-        selectedFilePaths: new Set(Array.from({ length: 50 }, (_, i) => `folder1|@|file${i}.ts`)),
         maxSelectionCount: 1000,
+        selectedFilePaths: new Set(Array.from({ length: 50 }, (_, i) => `folder1|@|file${i}.ts`)),
       });
       const get = vi.fn(() => currentState);
       const fileSelectionActions = createFileSelectionActions(mockSet, get);

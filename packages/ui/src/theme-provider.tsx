@@ -3,8 +3,8 @@ import * as React from 'react';
 export type Theme = 'dark' | 'light' | 'system';
 
 export interface ThemeStorageAdapter {
-  getItem(key: string): Promise<string | null>;
-  setItem(key: string, value: string): Promise<void>;
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
 }
 
 interface ThemeProviderProps {
@@ -71,8 +71,8 @@ export function ThemeProvider({
 
   const value = React.useMemo(
     () => ({
-      theme,
       setTheme: setAndStoreTheme,
+      theme,
     }),
     [theme, setAndStoreTheme]
   );

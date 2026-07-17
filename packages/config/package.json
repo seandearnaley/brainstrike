@@ -3,10 +3,10 @@
   "description": "Shared configuration for Brainstrike monorepo",
   "version": "0.1.0",
   "devDependencies": {
-    "@vitest/browser-playwright": "^4.1.4",
-    "playwright": "^1.59.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "@vitest/browser-playwright": "^4.1.9",
+    "playwright": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

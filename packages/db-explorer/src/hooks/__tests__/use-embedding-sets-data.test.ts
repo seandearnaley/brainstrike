@@ -5,24 +5,24 @@ import { useEmbeddingSetsData } from '../use-embedding-sets-data';
 
 const mockRows: EmbeddingSetRow[] = [
   {
-    id: '1',
-    model_key: 'openai::text-embedding-3-small',
-    model_id: 'text-embedding-3-small',
+    created_at: '2025-01-01T00:00:00Z',
+    description: 'Description 1',
     dimensions: 1536,
     distance: 'cosine',
-    created_at: '2025-01-01T00:00:00Z',
+    id: '1',
+    model_id: 'text-embedding-3-small',
+    model_key: 'openai::text-embedding-3-small',
     name: 'Collection 1',
-    description: 'Description 1',
   },
   {
-    id: '2',
-    model_key: 'local::Xenova/bge-m3',
-    model_id: 'bge-m3',
+    created_at: '2025-01-02T00:00:00Z',
+    description: null,
     dimensions: 1024,
     distance: 'l2',
-    created_at: '2025-01-02T00:00:00Z',
+    id: '2',
+    model_id: 'bge-m3',
+    model_key: 'local::Xenova/bge-m3',
     name: null,
-    description: null,
   },
 ];
 
@@ -32,22 +32,22 @@ describe('useEmbeddingSetsData', () => {
 
     expect(result.current).toHaveLength(2);
     expect(result.current[0]).toEqual({
-      id: '1',
-      modelKey: 'openai::text-embedding-3-small',
-      modelId: 'text-embedding-3-small',
+      createdAt: '2025-01-01T00:00:00Z',
+      description: 'Description 1',
       dimensions: 1536,
       distance: 'cosine',
-      createdAt: '2025-01-01T00:00:00Z',
+      id: '1',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
       name: 'Collection 1',
-      description: 'Description 1',
     });
     expect(result.current[1]).toEqual({
-      id: '2',
-      modelKey: 'local::Xenova/bge-m3',
-      modelId: 'bge-m3',
+      createdAt: '2025-01-02T00:00:00Z',
       dimensions: 1024,
       distance: 'l2',
-      createdAt: '2025-01-02T00:00:00Z',
+      id: '2',
+      modelId: 'bge-m3',
+      modelKey: 'local::Xenova/bge-m3',
     });
   });
 

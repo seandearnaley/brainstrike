@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
@@ -67,10 +68,6 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../utils/src/file-utils.ts'),
       },
       {
-        find: '@brainstrike/utils/safe-storage',
-        replacement: resolve(import.meta.dirname, '../utils/src/safe-storage.ts'),
-      },
-      {
         find: /^@brainstrike\/utils\/(.*)$/,
         replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
       },
@@ -98,20 +95,16 @@ export default defineConfig({
         find: '@brainstrike/file-system',
         replacement: resolve(import.meta.dirname, '../file-system/src/index.ts'),
       },
+      // Registry fills the remaining workspace deps reached transitively from the
+      // src-resolved graph (platform-utils via storage, context-actions via
+      // hooks, queue via db, …). Hand-rolled entries above win by first-match.
+      // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
+      ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],
   },
   test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: [],
-    testTimeout: 15_000, // UI component tests with async operations
-    pool: 'threads',
-    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-    maxWorkers: process.env['CI'] ? '50%' : '100%',
     coverage: {
       enabled: coverageEnabled,
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
       exclude: [
         'node_modules/**',
         'dist/**',
@@ -124,12 +117,21 @@ export default defineConfig({
         'src/settings/models/model-selection-page.tsx',
         'src/settings/secrets/llm-keys-settings.tsx',
       ],
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
       thresholds: {
-        lines: 70,
-        functions: 60,
         branches: 60,
+        functions: 60,
+        lines: 70,
         statements: 70,
       },
     },
+    environment: 'jsdom',
+    globals: true,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
+    pool: 'threads',
+    setupFiles: [],
+    testTimeout: 15_000, // UI component tests with async operations
   },
 });

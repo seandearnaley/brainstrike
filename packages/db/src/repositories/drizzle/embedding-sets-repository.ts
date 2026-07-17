@@ -64,8 +64,8 @@ export class DrizzleEmbeddingSetsRepository {
   async getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet> {
     const dbAdapter = this.createQueryAdapter();
     const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(dbAdapter, {
-      modelKey: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelKey,
       modelId: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelId,
+      modelKey: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelKey,
     });
     const now = new Date();
 
@@ -88,17 +88,17 @@ export class DrizzleEmbeddingSetsRepository {
       const [inserted] = await tx
         .insert(embeddingSets)
         .values({
-          id,
-          modelKey: normalizedMetadata.modelKey,
-          modelId: normalizedMetadata.modelId,
+          category: null,
+          createdAt: now,
+          description: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.description,
           dimensions: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions,
           distance: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.distance,
-          createdAt: now,
+          id,
+          modelId: normalizedMetadata.modelId,
+          modelKey: normalizedMetadata.modelKey,
           name: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.name,
-          description: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.description,
-          tags: null,
-          category: null,
           systemRole: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.systemRole,
+          tags: null,
         })
         .onConflictDoNothing()
         .returning();
@@ -137,8 +137,8 @@ export class DrizzleEmbeddingSetsRepository {
   ): Promise<EmbeddingSet> {
     const dbAdapter = this.createQueryAdapter();
     const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(dbAdapter, {
-      modelKey,
       modelId,
+      modelKey,
     });
     const id = generateUUID();
     const now = new Date();
@@ -151,16 +151,16 @@ export class DrizzleEmbeddingSetsRepository {
       const [row] = await tx
         .insert(embeddingSets)
         .values({
-          id,
-          modelKey: normalizedMetadata.modelKey,
-          modelId: normalizedMetadata.modelId,
+          category: metadata?.category ?? null,
+          createdAt: now,
+          description: metadata?.description ?? null,
           dimensions,
           distance,
-          createdAt: now,
+          id,
+          modelId: normalizedMetadata.modelId,
+          modelKey: normalizedMetadata.modelKey,
           name,
-          description: metadata?.description ?? null,
           tags: metadata?.tags ?? null,
-          category: metadata?.category ?? null,
         })
         .returning();
 
@@ -178,10 +178,10 @@ export class DrizzleEmbeddingSetsRepository {
     this.dimensionIndexBuilder.schedule(dimensions);
 
     this.logger.info('Created new embedding set', {
-      id,
-      modelKey: normalizedMetadata.modelKey,
       dimensions,
       distance,
+      id,
+      modelKey: normalizedMetadata.modelKey,
       name,
     });
 
@@ -208,8 +208,8 @@ export class DrizzleEmbeddingSetsRepository {
     const normalizedLookupKey =
       (
         await tryResolveEmbeddingSetMetadata(this.createQueryAdapter(), {
-          modelKey,
           modelId: '',
+          modelKey,
         })
       )?.modelKey ?? modelKey;
     const rows = await this.db
@@ -266,12 +266,12 @@ export class DrizzleEmbeddingSetsRepository {
 
   private fromRow(row: typeof embeddingSets.$inferSelect): EmbeddingSet {
     const base: EmbeddingSet = {
-      id: row.id,
-      modelKey: row.modelKey,
-      modelId: row.modelId,
+      createdAt: row.createdAt.toISOString(),
       dimensions: row.dimensions,
       distance: row.distance as EmbeddingDistance,
-      createdAt: row.createdAt.toISOString(),
+      id: row.id,
+      modelId: row.modelId,
+      modelKey: row.modelKey,
     };
 
     // Add optional metadata fields only if they exist
@@ -328,16 +328,16 @@ export class DrizzleEmbeddingSetsRepository {
     const embeddingSet = this.fromRow(row);
     const repairedMetadata = await repairPersistedEmbeddingSetMetadata(this.createQueryAdapter(), {
       id: embeddingSet.id,
-      modelKey: embeddingSet.modelKey,
       modelId: embeddingSet.modelId,
+      modelKey: embeddingSet.modelKey,
     });
     if (!repairedMetadata) {
       return embeddingSet;
     }
     return {
       ...embeddingSet,
-      modelKey: repairedMetadata.modelKey,
       modelId: repairedMetadata.modelId,
+      modelKey: repairedMetadata.modelKey,
     };
   }
 }

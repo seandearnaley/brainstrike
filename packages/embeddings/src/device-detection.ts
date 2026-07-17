@@ -175,23 +175,23 @@ async function probeWebGPUAdapter(gpu: Gpu): Promise<WebGPUProbeResult> {
     const limits = adapter.limits;
 
     const adapterInfo: WebGPUAdapterInfo = {
-      vendor: info?.vendor || 'unknown',
       architecture: info?.architecture || 'unknown',
       description: info?.description || 'Unknown GPU',
-      isFallbackAdapter: adapter.isFallbackAdapter ?? false,
       features,
+      isFallbackAdapter: adapter.isFallbackAdapter ?? false,
       limits: {
         maxBufferSize: limits.maxBufferSize,
         maxComputeWorkgroupsPerDimension: limits.maxComputeWorkgroupsPerDimension,
         maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
       },
+      vendor: info?.vendor || 'unknown',
     };
 
     // Warn about fallback adapter (software rendering)
     if (adapter.isFallbackAdapter) {
       logger.warn('WebGPU using fallback (software) adapter - performance may be degraded', {
-        vendor: adapterInfo.vendor,
         description: adapterInfo.description,
+        vendor: adapterInfo.vendor,
       });
     }
 
@@ -285,30 +285,30 @@ async function performDeviceDetection(): Promise<DeviceCapabilities> {
 
   // Determine recommendation
   const { device: recommendedDevice, reason: recommendationReason } = getDeviceRecommendation({
+    wasmAvailable,
     webgpuAdapterAvailable: webgpuProbe.adapterAvailable,
     webgpuAdapterInfo: webgpuProbe.adapterInfo,
-    wasmAvailable,
   });
 
   const capabilities: DeviceCapabilities = {
-    webgpuApiPresent,
+    detectedAt,
+    recommendationReason,
+    recommendedDevice,
+    wasmAvailable,
     webgpuAdapterAvailable: webgpuProbe.adapterAvailable,
     webgpuAdapterInfo: webgpuProbe.adapterInfo,
+    webgpuApiPresent,
     webgpuUnavailableReason: webgpuProbe.unavailableReason,
-    wasmAvailable,
     webWorkersAvailable,
-    recommendedDevice,
-    recommendationReason,
-    detectedAt,
   };
 
   cachedCapabilities = capabilities;
 
   logger.info('Device capabilities detected', {
-    webgpu: webgpuProbe.adapterAvailable,
-    wasm: wasmAvailable,
-    recommended: recommendedDevice,
     gpuVendor: webgpuProbe.adapterInfo?.vendor,
+    recommended: recommendedDevice,
+    wasm: wasmAvailable,
+    webgpu: webgpuProbe.adapterAvailable,
   });
 
   return capabilities;
@@ -448,28 +448,28 @@ export function getDeviceUnavailableGuidance(
 
     return {
       device: 'webgpu',
-      title: 'WebGPU Acceleration Unavailable',
       explanation:
         reason ||
         'WebGPU is not available in this environment. This may be due to browser support, GPU compatibility, or driver issues.',
-      suggestions,
       fallbackDevice: 'wasm',
+      suggestions,
+      title: 'WebGPU Acceleration Unavailable',
     };
   }
 
   // WASM unavailable (very rare)
   return {
     device: 'wasm',
-    title: 'WebAssembly Unavailable',
     explanation:
       reason ||
       'WebAssembly is not available in this browser. This is required for embedding generation.',
+    fallbackDevice: null,
     suggestions: [
       'Use a modern browser (Chrome, Firefox, Safari, or Edge)',
       'Disable browser extensions that may block WebAssembly',
       'Check browser security settings',
     ],
-    fallbackDevice: null,
+    title: 'WebAssembly Unavailable',
   };
 }
 

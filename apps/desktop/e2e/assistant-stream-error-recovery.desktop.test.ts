@@ -50,8 +50,8 @@ test.describe('Assistant stream error recovery (desktop)', () => {
 
   test('thread recovers to a terminal state after a stream error', async ({ window }) => {
     await setupAssistantMock(window, {
-      variant: 'stream-error',
       errorMessage: STREAM_ERROR_MESSAGE,
+      variant: 'stream-error',
     });
     await openAssistantChat(window);
     await sendPrompt(window, FIRST_PROMPT);

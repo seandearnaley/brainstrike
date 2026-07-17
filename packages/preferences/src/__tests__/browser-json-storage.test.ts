@@ -1,7 +1,11 @@
+import { createBrowserJsonStorage, type PersistenceIssue } from '@brainstrike/storage';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserJsonStorage, type PersistenceIssue } from '../stores/browser-json-storage';
 
-describe('createBrowserJsonStorage', () => {
+/**
+ * Consumer-facing regression: preferences packages continue to get the
+ * browser JSON storage contract from `@brainstrike/storage`.
+ */
+describe('createBrowserJsonStorage (preferences consumer)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     window.localStorage.clear();
@@ -22,27 +26,7 @@ describe('createBrowserJsonStorage', () => {
     expect(window.localStorage.getItem('prefs')).toBeNull();
   });
 
-  it('keeps cleanup best-effort when storage remove is blocked', () => {
-    const storage = createBrowserJsonStorage();
-
-    vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
-      throw new Error('blocked storage');
-    });
-    vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
-      throw new Error('blocked storage');
-    });
-    vi.spyOn(window.localStorage, 'removeItem').mockImplementation(() => {
-      throw new Error('blocked storage');
-    });
-
-    storage.setItem('prefs', '{"enabled":true}');
-    expect(storage.getItem('prefs')).toBe('{"enabled":true}');
-
-    expect(() => storage.removeItem('prefs')).not.toThrow();
-    expect(storage.getItem('prefs')).toBeNull();
-  });
-
-  it('surfaces localStorage write failures to callers without losing the session value', () => {
+  it('surfaces localStorage write failures without losing the session value', () => {
     const issues: PersistenceIssue[] = [];
     const storage = createBrowserJsonStorage({
       onPersistenceIssue: (issue) => issues.push(issue),
@@ -63,45 +47,6 @@ describe('createBrowserJsonStorage', () => {
       key: 'prefs',
       mode: 'memory',
       operation: 'set',
-      storageArea: 'localStorage',
-    });
-  });
-
-  it('isolates throwing persistence listeners before using the in-memory write path', () => {
-    const storage = createBrowserJsonStorage({
-      onPersistenceIssue: () => {
-        throw new Error('listener failed');
-      },
-    });
-
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('blocked storage');
-    });
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null);
-
-    expect(() => storage.setItem('prefs', '{"enabled":true}')).not.toThrow();
-    expect(storage.getItem('prefs')).toBe('{"enabled":true}');
-  });
-
-  it('reports blocked persistent removes without claiming memory-only mode', () => {
-    const issues: PersistenceIssue[] = [];
-    const storage = createBrowserJsonStorage({
-      onPersistenceIssue: (issue) => issues.push(issue),
-    });
-    const blocked = new Error('blocked remove');
-
-    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
-      throw blocked;
-    });
-
-    storage.removeItem('prefs');
-
-    expect(issues).toHaveLength(1);
-    expect(issues[0]).toMatchObject({
-      error: blocked,
-      key: 'prefs',
-      mode: 'persistent',
-      operation: 'remove',
       storageArea: 'localStorage',
     });
   });

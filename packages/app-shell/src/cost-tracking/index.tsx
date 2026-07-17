@@ -31,11 +31,11 @@ interface CostTrackingSettingsCategory {
  */
 export function createCostTrackingSettingsCategory(): CostTrackingSettingsCategory {
   return {
-    id: 'cost-tracking',
-    title: 'Cost Tracking',
-    description: 'Review durable token usage and estimated cost per workspace root.',
-    keywords: ['cost', 'tracking', 'usage', 'tokens', 'spend', 'billing', 'price'],
-    icon: Coins,
     content: <CostAggregationPanel />,
+    description: 'Review durable token usage and estimated cost per workspace root.',
+    icon: Coins,
+    id: 'cost-tracking',
+    keywords: ['cost', 'tracking', 'usage', 'tokens', 'spend', 'billing', 'price'],
+    title: 'Cost Tracking',
   };
 }

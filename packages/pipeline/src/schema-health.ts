@@ -115,52 +115,52 @@ export interface SchemaHealthChecker {
    * Useful for recovery when worker state is lost.
    * @returns Number of jobs canceled
    */
-  cancelAllPendingJobs(): Promise<RecoveryResult>;
+  cancelAllPendingJobs: () => Promise<RecoveryResult>;
 
   /**
    * Check overall schema health including corruption detection.
    */
-  checkHealth(): Promise<SchemaHealthSummary>;
+  checkHealth: () => Promise<SchemaHealthSummary>;
   /**
    * Check if all required pipeline tables exist.
    */
-  checkTablesExist(): Promise<TableHealthResult[]>;
+  checkTablesExist: () => Promise<TableHealthResult[]>;
 
   /**
    * Delete orphaned chunks.
    * @returns Number of chunks deleted
    */
-  cleanOrphanedChunks(): Promise<RecoveryResult>;
+  cleanOrphanedChunks: () => Promise<RecoveryResult>;
 
   /**
    * Clear all embedding-related data for a full reindex.
    * Clears: file_chunks, job_queue (embed jobs), resets file_records embedding fields.
    * @returns Recovery result with counts
    */
-  clearForReindex(): Promise<RecoveryResult>;
+  clearForReindex: () => Promise<RecoveryResult>;
 
   /**
    * Count chunks referencing non-existent embedding sets.
    */
-  countInvalidEmbeddingSetRefs(): Promise<number>;
+  countInvalidEmbeddingSetRefs: () => Promise<number>;
 
   /**
    * Count orphaned chunks (chunks without valid file records).
    */
-  countOrphanedChunks(): Promise<number>;
+  countOrphanedChunks: () => Promise<number>;
 
   /**
    * Count stuck jobs (jobs past their lease expiry but still 'running').
    * @param leaseTimeoutMs - Consider jobs stuck after this many ms (default: 5 minutes)
    */
-  countStuckJobs(leaseTimeoutMs?: number): Promise<number>;
+  countStuckJobs: (leaseTimeoutMs?: number) => Promise<number>;
 
   /**
    * Reset stuck jobs back to 'queued' state.
    * @param leaseTimeoutMs - Consider jobs stuck after this many ms
    * @returns Number of jobs recovered
    */
-  recoverStuckJobs(leaseTimeoutMs?: number): Promise<RecoveryResult>;
+  recoverStuckJobs: (leaseTimeoutMs?: number) => Promise<RecoveryResult>;
 }
 
 // =============================================================================
@@ -214,9 +214,9 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
 
       if (!exists) {
         return {
-          table,
           exists: false,
           issues: [`Table '${table}' does not exist`],
+          table,
         };
       }
 
@@ -227,17 +227,17 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
       const rowCount = Number.parseInt(countResult.rows[0]?.count ?? '0', 10);
 
       return {
-        table,
         exists: true,
-        rowCount,
         issues: [],
+        rowCount,
+        table,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        table,
         exists: false,
         issues: [`Failed to check table '${table}': ${message}`],
+        table,
       };
     }
   }
@@ -328,6 +328,7 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
     }
 
     // Check corruption metrics
+    // biome-ignore assist/source/useSortedKeys: these awaited checks have observable query order in tests and diagnostics.
     const corruption: CorruptionMetrics = {
       orphanedChunks: await countOrphanedChunks(),
       stuckJobs: await countStuckJobs(),
@@ -355,11 +356,11 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
     const noCorruption = Object.values(corruption).every((v) => v === 0);
 
     return {
-      healthy: allTablesExist && noCorruption,
       checkedAt: new Date().toISOString(),
-      tables,
-      issues: allIssues,
       corruption,
+      healthy: allTablesExist && noCorruption,
+      issues: allIssues,
+      tables,
     };
   }
 
@@ -380,10 +381,10 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
         SELECT COUNT(*)::text as count FROM deleted
       `);
       const count = Number.parseInt(result.rows[0]?.count ?? '0', 10);
-      return { success: true, recoveredCount: count };
+      return { recoveredCount: count, success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { success: false, recoveredCount: 0, error: message };
+      return { error: message, recoveredCount: 0, success: false };
     }
   }
 
@@ -411,10 +412,10 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
         [leaseTimeoutMs]
       );
       const count = Number.parseInt(result.rows[0]?.count ?? '0', 10);
-      return { success: true, recoveredCount: count };
+      return { recoveredCount: count, success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { success: false, recoveredCount: 0, error: message };
+      return { error: message, recoveredCount: 0, success: false };
     }
   }
 
@@ -435,10 +436,10 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
         SELECT COUNT(*)::text as count FROM canceled
       `);
       const count = Number.parseInt(result.rows[0]?.count ?? '0', 10);
-      return { success: true, recoveredCount: count };
+      return { recoveredCount: count, success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { success: false, recoveredCount: 0, error: message };
+      return { error: message, recoveredCount: 0, success: false };
     }
   }
 
@@ -476,10 +477,10 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
           chunking_strategy = NULL
       `);
 
-      return { success: true, recoveredCount: totalCleared };
+      return { recoveredCount: totalCleared, success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { success: false, recoveredCount: 0, error: message };
+      return { error: message, recoveredCount: 0, success: false };
     }
   }
 
@@ -488,15 +489,15 @@ export function createSchemaHealthChecker(db: HealthCheckDb): SchemaHealthChecke
   // ---------------------------------------------------------------------------
 
   return {
-    checkTablesExist,
+    cancelAllPendingJobs,
     checkHealth,
+    checkTablesExist,
+    cleanOrphanedChunks,
+    clearForReindex,
+    countInvalidEmbeddingSetRefs,
     countOrphanedChunks,
     countStuckJobs,
-    countInvalidEmbeddingSetRefs,
-    cleanOrphanedChunks,
     recoverStuckJobs,
-    cancelAllPendingJobs,
-    clearForReindex,
   };
 }
 

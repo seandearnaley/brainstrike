@@ -5,31 +5,31 @@ import { afterAll, vi } from 'vitest';
 const originalWorker = (globalThis as { Worker?: typeof Worker }).Worker;
 Object.defineProperty(globalThis, 'Worker', {
   configurable: true,
-  writable: true,
   value: undefined,
+  writable: true,
 });
 
 afterAll(() => {
   Object.defineProperty(globalThis, 'Worker', {
     configurable: true,
-    writable: true,
     value: originalWorker,
+    writable: true,
   });
 });
 
 const noopResult: QueueResult = {
-  type: 'result',
   id: 'test-noop',
-  vectors: [],
   metadata: {
-    model: 'test',
-    device: 'wasm',
-    dtype: 'fp16',
     batchSize: 0,
+    device: 'wasm',
+    dimensions: 0,
+    dtype: 'fp16',
     elapsedMs: 0,
     fallbackApplied: false,
-    dimensions: 0,
+    model: 'test',
   },
+  type: 'result',
+  vectors: [],
 };
 
 interface MockQueueMetrics {
@@ -50,13 +50,13 @@ const DEFAULT_QUEUE_METRICS: MockQueueMetrics = {
   active: 0,
   completed: 0,
   failed: 0,
-  totalEnqueued: 0,
   lastError: null as string | null,
-  progress: {},
-  throughputPerMinute: 0,
   latencyAvgMs: null as number | null,
   latencyP50Ms: null as number | null,
   latencyP95Ms: null as number | null,
+  progress: {},
+  throughputPerMinute: 0,
+  totalEnqueued: 0,
   windowErrorCount: 0,
 };
 
@@ -73,23 +73,23 @@ export function patchMockQueueMetrics(patch: Partial<MockQueueMetrics>): void {
 const noopQueue: QueueAdapter = {
   add: vi.fn(async () => noopResult),
   addBulk: vi.fn(async (tasks) => tasks.map(() => noopResult)),
-  onProgress: () => () => {},
-  pause: vi.fn(),
-  resume: vi.fn(),
   cancel: vi.fn(async () => {}),
   drain: vi.fn(async () => {}),
   isPaused: false,
   isProcessing: false,
+  onProgress: () => () => {},
+  pause: vi.fn(),
+  resume: vi.fn(),
 };
 
 vi.mock('../embedding-queue-provider', () => ({
   EmbeddingQueueProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useEmbeddingQueue: () => ({
-    queue: noopQueue,
     metrics: currentQueueMetrics,
+    queue: noopQueue,
   }),
   useEmbeddingQueueSafe: () => ({
-    queue: noopQueue,
     metrics: currentQueueMetrics,
+    queue: noopQueue,
   }),
 }));

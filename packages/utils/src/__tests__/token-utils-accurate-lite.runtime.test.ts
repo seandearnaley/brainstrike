@@ -23,13 +23,13 @@ describe('token-utils-accurate-lite runtime behavior', () => {
   it('uses encode_ordinary with the encoder instance as this', async () => {
     vi.doMock('tiktoken', () => ({
       encoding_for_model: () => ({
-        multiplier: 2,
         encode_ordinary(this: { multiplier: number }, text: string): Uint32Array {
           return Uint32Array.from(
             { length: text.length * this.multiplier },
             (_value, index) => index
           );
         },
+        multiplier: 2,
       }),
       get_encoding: undefined,
     }));
@@ -138,8 +138,8 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
       default: {
         bpe_ranks: 'mock-ranks',
-        special_tokens: { '<|endoftext|>': 199_999 },
         pat_str: 'mock-pattern',
+        special_tokens: { '<|endoftext|>': 199_999 },
       },
     }));
 
@@ -166,8 +166,8 @@ describe('token-utils-accurate-lite runtime behavior', () => {
     vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
       default: {
         bpe_ranks: 'mock-ranks',
-        special_tokens: { bad: 'not-a-number' },
         pat_str: 'mock-pattern',
+        special_tokens: { bad: 'not-a-number' },
       },
     }));
 

@@ -19,15 +19,15 @@ beforeAll(() => {
 });
 
 const internalToolProps = {
-  type: 'tool-call' as const,
-  toolCallId: 'call-internal-1',
-  toolName: 'brainstrike.grepSearch',
+  addResult: () => {},
   args: { query: 'foo' },
   argsText: '{"query":"foo"}',
-  status: { type: 'complete' as const },
   result: { matches: [{ a: 1 }, { a: 2 }, { a: 3 }] },
-  addResult: () => {},
   resume: () => {},
+  status: { type: 'complete' as const },
+  toolCallId: 'call-internal-1',
+  toolName: 'brainstrike.grepSearch',
+  type: 'tool-call' as const,
 };
 
 function renderTool(props: Record<string, unknown>, level: AssistantDetailLevel) {

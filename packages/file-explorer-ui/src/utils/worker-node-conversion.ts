@@ -24,11 +24,11 @@ export function toWorkerFileNode(node: IFileNode): WorkerFileNode | null {
   }
 
   const workerNode: WorkerFileNode = {
+    depth: node.depth,
     name: node.name,
     path: node.path,
-    type: node.type, // Now guaranteed to be 'file' | 'directory'
-    depth: node.depth,
     rootFolderId: node.rootFolderId,
+    type: node.type, // Now guaranteed to be 'file' | 'directory'
   };
 
   // Copy optional properties if present
@@ -79,21 +79,21 @@ export function rehydrateFileNode(
   // Handle must exist for a valid IFileNode
   if (!handle) {
     logger.warn('rehydrateFileNode: No handle found', {
+      handleMapSize: handleMap.size,
       path: workerNode.path,
       type: workerNode.type,
-      handleMapSize: handleMap.size,
     });
     return null;
   }
 
   const fileNode: IFileNode = {
+    depth: workerNode.depth,
+    handle,
     name: workerNode.name,
     path: workerNode.path,
-    type: workerNode.type,
-    depth: workerNode.depth,
     rootFolderId: workerNode.rootFolderId,
-    handle,
     selectionState: 'unchecked', // Default selection state for rehydrated nodes
+    type: workerNode.type,
   };
 
   // Copy optional properties if present
@@ -134,10 +134,10 @@ export function rehydrateTree(
 
   if (filteredCount > 0) {
     logger.warn('rehydrateTree: Some root nodes filtered out', {
-      totalWorkerNodes: workerNodes.length,
-      validNodes: validNodes.length,
       filteredOut: filteredCount,
       handleMapSize: handleMap.size,
+      totalWorkerNodes: workerNodes.length,
+      validNodes: validNodes.length,
     });
   }
 
@@ -165,8 +165,8 @@ export function buildHandleMap(
   // Only log at top level to avoid spam
   if (isTopLevel) {
     logger.info('buildHandleMap complete', {
-      inputNodes: nodes.length,
       handleMapSize: map.size,
+      inputNodes: nodes.length,
     });
   }
 

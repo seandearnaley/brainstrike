@@ -42,11 +42,11 @@ type LocalRuntimeAvailabilityState =
       readonly state: 'stale';
     };
 
-type LocalRuntimeProbeOverride = {
+interface LocalRuntimeProbeOverride {
   statuses?: Partial<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
-};
+}
 
-type SerializableSettingsTestOverrides = {
+interface SerializableSettingsTestOverrides {
   accurateRuntimeAvailable?: boolean | null;
   localRuntime?: Omit<LocalRuntimeProbeOverride, 'onProbe'> & {
     trackProbeCounts?: boolean;
@@ -65,13 +65,15 @@ type SerializableSettingsTestOverrides = {
       providers?: unknown[];
     };
   };
-};
+}
 
 type BrowserSettingsTestOverrides = Omit<SerializableSettingsTestOverrides, 'localRuntime'> & {
   localRuntime?: LocalRuntimeProbeOverride;
 };
 
-type BrowserOverrideWindow = {
+interface BrowserOverrideWindow {
+  // biome-ignore lint/style/useNamingConvention: E2E browser test hook key intentionally uses double underscores.
+  __brainstrike_e2e_enable_settings_test_api__?: boolean;
   __brainstrikeLocalRuntimeProbeCounts__?: Partial<Record<LocalRuntimeId, number>>;
   __brainstrikePendingSettingsTestOverrides__?: BrowserSettingsTestOverrides;
   __brainstrikeSettingsTestHooks__?: {
@@ -81,11 +83,11 @@ type BrowserOverrideWindow = {
     setSettingsTestOverrides: (overrides: BrowserSettingsTestOverrides) => void;
     updateSettingsTestOverrides: (overrides: BrowserSettingsTestOverrides) => void;
   };
-  __brainstrike_e2e_enable_settings_test_api__?: boolean;
-};
+}
 
 declare global {
   interface Window {
+    // biome-ignore lint/style/useNamingConvention: E2E browser test hook key intentionally uses double underscores.
     __brainstrike_e2e_enable_settings_test_api__?: boolean;
   }
 }
@@ -165,30 +167,28 @@ function installSettingsTestHooksOnWindow(): void {
   const mergeOverrides = (
     current: BrowserSettingsTestOverrides | undefined,
     updates: BrowserSettingsTestOverrides
-  ): BrowserSettingsTestOverrides => {
-    return {
-      ...(current ?? {}),
-      ...(updates.accurateRuntimeAvailable === undefined
-        ? {}
-        : { accurateRuntimeAvailable: updates.accurateRuntimeAvailable }),
-      ...(updates.localRuntime
-        ? {
-            localRuntime: {
-              ...(current?.localRuntime ?? {}),
-              ...updates.localRuntime,
-            },
-          }
-        : {}),
-      ...(updates.modelRegistry
-        ? {
-            modelRegistry: {
-              ...(current?.modelRegistry ?? {}),
-              ...updates.modelRegistry,
-            },
-          }
-        : {}),
-    };
-  };
+  ): BrowserSettingsTestOverrides => ({
+    ...(current ?? {}),
+    ...(updates.accurateRuntimeAvailable === undefined
+      ? {}
+      : { accurateRuntimeAvailable: updates.accurateRuntimeAvailable }),
+    ...(updates.localRuntime
+      ? {
+          localRuntime: {
+            ...(current?.localRuntime ?? {}),
+            ...updates.localRuntime,
+          },
+        }
+      : {}),
+    ...(updates.modelRegistry
+      ? {
+          modelRegistry: {
+            ...(current?.modelRegistry ?? {}),
+            ...updates.modelRegistry,
+          },
+        }
+      : {}),
+  });
 
   const hooks: HookApi = {
     readLocalRuntimeProbeCounts: () => browserWindow.__brainstrikeLocalRuntimeProbeCounts__ ?? {},
@@ -196,7 +196,7 @@ function installSettingsTestHooksOnWindow(): void {
       resetProbeCounts();
     },
     resetSettingsTestOverrides: () => {
-      delete browserWindow.__brainstrikePendingSettingsTestOverrides__;
+      Reflect.deleteProperty(browserWindow, '__brainstrikePendingSettingsTestOverrides__');
       resetProbeCounts();
     },
     setSettingsTestOverrides: (overrides: BrowserSettingsTestOverrides) => {

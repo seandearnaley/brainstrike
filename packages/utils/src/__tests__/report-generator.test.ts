@@ -29,9 +29,9 @@ class MockFileSystemAdapter implements FileSystemAdapter {
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     return {
-      path: this.rootName,
-      name: this.rootName,
       kind: 'directory',
+      name: this.rootName,
+      path: this.rootName,
       platform: 'web',
     };
   }
@@ -87,7 +87,7 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     let current = this.mockFileSystem;
     for (const part of segments) {
       const entry = current[part];
-      if (!entry || entry.type !== 'directory' || !entry.children) {
+      if (entry?.type !== 'directory' || !entry.children) {
         return null;
       }
       current = entry.children;
@@ -97,19 +97,19 @@ class MockFileSystemAdapter implements FileSystemAdapter {
 
   private createNode(name: string, entry: MockFileEntry, fullPath: string): IFileNode {
     const base: IFileNode = {
+      depth: 0,
+      handle: {
+        _internal: entry,
+        kind: entry.type,
+        name,
+        path: fullPath,
+        platform: 'web',
+      } as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
       name,
       path: fullPath,
-      type: entry.type,
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: this.rootName,
-      handle: {
-        path: fullPath,
-        name,
-        kind: entry.type,
-        platform: 'web',
-        _internal: entry,
-      } as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+      selectionState: 'unchecked',
+      type: entry.type,
     };
 
     if (entry.type === 'file') {
@@ -124,42 +124,42 @@ class MockFileSystemAdapter implements FileSystemAdapter {
 
   static createSimpleFileSystem(): Record<string, MockFileEntry> {
     return {
-      src: {
-        name: 'src',
-        type: 'directory',
-        children: {
-          'index.ts': {
-            name: 'index.ts',
-            type: 'file',
-            content: 'export * from "./components";',
-          },
-          components: {
-            name: 'components',
-            type: 'directory',
-            children: {
-              'Button.tsx': {
-                name: 'Button.tsx',
-                type: 'file',
-                content: 'export const Button = () => <button>Click me</button>;',
-              },
-              'Input.tsx': {
-                name: 'Input.tsx',
-                type: 'file',
-                content: 'export const Input = () => <input />;',
-              },
-            },
-          },
-        },
-      },
       'package.json': {
+        content: '{"name": "test-package", "version": "1.0.0"}',
         name: 'package.json',
         type: 'file',
-        content: '{"name": "test-package", "version": "1.0.0"}',
       },
       'README.md': {
+        content: '# Test Project\n\nThis is a test project.',
         name: 'README.md',
         type: 'file',
-        content: '# Test Project\n\nThis is a test project.',
+      },
+      src: {
+        children: {
+          components: {
+            children: {
+              'Button.tsx': {
+                content: 'export const Button = () => <button>Click me</button>;',
+                name: 'Button.tsx',
+                type: 'file',
+              },
+              'Input.tsx': {
+                content: 'export const Input = () => <input />;',
+                name: 'Input.tsx',
+                type: 'file',
+              },
+            },
+            name: 'components',
+            type: 'directory',
+          },
+          'index.ts': {
+            content: 'export * from "./components";',
+            name: 'index.ts',
+            type: 'file',
+          },
+        },
+        name: 'src',
+        type: 'directory',
       },
     };
   }
@@ -167,281 +167,290 @@ class MockFileSystemAdapter implements FileSystemAdapter {
 
 describe('reportGenerator', () => {
   const mockFileContents = {
-    'src/lib/utils.ts': 'export const formatDate = (date: Date) => date.toISOString();',
+    'package.json': '{ "name": "my-app", "version": "1.0.0" }',
+    'README.md': '# My Project\nA Vite application with TypeScript.',
+    'src/components/layout/Header.tsx': 'export const Header = () => <header>My App</header>;',
     'src/components/ui/Button.tsx':
       'export const Button = ({ children }) => <button>{children}</button>;',
     'src/components/ui/Input.tsx':
       'export const Input = ({ value, onChange }) => <input value={value} onChange={onChange} />;',
-    'src/components/layout/Header.tsx': 'export const Header = () => <header>My App</header>;',
+    'src/lib/utils.ts': 'export const formatDate = (date: Date) => date.toISOString();',
     'src/pages/index.tsx': 'export default function Home() { return <div>Welcome</div>; }',
     'src/styles/globals.css': 'body { margin: 0; padding: 0; }',
     'tests/components/Button.test.tsx':
       'describe("Button", () => { it("renders", () => {/* ... */}); });',
-    'README.md': '# My Project\nA Vite application with TypeScript.',
-    'package.json': '{ "name": "my-app", "version": "1.0.0" }',
   };
 
-  const createMockDirectoryHandle = (): FileSystemDirectoryHandle => ({
-    kind: 'directory',
-    name: 'root',
-    async *entries() {
-      // Root level files
-      yield [
-        'README.md',
-        {
-          kind: 'file',
-          name: 'README.md',
-          getFile: async () => new File([], 'README.md'),
-          createWritable: async () => {
-            throw new Error('Not implemented');
-          },
-          isSameEntry: async () => true,
-        } as FileSystemFileHandle,
-      ];
+  // Partial mock: only implements the subset of FileSystemDirectoryHandle that
+  // report-generator.ts actually reads (kind/name/entries()). TypeScript 6's DOM
+  // lib always includes the async-iterable members (keys/values/
+  // [Symbol.asyncIterator]) on FileSystemDirectoryHandle, which this test double
+  // intentionally omits, so the shape is asserted through `unknown` at the
+  // boundary rather than matched structurally against the full DOM type.
+  const createMockDirectoryHandle = () =>
+    ({
+      async *entries() {
+        // Root level files
+        yield [
+          'README.md',
+          {
+            createWritable: async () => {
+              throw new Error('Not implemented');
+            },
+            getFile: async () => new File([], 'README.md'),
+            isSameEntry: async () => true,
+            kind: 'file',
+            name: 'README.md',
+          } as unknown as FileSystemFileHandle,
+        ];
 
-      yield [
-        'package.json',
-        {
-          kind: 'file',
-          name: 'package.json',
-          getFile: async () => new File([], 'package.json'),
-          createWritable: async () => {
-            throw new Error('Not implemented');
-          },
-          isSameEntry: async () => true,
-        } as FileSystemFileHandle,
-      ];
+        yield [
+          'package.json',
+          {
+            createWritable: async () => {
+              throw new Error('Not implemented');
+            },
+            getFile: async () => new File([], 'package.json'),
+            isSameEntry: async () => true,
+            kind: 'file',
+            name: 'package.json',
+          } as unknown as FileSystemFileHandle,
+        ];
 
-      // src directory
-      yield [
-        'src',
-        {
-          kind: 'directory',
-          name: 'src',
-          async *entries() {
-            // src/lib
-            yield [
-              'lib',
-              {
-                kind: 'directory',
-                name: 'lib',
-                async *entries() {
-                  yield [
-                    'utils.ts',
-                    {
-                      kind: 'file',
-                      name: 'utils.ts',
-                      getFile: async () => new File([], 'utils.ts'),
-                      createWritable: async () => {
-                        throw new Error('Not implemented');
-                      },
-                      isSameEntry: async () => true,
-                    } as FileSystemFileHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
+        // src directory
+        yield [
+          'src',
+          {
+            async *entries() {
+              // src/lib
+              yield [
+                'lib',
+                {
+                  async *entries() {
+                    yield [
+                      'utils.ts',
+                      {
+                        createWritable: async () => {
+                          throw new Error('Not implemented');
+                        },
+                        getFile: async () => new File([], 'utils.ts'),
+                        isSameEntry: async () => true,
+                        kind: 'file',
+                        name: 'utils.ts',
+                      } as unknown as FileSystemFileHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  isSameEntry: async () => true,
+                  kind: 'directory',
+                  name: 'lib',
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                } as unknown as FileSystemDirectoryHandle,
+              ];
 
-            // src/components
-            yield [
-              'components',
-              {
-                kind: 'directory',
-                name: 'components',
-                async *entries() {
-                  // src/components/ui
-                  yield [
-                    'ui',
-                    {
-                      kind: 'directory',
-                      name: 'ui',
-                      async *entries() {
-                        yield [
-                          'Button.tsx',
-                          {
-                            kind: 'file',
-                            name: 'Button.tsx',
-                            getFile: async () => new File([], 'Button.tsx'),
-                            createWritable: async () => {
-                              throw new Error('Not implemented');
-                            },
-                            isSameEntry: async () => true,
-                          } as FileSystemFileHandle,
-                        ];
-                        yield [
-                          'Input.tsx',
-                          {
-                            kind: 'file',
-                            name: 'Input.tsx',
-                            getFile: async () => new File([], 'Input.tsx'),
-                            createWritable: async () => {
-                              throw new Error('Not implemented');
-                            },
-                            isSameEntry: async () => true,
-                          } as FileSystemFileHandle,
-                        ];
-                      },
-                      getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                      getFileHandle: async () => ({}) as FileSystemFileHandle,
-                      removeEntry: async () => {},
-                      resolve: async () => [],
-                      isSameEntry: async () => true,
-                    } as FileSystemDirectoryHandle,
-                  ];
+              // src/components
+              yield [
+                'components',
+                {
+                  async *entries() {
+                    // src/components/ui
+                    yield [
+                      'ui',
+                      {
+                        async *entries() {
+                          yield [
+                            'Button.tsx',
+                            {
+                              createWritable: async () => {
+                                throw new Error('Not implemented');
+                              },
+                              getFile: async () => new File([], 'Button.tsx'),
+                              isSameEntry: async () => true,
+                              kind: 'file',
+                              name: 'Button.tsx',
+                            } as unknown as FileSystemFileHandle,
+                          ];
+                          yield [
+                            'Input.tsx',
+                            {
+                              createWritable: async () => {
+                                throw new Error('Not implemented');
+                              },
+                              getFile: async () => new File([], 'Input.tsx'),
+                              isSameEntry: async () => true,
+                              kind: 'file',
+                              name: 'Input.tsx',
+                            } as unknown as FileSystemFileHandle,
+                          ];
+                        },
+                        getDirectoryHandle: async () =>
+                          ({}) as unknown as FileSystemDirectoryHandle,
+                        getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                        isSameEntry: async () => true,
+                        kind: 'directory',
+                        name: 'ui',
+                        removeEntry: async () => {},
+                        resolve: async () => [],
+                      } as unknown as FileSystemDirectoryHandle,
+                    ];
 
-                  // src/components/layout
-                  yield [
-                    'layout',
-                    {
-                      kind: 'directory',
-                      name: 'layout',
-                      async *entries() {
-                        yield [
-                          'Header.tsx',
-                          {
-                            kind: 'file',
-                            name: 'Header.tsx',
-                            getFile: async () => new File([], 'Header.tsx'),
-                            createWritable: async () => {
-                              throw new Error('Not implemented');
-                            },
-                            isSameEntry: async () => true,
-                          } as FileSystemFileHandle,
-                        ];
-                      },
-                      getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                      getFileHandle: async () => ({}) as FileSystemFileHandle,
-                      removeEntry: async () => {},
-                      resolve: async () => [],
-                      isSameEntry: async () => true,
-                    } as FileSystemDirectoryHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
+                    // src/components/layout
+                    yield [
+                      'layout',
+                      {
+                        async *entries() {
+                          yield [
+                            'Header.tsx',
+                            {
+                              createWritable: async () => {
+                                throw new Error('Not implemented');
+                              },
+                              getFile: async () => new File([], 'Header.tsx'),
+                              isSameEntry: async () => true,
+                              kind: 'file',
+                              name: 'Header.tsx',
+                            } as unknown as FileSystemFileHandle,
+                          ];
+                        },
+                        getDirectoryHandle: async () =>
+                          ({}) as unknown as FileSystemDirectoryHandle,
+                        getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                        isSameEntry: async () => true,
+                        kind: 'directory',
+                        name: 'layout',
+                        removeEntry: async () => {},
+                        resolve: async () => [],
+                      } as unknown as FileSystemDirectoryHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  isSameEntry: async () => true,
+                  kind: 'directory',
+                  name: 'components',
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                } as unknown as FileSystemDirectoryHandle,
+              ];
 
-            // src/pages
-            yield [
-              'pages',
-              {
-                kind: 'directory',
-                name: 'pages',
-                async *entries() {
-                  yield [
-                    'index.tsx',
-                    {
-                      kind: 'file',
-                      name: 'index.tsx',
-                      getFile: async () => new File([], 'index.tsx'),
-                      createWritable: async () => {
-                        throw new Error('Not implemented');
-                      },
-                      isSameEntry: async () => true,
-                    } as FileSystemFileHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
+              // src/pages
+              yield [
+                'pages',
+                {
+                  async *entries() {
+                    yield [
+                      'index.tsx',
+                      {
+                        createWritable: async () => {
+                          throw new Error('Not implemented');
+                        },
+                        getFile: async () => new File([], 'index.tsx'),
+                        isSameEntry: async () => true,
+                        kind: 'file',
+                        name: 'index.tsx',
+                      } as unknown as FileSystemFileHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  isSameEntry: async () => true,
+                  kind: 'directory',
+                  name: 'pages',
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                } as unknown as FileSystemDirectoryHandle,
+              ];
 
-            // src/styles
-            yield [
-              'styles',
-              {
-                kind: 'directory',
-                name: 'styles',
-                async *entries() {
-                  yield [
-                    'globals.css',
-                    {
-                      kind: 'file',
-                      name: 'globals.css',
-                      getFile: async () => new File([], 'globals.css'),
-                      createWritable: async () => {
-                        throw new Error('Not implemented');
-                      },
-                      isSameEntry: async () => true,
-                    } as FileSystemFileHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
-          },
-          getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-          getFileHandle: async () => ({}) as FileSystemFileHandle,
-          removeEntry: async () => {},
-          resolve: async () => [],
-          isSameEntry: async () => true,
-        } as FileSystemDirectoryHandle,
-      ];
+              // src/styles
+              yield [
+                'styles',
+                {
+                  async *entries() {
+                    yield [
+                      'globals.css',
+                      {
+                        createWritable: async () => {
+                          throw new Error('Not implemented');
+                        },
+                        getFile: async () => new File([], 'globals.css'),
+                        isSameEntry: async () => true,
+                        kind: 'file',
+                        name: 'globals.css',
+                      } as unknown as FileSystemFileHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  isSameEntry: async () => true,
+                  kind: 'directory',
+                  name: 'styles',
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                } as unknown as FileSystemDirectoryHandle,
+              ];
+            },
+            getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+            getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+            isSameEntry: async () => true,
+            kind: 'directory',
+            name: 'src',
+            removeEntry: async () => {},
+            resolve: async () => [],
+          } as unknown as FileSystemDirectoryHandle,
+        ];
 
-      // tests directory
-      yield [
-        'tests',
-        {
-          kind: 'directory',
-          name: 'tests',
-          async *entries() {
-            yield [
-              'components',
-              {
-                kind: 'directory',
-                name: 'components',
-                async *entries() {
-                  yield [
-                    'Button.test.tsx',
-                    {
-                      kind: 'file',
-                      name: 'Button.test.tsx',
-                      getFile: async () => new File([], 'Button.test.tsx'),
-                      createWritable: async () => {
-                        throw new Error('Not implemented');
-                      },
-                      isSameEntry: async () => true,
-                    } as FileSystemFileHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
-          },
-          getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-          getFileHandle: async () => ({}) as FileSystemFileHandle,
-          removeEntry: async () => {},
-          resolve: async () => [],
-          isSameEntry: async () => true,
-        } as FileSystemDirectoryHandle,
-      ];
-    },
-    getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-    getFileHandle: async () => ({}) as FileSystemFileHandle,
-    removeEntry: async () => {},
-    resolve: async () => [],
-    isSameEntry: async () => true,
-  });
+        // tests directory
+        yield [
+          'tests',
+          {
+            async *entries() {
+              yield [
+                'components',
+                {
+                  async *entries() {
+                    yield [
+                      'Button.test.tsx',
+                      {
+                        createWritable: async () => {
+                          throw new Error('Not implemented');
+                        },
+                        getFile: async () => new File([], 'Button.test.tsx'),
+                        isSameEntry: async () => true,
+                        kind: 'file',
+                        name: 'Button.test.tsx',
+                      } as unknown as FileSystemFileHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  isSameEntry: async () => true,
+                  kind: 'directory',
+                  name: 'components',
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                } as unknown as FileSystemDirectoryHandle,
+              ];
+            },
+            getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+            getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+            isSameEntry: async () => true,
+            kind: 'directory',
+            name: 'tests',
+            removeEntry: async () => {},
+            resolve: async () => [],
+          } as unknown as FileSystemDirectoryHandle,
+        ];
+      },
+      getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+      getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+      isSameEntry: async () => true,
+      kind: 'directory',
+      name: 'root',
+      removeEntry: async () => {},
+      resolve: async () => [],
+    }) as unknown as FileSystemDirectoryHandle;
 
   let mockRootDirectoryHandle: FileSystemDirectoryHandle;
 
@@ -456,17 +465,17 @@ describe('reportGenerator', () => {
     expect(
       normalizeContextLineRanges(
         [
-          { startLine: 7, endLine: 9 },
-          { startLine: 2, endLine: 5.8 },
-          { startLine: 1, endLine: 3 },
-          { startLine: 0, endLine: 1, isActive: false },
-          { startLine: 20, endLine: 30 },
+          { endLine: 9, startLine: 7 },
+          { endLine: 5.8, startLine: 2 },
+          { endLine: 3, startLine: 1 },
+          { endLine: 1, isActive: false, startLine: 0 },
+          { endLine: 30, startLine: 20 },
         ],
         10
       )
     ).toEqual([
-      { startLine: 1, endLine: 5 },
-      { startLine: 7, endLine: 10 },
+      { endLine: 5, startLine: 1 },
+      { endLine: 10, startLine: 7 },
     ]);
   });
 
@@ -648,9 +657,8 @@ describe('reportGenerator', () => {
       false,
       5,
       {
-        useTapestryRanges: true,
         selectedLineRangesByFile: {
-          'src/lib/utils.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+          'src/lib/utils.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
         },
       }
     );
@@ -671,9 +679,8 @@ describe('reportGenerator', () => {
       false,
       5,
       {
-        useTapestryRanges: true,
         selectedLineRangesByFile: {
-          'src/lib/utils.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+          'src/lib/utils.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
         },
       }
     );
@@ -699,9 +706,8 @@ describe('reportGenerator', () => {
       false,
       5,
       {
-        useTapestryRanges: true,
         selectedLineRangesByFile: {
-          'src/lib/utils.ts': [{ startLine: 0, endLine: 1, isActive: false }],
+          'src/lib/utils.ts': [{ endLine: 1, isActive: false, startLine: 0 }],
         },
       }
     );
@@ -710,6 +716,33 @@ describe('reportGenerator', () => {
       '<selection_summary>No active tapestry ranges selected.</selection_summary>'
     );
     expect(report).not.toContain('export const formatDate');
+  });
+
+  it('treats a literally-present EMPTY range array as whole file (empty ≡ absent)', async () => {
+    const selectedFiles = new Set(['src/lib/utils.ts']);
+    const report = await generateReport(
+      selectedFiles,
+      mockFileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false,
+      5,
+      {
+        // A stray present-but-empty entry must behave exactly like absence: the
+        // whole file is emitted, NOT the "no active ranges" exclusion notice.
+        selectedLineRangesByFile: {
+          'src/lib/utils.ts': [],
+        },
+      }
+    );
+
+    expect(report).toContain('<file path="src/lib/utils.ts">');
+    expect(report).toContain('export const formatDate');
+    expect(report).not.toContain(
+      '<selection_summary>No active tapestry ranges selected.</selection_summary>'
+    );
   });
 
   it('strips all XML-illegal control characters from file paths', async () => {
@@ -832,41 +865,41 @@ describe('generateReportFromAdapter', () => {
   let rootHandle: DirectoryHandle;
 
   const fileContents = {
-    'src/index.ts': 'export * from "./components";',
     'src/components/Button.tsx': 'export const Button = () => <button>Click me</button>;',
     'src/components/Input.tsx': 'export const Input = () => <input />;',
+    'src/index.ts': 'export * from "./components";',
   };
 
   beforeEach(async () => {
     const fs = MockFileSystemAdapter.createSimpleFileSystem();
     fs['node_modules'] = {
-      name: 'node_modules',
-      type: 'directory',
       children: {
         pkg: {
+          children: { 'index.js': { content: '//lib', name: 'index.js', type: 'file' } },
           name: 'pkg',
           type: 'directory',
-          children: { 'index.js': { name: 'index.js', type: 'file', content: '//lib' } },
         },
       },
+      name: 'node_modules',
+      type: 'directory',
     };
     fs['dist'] = {
+      children: { 'bundle.js': { content: 'bundle', name: 'bundle.js', type: 'file' } },
       name: 'dist',
       type: 'directory',
-      children: { 'bundle.js': { name: 'bundle.js', type: 'file', content: 'bundle' } },
     };
 
     // build deep nested structure to trigger depth limiting
-    fs['deep'] = { name: 'deep', type: 'directory', children: {} };
+    fs['deep'] = { children: {}, name: 'deep', type: 'directory' };
     let current: Record<string, MockFileEntry> = fs['deep'].children as Record<
       string,
       MockFileEntry
     >;
     for (let i = 0; i < 31; i++) {
-      current[`dir${i}`] = { name: `dir${i}`, type: 'directory', children: {} };
+      current[`dir${i}`] = { children: {}, name: `dir${i}`, type: 'directory' };
       current = current[`dir${i}`]!.children as Record<string, MockFileEntry>;
     }
-    current['tooDeep.txt'] = { name: 'tooDeep.txt', type: 'file', content: 'deep' };
+    current['tooDeep.txt'] = { content: 'deep', name: 'tooDeep.txt', type: 'file' };
 
     adapter = new MockFileSystemAdapter(fs);
     rootHandle = await adapter.requestDirectoryAccess();
@@ -926,7 +959,7 @@ describe('generateReportFromAdapter', () => {
 
     class IgnorePathAdapter implements FileSystemAdapter {
       async requestDirectoryAccess(): Promise<DirectoryHandle> {
-        return { path: 'root', name: 'root', kind: 'directory', platform: 'web' };
+        return { kind: 'directory', name: 'root', path: 'root', platform: 'web' };
       }
 
       async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
@@ -942,32 +975,32 @@ describe('generateReportFromAdapter', () => {
 
         return [
           {
+            depth: 0,
+            handle: {
+              kind: 'directory',
+              name: 'src',
+              path: 'root/src',
+              platform: 'web',
+            } as unknown as FileSystemDirectoryHandle,
             name: 'src',
             path: 'root/src',
-            type: 'directory',
-            handle: {
-              path: 'root/src',
-              name: 'src',
-              kind: 'directory',
-              platform: 'web',
-            } as unknown as FileSystemDirectoryHandle,
-            depth: 0,
-            selectionState: 'unchecked',
             rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'directory',
           },
           {
-            name: 'node_modules',
-            path: 'root/node_modules',
-            type: 'directory',
+            depth: 0,
             handle: {
-              path: 'root/node_modules',
-              name: 'node_modules',
               kind: 'directory',
+              name: 'node_modules',
+              path: 'root/node_modules',
               platform: 'web',
             } as unknown as FileSystemDirectoryHandle,
-            depth: 0,
-            selectionState: 'unchecked',
+            name: 'node_modules',
+            path: 'root/node_modules',
             rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'directory',
           },
         ];
       }
@@ -1026,35 +1059,35 @@ describe('generateReportFromAdapter', () => {
 
     // Build custom structure with a symlink-like entry and deep nesting
     const makeDirHandle = (path: string): DirectoryHandle => ({
-      path,
-      name: path.split('/').pop() || path,
       kind: 'directory',
+      name: path.split('/').pop() || path,
+      path,
       platform: 'web',
     });
     const makeFileHandle = (path: string): FileHandle => ({
-      path,
-      name: path.split('/').pop() || path,
       kind: 'file',
+      name: path.split('/').pop() || path,
+      path,
       platform: 'web',
     });
 
     const dirNodeFull = (path: string, name?: string): IFileNode => ({
+      depth: 0,
+      handle: makeDirHandle(path) as unknown as FileSystemDirectoryHandle,
       name: name ?? (path.split('/').pop() || ''),
       path,
-      type: 'directory',
-      handle: makeDirHandle(path) as unknown as FileSystemDirectoryHandle,
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: 'root',
+      selectionState: 'unchecked',
+      type: 'directory',
     });
     const fileNodeFull = (path: string): IFileNode => ({
+      depth: 0,
+      handle: makeFileHandle(path) as unknown as FileSystemFileHandle,
       name: path.split('/').pop() || '',
       path,
-      type: 'file',
-      handle: makeFileHandle(path) as unknown as FileSystemFileHandle,
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: 'root',
+      selectionState: 'unchecked',
+      type: 'file',
     });
 
     const structure: Record<string, IFileNode[]> = {};
@@ -1082,7 +1115,7 @@ describe('generateReportFromAdapter', () => {
     class SimpleAdapter implements FileSystemAdapter {
       constructor(private readonly map: Record<string, IFileNode[]>) {}
       async requestDirectoryAccess(): Promise<DirectoryHandle> {
-        return { path: 'root', name: 'root', kind: 'directory', platform: 'web' };
+        return { kind: 'directory', name: 'root', path: 'root', platform: 'web' };
       }
       async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
         return this.map[handle.path] || [];

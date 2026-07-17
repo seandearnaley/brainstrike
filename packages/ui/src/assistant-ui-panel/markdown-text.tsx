@@ -6,6 +6,8 @@ import {
   MarkdownTextPrimitive,
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
 } from '@assistant-ui/react-markdown';
+import { createClipboardService } from '@brainstrike/context-actions';
+import { createLogger } from '@brainstrike/utils/logger';
 import { CheckIcon, CopyIcon } from 'lucide-react';
 import remarkGfm from 'remark-gfm';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
@@ -13,6 +15,8 @@ import { SyntaxHighlighterComponent } from './shiki-highlighter';
 import { TooltipIconButton } from './tooltip-icon-button';
 
 const REMARK_PLUGINS = [remarkGfm];
+const logger = createLogger('MarkdownText');
+const clipboard = createClipboardService();
 
 export const MarkdownText = memo(function MarkdownTextImpl() {
   const { status, text, type } = useMessagePartText();
@@ -25,6 +29,12 @@ export const MarkdownText = memo(function MarkdownTextImpl() {
     <MarkdownTextPrimitive
       className="aui-md"
       components={defaultComponents}
+      // Parse at deferred priority (useDeferredValue): without this the full
+      // remark/GFM parse re-runs synchronously over ALL accumulated text on
+      // every streamed chunk — quadratic over a long response and a main
+      // source of streaming jank. Under load intermediate parses coalesce;
+      // the final text always renders.
+      defer
       remarkPlugins={REMARK_PLUGINS}
     />
   );
@@ -59,7 +69,7 @@ function CodeHeader({ language, code }: CodeHeaderProps) {
   );
 }
 
-function useCopyToClipboard({ copiedDuration = 2000 } = {}) {
+export function useCopyToClipboard({ copiedDuration = 2000 } = {}) {
   const [isCopied, setIsCopied] = useState(false);
   const copyToClipboard = (value: string) => {
     if (!value) {
@@ -70,33 +80,22 @@ function useCopyToClipboard({ copiedDuration = 2000 } = {}) {
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), copiedDuration);
     };
-    // Prefer the Electron clipboard bridge if available. The write happens in
-    // the main process over IPC, so the bridge resolves a structured outcome.
-    const electronClipboard = (
-      window as unknown as {
-        clipboard?: { writeText?: (t: string) => Promise<{ error?: string; ok?: boolean }> };
+    // Route through the shared clipboard service so a present-but-broken
+    // Electron bridge is surfaced (never silently falls back to navigator).
+    void clipboard.writeText(text).then((outcome) => {
+      if (outcome.ok) {
+        markCopied();
+        return;
       }
-    ).clipboard;
-    if (typeof window !== 'undefined' && typeof electronClipboard?.writeText === 'function') {
-      void electronClipboard.writeText(text).then((result) => {
-        if (result?.ok === true) {
-          markCopied();
-          return;
-        }
-        // Fallback to web clipboard API
-        return navigator.clipboard.writeText(text).then(markCopied);
-      });
-      return;
-    }
-    // Fallback to web clipboard API
-    navigator.clipboard.writeText(text).then(markCopied);
+      logger.warn('Failed to copy code to clipboard', { error: outcome.error });
+    });
   };
-  return { isCopied, copyToClipboard } as const;
+  return { copyToClipboard, isCopied } as const;
 }
 
 const defaultComponents = memoizeMarkdownComponents({
-  // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key
-  SyntaxHighlighter: SyntaxHighlighterComponent,
   // biome-ignore lint/style/useNamingConvention: assistant-ui expects "CodeHeader" key
   CodeHeader,
+  // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key
+  SyntaxHighlighter: SyntaxHighlighterComponent,
 });

@@ -136,22 +136,22 @@ export function createEmbeddingHostCommand(
     }
     const normalizedNextRuntimeId = nextRuntimeId.trim();
     return {
-      type: 'request',
       channel: 'control',
+      payload: { action, nextRuntimeId: normalizedNextRuntimeId },
       requestId: createRequestId('embedding-host-command'),
       runtimeId: normalizedRuntimeId,
-      payload: { action, nextRuntimeId: normalizedNextRuntimeId },
+      type: 'request',
     };
   }
   if (nextRuntimeId !== undefined) {
     throw new Error('Embedding host stop commands must not include nextRuntimeId.');
   }
   return {
-    type: 'request',
     channel: 'control',
+    payload: { action },
     requestId: createRequestId('embedding-host-command'),
     runtimeId: normalizedRuntimeId,
-    payload: { action },
+    type: 'request',
   };
 }
 
@@ -176,22 +176,22 @@ export function assertEmbeddingHostCommand(value: unknown): EmbeddingHostCommand
       throw new Error('Embedding host reset commands require a non-empty payload.nextRuntimeId.');
     }
     return {
-      type: 'request',
       channel: 'control',
+      payload: { action, nextRuntimeId: nextRuntimeId.trim() },
       requestId: envelopeBase.requestId,
       runtimeId: envelopeBase.runtimeId,
-      payload: { action, nextRuntimeId: nextRuntimeId.trim() },
+      type: 'request',
     };
   }
   if ('nextRuntimeId' in payload) {
     throw new Error('Embedding host stop commands must not include payload.nextRuntimeId.');
   }
   return {
-    type: 'request',
     channel: 'control',
+    payload: { action },
     requestId: envelopeBase.requestId,
     runtimeId: envelopeBase.runtimeId,
-    payload: { action },
+    type: 'request',
   };
 }
 
@@ -238,12 +238,12 @@ function assertEmbeddingHostRuntimeMetadata(value: unknown): EmbeddingHostRuntim
   }
   const actualWorkerMetadata = candidate['actualWorkerMetadata'];
   return {
-    selectedDevicePreference,
-    backendMismatch,
     actualWorkerMetadata:
       actualWorkerMetadata === null
         ? null
         : assertEmbeddingWorkerRuntimeMetadata(actualWorkerMetadata),
+    backendMismatch,
+    selectedDevicePreference,
   };
 }
 
@@ -296,11 +296,11 @@ export function createEmbeddingHostQueryEmbeddingRequest(
     throw new Error('Embedding host query embedding runtimeId must be a non-empty string.');
   }
   return {
-    type: 'request',
     channel: 'query-embedding',
+    payload,
     requestId: createRequestId('embedding-host-query'),
     runtimeId: normalizedRuntimeId,
-    payload,
+    type: 'request',
   };
 }
 
@@ -312,17 +312,17 @@ export function assertEmbeddingHostQueryEmbeddingPayload(
   }
   const payload = value as Record<string, unknown>;
   return {
-    modelKey: assertNonEmptyString(
-      payload['modelKey'],
-      'Embedding host query embedding payload.modelKey must be a non-empty string.'
+    dimensions: assertPositiveInteger(
+      payload['dimensions'],
+      'Embedding host query embedding payload.dimensions must be a positive integer.'
     ),
     modelId: assertNonEmptyString(
       payload['modelId'],
       'Embedding host query embedding payload.modelId must be a non-empty string.'
     ),
-    dimensions: assertPositiveInteger(
-      payload['dimensions'],
-      'Embedding host query embedding payload.dimensions must be a positive integer.'
+    modelKey: assertNonEmptyString(
+      payload['modelKey'],
+      'Embedding host query embedding payload.modelKey must be a non-empty string.'
     ),
     query: assertNonEmptyString(
       payload['query'],
@@ -345,11 +345,11 @@ export function assertEmbeddingHostQueryEmbeddingRequest(
     throw new Error('Embedding host query embedding request must have channel="query-embedding".');
   }
   return {
-    type: 'request',
     channel: 'query-embedding',
+    payload: assertEmbeddingHostQueryEmbeddingPayload(payload),
     requestId: envelopeBase.requestId,
     runtimeId: envelopeBase.runtimeId,
-    payload: assertEmbeddingHostQueryEmbeddingPayload(payload),
+    type: 'request',
   };
 }
 
@@ -358,11 +358,11 @@ export function createEmbeddingHostQueryEmbeddingResultReport(
   embedding: number[]
 ): EmbeddingHostQueryEmbeddingResultReport {
   return {
-    type: 'result',
     channel: 'query-embedding-result',
+    payload: { embedding },
     requestId: request.requestId,
     runtimeId: request.runtimeId,
-    payload: { embedding },
+    type: 'result',
   };
 }
 
@@ -371,11 +371,11 @@ export function createEmbeddingHostQueryEmbeddingErrorReport(
   error: unknown
 ): EmbeddingHostQueryEmbeddingErrorReport {
   return {
-    type: 'error',
     channel: 'query-embedding-error',
+    payload: serializeRuntimeError(error),
     requestId: request.requestId,
     runtimeId: request.runtimeId,
-    payload: serializeRuntimeError(error),
+    type: 'error',
   };
 }
 
@@ -393,13 +393,13 @@ export function assertEmbeddingHostQueryEmbeddingResponseReport(
       );
     }
     return {
-      type: 'result',
       channel: 'query-embedding-result',
-      requestId: envelopeBase.requestId,
-      runtimeId: envelopeBase.runtimeId,
       payload: {
         embedding: assertEmbeddingVector(payload['embedding']),
       },
+      requestId: envelopeBase.requestId,
+      runtimeId: envelopeBase.runtimeId,
+      type: 'result',
     };
   }
   if (envelopeBase.type === 'error') {
@@ -409,23 +409,23 @@ export function assertEmbeddingHostQueryEmbeddingResponseReport(
       );
     }
     return {
-      type: 'error',
       channel: 'query-embedding-error',
-      requestId: envelopeBase.requestId,
-      runtimeId: envelopeBase.runtimeId,
       payload: {
-        name:
-          typeof payload['name'] === 'string' && payload['name'].trim().length > 0
-            ? payload['name']
-            : 'Error',
         message: assertNonEmptyString(
           payload['message'],
           'Embedding host query embedding error payload.message must be a non-empty string.'
         ),
+        name:
+          typeof payload['name'] === 'string' && payload['name'].trim().length > 0
+            ? payload['name']
+            : 'Error',
         ...(typeof payload['stack'] === 'string' ? { stack: payload['stack'] } : {}),
         ...(typeof payload['code'] === 'string' ? { code: payload['code'] } : {}),
         ...(typeof payload['cause'] === 'string' ? { cause: payload['cause'] } : {}),
       },
+      requestId: envelopeBase.requestId,
+      runtimeId: envelopeBase.runtimeId,
+      type: 'error',
     };
   }
   throw new Error('Embedding host query embedding response must have type="result" or "error".');

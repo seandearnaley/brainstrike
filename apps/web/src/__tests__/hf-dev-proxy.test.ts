@@ -54,13 +54,16 @@ class ResponseSink extends EventEmitter {
 
 function createMockRequest(
   url: string,
-  options?: { method?: string; headers?: Record<string, string> }
+  options?: { method?: string; headers?: Record<string, string>; trustedSignal?: boolean }
 ): http.IncomingMessage {
   const emitter = new EventEmitter();
   return Object.assign(emitter, {
-    url,
+    headers: {
+      ...(options?.trustedSignal === false ? {} : { 'sec-fetch-site': 'same-origin' }),
+      ...(options?.headers ?? {}),
+    },
     method: options?.method ?? 'GET',
-    headers: options?.headers ?? {},
+    url,
   }) as unknown as http.IncomingMessage;
 }
 
@@ -112,8 +115,8 @@ function createStreamingFetchMock(
     });
     return Promise.resolve(
       new Response(stream, {
-        status: 200,
         headers: { 'content-type': 'application/octet-stream' },
+        status: 200,
       })
     );
   });
@@ -198,12 +201,12 @@ describe('hf dev proxy', () => {
       const bodyContent = JSON.stringify({ image_processor_type: 'Gemma4ImageProcessor' });
       fetchMock.mockResolvedValue(
         new Response(bodyContent, {
-          status: 200,
           headers: {
-            'content-type': 'application/json; charset=utf-8',
             'content-length': String(bodyContent.length),
+            'content-type': 'application/json; charset=utf-8',
             etag: '"abc123"',
           },
+          status: 200,
         })
       );
       vi.stubGlobal('fetch', fetchMock);
@@ -233,11 +236,11 @@ describe('hf dev proxy', () => {
       const finalContent = '{"image_processor_type": "Gemma4ImageProcessor"}';
       fetchMock.mockResolvedValue(
         new Response(finalContent, {
-          status: 200,
           headers: {
-            'content-type': 'application/json',
             'content-length': String(finalContent.length),
+            'content-type': 'application/json',
           },
+          status: 200,
         })
       );
       vi.stubGlobal('fetch', fetchMock);
@@ -265,8 +268,8 @@ describe('hf dev proxy', () => {
         {
           headers: {
             accept: 'application/octet-stream',
-            'if-none-match': '"etag-value"',
             'if-modified-since': 'Mon, 01 Jan 2024 00:00:00 GMT',
+            'if-none-match': '"etag-value"',
             range: 'bytes=0-1023',
           },
         }
@@ -311,6 +314,41 @@ describe('hf dev proxy', () => {
       expect(res.ended).toBe(true);
     });
 
+    it('rejects cross-site browser requests before proxying to Hugging Face', async () => {
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = createMockRequest(
+        '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/config.json',
+        {
+          headers: {
+            host: 'localhost:8080',
+            origin: 'https://attacker.example',
+            'sec-fetch-site': 'cross-site',
+          },
+        }
+      );
+      const res = new ResponseSink();
+      await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(403);
+      expect(res.body()).toBe('Forbidden Hugging Face proxy request.');
+    });
+
+    it('rejects requests without a trusted browser signal before proxying', async () => {
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = createMockRequest(
+        '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/config.json',
+        { trustedSignal: false }
+      );
+      const res = new ResponseSink();
+      await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(403);
+    });
+
     it('returns 502 when the upstream fetch throws', async () => {
       fetchMock.mockRejectedValue(new Error('socket hang up'));
       vi.stubGlobal('fetch', fetchMock);
@@ -339,7 +377,12 @@ describe('hf dev proxy', () => {
     });
 
     it('sets no-store cache-control on non-ok responses', async () => {
-      fetchMock.mockResolvedValue(new Response('not found', { status: 404 }));
+      fetchMock.mockResolvedValue(
+        new Response('not found', {
+          headers: { 'cache-control': 'public, max-age=31536000, immutable' },
+          status: 404,
+        })
+      );
       vi.stubGlobal('fetch', fetchMock);
 
       const req = createMockRequest(
@@ -348,14 +391,15 @@ describe('hf dev proxy', () => {
       const res = new ResponseSink();
       await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
 
+      expect(res.statusCode).toBe(404);
       expect(res.headers['cache-control']).toBe('no-store');
     });
 
-    it('preserves existing cache-control from upstream', async () => {
+    it('preserves existing cache-control from upstream not-modified responses', async () => {
       fetchMock.mockResolvedValue(
-        new Response('ok', {
-          status: 200,
-          headers: { 'cache-control': 'public, max-age=60' },
+        new Response(null, {
+          headers: { 'cache-control': 'public, max-age=60', etag: '"cached"' },
+          status: 304,
         })
       );
       vi.stubGlobal('fetch', fetchMock);
@@ -366,14 +410,15 @@ describe('hf dev proxy', () => {
       const res = new ResponseSink();
       await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
 
+      expect(res.statusCode).toBe(304);
       expect(res.headers['cache-control']).toBe('public, max-age=60');
     });
 
     it('handles HEAD requests', async () => {
       fetchMock.mockResolvedValue(
         new Response(null, {
-          status: 200,
           headers: { 'content-length': '12345', etag: '"head-test"' },
+          status: 200,
         })
       );
       vi.stubGlobal('fetch', fetchMock);
@@ -468,8 +513,8 @@ describe('hf dev proxy', () => {
       const bodyContent = 'chunk-data';
       fetchMock.mockResolvedValue(
         new Response(bodyContent, {
-          status: 200,
           headers: { 'content-type': 'application/octet-stream' },
+          status: 200,
         })
       );
       vi.stubGlobal('fetch', fetchMock);

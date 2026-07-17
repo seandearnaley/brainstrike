@@ -17,7 +17,7 @@ import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
 import { escapeLikeLiteral, extractTrigramLiteral } from './grep-pattern.js';
 
 export interface GrepSearchRepository {
-  findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]>;
+  findGrepCandidates: (options: GrepCandidateOptions) => Promise<GrepCandidate[]>;
 }
 
 export interface GrepSearchOptions {
@@ -39,11 +39,19 @@ export interface GrepSearchOptions {
   pattern: string;
   /** Optional workspace-root filter (file_records.root_id). */
   rootId?: string;
+  /** Optional multi-root workspace filter (file_records.root_id ∈ rootIds). */
+  rootIds?: readonly string[];
 }
 
 export interface GrepMatch {
   after: string[];
   before: string[];
+  /** 1-based last line of the containing chunk within its file. */
+  chunkEndLine?: number;
+  /** Owning chunk id (file_chunks.id). */
+  chunkId?: string;
+  /** 1-based first line of the containing chunk within its file. */
+  chunkStartLine?: number;
   line: number;
   lineText: string;
   path: string;
@@ -79,7 +87,7 @@ const MIN_PATTERN_LENGTH = 2;
  * match", never a forked weaker copy.
  */
 export interface LineMatcher {
-  matches(line: string): boolean;
+  matches: (line: string) => boolean;
 }
 
 function buildLiteralMatcher(pattern: string, caseSensitive: boolean): LineMatcher {
@@ -153,11 +161,11 @@ export function collectGrepMatchesInContent(args: {
       continue;
     }
     matches.push({
-      path: args.path,
+      after: lines.slice(index + 1, index + 1 + args.contextLines),
+      before: lines.slice(Math.max(0, index - args.contextLines), index),
       line: args.startLine + index,
       lineText,
-      before: lines.slice(Math.max(0, index - args.contextLines), index),
-      after: lines.slice(index + 1, index + 1 + args.contextLines),
+      path: args.path,
       ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
       ...(args.rootName === undefined ? {} : { rootName: args.rootName }),
     });
@@ -207,11 +215,14 @@ function processCandidate(
     accumulator.seen.add(key);
     accumulator.totalMatches += 1;
     accumulator.matches.push({
-      path: candidate.filePath,
+      after: lines.slice(index + 1, index + 1 + contextLines),
+      before: lines.slice(Math.max(0, index - contextLines), index),
+      chunkId: candidate.chunkId,
+      chunkStartLine: candidate.startLine,
       line: absoluteLine,
       lineText,
-      before: lines.slice(Math.max(0, index - contextLines), index),
-      after: lines.slice(index + 1, index + 1 + contextLines),
+      path: candidate.filePath,
+      ...(candidate.endLine === null ? {} : { chunkEndLine: candidate.endLine }),
       ...(candidate.rootId === undefined ? {} : { rootId: candidate.rootId }),
       ...(candidate.rootName === undefined ? {} : { rootName: candidate.rootName }),
     });
@@ -240,12 +251,13 @@ export class GrepSearchService {
     const likePattern = resolveLikePattern(pattern, isRegex);
 
     const candidateOptions: GrepCandidateOptions = {
-      likePattern,
       caseSensitive,
+      likePattern,
       limit: candidateLimit,
       ...(options.embeddingSetId === undefined ? {} : { embeddingSetId: options.embeddingSetId }),
       ...(options.filePaths === undefined ? {} : { filePaths: options.filePaths }),
       ...(options.rootId === undefined ? {} : { rootId: options.rootId }),
+      ...(options.rootIds === undefined ? {} : { rootIds: options.rootIds }),
     };
     const candidates = await this.repository.findGrepCandidates(candidateOptions);
 
@@ -272,12 +284,12 @@ export class GrepSearchService {
     const capped = accumulator.matches.slice(0, maxResults);
 
     return {
+      candidatesTruncated: candidates.length >= candidateLimit,
       matches: capped,
+      scanLimited: likePattern === null,
+      skippedMissingLineMetadata: accumulator.skippedMissingLineMetadata,
       totalMatches: accumulator.totalMatches,
       truncated: accumulator.totalMatches > capped.length,
-      scanLimited: likePattern === null,
-      candidatesTruncated: candidates.length >= candidateLimit,
-      skippedMissingLineMetadata: accumulator.skippedMissingLineMetadata,
     };
   }
 }

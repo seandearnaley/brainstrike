@@ -30,8 +30,8 @@ vi.mock('@brainstrike/hooks', async () => {
 vi.mock('../preview/use-preview-panel-state', () => ({
   formatTokenCount: (tokens: number) => tokens.toString(),
   usePreviewPanelState: () => ({
-    totalStats: { totalFiles: 1, totalTokens: 0 },
     flatListItems: [],
+    totalStats: { totalFiles: 1, totalTokens: 0 },
   }),
 }));
 
@@ -56,56 +56,56 @@ vi.mock('lucide-react', async (importOriginal) => {
 describe('File Explorer Integration Tests', () => {
   const mockFiles: IFileNode[] = [
     {
-      name: 'src',
-      path: '/src',
-      type: 'directory',
-      handle: {} as FileSystemDirectoryHandle,
-      depth: 0,
-      selectionState: 'unchecked',
-      rootFolderId: 'test-folder',
       children: [
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
           name: 'index.ts',
           path: '/src/index.ts',
-          type: 'file',
-          size: 1024,
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'test-folder',
+          selectionState: 'unchecked',
+          size: 1024,
+          type: 'file',
         },
         {
-          name: 'components',
-          path: '/src/components',
-          type: 'directory',
-          handle: {} as FileSystemDirectoryHandle,
-          depth: 1,
-          selectionState: 'unchecked',
-          rootFolderId: 'test-folder',
           children: [
             {
+              depth: 2,
+              handle: {} as FileSystemFileHandle,
               name: 'Button.tsx',
               path: '/src/components/Button.tsx',
-              type: 'file',
-              size: 2048,
-              handle: {} as FileSystemFileHandle,
-              depth: 2,
-              selectionState: 'unchecked',
               rootFolderId: 'test-folder',
+              selectionState: 'unchecked',
+              size: 2048,
+              type: 'file',
             },
           ],
+          depth: 1,
+          handle: {} as FileSystemDirectoryHandle,
+          name: 'components',
+          path: '/src/components',
+          rootFolderId: 'test-folder',
+          selectionState: 'unchecked',
+          type: 'directory',
         },
       ],
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      name: 'src',
+      path: '/src',
+      rootFolderId: 'test-folder',
+      selectionState: 'unchecked',
+      type: 'directory',
     },
     {
+      depth: 0,
+      handle: {} as FileSystemFileHandle,
       name: 'package.json',
       path: '/package.json',
-      type: 'file',
-      size: 512,
-      handle: {} as FileSystemFileHandle,
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: 'test-folder',
+      selectionState: 'unchecked',
+      size: 512,
+      type: 'file',
     },
   ];
 
@@ -165,10 +165,10 @@ describe('File Explorer Integration Tests', () => {
             performUndoableAction={() => {}}
             selectedFiles={selectedFiles}
             tokenCounting={{
+              countTokens: async () => 100,
+              loading: false,
               mode: 'accurate',
               reason: null,
-              loading: false,
-              countTokens: async () => 100,
             }}
           />
         </div>

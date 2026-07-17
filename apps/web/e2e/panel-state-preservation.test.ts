@@ -12,19 +12,19 @@ import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 test.describe('Panel State Preservation', () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
+      'README.md': null,
       src: {
         components: {
           'Button.tsx': null,
           'Input.tsx': null,
         },
+        'index.ts': null,
         utils: {
           'helpers.ts': null,
         },
-        'index.ts': null,
       },
       'test.ts': null,
       'test2.ts': null,
-      'README.md': null,
     };
 
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });

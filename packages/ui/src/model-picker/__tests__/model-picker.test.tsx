@@ -23,7 +23,7 @@ const mockSetTheme = vi.fn();
 
 vi.mock('../../theme-provider', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useTheme: () => ({ theme: mockTheme, setTheme: mockSetTheme }),
+  useTheme: () => ({ setTheme: mockSetTheme, theme: mockTheme }),
 }));
 
 const providers: ModelPickerProvider[] = [
@@ -32,20 +32,36 @@ const providers: ModelPickerProvider[] = [
 ];
 
 const models: ModelPickerModel[] = [
-  { id: 'gpt-5.2', name: 'GPT-5.2', providerId: 'openai', capabilities: { type: 'llm' } },
   {
+    capabilities: { streaming: true, type: 'llm' },
+    contextWindow: 128_000,
+    description: 'Fast general-purpose reasoning model',
+    id: 'gpt-5.2',
+    name: 'GPT-5.2',
+    providerId: 'openai',
+  },
+  {
+    capabilities: { type: 'llm' },
     id: 'claude-sonnet-4-6',
     name: 'Claude Sonnet 4.6',
     providerId: 'anthropic',
-    capabilities: { type: 'llm' },
   },
   {
+    capabilities: { type: 'embedding' },
+    contextWindow: 2_000_000,
     id: 'text-embedding',
     name: 'Text Embedding',
     providerId: 'openai',
-    capabilities: { type: 'embedding' },
   },
 ];
+
+const compactModel: ModelPickerModel = {
+  capabilities: { type: 'llm' },
+  contextWindow: 512,
+  id: 'compact-model',
+  name: 'Compact Model',
+  providerId: 'openai',
+};
 
 describe('ModelPicker', () => {
   beforeEach(() => {
@@ -100,6 +116,12 @@ describe('ModelPicker', () => {
     it('displays selected model in trigger', () => {
       render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
       expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+    });
+
+    it('gives the selected model a provider-aware accessible name', () => {
+      render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
+
+      expect(screen.getByRole('combobox')).toHaveAccessibleName(/GPT-5\.2.*OpenAI/i);
     });
 
     it('handles multi-select mode - adds selection', () => {
@@ -198,6 +220,32 @@ describe('ModelPicker', () => {
         expect(screen.queryByText('GPT-5.2')).not.toBeInTheDocument();
       });
     });
+
+    it('clears a stale search query after the picker closes', async () => {
+      render(<ModelPicker models={models} providers={providers} searchable />);
+      fireEvent.click(screen.getByRole('combobox'));
+      fireEvent.change(screen.getByPlaceholderText('Search models...'), {
+        target: { value: 'claude' },
+      });
+      fireEvent.click(screen.getByText('Claude Sonnet 4.6'));
+      fireEvent.click(screen.getByRole('combobox'));
+
+      expect(screen.getByPlaceholderText('Search models...')).toHaveValue('');
+      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+    });
+
+    it('clears a stale search query when Escape closes the picker', () => {
+      render(<ModelPicker models={models} providers={providers} searchable />);
+      fireEvent.click(screen.getByRole('combobox'));
+      fireEvent.change(screen.getByPlaceholderText('Search models...'), {
+        target: { value: 'claude' },
+      });
+      fireEvent.keyDown(screen.getByPlaceholderText('Search models...'), { key: 'Escape' });
+      fireEvent.click(screen.getByRole('combobox'));
+
+      expect(screen.getByPlaceholderText('Search models...')).toHaveValue('');
+      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+    });
   });
 
   describe('theme handling', () => {
@@ -216,8 +264,8 @@ describe('ModelPicker', () => {
     it('handles system theme with light preference', () => {
       mockTheme = 'system';
       const matchMedia = vi.fn().mockImplementation(() => ({
-        matches: false,
         addEventListener: vi.fn(),
+        matches: false,
         removeEventListener: vi.fn(),
       }));
       window.matchMedia = matchMedia;
@@ -229,8 +277,8 @@ describe('ModelPicker', () => {
     it('handles system theme with dark preference', () => {
       mockTheme = 'system';
       const matchMedia = vi.fn().mockImplementation(() => ({
-        matches: true,
         addEventListener: vi.fn(),
+        matches: true,
         removeEventListener: vi.fn(),
       }));
       window.matchMedia = matchMedia;
@@ -270,11 +318,11 @@ describe('ModelPicker', () => {
       );
       expect(renderTrigger).toHaveBeenCalledWith(
         expect.objectContaining({
-          value: 'gpt-5.2',
-          placeholder: 'Select',
           disabled: true,
           models,
+          placeholder: 'Select',
           providers,
+          value: 'gpt-5.2',
         })
       );
     });
@@ -304,28 +352,51 @@ describe('ModelPicker', () => {
       expect(openAiHeading).not.toBeNull();
       expect(within(openAiHeading as HTMLElement).getByText('1')).toBeInTheDocument();
     });
+
+    it('shows useful model metadata in consistently labelled rows', () => {
+      render(<ModelPicker models={models} modelType="llm" providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      const option = screen.getByRole('option', { name: /GPT-5\.2/i });
+      expect(within(option).getByText('128K context')).toBeInTheDocument();
+      expect(within(option).getByText('Streaming')).toBeInTheDocument();
+    });
+
+    it('formats sub-thousand context windows', () => {
+      render(<ModelPicker models={[compactModel]} providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      expect(screen.getByText('512 context')).toBeInTheDocument();
+    });
+
+    it('formats million-token context windows', () => {
+      render(<ModelPicker models={models} modelType="embedding" providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      expect(screen.getByText('2M context')).toBeInTheDocument();
+    });
   });
 
   describe('local embedding models (BST-299 regression)', () => {
     // Test data that mimics what ManageEmbeddingSetsDialog produces
     const localEmbeddingModels: ModelPickerModel[] = [
       {
+        capabilities: { defaultDimension: 384, type: 'embedding' },
         id: 'Xenova/all-MiniLM-L6-v2',
         name: 'all-MiniLM-L6-v2',
         providerId: 'local',
-        capabilities: { type: 'embedding', defaultDimension: 384 },
       },
       {
+        capabilities: { defaultDimension: 384, type: 'embedding' },
         id: 'Xenova/bge-small-en-v1.5',
         name: 'BGE Small',
         providerId: 'local',
-        capabilities: { type: 'embedding', defaultDimension: 384 },
       },
       {
+        capabilities: { defaultDimension: 1536, type: 'embedding' },
         id: 'openai::text-embedding-3-small',
         name: 'Text Embedding 3 Small',
         providerId: 'openai',
-        capabilities: { type: 'embedding', defaultDimension: 1536 },
       },
     ];
 

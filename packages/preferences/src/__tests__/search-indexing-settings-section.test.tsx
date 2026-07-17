@@ -36,19 +36,19 @@ describe('SearchIndexingSettingsSection', () => {
     __resetWorkspaceCollectionSyncStatusStoreForTests();
     findAllMock.mockResolvedValue([
       {
+        createdAt: new Date().toISOString(),
         id: 'set-1',
-        name: 'Managed Cache',
         modelId: 'text-embedding-3-small',
         modelKey: 'openai::text-embedding-3-small',
-        createdAt: new Date().toISOString(),
+        name: 'Managed Cache',
       },
     ]);
     getByIdMock.mockResolvedValue({
+      createdAt: new Date().toISOString(),
       id: 'set-1',
-      name: 'Managed Cache',
       modelId: 'text-embedding-3-small',
       modelKey: 'openai::text-embedding-3-small',
-      createdAt: new Date().toISOString(),
+      name: 'Managed Cache',
     });
   });
 
@@ -80,10 +80,10 @@ describe('SearchIndexingSettingsSection', () => {
 
   it('shows missing OpenAI key as a blocked Workspace Index setup state', async () => {
     useWorkspaceCollectionSyncStatusStore.setState({
-      state: 'blocked',
       blockedReason: 'missing-provider-key',
-      managedCollectionName: 'Workspace Index',
       lastError: 'OpenAI API key not configured.',
+      managedCollectionName: 'Workspace Index',
+      state: 'blocked',
     });
 
     render(<SearchIndexingSettingsSection />);
@@ -94,9 +94,9 @@ describe('SearchIndexingSettingsSection', () => {
 
   it('shows recovering status when reattaching to an in-flight background backfill', async () => {
     useWorkspaceCollectionSyncStatusStore.setState({
-      state: 'recovering',
-      managedCollectionName: 'Managed Cache',
       backfillRequestId: 'background-indexing-backfill:test',
+      managedCollectionName: 'Managed Cache',
+      state: 'recovering',
     });
 
     render(<SearchIndexingSettingsSection />);
@@ -106,8 +106,8 @@ describe('SearchIndexingSettingsSection', () => {
 
   it('toggles the manual pause control', async () => {
     useWorkspaceCollectionSyncStatusStore.setState({
-      state: 'embedding',
       managedCollectionName: 'Managed Cache',
+      state: 'embedding',
     });
 
     render(<SearchIndexingSettingsSection />);
@@ -138,8 +138,8 @@ describe('SearchIndexingSettingsSection', () => {
       managedCollectionId: 'set-1',
     });
     useWorkspaceCollectionSyncStatusStore.setState({
-      state: 'idle',
       managedCollectionName: 'Managed Cache',
+      state: 'idle',
     });
 
     render(<SearchIndexingSettingsSection />);
@@ -155,9 +155,9 @@ describe('SearchIndexingSettingsSection', () => {
       paused: true,
     });
     useWorkspaceCollectionSyncStatusStore.setState({
-      state: 'error',
-      managedCollectionName: 'Workspace Index',
       lastError: 'Root folder not selected.',
+      managedCollectionName: 'Workspace Index',
+      state: 'error',
     });
 
     render(<SearchIndexingSettingsSection />);
@@ -173,9 +173,9 @@ describe('SearchIndexingSettingsSection', () => {
       paused: false,
     });
     useWorkspaceCollectionSyncStatusStore.setState({
-      state: 'error',
-      managedCollectionName: 'Workspace Index',
       lastError: 'Root folder not selected.',
+      managedCollectionName: 'Workspace Index',
+      state: 'error',
     });
 
     render(<SearchIndexingSettingsSection />);
@@ -187,18 +187,18 @@ describe('SearchIndexingSettingsSection', () => {
   it('preserves the managed collection through a transient empty collection list', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: 'set-1',
       mode: 'root-folder-cache',
-      hasHydrated: true,
     });
     findAllMock.mockResolvedValueOnce([]);
     getByIdMock.mockResolvedValueOnce({
+      createdAt: new Date().toISOString(),
       id: 'set-1',
-      name: 'Managed Cache',
       modelId: 'text-embedding-3-small',
       modelKey: 'openai::text-embedding-3-small',
-      createdAt: new Date().toISOString(),
+      name: 'Managed Cache',
     });
 
     render(<SearchIndexingSettingsSection />);
@@ -212,10 +212,10 @@ describe('SearchIndexingSettingsSection', () => {
   it('clears a stale managed collection selection only after repository lookup confirms it is missing', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: 'set-stale',
       mode: 'root-folder-cache',
-      hasHydrated: true,
     });
     findAllMock.mockResolvedValueOnce([]);
     getByIdMock.mockResolvedValue(null);

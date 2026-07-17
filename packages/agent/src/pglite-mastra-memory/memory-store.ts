@@ -31,7 +31,13 @@ import {
   type AssistantRunEventStatus,
   emitAssistantRunEventSafely,
 } from '../run-events';
-import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from './sql';
+import {
+  DEFAULT_THREAD_TITLE,
+  MASTRA_MEMORY_SCHEMA_SQL,
+  MASTRA_MEMORY_TABLES,
+  THREAD_TITLE_SOURCE_METADATA_KEY,
+  THREAD_TITLE_SOURCE_OM,
+} from './sql';
 import type { PgliteDatabase, PgliteQueryValue } from './types';
 
 const logger = createLogger('PgliteMemoryStore');
@@ -125,6 +131,41 @@ const DEFAULT_MESSAGES_PER_PAGE = 40;
 const THREAD_ORDER_FIELDS = new Set<ThreadOrderBy>(['createdAt', 'updatedAt']);
 const THREAD_ORDER_DIRECTIONS = new Set<ThreadSortDirection>(['ASC', 'DESC']);
 
+function isEmptyThreadTitle(title: string | null | undefined): boolean {
+  return title === null || title === undefined || title.trim() === '';
+}
+
+function hasOmTitleMarker(metadata: Record<string, unknown> | undefined): boolean {
+  return metadata?.[THREAD_TITLE_SOURCE_METADATA_KEY] === THREAD_TITLE_SOURCE_OM;
+}
+
+/**
+ * Decide whether an `updateThread` write may replace the stored title.
+ * Overwritable when the existing title is empty (never set), carries the
+ * `titleSource: 'om'` marker (a seeded placeholder or a prior auto-title
+ * write), or is the literal `DEFAULT_THREAD_TITLE` with no marker at all —
+ * never when it is any other title the user explicitly set, which is
+ * written through the dedicated raw-SQL rename path that clears the marker.
+ *
+ * The `DEFAULT_THREAD_TITLE` fallback is a legacy back-compat allowance:
+ * threads seeded before the OM marker existed have title 'New Thread' and
+ * no `titleSource` metadata at all, so without it they would read as
+ * user-owned forever and never receive an automatic title. Accepted
+ * tradeoff: a user who manually renames a thread to exactly
+ * 'New Thread' loses that title to the next auto-title write — negligible
+ * relative to unblocking every pre-existing thread.
+ */
+function canOverwriteThreadTitle(existing: StorageThreadType | null): boolean {
+  if (!existing) {
+    return true;
+  }
+  return (
+    isEmptyThreadTitle(existing.title) ||
+    hasOmTitleMarker(existing.metadata) ||
+    existing.title === DEFAULT_THREAD_TITLE
+  );
+}
+
 /** Inline run-event detail like "12 messages" / "1 record". */
 function formatCountDetail(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -198,13 +239,13 @@ function normalizePage(value: number | undefined): number {
 
 function pagination(total: number, page: number, perPage: number | false) {
   if (perPage === false) {
-    return { total, page: 0, perPage, hasMore: false };
+    return { hasMore: false, page: 0, perPage, total };
   }
   return {
-    total,
+    hasMore: (page + 1) * perPage < total,
     page,
     perPage,
-    hasMore: (page + 1) * perPage < total,
+    total,
   };
 }
 
@@ -342,10 +383,10 @@ function appendLimit(
 
 function threadFromRow(row: ThreadRow): StorageThreadType {
   const thread: StorageThreadType = {
+    createdAt: toDate(row.createdAt),
     id: row.id,
     resourceId: row.resourceId,
     title: row.title,
-    createdAt: toDate(row.createdAt),
     updatedAt: toDate(row.updatedAt),
   };
   const metadata = parseJsonRecord(row.metadata);
@@ -357,20 +398,20 @@ function threadFromRow(row: ThreadRow): StorageThreadType {
 
 function messageFromRow(row: MessageRow): MastraDBMessage {
   return {
+    content: parseMessageContent(row.content),
+    createdAt: toDate(row.createdAt),
     id: row.id,
     role: row.role,
-    type: row.type,
     threadId: row.threadId,
-    createdAt: toDate(row.createdAt),
-    content: parseMessageContent(row.content),
+    type: row.type,
     ...(row.resourceId === null ? {} : { resourceId: row.resourceId }),
   } as MastraDBMessage;
 }
 
 function resourceFromRow(row: ResourceRow): StorageResourceType {
   const resource: StorageResourceType = {
-    id: row.id,
     createdAt: toDate(row.createdAt),
+    id: row.id,
     updatedAt: toDate(row.updatedAt),
   };
   if (row.workingMemory !== null) {
@@ -402,25 +443,25 @@ function normalizeBufferedChunks(
 
 function observationalMemoryFromRow(row: ObservationalMemoryRow): ObservationalMemoryRecord {
   const record: ObservationalMemoryRecord = {
-    id: row.id,
-    scope: row.scope,
-    threadId: row.threadId,
-    resourceId: row.resourceId ?? '',
-    createdAt: toDate(row.createdAt),
-    updatedAt: toDate(row.updatedAt),
-    originType: row.originType,
-    generationCount: row.generationCount,
     activeObservations: row.activeObservations,
-    totalTokensObserved: row.totalTokensObserved,
-    observationTokenCount: row.observationTokenCount,
-    pendingMessageTokens: row.pendingMessageTokens,
-    isReflecting: row.isReflecting,
-    isObserving: row.isObserving,
+    config: parseJsonRecord(row.config) ?? {},
+    createdAt: toDate(row.createdAt),
+    generationCount: row.generationCount,
+    id: row.id,
     isBufferingObservation: row.isBufferingObservation,
     isBufferingReflection: row.isBufferingReflection,
-    lastBufferedAtTokens: row.lastBufferedAtTokens,
+    isObserving: row.isObserving,
+    isReflecting: row.isReflecting,
     lastBufferedAtTime: row.lastBufferedAtTime ? toDate(row.lastBufferedAtTime) : null,
-    config: parseJsonRecord(row.config) ?? {},
+    lastBufferedAtTokens: row.lastBufferedAtTokens,
+    observationTokenCount: row.observationTokenCount,
+    originType: row.originType,
+    pendingMessageTokens: row.pendingMessageTokens,
+    resourceId: row.resourceId ?? '',
+    scope: row.scope,
+    threadId: row.threadId,
+    totalTokensObserved: row.totalTokensObserved,
+    updatedAt: toDate(row.updatedAt),
   };
   const lastObservedAt = toOptionalDate(row.lastObservedAt);
   if (lastObservedAt) {
@@ -514,12 +555,12 @@ function chooseBufferedActivationCount(
 
 function emptyBufferedActivation(): SwapBufferedToActiveResult {
   return {
-    chunksActivated: 0,
-    messageTokensActivated: 0,
-    observationTokensActivated: 0,
-    messagesActivated: 0,
     activatedCycleIds: [],
     activatedMessageIds: [],
+    chunksActivated: 0,
+    messagesActivated: 0,
+    messageTokensActivated: 0,
+    observationTokensActivated: 0,
   };
 }
 
@@ -602,6 +643,16 @@ export class PgliteMemoryStore extends MemoryStorage {
   }
 
   override async saveThread({ thread }: { thread: StorageThreadType }): Promise<StorageThreadType> {
+    // Mastra's own thread bootstrap always supplies a title (typically '');
+    // an omitted title is a defensive fallback, and — like the seeded
+    // placeholder our own repository writes — is system content, not
+    // user-chosen, so it carries the OM marker to stay auto-title eligible.
+    const providedTitle = thread.title;
+    const title = providedTitle ?? DEFAULT_THREAD_TITLE;
+    const metadata =
+      providedTitle === undefined || providedTitle === null
+        ? { ...thread.metadata, [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM }
+        : thread.metadata;
     await this.database.query(
       `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
         (id, "resourceId", title, metadata, "createdAt", "updatedAt")
@@ -615,8 +666,8 @@ export class PgliteMemoryStore extends MemoryStorage {
       [
         thread.id,
         thread.resourceId,
-        thread.title ?? 'New Thread',
-        toJsonString(thread.metadata),
+        title,
+        toJsonString(metadata),
         thread.createdAt,
         thread.updatedAt,
       ]
@@ -637,12 +688,40 @@ export class PgliteMemoryStore extends MemoryStorage {
     title: string;
     metadata: Record<string, unknown>;
   }): Promise<StorageThreadType> {
+    const existing = await this.getThreadById({ threadId: id });
+    const existingTitle = existing?.title ?? '';
+    const canOverwrite = canOverwriteThreadTitle(existing);
+    const effectiveTitle = canOverwrite ? title : existingTitle;
+    const titleChanged = effectiveTitle.trim() !== existingTitle.trim();
+
+    if (existing && !canOverwrite && title.trim() !== existingTitle.trim()) {
+      // The observational-memory thread-title extractor is the only actor that
+      // writes titles through this adapter; manual rename uses a dedicated
+      // raw-SQL path that clears the OM marker on write. Preserve an
+      // established title so an auto-generated title never clobbers one the
+      // user already set — user-owned titles win.
+      logger.debug('Preserving established thread title against auto-title update', {
+        existingTitle: existing.title,
+        proposedTitle: title,
+        threadId: id,
+      });
+    }
+
+    // Stamp the OM marker only when this write actually changes the title,
+    // so a metadata-only OM persist (proposed title unchanged) neither adds
+    // nor needs to re-add it — any marker already on the thread already
+    // survives via the caller's own metadata merge (see setThreadOMMetadata
+    // in @mastra/memory), since it spreads the thread's existing metadata.
+    const effectiveMetadata: Record<string, unknown> = titleChanged
+      ? { ...metadata, [THREAD_TITLE_SOURCE_METADATA_KEY]: THREAD_TITLE_SOURCE_OM }
+      : metadata;
+
     const now = new Date();
     await this.database.query(
       `UPDATE ${MASTRA_MEMORY_TABLES.threads}
        SET title = $2, metadata = $3::jsonb, "updatedAt" = $4
        WHERE id = $1`,
-      [id, title, toJsonString(metadata), now]
+      [id, effectiveTitle, toJsonString(effectiveMetadata), now]
     );
     const updated = await this.getThreadById({ threadId: id });
     if (!updated) {
@@ -786,7 +865,6 @@ export class PgliteMemoryStore extends MemoryStorage {
         content = EXCLUDED.content,
         role = EXCLUDED.role,
         type = EXCLUDED.type,
-        "createdAt" = EXCLUDED."createdAt",
         "resourceId" = EXCLUDED."resourceId"`,
       insertValues
     );
@@ -938,8 +1016,8 @@ export class PgliteMemoryStore extends MemoryStorage {
     const existing = await this.getResourceById({ resourceId });
     const now = new Date();
     const next: StorageResourceType = {
-      id: resourceId,
       createdAt: existing?.createdAt ?? now,
+      id: resourceId,
       updatedAt: now,
     };
     if (workingMemory === undefined) {
@@ -1058,26 +1136,26 @@ export class PgliteMemoryStore extends MemoryStorage {
   ): Promise<ObservationalMemoryRecord> {
     const now = new Date();
     const record: ObservationalMemoryRecord = {
-      id: crypto.randomUUID(),
-      scope: input.scope,
-      threadId: input.threadId,
-      resourceId: input.resourceId,
-      createdAt: now,
-      updatedAt: now,
-      originType: 'initial',
-      generationCount: 0,
       activeObservations: '',
-      totalTokensObserved: 0,
-      observationTokenCount: 0,
-      pendingMessageTokens: 0,
-      isReflecting: false,
-      isObserving: false,
+      config: input.config,
+      createdAt: now,
+      generationCount: 0,
+      id: crypto.randomUUID(),
       isBufferingObservation: false,
       isBufferingReflection: false,
-      lastBufferedAtTokens: 0,
+      isObserving: false,
+      isReflecting: false,
       lastBufferedAtTime: null,
-      config: input.config,
+      lastBufferedAtTokens: 0,
       metadata: {},
+      observationTokenCount: 0,
+      originType: 'initial',
+      pendingMessageTokens: 0,
+      resourceId: input.resourceId,
+      scope: input.scope,
+      threadId: input.threadId,
+      totalTokensObserved: 0,
+      updatedAt: now,
     };
     if (input.observedTimezone) {
       record.observedTimezone = input.observedTimezone;
@@ -1125,8 +1203,8 @@ export class PgliteMemoryStore extends MemoryStorage {
     const record = await this.findObservationalMemoryRecordById(input.id);
     const chunk = {
       ...input.chunk,
-      id: `ombuf-${crypto.randomUUID()}`,
       createdAt: new Date(),
+      id: `ombuf-${crypto.randomUUID()}`,
     };
     record.bufferedObservationChunks = [...(record.bufferedObservationChunks ?? []), chunk];
     if (input.lastBufferedAtTime) {
@@ -1199,19 +1277,19 @@ export class PgliteMemoryStore extends MemoryStorage {
     );
 
     return {
-      chunksActivated: activatedChunks.length,
-      messageTokensActivated: activatedMessageTokens,
-      observationTokensActivated: activatedTokens,
-      messagesActivated: activatedMessageCount,
       activatedCycleIds: activatedChunks.map((chunk) => chunk.cycleId).filter(Boolean),
       activatedMessageIds: activatedChunks.flatMap((chunk) => chunk.messageIds),
+      chunksActivated: activatedChunks.length,
+      messagesActivated: activatedMessageCount,
+      messageTokensActivated: activatedMessageTokens,
       observations: activatedContent,
+      observationTokensActivated: activatedTokens,
       perChunk: activatedChunks.map((chunk) => ({
         cycleId: chunk.cycleId,
-        messageTokens: chunk.messageTokens,
-        observationTokens: chunk.tokenCount,
         messageCount: chunk.messageIds.length,
+        messageTokens: chunk.messageTokens,
         observations: chunk.observations,
+        observationTokens: chunk.tokenCount,
       })),
       ...(latestChunk?.suggestedContinuation
         ? { suggestedContinuation: latestChunk.suggestedContinuation }
@@ -1225,27 +1303,27 @@ export class PgliteMemoryStore extends MemoryStorage {
   ): Promise<ObservationalMemoryRecord> {
     const now = new Date();
     const record: ObservationalMemoryRecord = {
-      id: crypto.randomUUID(),
-      scope: input.currentRecord.scope,
-      threadId: input.currentRecord.threadId,
-      resourceId: input.currentRecord.resourceId,
-      createdAt: now,
-      updatedAt: now,
-      lastObservedAt: input.currentRecord.lastObservedAt ?? now,
-      originType: 'reflection',
-      generationCount: input.currentRecord.generationCount + 1,
       activeObservations: input.reflection,
       config: input.currentRecord.config,
-      totalTokensObserved: input.currentRecord.totalTokensObserved,
-      observationTokenCount: input.tokenCount,
-      pendingMessageTokens: 0,
-      isReflecting: false,
-      isObserving: false,
+      createdAt: now,
+      generationCount: input.currentRecord.generationCount + 1,
+      id: crypto.randomUUID(),
       isBufferingObservation: false,
       isBufferingReflection: false,
-      lastBufferedAtTokens: 0,
+      isObserving: false,
+      isReflecting: false,
       lastBufferedAtTime: null,
+      lastBufferedAtTokens: 0,
+      lastObservedAt: input.currentRecord.lastObservedAt ?? now,
       metadata: {},
+      observationTokenCount: input.tokenCount,
+      originType: 'reflection',
+      pendingMessageTokens: 0,
+      resourceId: input.currentRecord.resourceId,
+      scope: input.currentRecord.scope,
+      threadId: input.currentRecord.threadId,
+      totalTokensObserved: input.currentRecord.totalTokensObserved,
+      updatedAt: now,
     };
     if (input.currentRecord.observedTimezone) {
       record.observedTimezone = input.currentRecord.observedTimezone;

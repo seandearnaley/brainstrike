@@ -17,26 +17,26 @@ type ChokidarWatchOptions = Record<string, unknown>;
 
 const { chokidarClose, chokidarHandlers, chokidarWatch, loggerMock } = vi.hoisted(() => {
   const hoistedLoggerMock = {
-    info: vi.fn(),
     debug: vi.fn(),
-    warn: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
   };
   const hoistedChokidarHandlers = new Map<ChokidarEvent, ChokidarHandler>();
   const hoistedChokidarClose = vi.fn();
   const hoistedChokidarWatcher = {
+    close: hoistedChokidarClose,
     on: vi.fn((event: ChokidarEvent, handler: ChokidarHandler) => {
       hoistedChokidarHandlers.set(event, handler);
       return hoistedChokidarWatcher;
     }),
-    close: hoistedChokidarClose,
   };
   const hoistedChokidarWatch = vi.fn(() => hoistedChokidarWatcher);
   return {
-    loggerMock: hoistedLoggerMock,
-    chokidarHandlers: hoistedChokidarHandlers,
     chokidarClose: hoistedChokidarClose,
+    chokidarHandlers: hoistedChokidarHandlers,
     chokidarWatch: hoistedChokidarWatch,
+    loggerMock: hoistedLoggerMock,
   };
 });
 
@@ -45,9 +45,9 @@ vi.mock('@brainstrike/utils', () => ({
 }));
 
 const mockHandle: DirectoryHandle = {
-  path: '/test/dir',
-  name: 'dir',
   kind: 'directory',
+  name: 'dir',
+  path: '/test/dir',
   platform: 'electron',
 };
 
@@ -319,7 +319,7 @@ describe('startFsWatch', () => {
 
     await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
     expect(callback).toHaveBeenCalledWith([
-      expect.objectContaining({ type: 'added', kind: 'directory' }),
+      expect.objectContaining({ kind: 'directory', type: 'added' }),
     ]);
 
     statMock.mockRestore();
@@ -366,12 +366,12 @@ describe('startChokidarWatch', () => {
     expect(chokidarWatch).toHaveBeenCalledWith(
       mockHandle.path,
       expect.objectContaining({
+        atomic: true,
+        awaitWriteFinish: { pollInterval: 100, stabilityThreshold: 100 },
+        followSymlinks: false,
+        ignored: expect.any(Function),
         ignoreInitial: true,
         persistent: true,
-        awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 100 },
-        followSymlinks: false,
-        atomic: true,
-        ignored: expect.any(Function),
       })
     );
 
@@ -414,9 +414,9 @@ describe('startChokidarWatch', () => {
 
     expect(callback).toHaveBeenCalledTimes(1);
     expect(callback).toHaveBeenCalledWith([
-      { type: 'added', path: '/test/dir/src/new.ts', kind: 'file' },
-      { type: 'modified', path: '/test/dir/src/nested/update.ts', kind: 'file' },
-      { type: 'removed', path: '/test/dir/src/nested/remove.ts', kind: 'file' },
+      { kind: 'file', path: '/test/dir/src/new.ts', type: 'added' },
+      { kind: 'file', path: '/test/dir/src/nested/update.ts', type: 'modified' },
+      { kind: 'file', path: '/test/dir/src/nested/remove.ts', type: 'removed' },
     ]);
   });
 
@@ -435,11 +435,11 @@ describe('startChokidarWatch', () => {
 
     expect(callback).toHaveBeenCalledTimes(1);
     expect(callback).toHaveBeenCalledWith([
-      { type: 'added', path: '/test/dir/new.txt', kind: 'file' },
-      { type: 'added', path: '/test/dir/sub', kind: 'directory' },
-      { type: 'modified', path: '/test/dir/update.txt', kind: 'file' },
-      { type: 'removed', path: '/test/dir/remove.txt', kind: 'file' },
-      { type: 'removed', path: '/test/dir/old-sub', kind: 'directory' },
+      { kind: 'file', path: '/test/dir/new.txt', type: 'added' },
+      { kind: 'directory', path: '/test/dir/sub', type: 'added' },
+      { kind: 'file', path: '/test/dir/update.txt', type: 'modified' },
+      { kind: 'file', path: '/test/dir/remove.txt', type: 'removed' },
+      { kind: 'directory', path: '/test/dir/old-sub', type: 'removed' },
     ]);
     expect(loggerMock.error).toHaveBeenCalledWith('Chokidar watcher reported an error', {
       error: expect.any(Error),

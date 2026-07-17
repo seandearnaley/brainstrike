@@ -5,8 +5,8 @@ const { getBestDeviceMock } = vi.hoisted(() => ({
 vi.mock('@brainstrike/embeddings/backend', () => ({
   TransformersBackend: {
     getBestDevice: getBestDeviceMock,
-    setVerboseOrtLogs: vi.fn(),
     getRuntimeStats: vi.fn(),
+    setVerboseOrtLogs: vi.fn(),
   },
 }));
 
@@ -27,31 +27,31 @@ vi.mock('@brainstrike/ui', async () => {
   return {
     ...actual,
     Badge: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
-    Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    CardHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    CardTitle: ({ children }: { children: React.ReactNode }) => <h3>{children}</h3>,
-    CardContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    Label: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    Select: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    SelectTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    SelectValue: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    SelectItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
       <button type="button" {...props}>
         {children}
       </button>
     ),
+    Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    CardContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    CardHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    CardTitle: ({ children }: { children: React.ReactNode }) => <h3>{children}</h3>,
+    Label: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    Select: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    SelectItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    SelectTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    SelectValue: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     useToast: () => ({ toast: vi.fn() }),
   };
 });
 
 vi.mock('@brainstrike/embeddings', () => ({
-  TransformersBackend: { getBestDevice: () => 'wasm' },
   SimpleEmbeddingService: {
-    listModels: () => ['model1', 'model2'],
     getDefaultModelKey: () => 'model1',
+    listModels: () => ['model1', 'model2'],
   },
+  TransformersBackend: { getBestDevice: () => 'wasm' },
 }));
 
 vi.mock('@brainstrike/db', async () => {
@@ -71,42 +71,42 @@ vi.mock('../embedding-runtime-provider', () => ({
       cancelBackfill: vi.fn(async () => {}),
       enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
       ensureStarted: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'stopped',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'stopped',
       })),
       getBackfillsInFlight: vi.fn(async () => []),
       getStatus: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'stopped',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'stopped',
       })),
       onBackfillProgress: vi.fn(() => () => {}),
       onStatus: vi.fn(() => () => {}),
       reset: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'stopped',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'stopped',
       })),
       start: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'running',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'running',
       })),
       stop: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'stopped',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'stopped',
       })),
     },
     service: null,

@@ -18,31 +18,31 @@ function makeServices() {
 describe('browserNodeToTarget', () => {
   it('maps a collection node', () => {
     expect(
-      browserNodeToTarget({ nodeType: 'collection', originalId: 'set-1', name: 'My Docs' })
-    ).toEqual({ kind: 'collection', id: 'set-1', name: 'My Docs' });
+      browserNodeToTarget({ name: 'My Docs', nodeType: 'collection', originalId: 'set-1' })
+    ).toEqual({ id: 'set-1', kind: 'collection', name: 'My Docs' });
   });
 
   it('maps a file node with its recorded path', () => {
     expect(
       browserNodeToTarget({
+        name: 'notes.md',
         nodeType: 'file',
         originalId: 'file-1',
-        name: 'notes.md',
         path: 'docs/notes.md',
       })
-    ).toEqual({ kind: 'collection-file', id: 'file-1', name: 'notes.md', path: 'docs/notes.md' });
+    ).toEqual({ id: 'file-1', kind: 'collection-file', name: 'notes.md', path: 'docs/notes.md' });
   });
 
   it('maps a chunk node with content', () => {
     expect(
-      browserNodeToTarget({ nodeType: 'chunk', originalId: 'c-1', content: 'hello world' })
-    ).toEqual({ kind: 'chunk', id: 'c-1', content: 'hello world' });
+      browserNodeToTarget({ content: 'hello world', nodeType: 'chunk', originalId: 'c-1' })
+    ).toEqual({ content: 'hello world', id: 'c-1', kind: 'chunk' });
   });
 
   it('maps an embedding node', () => {
     expect(
       browserNodeToTarget({ nodeType: 'embedding', originalId: 'e-1', vectorId: 'v-1' })
-    ).toEqual({ kind: 'embedding', id: 'e-1', vectorId: 'v-1' });
+    ).toEqual({ id: 'e-1', kind: 'embedding', vectorId: 'v-1' });
   });
 
   it('returns null for group headers', () => {
@@ -51,16 +51,16 @@ describe('browserNodeToTarget', () => {
 });
 
 describe('collection actions', () => {
-  const chunkTarget: ContextTarget = { kind: 'chunk', id: 'c-1', content: 'hello world' };
+  const chunkTarget: ContextTarget = { content: 'hello world', id: 'c-1', kind: 'chunk' };
   const fileTarget: ContextTarget = {
-    kind: 'collection-file',
     id: 'file-1',
+    kind: 'collection-file',
     name: 'notes.md',
     path: 'docs/notes.md',
   };
   const fileTargetNoPath: ContextTarget = {
-    kind: 'collection-file',
     id: 'file-2',
+    kind: 'collection-file',
     name: 'unnamed.md',
     path: null,
   };
@@ -78,14 +78,14 @@ describe('collection actions', () => {
     const services = makeServices();
     const outcome = await copyFileNameAction.run(fileTarget, services);
     expect(services.clipboard.writeText).toHaveBeenCalledWith('notes.md');
-    expect(outcome).toEqual({ ok: true, message: 'Name copied' });
+    expect(outcome).toEqual({ message: 'Name copied', ok: true });
   });
 
   it('copy-path writes file path with Path copied', async () => {
     const services = makeServices();
     const outcome = await copyFilePathAction.run(fileTarget, services);
     expect(services.clipboard.writeText).toHaveBeenCalledWith('docs/notes.md');
-    expect(outcome).toEqual({ ok: true, message: 'Path copied' });
+    expect(outcome).toEqual({ message: 'Path copied', ok: true });
   });
 
   it('copy-path isVisible is false when path is null', () => {
@@ -96,7 +96,7 @@ describe('collection actions', () => {
   it('copy-path run returns ok:false when path is null', async () => {
     const services = makeServices();
     const outcome = await copyFilePathAction.run(fileTargetNoPath, services);
-    expect(outcome).toEqual({ ok: false, error: 'No recorded path for this file' });
+    expect(outcome).toEqual({ error: 'No recorded path for this file', ok: false });
     expect(services.clipboard.writeText).not.toHaveBeenCalled();
   });
 
@@ -105,7 +105,7 @@ describe('collection actions', () => {
     const services = makeServices();
     const outcome = await copyIdAction.run(chunkTarget, services);
     expect(services.clipboard.writeText).toHaveBeenCalledWith('c-1');
-    expect(outcome).toEqual({ ok: true, message: 'ID copied' });
+    expect(outcome).toEqual({ message: 'ID copied', ok: true });
   });
 
   it('copy-content writes chunk content', async () => {
@@ -115,7 +115,7 @@ describe('collection actions', () => {
   });
 
   it('copy-content is hidden for chunks with empty content', () => {
-    const emptyChunk: ContextTarget = { kind: 'chunk', id: 'c-2', content: '' };
+    const emptyChunk: ContextTarget = { content: '', id: 'c-2', kind: 'chunk' };
     expect(copyContentAction.isVisible?.(emptyChunk)).toBe(false);
     expect(copyContentAction.isVisible?.(chunkTarget)).toBe(true);
   });

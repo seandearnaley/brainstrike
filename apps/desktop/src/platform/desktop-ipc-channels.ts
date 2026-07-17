@@ -7,6 +7,10 @@ export const DESKTOP_IPC_CHANNELS = {
     workspaceContextSelectionUpdate: 'assistant:workspace-context-selection-update',
     workspaceContextTapestryUpdate: 'assistant:workspace-context-tapestry-update',
   },
+  assistantCheckpoint: {
+    revertEntry: 'assistant-checkpoint:revert-entry',
+    revertRun: 'assistant-checkpoint:revert-run',
+  },
   clipboard: {
     writeText: 'clipboard:write-text',
   },
@@ -15,10 +19,8 @@ export const DESKTOP_IPC_CHANNELS = {
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
     open: 'command-palette:open',
   },
-  quickOpen: {
-    // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
-    // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
-    open: 'quick-open:open',
+  contextFiles: {
+    scan: 'context-files:scan',
   },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
@@ -26,6 +28,8 @@ export const DESKTOP_IPC_CHANNELS = {
     diagnostics: 'db:diagnostics',
     exec: 'db:exec',
     getUserDataPath: 'db:getUserDataPath',
+    insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
+    invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
     liveQueryRefresh: 'db:live-query:refresh',
     liveQueryStart: 'db:live-query:start',
     liveQueryStop: 'db:live-query:stop',
@@ -36,21 +40,9 @@ export const DESKTOP_IPC_CHANNELS = {
     schedulerSnapshot: 'db:scheduler:snapshot',
     test: 'db:test',
     transaction: 'db:transaction',
-    invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
-    insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
-  },
-  git: {
-    aheadBehind: 'git:aheadBehind',
-    commit: 'git:commit',
-    diff: 'git:diff',
-    pull: 'git:pull',
-    push: 'git:push',
-    stage: 'git:stage',
-    status: 'git:status',
-    unstage: 'git:unstage',
   },
   files: {
     addRoot: 'fs:addRoot',
@@ -65,6 +57,26 @@ export const DESKTOP_IPC_CHANNELS = {
     restoreRoots: 'fs:restoreRoots',
     saveLastFolder: 'fs:saveLastFolder',
   },
+  git: {
+    aheadBehind: 'git:aheadBehind',
+    commit: 'git:commit',
+    commitDiff: 'git:commitDiff',
+    commitFiles: 'git:commitFiles',
+    diff: 'git:diff',
+    fetch: 'git:fetch',
+    history: 'git:history',
+    pull: 'git:pull',
+    push: 'git:push',
+    repository: 'git:repository',
+    stage: 'git:stage',
+    status: 'git:status',
+    switchBranch: 'git:switchBranch',
+    unstage: 'git:unstage',
+  },
+  hooks: {
+    getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
+    resolveTrustedRootIds: 'hooks:resolve-trusted-root-ids',
+  },
   mcp: {
     configCreateSample: 'mcp:config:createSample',
     configGet: 'mcp:config:get',
@@ -73,6 +85,7 @@ export const DESKTOP_IPC_CHANNELS = {
     configSelectPath: 'mcp:config:selectPath',
     configSetPath: 'mcp:config:setPath',
     configUnwatch: 'mcp:config:unwatch',
+    configUpdated: 'mcp:config:updated',
     configWatch: 'mcp:config:watch',
     configWriteText: 'mcp:config:writeText',
     toolsDisable: 'mcp:tools:disable',
@@ -83,6 +96,34 @@ export const DESKTOP_IPC_CHANNELS = {
     toolsList: 'mcp:tools:list',
     toolsReset: 'mcp:tools:reset',
     toolsUpdated: 'mcp:tools:updated',
+  },
+  notesVault: {
+    // One-way main→renderer push: a watched vault directory changed. Pushed to
+    // the OWNING renderer's WebContents only — NOT an ipcMain.handle channel,
+    // so it is never registered on the registry (see notes-vault-ipc-handlers.ts).
+    changed: 'notes-vault:changed',
+    createDirectory: 'notes-vault:create-directory',
+    deleteEntry: 'notes-vault:delete-entry',
+    ensureDefaultVault: 'notes-vault:ensure-default-vault',
+    listDirectory: 'notes-vault:list-directory',
+    pickDirectory: 'notes-vault:pick-directory',
+    readFile: 'notes-vault:read-file',
+    registerRoot: 'notes-vault:register-root',
+    rename: 'notes-vault:rename',
+    statEntry: 'notes-vault:stat-entry',
+    unwatch: 'notes-vault:unwatch',
+    watch: 'notes-vault:watch',
+    writeFile: 'notes-vault:write-file',
+  },
+  preferences: {
+    layoutLoad: 'layout:load',
+    layoutSave: 'layout:save',
+    settingsClearAll: 'settings:clearAll',
+  },
+  quickOpen: {
+    // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
+    // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
+    open: 'quick-open:open',
   },
   runtime: {
     listModels: 'runtime:listModels',
@@ -102,8 +143,12 @@ export const DESKTOP_IPC_CHANNELS = {
     save: 'secrets:save',
   },
   shell: {
+    openExternal: 'shell:open-external',
     openPath: 'shell:open-path',
     showItemInFolder: 'shell:show-item-in-folder',
+  },
+  skills: {
+    scan: 'skills:scan',
   },
   storage: {
     clear: 'storage:clear',
@@ -114,21 +159,22 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   terminal: {
     create: 'terminal:create',
-    write: 'terminal:write',
-    resize: 'terminal:resize',
-    destroy: 'terminal:destroy',
     // One-way main→renderer pushes (pty output / exit). Not ipcMain.handle
     // channels — see terminal-ipc-handlers.ts.
     data: 'terminal:data',
+    destroy: 'terminal:destroy',
     exit: 'terminal:exit',
-  },
-  preferences: {
-    layoutLoad: 'layout:load',
-    layoutSave: 'layout:save',
-    settingsClearAll: 'settings:clearAll',
+    resize: 'terminal:resize',
+    write: 'terminal:write',
   },
   tools: {
     execute: 'tools:execute',
+  },
+  userCommands: {
+    list: 'user-commands:list',
+  },
+  userPersonas: {
+    list: 'user-personas:list',
   },
 } as const;
 

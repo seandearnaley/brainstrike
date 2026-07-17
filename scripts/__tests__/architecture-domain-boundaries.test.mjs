@@ -4,9 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import {
-  validateArchitectureDomainBoundaries,
-} from '../architecture-domain-boundaries.mjs';
+import { validateArchitectureDomainBoundaries } from '../architecture-domain-boundaries.mjs';
 
 const writeJson = async (filePath, value) => {
   await mkdir(path.dirname(filePath), { recursive: true });
@@ -37,39 +35,39 @@ const makeWorkspace = async ({ sources }) => {
   }
 
   await writeJson(path.join(root, 'architecture/domain-map.json'), {
-    version: 1,
-    stack: [],
+    boundaryExceptions: [],
     domains: [
       {
         id: 'applications',
-        title: 'Applications',
+        mayDependOn: ['workspace-experience', 'data-platform', 'shared-foundation'],
         owner: 'platform',
         packages: ['@brainstrike/web'],
-        mayDependOn: ['workspace-experience', 'data-platform', 'shared-foundation'],
+        title: 'Applications',
       },
       {
         id: 'workspace-experience',
-        title: 'Workspace',
+        mayDependOn: ['data-platform', 'shared-foundation'],
         owner: 'workspace',
         packages: ['@brainstrike/app-shell'],
-        mayDependOn: ['data-platform', 'shared-foundation'],
+        title: 'Workspace',
       },
       {
         id: 'data-platform',
-        title: 'Data',
+        mayDependOn: ['shared-foundation'],
         owner: 'data',
         packages: ['@brainstrike/db'],
-        mayDependOn: ['shared-foundation'],
+        title: 'Data',
       },
       {
         id: 'shared-foundation',
-        title: 'Shared',
+        mayDependOn: [],
         owner: 'foundation',
         packages: ['@brainstrike/ui', '@brainstrike/utils'],
-        mayDependOn: [],
+        title: 'Shared',
       },
     ],
-    boundaryExceptions: [],
+    stack: [],
+    version: 1,
   });
 
   for (const [relativePath, source] of sources) {
@@ -111,10 +109,13 @@ test('rejects imports from lower-level domains into higher-level domains', async
 
   const result = await validateArchitectureDomainBoundaries({ root });
 
-  assert.deepEqual(result.violations.map((violation) => violation.message), [
-    '@brainstrike/db (data-platform) must not import @brainstrike/app-shell (workspace-experience)',
-    '@brainstrike/db (data-platform) must not import @brainstrike/web (applications)',
-  ]);
+  assert.deepEqual(
+    result.violations.map((violation) => violation.message),
+    [
+      '@brainstrike/db (data-platform) must not import @brainstrike/app-shell (workspace-experience)',
+      '@brainstrike/db (data-platform) must not import @brainstrike/web (applications)',
+    ]
+  );
 });
 
 test('recognizes subpath imports, dynamic imports, require calls, import-equals, and import types', async () => {
@@ -129,12 +130,10 @@ test('recognizes subpath imports, dynamic imports, require calls, import-equals,
 
   const result = await validateArchitectureDomainBoundaries({ root });
 
-  assert.deepEqual(result.violations.map((violation) => violation.importedPackage), [
-    '@brainstrike/app-shell',
-    '@brainstrike/db',
-    '@brainstrike/app-shell',
-    '@brainstrike/web',
-  ]);
+  assert.deepEqual(
+    result.violations.map((violation) => violation.importedPackage),
+    ['@brainstrike/app-shell', '@brainstrike/db', '@brainstrike/app-shell', '@brainstrike/web']
+  );
 });
 
 test('sorts violations numerically within each file', async () => {
@@ -179,18 +178,18 @@ test('reports stale approved boundary exceptions', async () => {
   await writeFile(path.join(root, 'phase-test.html'), '<!doctype html><title>Phase test</title>\n');
   contract.stack = [
     {
-      id: 'phase-test',
       dependsOn: null,
+      id: 'phase-test',
       planningArtifact: 'phase-test.html',
     },
   ];
   contract.boundaryExceptions = [
     {
       id: 'stale-ui-db',
-      sourcePackage: '@brainstrike/ui',
       importedPackage: '@brainstrike/db',
       reason: 'Test fixture stale exception.',
       retireByPhase: 'phase-test',
+      sourcePackage: '@brainstrike/ui',
     },
   ];
   await writeJson(contractPath, contract);
@@ -199,9 +198,9 @@ test('reports stale approved boundary exceptions', async () => {
 
   assert.deepEqual(result.staleBoundaryExceptions, [
     {
-      sourcePackage: '@brainstrike/ui',
       importedPackage: '@brainstrike/db',
       message: 'approved boundary exception is stale: @brainstrike/ui -> @brainstrike/db',
+      sourcePackage: '@brainstrike/ui',
     },
   ]);
 });

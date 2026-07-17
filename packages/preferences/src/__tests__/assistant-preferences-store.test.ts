@@ -44,6 +44,16 @@ describe('assistant-preferences-store', () => {
     Reflect.deleteProperty(secretTarget, 'secrets');
   });
 
+  it('defaults planModeEnabled to false and toggles/sets it', () => {
+    expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(false);
+
+    useAssistantPreferencesStore.getState().togglePlanMode();
+    expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(true);
+
+    useAssistantPreferencesStore.getState().setPlanModeEnabled(false);
+    expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(false);
+  });
+
   it('returns composite model when set', () => {
     const store = useAssistantPreferencesStore.getState();
     expect(store.selectedModel).toBeNull();
@@ -208,18 +218,18 @@ describe('assistant-preferences-store', () => {
 
   it('resolves available providers from secrets API', async () => {
     vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
-      state: 'unavailable',
       checkedAt: 123,
+      state: 'unavailable',
     });
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      list: vi.fn().mockResolvedValue(['openai', 'google', 'unknown-provider']),
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listStored: vi.fn(),
       clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue(['openai', 'google', 'unknown-provider']),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
@@ -230,18 +240,18 @@ describe('assistant-preferences-store', () => {
 
   it('returns only no-key providers when secrets API fails', async () => {
     vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
-      state: 'unavailable',
       checkedAt: 123,
+      state: 'unavailable',
     });
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      list: vi.fn().mockRejectedValue(new Error('not allowed')),
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listStored: vi.fn(),
       clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockRejectedValue(new Error('not allowed')),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
@@ -254,30 +264,30 @@ describe('assistant-preferences-store', () => {
       async (runtimeId) => {
         if (runtimeId === 'ollama') {
           return {
-            state: 'available',
             checkedAt: 123,
             endpoint: 'http://127.0.0.1:11434/api/tags',
             latencyMs: 5,
+            state: 'available',
           };
         }
         return {
-          state: 'stale',
           checkedAt: 123,
           endpoint: 'http://127.0.0.1:1234/api/v1/models',
           lastSuccessfulAt: 122,
           reason: 'unavailable',
+          state: 'stale',
         };
       }
     );
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      list: vi.fn().mockResolvedValue([]),
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listStored: vi.fn(),
       clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
@@ -293,9 +303,9 @@ describe('assistant-preferences-store', () => {
       localRuntime: {
         statuses: {
           ollama: {
-            state: 'blocked_web',
             checkedAt: 111,
             message: 'blocked for test',
+            state: 'blocked_web',
           },
         },
       },
@@ -313,20 +323,20 @@ describe('assistant-preferences-store', () => {
     const probeSpy = vi
       .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
       .mockResolvedValue({
-        state: 'available',
         checkedAt: 100,
         endpoint: 'http://127.0.0.1:11434/api/tags',
         latencyMs: 1,
+        state: 'available',
       });
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      list: vi.fn().mockResolvedValue([]),
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listStored: vi.fn(),
       clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     const store = useAssistantPreferencesStore.getState();
@@ -343,16 +353,16 @@ describe('assistant-preferences-store', () => {
   it('force-includes local runtime providers when localRuntimeEnabled is on, skipping probes', async () => {
     const probeSpy = vi
       .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
-      .mockResolvedValue({ state: 'unavailable', checkedAt: 100, message: 'oops' });
+      .mockResolvedValue({ checkedAt: 100, message: 'oops', state: 'unavailable' });
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      list: vi.fn().mockResolvedValue([]),
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listStored: vi.fn(),
       clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     const store = useAssistantPreferencesStore.getState();
@@ -371,25 +381,25 @@ describe('assistant-preferences-store', () => {
     // telemetry. Redact sensitive-looking fields before stringifying so a
     // malformed result can't carry a secret into logs.
     const bridgeProbe = vi.fn().mockResolvedValue({
-      not_a_state: 'oops',
       apiToken: 'sk-supersecret-12345',
       authorization: 'Bearer sk-also-secret',
       endpoint: { apiToken: 'nested-secret', baseUrl: 'http://host:11434' },
+      not_a_state: 'oops',
     });
     (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
-      probe: bridgeProbe,
       listModels: vi.fn(),
+      probe: bridgeProbe,
     };
 
     try {
       const secretTarget = window as Window & { secrets?: unknown };
       secretTarget.secrets = {
-        list: vi.fn().mockResolvedValue([]),
-        saveKey: vi.fn(),
-        getKey: vi.fn(),
-        deleteKey: vi.fn(),
-        listStored: vi.fn(),
         clearAll: vi.fn(),
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        list: vi.fn().mockResolvedValue([]),
+        listStored: vi.fn(),
+        saveKey: vi.fn(),
       };
 
       await useAssistantPreferencesStore
@@ -413,23 +423,23 @@ describe('assistant-preferences-store', () => {
     // serialized summary so the diagnostic is useful but bounded.
     const huge = 'x'.repeat(10_000);
     const bridgeProbe = vi.fn().mockResolvedValue({
-      not_a_state: 'oops',
       filler: huge,
+      not_a_state: 'oops',
     });
     (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
-      probe: bridgeProbe,
       listModels: vi.fn(),
+      probe: bridgeProbe,
     };
 
     try {
       const secretTarget = window as Window & { secrets?: unknown };
       secretTarget.secrets = {
-        list: vi.fn().mockResolvedValue([]),
-        saveKey: vi.fn(),
-        getKey: vi.fn(),
-        deleteKey: vi.fn(),
-        listStored: vi.fn(),
         clearAll: vi.fn(),
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        list: vi.fn().mockResolvedValue([]),
+        listStored: vi.fn(),
+        saveKey: vi.fn(),
       };
 
       let observedLength = 0;
@@ -457,21 +467,21 @@ describe('assistant-preferences-store', () => {
     // object with a string `state`. A runtime mismatch that produces
     // e.g. { state: 'busy' } — a value we never emit — should still fail
     // loudly at the boundary rather than let an unknown state propagate.
-    const bridgeProbe = vi.fn().mockResolvedValue({ state: 'busy', checkedAt: 1 });
+    const bridgeProbe = vi.fn().mockResolvedValue({ checkedAt: 1, state: 'busy' });
     (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
-      probe: bridgeProbe,
       listModels: vi.fn(),
+      probe: bridgeProbe,
     };
 
     try {
       const secretTarget = window as Window & { secrets?: unknown };
       secretTarget.secrets = {
-        list: vi.fn().mockResolvedValue([]),
-        saveKey: vi.fn(),
-        getKey: vi.fn(),
-        deleteKey: vi.fn(),
-        listStored: vi.fn(),
         clearAll: vi.fn(),
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        list: vi.fn().mockResolvedValue([]),
+        listStored: vi.fn(),
+        saveKey: vi.fn(),
       };
 
       await expect(
@@ -490,19 +500,19 @@ describe('assistant-preferences-store', () => {
     // boundary instead so root-cause shows up in logs with full context.
     const bridgeProbe = vi.fn().mockResolvedValue({ not_a_state: 'oops' });
     (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
-      probe: bridgeProbe,
       listModels: vi.fn(),
+      probe: bridgeProbe,
     };
 
     try {
       const secretTarget = window as Window & { secrets?: unknown };
       secretTarget.secrets = {
-        list: vi.fn().mockResolvedValue([]),
-        saveKey: vi.fn(),
-        getKey: vi.fn(),
-        deleteKey: vi.fn(),
-        listStored: vi.fn(),
         clearAll: vi.fn(),
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        list: vi.fn().mockResolvedValue([]),
+        listStored: vi.fn(),
+        saveKey: vi.fn(),
       };
 
       await expect(
@@ -520,27 +530,27 @@ describe('assistant-preferences-store', () => {
     // must delegate to the main-process bridge instead.
     const discoverySpy = vi
       .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
-      .mockResolvedValue({ state: 'unavailable', checkedAt: 100, message: 'renderer CORS' });
+      .mockResolvedValue({ checkedAt: 100, message: 'renderer CORS', state: 'unavailable' });
     const bridgeProbe = vi.fn().mockResolvedValue({
-      state: 'available',
       checkedAt: 100,
       endpoint: 'http://127.0.0.1:11434/api/tags',
       latencyMs: 3,
+      state: 'available',
     });
     (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
-      probe: bridgeProbe,
       listModels: vi.fn(),
+      probe: bridgeProbe,
     };
 
     try {
       const secretTarget = window as Window & { secrets?: unknown };
       secretTarget.secrets = {
-        list: vi.fn().mockResolvedValue([]),
-        saveKey: vi.fn(),
-        getKey: vi.fn(),
-        deleteKey: vi.fn(),
-        listStored: vi.fn(),
         clearAll: vi.fn(),
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        list: vi.fn().mockResolvedValue([]),
+        listStored: vi.fn(),
+        saveKey: vi.fn(),
       };
 
       const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
@@ -563,20 +573,20 @@ describe('assistant-preferences-store', () => {
     const probeSpy = vi
       .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
       .mockResolvedValue({
-        state: 'available',
         checkedAt: 100,
         endpoint: 'http://127.0.0.1:11434/api/tags',
         latencyMs: 1,
+        state: 'available',
       });
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      list: vi.fn().mockResolvedValue([]),
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listStored: vi.fn(),
       clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     const status = await useAssistantPreferencesStore
@@ -597,20 +607,20 @@ describe('assistant-preferences-store', () => {
     const probeSpy = vi
       .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
       .mockResolvedValue({
-        state: 'available',
         checkedAt: 100,
         endpoint: 'http://127.0.0.1:11434/api/tags',
         latencyMs: 1,
+        state: 'available',
       });
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      list: vi.fn().mockResolvedValue([]),
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listStored: vi.fn(),
       clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     useAssistantPreferencesStore.getState().setProviderSettings('ollama', {
@@ -631,22 +641,22 @@ describe('assistant-preferences-store', () => {
   it('passes a configured baseUrl into the runtime probe when set', async () => {
     const probeSpy = vi
       .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
-      .mockResolvedValue({ state: 'unavailable', checkedAt: 100, message: 'down' });
+      .mockResolvedValue({ checkedAt: 100, message: 'down', state: 'unavailable' });
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      list: vi.fn().mockResolvedValue([]),
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listStored: vi.fn(),
       clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     const store = useAssistantPreferencesStore.getState();
     store.setProviderSettings('ollama', {
-      localRuntimeEnabled: 'auto',
       localRuntimeBaseUrl: 'http://gpu.lan:11434',
+      localRuntimeEnabled: 'auto',
     });
 
     await useAssistantPreferencesStore.getState().getAvailableProviders();
@@ -662,12 +672,12 @@ describe('assistant-preferences-store', () => {
     vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockImplementation(
       async (runtimeId) => {
         if (runtimeId === 'ollama') {
-          return { state: 'blocked_web', checkedAt: 200, message: 'blocked' };
+          return { checkedAt: 200, message: 'blocked', state: 'blocked_web' };
         }
         return {
-          state: 'auth_required',
           checkedAt: 200,
           endpoint: 'http://127.0.0.1:1234/v1/models',
+          state: 'auth_required',
           status: 401,
         };
       }
@@ -675,12 +685,12 @@ describe('assistant-preferences-store', () => {
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
-      list: vi.fn().mockResolvedValue([]),
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listStored: vi.fn(),
       clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
@@ -699,8 +709,8 @@ describe('assistant-preferences-store', () => {
     const bridgeListModels = vi.fn();
     const bridgeProbe = vi.fn();
     (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
-      probe: bridgeProbe,
       listModels: bridgeListModels,
+      probe: bridgeProbe,
     };
     const inRendererSpy = vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime');
 
@@ -714,14 +724,14 @@ describe('assistant-preferences-store', () => {
       // The synthetic catalog state has all the correct discriminants — the
       // UI must be able to read it without a separate "no entry" code path.
       expect(models.ollama).toMatchObject({
-        state: 'failed',
-        runtime: 'ollama',
+        availability: { message: 'Disabled by settings', state: 'unavailable' },
         message: 'Disabled by settings',
-        availability: { state: 'unavailable', message: 'Disabled by settings' },
+        runtime: 'ollama',
+        state: 'failed',
       });
       expect(models.lmstudio).toMatchObject({
-        state: 'failed',
         runtime: 'lmstudio',
+        state: 'failed',
       });
 
       // Critical: zero contact with either path while disabled.
@@ -745,8 +755,8 @@ describe('assistant-preferences-store', () => {
       .fn()
       .mockResolvedValue({ runtime: 'ollama', state: 'imaginary_state' });
     (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
-      probe: vi.fn(),
       listModels: bridgeListModels,
+      probe: vi.fn(),
     };
 
     try {
@@ -773,8 +783,8 @@ describe('assistant-preferences-store', () => {
 
     const bridgeProbe = vi.fn().mockResolvedValue(cyclic);
     (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
-      probe: bridgeProbe,
       listModels: vi.fn(),
+      probe: bridgeProbe,
     };
 
     try {
@@ -823,29 +833,29 @@ describe('assistant-preferences-store', () => {
     }
 
     const legacyState: StorageValue<unknown> = {
-      version: 3,
       state: {
-        selectedModel: 'openai::gpt-4o',
-        modelsByProvider: {
-          openai: 'gpt-4o',
-          anthropic: 'claude-3-5-sonnet-latest',
-          google: 'gemini-2.0-pro',
-          openrouter: 'openai/gpt-4o',
-          local: 'local',
-          cohere: 'cohere',
-          voyage: 'voyage',
-        },
         enabledModelsByProvider: {
-          openai: ['gpt-4o', 'gpt-4o-mini'],
           anthropic: ['claude-3-5-sonnet-latest'],
-          google: ['gemini-2.0-pro'],
-          openrouter: ['openai/gpt-4o'],
-          local: ['LiquidAI/LFM2.5-1.2B-Instruct-ONNX'],
           cohere: [],
+          google: ['gemini-2.0-pro'],
+          local: ['LiquidAI/LFM2.5-1.2B-Instruct-ONNX'],
+          openai: ['gpt-4o', 'gpt-4o-mini'],
+          openrouter: ['openai/gpt-4o'],
           voyage: [],
         },
+        modelsByProvider: {
+          anthropic: 'claude-3-5-sonnet-latest',
+          cohere: 'cohere',
+          google: 'gemini-2.0-pro',
+          local: 'local',
+          openai: 'gpt-4o',
+          openrouter: 'openai/gpt-4o',
+          voyage: 'voyage',
+        },
         providerSettings: {},
+        selectedModel: 'openai::gpt-4o',
       },
+      version: 3,
     };
 
     options.storage.setItem(options.name, legacyState);
@@ -875,19 +885,11 @@ describe('assistant-preferences-store', () => {
     }
 
     const priorState: StorageValue<unknown> = {
-      version: 5,
       state: {
-        selectedModel: 'anthropic::claude-sonnet-4-5',
-        modelsByProvider: {
-          openai: 'gpt-5.2-chat-latest',
-          anthropic: 'claude-sonnet-4-5',
-          google: 'gemini-3-flash-preview',
-          openrouter: 'anthropic/claude-sonnet-4.5',
-        },
         enabledModelsByProvider: {
-          openai: ['gpt-5.2-chat-latest'],
           anthropic: ['claude-sonnet-4-5', 'claude-opus-4-5'],
           google: ['gemini-3-flash-preview', 'gemini-2.5-flash'],
+          openai: ['gpt-5.2-chat-latest'],
           openrouter: [
             'anthropic/claude-sonnet-4.5',
             'anthropic/claude-opus-4.5',
@@ -895,8 +897,16 @@ describe('assistant-preferences-store', () => {
             'google/gemini-2.5-pro',
           ],
         },
+        modelsByProvider: {
+          anthropic: 'claude-sonnet-4-5',
+          google: 'gemini-3-flash-preview',
+          openai: 'gpt-5.2-chat-latest',
+          openrouter: 'anthropic/claude-sonnet-4.5',
+        },
         providerSettings: {},
+        selectedModel: 'anthropic::claude-sonnet-4-5',
       },
+      version: 5,
     };
 
     options.storage.setItem(options.name, priorState);
@@ -938,17 +948,17 @@ describe('assistant-preferences-store', () => {
     }
 
     const legacyProviderState: StorageValue<unknown> = {
-      version: 1,
       state: {
-        selectedProvider: 'google',
-        modelsByProvider: {
-          google: 'gemini-3-flash-preview',
-        },
         enabledModelsByProvider: {
           google: ['gemini-3-flash-preview'],
         },
+        modelsByProvider: {
+          google: 'gemini-3-flash-preview',
+        },
         providerSettings: {},
+        selectedProvider: 'google',
       },
+      version: 1,
     };
 
     options.storage.setItem(options.name, legacyProviderState);

@@ -10,13 +10,13 @@ const WINDOW_STATE_KEY = 'windowState' satisfies keyof DesktopSettingsStoreSchem
 const WINDOW_STATE_DEBOUNCE_MS = 200; // Debounce state persistence to reduce disk writes during window interactions.
 
 const DEFAULT_WINDOW_BOUNDS: DesktopWindowBounds = {
-  width: 1536,
   height: 800,
+  width: 1536,
 };
 
 const MIN_WINDOW_BOUNDS = {
-  width: 800,
   height: 600,
+  width: 800,
 };
 
 type WindowStateStore = ElectronStore<DesktopSettingsStoreSchema> & {
@@ -49,7 +49,7 @@ const normalizeBounds = (
   );
   const x = toRoundedNumber(raw?.x);
   const y = toRoundedNumber(raw?.y);
-  const normalized: DesktopWindowBounds = { width: normalizedWidth, height: normalizedHeight };
+  const normalized: DesktopWindowBounds = { height: normalizedHeight, width: normalizedWidth };
 
   if (x !== undefined) {
     normalized.x = x;
@@ -99,8 +99,8 @@ const clampSizeToWorkArea = (
   workArea: Rectangle
 ): DesktopWindowBounds => ({
   ...bounds,
-  width: Math.min(bounds.width, workArea.width),
   height: Math.min(bounds.height, workArea.height),
+  width: Math.min(bounds.width, workArea.width),
 });
 
 const clampBoundsToWorkArea = (
@@ -113,8 +113,8 @@ const clampBoundsToWorkArea = (
   const y = bounds.y ?? workArea.y;
 
   return {
-    width,
     height,
+    width,
     x: Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width),
     y: Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - height),
   };
@@ -141,10 +141,10 @@ export const ensureWindowBoundsVisible = (state: DesktopWindowState): DesktopWin
   }
 
   const windowRect: Rectangle = {
+    height: bounds.height,
+    width: bounds.width,
     x: bounds.x,
     y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
   };
   const matchingDisplay = displays.find((display) =>
     rectanglesIntersect(windowRect, display.workArea)

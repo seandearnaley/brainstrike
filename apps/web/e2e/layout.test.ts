@@ -19,7 +19,7 @@ import {
   waitForSettingsPage,
 } from './utils/layout-helpers';
 
-test.describe('Application Layout', { tag: '@smoke' }, () => {
+test.describe('Application Layout', () => {
   test('should render the main layout correctly', { tag: '@web-smoke' }, async ({ page }) => {
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
@@ -62,22 +62,26 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     await expect(home.settingsHeading).not.toBeVisible();
   });
 
-  test('should load prompts without hanging fallbacks', async ({ page }) => {
+  test('should load prompts in the agent sidebar without leaving the workspace', async ({
+    page,
+  }) => {
+    // The workbench region only mounts once the lazily-initialized database is
+    // ready, which can take the full CI DB-init budget (~55s). Stay on the fast
+    // functional path (goto without a DB-readiness wait, per the e2e readiness
+    // contract) and let the region assertion absorb the background init instead;
+    // the connected manager renders its loading placeholder in the meantime.
+    test.setTimeout(120_000);
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
-    await waitForAppLoad(page, { waitForDatabase: false });
 
-    const promptsNavButton = page
-      .getByRole('button', { name: /prompts/i })
-      .or(page.getByRole('link', { name: /prompts/i }))
-      .first();
-    await expect(promptsNavButton).toBeVisible({ timeout: 10_000 });
-    await promptsNavButton.click();
+    const promptsTab = page.getByTestId('prompts-tab-trigger');
+    await expect(promptsTab).toBeVisible({ timeout: 10_000 });
+    await promptsTab.click();
 
-    await expect(page.getByRole('heading', { name: /prompt library/i })).toBeVisible({
-      timeout: 15_000,
+    await expect(page.getByRole('region', { name: 'Prompt workbench' })).toBeVisible({
+      timeout: 60_000,
     });
-    await expect(page.getByText(/Loading prompts/i)).toHaveCount(0);
+    await expect(home.contextExplorerPageMarker).toBeVisible();
   });
 
   test.describe('Panel Layout Basics', () => {
@@ -106,10 +110,10 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
           'panel-layout-store.v1',
           JSON.stringify({
             state: {
-              sizes: [-10, 20, 'NaN'],
+              showConsole: false,
               showLeftPanel: true,
               showRightPanel: false,
-              showConsole: false,
+              sizes: [-10, 20, 'NaN'],
             },
             version: 2,
           })
@@ -152,6 +156,86 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       // The workspace-tabs surface removed the nested console/file-editor panel, so
       // only the main left/right shell divider is required here.
       await expect(page.locator('[data-testid="show-console-panel"]')).toHaveCount(0);
+    });
+
+    test('aligns workspace headers and lets the Library resize from 180px through 70%', async ({
+      page,
+    }) => {
+      const libraryPanel = page.locator(AGENT_SIDEBAR_PANEL_SELECTOR).first();
+      const libraryResizeHandle = page.getByRole('separator', { name: 'Resize Library panel' });
+      const handleBox = await libraryResizeHandle.boundingBox();
+      if (!handleBox) {
+        throw new Error('Library resize handle has no geometry');
+      }
+
+      const headerGeometry = await Promise.all([
+        page
+          .locator('#agent-workspace-explorer-panel [data-testid="left-panel-header"]')
+          .first()
+          .boundingBox(),
+        page.getByTestId('assistant-thread-tab-strip').boundingBox(),
+        page
+          .locator('#agent-workspace-tools-panel [data-testid="right-panel-header"]')
+          .first()
+          .boundingBox(),
+      ]);
+      if (headerGeometry.some((box) => box === null)) {
+        throw new Error('A primary workspace header has no geometry');
+      }
+      const headerBoxes = headerGeometry.filter((box) => box !== null);
+      expect(Math.max(...headerBoxes.map((box) => box.height))).toBeLessThanOrEqual(48.5);
+      expect(Math.min(...headerBoxes.map((box) => box.height))).toBeGreaterThanOrEqual(47.5);
+      expect(
+        Math.max(...headerBoxes.map((box) => box.y)) - Math.min(...headerBoxes.map((box) => box.y))
+      ).toBeLessThanOrEqual(1);
+
+      await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        (page.viewportSize()?.width ?? 1440) - 2,
+        handleBox.y + handleBox.height / 2,
+        { steps: 24 }
+      );
+      await page.mouse.up();
+
+      const maximumPercent = await libraryPanel.evaluate((panel) => {
+        const group = panel.closest('[data-group]');
+        if (!group) {
+          throw new Error('Library panel group is missing');
+        }
+        return (panel.getBoundingClientRect().width / group.getBoundingClientRect().width) * 100;
+      });
+      expect(maximumPercent).toBeGreaterThanOrEqual(68);
+      expect(maximumPercent).toBeLessThanOrEqual(70.5);
+
+      const maximumHandleBox = await libraryResizeHandle.boundingBox();
+      if (!maximumHandleBox) {
+        throw new Error('Library resize handle disappeared after expansion');
+      }
+      const libraryGroupLeft = await libraryPanel.evaluate((panel) => {
+        const group = panel.closest('[data-group]');
+        if (!group) {
+          throw new Error('Library panel group is missing');
+        }
+        return group.getBoundingClientRect().left;
+      });
+      await page.mouse.move(
+        maximumHandleBox.x + maximumHandleBox.width / 2,
+        maximumHandleBox.y + maximumHandleBox.height / 2
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        libraryGroupLeft + 140,
+        maximumHandleBox.y + maximumHandleBox.height / 2,
+        { steps: 24 }
+      );
+      await page.mouse.up();
+
+      const minimumWidth = await libraryPanel.evaluate(
+        (panel) => panel.getBoundingClientRect().width
+      );
+      expect(minimumWidth).toBeGreaterThanOrEqual(179);
+      expect(minimumWidth).toBeLessThanOrEqual(181);
     });
 
     test('should maintain panel structure integrity', async ({ page }) => {

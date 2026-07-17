@@ -15,9 +15,21 @@ import {
   type LogRecord,
   setLogLevel,
 } from '@brainstrike/utils';
-import { act, renderHook } from '@testing-library/react';
+import { SearchEmbedderProvider } from '@brainstrike/vector-management';
+import { act, renderHook as baseRenderHook, type RenderHookOptions } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSemanticSearchExecutor } from '../use-semantic-search-executor';
+
+// The executor now reads the shared embedder via `useSharedSearchEmbedder`,
+// which THROWS without a provider (no silent fallback). Render every hook under
+// the real `SearchEmbedderProvider` so it resolves — the embeddings factory is
+// mocked above, so the provider's lazy machinery never loads a real model.
+function renderHook<Result, Props>(
+  callback: (props: Props) => Result,
+  options?: RenderHookOptions<Props>
+): ReturnType<typeof baseRenderHook<Result, Props>> {
+  return baseRenderHook(callback, { wrapper: SearchEmbedderProvider, ...options });
+}
 
 const mockDb = {
   query: vi.fn(),
@@ -54,11 +66,11 @@ vi.mock('@brainstrike/embeddings/factory', () => ({
 vi.mock('@brainstrike/embeddings/service', () => {
   MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {
-      initializeWithModel: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn(),
       generateQueryEmbedding: vi.fn().mockResolvedValue({
         embedding: new Array(1024).fill(0.1),
       }),
-      dispose: vi.fn(),
+      initializeWithModel: vi.fn().mockResolvedValue(undefined),
     });
   });
 
@@ -68,66 +80,66 @@ vi.mock('@brainstrike/embeddings/service', () => {
 });
 
 const createMockChunk = (id: string, fileRecordId: string): FileChunk => ({
-  id,
-  fileRecordId,
   chunkIndex: 0,
+  chunkSize: 100,
+  chunkType: 'text',
   content: `Test content for chunk ${id}`,
   contentHash: `hash-${id}`,
-  tokenCount: 50,
-  chunkType: 'text',
-  chunkSize: 100,
+  createdAt: new Date().toISOString(),
   embedding: [],
+  embeddingHash: 'hash',
   embeddingSetId: 'set-1',
   embeddingUpdatedAt: new Date().toISOString(),
-  embeddingHash: 'hash',
-  createdAt: new Date().toISOString(),
+  fileRecordId,
+  id,
+  tokenCount: 50,
   updatedAt: new Date().toISOString(),
 });
 
 const createMockFileRecord = (id: string): FileRecord => ({
+  chunkingStrategy: 'sentence',
+  chunksCount: 1,
+  chunksProcessedAt: new Date().toISOString(),
+  content: 'test content',
+  contentHash: 'hash',
+  createdAt: new Date().toISOString(),
+  embedding: [],
+  embeddingSetId: 'set-1',
   id,
   name: `file-${id}.txt`,
   path: `/path/to/file-${id}.txt`,
-  size: 1000,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  content: 'test content',
-  contentHash: 'hash',
-  tokenCount: 100,
   processedAt: new Date().toISOString(),
-  chunksProcessedAt: new Date().toISOString(),
-  chunksCount: 1,
-  chunkingStrategy: 'sentence',
-  embedding: [],
-  embeddingSetId: 'set-1',
+  size: 1000,
+  tokenCount: 100,
+  updatedAt: new Date().toISOString(),
 });
 
 const createMockChunkRepository = (chunks: FileChunk[] = []): DrizzleFileChunkRepository => {
   const searchResults: ChunkSearchResult[] = chunks.map((chunk, index) => ({
     chunk,
-    similarity: 0.9 - index * 0.1,
     rank: index + 1,
+    similarity: 0.9 - index * 0.1,
   }));
 
   return {
-    searchSimilar: vi.fn().mockResolvedValue(searchResults),
-    fullTextSearch: vi.fn().mockResolvedValue(searchResults),
     findAll: vi.fn().mockResolvedValue(chunks),
     findById: vi.fn((id: string) => Promise.resolve(chunks.find((c) => c.id === id) ?? null)),
+    fullTextSearch: vi.fn().mockResolvedValue(searchResults),
+    searchSimilar: vi.fn().mockResolvedValue(searchResults),
   } as unknown as DrizzleFileChunkRepository;
 };
 
 const createMockFileRepository = (files: FileRecord[] = []): DrizzleFileRecordRepository =>
   ({
-    findById: vi.fn((id: string) => Promise.resolve(files.find((f) => f.id === id) ?? null)),
-    findAll: vi.fn().mockResolvedValue(files),
     count: vi.fn().mockResolvedValue(files.length),
+    findAll: vi.fn().mockResolvedValue(files),
+    findById: vi.fn((id: string) => Promise.resolve(files.find((f) => f.id === id) ?? null)),
   }) as unknown as DrizzleFileRecordRepository;
 
 const createSearchConfig = (overrides: Partial<SearchConfig> = {}): SearchConfig => ({
+  distanceMetric: 'cosine',
   resultLimit: 10,
   threshold: 0.5,
-  distanceMetric: 'cosine',
   ...overrides,
 });
 
@@ -144,49 +156,49 @@ describe('useSemanticSearchExecutor', () => {
     mockDb.query.mockResolvedValue({
       rows: [
         {
-          modelKey: 'jinaai/jina-embeddings-v3',
           dimensions: 1024,
+          modelKey: 'jinaai/jina-embeddings-v3',
         },
       ],
     });
     useModelRegistryStore.setState({
+      error: null,
+      isLoading: false,
       models: [
         {
-          id: 'jinaai/jina-embeddings-v3',
-          providerId: 'transformers',
-          name: 'Jina Code',
-          description: 'Code-optimized embeddings',
-          tagline: null,
           bestFor: ['code', 'default'],
+          capabilities: { defaultDimension: 1024, type: 'embedding' },
+          description: 'Code-optimized embeddings',
           icon: null,
+          id: 'jinaai/jina-embeddings-v3',
           isEnabled: true,
-          capabilities: { type: 'embedding', defaultDimension: 1024 },
+          name: 'Jina Code',
           parameters: { size: '~300MB' },
+          providerId: 'transformers',
           sortOrder: 1,
+          tagline: null,
         },
       ],
       providers: [],
-      isLoading: false,
-      error: null,
     });
     useVectorPreferencesStore.setState({
-      hasHydrated: true,
       devicePref: 'wasm',
       devicePrefConfigured: true,
+      hasHydrated: true,
       reinitEveryN: 200,
-      verboseOrtLogs: false,
       setDetectedDevicePref: vi.fn(),
       setDevicePref: vi.fn(),
       setReinitEveryN: vi.fn(),
       setVerboseOrtLogs: vi.fn(),
+      verboseOrtLogs: false,
     });
     MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
       Object.assign(this, {
-        initializeWithModel: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn(),
         generateQueryEmbedding: vi.fn().mockResolvedValue({
           embedding: new Array(1024).fill(0.1),
         }),
-        dispose: vi.fn(),
+        initializeWithModel: vi.fn().mockResolvedValue(undefined),
       });
     });
   });
@@ -268,10 +280,10 @@ describe('useSemanticSearchExecutor', () => {
 
     expect(availabilityLogs).toHaveLength(2);
     expect(availabilityLogs[0]?.args).toContainEqual(
-      expect.objectContaining({ hasExecutor: false, hasChunkRepo: false, hasFileRepo: true })
+      expect.objectContaining({ hasChunkRepo: false, hasExecutor: false, hasFileRepo: true })
     );
     expect(availabilityLogs[1]?.args).toContainEqual(
-      expect.objectContaining({ hasExecutor: true, hasChunkRepo: true, hasFileRepo: true })
+      expect.objectContaining({ hasChunkRepo: true, hasExecutor: true, hasFileRepo: true })
     );
 
     unsubscribe();
@@ -331,9 +343,9 @@ describe('useSemanticSearchExecutor', () => {
         chunkId: 'chunk-1',
         chunkIndex: 3,
         embeddingDimensions: 3,
-        fileRecordId: 'file-1',
         fileName: 'file-file-1.txt',
         filePath: '/path/to/file-file-1.txt',
+        fileRecordId: 'file-1',
         fileSize: 2048,
         similarity: expect.any(Number),
         tokenCount: 72,
@@ -352,7 +364,7 @@ describe('useSemanticSearchExecutor', () => {
 
   it('throws when the embedding set dimensions are missing', async () => {
     mockDb.query.mockResolvedValue({
-      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: null }],
+      rows: [{ dimensions: null, modelKey: 'jinaai/jina-embeddings-v3' }],
     });
 
     const { result } = renderHook(() =>
@@ -369,7 +381,7 @@ describe('useSemanticSearchExecutor', () => {
 
   it('accepts positive numeric string embedding dimensions from the active embedding set', async () => {
     mockDb.query.mockResolvedValue({
-      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: '1024' }],
+      rows: [{ dimensions: '1024', modelKey: 'jinaai/jina-embeddings-v3' }],
     });
     const chunk = createMockChunk('chunk-1', 'file-1');
     const chunkRepo = createMockChunkRepository([chunk]);
@@ -386,7 +398,7 @@ describe('useSemanticSearchExecutor', () => {
 
   it('rejects non-numeric string embedding dimensions from the active embedding set', async () => {
     mockDb.query.mockResolvedValue({
-      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: 'not-a-number' }],
+      rows: [{ dimensions: 'not-a-number', modelKey: 'jinaai/jina-embeddings-v3' }],
     });
 
     const { result } = renderHook(() =>
@@ -403,7 +415,7 @@ describe('useSemanticSearchExecutor', () => {
 
   it('creates a hosted OpenAI embedder from hosted model keys without initializing a local model', async () => {
     mockDb.query.mockResolvedValue({
-      rows: [{ modelKey: 'openai::text-embedding-3-small', dimensions: 1536 }],
+      rows: [{ dimensions: 1536, modelKey: 'openai::text-embedding-3-small' }],
     });
     const { EmbeddingProviderFactory } = await import('@brainstrike/embeddings/factory');
     const createProvider = vi.mocked(EmbeddingProviderFactory.createProvider);
@@ -440,9 +452,9 @@ describe('useSemanticSearchExecutor', () => {
     });
     MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
       Object.assign(this, {
-        initializeWithModel,
-        generateQueryEmbedding,
         dispose: vi.fn(),
+        generateQueryEmbedding,
+        initializeWithModel,
       });
     });
 
@@ -494,9 +506,9 @@ describe('useSemanticSearchExecutor', () => {
     chunk.endOffset = 40;
     const chunkRepo = createMockChunkRepository([chunk]);
     const fileRepo = {
-      findById: vi.fn().mockRejectedValue(new Error('lookup failed')),
-      findAll: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
+      findAll: vi.fn().mockResolvedValue([]),
+      findById: vi.fn().mockRejectedValue(new Error('lookup failed')),
     } as unknown as DrizzleFileRecordRepository;
 
     const { result } = renderHook(() =>
@@ -535,16 +547,16 @@ describe('useSemanticSearchExecutor', () => {
 
     await result.current!(
       'test query',
-      createSearchConfig({ resultLimit: 5, threshold: 0.8, retrievalMode: 'vector' }),
+      createSearchConfig({ resultLimit: 5, retrievalMode: 'vector', threshold: 0.8 }),
       'set-1'
     );
 
     expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({
+        embeddingSetId: 'set-1',
         limit: 5,
         threshold: 0.8,
-        embeddingSetId: 'set-1',
       })
     );
   });
@@ -762,8 +774,8 @@ describe('useSemanticSearchExecutor', () => {
       expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
         expect.any(Array),
         expect.objectContaining({
-          filePaths,
           embeddingSetId: 'set-1',
+          filePaths,
         })
       );
     });
@@ -783,15 +795,15 @@ describe('useSemanticSearchExecutor', () => {
       const selectionSnapshotId = 'snapshot-uuid-123';
       await result.current!(
         'test query',
-        createSearchConfig({ selectionSnapshotId, retrievalMode: 'vector' }),
+        createSearchConfig({ retrievalMode: 'vector', selectionSnapshotId }),
         'set-1'
       );
 
       expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
         expect.any(Array),
         expect.objectContaining({
-          selectionSnapshotId,
           embeddingSetId: 'set-1',
+          selectionSnapshotId,
         })
       );
     });
@@ -814,7 +826,7 @@ describe('useSemanticSearchExecutor', () => {
       const selectionSnapshotId = 'snapshot-uuid-456';
       await result.current!(
         'test query',
-        createSearchConfig({ filePaths, selectionSnapshotId, retrievalMode: 'vector' }),
+        createSearchConfig({ filePaths, retrievalMode: 'vector', selectionSnapshotId }),
         'set-1'
       );
 
@@ -822,8 +834,8 @@ describe('useSemanticSearchExecutor', () => {
       expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
         expect.any(Array),
         expect.objectContaining({
-          selectionSnapshotId,
           embeddingSetId: 'set-1',
+          selectionSnapshotId,
         })
       );
       // Verify filePaths was NOT passed
@@ -997,9 +1009,9 @@ describe('useSemanticSearchExecutor', () => {
         .mockResolvedValue({ embedding: new Array(1024).fill(0.5) });
       MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
         Object.assign(this, {
-          initializeWithModel,
-          generateQueryEmbedding,
           dispose: vi.fn(),
+          generateQueryEmbedding,
+          initializeWithModel,
         });
       });
 
@@ -1029,9 +1041,9 @@ describe('useSemanticSearchExecutor', () => {
       const generateQueryEmbedding = vi.fn().mockRejectedValueOnce(new Error('out of memory'));
       MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
         Object.assign(this, {
-          initializeWithModel,
-          generateQueryEmbedding,
           dispose: vi.fn(),
+          generateQueryEmbedding,
+          initializeWithModel,
         });
       });
 

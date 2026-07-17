@@ -1,10 +1,7 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db';
-import {
-  FileExplorerPanel,
-  RootDataDeletionProvider,
-  useFileSystem,
-} from '@brainstrike/file-explorer-ui/shell';
+import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
+import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
@@ -15,6 +12,9 @@ import {
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   ActionRegistryProvider,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   IdeLayout,
   PanelLayoutProvider,
   type PanelLayoutState,
@@ -22,11 +22,13 @@ import {
 import {
   EmbeddingRuntimeProvider,
   IndexingActivityCoordinator,
+  SearchEmbedderProvider,
 } from '@brainstrike/vector-management';
 import {
   memo,
   type ReactElement,
   type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -41,11 +43,16 @@ import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { CommandPaletteHost } from './command-palette-host';
+import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
+import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
+// Side-effect: register session-only stores with the factory-reset pipeline.
+import './register-factory-reset-session-stores';
 
 interface DebouncedPanelLayoutState {
   readonly showConsole: boolean;
@@ -145,8 +152,14 @@ export interface RootLayoutContentProps {
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly navigationItems: NavigationItem[];
+  /**
+   * Optional markdown notes vault surface. Supplied by app wrappers when the
+   * File System Access directory picker capability exists (Chromium web,
+   * Electron renderers); Safari/Firefox never construct it (capability
+   * gating, not UA sniffing). When absent, no Notes nav item is rendered.
+   */
+  readonly notesPageContent?: ReactNode;
   readonly preloadDatabaseTabOnMount?: boolean;
-  readonly promptsPageContent?: ReactNode;
   readonly settingsPageContent: ReactNode;
   /**
    * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
@@ -158,9 +171,9 @@ export interface RootLayoutContentProps {
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
-  '/settings': 'settings',
-  '/prompts': 'prompts',
   '/git': 'git',
+  '/notes': 'notes',
+  '/settings': 'settings',
   '/terminal': 'terminal',
 };
 
@@ -211,10 +224,10 @@ function useDebouncedPanelLayoutChange(options: {
       }
       setStateRef.current({
         ...currentPanelState,
-        sizes: nextSizes,
         showConsole: state.showConsole,
         showLeftPanel: state.showLeftPanel,
         showRightPanel: state.showRightPanel,
+        sizes: nextSizes,
       });
       return;
     }
@@ -226,21 +239,26 @@ function useDebouncedPanelLayoutChange(options: {
       sizeDebounceRef.current = null;
       setStateRef.current({
         ...currentPanelState,
-        sizes: nextSizes,
         showConsole: state.showConsole,
         showLeftPanel: state.showLeftPanel,
         showRightPanel: state.showRightPanel,
+        sizes: nextSizes,
       });
     }, 150);
   }, []);
 }
 
 const EXPLORER_RIGHT_PANEL_CHROME = {
-  title: 'Explorer',
-  showButtonLabel: 'Show explorer panel',
-  showButtonTestId: 'show-explorer-panel',
   hideButtonLabel: 'Hide explorer panel',
   hideButtonTestId: 'hide-explorer-panel',
+  showButtonLabel: 'Show explorer panel',
+  showButtonTestId: 'show-explorer-panel',
+  title: 'Explorer',
+} as const;
+
+const CONTEXT_EXPLORER_PANEL_CONSTRAINTS = {
+  mainContentMinSize: '20%',
+  rightPanelMinSize: '180px',
 } as const;
 
 function ContextExplorerSurface({
@@ -253,10 +271,10 @@ function ContextExplorerSurface({
   const setState = useContextExplorerLayoutStore((state) => state.setState);
   const panelState = useContextExplorerLayoutStore(
     (state) => ({
-      sizes: state.sizes,
       showConsole: state.showConsole,
       showLeftPanel: state.showLeftPanel,
       showRightPanel: state.showRightPanel,
+      sizes: state.sizes,
     }),
     shallow
   );
@@ -265,9 +283,13 @@ function ContextExplorerSurface({
     setState,
   });
   const resolvedPanelContent = useMemo(
-    () => contextExplorerPanelContent ?? <FileExplorerPanel />,
+    () => contextExplorerPanelContent ?? <ExplorerSearchTabs />,
     [contextExplorerPanelContent]
   );
+  // Platform-injected markdown preview capabilities (external links, image src
+  // resolution). Detected by the `window.platform` bridge (capability presence,
+  // not isElectron); WorkspaceTabHost consumes this via the nullable hook.
+  const markdownPreviewCapabilities = useMarkdownPreviewCapabilitiesValue();
 
   return (
     <FileTreeWrapper>
@@ -276,18 +298,21 @@ function ContextExplorerSurface({
           editor area itself hosts the Context Explorer app and any open file tabs;
           there is no longer a south "console" panel. */}
       <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-        <IdeLayout
-          panelIdPrefix="context-explorer"
-          rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
-          rightPanelContent={resolvedPanelContent}
-        >
-          {/* The ⌘P quick-open host mounts INSIDE IdeLayout so it can reach the
-              file-open seam (IdeFileEditorContext, registered by the tab host).
-              This subtree is always mounted (the explorer route is only toggled
-              hidden), so ⌘P works from any tab. */}
-          <QuickOpenHost />
-          {contextExplorerPageContent}
-        </IdeLayout>
+        <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
+          <IdeLayout
+            panelConstraints={CONTEXT_EXPLORER_PANEL_CONSTRAINTS}
+            panelIdPrefix="context-explorer"
+            rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
+            rightPanelContent={resolvedPanelContent}
+          >
+            {/* The ⌘P quick-open host mounts INSIDE IdeLayout so it can reach the
+                file-open seam (IdeFileEditorContext, registered by the tab host).
+                This subtree is always mounted (the explorer route is only toggled
+                hidden), so ⌘P works from any tab. */}
+            <QuickOpenHost />
+            {contextExplorerPageContent}
+          </IdeLayout>
+        </MarkdownPreviewCapabilitiesProvider>
       </PanelLayoutProvider>
     </FileTreeWrapper>
   );
@@ -300,6 +325,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   loadEmbeddingQueue,
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
+  visible,
 }: {
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
@@ -307,6 +333,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
+  readonly visible: boolean;
 }): ReactElement {
   return (
     <div className="h-full min-h-0" data-testid="explorer-section">
@@ -323,6 +350,24 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
               />
             }
             preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+            promptsContent={(isActive) => (
+              <Suspense
+                fallback={
+                  <div
+                    className="grid h-full place-items-center text-muted-foreground text-xs"
+                    data-testid="prompt-workbench-lazy-fallback"
+                    role="status"
+                  >
+                    Opening Prompt Workbench…
+                  </div>
+                }
+              >
+                <ConnectedPromptManagerLazy
+                  loadEmbeddingQueue={loadEmbeddingQueue}
+                  suggestionsEnabled={visible && isActive}
+                />
+              </Suspense>
+            )}
             threadsContent={<ThreadsPanel />}
           />
         }
@@ -341,8 +386,8 @@ export function RootLayoutContent({
   contextExplorerPageContent,
   contextExplorerPanelContent,
   settingsPageContent,
-  promptsPageContent,
   gitPageContent,
+  notesPageContent,
   terminalPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
@@ -351,36 +396,61 @@ export function RootLayoutContent({
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
   const activeTab = usePanelLayoutStore((state) => state.activeTab);
+  const openSettings = usePanelLayoutStore((state) => state.openSettings);
+  const settingsOpen = usePanelLayoutStore((state) => state.settingsOpen);
+  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+  const setSettingsOpen = usePanelLayoutStore((state) => state.setSettingsOpen);
   const setState = usePanelLayoutStore((state) => state.setState);
-  const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([activeTab]));
-  const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
+  const shellTab = activeTab === 'settings' ? 'explorer' : activeTab;
+  const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([shellTab]));
+  const appConfig = useMemo(
+    () =>
+      createAppConfig({
+        navigationItems: navigationItems.filter((item) => item.path !== '/settings'),
+      }),
+    [navigationItems]
+  );
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
 
   useEffect(() => {
     setMountedTabs((currentTabs) => {
-      if (currentTabs.has(activeTab)) {
+      if (currentTabs.has(shellTab)) {
         return currentTabs;
       }
       const nextTabs = new Set(currentTabs);
-      nextTabs.add(activeTab);
+      nextTabs.add(shellTab);
       return nextTabs;
     });
-  }, [activeTab]);
+  }, [shellTab]);
+
+  const handleSettingsOpenChange = useCallback(
+    (open: boolean) => {
+      setSettingsOpen(open);
+      if (!open && activeTab === 'settings') {
+        setActiveTab('explorer');
+      }
+    },
+    [activeTab, setActiveTab, setSettingsOpen]
+  );
 
   const handleNavigationClick = useCallback(
     (path: string) => {
-      setState({ activeTab: resolveActiveTabForPath(path) });
+      if (path === '/settings') {
+        openSettings();
+        return;
+      }
+      setActiveTab(resolveActiveTabForPath(path));
     },
-    [setState]
+    [openSettings, setActiveTab]
   );
   const panelState = usePanelLayoutStore(
     (state) => ({
-      sizes: state.sizes,
       showConsole: state.showConsole,
       showLeftPanel: state.showLeftPanel,
       showRightPanel: state.showRightPanel,
+      sizes: state.sizes,
     }),
     shallow
   );
@@ -394,8 +464,9 @@ export function RootLayoutContent({
   return (
     <AppLayout
       config={appConfig}
-      currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
+      currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
       onNavigationClick={handleNavigationClick}
+      onOpenSettings={openSettings}
     >
       {/* These providers now intentionally stay app-wide so background chunking and embedding
           work can continue across route switches. They remain inert on non-explorer routes
@@ -407,62 +478,79 @@ export function RootLayoutContent({
         <CommandPaletteHost />
         <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
           <EmbeddingRuntimeProvider>
-            <IndexingActivityCoordinator />
-            <div
-              aria-hidden={activeTab !== 'explorer'}
-              className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-              data-testid="explorer-route"
-            >
-              <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-                <ExplorerAppSurface
-                  contextExplorerPageContent={contextExplorerPageContent}
-                  contextExplorerPanelContent={contextExplorerPanelContent}
-                  databaseTabChunkingMode={databaseTabChunkingMode}
-                  loadEmbeddingQueue={loadEmbeddingQueue}
-                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                />
-              </PanelLayoutProvider>
-            </div>
-            {mountedTabs.has('prompts') ? (
+            {/* One shared embedder cache for every semantic-search surface. The
+                machinery is lazy (models load on first embed), so this
+                always-mounted provider is free until the first query. It
+                encloses BOTH the collection browser (sidebar DatabasePanel) and
+                the workspace-search panel (ExplorerSearchTabs) below. */}
+            <SearchEmbedderProvider>
+              <IndexingActivityCoordinator />
               <div
-                aria-hidden={activeTab !== 'prompts'}
-                className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
-                data-testid="prompts-route"
+                aria-hidden={shellTab !== 'explorer'}
+                className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+                data-testid="explorer-route"
               >
-                {promptsPageContent ?? null}
+                <PanelLayoutProvider
+                  controlledState={panelState}
+                  onChange={handlePanelLayoutChange}
+                >
+                  <ExplorerAppSurface
+                    contextExplorerPageContent={contextExplorerPageContent}
+                    contextExplorerPanelContent={contextExplorerPanelContent}
+                    databaseTabChunkingMode={databaseTabChunkingMode}
+                    loadEmbeddingQueue={loadEmbeddingQueue}
+                    {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                    visible={shellTab === 'explorer'}
+                  />
+                </PanelLayoutProvider>
               </div>
-            ) : null}
-            {mountedTabs.has('settings') ? (
-              <div
-                aria-hidden={activeTab !== 'settings'}
-                className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
-                data-testid="settings-route"
+              <Dialog
+                onOpenChange={handleSettingsOpenChange}
+                open={settingsOpen || activeTab === 'settings'}
               >
-                {settingsPageContent}
-              </div>
-            ) : null}
-            {gitPageContent && mountedTabs.has('git') ? (
-              <div
-                aria-hidden={activeTab !== 'git'}
-                className={activeTab === 'git' ? 'h-full' : 'hidden h-full'}
-                data-testid="git-route"
-              >
-                {gitPageContent}
-              </div>
-            ) : null}
-            {/* The terminal route stays MOUNTED once first opened (it is only
+                <DialogContent
+                  aria-describedby={undefined}
+                  className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"
+                  overlayClassName="bg-background/55 backdrop-blur-md"
+                >
+                  <DialogTitle className="sr-only">Settings</DialogTitle>
+                  {settingsPageContent}
+                </DialogContent>
+              </Dialog>
+              {gitPageContent && mountedTabs.has('git') ? (
+                <div
+                  aria-hidden={shellTab !== 'git'}
+                  className={shellTab === 'git' ? 'h-full' : 'hidden h-full'}
+                  data-testid="git-route"
+                >
+                  {gitPageContent}
+                </div>
+              ) : null}
+              {/* The terminal route stays MOUNTED once first opened (it is only
                 toggled hidden) so switching tabs never kills the running shell —
                 the pty is pinned to its cwd for the session's lifetime. */}
-            {terminalPageContent && mountedTabs.has('terminal') ? (
-              <div
-                aria-hidden={activeTab !== 'terminal'}
-                className={activeTab === 'terminal' ? 'h-full' : 'hidden h-full'}
-                data-testid="terminal-route"
-              >
-                {terminalPageContent}
-              </div>
-            ) : null}
+              {terminalPageContent && mountedTabs.has('terminal') ? (
+                <div
+                  aria-hidden={shellTab !== 'terminal'}
+                  className={shellTab === 'terminal' ? 'h-full' : 'hidden h-full'}
+                  data-testid="terminal-route"
+                >
+                  {terminalPageContent}
+                </div>
+              ) : null}
+              {/* Stays mounted once opened so vault watchers, scan state, and
+                the viewer's scroll position survive tab switches. */}
+              {notesPageContent && mountedTabs.has('notes') ? (
+                <div
+                  aria-hidden={shellTab !== 'notes'}
+                  className={shellTab === 'notes' ? 'h-full' : 'hidden h-full'}
+                  data-testid="notes-route"
+                >
+                  {notesPageContent}
+                </div>
+              ) : null}
+            </SearchEmbedderProvider>
           </EmbeddingRuntimeProvider>
         </ChunkingWorkerProvider>
       </ActionRegistryProvider>

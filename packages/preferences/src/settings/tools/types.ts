@@ -10,9 +10,9 @@ import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contr
  * This avoids importing the full @brainstrike/agent package which has server-only dependencies.
  */
 export interface TokenBudgetManager {
-  getConditionalToolsBudget(): number;
-  getContextResultsBudget(): number;
-  getCriticalToolsBudget(): number;
+  getConditionalToolsBudget: () => number;
+  getContextResultsBudget: () => number;
+  getCriticalToolsBudget: () => number;
 }
 
 /**

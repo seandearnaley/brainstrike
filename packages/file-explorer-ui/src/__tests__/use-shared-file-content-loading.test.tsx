@@ -179,7 +179,7 @@ describe('useSharedFileContentLoading - caching', () => {
     const wrapper = createWrapper(adapter);
     const { result, rerender } = renderHook(
       ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
-      { wrapper, initialProps: { tree: [fileNode1] } }
+      { initialProps: { tree: [fileNode1] }, wrapper }
     );
 
     // Allow debounced cache rebuild to complete
@@ -746,8 +746,8 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(
       ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
       {
-        wrapper,
         initialProps: { tree: [] as IFileNode[] },
+        wrapper,
       }
     );
 
@@ -799,8 +799,8 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(
       ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
       {
-        wrapper,
         initialProps: { tree: [otherNode] },
+        wrapper,
       }
     );
 
@@ -930,9 +930,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     act(() => {
       result.current.store.getState().setActiveRoots([
         {
-          rootId,
-          path: '/workspace/root',
           displayName: 'root',
+          path: '/workspace/root',
+          rootId,
         },
       ]);
     });
@@ -987,8 +987,8 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(
       ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
       {
-        wrapper,
         initialProps: { tree: [fileNode] },
+        wrapper,
       }
     );
 

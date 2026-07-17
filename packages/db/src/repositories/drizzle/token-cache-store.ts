@@ -137,26 +137,26 @@ export class DrizzleTokenCacheStore {
     await this.db
       .insert(fileTokenCache)
       .values({
-        folderId: entry.folderId,
-        filePath: validatedPath,
         contentHash: entry.contentHash,
+        countingMode: entry.countingMode,
+        filePath: validatedPath,
         fileSize: entry.fileSize,
+        folderId: entry.folderId,
+        modelEncoding: entry.modelEncoding,
         mtimeMs: entry.mtimeMs,
         tokenCount: entry.tokenCount,
-        countingMode: entry.countingMode,
-        modelEncoding: entry.modelEncoding,
       })
       .onConflictDoUpdate({
-        target: [fileTokenCache.folderId, fileTokenCache.filePath],
         set: {
           contentHash: sql`excluded.content_hash`,
+          countingMode: sql`excluded.counting_mode`,
           fileSize: sql`excluded.file_size`,
+          modelEncoding: sql`excluded.model_encoding`,
           mtimeMs: sql`excluded.mtime_ms`,
           tokenCount: sql`excluded.token_count`,
-          countingMode: sql`excluded.counting_mode`,
-          modelEncoding: sql`excluded.model_encoding`,
           updatedAt: textTimestampNow,
         },
+        target: [fileTokenCache.folderId, fileTokenCache.filePath],
       });
   }
 
@@ -176,14 +176,14 @@ export class DrizzleTokenCacheStore {
 
     // Convert entries to insert format
     const values = validatedEntries.map(({ entry, validatedPath }) => ({
-      folderId: entry.folderId,
-      filePath: validatedPath,
       contentHash: entry.contentHash,
+      countingMode: entry.countingMode,
+      filePath: validatedPath,
       fileSize: entry.fileSize,
+      folderId: entry.folderId,
+      modelEncoding: entry.modelEncoding,
       mtimeMs: entry.mtimeMs,
       tokenCount: entry.tokenCount,
-      countingMode: entry.countingMode,
-      modelEncoding: entry.modelEncoding,
     }));
 
     // Use bulk insert with onConflictDoUpdate for efficient upsert
@@ -192,16 +192,16 @@ export class DrizzleTokenCacheStore {
       .insert(fileTokenCache)
       .values(values)
       .onConflictDoUpdate({
-        target: [fileTokenCache.folderId, fileTokenCache.filePath],
         set: {
           contentHash: sql`excluded.content_hash`,
+          countingMode: sql`excluded.counting_mode`,
           fileSize: sql`excluded.file_size`,
+          modelEncoding: sql`excluded.model_encoding`,
           mtimeMs: sql`excluded.mtime_ms`,
           tokenCount: sql`excluded.token_count`,
-          countingMode: sql`excluded.counting_mode`,
-          modelEncoding: sql`excluded.model_encoding`,
           updatedAt: textTimestampNow,
         },
+        target: [fileTokenCache.folderId, fileTokenCache.filePath],
       });
   }
 
@@ -288,10 +288,10 @@ export class DrizzleTokenCacheStore {
 
     const row = (result.rows as Record<string, unknown>[])[0];
     return {
-      entryCount: Number(row?.['entry_count'] ?? 0),
-      totalTokens: Number(row?.['total_tokens'] ?? 0),
       accurateCount: Number(row?.['accurate_count'] ?? 0),
+      entryCount: Number(row?.['entry_count'] ?? 0),
       heuristicCount: Number(row?.['heuristic_count'] ?? 0),
+      totalTokens: Number(row?.['total_tokens'] ?? 0),
     };
   }
 
@@ -334,15 +334,15 @@ export class DrizzleTokenCacheStore {
    */
   private fromRow(row: typeof fileTokenCache.$inferSelect): TokenCacheEntry {
     return {
-      folderId: row.folderId,
-      filePath: row.filePath,
       contentHash: row.contentHash,
+      countingMode: row.countingMode,
+      createdAt: row.createdAt.toISOString(),
+      filePath: row.filePath,
       fileSize: Number(row.fileSize),
+      folderId: row.folderId,
+      modelEncoding: row.modelEncoding,
       mtimeMs: row.mtimeMs ? Number(row.mtimeMs) : null,
       tokenCount: row.tokenCount,
-      countingMode: row.countingMode,
-      modelEncoding: row.modelEncoding,
-      createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
   }

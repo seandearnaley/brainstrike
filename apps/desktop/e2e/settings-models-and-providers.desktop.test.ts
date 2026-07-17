@@ -8,35 +8,35 @@ import { SettingsPage } from './page-objects/settings-page';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 const MODEL_REGISTRY_SNAPSHOT = {
-  providers: [
-    {
-      id: 'local',
-      name: 'Local',
-      icon: null,
-      isEnabled: true,
-      sortOrder: 1,
-    },
-  ],
-  models: [
-    {
-      id: 'local:test-chat-model',
-      providerId: 'local',
-      name: 'Test Chat Model',
-      description: 'Deterministic E2E chat model',
-      tagline: null,
-      bestFor: ['tests'],
-      icon: null,
-      isEnabled: true,
-      capabilities: {
-        type: 'llm' as const,
-        defaultDimension: 1024,
-      },
-      parameters: null,
-      sortOrder: 1,
-    },
-  ],
   downloadedModels: {},
   modelCacheDir: null,
+  models: [
+    {
+      bestFor: ['tests'],
+      capabilities: {
+        defaultDimension: 1024,
+        type: 'llm' as const,
+      },
+      description: 'Deterministic E2E chat model',
+      icon: null,
+      id: 'local:test-chat-model',
+      isEnabled: true,
+      name: 'Test Chat Model',
+      parameters: null,
+      providerId: 'local',
+      sortOrder: 1,
+      tagline: null,
+    },
+  ],
+  providers: [
+    {
+      icon: null,
+      id: 'local',
+      isEnabled: true,
+      name: 'Local',
+      sortOrder: 1,
+    },
+  ],
 };
 
 const MODEL_REGISTRY_ERROR_TIMEOUT_MS = 30_000;
@@ -118,8 +118,8 @@ test.describe('Models & Providers settings (desktop)', () => {
   }) => {
     await installSettingsTestOverrides(window, {
       modelRegistry: {
-        snapshot: MODEL_REGISTRY_SNAPSHOT,
         cacheDirectorySelection: { unavailable: true },
+        snapshot: MODEL_REGISTRY_SNAPSHOT,
       },
     });
     await reloadDesktopSettings(window, 'desktop-cache-dir-unavailable-override');
@@ -139,8 +139,8 @@ test.describe('Models & Providers settings (desktop)', () => {
   test('updates the cache directory through the desktop bridge', async ({ window, homePage }) => {
     await installSettingsTestOverrides(window, {
       modelRegistry: {
-        snapshot: MODEL_REGISTRY_SNAPSHOT,
         cacheDirectorySelection: { path: '/tmp/brainstrike-model-cache' },
+        snapshot: MODEL_REGISTRY_SNAPSHOT,
       },
     });
     await reloadDesktopSettings(window, 'desktop-cache-dir-path-override');

@@ -98,9 +98,9 @@ describe('useKeyboardCancellation', () => {
         useKeyboardCancellation(isLoading, cancellable, isCancelling, onCancelFn),
       {
         initialProps: {
-          isLoading: true,
           cancellable: true,
           isCancelling: false,
+          isLoading: true,
           onCancelFn: onCancel,
         },
       }
@@ -109,7 +109,7 @@ describe('useKeyboardCancellation', () => {
     expect(addEventListenerSpy).toHaveBeenCalledTimes(1);
 
     // Change to not cancellable
-    rerender({ isLoading: true, cancellable: false, isCancelling: false, onCancelFn: onCancel });
+    rerender({ cancellable: false, isCancelling: false, isLoading: true, onCancelFn: onCancel });
 
     expect(removeEventListenerSpy).toHaveBeenCalled();
   });

@@ -100,6 +100,66 @@ export function extractHeadingPath(content: string): string | undefined {
   return headingStack.map((h) => h.text).join(' > ');
 }
 
+const LANGUAGE_MAP: Readonly<Record<string, string>> = {
+  bash: 'shell',
+  c: 'c',
+  cjs: 'javascript',
+  cpp: 'cpp',
+
+  // .NET
+  cs: 'csharp',
+  css: 'css',
+  go: 'go',
+  h: 'c',
+  hpp: 'cpp',
+
+  // Web
+  html: 'html',
+
+  // JVM
+  java: 'java',
+  // JavaScript/TypeScript
+  js: 'javascript',
+
+  // Data/Config
+  json: 'json',
+  jsx: 'javascript',
+  kt: 'kotlin',
+  m: 'objective-c',
+
+  // Documentation
+  md: 'markdown',
+  mdx: 'markdown',
+  mjs: 'javascript',
+  mm: 'objective-c',
+  php: 'php',
+
+  // Scripting
+  py: 'python',
+  rb: 'ruby',
+
+  // Systems
+  rs: 'rust',
+  sass: 'sass',
+  scala: 'scala',
+  scss: 'scss',
+  sh: 'shell',
+
+  // Database
+  sql: 'sql',
+  svelte: 'svelte',
+
+  // Mobile
+  swift: 'swift',
+  toml: 'toml',
+  ts: 'typescript',
+  tsx: 'typescript',
+  vue: 'vue',
+  xml: 'xml',
+  yaml: 'yaml',
+  yml: 'yaml',
+};
+
 /**
  * Detect programming language from file extension.
  *
@@ -107,70 +167,13 @@ export function extractHeadingPath(content: string): string | undefined {
  * @returns Language name or undefined if not recognized
  */
 export function detectLanguage(filePath: string): string | undefined {
-  const ext = filePath.split('.').pop()?.toLowerCase();
-  if (!ext) {
+  // Chunking calls this for every file; avoid per-call array and map allocations
+  // when only the suffix after the final dot matters.
+  const dotIndex = filePath.lastIndexOf('.');
+  if (dotIndex < 0 || dotIndex === filePath.length - 1) {
     return;
   }
+  const ext = filePath.slice(dotIndex + 1).toLowerCase();
 
-  const languageMap: Record<string, string> = {
-    // JavaScript/TypeScript
-    js: 'javascript',
-    jsx: 'javascript',
-    ts: 'typescript',
-    tsx: 'typescript',
-    mjs: 'javascript',
-    cjs: 'javascript',
-
-    // Web
-    html: 'html',
-    css: 'css',
-    scss: 'scss',
-    sass: 'sass',
-    vue: 'vue',
-    svelte: 'svelte',
-
-    // Systems
-    rs: 'rust',
-    go: 'go',
-    c: 'c',
-    cpp: 'cpp',
-    h: 'c',
-    hpp: 'cpp',
-
-    // JVM
-    java: 'java',
-    kt: 'kotlin',
-    scala: 'scala',
-
-    // Scripting
-    py: 'python',
-    rb: 'ruby',
-    php: 'php',
-    sh: 'shell',
-    bash: 'shell',
-
-    // .NET
-    cs: 'csharp',
-
-    // Mobile
-    swift: 'swift',
-    m: 'objective-c',
-    mm: 'objective-c',
-
-    // Data/Config
-    json: 'json',
-    yaml: 'yaml',
-    yml: 'yaml',
-    toml: 'toml',
-    xml: 'xml',
-
-    // Documentation
-    md: 'markdown',
-    mdx: 'markdown',
-
-    // Database
-    sql: 'sql',
-  };
-
-  return languageMap[ext];
+  return LANGUAGE_MAP[ext];
 }

@@ -14,20 +14,20 @@ import type { TreeNode, TreeTableColumn } from '../tree-table/types';
 
 // Mock @tanstack/react-virtual so all rows render synchronously in JSDOM.
 vi.mock('@tanstack/react-virtual', () => ({
+  observeElementRect: vi.fn(),
   useVirtualizer: vi.fn(({ count }) => ({
+    getTotalSize: () => count * 40,
     getVirtualItems: () =>
       Array.from({ length: count }, (_, i) => ({
-        index: i,
-        start: i * 40,
         end: (i + 1) * 40,
-        size: 40,
+        index: i,
         key: `item-${i}`,
+        size: 40,
+        start: i * 40,
       })),
-    getTotalSize: () => count * 40,
-    scrollToIndex: vi.fn(),
     measureElement: vi.fn(),
+    scrollToIndex: vi.fn(),
   })),
-  observeElementRect: vi.fn(),
 }));
 
 interface RowData {
@@ -36,12 +36,12 @@ interface RowData {
 
 function buildNode(id: string, name: string): TreeNode<RowData> {
   return {
-    id,
-    type: 'file',
-    depth: 0,
-    parentId: null,
-    hasChildren: false,
     data: { name },
+    depth: 0,
+    hasChildren: false,
+    id,
+    parentId: null,
+    type: 'file',
   };
 }
 
@@ -57,20 +57,20 @@ function buildColumns(
 ): TreeTableColumn<RowData>[] {
   const defaults: TreeTableColumn<RowData>[] = [
     {
-      id: 'name',
-      header: 'Name',
-      defaultWidth: 200,
-      minWidth: 80,
-      maxWidth: 400,
       cell: ({ node }) => <span>{node.data.name}</span>,
+      defaultWidth: 200,
+      header: 'Name',
+      id: 'name',
+      maxWidth: 400,
+      minWidth: 80,
     },
     {
-      id: 'size',
-      header: 'Size',
-      defaultWidth: 120,
-      minWidth: 60,
-      maxWidth: 300,
       cell: ({ node }) => <span>{node.data.name.length}</span>,
+      defaultWidth: 120,
+      header: 'Size',
+      id: 'size',
+      maxWidth: 300,
+      minWidth: 60,
     },
   ];
   return defaults.map((col, i) => ({ ...col, ...(overrides[i] ?? {}) }));
@@ -87,15 +87,15 @@ function stubHeaderRect(handle: HTMLElement, leftEdge: number, rightEdge: number
   }
   header.getBoundingClientRect = () =>
     ({
+      bottom: 40,
+      height: 40,
       left: leftEdge,
       right: rightEdge,
+      toJSON: () => ({}),
       top: 0,
-      bottom: 40,
       width: rightEdge - leftEdge,
-      height: 40,
       x: leftEdge,
       y: 0,
-      toJSON: () => ({}),
     }) as DOMRect;
 }
 
@@ -141,12 +141,12 @@ describe('TreeTable column resize', () => {
           columns={[
             ...buildColumns(),
             {
-              id: 'status',
-              header: 'Status',
-              width: 44,
-              minWidth: 44,
-              maxWidth: 44,
               cell: () => <span>•</span>,
+              header: 'Status',
+              id: 'status',
+              maxWidth: 44,
+              minWidth: 44,
+              width: 44,
             },
           ]}
           expandedIds={new Set()}
@@ -196,7 +196,7 @@ describe('TreeTable column resize', () => {
       const handle = screen.getByRole('separator', { name: /resize name/i });
       stubHeaderRect(handle, 0, 200);
 
-      fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1, button: 0 });
+      fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
       fireEvent.pointerMove(window, { clientX: 250, pointerId: 1 });
       fireEvent.pointerUp(window, { clientX: 250, pointerId: 1 });
 
@@ -234,7 +234,7 @@ describe('TreeTable column resize', () => {
       const handle = screen.getByRole('separator', { name: /resize name/i });
       stubHeaderRect(handle, 0, 200);
 
-      fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1, button: 0 });
+      fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
       fireEvent.pointerMove(window, { clientX: 260, pointerId: 1 });
       fireEvent.pointerUp(window, { clientX: 260, pointerId: 1 });
 
@@ -260,7 +260,7 @@ describe('TreeTable column resize', () => {
       const handle = screen.getByRole('separator', { name: /resize name/i });
       stubHeaderRect(handle, 0, 200);
 
-      fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1, button: 0 });
+      fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
       fireEvent.pointerMove(window, { clientX: 0, pointerId: 1 });
       fireEvent.pointerUp(window, { clientX: 0, pointerId: 1 });
 
@@ -284,7 +284,7 @@ describe('TreeTable column resize', () => {
       const handle = screen.getByRole('separator', { name: /resize name/i });
       stubHeaderRect(handle, 0, 200);
 
-      fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1, button: 0 });
+      fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
       fireEvent.pointerMove(window, { clientX: 10_000, pointerId: 1 });
       fireEvent.pointerUp(window, { clientX: 10_000, pointerId: 1 });
 
@@ -385,7 +385,7 @@ describe('TreeTable column resize', () => {
       const handle = screen.getByRole('separator', { name: /resize name/i });
       stubHeaderRect(handle, 0, 200);
 
-      fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1, button: 0 });
+      fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
       fireEvent.pointerMove(window, { clientX: 230, pointerId: 1 });
       fireEvent.pointerUp(window, { clientX: 230, pointerId: 1 });
       // Some browsers fire click after pointerup on the same target.
@@ -466,7 +466,7 @@ describe('TreeTable column resize', () => {
       // must survive the emit so the persistence store doesn't drop it.
       render(
         <TreeTable
-          columnSizes={{ name: 200, size: 120, score: 250 }}
+          columnSizes={{ name: 200, score: 250, size: 120 }}
           columns={buildColumns()}
           expandedIds={new Set()}
           nodes={NODES}
@@ -485,10 +485,10 @@ describe('TreeTable column resize', () => {
       expect(lastCall?.[0]).toEqual(
         expect.objectContaining({
           name: 208,
-          size: 120,
           // The score entry is NOT a rendered column here but must round-trip
           // back to the consumer so the persistence store keeps it.
           score: 250,
+          size: 120,
         })
       );
     });
@@ -516,7 +516,7 @@ describe('TreeTable column resize', () => {
       const initialPointerMoveAdds = addSpy.mock.calls.filter(
         (call) => String(call[0]) === 'pointermove'
       ).length;
-      fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1, button: 0 });
+      fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
       fireEvent.pointerUp(window, { clientX: 210, pointerId: 1 });
 
       const finalPointerMoveAdds = addSpy.mock.calls.filter(
@@ -552,7 +552,7 @@ describe('TreeTable column resize', () => {
       stubHeaderRect(handle, 0, 200);
 
       // Start drag but do NOT release.
-      fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1, button: 0 });
+      fireEvent.pointerDown(handle, { button: 0, clientX: 200, pointerId: 1 });
       fireEvent.pointerMove(window, { clientX: 220, pointerId: 1 });
 
       const removesBeforeUnmount = removeSpy.mock.calls.filter(

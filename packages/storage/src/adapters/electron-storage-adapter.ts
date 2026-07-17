@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
@@ -18,6 +17,39 @@ export class PathTraversalError extends Error {
     super(`Path traversal detected: "${attemptedPath}" escapes base directory "${basePath}"`);
     this.name = 'PathTraversalError';
   }
+}
+
+/**
+ * Error thrown when Electron provides a path that cannot safely persist storage.
+ */
+export class InvalidUserDataPathError extends Error {
+  constructor(userDataPath: string) {
+    super(`Invalid Electron userData path: "${userDataPath}"`);
+    this.name = 'InvalidUserDataPathError';
+  }
+}
+
+/**
+ * Error thrown when existing durable storage cannot be loaded safely.
+ */
+export class StorageFileLoadError extends Error {
+  constructor(storePath: string, cause: unknown) {
+    super(`Failed to load Electron storage file: "${storePath}"`, { cause });
+    this.name = 'StorageFileLoadError';
+  }
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === 'string')
+  );
 }
 
 /**
@@ -51,27 +83,30 @@ function validatePathContainment(resolvedPath: string, basePath: string): void {
  * Security features:
  * - Atomic writes: Uses temp file + rename to prevent corruption on crash
  * - Path containment: Validates paths stay within userData directory
- * - Warning logs: Alerts when persistence is disabled
+ * - Failure visibility: Rejects operations when durable storage is unavailable or corrupt
  */
 export class ElectronStorageAdapter implements StorageAdapter {
   private storePath = '';
   private cache: Record<string, string> = {};
-  private readonly ready: Promise<void>;
-  /** Write lock to serialize persist operations and prevent race conditions */
+  private ready: Promise<void>;
+  /** Mutation lock keeps each staged write and in-memory commit in invocation order. */
   private persistLock: Promise<void> = Promise.resolve();
 
   constructor(storeFile = 'electron-storage.json') {
     this.ready = this.initialize(storeFile).catch((error) => {
-      // Rethrow security-critical errors - these should not be silently swallowed
-      if (error instanceof PathTraversalError) {
-        throw error;
+      if (!(error instanceof PathTraversalError)) {
+        logger.error('Electron storage initialization failed', {
+          error: error instanceof Error ? error.message : String(error),
+          storeFile,
+        });
       }
 
-      logger.warn('Electron import failed, using in-memory storage only', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      this.cache = {};
+      throw error;
     });
+
+    // Avoid a global unhandled-rejection event if initialization finishes before the
+    // first operation. The original ready promise stays rejected for every caller.
+    void this.ready.catch(() => undefined);
   }
 
   /**
@@ -83,12 +118,7 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
     const userDataPath = app.getPath('userData');
     if (!this.isValidUserDataPath(userDataPath)) {
-      logger.warn('Persistence disabled: userData path is invalid or equals cwd', {
-        userDataPath,
-        cwd: process.cwd(),
-      });
-      this.cache = {};
-      return;
+      throw new InvalidUserDataPathError(userDataPath);
     }
 
     const fullPath = this.validateAndResolvePath(storeFile, userDataPath);
@@ -117,9 +147,9 @@ export class ElectronStorageAdapter implements StorageAdapter {
     } catch (error) {
       if (error instanceof PathTraversalError) {
         logger.error('Path traversal attempt rejected', {
+          resolvedPath: fullPath,
           storeFile,
           userDataPath,
-          resolvedPath: fullPath,
         });
       }
       throw error;
@@ -132,44 +162,71 @@ export class ElectronStorageAdapter implements StorageAdapter {
    * Loads the existing cache from disk if the file exists.
    */
   private async loadExistingCache(): Promise<void> {
-    if (!fs.existsSync(this.storePath)) {
-      return;
-    }
-
     try {
       const data = await fsPromises.readFile(this.storePath, 'utf8');
-      this.cache = JSON.parse(data) as Record<string, string>;
-    } catch (parseError) {
-      logger.warn('Storage file corrupted or unreadable, starting with empty cache', {
-        storePath: this.storePath,
-        error: parseError instanceof Error ? parseError.message : String(parseError),
-      });
-      this.cache = {};
+      const parsed: unknown = JSON.parse(data);
+      if (!isStringRecord(parsed)) {
+        throw new TypeError('Electron storage file must contain an object with string values');
+      }
+      this.cache = parsed;
+    } catch (error) {
+      if (isErrnoException(error) && error.code === 'ENOENT') {
+        return;
+      }
+
+      throw new StorageFileLoadError(this.storePath, error);
     }
   }
 
   /**
-   * Persists the cache to disk using atomic write (temp file + rename).
-   * This prevents data corruption if the process crashes mid-write.
-   * Uses a write lock to serialize operations and prevent race conditions.
+   * Serializes a staged mutation, persists it, then commits it to memory.
+   * Failed writes never change the committed cache seen by later operations.
    */
-  private async persist(): Promise<void> {
-    // Chain persist operations to prevent race conditions
-    this.persistLock = this.persistLock.then(() => this.doPersist());
-    return this.persistLock;
+  private mutate(
+    mutation: (stagedCache: Record<string, string>) => void,
+    allowLoadErrorRecovery = false
+  ): Promise<void> {
+    const operation = this.persistLock.then(async () => {
+      let recoveringFromLoadError = false;
+      try {
+        await this.ready;
+      } catch (error) {
+        const canRecover =
+          allowLoadErrorRecovery &&
+          Boolean(this.storePath) &&
+          error instanceof StorageFileLoadError;
+        if (!canRecover) {
+          throw error;
+        }
+        recoveringFromLoadError = true;
+      }
+
+      const stagedCache = { ...this.cache };
+      mutation(stagedCache);
+      await this.doPersist(stagedCache);
+      this.cache = stagedCache;
+
+      if (recoveringFromLoadError) {
+        this.ready = Promise.resolve();
+      }
+    });
+
+    // Keep the serialization tail usable after failure while returning the original
+    // operation so the caller still observes its mutation error.
+    this.persistLock = operation.catch((error) => {
+      logger.error('Electron storage mutation failed', {
+        error: error instanceof Error ? error.message : String(error),
+        storePath: this.storePath,
+      });
+    });
+
+    return operation;
   }
 
   /**
    * Internal persist implementation - writes cache to disk atomically.
    */
-  private async doPersist(): Promise<void> {
-    await this.ready;
-
-    // Don't persist if storePath wasn't set (e.g., electron import failed)
-    if (!this.storePath) {
-      return;
-    }
-
+  private async doPersist(cache: Record<string, string>): Promise<void> {
     // Generate a unique temp file name in the same directory
     // Using the same directory ensures rename is atomic (same filesystem)
     const tempFileName = `.${path.basename(this.storePath)}.${crypto.randomUUID()}.tmp`;
@@ -177,7 +234,7 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
     try {
       // Write to temp file first
-      const jsonContent = JSON.stringify(this.cache, null, JSON_INDENT_SPACES);
+      const jsonContent = JSON.stringify(cache, null, JSON_INDENT_SPACES);
       await fsPromises.writeFile(tempPath, jsonContent, 'utf8');
 
       // Atomic rename - this is atomic on POSIX systems and most Windows configurations
@@ -199,21 +256,23 @@ export class ElectronStorageAdapter implements StorageAdapter {
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    await this.ready;
-    this.cache[key] = value;
-    await this.persist();
+    return this.mutate((stagedCache) => {
+      stagedCache[key] = value;
+    });
   }
 
   async removeItem(key: string): Promise<void> {
-    await this.ready;
-    delete this.cache[key];
-    await this.persist();
+    return this.mutate((stagedCache) => {
+      delete stagedCache[key];
+    });
   }
 
   async clear(): Promise<void> {
-    await this.ready;
-    this.cache = {};
-    await this.persist();
+    return this.mutate((stagedCache) => {
+      for (const key of Object.keys(stagedCache)) {
+        delete stagedCache[key];
+      }
+    }, true);
   }
 
   async getAllKeys(): Promise<string[]> {

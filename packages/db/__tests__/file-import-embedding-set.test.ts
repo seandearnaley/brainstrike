@@ -29,18 +29,18 @@ describe('File Import with embedding_set_id', () => {
 
     const requests: FileImportRequest[] = [
       {
-        path: '/test/file1.txt',
-        name: 'file1.txt',
         content: 'This is test file 1',
-        size: 19,
         embeddingSetId, // CRITICAL: This should be set
+        name: 'file1.txt',
+        path: '/test/file1.txt',
+        size: 19,
       },
       {
-        path: '/test/file2.txt',
-        name: 'file2.txt',
         content: 'This is test file 2',
-        size: 19,
         embeddingSetId, // CRITICAL: This should be set
+        name: 'file2.txt',
+        path: '/test/file2.txt',
+        size: 19,
       },
     ];
 
@@ -67,9 +67,9 @@ describe('File Import with embedding_set_id', () => {
   it('should handle files without embedding_set_id', async () => {
     const requests: FileImportRequest[] = [
       {
-        path: '/test/file3.txt',
-        name: 'file3.txt',
         content: 'This is test file 3',
+        name: 'file3.txt',
+        path: '/test/file3.txt',
         size: 19,
         // NO embeddingSetId
       },
@@ -90,11 +90,11 @@ describe('File Import with embedding_set_id', () => {
 
     const requests: FileImportRequest[] = [
       {
-        path: '/test/file4.txt',
-        name: 'file4.txt',
         content: 'This is test file 4',
-        size: 19,
         embeddingSetId,
+        name: 'file4.txt',
+        path: '/test/file4.txt',
+        size: 19,
       },
     ];
 
@@ -118,11 +118,11 @@ describe('File Import with embedding_set_id', () => {
 
     const firstResult = await repository.bulkImport([
       {
-        path: '/shared/file.txt',
-        name: 'file.txt',
         content: sharedContent,
-        size: sharedContent.length,
         embeddingSetId: firstSet,
+        name: 'file.txt',
+        path: '/shared/file.txt',
+        size: sharedContent.length,
       },
     ]);
 
@@ -130,11 +130,11 @@ describe('File Import with embedding_set_id', () => {
 
     const secondResult = await repository.bulkImport([
       {
-        path: '/shared/file.txt',
-        name: 'file.txt',
         content: sharedContent,
-        size: sharedContent.length,
         embeddingSetId: secondSet,
+        name: 'file.txt',
+        path: '/shared/file.txt',
+        size: sharedContent.length,
       },
     ]);
 
@@ -153,11 +153,11 @@ describe('File Import with embedding_set_id', () => {
     const setId = 'collection-c';
 
     const request = {
-      path: '/shared/duplicate.txt',
-      name: 'duplicate.txt',
       content: duplicateContent,
-      size: duplicateContent.length,
       embeddingSetId: setId,
+      name: 'duplicate.txt',
+      path: '/shared/duplicate.txt',
+      size: duplicateContent.length,
     } satisfies FileImportRequest;
 
     const first = await repository.bulkImport([request]);

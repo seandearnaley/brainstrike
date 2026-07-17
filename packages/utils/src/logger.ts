@@ -166,15 +166,15 @@ const logListeners = new Set<LogListener>();
 
 function createDefaultConfig(): InternalLoggerConfig {
   return {
-    enableInProduction: false,
-    includeTimestamp: false,
-    scopeKey: 'scope',
     baseBindings: {},
     console: {
       enabled: true,
       options: {},
     },
     customTransports: [],
+    enableInProduction: false,
+    includeTimestamp: false,
+    scopeKey: 'scope',
   };
 }
 
@@ -255,10 +255,10 @@ function mergeFileConfig(
 
   const baseOptions = previous ? { ...previous.options } : {};
   const resolved: NormalizedFileConfig = {
-    enabled: next.enabled ?? previous?.enabled ?? true,
-    destination: next.destination,
-    mkdir: next.mkdir ?? previous?.mkdir ?? true,
     append: next.append ?? previous?.append ?? true,
+    destination: next.destination,
+    enabled: next.enabled ?? previous?.enabled ?? true,
+    mkdir: next.mkdir ?? previous?.mkdir ?? true,
     options: next.options ? { ...baseOptions, ...next.options } : baseOptions,
   };
 
@@ -284,7 +284,7 @@ function resolveBaseBindings(
     bindings[config.scopeKey] = scope;
   }
 
-  return bindings;
+  return redactSensitiveLogValue(bindings) as Record<string, unknown>;
 }
 
 type BrowserConsoleMethodName = 'debug' | 'error' | 'info' | 'trace' | 'warn';
@@ -292,12 +292,12 @@ type BrowserConsoleMethodName = 'debug' | 'error' | 'info' | 'trace' | 'warn';
 const BROWSER_CONSOLE_METHOD_BY_LEVEL: Readonly<
   Record<LogMethodName | 'fatal', BrowserConsoleMethodName>
 > = {
-  trace: 'trace',
   debug: 'debug',
-  info: 'info',
-  warn: 'warn',
   error: 'error',
   fatal: 'error',
+  info: 'info',
+  trace: 'trace',
+  warn: 'warn',
 };
 
 function sanitizeBrowserConsoleValue(
@@ -316,8 +316,8 @@ function sanitizeBrowserConsoleValue(
 
   if (value instanceof Error) {
     return {
-      name: value.name,
       message: value.message,
+      name: value.name,
       stack: value.stack,
     };
   }
@@ -438,12 +438,12 @@ function createBrowserWrite(
   };
 
   return {
-    trace: writeMethod('trace'),
     debug: writeMethod('debug'),
-    info: writeMethod('info'),
-    warn: writeMethod('warn'),
     error: writeMethod('error'),
     fatal: writeMethod('fatal'),
+    info: writeMethod('info'),
+    trace: writeMethod('trace'),
+    warn: writeMethod('warn'),
   };
 }
 
@@ -469,21 +469,21 @@ function ensureRootLogger(): PinoLogger {
 function createRootLogger(): PinoLogger {
   const resolvedLevel = currentLevel;
   const baseOptions: LoggerOptions = {
-    level: resolvedLevel,
     base: resolveBaseBindings(internalConfig),
-    timestamp: internalConfig.includeTimestamp ? pino.stdTimeFunctions.isoTime : false,
+    level: resolvedLevel,
     serializers: {
-      err: pino.stdSerializers.err,
-      req: pino.stdSerializers.req,
-      res: pino.stdSerializers.res,
       // Redact sensitive fields
       apiKey: () => '[REDACTED]',
-      password: () => '[REDACTED]',
-      token: () => '[REDACTED]',
-      secret: () => '[REDACTED]',
       authorization: () => '[REDACTED]',
       cookie: () => '[REDACTED]',
+      err: pino.stdSerializers.err,
+      password: () => '[REDACTED]',
+      req: pino.stdSerializers.req,
+      res: pino.stdSerializers.res,
+      secret: () => '[REDACTED]',
+      token: () => '[REDACTED]',
     },
+    timestamp: internalConfig.includeTimestamp ? pino.stdTimeFunctions.isoTime : false,
   };
 
   if (internalConfig.redactPaths) {
@@ -550,9 +550,9 @@ function buildTransportTargets(level: LogLevel): TransportTargetOptions<Record<s
   for (const transportConfig of internalConfig.customTransports) {
     const options = transportConfig.options ? { ...transportConfig.options } : {};
     targets.push({
-      target: transportConfig.target,
       level: transportConfig.level ?? level,
       options,
+      target: transportConfig.target,
     });
   }
 
@@ -572,9 +572,9 @@ function createConsoleTransportTarget(
   }
 
   return {
-    target: consoleConfig.target ?? 'pino/file',
     level: consoleConfig.level ?? level,
     options,
+    target: consoleConfig.target ?? 'pino/file',
   };
 }
 
@@ -583,14 +583,14 @@ function createFileTransportTarget(
 ): TransportTargetOptions<Record<string, unknown>> {
   const fileConfig = internalConfig.file as NormalizedFileConfig;
   return {
-    target: 'pino/file',
     level: fileConfig.level ?? level,
     options: {
+      append: fileConfig.append,
       destination: fileConfig.destination,
       mkdir: fileConfig.mkdir,
-      append: fileConfig.append,
       ...fileConfig.options,
     },
+    target: 'pino/file',
   };
 }
 
@@ -625,6 +625,46 @@ function resolveLogRecordMessage(args: readonly unknown[]): string | undefined {
   return;
 }
 
+function isSensitiveLogKey(key: string, path: readonly string[]): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const configured =
+    internalConfig.redactPaths?.some((redactPath) => {
+      const parts = redactPath
+        .match(/[^.[\]]+|\[([^[\]]*?)\]/g)
+        ?.map((segment) => segment.replace(/^\[['"`]?|['"`]?\]$/g, ''));
+      return (
+        parts?.length === path.length && parts.every((part, i) => part === '*' || part === path[i])
+      );
+    }) === true;
+  return configured || /apikey|authorization|cookie|password|secret|token$/.test(normalized);
+}
+
+function redactSensitiveLogValue(
+  value: unknown,
+  path: readonly string[] = [],
+  seen = new WeakMap<object, unknown>()
+): unknown {
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+  const existing = seen.get(value);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const redacted = (Array.isArray(value) ? [] : {}) as Record<string, unknown>;
+  if (value instanceof Error) {
+    Object.assign(redacted, { message: value.message, name: value.name, stack: value.stack });
+  }
+  seen.set(value, redacted);
+  for (const [key, entry] of Object.entries(value)) {
+    const entryPath = [...path, key];
+    redacted[key] = isSensitiveLogKey(key, entryPath)
+      ? '[REDACTED]'
+      : redactSensitiveLogValue(entry, entryPath, seen);
+  }
+  return redacted;
+}
+
 function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonly unknown[]): void {
   if (logListeners.size === 0) {
     return;
@@ -632,12 +672,11 @@ function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonl
 
   const bindings = resolveBaseBindings(internalConfig, scope);
   const message = resolveLogRecordMessage(args);
-  const argsCopy = [...args];
   const record: LogRecord = {
+    args,
+    bindings,
     level,
     timestamp: Date.now(),
-    args: argsCopy,
-    bindings,
     ...(scope ? { scope } : {}),
     ...(message ? { message } : {}),
   };
@@ -668,12 +707,13 @@ function logInternal(level: LogLevel, scope: string | undefined, args: readonly 
 
   const target = getLoggerForScope(scope);
   const logMethod = target[methodName] as unknown as PinoLogMethod;
+  const safeArgs = args.map((arg) => redactSensitiveLogValue(arg));
 
   try {
-    if (args.length === 0) {
+    if (safeArgs.length === 0) {
       logMethod.call(target, '');
     } else {
-      const [first, ...rest] = args;
+      const [first, ...rest] = safeArgs;
       logMethod.call(target, first, ...rest);
     }
   } catch (logError) {
@@ -684,7 +724,7 @@ function logInternal(level: LogLevel, scope: string | undefined, args: readonly 
     }
   }
 
-  emitLogRecord(level, scope, args);
+  emitLogRecord(level, scope, safeArgs);
 }
 
 export function configureLogger(config: LoggerConfig): void {
@@ -811,12 +851,12 @@ export function createLogger(scope: string): ScopedLogger {
   }
 
   const logger: ScopedLogger = {
-    trace: (...args: unknown[]) => logInternal(LogLevel.TRACE, scope, args),
     debug: (...args: unknown[]) => logInternal(LogLevel.DEBUG, scope, args),
-    info: (...args: unknown[]) => logInternal(LogLevel.INFO, scope, args),
-    warn: (...args: unknown[]) => logInternal(LogLevel.WARN, scope, args),
     error: (...args: unknown[]) => logInternal(LogLevel.ERROR, scope, args),
     fatal: (...args: unknown[]) => logInternal(LogLevel.FATAL, scope, args),
+    info: (...args: unknown[]) => logInternal(LogLevel.INFO, scope, args),
+    trace: (...args: unknown[]) => logInternal(LogLevel.TRACE, scope, args),
+    warn: (...args: unknown[]) => logInternal(LogLevel.WARN, scope, args),
   };
 
   loggerCache.set(scope, logger);
@@ -831,9 +871,9 @@ export function addLogListener(listener: LogListener): () => void {
 }
 
 export const __loggerTesting = {
+  createBrowserWrite,
   formatBrowserConsoleMessage,
   sanitizeBrowserConsoleValue,
-  createBrowserWrite,
 };
 
 export const log = debug;

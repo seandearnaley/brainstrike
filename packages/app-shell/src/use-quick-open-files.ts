@@ -66,11 +66,11 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
 
   const { rows, loading } = usePGliteLiveQuery<QuickOpenFileRow>({
     cacheKey: makeLiveQueryKey('quick-open', debounced),
-    query: QUICK_OPEN_NAME_SEARCH_SQL,
-    params: [debounced, QUICK_OPEN_MAX_LIMIT],
-    mode: 'incremental',
-    key: 'id',
     enabled,
+    key: 'id',
+    mode: 'incremental',
+    params: [debounced, QUICK_OPEN_MAX_LIMIT],
+    query: QUICK_OPEN_NAME_SEARCH_SQL,
   });
 
   // While typing is still settling OR the current query's results have not yet
@@ -97,12 +97,12 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
       const descriptor = rootDescriptors[adapterRootId];
       const rootLabel = descriptor?.displayName ?? row.display_name ?? WORKSPACE_FALLBACK_LABEL;
       items.push({
+        // ADAPTER rootId, NOT the DB root_id — disambiguates the open by root.
+        compositeKey: encodeFileSelection(adapterRootId, row.path),
         id: row.id,
         name: row.name,
         path: row.path,
         rootLabel,
-        // ADAPTER rootId, NOT the DB root_id — disambiguates the open by root.
-        compositeKey: encodeFileSelection(adapterRootId, row.path),
       });
     }
     return items;

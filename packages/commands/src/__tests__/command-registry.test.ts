@@ -18,24 +18,24 @@ function makeContext(
   overrides: Partial<CommandContext> = {}
 ): CommandContext {
   return {
-    services: EMPTY_SERVICES,
     capabilities: new Set(capabilities),
+    services: EMPTY_SERVICES,
     ...overrides,
   };
 }
 
 const fileTarget: ContextTarget = {
+  absolutePath: '/abs/src/main.ts',
+  entryType: 'file',
   kind: 'file-entry',
   name: 'main.ts',
   relativePath: 'src/main.ts',
-  absolutePath: '/abs/src/main.ts',
-  entryType: 'file',
   rootFolderId: 'root-1',
 };
 
 const collectionTarget: ContextTarget = {
-  kind: 'collection',
   id: 'col-1',
+  kind: 'collection',
   name: 'Docs',
 };
 
@@ -64,8 +64,8 @@ describe('createCommandRegistry', () => {
   it('respects an isAvailable predicate alongside capability gating', () => {
     const targetBound: Command = {
       id: 'file.copy',
-      label: 'Copy Name',
       isAvailable: (ctx) => ctx.target?.kind === 'file-entry',
+      label: 'Copy Name',
       run: () => Promise.resolve<ActionOutcome>({ ok: true }),
     };
     const registry = createCommandRegistry([targetBound]);
@@ -96,25 +96,25 @@ describe('createCommandRegistry', () => {
 
 describe('bridgeActionToCommand', () => {
   const copyName: AnyContextAction = defineContextAction({
+    appliesTo: ['file-entry'],
+    group: 'copy',
     id: 'file.copy-name',
     label: 'Copy Name',
-    group: 'copy',
-    appliesTo: ['file-entry'],
     requiredCapabilities: ['clipboard'],
     run: (target, services) =>
       services.clipboard
         ? services.clipboard.writeText(target.name)
-        : Promise.resolve<ActionOutcome>({ ok: false, error: 'no clipboard' }),
+        : Promise.resolve<ActionOutcome>({ error: 'no clipboard', ok: false }),
   });
 
   const revealInOs: AnyContextAction = defineContextAction({
+    appliesTo: ['file-entry'],
+    group: 'navigate',
     id: 'file.reveal-in-os',
+    isVisible: (target) => target.absolutePath !== null,
     // Dynamic label — must be materialized to a static string by the bridge.
     label: () => 'Reveal in Finder',
-    group: 'navigate',
-    appliesTo: ['file-entry'],
     requiredCapabilities: ['fs.reveal'],
-    isVisible: (target) => target.absolutePath !== null,
     run: () => Promise.resolve<ActionOutcome>({ ok: true }),
   });
 
@@ -161,10 +161,10 @@ describe('capability gating proof: desktop-only command absent on web', () => {
   // web capability set, and visible under a desktop one — purely via
   // capabilities, with no isElectron branch anywhere.
   const revealAction: AnyContextAction = defineContextAction({
+    appliesTo: ['file-entry'],
+    group: 'navigate',
     id: 'file.reveal-in-os',
     label: 'Reveal in Finder',
-    group: 'navigate',
-    appliesTo: ['file-entry'],
     requiredCapabilities: ['fs.reveal'],
     run: () => Promise.resolve<ActionOutcome>({ ok: true }),
   });
@@ -219,6 +219,6 @@ describe('createGlobalCommands', () => {
     expect(newThread).toHaveBeenCalledTimes(1);
 
     const failure = await byId.get('nav.settings')?.run(makeContext([]));
-    expect(failure).toEqual({ ok: false, error: 'boom' });
+    expect(failure).toEqual({ error: 'boom', ok: false });
   });
 });

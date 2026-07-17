@@ -109,7 +109,6 @@ async function installFrameProbe(page: Page): Promise<void> {
     requestAnimationFrame(tick);
 
     targetWindow.__brainstrikeResizeProbe__ = {
-      frameCount: () => frameGaps.length,
       finish: () => {
         isRunning = false;
         observer?.disconnect();
@@ -134,21 +133,21 @@ async function installFrameProbe(page: Page): Promise<void> {
         const afterTotalDataNodeCount = document.querySelectorAll('[data-node-id]').length;
         return {
           afterClientHeight,
-          afterVirtualizerClientHeight,
-          afterVirtualizerScrollHeight,
           afterFirstIndex,
           afterLastIndex,
           afterRowCount,
           afterScrollHeight,
           afterTotalDataNodeCount,
+          afterVirtualizerClientHeight,
+          afterVirtualizerScrollHeight,
           beforeClientHeight,
-          beforeVirtualizerClientHeight,
-          beforeVirtualizerScrollHeight,
           beforeFirstIndex,
           beforeLastIndex,
           beforeRowCount,
           beforeScrollHeight,
           beforeTotalDataNodeCount,
+          beforeVirtualizerClientHeight,
+          beforeVirtualizerScrollHeight,
           durationMs: frameGaps.reduce((total, gap) => total + gap, 0),
           frameCount: frameGaps.length,
           longTaskCount: longTaskDurations.length,
@@ -162,6 +161,7 @@ async function installFrameProbe(page: Page): Promise<void> {
           ),
         };
       },
+      frameCount: () => frameGaps.length,
     };
   });
 }

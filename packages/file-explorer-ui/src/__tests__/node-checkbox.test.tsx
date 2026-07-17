@@ -15,14 +15,14 @@ function NodeCheckboxWrapper(props: React.ComponentProps<typeof NodeCheckbox>) {
 
 describe('NodeCheckbox', () => {
   const mockNode: IFileNode = {
+    depth: 0,
+    handle: {} as FileSystemFileHandle,
+    isVisible: true,
     name: 'test.txt',
     path: '/test.txt',
-    type: 'file',
-    isVisible: true,
-    handle: {} as FileSystemFileHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'file',
   };
 
   const mockOnSelect = vi.fn();

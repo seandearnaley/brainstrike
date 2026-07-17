@@ -1,0 +1,130 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
+import type { CollectionStatsRow } from '../collection-stats-query';
+import { SearchModeToggle } from '../search-mode-toggle';
+import {
+  SEMANTIC_UNAVAILABLE_NO_CHUNKS,
+  useSemanticAvailability,
+} from '../use-semantic-availability';
+
+const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
+  usePGliteLiveQueryMock: vi.fn(),
+}));
+
+vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
+  usePGliteLiveQuery: usePGliteLiveQueryMock,
+}));
+
+function makeRow(overrides: Partial<CollectionStatsRow> = {}): CollectionStatsRow {
+  return {
+    chunkCount: 0,
+    embeddedChunkCount: 0,
+    fileCount: 0,
+    id: 'workspace-index',
+    name: 'Workspace Index',
+    pendingChunkCount: 0,
+    systemRole: 'workspace-index',
+    ...overrides,
+  };
+}
+
+function mockRows(rows: CollectionStatsRow[]): void {
+  usePGliteLiveQueryMock.mockImplementation(() => ({
+    error: null,
+    loading: false,
+    refresh: vi.fn(),
+    rows,
+  }));
+}
+
+describe('useSemanticAvailability', () => {
+  beforeEach(() => {
+    useWorkspaceSearchStore.getState().reset();
+    vi.clearAllMocks();
+  });
+
+  it('gates with the no-chunks reason when the effective set has zero embedded chunks', () => {
+    mockRows([makeRow({ embeddedChunkCount: 0 })]);
+    let result: ReturnType<typeof useSemanticAvailability> | null = null;
+    function Probe(): null {
+      result = useSemanticAvailability(null);
+      return null;
+    }
+    render(<Probe />);
+
+    expect(result).toEqual({ available: false, reason: SEMANTIC_UNAVAILABLE_NO_CHUNKS });
+  });
+
+  it('is available when the effective set has embedded chunks', () => {
+    mockRows([makeRow({ embeddedChunkCount: 42 })]);
+    let result: ReturnType<typeof useSemanticAvailability> | null = null;
+    function Probe(): null {
+      result = useSemanticAvailability(null);
+      return null;
+    }
+    render(<Probe />);
+
+    expect(result).toEqual({ available: true, reason: null });
+  });
+
+  it('does not gate (optimistic) when no stats row is resolved yet', () => {
+    mockRows([]);
+    let result: ReturnType<typeof useSemanticAvailability> | null = null;
+    function Probe(): null {
+      result = useSemanticAvailability(null);
+      return null;
+    }
+    render(<Probe />);
+
+    expect(result).toEqual({ available: true, reason: null });
+  });
+});
+
+describe('SearchModeToggle — semantic gating', () => {
+  beforeEach(() => {
+    useWorkspaceSearchStore.getState().reset();
+    vi.clearAllMocks();
+  });
+
+  it('enabled path: Semantic is clickable and switches mode when chunks exist', () => {
+    mockRows([makeRow({ embeddedChunkCount: 10 })]);
+    render(<SearchModeToggle />);
+
+    const semantic = screen.getByRole('button', { name: 'Semantic' });
+    expect(semantic).not.toHaveAttribute('aria-disabled', 'true');
+
+    fireEvent.click(semantic);
+    expect(useWorkspaceSearchStore.getState().mode).toBe('semantic');
+  });
+
+  it('gated (b): disables Semantic, names the reason on focus, and blocks the click', async () => {
+    mockRows([makeRow({ embeddedChunkCount: 0 })]);
+    render(<SearchModeToggle />);
+
+    const semantic = screen.getByRole('button', { name: 'Semantic' });
+    expect(semantic).toHaveAttribute('aria-disabled', 'true');
+
+    // Radix opens the tooltip immediately on keyboard focus (no hover delay),
+    // which is deterministic under fireEvent.
+    fireEvent.focus(semantic);
+    const tips = await screen.findAllByText(SEMANTIC_UNAVAILABLE_NO_CHUNKS);
+    expect(tips.length).toBeGreaterThan(0);
+
+    fireEvent.click(semantic);
+    expect(useWorkspaceSearchStore.getState().mode).toBe('text');
+  });
+
+  it('falls back to text mode when the current mode is semantic and the set becomes gated', async () => {
+    mockRows([makeRow({ embeddedChunkCount: 0 })]);
+    useWorkspaceSearchStore.getState().setMode('semantic');
+    expect(useWorkspaceSearchStore.getState().mode).toBe('semantic');
+
+    render(<SearchModeToggle />);
+
+    await waitFor(() => {
+      expect(useWorkspaceSearchStore.getState().mode).toBe('text');
+    });
+  });
+});

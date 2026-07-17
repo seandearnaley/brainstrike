@@ -2,8 +2,26 @@ import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection, memoizedFileExplorer } from '@brainstrike/utils';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OptimizedFileTree from '../tree/optimized-file-tree';
+
+const showToastMock = vi.fn();
+
+vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-hooks')>();
+  return {
+    ...actual,
+    useToastManager: () => ({
+      handleBrowserCompatibilityError: vi.fn(),
+      handleDirectorySelectError: vi.fn(),
+      handlePartialRefreshError: vi.fn(),
+      handleRefreshError: vi.fn(),
+      showToast: showToastMock,
+      toast: vi.fn(),
+    }),
+  };
+});
+
 import {
   type FileExplorerStore,
   mockFileTree,
@@ -12,6 +30,118 @@ import {
 import { FileExplorerTestWrapper } from './test-helpers';
 
 describe('OptimizedFileTree selection mutations and telemetry', () => {
+  beforeEach(() => {
+    showToastMock.mockClear();
+  });
+
+  it('partial-fills a folder selection up to the limit and toasts, instead of disabling the checkbox', async () => {
+    // Decision D3 (docs/explorer-tristate-spike-2026-07-11.md §5): a folder
+    // whose full selection would exceed the cap stays clickable, fills the
+    // remaining slots, and reports the truncation — the cap must never
+    // present a dead/disabled folder checkbox.
+    const loadedTree: IFileNode[] = [
+      {
+        children: ['file1.txt', 'file2.txt', 'file3.txt', 'file4.txt'].map((name) => ({
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
+          isVisible: true,
+          name,
+          path: `/src/${name}`,
+          rootFolderId: 'root',
+          selectionState: 'unchecked' as const,
+          type: 'file' as const,
+        })),
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        loadState: 'loaded',
+        name: 'src',
+        path: '/src',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={loadedTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(2);
+      readyStore.getState().toggleSelectedFile('root', '/src/file1.txt');
+      await Promise.resolve();
+    });
+
+    const directoryCheckbox = screen.getByLabelText('Select src');
+    expect(directoryCheckbox).not.toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(directoryCheckbox);
+    });
+
+    expect(Array.from(readyStore.getState().selectedFilePaths)).toHaveLength(2);
+    expect(showToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Selection limit reached (2)' })
+    );
+  });
+
+  it('disables file checkboxes while a recursive selection is loading', async () => {
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={mockFileTree}
+          folderId="root"
+          isLoadingForSelection={true}
+          loadingFiles={new Set()}
+          loadingPathForSelection="/src"
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Neutralize any cap carry-over from sibling tests (the wrapper store is
+    // shared) so the assertion isolates the scan lock, not wouldExceedLimit.
+    await act(async () => {
+      fileExplorerStore?.getState().clearSelectedFiles();
+      fileExplorerStore?.getState().setMaxSelectionCount(100);
+      await Promise.resolve();
+    });
+
+    // Clicks are ignored while the scan runs (handleNodeSelection early-
+    // returns), so the affordance must not lie: file checkboxes disable too,
+    // not only directories.
+    expect(screen.getByLabelText('Select test.txt')).toBeDisabled();
+  });
+
   it('does not recompute directory file counts on file-selection rerenders', async () => {
     const getFolderFileCountSpy = vi.spyOn(memoizedFileExplorer, 'getFolderFileCount');
     try {
@@ -42,37 +172,37 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
   it('keeps directory selection counts stable across StrictMode rerenders', async () => {
     const loadedTree: IFileNode[] = [
       {
-        name: 'src',
-        path: '/src',
-        type: 'directory',
-        isVisible: true,
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 0,
-        selectionState: 'unchecked',
-        rootFolderId: 'root',
-        loadState: 'loaded',
         children: [
           {
+            depth: 1,
+            handle: {} as FileSystemFileHandle,
+            isVisible: true,
             name: 'file1.txt',
             path: '/src/file1.txt',
-            type: 'file',
-            isVisible: true,
-            handle: {} as FileSystemFileHandle,
-            depth: 1,
-            selectionState: 'unchecked',
             rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'file',
           },
           {
+            depth: 1,
+            handle: {} as FileSystemFileHandle,
+            isVisible: true,
             name: 'file2.txt',
             path: '/src/file2.txt',
-            type: 'file',
-            isVisible: true,
-            handle: {} as FileSystemFileHandle,
-            depth: 1,
-            selectionState: 'unchecked',
             rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'file',
           },
         ],
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        loadState: 'loaded',
+        name: 'src',
+        path: '/src',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
       },
     ];
     let fileExplorerStore: FileExplorerStore | undefined;
@@ -167,6 +297,146 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
     expect(selectedSourceFiles).toHaveLength(2);
   });
 
+  it('selects the remaining files when clicking a partially selected loaded directory', async () => {
+    // Decision D1 (docs/explorer-tristate-spike-2026-07-11.md §5): clicking a
+    // mixed/indeterminate folder COMPLETES the selection (native-checkbox and
+    // file-picker idiom), it does not clear it.
+    const loadedTree: IFileNode[] = [
+      {
+        children: ['file1.txt', 'file2.txt', 'file3.txt'].map((name) => ({
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
+          isVisible: true,
+          name,
+          path: `/src/${name}`,
+          rootFolderId: 'root',
+          selectionState: 'unchecked' as const,
+          type: 'file' as const,
+        })),
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        loadState: 'loaded',
+        name: 'src',
+        path: '/src',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={loadedTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(10);
+      readyStore.getState().toggleSelectedFile('root', '/src/file1.txt');
+      await Promise.resolve();
+    });
+
+    const directoryCheckbox = screen.getByLabelText('Select src');
+    expect(directoryCheckbox).toHaveAttribute('data-state', 'indeterminate');
+
+    await act(async () => {
+      fireEvent.click(directoryCheckbox);
+    });
+
+    const selectedKeys = Array.from(readyStore.getState().selectedFilePaths).sort();
+    expect(selectedKeys).toEqual([
+      encodeFileSelection('root', '/src/file1.txt'),
+      encodeFileSelection('root', '/src/file2.txt'),
+      encodeFileSelection('root', '/src/file3.txt'),
+    ]);
+    expect(directoryCheckbox).toHaveAttribute('data-state', 'checked');
+  });
+
+  it('routes a partially selected unloaded directory click to the recursive select, not removal', async () => {
+    const unloadedTree: IFileNode[] = [
+      {
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        loadState: 'unloaded',
+        name: 'lazy',
+        path: '/lazy',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
+      },
+    ];
+    const onSelectFolderRecursively = vi
+      .fn<(node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>>()
+      .mockResolvedValue({ filePaths: [], success: true });
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={unloadedTree}
+          folderId="root"
+          loadingFiles={new Set()}
+          onSelectFolderRecursively={onSelectFolderRecursively}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(10);
+      // A descendant selected under a collapsed, unloaded folder (e.g. from a
+      // previous session) renders the folder indeterminate.
+      readyStore.getState().addSelectedFile('root', '/lazy/known.ts');
+      await Promise.resolve();
+    });
+
+    const directoryCheckbox = screen.getByLabelText('Select lazy');
+    expect(directoryCheckbox).toHaveAttribute('data-state', 'indeterminate');
+
+    await act(async () => {
+      fireEvent.click(directoryCheckbox);
+    });
+
+    // Completing the selection requires loading the folder: the click goes to
+    // the recursive selector and the existing selection is preserved.
+    expect(onSelectFolderRecursively).toHaveBeenCalledTimes(1);
+    expect(
+      readyStore.getState().selectedFilePaths.has(encodeFileSelection('root', '/lazy/known.ts'))
+    ).toBe(true);
+  });
+
   it('removes all files in a fully selected directory on second toggle', async () => {
     let fileExplorerStore: FileExplorerStore | undefined;
 
@@ -215,16 +485,16 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
   it('does not change selection when toggling an empty directory', async () => {
     const treeWithEmptyDirectory: IFileNode[] = [
       {
+        children: [],
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        loadState: 'loaded',
         name: 'empty',
         path: '/empty',
-        type: 'directory',
-        isVisible: true,
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 0,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        loadState: 'loaded',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       },
     ];
     let fileExplorerStore: FileExplorerStore | undefined;
@@ -261,7 +531,7 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
   });
 
   it('uses recursive directory selection callback for unloaded folders', async () => {
-    const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
+    const onSelectFolderRecursively = vi.fn(async () => ({ filePaths: [], success: true }));
 
     await act(async () => {
       render(
@@ -288,7 +558,7 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
 
   it('removes already-selected query descendants instead of re-running recursive selection for an unloaded folder', async () => {
     let fileExplorerStore: FileExplorerStore | undefined;
-    const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
+    const onSelectFolderRecursively = vi.fn(async () => ({ filePaths: [], success: true }));
 
     render(
       <FileExplorerTestWrapper>
@@ -318,27 +588,27 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
     await act(async () => {
       readyStore.getState().setQuerySelection(
         {
-          kind: 'recursive-select-all',
-          folderId: 'root',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: [],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'root',
+          includedPaths: [],
+          includeFilters: [],
+          kind: 'recursive-select-all',
           manifestFingerprint: 'fp-src-query',
           manifestSnapshotId: 'snapshot-src-query',
+          rootPath: null,
           totalSelectedCount: 2,
           useRegex: false,
         },
         {
-          filePaths: ['/src/file1.txt', '/src/file2.txt'],
-          pathSet: new Set(['/src/file1.txt', '/src/file2.txt']),
           directoryCounts: new Map([['/src', 2]]),
+          errorMessage: null,
+          filePaths: ['/src/file1.txt', '/src/file2.txt'],
           fingerprint: 'fp-src-query',
+          pathSet: new Set(['/src/file1.txt', '/src/file2.txt']),
           snapshotId: 'snapshot-src-query',
           status: 'ready',
-          errorMessage: null,
         },
         new Set(['/src/file1.txt', '/src/file2.txt'])
       );
@@ -361,9 +631,9 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
     ]);
   });
 
-  it('clears selected descendants for a partially restored explicit directory instead of continuing recursive selection', async () => {
+  it('continues recursive selection for a partially restored explicit directory (decision D1: mixed completes, never clears)', async () => {
     let fileExplorerStore: FileExplorerStore | undefined;
-    const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
+    const onSelectFolderRecursively = vi.fn(async () => ({ filePaths: [], success: true }));
 
     render(
       <FileExplorerTestWrapper>
@@ -403,9 +673,10 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
       await Promise.resolve();
     });
 
-    expect(onSelectFolderRecursively).not.toHaveBeenCalled();
-    expect(readyStore.getState().selectedFilePaths).toEqual(new Set());
-    expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
+    // The click completes the selection through the recursive selector (the
+    // subtree is not fully loaded) and preserves the restored selection.
+    expect(onSelectFolderRecursively).toHaveBeenCalledTimes(1);
+    expect(readyStore.getState().selectedFilePaths).toEqual(new Set(['root|@|/src/file1.txt']));
   });
 
   it('blocks new file selection when max selection capacity is reached', async () => {
@@ -446,5 +717,49 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
 
     const selectedKeys = Array.from(readyStore.getState().selectedFilePaths);
     expect(selectedKeys).toEqual([encodeFileSelection('root', '/test.txt')]);
+  });
+});
+
+describe('OptimizedFileTree keyboard selection (a11y)', () => {
+  it('toggles the focused row selection on Space without opening (APG parity)', async () => {
+    let fileExplorerStore: FileExplorerStore | undefined;
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(100);
+      await Promise.resolve();
+    });
+
+    const grid = screen.getByRole('treegrid', { name: 'File tree' });
+    grid.focus();
+    // Activate roving focus onto the first row, then Space to toggle it.
+    await act(async () => {
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    });
+    const before = readyStore.getState().selectedFilePaths.size;
+    await act(async () => {
+      fireEvent.keyDown(grid, { key: ' ' });
+    });
+    const after = readyStore.getState().selectedFilePaths.size;
+
+    // Space changed the selection set (toggled a checkbox), rather than being
+    // swallowed into a row-open no-op.
+    expect(after).not.toBe(before);
   });
 });

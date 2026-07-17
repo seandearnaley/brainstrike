@@ -12,8 +12,8 @@ function mockDb(rows: unknown[]): WorkspaceRootsQueryable {
   return { query: vi.fn(async () => ({ rows: rows as never[] })) };
 }
 
-const ROOT_A = { rootId: 'root-a', displayName: 'ProjectA', path: '/Users/me/ProjectA' };
-const ROOT_B = { rootId: 'root-b', displayName: 'ProjectB', path: '/Users/me/ProjectB' };
+const ROOT_A = { displayName: 'ProjectA', path: '/Users/me/ProjectA', rootId: 'root-a' };
+const ROOT_B = { displayName: 'ProjectB', path: '/Users/me/ProjectB', rootId: 'root-b' };
 
 function runtime(overrides: Partial<RuntimeData> = {}): RuntimeData {
   return { provider: 'openai', ...overrides } as RuntimeData;
@@ -36,7 +36,7 @@ describe('getWorkspaceRoots', () => {
 
   it('drops roots without an absolute path', () => {
     const roots = getWorkspaceRoots(
-      runtime({ workspaceRoots: [ROOT_A, { rootId: 'x', displayName: 'web', path: '' }] })
+      runtime({ workspaceRoots: [ROOT_A, { displayName: 'web', path: '', rootId: 'x' }] })
     );
     expect(roots).toEqual([ROOT_A]);
   });
@@ -80,8 +80,8 @@ describe('resolveWorkspaceRoot', () => {
   });
 
   it('errors and asks for the root id when two roots share a display name', () => {
-    const dupA = { rootId: 'dup-1', displayName: 'src', path: '/a/src' };
-    const dupB = { rootId: 'dup-2', displayName: 'src', path: '/b/src' };
+    const dupA = { displayName: 'src', path: '/a/src', rootId: 'dup-1' };
+    const dupB = { displayName: 'src', path: '/b/src', rootId: 'dup-2' };
     expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [dupA, dupB] }), 'src')).toThrow(
       /multiple folders.*named "src".*id/is
     );
@@ -91,8 +91,8 @@ describe('resolveWorkspaceRoot', () => {
 describe('loadWorkspaceRootsFromDatabase', () => {
   it('queries only live, path-backed roots and maps them', async () => {
     const db = mockDb([
-      { id: 'root-a', displayName: 'ProjectA', path: '/Users/me/ProjectA' },
-      { id: 'root-b', displayName: 'ProjectB', path: '/Users/me/ProjectB' },
+      { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
+      { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
     ]);
     const roots = await loadWorkspaceRootsFromDatabase(db);
     expect(roots).toEqual([ROOT_A, ROOT_B]);
@@ -105,8 +105,8 @@ describe('loadWorkspaceRootsFromDatabase', () => {
 
   it('drops rows with a null/empty path (e.g. web FSA roots)', async () => {
     const db = mockDb([
-      { id: 'root-a', displayName: 'ProjectA', path: '/Users/me/ProjectA' },
-      { id: 'web', displayName: 'web-root', path: null },
+      { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
+      { displayName: 'web-root', id: 'web', path: null },
     ]);
     expect(await loadWorkspaceRootsFromDatabase(db)).toEqual([ROOT_A]);
   });
@@ -116,13 +116,13 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
   it('injects DB roots when none are present on the runtime', async () => {
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(
       runtime({ workspaceRootPath: '/Users/me/ProjectA' }),
-      mockDb([{ id: 'root-a', displayName: 'ProjectA', path: '/Users/me/ProjectA' }])
+      mockDb([{ displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' }])
     );
     expect(enriched?.workspaceRoots).toEqual([ROOT_A]);
   });
 
   it('leaves client-provided workspaceRoots untouched', async () => {
-    const db = mockDb([{ id: 'other', displayName: 'Other', path: '/x' }]);
+    const db = mockDb([{ displayName: 'Other', id: 'other', path: '/x' }]);
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(
       runtime({ workspaceRoots: [ROOT_A] }),
       db

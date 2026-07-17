@@ -96,12 +96,12 @@ describe('createBrowserProject', () => {
 
   it('respects explicit browser project overrides', () => {
     const project = createBrowserProject({
-      isCI: true,
       headless: false,
+      isCI: true,
+      launchArgs: ['--custom-browser-arg'],
       testPattern: 'src/**/*.browser.test.ts',
       trace: 'on-first-retry',
       traceOutputDir: '.trace-output',
-      launchArgs: ['--custom-browser-arg'],
     });
 
     expect(project.test.include).toEqual(['src/**/*.browser.test.ts']);

@@ -30,11 +30,7 @@ const failures = [];
 for (const e2eDir of e2eDirs) {
   for (const file of await listTestFiles(e2eDir)) {
     const source = await readFile(file, 'utf8');
-    const destructiveTitleRanges = findTaggedPlaywrightTitleRanges(
-      source,
-      file,
-      '@destructive'
-    );
+    const destructiveTitleRanges = findTaggedPlaywrightTitleRanges(source, file, '@destructive');
 
     for (const { label, pattern } of destructiveFlowPatterns) {
       const globalPattern = new RegExp(pattern.source, `${pattern.flags}g`);

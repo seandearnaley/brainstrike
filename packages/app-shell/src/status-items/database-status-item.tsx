@@ -17,11 +17,14 @@ export function DatabaseStatusItem() {
   if (loading) {
     return (
       <StatusBarItem
+        announce
+        announcement="Storage connecting"
+        className="w-40 max-w-full shrink-0"
         icon={Database}
         label="Storage:"
         status="loading"
         testId="status-bar-db-loading"
-        value="Connecting..."
+        value="Connecting…"
       />
     );
   }
@@ -31,6 +34,9 @@ export function DatabaseStatusItem() {
 
   return (
     <StatusBarItem
+      announce
+      announcement={`Storage ${connected ? 'connected' : 'disconnected'}: ${displayLocation}`}
+      className="w-40 max-w-full shrink-0"
       icon={Database}
       label={`Storage: ${displayLocation}`}
       status={connected ? 'connected' : 'disconnected'}

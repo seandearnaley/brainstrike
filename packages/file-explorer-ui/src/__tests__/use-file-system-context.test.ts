@@ -29,9 +29,9 @@ function captureFileExplorerRefreshEvents() {
   });
   window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, listener);
   return {
+    cleanup: () => window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, listener),
     events,
     listener,
-    cleanup: () => window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, listener),
   };
 }
 
@@ -42,9 +42,9 @@ describe('useFileSystem context hook', () => {
 
   it('selectRootDirectory success sets handle and toggles loading', async () => {
     const mockHandle: DirectoryHandle = {
-      path: 'mock-root',
-      name: 'mock-root',
       kind: 'directory',
+      name: 'mock-root',
+      path: 'mock-root',
       platform: 'web',
     } as DirectoryHandle;
 
@@ -344,9 +344,9 @@ describe('useFileSystem context hook', () => {
 
   it('rehydrates persisted folder state when restoring a handle for the already-current folder id', () => {
     const restoredHandle: DirectoryHandle = {
-      path: 'restored-root',
-      name: 'restored-root',
       kind: 'directory',
+      name: 'restored-root',
+      path: 'restored-root',
       platform: 'web',
       // Identity is rootId-only: the restored handle's rootId IS the already-current
       // folder id, so restoring it rehydrates the persisted folder state.
@@ -358,51 +358,51 @@ describe('useFileSystem context hook', () => {
     act(() => {
       result.current.store.setState({
         currentFolderId: 'restored-root',
-        selectedFilePaths: new Set<string>(),
-        selectionModel: {
-          mode: 'explicit',
-          explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: null,
-          materializedAt: null,
-          queryDescriptor: null,
-        },
         folderStates: {
           'restored-root': {
+            excludeFilters: [],
+            expandedDirectoryPaths: new Set<string>(),
+            folderSummaryThreshold: 5,
+            includeFilters: [],
+            includeProjectTree: true,
+            lastAccessed: Date.now(),
+            lastActiveTab: 'files',
+            maxSelectionCount: 1000,
             selectedFilePaths: new Set<string>(['restored-root|@|file-0.ts']),
             selectionModel: {
-              mode: 'query',
               explicitPaths: new Set<string>(),
-              ruleSetJson: null,
-              materializedPaths: new Set<string>(['file-0.ts']),
               materializedAt: new Date().toISOString(),
+              materializedPaths: new Set<string>(['file-0.ts']),
+              mode: 'query',
               queryDescriptor: {
-                kind: 'recursive-select-all',
-                folderId: 'restored-root',
-                rootPath: null,
                 coveredDirectoryPaths: [],
-                includeFilters: ['*.ts'],
-                excludeFilters: [],
-                includedPaths: [],
                 excludedPaths: [],
+                excludeFilters: [],
+                folderId: 'restored-root',
+                includedPaths: [],
+                includeFilters: ['*.ts'],
+                kind: 'recursive-select-all',
                 manifestFingerprint: 'fingerprint',
                 manifestSnapshotId: 'snapshot-id',
-                useRegex: false,
+                rootPath: null,
                 totalSelectedCount: 600,
+                useRegex: false,
               },
+              ruleSetJson: null,
             },
-            expandedDirectoryPaths: new Set<string>(),
-            includeFilters: [],
-            excludeFilters: [],
-            useRegex: false,
-            includeProjectTree: true,
             tokenBudget: 100_000,
-            folderSummaryThreshold: 5,
-            maxSelectionCount: 1000,
-            lastActiveTab: 'files',
-            lastAccessed: Date.now(),
+            useRegex: false,
             viewFilterPresetId: null,
           },
+        },
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit',
+          queryDescriptor: null,
+          ruleSetJson: null,
         },
       });
     });
@@ -424,9 +424,9 @@ describe('useFileSystem context hook', () => {
     );
 
     const restoredHandle: DirectoryHandle = {
-      path: 'selected-restored-root',
-      name: 'selected-restored-root',
       kind: 'directory',
+      name: 'selected-restored-root',
+      path: 'selected-restored-root',
       platform: 'web',
     } as DirectoryHandle;
 
@@ -446,41 +446,41 @@ describe('useFileSystem context hook', () => {
     act(() => {
       result.current.store.setState({
         currentFolderId: CONTROLLED_ROOT_ID,
-        selectedFilePaths: new Set<string>(),
         // Expansion is WORKSPACE-GLOBAL: persistence keeps it in the
         // top-level set (folder snapshots are no longer hydrated).
         expandedDirectoryPaths: new Set<string>(['src']),
-        selectionModel: {
-          mode: 'explicit',
-          explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: null,
-          materializedAt: null,
-          queryDescriptor: null,
-        },
         folderStates: {
           [CONTROLLED_ROOT_ID]: {
+            excludeFilters: [],
+            expandedDirectoryPaths: new Set<string>(['src']),
+            folderSummaryThreshold: 5,
+            includeFilters: [],
+            includeProjectTree: true,
+            lastAccessed: Date.now(),
+            lastActiveTab: 'files',
+            maxSelectionCount: 1000,
             selectedFilePaths: new Set<string>([SELECTION_KEY]),
             selectionModel: {
-              mode: 'explicit',
               explicitPaths: new Set<string>([SELECTION_KEY]),
-              ruleSetJson: null,
-              materializedPaths: null,
               materializedAt: null,
+              materializedPaths: null,
+              mode: 'explicit',
               queryDescriptor: null,
+              ruleSetJson: null,
             },
-            expandedDirectoryPaths: new Set<string>(['src']),
-            includeFilters: [],
-            excludeFilters: [],
-            useRegex: false,
-            includeProjectTree: true,
             tokenBudget: 100_000,
-            folderSummaryThreshold: 5,
-            maxSelectionCount: 1000,
-            lastActiveTab: 'files',
-            lastAccessed: Date.now(),
+            useRegex: false,
             viewFilterPresetId: null,
           },
+        },
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit',
+          queryDescriptor: null,
+          ruleSetJson: null,
         },
       });
     });
@@ -495,9 +495,9 @@ describe('useFileSystem context hook', () => {
 
   it('surfaces an auto-restored root handle (reducer is the sole owner)', async () => {
     const restoredHandle: DirectoryHandle = {
-      path: 'restored-root',
-      name: 'restored-root',
       kind: 'directory',
+      name: 'restored-root',
+      path: 'restored-root',
       platform: 'web',
     } as DirectoryHandle;
 
@@ -530,9 +530,9 @@ describe('useFileSystem context hook', () => {
 
   it('injects a root handle from the brainstrike:inject-root-handle event (fixture bridge)', async () => {
     const injectedHandle: DirectoryHandle = {
-      path: 'fixture-root',
-      name: 'fixture-root',
       kind: 'directory',
+      name: 'fixture-root',
+      path: 'fixture-root',
       platform: 'web',
       // The inline fixture stamps a durable rootId at its source (buildFixtureState),
       // so the injected handle carries one — identity is rootId-only.
@@ -591,9 +591,9 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       let capturedCallback: ((changes: FileSystemChange[]) => void) | null = null;
 
       const handle: DirectoryHandle = {
-        path: '/debounce-root',
-        name: 'debounce-root',
         kind: 'directory',
+        name: 'debounce-root',
+        path: '/debounce-root',
         platform: 'web',
         rootId: 'debounce-root-id',
       } as DirectoryHandle;
@@ -650,15 +650,15 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       expect(refreshCapture.events).toHaveLength(1);
       expect(refreshCapture.events[0]).toBeInstanceOf(CustomEvent);
       expect(refreshCapture.events[0]?.detail).toEqual({
-        source: 'watcher',
-        scope: 'incremental',
         roots: [
           {
+            changes,
             rootId: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
             rootPath: '/debounce-root',
-            changes,
           },
         ],
+        scope: 'incremental',
+        source: 'watcher',
       });
     } finally {
       refreshCapture.cleanup();
@@ -671,9 +671,9 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     try {
       const callbacksByPath = new Map<string, (changes: FileSystemChange[]) => void>();
       const root: DirectoryHandle = {
-        path: '/queued-removed-root',
-        name: 'queued-removed-root',
         kind: 'directory',
+        name: 'queued-removed-root',
+        path: '/queued-removed-root',
         platform: 'web',
         rootId: 'queued-removed-root-id',
       } as DirectoryHandle;
@@ -732,9 +732,9 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     try {
       const callbacksByPath = new Map<string, (changes: FileSystemChange[]) => void>();
       const root: DirectoryHandle = {
-        path: '/disposed-flush-root',
-        name: 'disposed-flush-root',
         kind: 'directory',
+        name: 'disposed-flush-root',
+        path: '/disposed-flush-root',
         platform: 'web',
         rootId: 'disposed-flush-root-id',
       } as DirectoryHandle;
@@ -795,9 +795,9 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       try {
         window.dispatchEvent(
           createFileExplorerRefreshEvent({
-            source: 'watcher',
-            scope: 'incremental',
             roots: [],
+            scope: 'incremental',
+            source: 'watcher',
           })
         );
         throw expectedError;
@@ -808,9 +808,9 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
 
     window.dispatchEvent(
       createFileExplorerRefreshEvent({
-        source: 'watcher',
-        scope: 'incremental',
         roots: [],
+        scope: 'incremental',
+        source: 'watcher',
       })
     );
 
@@ -824,16 +824,16 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       const callbacksByPath = new Map<string, (changes: FileSystemChange[]) => void>();
 
       const rootA: DirectoryHandle = {
-        path: '/multi-root-a',
-        name: 'multi-root-a',
         kind: 'directory',
+        name: 'multi-root-a',
+        path: '/multi-root-a',
         platform: 'web',
         rootId: 'root-a-id',
       } as DirectoryHandle;
       const rootB: DirectoryHandle = {
-        path: '/multi-root-b',
-        name: 'multi-root-b',
         kind: 'directory',
+        name: 'multi-root-b',
+        path: '/multi-root-b',
         platform: 'web',
         rootId: 'root-b-id',
       } as DirectoryHandle;
@@ -889,20 +889,20 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
 
       expect(refreshCapture.events).toHaveLength(1);
       expect(refreshCapture.events[0]?.detail).toEqual({
-        source: 'watcher',
-        scope: 'incremental',
         roots: [
           {
+            changes: changesA,
             rootId: 'root-a-id',
             rootPath: '/multi-root-a',
-            changes: changesA,
           },
           {
+            changes: changesB,
             rootId: 'root-b-id',
             rootPath: '/multi-root-b',
-            changes: changesB,
           },
         ],
+        scope: 'incremental',
+        source: 'watcher',
       });
     } finally {
       refreshCapture.cleanup();
@@ -914,9 +914,9 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     let capturedCallback: ((changes: FileSystemChange[]) => void) | null = null;
 
     const handle: DirectoryHandle = {
-      path: '/unmount-root',
-      name: 'unmount-root',
       kind: 'directory',
+      name: 'unmount-root',
+      path: '/unmount-root',
       platform: 'web',
       rootId: 'unmount-root-id',
     } as DirectoryHandle;
@@ -993,9 +993,9 @@ describe('useFileSystem — cascade delete (Phase 6)', () => {
 
   async function addRoot(result: { current: ReturnType<typeof useExposed> }) {
     const mockHandle: DirectoryHandle = {
-      path: 'mock-root',
-      name: 'mock-root',
       kind: 'directory',
+      name: 'mock-root',
+      path: 'mock-root',
       platform: 'web',
     } as DirectoryHandle;
     vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockResolvedValue(

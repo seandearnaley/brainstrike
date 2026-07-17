@@ -18,7 +18,15 @@ import type { Migration } from './migration-runner';
  * during the transition.
  */
 export const migration039RootsTable: Migration = {
-  version: 39,
+  down: `
+    DROP INDEX IF EXISTS idx_file_records_root_identity;
+    DROP INDEX IF EXISTS idx_file_records_root_id;
+
+    ALTER TABLE IF EXISTS file_records
+      DROP COLUMN IF EXISTS root_id;
+
+    DROP TABLE IF EXISTS roots;
+  `,
   name: 'roots_table',
   up: `
     CREATE TABLE IF NOT EXISTS roots (
@@ -85,13 +93,5 @@ export const migration039RootsTable: Migration = {
       WHERE embedding_set_id IS NOT NULL
         AND root_id IS NOT NULL;
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_file_records_root_identity;
-    DROP INDEX IF EXISTS idx_file_records_root_id;
-
-    ALTER TABLE IF EXISTS file_records
-      DROP COLUMN IF EXISTS root_id;
-
-    DROP TABLE IF EXISTS roots;
-  `,
+  version: 39,
 };

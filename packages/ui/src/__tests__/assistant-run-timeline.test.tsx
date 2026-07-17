@@ -26,24 +26,24 @@ const baseEvent = {
   id: 'event-1',
   kind: 'memory.configured',
   label: 'Memory configured',
+  metadata: {
+    resourceId: 'workspace-1',
+    threadId: 'thread-1',
+  },
   runId: 'run-1',
   sequence: 1,
   status: 'completed',
   timestamp: '2026-04-24T12:00:00.000Z',
-  metadata: {
-    threadId: 'thread-1',
-    resourceId: 'workspace-1',
-  },
 } satisfies AssistantRunEvent;
 
 function createMessageWithRunEvents(events: readonly AssistantRunEvent[]): unknown {
   return {
-    role: 'assistant',
     content: events.map((event) => ({
       data: event,
       name: ASSISTANT_RUN_EVENT_DATA_NAME,
       type: 'data',
     })),
+    role: 'assistant',
   };
 }
 
@@ -131,9 +131,9 @@ describe('AssistantRunTimeline', () => {
           detail: 'Loaded 4 semantic candidates.',
           durationMs: 1420,
           metadata: {
-            hitCount: 4,
             cached: false,
             filters: ['typescript', 'ui'],
+            hitCount: 4,
             nullable: null,
           },
         }}

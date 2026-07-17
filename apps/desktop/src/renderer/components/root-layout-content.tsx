@@ -1,4 +1,3 @@
-import { ConnectedPromptManager } from '@brainstrike/app-shell';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/git-panel`, which also re-exports GitPanel + @codemirror/merge) so the
 // startup check does not defeat the lazy code-split in git-page-content.tsx.
@@ -15,18 +14,24 @@ import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
+// Capability check from the dependency-light `availability` subpath (NOT
+// `/panel`) so the startup check does not defeat the lazy code-split in
+// notes-page-content.tsx.
+import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { createLogger } from '@brainstrike/utils/logger';
-import { GitBranch, SquareTerminal } from 'lucide-react';
+import { GitBranch, NotebookPen, SquareTerminal } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import GitPageContent from './git-page-content';
+import NotesPageContent from './notes-page-content';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
 
-const GIT_NAVIGATION_ITEM: NavigationItem = { name: 'Git', icon: GitBranch, path: '/git' };
+const GIT_NAVIGATION_ITEM: NavigationItem = { icon: GitBranch, name: 'Git', path: '/git' };
+const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };
 const TERMINAL_NAVIGATION_ITEM: NavigationItem = {
-  name: 'Terminal',
   icon: SquareTerminal,
+  name: 'Terminal',
   path: '/terminal',
 };
 
@@ -34,6 +39,7 @@ const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
 const RENDERER_HEAP_DIAGNOSTIC_DELTA_BYTES = 128 * 1024 * 1024;
 const RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS = 15_000;
+const RENDERER_FRAME_DIAGNOSTIC_SAMPLE_WINDOW_MS = 1000;
 const RENDERER_FRAME_STALL_WARN_THRESHOLD_MS = 500;
 
 interface RendererMemoryPerformance extends Performance {
@@ -86,8 +92,14 @@ export default function RootLayoutContent() {
   // Capability gate: only surface the Terminal tab when the desktop
   // `window.terminal` pty bridge is present (no isElectron check). Resolved once.
   const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
+  // Capability gate: only surface the Notes tab when the File System Access
+  // directory picker exists in this renderer (Electron >= 30). Resolved once.
+  const notesAvailable = useMemo(() => isNotesVaultAvailable(), []);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
     const items = [...(navigationItems as NavigationItem[])];
+    if (notesAvailable) {
+      items.push(NOTES_NAVIGATION_ITEM);
+    }
     if (gitAvailable) {
       items.push(GIT_NAVIGATION_ITEM);
     }
@@ -95,7 +107,7 @@ export default function RootLayoutContent() {
       items.push(TERMINAL_NAVIGATION_ITEM);
     }
     return items;
-  }, [gitAvailable, terminalAvailable]);
+  }, [gitAvailable, terminalAvailable, notesAvailable]);
   const loadEmbeddingQueue = useCallback(
     () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
     []
@@ -104,12 +116,12 @@ export default function RootLayoutContent() {
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through
   // so the queue stays singleton while avoiding startup-time workerpool construction.
   const sharedProps: RootLayoutContentProps = {
+    contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'host-proxy',
     navigationItems: navigationConfig,
-    contextExplorerPageContent: <ContextExplorerPageContent />,
     settingsPageContent: <SettingsPageContent />,
-    promptsPageContent: <ConnectedPromptManager />,
     ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
+    ...(notesAvailable ? { notesPageContent: <NotesPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
   };
@@ -142,10 +154,10 @@ export default function RootLayoutContent() {
 
       logger.info('Desktop visible renderer heap changed materially', {
         activeToolsTab: activeToolsTabRef.current,
-        usedJSHeapBytes: currentMemory.usedJSHeapSize,
-        totalJSHeapBytes: currentMemory.totalJSHeapSize,
-        jsHeapSizeLimitBytes: currentMemory.jsHeapSizeLimit,
         deltaBytes: usedHeapDelta,
+        jsHeapSizeLimitBytes: currentMemory.jsHeapSizeLimit,
+        totalJSHeapBytes: currentMemory.totalJSHeapSize,
+        usedJSHeapBytes: currentMemory.usedJSHeapSize,
       });
     }, RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS);
 
@@ -161,6 +173,7 @@ export default function RootLayoutContent() {
 
     const performanceWithMemory = globalThis.performance as RendererMemoryPerformance | undefined;
     let animationFrameId: number | null = null;
+    let sampleWindowStartedAt: number | null = null;
     let previousFrameTime: number | null = null;
     let maxFrameGapMs = 0;
     let frameCount = 0;
@@ -182,11 +195,17 @@ export default function RootLayoutContent() {
     };
 
     const sampleFrame: FrameRequestCallback = (timestamp) => {
+      animationFrameId = null;
       if (document.visibilityState !== 'visible') {
         previousFrameTime = null;
         resetFrameWindow();
-        animationFrameId = window.requestAnimationFrame(sampleFrame);
         return;
+      }
+
+      // Explicit guard (not `??=`): React Compiler rejects logical-assignment
+      // operators.
+      if (sampleWindowStartedAt === null) {
+        sampleWindowStartedAt = timestamp;
       }
 
       if (previousFrameTime !== null) {
@@ -198,13 +217,31 @@ export default function RootLayoutContent() {
       }
       previousFrameTime = timestamp;
       frameCount += 1;
+
+      if (timestamp - sampleWindowStartedAt >= RENDERER_FRAME_DIAGNOSTIC_SAMPLE_WINDOW_MS) {
+        return;
+      }
       animationFrameId = window.requestAnimationFrame(sampleFrame);
     };
 
-    animationFrameId = window.requestAnimationFrame(sampleFrame);
+    const startSampling = () => {
+      if (document.visibilityState !== 'visible' || animationFrameId !== null) {
+        return;
+      }
+      previousFrameTime = null;
+      sampleWindowStartedAt = null;
+      animationFrameId = window.requestAnimationFrame(sampleFrame);
+    };
+
+    startSampling();
 
     const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible' && animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
       previousFrameTime = null;
+      sampleWindowStartedAt = null;
       resetFrameWindow();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -212,6 +249,7 @@ export default function RootLayoutContent() {
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== 'visible') {
         previousFrameTime = null;
+        sampleWindowStartedAt = null;
         resetFrameWindow();
         return;
       }
@@ -225,6 +263,10 @@ export default function RootLayoutContent() {
           logger.debug('Desktop visible renderer frame diagnostic armed');
         }
         resetFrameWindow();
+        // Metrics describe the preceding one-second sample, not the full
+        // reporting interval. Stop rAF work between reports to keep idle
+        // renderers from requesting continuous BeginFrames.
+        startSampling();
         return;
       }
 
@@ -236,22 +278,24 @@ export default function RootLayoutContent() {
           stalledFrameCount,
         });
         resetFrameWindow();
+        startSampling();
         return;
       }
 
       const currentMemory = performanceWithMemory?.memory;
       const payload = {
         activeToolsTab: activeToolsTabRef.current,
-        maxFrameGapMs: Math.round(maxFrameGapMs),
         frameCount,
-        stalledFrameCount,
-        usedJSHeapBytes: currentMemory?.usedJSHeapSize ?? null,
-        totalJSHeapBytes: currentMemory?.totalJSHeapSize ?? null,
         jsHeapSizeLimitBytes: currentMemory?.jsHeapSizeLimit ?? null,
+        maxFrameGapMs: Math.round(maxFrameGapMs),
+        stalledFrameCount,
+        totalJSHeapBytes: currentMemory?.totalJSHeapSize ?? null,
+        usedJSHeapBytes: currentMemory?.usedJSHeapSize ?? null,
       };
 
       logger.warn('Desktop visible renderer frame health degraded', payload);
       resetFrameWindow();
+      startSampling();
     }, RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS);
 
     return () => {

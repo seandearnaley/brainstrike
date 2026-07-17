@@ -34,7 +34,6 @@ interface ContextSelectedTokenSummaryArgs {
   sourceSelectedTokens: number;
   tapestryRangesByKey: TapestryRangeMap;
   tokenCountByFile: Map<string, number>;
-  useTapestryRangesForContextOutput: boolean;
 }
 
 function buildLinePrefixLengths(lines: string[]): number[] {
@@ -98,22 +97,22 @@ function resolveRangedFileTokens(args: {
   const { fullFileTokenCount, ranges, content } = args;
   const hasAnyActiveRange = ranges.some((range) => range.isActive !== false);
   if (!hasAnyActiveRange) {
-    return { tokens: 0, hasActiveSelection: false };
+    return { hasActiveSelection: false, tokens: 0 };
   }
 
   if (!content) {
-    return { tokens: fullFileTokenCount, hasActiveSelection: true };
+    return { hasActiveSelection: true, tokens: fullFileTokenCount };
   }
 
   const lines = splitContentLines(content);
   const normalizedRanges = normalizeContextLineRanges(ranges, lines.length);
   if (normalizedRanges.length === 0) {
-    return { tokens: 0, hasActiveSelection: false };
+    return { hasActiveSelection: false, tokens: 0 };
   }
 
   return {
-    tokens: estimateRangeAdjustedTokens(fullFileTokenCount, lines, normalizedRanges),
     hasActiveSelection: true,
+    tokens: estimateRangeAdjustedTokens(fullFileTokenCount, lines, normalizedRanges),
   };
 }
 
@@ -181,18 +180,14 @@ export function computeContextSelectedTokenSummary(
   args: ContextSelectedTokenSummaryArgs
 ): ContextSelectedTokenSummary {
   const summary: ContextSelectedTokenSummary = {
-    sourceSelectedTokens: args.sourceSelectedTokens,
-    outputSelectedTokens: args.sourceSelectedTokens,
-    sourcePendingCount: args.sourcePendingCount,
+    activeRangeFilesCount: 0,
     // Pending source files mean outputSelectedTokens is still a partial estimate.
     outputPendingCount: args.sourcePendingCount,
+    outputSelectedTokens: args.sourceSelectedTokens,
     rangeAdjustedFilesCount: 0,
-    activeRangeFilesCount: 0,
+    sourcePendingCount: args.sourcePendingCount,
+    sourceSelectedTokens: args.sourceSelectedTokens,
   };
-
-  if (!args.useTapestryRangesForContextOutput) {
-    return summary;
-  }
 
   let sourceTokensFromKnownFiles = 0;
   let outputTokensFromKnownFiles = 0;
@@ -205,8 +200,12 @@ export function computeContextSelectedTokenSummary(
 
     sourceTokensFromKnownFiles += fullFileTokenCount;
 
+    // Invariant: absence of ranges = whole file, and a present-but-EMPTY array
+    // is equivalent to absence (empty ≡ absent) — both count full-file output
+    // tokens. A present list of all-inactive ranges stays range-adjusted
+    // (length > 0) and resolves to 0 active tokens below.
     const explicitRanges = args.tapestryRangesByKey[compositeKey];
-    if (!explicitRanges) {
+    if (!explicitRanges || explicitRanges.length === 0) {
       outputTokensFromKnownFiles += fullFileTokenCount;
       continue;
     }
@@ -214,9 +213,9 @@ export function computeContextSelectedTokenSummary(
     summary.rangeAdjustedFilesCount++;
 
     const resolution = resolveRangedFileTokens({
+      content: args.fileContents[compositeKey],
       fullFileTokenCount,
       ranges: explicitRanges,
-      content: args.fileContents[compositeKey],
     });
     if (resolution.hasActiveSelection) {
       summary.activeRangeFilesCount++;

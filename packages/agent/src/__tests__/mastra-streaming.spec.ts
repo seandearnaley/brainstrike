@@ -5,6 +5,7 @@ import {
   createMastraAgentRuntime,
   streamMastraAgent,
   streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
 } from '../mastra/agent-runtime';
 import { MastraAgentError, type MastraAgentErrorCode } from '../mastra/mastra-agent-error';
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
@@ -14,6 +15,7 @@ const agentInstances: Array<{
   config: { instructions?: string; memory?: unknown; tools: Record<string, unknown> };
   declineToolCallCalls: unknown[];
   registeredMastra?: unknown;
+  resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }>;
   streamCalls: Array<{ input: unknown; options: unknown }>;
   tools: Record<string, unknown>;
 }> = [];
@@ -21,7 +23,7 @@ const mcpInstances: unknown[] = [];
 const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
 let mcpToolsets: Record<string, Record<string, { description: string; id: string }>> = {
   filesystem: {
-    'remote tool': { id: 'remote tool', description: 'remote' },
+    'remote tool': { description: 'remote', id: 'remote tool' },
   },
 };
 let streamParts: unknown[] = [];
@@ -71,16 +73,33 @@ vi.mock('@mastra/core/agent', () => ({
     approveToolCallCalls: unknown[] = [];
     declineToolCallCalls: unknown[] = [];
     registeredMastra?: unknown;
+    resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }> = [];
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
     tools: Record<string, unknown>;
     memory?: unknown;
-    model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
+    model?:
+      | {
+          apiKey?: string;
+          id?: string;
+          modelId?: string;
+          provider?: string;
+          specificationVersion?: string;
+        }
+      | undefined;
 
     constructor(config: {
       instructions?: string;
       memory?: unknown;
       tools?: Record<string, unknown>;
-      model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
+      model?:
+        | {
+            apiKey?: string;
+            id?: string;
+            modelId?: string;
+            provider?: string;
+            specificationVersion?: string;
+          }
+        | undefined;
     }) {
       const tools = (config.tools ?? {}) as Record<string, unknown>;
       this.config = {
@@ -106,6 +125,11 @@ vi.mock('@mastra/core/agent', () => ({
 
     async declineToolCall(options: unknown) {
       this.declineToolCallCalls.push(options);
+      return createMockMastraOutput();
+    }
+
+    async resumeStream(resumeData: unknown, options: unknown) {
+      this.resumeStreamCalls.push({ options, resumeData });
       return createMockMastraOutput();
     }
 
@@ -164,12 +188,10 @@ vi.mock('@mastra/mcp', () => ({
     }
 
     async listToolsetsWithErrors() {
-      return { toolsets: mcpToolsets, errors: {} };
+      return { errors: {}, toolsets: mcpToolsets };
     }
 
-    async disconnect() {
-      return;
-    }
+    async disconnect() {}
   },
 }));
 
@@ -180,7 +202,7 @@ describe('mastra streaming integration', () => {
     mcpInstances.length = 0;
     mcpToolsets = {
       filesystem: {
-        'remote tool': { id: 'remote tool', description: 'remote' },
+        'remote tool': { description: 'remote', id: 'remote tool' },
       },
     };
     setMockStreamParts([]);
@@ -188,16 +210,16 @@ describe('mastra streaming integration', () => {
 
   it('yields streaming chunks by awaiting the Mastra fullStream promise', async () => {
     setMockStreamParts([
-      { type: 'text-delta', textDelta: 'hello' },
-      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 7, completionTokens: 11 } },
+      { textDelta: 'hello', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 11, promptTokens: 7 } },
     ]);
 
     const iterator = await streamMastraAgent(
       [
         {
           id: 'user-1',
+          parts: [{ text: 'hi there', type: 'text' }],
           role: 'user',
-          parts: [{ type: 'text', text: 'hi there' }],
         },
       ],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
@@ -211,28 +233,199 @@ describe('mastra streaming integration', () => {
     expect(chunks).toEqual([
       { type: 'text-delta', value: 'hello' },
       expect.objectContaining({
-        type: 'run-event',
         event: expect.objectContaining({ kind: 'run.finished', status: 'completed' }),
+        type: 'run-event',
       }),
       {
-        type: 'message-finish',
         finishReason: 'stop',
-        usage: { promptTokens: 7, completionTokens: 11 },
         path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 11, promptTokens: 7 },
       },
     ]);
   });
 
-  it('propagates tool-call events as tool-event chunks', async () => {
+  it('aggregates provider-reported OpenRouter cost across model steps', async () => {
     setMockStreamParts([
-      { type: 'tool-call', toolName: 'web.searchDocs', toolCallId: 'c1', args: { query: 'x' } },
-      { type: 'tool-call-delta', toolCallId: 'c1', argsTextDelta: 'que' },
-      { type: 'tool-result', toolCallId: 'c1', result: { totalResults: 1 } },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      {
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.001_25 } } },
+          },
+        },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      {
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'step-finish',
+        usage: { completionTokens: 5, promptTokens: 20 },
+      },
+      {
+        finishReason: 'stop',
+        // Mastra repeats the final step's metadata on finish; it must not be
+        // double-counted when step-finish parts were observed.
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'finish',
+        usage: { completionTokens: 7, promptTokens: 30 },
+      },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'search' }] }],
+      [{ id: 'u-cost', parts: [{ text: 'use two model steps', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      billedCostUsd: 0.005,
+      finishReason: 'stop',
+      path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 7, promptTokens: 30 },
+    });
+  });
+
+  it('rejects a cost-less OpenRouter step when finish repeats only the final step cost', async () => {
+    setMockStreamParts([
+      {
+        payload: { metadata: {} },
+        type: 'step-finish',
+        usage: { completionTokens: 2, promptTokens: 10 },
+      },
+      {
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'step-finish',
+        usage: { completionTokens: 5, promptTokens: 20 },
+      },
+      {
+        finishReason: 'stop',
+        payload: {
+          metadata: {
+            providerMetadata: { openrouter: { usage: { cost: 0.003_75 } } },
+          },
+        },
+        type: 'finish',
+        usage: { completionTokens: 7, promptTokens: 30 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-partial-cost',
+          parts: [{ text: 'use two model steps', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter model step omitted.*billed cost/i);
+  });
+
+  it('rejects malformed provider-reported OpenRouter cost', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'stop',
+        providerMetadata: { openrouter: { usage: { cost: -1 } } },
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-bad-cost', parts: [{ text: 'bad cost', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter.*cost/i);
+  });
+
+  it('rejects an OpenRouter completion that omits billed cost', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'stop',
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-missing-cost', parts: [{ text: 'missing cost', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
+  });
+
+  it('normalizes OpenRouter provider state before applying stream safeguards', async () => {
+    setMockStreamParts([
+      {
+        finishReason: 'stop',
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-normalized-provider', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: ' OpenRouter ' } }
+    );
+
+    expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 4096 },
+    });
+
+    const drain = async () => {
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
+  });
+
+  it('propagates tool-call events as tool-event chunks', async () => {
+    setMockStreamParts([
+      { args: { query: 'x' }, toolCallId: 'c1', toolName: 'web.searchDocs', type: 'tool-call' },
+      { argsTextDelta: 'que', toolCallId: 'c1', type: 'tool-call-delta' },
+      { result: { totalResults: 1 }, toolCallId: 'c1', type: 'tool-result' },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'search', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -248,70 +441,70 @@ describe('mastra streaming integration', () => {
     }
 
     expect(toolEvents[0]).toMatchObject({
-      type: 'tool-event',
       name: 'web.searchDocs',
       status: 'start',
+      type: 'tool-event',
     });
-    expect(toolEvents[1]).toMatchObject({ type: 'tool-event', status: 'progress' });
-    expect(toolEvents[2]).toMatchObject({ type: 'tool-event', status: 'success' });
+    expect(toolEvents[1]).toMatchObject({ status: 'progress', type: 'tool-event' });
+    expect(toolEvents[2]).toMatchObject({ status: 'success', type: 'tool-event' });
     expect(finished).toBe(true);
   });
 
   it('emits durable run-events for Mastra tool lifecycle parts without raw payloads', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call',
-        toolName: 'web.searchDocs',
-        toolCallId: 'c1',
         args: { query: 'secret search' },
-        providerExecuted: true,
         dynamic: false,
-      },
-      {
-        type: 'tool-result',
+        providerExecuted: true,
         toolCallId: 'c1',
-        result: { confidential: 'tool output' },
-        providerExecuted: true,
-        dynamic: false,
-      },
-      {
+        toolName: 'web.searchDocs',
         type: 'tool-call',
-        toolName: 'browser.capture',
-        toolCallId: 'c3',
-        args: { url: 'https://example.test/private' },
-        providerExecuted: false,
-        dynamic: true,
       },
       {
-        type: 'tool-output',
+        dynamic: false,
+        providerExecuted: true,
+        result: { confidential: 'tool output' },
+        toolCallId: 'c1',
+        type: 'tool-result',
+      },
+      {
+        args: { url: 'https://example.test/private' },
+        dynamic: true,
+        providerExecuted: false,
         toolCallId: 'c3',
+        toolName: 'browser.capture',
+        type: 'tool-call',
+      },
+      {
+        dynamic: true,
         output: { snapshot: 'raw page text' },
         providerExecuted: false,
-        dynamic: true,
-      },
-      {
-        type: 'tool-result',
         toolCallId: 'c3',
-        result: { pageTitle: 'safe title' },
-        providerExecuted: false,
+        type: 'tool-output',
+      },
+      {
         dynamic: true,
+        providerExecuted: false,
+        result: { pageTitle: 'safe title' },
+        toolCallId: 'c3',
+        type: 'tool-result',
       },
       {
-        type: 'tool-call',
-        toolName: 'broken.tool',
-        toolCallId: 'c2',
         args: { token: 'hidden' },
+        toolCallId: 'c2',
+        toolName: 'broken.tool',
+        type: 'tool-call',
       },
       {
-        type: 'tool-error',
-        toolCallId: 'c2',
         error: { message: 'boom', token: 'hidden' },
+        toolCallId: 'c2',
+        type: 'tool-error',
       },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'search' }] }],
+      [{ id: 'u1', parts: [{ text: 'search', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -326,64 +519,64 @@ describe('mastra streaming integration', () => {
       {
         kind: 'tool.started',
         label: 'Tool started',
-        status: 'running',
         metadata: {
+          dynamic: false,
+          providerExecuted: true,
           toolCallId: 'c1',
           toolName: 'web.searchDocs',
-          providerExecuted: true,
-          dynamic: false,
         },
+        status: 'running',
       },
       {
         kind: 'tool.completed',
         label: 'Tool completed',
-        status: 'completed',
         metadata: {
+          dynamic: false,
+          providerExecuted: true,
           toolCallId: 'c1',
           toolName: 'web.searchDocs',
-          providerExecuted: true,
-          dynamic: false,
         },
+        status: 'completed',
       },
       {
         kind: 'tool.started',
         label: 'Tool started',
-        status: 'running',
         metadata: {
+          dynamic: true,
+          providerExecuted: false,
           toolCallId: 'c3',
           toolName: 'browser.capture',
-          providerExecuted: false,
-          dynamic: true,
         },
+        status: 'running',
       },
       {
         kind: 'tool.completed',
         label: 'Tool completed',
-        status: 'completed',
         metadata: {
+          dynamic: true,
+          providerExecuted: false,
           toolCallId: 'c3',
           toolName: 'browser.capture',
-          providerExecuted: false,
-          dynamic: true,
         },
+        status: 'completed',
       },
       {
         kind: 'tool.started',
         label: 'Tool started',
-        status: 'running',
         metadata: {
           toolCallId: 'c2',
           toolName: 'broken.tool',
         },
+        status: 'running',
       },
       {
         kind: 'tool.failed',
         label: 'Tool failed',
-        status: 'failed',
         metadata: {
           toolCallId: 'c2',
           toolName: 'broken.tool',
         },
+        status: 'failed',
       },
     ]);
     for (const event of runEvents) {
@@ -399,22 +592,22 @@ describe('mastra streaming integration', () => {
     vi.setSystemTime(new Date('2026-05-30T08:00:00.000Z'));
     setMockStreamParts([
       {
-        type: 'tool-call',
-        toolName: 'background.lookup',
-        toolCallId: 'c-output-only',
         args: { query: 'local state' },
+        toolCallId: 'c-output-only',
+        toolName: 'background.lookup',
+        type: 'tool-call',
       },
       {
-        type: 'tool-output',
-        toolCallId: 'c-output-only',
         output: { answer: 'done' },
+        toolCallId: 'c-output-only',
+        type: 'tool-output',
       },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     try {
       const iterator = await streamMastraAgent(
-        [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+        [{ id: 'u1', parts: [{ text: 'lookup', type: 'text' }], role: 'user' }],
         { runtime: { apiKey: 'test-key', provider: 'openai' } }
       );
 
@@ -450,20 +643,20 @@ describe('mastra streaming integration', () => {
       expect(runEvents).toMatchObject([
         {
           kind: 'tool.started',
-          status: 'running',
           metadata: {
             toolCallId: 'c-output-only',
             toolName: 'background.lookup',
           },
+          status: 'running',
         },
         {
           kind: 'tool.completed',
-          status: 'completed',
-          timestamp: '2026-05-30T08:00:05.000Z',
           metadata: {
             toolCallId: 'c-output-only',
             toolName: 'background.lookup',
           },
+          status: 'completed',
+          timestamp: '2026-05-30T08:00:05.000Z',
         },
       ]);
     } finally {
@@ -474,30 +667,30 @@ describe('mastra streaming integration', () => {
   it('uses tool-result metadata for completion after an intermediate tool-output', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call',
-        toolName: 'browser.capture',
-        toolCallId: 'c-result',
         args: { url: 'https://example.test' },
+        toolCallId: 'c-result',
+        toolName: 'browser.capture',
+        type: 'tool-call',
       },
       {
-        type: 'tool-output',
-        toolCallId: 'c-result',
+        dynamic: true,
         output: { snapshot: 'raw page text' },
         providerExecuted: false,
-        dynamic: true,
+        toolCallId: 'c-result',
+        type: 'tool-output',
       },
       {
-        type: 'tool-result',
-        toolCallId: 'c-result',
-        result: { pageTitle: 'safe title' },
-        providerExecuted: true,
         dynamic: false,
+        providerExecuted: true,
+        result: { pageTitle: 'safe title' },
+        toolCallId: 'c-result',
+        type: 'tool-result',
       },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'capture' }] }],
+      [{ id: 'u1', parts: [{ text: 'capture', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -514,13 +707,13 @@ describe('mastra streaming integration', () => {
     expect(terminalEvents).toMatchObject([
       {
         kind: 'tool.completed',
-        status: 'completed',
         metadata: {
+          dynamic: false,
+          providerExecuted: true,
           toolCallId: 'c-result',
           toolName: 'browser.capture',
-          providerExecuted: true,
-          dynamic: false,
         },
+        status: 'completed',
       },
     ]);
   });
@@ -528,23 +721,23 @@ describe('mastra streaming integration', () => {
   it('treats Mastra error tool-results as failed durable run-events', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call',
-        toolName: 'browser.capture',
-        toolCallId: 'c-error-result',
         args: { url: 'https://example.test' },
+        toolCallId: 'c-error-result',
+        toolName: 'browser.capture',
+        type: 'tool-call',
       },
       {
-        type: 'tool-result',
-        toolCallId: 'c-error-result',
-        result: { message: 'capture failed' },
         isError: true,
         providerExecuted: true,
+        result: { message: 'capture failed' },
+        toolCallId: 'c-error-result',
+        type: 'tool-result',
       },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'capture' }] }],
+      [{ id: 'u1', parts: [{ text: 'capture', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -561,12 +754,12 @@ describe('mastra streaming integration', () => {
     expect(terminalEvents).toMatchObject([
       {
         kind: 'tool.failed',
-        status: 'failed',
         metadata: {
+          providerExecuted: true,
           toolCallId: 'c-error-result',
           toolName: 'browser.capture',
-          providerExecuted: true,
         },
+        status: 'failed',
       },
     ]);
   });
@@ -574,26 +767,26 @@ describe('mastra streaming integration', () => {
   it('lets a terminal tool-error override an earlier intermediate tool-output', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call',
-        toolName: 'flaky.lookup',
-        toolCallId: 'c-terminal',
         args: { query: 'state' },
+        toolCallId: 'c-terminal',
+        toolName: 'flaky.lookup',
+        type: 'tool-call',
       },
       {
-        type: 'tool-output',
-        toolCallId: 'c-terminal',
         output: { answer: 'done' },
+        toolCallId: 'c-terminal',
+        type: 'tool-output',
       },
       {
-        type: 'tool-error',
-        toolCallId: 'c-terminal',
         error: { message: 'late error' },
+        toolCallId: 'c-terminal',
+        type: 'tool-error',
       },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+      [{ id: 'u1', parts: [{ text: 'lookup', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -610,11 +803,11 @@ describe('mastra streaming integration', () => {
     expect(terminalEvents).toMatchObject([
       {
         kind: 'tool.failed',
-        status: 'failed',
         metadata: {
           toolCallId: 'c-terminal',
           toolName: 'flaky.lookup',
         },
+        status: 'failed',
       },
     ]);
   });
@@ -622,26 +815,26 @@ describe('mastra streaming integration', () => {
   it('keeps the first durable terminal run-event when error precedes success for one tool id', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call',
-        toolName: 'flaky.lookup',
-        toolCallId: 'c-terminal',
         args: { query: 'state' },
+        toolCallId: 'c-terminal',
+        toolName: 'flaky.lookup',
+        type: 'tool-call',
       },
       {
-        type: 'tool-error',
-        toolCallId: 'c-terminal',
         error: { message: 'early error' },
+        toolCallId: 'c-terminal',
+        type: 'tool-error',
       },
       {
-        type: 'tool-result',
-        toolCallId: 'c-terminal',
         result: { answer: 'late success' },
+        toolCallId: 'c-terminal',
+        type: 'tool-result',
       },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+      [{ id: 'u1', parts: [{ text: 'lookup', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -658,11 +851,11 @@ describe('mastra streaming integration', () => {
     expect(terminalEvents).toMatchObject([
       {
         kind: 'tool.failed',
-        status: 'failed',
         metadata: {
           toolCallId: 'c-terminal',
           toolName: 'flaky.lookup',
         },
+        status: 'failed',
       },
     ]);
   });
@@ -670,15 +863,15 @@ describe('mastra streaming integration', () => {
   it('does not emit durable terminal run-events for id-less Mastra tool-result parts', async () => {
     setMockStreamParts([
       {
-        type: 'tool-result',
-        toolName: 'anonymous.lookup',
         result: { answer: 'done' },
+        toolName: 'anonymous.lookup',
+        type: 'tool-result',
       },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+      [{ id: 'u1', parts: [{ text: 'lookup', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -698,15 +891,15 @@ describe('mastra streaming integration', () => {
   it('does not emit durable tool run-events for id-less Mastra tool-call parts', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call',
-        toolName: 'anonymous.lookup',
         args: { query: 'state' },
+        toolName: 'anonymous.lookup',
+        type: 'tool-call',
       },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup' }] }],
+      [{ id: 'u1', parts: [{ text: 'lookup', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -723,9 +916,9 @@ describe('mastra streaming integration', () => {
 
     expect(toolEvents).toMatchObject([
       {
-        type: 'tool-event',
         name: 'anonymous.lookup',
         status: 'start',
+        type: 'tool-event',
       },
     ]);
     expect(toolRunEvents).toEqual([]);
@@ -733,15 +926,15 @@ describe('mastra streaming integration', () => {
 
   it('keeps Mastra tool progress parts out of durable run-events', async () => {
     setMockStreamParts([
-      { type: 'tool-call', toolName: 'web.searchDocs', toolCallId: 'c1', args: { query: 'x' } },
-      { type: 'tool-call-input-streaming-start', toolCallId: 'c1' },
-      { type: 'tool-call-delta', toolCallId: 'c1', argsTextDelta: 'que' },
-      { type: 'tool-call-input-streaming-end', toolCallId: 'c1' },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { args: { query: 'x' }, toolCallId: 'c1', toolName: 'web.searchDocs', type: 'tool-call' },
+      { toolCallId: 'c1', type: 'tool-call-input-streaming-start' },
+      { argsTextDelta: 'que', toolCallId: 'c1', type: 'tool-call-delta' },
+      { toolCallId: 'c1', type: 'tool-call-input-streaming-end' },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'search' }] }],
+      [{ id: 'u1', parts: [{ text: 'search', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -762,15 +955,15 @@ describe('mastra streaming integration', () => {
 
   it('surfaces Mastra reasoning and run lifecycle chunks', async () => {
     setMockStreamParts([
-      { type: 'start', messageId: 'msg-1' },
-      { type: 'reasoning-delta', delta: 'Checking memory.' },
-      { type: 'step-start', messageId: 'msg-1' },
-      { type: 'step-finish', usage: { promptTokens: 3, completionTokens: 4 } },
-      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 6 } },
+      { messageId: 'msg-1', type: 'start' },
+      { delta: 'Checking memory.', type: 'reasoning-delta' },
+      { messageId: 'msg-1', type: 'step-start' },
+      { type: 'step-finish', usage: { completionTokens: 4, promptTokens: 3 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 6, promptTokens: 5 } },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'explain' }] }],
+      [{ id: 'u1', parts: [{ text: 'explain', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -781,27 +974,27 @@ describe('mastra streaming integration', () => {
 
     expect(chunks).toEqual([
       expect.objectContaining({
-        type: 'run-event',
         event: expect.objectContaining({ kind: 'run.started', status: 'running' }),
+        type: 'run-event',
       }),
       { type: 'reasoning-delta', value: 'Checking memory.' },
       expect.objectContaining({
-        type: 'run-event',
         event: expect.objectContaining({ kind: 'run.step.started', status: 'running' }),
+        type: 'run-event',
       }),
       expect.objectContaining({
-        type: 'run-event',
         event: expect.objectContaining({ kind: 'run.step.finished', status: 'completed' }),
+        type: 'run-event',
       }),
       expect.objectContaining({
-        type: 'run-event',
         event: expect.objectContaining({ kind: 'run.finished', status: 'completed' }),
+        type: 'run-event',
       }),
       {
-        type: 'message-finish',
         finishReason: 'stop',
-        usage: { promptTokens: 5, completionTokens: 6 },
         path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 6, promptTokens: 5 },
       },
     ]);
   });
@@ -815,7 +1008,7 @@ describe('mastra streaming integration', () => {
     };
 
     await expectMastraAgentError(
-      streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
+      streamMastraAgent([{ id: 'u1', parts: [{ text: 'hi', type: 'text' }], role: 'user' }], {
         runtime: { apiKey: 'test-key', provider: 'openai' },
       }),
       'mastra_agent_stream_failure'
@@ -841,8 +1034,8 @@ describe('mastra streaming integration', () => {
 
     await createMastraAgentRuntime({
       memory: memory as never,
-      storage: storage as never,
       runtime: { apiKey: 'key', provider: 'openai' },
+      storage: storage as never,
     });
 
     expect(mastraInstances).toHaveLength(1);
@@ -853,10 +1046,35 @@ describe('mastra streaming integration', () => {
     expect(agentInstances.at(-1)?.registeredMastra).toBe(mastraInstances[0]);
   });
 
+  it('surfaces Mastra persisted-message ID context drift before losing the assistant-ui ID', async () => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: {
+        apiKey: 'key',
+        assistantMessageId: 'assistant-client-id',
+        provider: 'openai',
+      },
+      storage: { id: 'storage-with-workflows' } as never,
+    });
+
+    const config = mastraInstances[0]?.config as {
+      idGenerator?: (context?: { idType: 'message'; source: 'agent' | 'memory' }) => string;
+    };
+    expect(config.idGenerator?.({ idType: 'message', source: 'agent' })).not.toBe(
+      'assistant-client-id'
+    );
+    expect(() => runtime.assertAssistantMessageIdPersisted?.()).toThrow(
+      'Mastra completed without persisting assistant message ID "assistant-client-id" through its memory ID context.'
+    );
+    expect(config.idGenerator?.({ idType: 'message', source: 'memory' })).toBe(
+      'assistant-client-id'
+    );
+    expect(() => runtime.assertAssistantMessageIdPersisted?.()).not.toThrow();
+  });
+
   it('shuts down the Mastra instance when disposing a storage-backed runtime', async () => {
     const runtime = await createMastraAgentRuntime({
-      storage: { id: 'storage-with-workflows' } as never,
       runtime: { apiKey: 'key', provider: 'openai' },
+      storage: { id: 'storage-with-workflows' } as never,
     });
 
     await runtime.dispose();
@@ -867,20 +1085,20 @@ describe('mastra streaming integration', () => {
 
   it('passes strict thread/resource memory context to agent.stream', async () => {
     const memory = { id: 'memory-instance' };
-    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
+    setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'remember this' }] }],
+      [{ id: 'u1', parts: [{ text: 'remember this', type: 'text' }], role: 'user' }],
       {
         memory: memory as never,
         runtime: {
           apiKey: 'test-key',
-          provider: 'openai',
           memory: {
-            threadId: 'thread-1',
-            resourceId: 'workspace-a',
             memoryOptions: { lastMessages: 5 },
+            resourceId: 'workspace-a',
+            threadId: 'thread-1',
           },
+          provider: 'openai',
         },
       }
     );
@@ -891,18 +1109,44 @@ describe('mastra streaming integration', () => {
 
     expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).toMatchObject({
       memory: {
-        thread: 'thread-1',
-        resource: 'workspace-a',
         options: { lastMessages: 5 },
+        resource: 'workspace-a',
+        thread: 'thread-1',
       },
     });
   });
 
-  it('uses Brainstrike default stream step cap for native tool loops', async () => {
-    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
+  it('uses the assistant-ui message id for the first persisted assistant message', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'inspect the workspace' }] }],
+      [{ id: 'u1', parts: [{ text: 'remember this', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          assistantMessageId: 'assistant-client-id',
+          provider: 'openai',
+        } as never,
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain stream
+    }
+
+    const options = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
+      experimental_generateMessageId?: () => string;
+    };
+    expect(options.experimental_generateMessageId).toBeTypeOf('function');
+    expect(options.experimental_generateMessageId?.()).toBe('assistant-client-id');
+    expect(options.experimental_generateMessageId?.()).not.toBe('assistant-client-id');
+  });
+
+  it('uses Brainstrike default stream step cap for native tool loops', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'inspect the workspace', type: 'text' }], role: 'user' }],
       {
         runtime: { apiKey: 'test-key', provider: 'openai' },
       }
@@ -918,18 +1162,18 @@ describe('mastra streaming integration', () => {
   });
 
   it('passes configured agent loop limits and input token compaction to agent.stream', async () => {
-    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
+    setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'inspect the workspace' }] }],
+      [{ id: 'u1', parts: [{ text: 'inspect the workspace', type: 'text' }], role: 'user' }],
       {
         runtime: {
-          apiKey: 'test-key',
-          provider: 'openai',
           agentLoop: {
             inputTokenLimit: 8192,
             maxSteps: 12,
           },
+          apiKey: 'test-key',
+          provider: 'openai',
         } as never,
       }
     );
@@ -943,7 +1187,14 @@ describe('mastra streaming integration', () => {
       maxSteps?: number;
     };
     expect(options.maxSteps).toBe(12);
-    expect(options.inputProcessors?.map((processor) => processor.id)).toEqual(['token-limiter']);
+    // The per-call input array carries the TokenLimiter (token compaction) AND
+    // ProviderHistoryCompat (its preemptive processLLMRequest rules ride this
+    // array, not errorProcessors — composed here so the per-call replacement
+    // doesn't drop the limiter). Local provider would carry only the limiter.
+    expect(options.inputProcessors?.map((processor) => processor.id)).toEqual([
+      'token-limiter',
+      'provider-history-compat',
+    ]);
   });
 
   it('rejects unsupported Mastra stream options instead of silently dropping them', async () => {
@@ -959,7 +1210,7 @@ describe('mastra streaming integration', () => {
     };
 
     await expectMastraAgentError(
-      streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
+      streamMastraAgent([{ id: 'u1', parts: [{ text: 'hi', type: 'text' }], role: 'user' }], {
         ...unsupportedOptions,
         runtime: { apiKey: 'test-key', provider: 'openai' },
       } as never),
@@ -972,19 +1223,19 @@ describe('mastra streaming integration', () => {
   it('passes tool approval through as a pending non-error stream state', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call-approval',
         payload: {
-          toolCallId: 'approval-1',
-          toolName: 'brainstrike.updateWorkspaceContextSelection',
           args: { mode: 'replace', paths: ['src/index.ts'] },
           resumeSchema: '{}',
+          toolCallId: 'approval-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
         },
         runId: 'run-approval-1',
+        type: 'tool-call-approval',
       },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'update selected context' }] }],
+      [{ id: 'u1', parts: [{ text: 'update selected context', type: 'text' }], role: 'user' }],
       {
         requireToolApproval: true,
         runtime: { apiKey: 'test-key', provider: 'openai' },
@@ -1010,41 +1261,75 @@ describe('mastra streaming integration', () => {
         type: 'tool-approval-required',
       },
       {
-        type: 'message-finish',
         finishReason: 'tool-calls',
-        usage: { promptTokens: 0, completionTokens: 0 },
         path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
       },
     ]);
+  });
+
+  it('keeps an OpenRouter tool approval resumable before Mastra emits step-finish', async () => {
+    setMockStreamParts([
+      {
+        payload: {
+          args: { path: 'src/index.ts' },
+          toolCallId: 'approval-cost-1',
+          toolName: 'brainstrike.writeWorkspaceFile',
+        },
+        runId: 'run-approval-cost-1',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-cost-approval', parts: [{ text: 'edit the file', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openrouter' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      finishReason: 'tool-calls',
+      path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 0, promptTokens: 0 },
+    });
   });
 
   it('flushes output-only tool completions before an approval pause', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call',
-        toolName: 'background.lookup',
-        toolCallId: 'c-output-only-before-approval',
         args: { query: 'local state' },
-      },
-      {
-        type: 'tool-output',
         toolCallId: 'c-output-only-before-approval',
-        output: { answer: 'done' },
+        toolName: 'background.lookup',
+        type: 'tool-call',
       },
       {
-        type: 'tool-call-approval',
+        output: { answer: 'done' },
+        toolCallId: 'c-output-only-before-approval',
+        type: 'tool-output',
+      },
+      {
         payload: {
-          toolCallId: 'approval-1',
-          toolName: 'brainstrike.updateWorkspaceContextSelection',
           args: { mode: 'replace', paths: ['src/index.ts'] },
           resumeSchema: '{}',
+          toolCallId: 'approval-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
         },
         runId: 'run-approval-1',
+        type: 'tool-call-approval',
       },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'lookup then approve' }] }],
+      [{ id: 'u1', parts: [{ text: 'lookup then approve', type: 'text' }], role: 'user' }],
       {
         requireToolApproval: true,
         runtime: { apiKey: 'test-key', provider: 'openai' },
@@ -1058,12 +1343,11 @@ describe('mastra streaming integration', () => {
 
     expect(chunks).toEqual([
       expect.objectContaining({
-        type: 'tool-event',
         name: 'background.lookup',
         status: 'start',
+        type: 'tool-event',
       }),
       expect.objectContaining({
-        type: 'run-event',
         event: expect.objectContaining({
           kind: 'tool.started',
           metadata: expect.objectContaining({
@@ -1071,14 +1355,14 @@ describe('mastra streaming integration', () => {
             toolName: 'background.lookup',
           }),
         }),
+        type: 'run-event',
       }),
       expect.objectContaining({
-        type: 'tool-event',
         name: 'background.lookup',
         status: 'success',
+        type: 'tool-event',
       }),
       expect.objectContaining({
-        type: 'run-event',
         event: expect.objectContaining({
           kind: 'tool.completed',
           metadata: expect.objectContaining({
@@ -1087,6 +1371,7 @@ describe('mastra streaming integration', () => {
           }),
           status: 'completed',
         }),
+        type: 'run-event',
       }),
       {
         args: { mode: 'replace', paths: ['src/index.ts'] },
@@ -1097,10 +1382,10 @@ describe('mastra streaming integration', () => {
         type: 'tool-approval-required',
       },
       {
-        type: 'message-finish',
         finishReason: 'tool-calls',
-        usage: { promptTokens: 0, completionTokens: 0 },
         path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
       },
     ]);
   });
@@ -1109,8 +1394,8 @@ describe('mastra streaming integration', () => {
     const memory = { id: 'memory-instance' };
     const storage = { id: 'workflow-storage' };
     setMockStreamParts([
-      { type: 'text-delta', textDelta: 'Approved and continued.' },
-      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 2, completionTokens: 3 } },
+      { textDelta: 'Approved and continued.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 3, promptTokens: 2 } },
     ]);
 
     const iterator = await streamMastraToolApprovalAction(
@@ -1123,52 +1408,124 @@ describe('mastra streaming integration', () => {
       {
         memory: memory as never,
         requireToolApproval: true,
-        storage: storage as never,
         runtime: {
           apiKey: 'test-key',
-          provider: 'openai',
+          assistantMessageId: 'assistant-resume-id',
           memory: {
-            threadId: 'thread-1',
-            resourceId: 'workspace-a',
             memoryOptions: { lastMessages: 5 },
+            resourceId: 'workspace-a',
+            threadId: 'thread-1',
           },
+          provider: 'openai',
         },
+        storage: storage as never,
       }
     );
+
+    const agent = agentInstances.at(-1);
+    const approvalOptions = agent?.approveToolCallCalls[0] as {
+      experimental_generateMessageId?: () => string;
+    };
+    const mastraConfig = mastraInstances.at(-1)?.config as {
+      idGenerator?: () => string;
+    };
+    expect(approvalOptions.experimental_generateMessageId).toBeTypeOf('function');
+    expect(approvalOptions.experimental_generateMessageId?.()).toBe('assistant-resume-id');
+    expect(mastraConfig.idGenerator?.()).toBe('assistant-resume-id');
 
     const chunks: unknown[] = [];
     for await (const chunk of iterator) {
       chunks.push(chunk);
     }
 
-    const agent = agentInstances.at(-1);
     expect(agent?.approveToolCallCalls).toHaveLength(1);
     expect(agent?.declineToolCallCalls).toHaveLength(0);
     expect(agent?.approveToolCallCalls[0]).toMatchObject({
+      maxSteps: 20,
+      memory: {
+        options: { lastMessages: 5 },
+        resource: 'workspace-a',
+        thread: 'thread-1',
+      },
       runId: 'run-approval-1',
       toolCallId: 'tool-call-1',
-      memory: {
-        thread: 'thread-1',
-        resource: 'workspace-a',
-        options: { lastMessages: 5 },
-      },
-      maxSteps: 20,
-      requireToolApproval: true,
     });
+    // This fixture has no permission-policy ask set, so the approval was
+    // explicitly global. The resumed leg must keep gating every non-internal
+    // follow-up tool while exempting Mastra's memory bookkeeping.
+    const approveGate = agent?.approveToolCallCalls[0]?.requireToolApproval as (ctx: {
+      toolName: string;
+    }) => boolean;
+    expect(typeof approveGate).toBe('function');
+    expect(approveGate({ toolName: 'updateWorkingMemory' })).toBe(false);
+    expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
     expect(chunks).toContainEqual({
-      type: 'message-finish',
       finishReason: 'stop',
-      usage: { promptTokens: 2, completionTokens: 3 },
       path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 3, promptTokens: 2 },
     });
+  });
+
+  it('keeps a suspended-tool resume stream ID independent from its persisted ID', async () => {
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { textDelta: 'Resumed and continued.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { answer: 'Paris' },
+        runId: 'run-suspended-1',
+        toolCallId: 'tool-call-suspended-1',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          assistantMessageId: 'assistant-suspend-resume-id',
+          provider: 'openai',
+        },
+        storage: storage as never,
+      }
+    );
+
+    const agent = agentInstances.at(-1);
+    const resumeOptions = agent?.resumeStreamCalls[0]?.options as {
+      experimental_generateMessageId?: () => string;
+    };
+    const mastraConfig = mastraInstances.at(-1)?.config as {
+      idGenerator?: () => string;
+    };
+    expect(resumeOptions.experimental_generateMessageId).toBeTypeOf('function');
+    expect(resumeOptions.experimental_generateMessageId?.()).toBe('assistant-suspend-resume-id');
+    expect(mastraConfig.idGenerator?.()).toBe('assistant-suspend-resume-id');
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(agent?.resumeStreamCalls[0]).toMatchObject({
+      options: {
+        maxSteps: 20,
+        runId: 'run-suspended-1',
+        toolCallId: 'tool-call-suspended-1',
+      },
+      resumeData: { answer: 'Paris' },
+    });
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'Resumed and continued.' });
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+    );
   });
 
   it('resumes a declined Mastra tool call through the official decline API', async () => {
     const storage = { id: 'workflow-storage' };
     setMockStreamParts([
-      { type: 'text-delta', textDelta: 'Declined and continued.' },
-      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 1, completionTokens: 2 } },
+      { textDelta: 'Declined and continued.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ]);
 
     const iterator = await streamMastraToolApprovalAction(
@@ -1179,8 +1536,8 @@ describe('mastra streaming integration', () => {
       },
       {
         requireToolApproval: true,
-        storage: storage as never,
         runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: storage as never,
       }
     );
 
@@ -1193,11 +1550,17 @@ describe('mastra streaming integration', () => {
     expect(agent?.approveToolCallCalls).toHaveLength(0);
     expect(agent?.declineToolCallCalls).toHaveLength(1);
     expect(agent?.declineToolCallCalls[0]).toMatchObject({
+      maxSteps: 20,
       runId: 'run-approval-2',
       toolCallId: 'tool-call-2',
-      maxSteps: 20,
-      requireToolApproval: true,
     });
+    // The decline resume leg preserves the same explicit global gate.
+    const declineGate = agent?.declineToolCallCalls[0]?.requireToolApproval as (ctx: {
+      toolName: string;
+    }) => boolean;
+    expect(typeof declineGate).toBe('function');
+    expect(declineGate({ toolName: 'updateWorkingMemory' })).toBe(false);
+    expect(declineGate({ toolName: 'shell_tool' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
   });
 
@@ -1211,17 +1574,17 @@ describe('mastra streaming integration', () => {
           toolName: 'workspace.writeFile',
         },
         {
-          storage: { id: 'workflow-storage' } as never,
-          runtime: { apiKey: 'test-key', provider: 'openai' },
           mcpConfig: {
             servers: [
               {
-                transport: 'stdio',
-                name: 'filesystem',
                 command: 'echo',
+                name: 'filesystem',
+                transport: 'stdio',
               },
             ],
           },
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          storage: { id: 'workflow-storage' } as never,
         }
       ),
       'mastra_agent_runtime_init_failed'
@@ -1235,23 +1598,23 @@ describe('mastra streaming integration', () => {
   it('uses the cached tool name when approval pauses omit the tool name', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call',
+        args: { mode: 'replace', paths: ['src/index.ts'] },
         toolCallId: 'approval-1',
         toolName: 'brainstrike.updateWorkspaceContextSelection',
-        args: { mode: 'replace', paths: ['src/index.ts'] },
+        type: 'tool-call',
       },
       {
-        type: 'tool-call-approval',
         payload: {
-          toolCallId: 'approval-1',
           args: { mode: 'replace', paths: ['src/index.ts'] },
+          toolCallId: 'approval-1',
         },
         runId: 'run-approval-1',
+        type: 'tool-call-approval',
       },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'update selected context' }] }],
+      [{ id: 'u1', parts: [{ text: 'update selected context', type: 'text' }], role: 'user' }],
       {
         requireToolApproval: true,
         runtime: { apiKey: 'test-key', provider: 'openai' },
@@ -1272,29 +1635,28 @@ describe('mastra streaming integration', () => {
     });
     expect(chunks).toContainEqual(
       expect.objectContaining({
-        type: 'message-finish',
         finishReason: 'tool-calls',
+        type: 'message-finish',
       })
     );
   });
 
-  it('surfaces suspended tool calls as visible terminal errors instead of hanging', async () => {
+  it('surfaces a well-formed suspended tool call as a resumable tool-suspend-required pause', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call-suspended',
         payload: {
-          toolCallId: 'suspended-1',
-          toolName: 'brainstrike.createEmbeddingSet',
-          args: { modelKey: 'openai:text-embedding-3-small', name: 'Docs' },
-          suspendPayload: { reason: 'needs-user-input' },
           resumeSchema: '{}',
+          suspendPayload: { question: 'Which city?' },
+          toolCallId: 'suspended-1',
+          toolName: 'brainstrike.askUser',
         },
         runId: 'run-suspended-1',
+        type: 'tool-call-suspended',
       },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'create an embedding set' }] }],
+      [{ id: 'u1', parts: [{ text: 'ask me something', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -1303,51 +1665,107 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual([
-      expect.objectContaining({
-        type: 'tool-event',
-        name: 'brainstrike.createEmbeddingSet',
-        status: 'error',
-        payload: expect.objectContaining({
-          actionRequired: true,
-          approvalRequired: false,
-          callId: 'suspended-1',
-          runId: 'run-suspended-1',
-          suspended: true,
-          toolCallId: 'suspended-1',
-        }),
-      }),
-      expect.objectContaining({
-        type: 'run-event',
-        event: expect.objectContaining({
-          kind: 'run.failed',
-          label: 'Tool resume required',
-          status: 'failed',
-        }),
-      }),
+    // The pause is now a SUPPORTED resumable event (NOT a run.failed / error finish).
+    expect(chunks).toContainEqual({
+      resumeSchema: '{}',
+      runId: 'run-suspended-1',
+      suspendPayload: { question: 'Which city?' },
+      toolCallId: 'suspended-1',
+      toolName: 'brainstrike.askUser',
+      type: 'tool-suspend-required',
+    });
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
+    );
+    // No run.failed / error finish for a well-formed pause.
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+    );
+  });
+
+  it('keeps an OpenRouter suspending tool resumable before Mastra emits step-finish', async () => {
+    setMockStreamParts([
       {
-        type: 'message-finish',
-        finishReason: 'error',
-        usage: { promptTokens: 0, completionTokens: 0 },
-        path: [],
+        payload: {
+          suspendPayload: { question: 'Which city?' },
+          toolCallId: 'suspended-cost-1',
+          toolName: 'brainstrike.askUser',
+        },
+        runId: 'run-suspended-cost-1',
+        type: 'tool-call-suspended',
       },
     ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-cost-suspend', parts: [{ text: 'ask me something', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      finishReason: 'tool-calls',
+      path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 0, promptTokens: 0 },
+    });
+  });
+
+  it('keeps a malformed suspend pause (missing tool call id) a visible terminal error', async () => {
+    setMockStreamParts([
+      {
+        payload: {
+          suspendPayload: { question: 'Which city?' },
+          toolName: 'brainstrike.askUser',
+        },
+        runId: 'run-suspended-malformed',
+        type: 'tool-call-suspended',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'ask me something', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          actionRequired: true,
+          missingToolCallId: true,
+          suspended: true,
+        }),
+        status: 'error',
+        type: 'tool-event',
+      })
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+    );
   });
 
   it('keeps malformed approval pauses visible when Mastra omits the tool call id', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call-approval',
         payload: {
-          toolName: 'brainstrike.updateWorkspaceContextSelection',
           args: { mode: 'replace', paths: ['src/index.ts'] },
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
         },
         runId: 'run-approval-without-tool-call-id',
+        type: 'tool-call-approval',
       },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'update selected context' }] }],
+      [{ id: 'u1', parts: [{ text: 'update selected context', type: 'text' }], role: 'user' }],
       {
         requireToolApproval: true,
         runtime: { apiKey: 'test-key', provider: 'openai' },
@@ -1361,17 +1779,16 @@ describe('mastra streaming integration', () => {
 
     expect(chunks).toEqual([
       expect.objectContaining({
-        type: 'tool-event',
         name: 'brainstrike.updateWorkspaceContextSelection',
-        status: 'error',
         payload: expect.objectContaining({
           callId: 'mastra-tool-call-approval-missing-tool-call-id',
           missingToolCallId: true,
           toolCallId: 'mastra-tool-call-approval-missing-tool-call-id',
         }),
+        status: 'error',
+        type: 'tool-event',
       }),
       expect.objectContaining({
-        type: 'run-event',
         event: expect.objectContaining({
           kind: 'run.failed',
           metadata: expect.objectContaining({
@@ -1379,12 +1796,13 @@ describe('mastra streaming integration', () => {
             toolCallId: 'mastra-tool-call-approval-missing-tool-call-id',
           }),
         }),
+        type: 'run-event',
       }),
       {
-        type: 'message-finish',
         finishReason: 'error',
-        usage: { promptTokens: 0, completionTokens: 0 },
         path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
       },
     ]);
   });
@@ -1392,16 +1810,16 @@ describe('mastra streaming integration', () => {
   it('preserves the Mastra finish reason in the assistant data stream', async () => {
     setMockStreamParts([
       {
-        type: 'finish',
         payload: {
+          output: { usage: { completionTokens: 4, inputTokens: 20 } },
           stepResult: { reason: 'length' },
-          output: { usage: { inputTokens: 20, completionTokens: 4 } },
         },
+        type: 'finish',
       },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'write a long answer' }] }],
+      [{ id: 'u1', parts: [{ text: 'write a long answer', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -1411,18 +1829,18 @@ describe('mastra streaming integration', () => {
     }
 
     expect(chunks).toContainEqual({
-      type: 'message-finish',
       finishReason: 'length',
-      usage: { promptTokens: 20, completionTokens: 4 },
       path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 4, promptTokens: 20 },
     });
   });
 
   it('marks finish chunks without an explicit reason as unknown', async () => {
-    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 3, completionTokens: 5 } }]);
+    setMockStreamParts([{ type: 'finish', usage: { completionTokens: 5, promptTokens: 3 } }]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'finish without reason' }] }],
+      [{ id: 'u1', parts: [{ text: 'finish without reason', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -1432,31 +1850,31 @@ describe('mastra streaming integration', () => {
     }
 
     expect(chunks).toContainEqual({
-      type: 'message-finish',
       finishReason: 'unknown',
-      usage: { promptTokens: 3, completionTokens: 5 },
       path: [],
+      type: 'message-finish',
+      usage: { completionTokens: 5, promptTokens: 3 },
     });
   });
 
   it('throws a typed error when Mastra closes after tool activity without a terminal finish', async () => {
     setMockStreamParts([
       {
-        type: 'tool-call',
-        toolName: 'brainstrike.queryEmbeddingSpace',
-        toolCallId: 'call-context',
         args: { query: 'database config' },
+        toolCallId: 'call-context',
+        toolName: 'brainstrike.queryEmbeddingSpace',
+        type: 'tool-call',
       },
       {
-        type: 'tool-result',
-        toolName: 'brainstrike.queryEmbeddingSpace',
-        toolCallId: 'call-context',
         result: { context: 'database config result' },
+        toolCallId: 'call-context',
+        toolName: 'brainstrike.queryEmbeddingSpace',
+        type: 'tool-result',
       },
     ]);
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'find database config' }] }],
+      [{ id: 'u1', parts: [{ text: 'find database config', type: 'text' }], role: 'user' }],
       { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
@@ -1467,32 +1885,32 @@ describe('mastra streaming integration', () => {
 
     expect(chunks).toEqual([
       expect.objectContaining({
-        type: 'tool-event',
-        status: 'start',
         name: 'brainstrike.queryEmbeddingSpace',
+        status: 'start',
+        type: 'tool-event',
       }),
       expect.objectContaining({
-        type: 'run-event',
         event: expect.objectContaining({
           kind: 'tool.started',
           status: 'running',
         }),
-      }),
-      expect.objectContaining({
-        type: 'tool-event',
-        status: 'success',
-        name: 'brainstrike.queryEmbeddingSpace',
-      }),
-      expect.objectContaining({
         type: 'run-event',
+      }),
+      expect.objectContaining({
+        name: 'brainstrike.queryEmbeddingSpace',
+        status: 'success',
+        type: 'tool-event',
+      }),
+      expect.objectContaining({
         event: expect.objectContaining({
           kind: 'tool.completed',
           status: 'completed',
         }),
+        type: 'run-event',
       }),
       expect.objectContaining({
-        type: 'message-finish',
         finishReason: 'other',
+        type: 'message-finish',
       }),
     ]);
   });
@@ -1500,7 +1918,7 @@ describe('mastra streaming integration', () => {
   it('rejects AI SDK v1 model runtimes instead of falling back to legacy streaming', async () => {
     await expectMastraAgentError(
       streamMastraAgent(
-        [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'inspect the workspace' }] }],
+        [{ id: 'u1', parts: [{ text: 'inspect the workspace', type: 'text' }], role: 'user' }],
         {
           model: 'legacy-test-model',
           runtime: { apiKey: 'test-key', provider: 'openai' },
@@ -1512,11 +1930,11 @@ describe('mastra streaming integration', () => {
 
   it('throws a typed error when memory context is provided without configured memory', async () => {
     await expectMastraAgentError(
-      streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
+      streamMastraAgent([{ id: 'u1', parts: [{ text: 'hi', type: 'text' }], role: 'user' }], {
         runtime: {
           apiKey: 'test-key',
+          memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
           provider: 'openai',
-          memory: { threadId: 'thread-1', resourceId: 'workspace-a' },
         },
       }),
       'mastra_agent_memory_unavailable'
@@ -1525,12 +1943,12 @@ describe('mastra streaming integration', () => {
 
   it('throws a typed error when memory context is missing thread or resource IDs', async () => {
     await expectMastraAgentError(
-      streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
+      streamMastraAgent([{ id: 'u1', parts: [{ text: 'hi', type: 'text' }], role: 'user' }], {
         memory: { id: 'memory-instance' } as never,
         runtime: {
           apiKey: 'test-key',
+          memory: { resourceId: 'workspace-a', threadId: '' },
           provider: 'openai',
-          memory: { threadId: '', resourceId: 'workspace-a' },
         },
       }),
       'mastra_agent_memory_unavailable'
@@ -1538,21 +1956,21 @@ describe('mastra streaming integration', () => {
   });
   it('merges local and MCP tools while tracking sanitized tool names', async () => {
     const runtime = await createMastraAgentRuntime({
-      runtime: { apiKey: 'key', provider: 'openai' },
-      tools: {
-        'local tool': {
-          id: 'local tool',
-          description: 'local',
-        },
-      },
       mcpConfig: {
         servers: [
           {
-            transport: 'stdio',
-            name: 'filesystem',
             command: 'echo',
+            name: 'filesystem',
+            transport: 'stdio',
           },
         ],
+      },
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'local tool': {
+          description: 'local',
+          id: 'local tool',
+        },
       },
     });
 
@@ -1571,52 +1989,52 @@ describe('mastra streaming integration', () => {
     mcpToolsets = {
       filesystem: {
         search_files: {
-          id: 'search_files',
           description: 'Search files',
+          id: 'search_files',
         },
       },
     };
 
     await createMastraAgentRuntime({
-      runtime: { apiKey: 'key', provider: 'openai' },
-      tools: {
-        'brainstrike.listWorkspaceContext': {
-          id: 'brainstrike.listWorkspaceContext',
-          description: 'List workspace context',
-        },
-        'brainstrike.listEmbeddingSpaces': {
-          id: 'brainstrike.listEmbeddingSpaces',
-          description: 'List embedding spaces',
-        },
-        'brainstrike.queryEmbeddingSpace': {
-          id: 'brainstrike.queryEmbeddingSpace',
-          description: 'Query embedding space',
-        },
-        'brainstrike.readWorkspaceContext': {
-          id: 'brainstrike.readWorkspaceContext',
-          description: 'Read workspace context',
-        },
-        'brainstrike.readWorkspaceFile': {
-          id: 'brainstrike.readWorkspaceFile',
-          description: 'Read workspace file',
-        },
-        'brainstrike.updateWorkspaceContextSelection': {
-          id: 'brainstrike.updateWorkspaceContextSelection',
-          description: 'Update workspace context selection',
-        },
-        'brainstrike.updateWorkspaceTapestrySelections': {
-          id: 'brainstrike.updateWorkspaceTapestrySelections',
-          description: 'Update workspace Tapestry selections',
-        },
-      },
       mcpConfig: {
         servers: [
           {
-            transport: 'stdio',
-            name: 'filesystem',
             command: 'echo',
+            name: 'filesystem',
+            transport: 'stdio',
           },
         ],
+      },
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.listEmbeddingSpaces': {
+          description: 'List embedding spaces',
+          id: 'brainstrike.listEmbeddingSpaces',
+        },
+        'brainstrike.listWorkspaceContext': {
+          description: 'List workspace context',
+          id: 'brainstrike.listWorkspaceContext',
+        },
+        'brainstrike.queryEmbeddingSpace': {
+          description: 'Query embedding space',
+          id: 'brainstrike.queryEmbeddingSpace',
+        },
+        'brainstrike.readWorkspaceContext': {
+          description: 'Read workspace context',
+          id: 'brainstrike.readWorkspaceContext',
+        },
+        'brainstrike.readWorkspaceFile': {
+          description: 'Read workspace file',
+          id: 'brainstrike.readWorkspaceFile',
+        },
+        'brainstrike.updateWorkspaceContextSelection': {
+          description: 'Update workspace context selection',
+          id: 'brainstrike.updateWorkspaceContextSelection',
+        },
+        'brainstrike.updateWorkspaceTapestrySelections': {
+          description: 'Update workspace Tapestry selections',
+          id: 'brainstrike.updateWorkspaceTapestrySelections',
+        },
       },
     });
 
@@ -1635,8 +2053,8 @@ describe('mastra streaming integration', () => {
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
         'brainstrike.readWorkspaceFile': {
-          id: 'brainstrike.readWorkspaceFile',
           description: 'Read workspace file',
+          id: 'brainstrike.readWorkspaceFile',
         },
       },
     });
@@ -1652,17 +2070,82 @@ describe('mastra streaming integration', () => {
     expect(instructions).not.toContain('brainstrike_queryEmbeddingSpace');
   });
 
+  it('builds plan-mode instructions from the FINAL (plan-filtered) tool map, not the raw tool map', async () => {
+    // Plan mode omits edit/execute tools from the map the Agent receives, so the
+    // default instructions MUST NOT advertise those filtered tools (name listing
+    // OR usage block) — otherwise the model is told to use tools it cannot call.
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', planMode: true, provider: 'openai' },
+      tools: {
+        'brainstrike.executeCommand': {
+          description: 'Execute command',
+          id: 'brainstrike.executeCommand',
+        },
+        'brainstrike.readWorkspaceFile': {
+          description: 'Read workspace file',
+          id: 'brainstrike.readWorkspaceFile',
+        },
+        'brainstrike.stringReplaceWorkspaceFile': {
+          description: 'String replace',
+          id: 'brainstrike.stringReplaceWorkspaceFile',
+        },
+        'brainstrike.writeWorkspaceFile': {
+          description: 'Write workspace file',
+          id: 'brainstrike.writeWorkspaceFile',
+        },
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    // Plan mode is announced and read-only investigation is still advertised.
+    expect(instructions).toContain('PLAN MODE IS ACTIVE');
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    // The plan-filtered mutation tools must NOT appear — neither their model-facing
+    // names (in the registered-tools listing) nor their usage instruction blocks.
+    expect(instructions).not.toContain('brainstrike_writeWorkspaceFile');
+    expect(instructions).not.toContain('brainstrike_stringReplaceWorkspaceFile');
+    expect(instructions).not.toContain('brainstrike_executeCommand');
+    expect(instructions).not.toContain('ARBITRARY shell command');
+    expect(instructions).not.toContain('fully rewrite one');
+  });
+
+  it('still advertises edit/execute tools in default instructions when plan mode is OFF', async () => {
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.executeCommand': {
+          description: 'Execute command',
+          id: 'brainstrike.executeCommand',
+        },
+        'brainstrike.readWorkspaceFile': {
+          description: 'Read workspace file',
+          id: 'brainstrike.readWorkspaceFile',
+        },
+        'brainstrike.writeWorkspaceFile': {
+          description: 'Write workspace file',
+          id: 'brainstrike.writeWorkspaceFile',
+        },
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    expect(instructions).not.toContain('PLAN MODE IS ACTIVE');
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    expect(instructions).toContain('brainstrike_writeWorkspaceFile');
+    expect(instructions).toContain('brainstrike_executeCommand');
+  });
+
   it('keeps tools distinct when sanitized ids would otherwise collide', async () => {
     const runtime = await createMastraAgentRuntime({
       runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
         'web.search': {
-          id: 'web.search',
           description: 'first',
+          id: 'web.search',
         },
         'web/search': {
-          id: 'web/search',
           description: 'second',
+          id: 'web/search',
         },
       },
     });
@@ -1695,7 +2178,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('gpt-5.4');
+    expect(agent.model?.modelId).toBe('gpt-5.6-terra');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('openai');
   });
@@ -1708,7 +2191,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('claude-sonnet-4-6');
+    expect(agent.model?.modelId).toBe('claude-sonnet-5');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('anthropic');
   });
@@ -1734,15 +2217,75 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('openai/gpt-5.4');
+    expect(agent.model?.id).toBe('openrouter/openai/gpt-5.6-terra');
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.provider).toBe('openrouter');
+    expect(agent.model?.apiKey).toBe('test-key');
+  });
+
+  it('bounds OpenRouter output by default while preserving an explicit override', async () => {
+    setMockStreamParts([
+      {
+        providerMetadata: { openrouter: { usage: { cost: 0 } } },
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      },
+    ]);
+    const defaultIterator = await streamMastraAgent(
+      [{ id: 'u-openrouter-default-cap', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
+    );
+    for await (const _chunk of defaultIterator) {
+      // drain
+    }
+    expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 4096 },
+    });
+
+    const overrideIterator = await streamMastraAgent(
+      [{ id: 'u-openrouter-custom-cap', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          modelSettings: { maxOutputTokens: 512 },
+          provider: 'openrouter',
+        },
+      }
+    );
+    for await (const _chunk of overrideIterator) {
+      // drain
+    }
+    expect(agentInstances[1]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 512 },
+    });
+
+    const partialSettingsIterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-openrouter-partial-settings',
+          parts: [{ text: 'hello', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          modelSettings: { temperature: 0.2 },
+          provider: 'openrouter',
+        },
+      }
+    );
+    for await (const _chunk of partialSettingsIterator) {
+      // drain
+    }
+    expect(agentInstances[2]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 4096, temperature: 0.2 },
+    });
   });
 
   it('uses custom model when specified with provider', async () => {
     await createMastraAgentRuntime({
-      runtime: { apiKey: 'test-key', provider: 'anthropic' },
       model: 'claude-sonnet-4-6',
+      runtime: { apiKey: 'test-key', provider: 'anthropic' },
     });
 
     expect(agentInstances).toHaveLength(1);
@@ -1789,7 +2332,7 @@ describe('resolveRuntimeConfiguration', () => {
   });
 
   it('normalizes providers and returns resolved api key', () => {
-    const result = resolveRuntimeConfiguration({ provider: 'OpenAI', apiKey: 'KEY-123' });
+    const result = resolveRuntimeConfiguration({ apiKey: 'KEY-123', provider: 'OpenAI' });
 
     expect(result.provider).toBe('openai');
     expect(result.runtime.provider).toBe('openai');

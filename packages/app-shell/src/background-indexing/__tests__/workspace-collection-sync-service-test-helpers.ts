@@ -34,13 +34,13 @@ export const BALANCED_QOS_POLICY = resolveWorkspaceIndexingQosPolicy({
 
 export function createCollection(overrides: Partial<EmbeddingSet> = {}): EmbeddingSet {
   return {
-    id: overrides.id ?? 'set-1',
-    name: overrides.name ?? 'Managed Cache',
-    modelId: overrides.modelId ?? 'text-embedding-3-small',
-    modelKey: overrides.modelKey ?? 'openai::text-embedding-3-small',
+    createdAt: overrides.createdAt ?? new Date().toISOString(),
     dimensions: overrides.dimensions ?? 1536,
     distance: overrides.distance ?? 'cosine',
-    createdAt: overrides.createdAt ?? new Date().toISOString(),
+    id: overrides.id ?? 'set-1',
+    modelId: overrides.modelId ?? 'text-embedding-3-small',
+    modelKey: overrides.modelKey ?? 'openai::text-embedding-3-small',
+    name: overrides.name ?? 'Managed Cache',
   };
 }
 
@@ -49,16 +49,16 @@ export function createDeps(
 ): WorkspaceCollectionSyncServiceDependencies {
   return {
     applyManagedCacheBatch: vi.fn(async () => undefined),
+    cancelBackfill: vi.fn(async () => undefined),
     chunkRepository: {
       deleteByFileRecordId: vi.fn(async () => undefined),
       getCoverageForSet: vi.fn(async () => ({
-        totalChunks: 0,
         chunksWithEmbeddingsForSet: 0,
+        totalChunks: 0,
       })),
       insertMany: vi.fn(async () => []),
       update: vi.fn(async () => null),
     },
-    cancelBackfill: vi.fn(async () => undefined),
     db: {
       query: vi.fn(async () => ({ rows: [] })),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
@@ -67,6 +67,14 @@ export function createDeps(
       getById: vi.fn(async () => createCollection()),
     } as unknown as WorkspaceCollectionSyncServiceDependencies['embeddingSetsRepository'],
     enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
+    ensureChunkingWorker: vi.fn(async () => ({
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
+      isReady: () => true,
+      terminate: vi.fn(),
+      transportKind: 'local-worker' as const,
+    })),
+    ensureEmbeddingRuntimeStarted: vi.fn(async () => undefined),
     fileContentProcessor: {
       processFiles: vi.fn(),
     },
@@ -78,20 +86,12 @@ export function createDeps(
       updateStatMetadata: vi.fn(async () => undefined),
     },
     fileSystemAdapter: {
+      exists: vi.fn(),
       readDirectory: vi.fn(),
       readFile: vi.fn(),
       requestDirectoryAccess: vi.fn(),
-      exists: vi.fn(),
     },
     getBackfillsInFlight: vi.fn(async () => []),
-    ensureChunkingWorker: vi.fn(async () => ({
-      chunkBatch: vi.fn(),
-      isReady: () => true,
-      transportKind: 'local-worker' as const,
-      chunkFile: vi.fn(),
-      terminate: vi.fn(),
-    })),
-    ensureEmbeddingRuntimeStarted: vi.fn(async () => undefined),
     invalidateManagedCacheEntriesByIdentity: vi.fn(async () => ({
       canceledEmbeddingJobCount: 0,
       deletedChunkIds: [],

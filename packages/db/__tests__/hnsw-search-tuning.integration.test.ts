@@ -88,33 +88,33 @@ describe('HNSW search tuning (pgvector integration)', () => {
     // the unfiltered ANN candidate window.
     for (let i = 0; i < noiseCount; i++) {
       chunks.push({
-        id: `noise_${i}`,
-        fileRecordId: 'noise',
         chunkIndex: i,
+        chunkSize: 1,
+        chunkType: 'text',
         content: `noise ${i}`,
         contentHash: `nh_${i}`,
-        tokenCount: 1,
-        chunkType: 'text',
-        chunkSize: 1,
+        createdAt: now,
         embedding: makeVector(dim, [[0, 1.0]]),
         embeddingSetId: setId,
-        createdAt: now,
+        fileRecordId: 'noise',
+        id: `noise_${i}`,
+        tokenCount: 1,
         updatedAt: now,
       });
     }
     for (let i = 0; i < targetMatches; i++) {
       chunks.push({
-        id: `target_${i}`,
-        fileRecordId: 'target',
         chunkIndex: i,
+        chunkSize: 1,
+        chunkType: 'text',
         content: `target ${i}`,
         contentHash: `th_${i}`,
-        tokenCount: 1,
-        chunkType: 'text',
-        chunkSize: 1,
+        createdAt: now,
         embedding: makeVector(dim, [[0, 1.0]]),
         embeddingSetId: setId,
-        createdAt: now,
+        fileRecordId: 'target',
+        id: `target_${i}`,
+        tokenCount: 1,
         updatedAt: now,
       });
     }
@@ -122,13 +122,13 @@ describe('HNSW search tuning (pgvector integration)', () => {
 
     const query = makeVector(dim, [[0, 1.0]]);
     const results = await repo.searchSimilar(query, {
-      limit: targetMatches,
-      threshold: 0,
-      embeddingSetId: setId,
-      fileRecordId: 'target',
       // A deliberately small window: without iterative scans the filtered set
       // could under-return because the initial candidates are all "noise".
       efSearch: 1,
+      embeddingSetId: setId,
+      fileRecordId: 'target',
+      limit: targetMatches,
+      threshold: 0,
     });
 
     expect(results).toHaveLength(targetMatches);

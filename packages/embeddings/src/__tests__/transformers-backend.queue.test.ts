@@ -13,18 +13,18 @@ vi.mock('@huggingface/transformers', () => ({
 
 function createQueueResult(id: string, vector: readonly number[]): QueueResult {
   return {
-    type: 'result',
     id,
-    vectors: [Float32Array.from(vector)],
     metadata: {
-      model: 'bge-m3',
-      device: 'webgpu',
-      dtype: 'fp16',
       batchSize: 1,
+      device: 'webgpu',
+      dimensions: vector.length,
+      dtype: 'fp16',
       elapsedMs: 1,
       fallbackApplied: false,
-      dimensions: vector.length,
+      model: 'bge-m3',
     },
+    type: 'result',
+    vectors: [Float32Array.from(vector)],
   };
 }
 
@@ -33,9 +33,6 @@ function createQueueStub() {
   const queue: QueueAdapter = {
     add,
     addBulk: vi.fn(async () => []),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
     cancel: vi.fn(async () => {}),
     drain: vi.fn(async () => {}),
     get isPaused() {
@@ -44,8 +41,11 @@ function createQueueStub() {
     get isProcessing() {
       return false;
     },
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
   };
-  return { queue, add };
+  return { add, queue };
 }
 
 describe('TransformersBackend queue integration', () => {
@@ -79,8 +79,8 @@ describe('TransformersBackend queue integration', () => {
     const backend = new TransformersBackend();
     backend.setTargetDimensions(2);
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'webgpu',
+      modelId: 'bge-m3',
       quantized: false,
     });
 
@@ -100,6 +100,77 @@ describe('TransformersBackend queue integration', () => {
     resetEmbeddingQueueFactory();
   });
 
+  it('forwards the exact abort signal so the queue halts in-flight work', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('navigator', { gpu: {} });
+    vi.stubGlobal('Worker', class {});
+
+    const { queue, add } = createQueueStub();
+    let queueCanceled = false;
+    let workerCompleted = false;
+    let finishWork: () => void = () => {
+      throw new Error('Queue work did not start');
+    };
+    add.mockImplementation(
+      (task, options) =>
+        new Promise<QueueResult>((resolve, reject) => {
+          let settled = false;
+          const handleAbort = () => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            queueCanceled = true;
+            reject(options?.signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+          };
+          options?.signal?.addEventListener('abort', handleAbort, { once: true });
+          finishWork = () => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            options?.signal?.removeEventListener('abort', handleAbort);
+            workerCompleted = true;
+            resolve(createQueueResult(task.id, [0.4, 0.6]));
+          };
+        })
+    );
+
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
+
+    registerEmbeddingQueueFactory(() => queue);
+
+    const backend = new TransformersBackend();
+    await backend.initialize({
+      device: 'webgpu',
+      modelId: 'bge-m3',
+      quantized: false,
+    });
+
+    const controller = new AbortController();
+    const pendingEmbedding = backend.generateEmbedding('cancel-me', 'bge-m3', {
+      signal: controller.signal,
+    });
+
+    await vi.waitFor(() => expect(add).toHaveBeenCalledTimes(1));
+    controller.abort(new Error('query context hidden'));
+    finishWork();
+
+    try {
+      await expect(pendingEmbedding).rejects.toThrow('query context hidden');
+      expect(add.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+      expect(queueCanceled).toBe(true);
+      expect(workerCompleted).toBe(false);
+    } finally {
+      finishWork();
+      await backend.dispose();
+      resetEmbeddingQueueFactory();
+    }
+  });
+
   it('surfaces queue failures without falling back to local pipeline', async () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('navigator', { gpu: {} });
@@ -117,8 +188,8 @@ describe('TransformersBackend queue integration', () => {
 
     const backend = new TransformersBackend();
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'webgpu',
+      modelId: 'bge-m3',
       quantized: false,
     });
 
@@ -167,8 +238,8 @@ describe('TransformersBackend queue integration', () => {
     const backend = new TransformersBackend();
     backend.setTargetDimensions(3.7);
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'webgpu',
+      modelId: 'bge-m3',
       quantized: false,
     });
 
@@ -193,18 +264,18 @@ describe('TransformersBackend queue integration', () => {
 
     const { queue, add } = createQueueStub();
     add.mockResolvedValueOnce({
-      type: 'result',
       id: 'batch',
-      vectors: Array.from({ length: 10 }, () => Float32Array.from([0.1, 0.2])),
       metadata: {
-        model: 'bge-m3',
-        device: 'webgpu',
-        dtype: 'fp16',
         batchSize: 3,
+        device: 'webgpu',
+        dimensions: 2,
+        dtype: 'fp16',
         elapsedMs: 1,
         fallbackApplied: false,
-        dimensions: 2,
+        model: 'bge-m3',
       },
+      type: 'result',
+      vectors: Array.from({ length: 10 }, () => Float32Array.from([0.1, 0.2])),
     });
 
     const { TransformersBackend } = await import('../transformers-backend');
@@ -216,8 +287,8 @@ describe('TransformersBackend queue integration', () => {
 
     const backend = new TransformersBackend();
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'webgpu',
+      modelId: 'bge-m3',
       quantized: false,
       streamBatchSize: 3,
     });
@@ -248,8 +319,8 @@ describe('TransformersBackend queue integration', () => {
 
     const backend = new TransformersBackend();
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'wasm',
+      modelId: 'bge-m3',
       quantized: false,
     });
 
@@ -275,8 +346,8 @@ describe('TransformersBackend queue integration', () => {
     const backend = new TransformersBackend();
     await expect(
       backend.initialize({
-        modelId: 'bge-m3',
         device: 'wasm',
+        modelId: 'bge-m3',
         quantized: false,
       })
     ).rejects.toThrow('creation failed');
@@ -301,8 +372,8 @@ describe('TransformersBackend queue integration', () => {
 
     const backend = new TransformersBackend();
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'wasm',
+      modelId: 'bge-m3',
       quantized: false,
     });
 

@@ -2,13 +2,14 @@
   "name": "@brainstrike/hooks",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "file-saver": "2.0.5",
     "minimatch": "^10.2.5",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -16,17 +17,17 @@
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@swc/core": "^1.15.30",
-    "@testing-library/react": "^16.3.2",
+    "@swc/core": "^1.15.43",
+    "@testing-library/react": "catalog:",
     "@types/file-saver": "2.0.7",
-    "@types/node": "^25.6.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "happy-dom": "^20.9.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "^6.0.3",
+    "happy-dom": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

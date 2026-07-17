@@ -10,9 +10,9 @@ describe('desktop platform diagnostics', () => {
       initializationInFlight: false,
       lastInitializationFailure: null,
       lastInitializationSucceededAt: '2026-05-20T18:00:00.000Z',
-      runtimeCorruptionRecoveryCount: 1,
       lastRuntimeCorruptionAt: '2026-05-20T18:01:00.000Z',
       lastRuntimeCorruptionContext: 'db:query',
+      runtimeCorruptionRecoveryCount: 1,
     };
     const priorityStats = {
       completed: 0,
@@ -174,8 +174,8 @@ describe('desktop platform diagnostics', () => {
       crashRecovery,
       database: databaseDiagnostics,
       databaseScheduler: schedulerSnapshot,
-      errors: {},
       embeddingHost: embeddingHostStatus,
+      errors: {},
       indexing: {
         activeBackfills,
         databaseWork: {
@@ -192,8 +192,8 @@ describe('desktop platform diagnostics', () => {
         lastSucceededAt: '2026-05-20T18:00:00.000Z',
       },
       reset: {
-        userDataPath: '<redacted>',
         status: 'idle',
+        userDataPath: '<redacted>',
       },
       telemetry: {
         backgroundRuntimeMetrics: runtimeMetrics,

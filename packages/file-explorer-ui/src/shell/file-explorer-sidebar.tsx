@@ -250,9 +250,9 @@ function useSectionRecursiveSelect(folderId: string): {
   );
 
   return {
-    onSelectFolderRecursively,
     isLoadingForSelection: treeContext.isLoadingForSelection,
     loadingPathForSelection: treeContext.loadingPathForSelection,
+    onSelectFolderRecursively,
   };
 }
 
@@ -392,7 +392,7 @@ function RootSelectAllCheckbox({
 // loadingPathForSelection, but those are bound to the FOCUSED root's
 // provider — forest sections deliberately ignore them and use their own
 // tree context.
-const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
+const PerRootTreePane = ({
   rootDirectoryHandle,
   loadingFiles,
   currentFolderId,
@@ -400,7 +400,7 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
   isLoadingForSelectAll = false,
   isLoading: isLoadingProp,
   rootId,
-}) => {
+}: PerRootTreePaneProps) => {
   // Reads the real file tree for THIS root from its enclosing FileTreeProvider,
   // then applies the GLOBAL workspace view filters for display — every section
   // shows exactly what the (same-filtered) scans can select.
@@ -450,14 +450,7 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
       return;
     }
     return forestActions.register(folderId, {
-      getVisibleQuickFilterKeys: () => {
-        // Composite keys of the files currently DISPLAYED in this section
-        // (view filters + quick filter applied) — quick-filter Select All
-        // selects exactly what the user sees, no scanning beyond it.
-        const visible = new Set<string>();
-        collectVisibleFiles(displayedTreeRef.current, visible);
-        return Array.from(visible, (path) => `${folderId}|@|${path}`);
-      },
+      cancelExpandAll: sectionCancelExpandAll,
       expandAll: async () => {
         const setExpandedPathsUpdater = (updater: (prev: Set<string>) => Set<string>) => {
           const currentPaths = store.getState().expandedDirectoryPaths;
@@ -471,7 +464,14 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
           store.getState().expandedDirectoryPaths
         );
       },
-      cancelExpandAll: sectionCancelExpandAll,
+      getVisibleQuickFilterKeys: () => {
+        // Composite keys of the files currently DISPLAYED in this section
+        // (view filters + quick filter applied) — quick-filter Select All
+        // selects exactly what the user sees, no scanning beyond it.
+        const visible = new Set<string>();
+        collectVisibleFiles(displayedTreeRef.current, visible);
+        return Array.from(visible, (path) => `${folderId}|@|${path}`);
+      },
       selectAll: async () => {
         // Quiet pass: the forest sweep owns aggregate feedback (per-root
         // zero-match/limit toasts would fire once per section).
@@ -541,13 +541,13 @@ interface RootSectionProps extends PerRootTreePaneProps {
   setFocusedRoot?: ((path: string) => void) | undefined;
 }
 
-const RootSection: React.FC<RootSectionProps> = ({
+const RootSection = ({
   onRemoveRoot,
   rootDirectoryHandle,
   setFocusedRoot,
   rootIdByPath,
   ...rest
-}) => {
+}: RootSectionProps) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
   // Storage v5: the canonical identity for this root. Prefer the stamped
@@ -633,7 +633,7 @@ const RootSection: React.FC<RootSectionProps> = ({
   );
 };
 
-const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
+const FileExplorerSidebar = memo(
   ({
     rootDirectoryHandle,
     rootDirectoryHandles,
@@ -655,7 +655,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
     isLoadingForSelection,
     loadingPathForSelection,
     isLoadingForSelectAll = false,
-  }) => {
+  }: FileExplorerSidebarProps) => {
     // React 19: useDeferredValue keeps showing the old tree while new one renders
     // This prevents "flash" during rapid tree updates (like expand-all)
     const deferredTree = useDeferredValue(quickFilteredTree);
@@ -674,8 +674,8 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
         cancelChildLoading,
         currentFolderId,
         isLoading,
-        isLoadingForSelection,
         isLoadingForSelectAll,
+        isLoadingForSelection,
         loadingFiles,
         loadingPathForSelection,
         loadingPaths,
@@ -685,7 +685,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
       };
 
       return (
-        <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
+        <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
           {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {forestHandles.map((handle) => (
@@ -715,7 +715,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
       getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '';
 
     return (
-      <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
+      <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
         {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
         {rootDirectoryHandle ? (
           <div className="relative flex min-h-0 flex-1 flex-col">

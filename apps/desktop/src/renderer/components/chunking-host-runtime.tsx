@@ -51,16 +51,16 @@ function getHeartbeatTotalFiles(request: ChunkingHostRequest): number {
 
 function reportRequestHeartbeat(request: ChunkingHostRequest, runtimeId: string): void {
   reportResponse({
-    type: 'progress',
     channel: 'chunk',
-    requestId: request.requestId,
-    runtimeId,
     payload: {
       chunksCreated: 0,
       currentIndex: 0,
       fileRecordId: getHeartbeatFileRecordId(request),
       totalFiles: getHeartbeatTotalFiles(request),
     },
+    requestId: request.requestId,
+    runtimeId,
+    type: 'progress',
   });
 }
 
@@ -123,9 +123,9 @@ async function loadFileRecordById(fileRecordId: string): Promise<FileRecordRow> 
     throw new Error(`Chunking host file record ${fileRecordId} is missing content.`);
   }
   return {
+    content: row['content'],
     name: row['name'],
     path: row['path'],
-    content: row['content'],
   };
 }
 
@@ -233,48 +233,48 @@ function reportChunkRequestSuccess(
         throw new Error(`Chunk batch response index ${index} has no matching request file.`);
       }
       reportResponse({
-        type: 'progress',
         channel: 'chunk',
-        requestId: request.requestId,
-        runtimeId,
         payload: {
-          fileRecordId: file.fileRecordId,
           chunksCreated: batchResult.chunks.length,
           currentIndex: index + 1,
+          fileRecordId: file.fileRecordId,
           totalFiles: batchRequest.files.length,
         },
-      });
-      reportResponse({
-        type: 'progress',
-        channel: 'chunk-file-complete',
         requestId: request.requestId,
         runtimeId,
+        type: 'progress',
+      });
+      reportResponse({
+        channel: 'chunk-file-complete',
         payload: {
           fileRecordId: file.fileRecordId,
           result: batchResult,
         },
+        requestId: request.requestId,
+        runtimeId,
+        type: 'progress',
       });
     }
     reportResponse({
-      type: 'result',
       channel: 'chunk-batch-complete',
-      requestId: request.requestId,
-      runtimeId,
       payload: {
         results: result,
       },
+      requestId: request.requestId,
+      runtimeId,
+      type: 'result',
     });
     return;
   }
 
   reportResponse({
-    type: 'result',
     channel: 'chunk-result',
-    requestId: request.requestId,
-    runtimeId,
     payload: {
       result,
     },
+    requestId: request.requestId,
+    runtimeId,
+    type: 'result',
   });
 }
 
@@ -325,31 +325,31 @@ export function ChunkingHostRuntime(): null {
     const syncActiveStatus = (): void => {
       if (fatalErrorRef.current) {
         reportStatus({
-          runtimeKind: 'chunking-host',
-          runtimeId: runtimeIdRef.current,
-          state: 'error',
           active: false,
           lastError: fatalErrorRef.current,
+          runtimeId: runtimeIdRef.current,
+          runtimeKind: 'chunking-host',
+          state: 'error',
         });
         return;
       }
       reportStatus({
-        runtimeKind: 'chunking-host',
-        runtimeId: runtimeIdRef.current,
-        state: 'running',
         active: activeRequestCountRef.current > 0,
         lastError: null,
+        runtimeId: runtimeIdRef.current,
+        runtimeKind: 'chunking-host',
+        state: 'running',
       });
     };
 
     const startHost = async (): Promise<void> => {
       fatalErrorRef.current = null;
       reportStatus({
-        runtimeKind: 'chunking-host',
-        runtimeId: runtimeIdRef.current,
-        state: 'starting',
         active: false,
         lastError: null,
+        runtimeId: runtimeIdRef.current,
+        runtimeKind: 'chunking-host',
+        state: 'starting',
       });
       try {
         await ensureStarted();
@@ -365,11 +365,11 @@ export function ChunkingHostRuntime(): null {
           runtimeId: runtimeIdRef.current,
         });
         reportStatus({
-          runtimeKind: 'chunking-host',
-          runtimeId: runtimeIdRef.current,
-          state: 'error',
           active: false,
           lastError: message,
+          runtimeId: runtimeIdRef.current,
+          runtimeKind: 'chunking-host',
+          state: 'error',
         });
       }
     };
@@ -399,11 +399,11 @@ export function ChunkingHostRuntime(): null {
           runtimeId: runtimeIdRef.current,
         });
         reportResponse({
-          type: 'error',
           channel: 'chunk-error',
+          payload: getRequestErrorPayload(request, message),
           requestId: request.requestId,
           runtimeId: runtimeIdRef.current,
-          payload: getRequestErrorPayload(request, message),
+          type: 'error',
         });
       } finally {
         if (heartbeatId !== null) {
@@ -413,8 +413,8 @@ export function ChunkingHostRuntime(): null {
           activeRequestCountRef.current -= 1;
         } else {
           logger.warn('Chunking host active request count underflow detected', {
-            runtimeId: runtimeIdRef.current,
             requestId: request.requestId,
+            runtimeId: runtimeIdRef.current,
           });
         }
         if (!disposed) {
@@ -426,8 +426,8 @@ export function ChunkingHostRuntime(): null {
     const unsubscribeRequest = getChunkingHostBridge()?.onRequest?.((request) => {
       onRequest(request).catch((requestError: unknown) => {
         logger.error('Uncaught error in chunking request handler', {
-          requestId: request.requestId,
           error: requestError instanceof Error ? requestError.message : String(requestError),
+          requestId: request.requestId,
           runtimeId: runtimeIdRef.current,
         });
       });
@@ -445,11 +445,11 @@ export function ChunkingHostRuntime(): null {
       unsubscribeRequest?.();
       activeRequestCountRef.current = 0;
       reportStatus({
-        runtimeKind: 'chunking-host',
-        runtimeId: runtimeIdRef.current,
-        state: 'stopped',
         active: false,
         lastError: null,
+        runtimeId: runtimeIdRef.current,
+        runtimeKind: 'chunking-host',
+        state: 'stopped',
       });
     };
   }, [ensureStarted]);
@@ -460,11 +460,11 @@ export function ChunkingHostRuntime(): null {
     }
     fatalErrorRef.current = error.message;
     reportStatus({
-      runtimeKind: 'chunking-host',
-      runtimeId: runtimeIdRef.current,
-      state: 'error',
       active: false,
       lastError: error.message,
+      runtimeId: runtimeIdRef.current,
+      runtimeKind: 'chunking-host',
+      state: 'error',
     });
   }, [error]);
   return null;

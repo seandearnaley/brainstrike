@@ -11,13 +11,14 @@ describe('GoogleEmbeddingProvider', () => {
     const mockFetch = createMockFetch(response);
 
     const provider = new GoogleEmbeddingProvider({
-      modelId: 'gemini-embedding-001',
       apiKey: 'test-api-key',
       fetch: mockFetch as typeof fetch,
+      modelId: 'gemini-embedding-001',
       outputDimensions: 2,
     });
 
-    const input: EmbeddingInput = { text: 'hello', modelId: 'gemini-embedding-001' };
+    const signal = new AbortController().signal;
+    const input: EmbeddingInput = { modelId: 'gemini-embedding-001', signal, text: 'hello' };
     const result = await provider.embed(input);
     expect(result.ok).toBe(true);
 
@@ -27,6 +28,7 @@ describe('GoogleEmbeddingProvider', () => {
     }
     const [url, init] = call as unknown as [RequestInfo | URL, RequestInit | undefined];
     expect(String(url)).toContain(':embedContent');
+    expect(init?.signal).toBe(signal);
     const body = JSON.parse(String(init?.body ?? '{}')) as {
       model?: string;
       content?: { parts?: Array<{ text?: string }> };
@@ -45,13 +47,18 @@ describe('GoogleEmbeddingProvider', () => {
     const mockFetch = createMockFetch(response);
 
     const provider = new GoogleEmbeddingProvider({
-      modelId: 'gemini-embedding-001',
       apiKey: 'test-api-key',
       fetch: mockFetch as typeof fetch,
+      modelId: 'gemini-embedding-001',
       outputDimensions: 2,
     });
 
-    const input: EmbeddingInput = { text: ['a', 'b'], modelId: 'gemini-embedding-001' };
+    const signal = new AbortController().signal;
+    const input: EmbeddingInput = {
+      modelId: 'gemini-embedding-001',
+      signal,
+      text: ['a', 'b'],
+    };
     const result = await provider.embed(input);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -64,6 +71,7 @@ describe('GoogleEmbeddingProvider', () => {
     }
     const [url, init] = call as unknown as [RequestInfo | URL, RequestInit | undefined];
     expect(String(url)).toContain(':batchEmbedContents');
+    expect(init?.signal).toBe(signal);
     const body = JSON.parse(String(init?.body ?? '{}')) as {
       model?: string;
       requests?: Array<{
@@ -84,13 +92,13 @@ describe('GoogleEmbeddingProvider', () => {
   it('returns a validation error for empty inputs', async () => {
     const mockFetch = createMockFetch(new Response('{}', { status: 200 }));
     const provider = new GoogleEmbeddingProvider({
-      modelId: 'gemini-embedding-001',
       apiKey: 'test-api-key',
       fetch: mockFetch as typeof fetch,
+      modelId: 'gemini-embedding-001',
       outputDimensions: 2,
     });
 
-    const input: EmbeddingInput = { text: [], modelId: 'gemini-embedding-001' };
+    const input: EmbeddingInput = { modelId: 'gemini-embedding-001', text: [] };
     const result = await provider.embed(input);
     expect(result.ok).toBe(false);
     if (!result.ok) {

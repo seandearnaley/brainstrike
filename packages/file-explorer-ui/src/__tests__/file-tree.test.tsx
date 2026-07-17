@@ -18,37 +18,37 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 describe('FileTree', () => {
   const mockFileTree = [
     createDirectoryNode({
-      name: 'src',
-      path: 'src',
       children: [
         createDirectoryNode({
-          name: 'components',
-          path: 'src/components',
           children: [
             createDirectoryNode({
-              name: 'ui',
-              path: 'src/components/ui',
               children: [
                 createFileNode({
                   name: 'Button.tsx',
                   path: 'src/components/ui/Button.tsx',
                 }),
               ],
+              name: 'ui',
+              path: 'src/components/ui',
             }),
             createFileNode({
               name: 'App.tsx',
               path: 'src/components/App.tsx',
             }),
           ],
+          name: 'components',
+          path: 'src/components',
         }),
       ],
+      name: 'src',
+      path: 'src',
     }),
   ];
 
   const defaultProps = {
     fileTree: mockFileTree,
-    loadingFiles: new Set<string>(),
     folderId: 'test-folder-id',
+    loadingFiles: new Set<string>(),
   };
 
   beforeEach(() => {
@@ -130,9 +130,9 @@ describe('FileTree', () => {
         <FileTree
           fileTree={[
             createDirectoryNode({
+              children: [createFileNode({ name: 'index.ts', path: 'src/index.ts' })],
               name: 'src',
               path: 'src',
-              children: [createFileNode({ name: 'index.ts', path: 'src/index.ts' })],
             }),
           ]}
           folderId="test-folder"
@@ -141,8 +141,13 @@ describe('FileTree', () => {
       );
       await Promise.resolve();
     });
-    const expandButton = screen.getByRole('button', { name: /expand/i });
-    await user.click(expandButton);
+    // A loaded root directory auto-expands, so its child row is visible and
+    // the toggle reads Collapse. (The old /expand/i assertions only held
+    // because the fixture lacked loadState and expansion silently no-oped.)
+    expect(screen.getByText('index.ts')).toBeInTheDocument();
+    const collapseButton = screen.getByRole('button', { name: /collapse/i });
+    await user.click(collapseButton);
     expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
+    expect(screen.queryByText('index.ts')).not.toBeInTheDocument();
   });
 });

@@ -19,32 +19,32 @@ describe('File Tree Tool', () => {
 
   const sampleFiles: FileEntry[] = [
     {
+      childCount: 5,
       id: 'file-1',
+      isChunked: false,
+      isDirectory: true,
       name: 'src',
       path: '/project/src',
-      isDirectory: true,
       size: null,
       tokenCount: null,
-      isChunked: false,
-      childCount: 5,
     },
     {
       id: 'file-2',
+      isChunked: true,
+      isDirectory: false,
       name: 'index.ts',
       path: '/project/src/index.ts',
-      isDirectory: false,
       size: 2048,
       tokenCount: 500,
-      isChunked: true,
     },
     {
       id: 'file-3',
+      isChunked: true,
+      isDirectory: false,
       name: 'utils.ts',
       path: '/project/src/utils.ts',
-      isDirectory: false,
       size: 1024,
       tokenCount: 250,
-      isChunked: true,
     },
   ];
 
@@ -53,11 +53,11 @@ describe('File Tree Tool', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     deps = {
+      getRootPaths: vi.fn().mockResolvedValue(['/project']),
       listFiles: vi.fn().mockResolvedValue({
         entries: sampleFiles,
         truncated: false,
       }),
-      getRootPaths: vi.fn().mockResolvedValue(['/project']),
       logger: mockLogger,
     };
   });
@@ -89,8 +89,8 @@ describe('File Tree Tool', () => {
       expect(deps.listFiles).toHaveBeenCalledWith(
         '/project/src',
         expect.objectContaining({
-          maxDepth: 3,
           includeHidden: false,
+          maxDepth: 3,
         })
       );
     });

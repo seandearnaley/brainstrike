@@ -1,18 +1,26 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
+// Relative import (not the package self-reference) — this IS @brainstrike/test-utils.
+import { workspaceSrcAliases } from './workspace-src-aliases.mjs';
 
 export default defineConfig({
+  resolve: {
+    // Stryker mutation lane: resolve workspace deps (@brainstrike/types) from
+    // SOURCE, not dist. See ./workspace-src-aliases.mjs (incident #1066/#1207).
+    alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
+  },
   test: {
     environment: 'jsdom',
-    globals: true,
-    silent: true,
-    reporters: 'basic',
-    setupFiles: ['src/vitest.setup.ts'],
-    include: ['src/__tests__/**/*.test.{ts,tsx}', '__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
-    pool: 'threads',
+    globals: true,
+    include: ['src/__tests__/**/*.test.{ts,tsx}', '__tests__/**/*.test.{ts,tsx}'],
+    isolate: true,
     // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
     maxWorkers: 1,
-    isolate: true,
+    pool: 'threads',
+    reporters: 'basic',
+    setupFiles: ['src/vitest.setup.ts'],
+    silent: true,
     testTimeout: 30_000,
   },
 });

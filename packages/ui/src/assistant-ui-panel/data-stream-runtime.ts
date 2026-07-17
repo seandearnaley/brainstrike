@@ -5,6 +5,11 @@ import type {
   ThreadMessage,
 } from '@assistant-ui/react';
 import { useLocalRuntime } from '@assistant-ui/react';
+import {
+  ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
+  AssistantAttachmentValidationError,
+  dataUrlByteLength,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { AssistantStreamChunk } from 'assistant-stream';
@@ -13,7 +18,7 @@ import {
   DataStreamDecoder,
   toGenericMessages,
   toToolsJSONSchema,
-  // This runtime is pinned to assistant-stream 0.3.11 because tool result
+  // This runtime is pinned to assistant-stream 0.3.25 because tool result
   // streaming is still exported behind the unstable API surface.
   unstable_toolResultStream,
 } from 'assistant-stream';
@@ -35,6 +40,12 @@ const RESERVED_TRANSPORT_FIELDS = new Set([
   'unstable_assistantMessageId',
 ]);
 
+export interface AssistantUsage {
+  readonly billedCostUsd?: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+}
+
 export type BrainstrikeDataStreamRuntimeOptions = {
   api: string;
   body?: (() => Promise<Record<string, unknown> | undefined>) | Record<string, unknown>;
@@ -55,7 +66,7 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * The callback contract requires non-throwing consumers — our consumer
    * is a zustand setState which is safe.
    */
-  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
+  onUsage?: (usage: AssistantUsage) => void;
 } & Omit<LocalRuntimeOptionsBase, 'adapters'> & {
     adapters?: Omit<LocalRuntimeOptionsBase['adapters'], 'chatModel'>;
   };
@@ -71,6 +82,14 @@ interface GenericTextPart {
 interface GenericMessageLike {
   readonly content?: unknown;
   readonly role?: unknown;
+}
+
+function requireTransportUserMessageId(message: ThreadMessage): string {
+  const id = message.id;
+  if (typeof id !== 'string' || id.trim().length === 0) {
+    throw new Error('Assistant user message is missing its assistant-ui message ID.');
+  }
+  return id;
 }
 
 function toContentParts(content: unknown): readonly GenericTextPart[] {
@@ -113,9 +132,9 @@ function toUserFilePart(part: GenericTextPart): {
 } {
   const record = toPartRecord(part);
   return {
-    type: 'file',
     data: String(record['data'] ?? ''),
     mediaType: optionalStringField(part, 'mediaType'),
+    type: 'file',
   };
 }
 
@@ -248,54 +267,59 @@ export function selectTransportMessagesForMastraMemory(
 }
 
 function toLanguageModelMessages(messages: readonly ThreadMessage[]): unknown[] {
-  const genericMessages = toGenericMessages(messages as Parameters<typeof toGenericMessages>[0]);
-  return genericMessages.map((message) => {
+  const genericMessages = messages.flatMap((sourceMessage) =>
+    toGenericMessages([sourceMessage] as Parameters<typeof toGenericMessages>[0]).map(
+      (message) => ({ message, sourceMessage })
+    )
+  );
+  return genericMessages.map(({ message, sourceMessage }) => {
     const item = message as GenericMessageLike;
     const content = toContentParts(item.content);
     switch (item.role) {
       case 'system':
         return {
-          role: 'system',
           content: content.map((part) => (part.type === 'text' ? toHostedTextPart(part) : part)),
+          role: 'system',
         };
       case 'user':
         return {
-          role: 'user',
           content: content.map((part) =>
             part.type === 'text' ? toHostedTextPart(part) : toUserFilePart(part)
           ),
+          id: requireTransportUserMessageId(sourceMessage),
+          role: 'user',
         };
       case 'assistant':
         return {
-          role: 'assistant',
           content: content.map((part) =>
             part.type === 'text'
               ? toHostedTextPart(part)
               : {
-                  type: 'tool-call',
+                  input: toPartRecord(part)['args'],
                   toolCallId: requireStringField(part, 'toolCallId', 'assistant tool-call part'),
                   toolName: requireStringField(part, 'toolName', 'assistant tool-call part'),
-                  input: toPartRecord(part)['args'],
+                  type: 'tool-call',
                 }
           ),
+          role: 'assistant',
         };
       case 'tool':
         return {
-          role: 'tool',
           content: content.map((part) => {
             const record = toPartRecord(part);
             return {
-              type: 'tool-result',
-              toolCallId: requireStringField(part, 'toolCallId', 'tool result part'),
-              toolName: optionalStringField(part, 'toolName'),
               output: record['isError']
                 ? { type: 'error-json', value: record['result'] }
                 : { type: 'json', value: record['result'] },
+              toolCallId: requireStringField(part, 'toolCallId', 'tool result part'),
+              toolName: optionalStringField(part, 'toolName'),
+              type: 'tool-result',
             };
           }),
+          role: 'tool',
         };
       default:
-        return { role: item.role, content };
+        return { content, role: item.role };
     }
   });
 }
@@ -325,6 +349,283 @@ function withTransportCompactionMetadata(
   };
 }
 
+export interface TransportImageElision {
+  readonly elidedImageBytes: number;
+  readonly elidedImageCount: number;
+  readonly keptImageBytes: number;
+  readonly strategy: 'newest-first-combined-image-budget';
+  /** Present only when history parts could not be measured (counted in elidedImageCount, excluded from elidedImageBytes). */
+  readonly unmeasurableImageCount?: number;
+}
+
+interface WireImagePartRef {
+  readonly bytes: number;
+  readonly fileCount: number;
+  readonly mediaType: string | undefined;
+  readonly messageIndex: number;
+  readonly ordinal: number;
+  readonly partIndex: number;
+  readonly unmeasurable: boolean;
+}
+
+function wireContentOf(wireMessage: unknown): readonly unknown[] {
+  if (!wireMessage || typeof wireMessage !== 'object') {
+    return [];
+  }
+  const content = (wireMessage as { content?: unknown }).content;
+  return Array.isArray(content) ? content : [];
+}
+
+function isWireImagePart(value: unknown): value is Record<string, unknown> & { data: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return record['type'] === 'file' && typeof record['data'] === 'string';
+}
+
+function isWireUserMessage(wireMessage: unknown): boolean {
+  return (
+    Boolean(wireMessage) &&
+    typeof wireMessage === 'object' &&
+    (wireMessage as { role?: unknown }).role === 'user'
+  );
+}
+
+/**
+ * Decoded byte length of one wire image part, from the shared attachment
+ * contract. CURRENT-turn parts measure strictly — the composer just produced
+ * them, so an unmeasurable payload is a real bug and THROWS. HISTORY parts
+ * degrade instead of aborting the send: one malformed old attachment must not
+ * lock the user out of every later turn in the thread, so it returns
+ * `undefined` and the caller elides the part with a visible note.
+ */
+function measureWireImagePartBytes(data: string, isCurrentTurn: boolean): number | undefined {
+  if (isCurrentTurn) {
+    return dataUrlByteLength(data);
+  }
+  try {
+    return dataUrlByteLength(data);
+  } catch (error) {
+    if (error instanceof AssistantAttachmentValidationError) {
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Measure every inline image (file) part carried by user wire messages.
+ * See {@link measureWireImagePartBytes} for the strict-current-turn /
+ * degrade-history measurement contract.
+ */
+function collectWireImagePartRefs(
+  wireMessages: readonly unknown[],
+  lastUserIndex: number
+): WireImagePartRef[] {
+  const refs: WireImagePartRef[] = [];
+  for (let messageIndex = 0; messageIndex < wireMessages.length; messageIndex += 1) {
+    if (!isWireUserMessage(wireMessages[messageIndex])) {
+      continue;
+    }
+    const content = wireContentOf(wireMessages[messageIndex]);
+    const filePartIndices: number[] = [];
+    for (let partIndex = 0; partIndex < content.length; partIndex += 1) {
+      if (isWireImagePart(content[partIndex])) {
+        filePartIndices.push(partIndex);
+      }
+    }
+    for (let ordinalIndex = 0; ordinalIndex < filePartIndices.length; ordinalIndex += 1) {
+      const partIndex = filePartIndices[ordinalIndex] as number;
+      const part = content[partIndex] as Record<string, unknown> & { data: string };
+      const bytes = measureWireImagePartBytes(part.data, messageIndex >= lastUserIndex);
+      refs.push({
+        bytes: bytes ?? 0,
+        fileCount: filePartIndices.length,
+        mediaType: typeof part['mediaType'] === 'string' ? part['mediaType'] : undefined,
+        messageIndex,
+        ordinal: ordinalIndex + 1,
+        partIndex,
+        unmeasurable: bytes === undefined,
+      });
+    }
+  }
+  return refs;
+}
+
+function findLastWireUserIndex(wireMessages: readonly unknown[]): number {
+  for (let index = wireMessages.length - 1; index >= 0; index -= 1) {
+    if (isWireUserMessage(wireMessages[index])) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Newest-first, recency-monotonic selection: history images spend whatever
+ * budget the current turn leaves, and once one image does not fit, every
+ * OLDER image is elided with it — the model never sees an older image while
+ * missing a newer one. Unmeasurable history parts are always elided but stay
+ * outside the budget walk: an invalid old payload neither ships nor forces
+ * valid neighbors off the wire.
+ */
+function selectElidedHistoryImageRefs(
+  refs: readonly WireImagePartRef[],
+  lastUserIndex: number
+): WireImagePartRef[] {
+  const currentTurnBytes = refs
+    .filter((ref) => ref.messageIndex >= lastUserIndex)
+    .reduce((total, ref) => total + ref.bytes, 0);
+  const history = refs
+    .filter((ref) => ref.messageIndex < lastUserIndex)
+    .sort((a, b) => b.messageIndex - a.messageIndex || a.partIndex - b.partIndex);
+  let remainingBytes = ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES - currentTurnBytes;
+  const elided: WireImagePartRef[] = [];
+  let cutoff = false;
+  for (const ref of history) {
+    if (ref.unmeasurable) {
+      elided.push(ref);
+      continue;
+    }
+    if (!cutoff && ref.bytes <= remainingBytes) {
+      remainingBytes -= ref.bytes;
+      continue;
+    }
+    cutoff = true;
+    elided.push(ref);
+  }
+  return elided;
+}
+
+function formatImageByteSize(bytes: number): string {
+  const kilobyte = 1024;
+  const megabyte = kilobyte * kilobyte;
+  if (bytes >= megabyte) {
+    return `${(bytes / megabyte).toFixed(1)}MB`;
+  }
+  if (bytes >= kilobyte) {
+    return `${Math.round(bytes / kilobyte)}KB`;
+  }
+  return `${bytes}B`;
+}
+
+function buildImageElisionNote(ref: WireImagePartRef): string {
+  if (ref.unmeasurable) {
+    return `[Image attachment ${ref.ordinal} of ${ref.fileCount} (${ref.mediaType ?? 'image'}) from this earlier message is not an inline base64 data URL, so it could not be measured for resending and was omitted from the request. Ask the user to re-attach it if it is needed again.]`;
+  }
+  const described = `${ref.mediaType ?? 'image'}, ${formatImageByteSize(ref.bytes)}`;
+  return `[Image attachment ${ref.ordinal} of ${ref.fileCount} (${described}) from this earlier message was omitted from the request to keep it within the transport size limit. The image is unchanged in the conversation; ask the user to re-attach it if it is needed again.]`;
+}
+
+function replaceElidedWireImageParts(
+  wireMessages: readonly unknown[],
+  elided: readonly WireImagePartRef[]
+): unknown[] {
+  const refsByMessage = new Map<number, Map<number, WireImagePartRef>>();
+  for (const ref of elided) {
+    const partMap = refsByMessage.get(ref.messageIndex) ?? new Map<number, WireImagePartRef>();
+    partMap.set(ref.partIndex, ref);
+    refsByMessage.set(ref.messageIndex, partMap);
+  }
+  return wireMessages.map((wireMessage, messageIndex) => {
+    const partMap = refsByMessage.get(messageIndex);
+    if (!partMap) {
+      return wireMessage;
+    }
+    const content = wireContentOf(wireMessage).map((part, partIndex) => {
+      const ref = partMap.get(partIndex);
+      return ref ? { text: buildImageElisionNote(ref) } : part;
+    });
+    return { ...(wireMessage as Record<string, unknown>), content };
+  });
+}
+
+/**
+ * Bound the inline image payload of one outgoing request to the SAME combined
+ * cap the composer enforces per message
+ * ({@link ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES}) — the number the 16MB
+ * request body limit is sized against. Without this, non-memory-backed
+ * transports that resend full history accumulate every prior turn's base64
+ * image bodies until the body limit rejects the request.
+ *
+ * The current turn's attachments always ship (the server validates them
+ * against the same cap); history images spend the remainder newest-first. A
+ * history part that cannot be measured (not an inline base64 data URL) is
+ * always elided with its own note rather than failing the send — one
+ * malformed old attachment must not block every later turn in the thread.
+ * Elision is WIRE-ONLY and LOUD: the thread state and persisted record keep
+ * the image, and each elided part is replaced with a visible text note so the
+ * model knows exactly what it can no longer see. Callers must surface the
+ * returned elision stats (request metadata + log), never drop them.
+ */
+export function boundResentImageHistory(wireMessages: readonly unknown[]): {
+  readonly elision: TransportImageElision | undefined;
+  readonly messages: readonly unknown[];
+} {
+  const lastUserIndex = findLastWireUserIndex(wireMessages);
+  const refs = collectWireImagePartRefs(wireMessages, lastUserIndex);
+  const elided = selectElidedHistoryImageRefs(refs, lastUserIndex);
+  if (elided.length === 0) {
+    return { elision: undefined, messages: wireMessages };
+  }
+  const elidedImageBytes = elided.reduce((total, ref) => total + ref.bytes, 0);
+  const totalImageBytes = refs.reduce((total, ref) => total + ref.bytes, 0);
+  const unmeasurableImageCount = elided.filter((ref) => ref.unmeasurable).length;
+  return {
+    elision: {
+      elidedImageBytes,
+      elidedImageCount: elided.length,
+      keptImageBytes: totalImageBytes - elidedImageBytes,
+      strategy: 'newest-first-combined-image-budget',
+      ...(unmeasurableImageCount > 0 ? { unmeasurableImageCount } : {}),
+    },
+    messages: replaceElidedWireImageParts(wireMessages, elided),
+  };
+}
+
+/**
+ * Mirror of {@link withTransportCompactionMetadata} for image elision: when
+ * history image bodies were elided, the request's `data` records what was
+ * dropped so the degradation is observable server-side, creating the `data`
+ * object if the body had none.
+ */
+function withTransportImageElisionMetadata(
+  bodyValue: Record<string, unknown> | undefined,
+  elision: TransportImageElision | undefined
+): Record<string, unknown> | undefined {
+  if (!elision) {
+    return bodyValue;
+  }
+  const data = bodyValue?.['data'];
+  const dataRecord = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  return { ...bodyValue, data: { ...dataRecord, transportImageElision: elision } };
+}
+
+/**
+ * Apply {@link boundResentImageHistory} to the outgoing wire messages and
+ * surface any elision loudly in one step: a client warn log plus the
+ * `transportImageElision` request metadata.
+ */
+function boundWireMessagesForTransport(
+  wireMessages: readonly unknown[],
+  bodyValue: Record<string, unknown> | undefined
+): {
+  readonly bodyValue: Record<string, unknown> | undefined;
+  readonly messages: readonly unknown[];
+} {
+  const imageBound = boundResentImageHistory(wireMessages);
+  if (imageBound.elision) {
+    logger.warn('Elided older image attachment bodies from resent request history', {
+      ...imageBound.elision,
+    });
+  }
+  return {
+    bodyValue: withTransportImageElisionMetadata(bodyValue, imageBound.elision),
+    messages: imageBound.messages,
+  };
+}
+
 /**
  * Pass-through tap that intercepts "message-finish" chunks to surface provider
  * token usage. The DataStreamDecoder outputs AssistantStreamChunk
@@ -333,29 +634,73 @@ function withTransportCompactionMetadata(
  * (Wire code reference: DataStreamCode.finishMessage = 'd' in packages/agent.)
  */
 function buildUsageTap(
-  onUsage: (usage: { inputTokens: number; outputTokens: number }) => void
+  onUsage: (usage: AssistantUsage) => void
 ): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
   return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
     transform(chunk, controller) {
+      const usage = readFinishUsage(chunk);
+      if (usage) {
+        onUsage(usage);
+      }
+      controller.enqueue(chunk);
+    },
+  });
+}
+
+function readFinishUsage(chunk: AssistantStreamChunk): AssistantUsage | undefined {
+  if (chunk.type !== 'message-finish') {
+    return;
+  }
+  const billedCostUsd = (chunk as unknown as Record<string, unknown>)['billedCostUsd'];
+  if (
+    billedCostUsd !== undefined &&
+    (typeof billedCostUsd !== 'number' || !Number.isFinite(billedCostUsd) || billedCostUsd < 0)
+  ) {
+    throw new Error('Provider billed cost must be a finite, non-negative number.');
+  }
+  const inputTokens =
+    chunk.usage && typeof chunk.usage.inputTokens === 'number' ? chunk.usage.inputTokens : 0;
+  const outputTokens =
+    chunk.usage && typeof chunk.usage.outputTokens === 'number' ? chunk.usage.outputTokens : 0;
+  // Approval-pause finishes contain only zero tokens; do not persist them.
+  if (inputTokens + outputTokens === 0 && billedCostUsd === undefined) {
+    return;
+  }
+  return {
+    ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
+    inputTokens,
+    outputTokens,
+  };
+}
+
+/**
+ * assistant-stream's decoder emits `message-finish` before it flushes the
+ * active implicit text/reasoning part. The accumulator therefore exposes a
+ * completed message while inner part streams are still draining. If the user
+ * immediately sends the next turn, assistant-ui aborts that visually complete
+ * run and a late append can target an already-closed text controller.
+ *
+ * Buffer the one terminal message marker until decoder EOF so every part-finish
+ * reaches the accumulator before the UI observes completion.
+ */
+function deferMessageFinishUntilFlush(): TransformStream<
+  AssistantStreamChunk,
+  AssistantStreamChunk
+> {
+  let pendingFinish: AssistantStreamChunk | undefined;
+  return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
+    flush(controller) {
+      if (pendingFinish) {
+        controller.enqueue(pendingFinish);
+      }
+    },
+    transform(chunk, controller) {
       if (chunk.type === 'message-finish') {
-        const { usage } = chunk;
-        // Guard: `usage` may be absent when the provider omits the field in
-        // the finish-message chunk. Dereferencing without a null check throws
-        // inside TransformStream.transform and errors the whole stream.
-        if (
-          usage &&
-          (typeof usage.inputTokens === 'number' || typeof usage.outputTokens === 'number')
-        ) {
-          const inputTokens = typeof usage.inputTokens === 'number' ? usage.inputTokens : 0;
-          const outputTokens = typeof usage.outputTokens === 'number' ? usage.outputTokens : 0;
-          // Skip zero-token finishes: approval-pause turns emit a {0,0}
-          // message-finish (makeToolCallsFinishChunk), which would otherwise
-          // write a junk durable usage row. Mirrors the local path's
-          // `if (result.usage)` gate and the live-loop test's own zero-guard.
-          if (inputTokens + outputTokens > 0) {
-            onUsage({ inputTokens, outputTokens });
-          }
+        if (pendingFinish) {
+          throw new Error('Assistant data stream emitted more than one message-finish chunk.');
         }
+        pendingFinish = chunk;
+        return;
       }
       controller.enqueue(chunk);
     },
@@ -421,14 +766,18 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
         messages.length,
         transportMessages.length
       );
-      const bodyData = extractTransportBodyData(compactedBodyValue);
+      const imageBound = boundWireMessagesForTransport(
+        toLanguageModelMessages(transportMessages),
+        compactedBodyValue
+      );
+      const bodyData = extractTransportBodyData(imageBound.bodyValue);
       assertNoTransportFieldCollisions(context.callSettings, 'callSettings');
       assertNoTransportFieldCollisions(context.config, 'config');
       const headers = new Headers(headersValue);
       headers.set('Content-Type', 'application/json');
 
       const requestBody: Record<string, unknown> = {
-        messages: toLanguageModelMessages(transportMessages),
+        messages: imageBound.messages,
         tools: toToolsJSONSchema(context.tools ?? {}),
         ...(context.system ? { system: context.system } : {}),
         // biome-ignore lint/style/useNamingConvention: assistant-ui transport field.
@@ -445,10 +794,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       };
 
       const response = await fetch(this.options.api, {
-        method: 'POST',
-        headers,
-        credentials: this.options.credentials ?? 'same-origin',
         body: JSON.stringify(requestBody),
+        credentials: this.options.credentials ?? 'same-origin',
+        headers,
+        method: 'POST',
         signal: abortSignal,
       });
 
@@ -466,7 +815,9 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       // Only insert the usage tap when a consumer is wired; the common
       // no-onUsage path keeps the original decoder → tool-result pipeline.
       const onUsage = this.options.onUsage;
-      const decoded = response.body.pipeThrough(new DataStreamDecoder());
+      const decoded = response.body
+        .pipeThrough(new DataStreamDecoder())
+        .pipeThrough(deferMessageFinishUntilFlush());
       const tapped = onUsage ? decoded.pipeThrough(buildUsageTap(onUsage)) : decoded;
 
       const stream = tapped
@@ -483,6 +834,11 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       }
       this.options.onFinish?.(unstable_getMessage());
     } catch (error: unknown) {
+      if (abortSignal.aborted) {
+        throw (
+          abortSignal.reason ?? new DOMException('Assistant request was aborted.', 'AbortError')
+        );
+      }
       this.reportError(error);
       throw error;
     }

@@ -87,13 +87,13 @@ export function startFsWatch(
     try {
       const stat = await fs.promises.stat(full);
       const type: FileSystemChange['type'] = ev === 'rename' ? 'added' : 'modified';
-      batcher.enqueue({ type, path: full, kind: stat.isDirectory() ? 'directory' : 'file' });
+      batcher.enqueue({ kind: stat.isDirectory() ? 'directory' : 'file', path: full, type });
     } catch {
       // The native fallback cannot know whether a missing path was a file or
       // directory. Directory removal is the safe invalidation shape because it
       // deletes the same-path record plus any stale descendants.
       if (ev === 'rename') {
-        batcher.enqueue({ type: 'removed', path: full, kind: 'directory' });
+        batcher.enqueue({ kind: 'directory', path: full, type: 'removed' });
       }
     }
   };
@@ -145,17 +145,17 @@ export async function startChokidarWatch(
       : (mod.default as unknown as typeof import('chokidar'));
 
   const watcher = chokidar.watch(handle.path, {
+    atomic: true,
+    awaitWriteFinish: { pollInterval: 100, stabilityThreshold: 100 },
+    followSymlinks: false,
+    ignored: (filePath: string) => fileFilter.shouldIgnorePath(filePath),
     ignoreInitial: true,
     persistent: true,
-    awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 100 },
-    followSymlinks: false,
-    atomic: true,
-    ignored: (filePath: string) => fileFilter.shouldIgnorePath(filePath),
   });
 
   const batcher = createFileSystemChangeBatcher(callback);
   const toChange = (type: FileSystemChange['type'], filePath: string, isDir: boolean) => {
-    batcher.enqueue({ type, path: filePath, kind: isDir ? 'directory' : 'file' });
+    batcher.enqueue({ kind: isDir ? 'directory' : 'file', path: filePath, type });
   };
 
   watcher

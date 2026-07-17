@@ -4,20 +4,20 @@ import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
-test.describe('Quick Filter and Tree Expansion', { tag: '@smoke' }, () => {
+test.describe('Quick Filter and Tree Expansion', () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
+      'README.md': null,
       src: {
         components: {
           'Button.tsx': null,
           'Input.tsx': null,
         },
+        'index.ts': null,
         utils: {
           'helpers.ts': null,
         },
-        'index.ts': null,
       },
-      'README.md': null,
     };
 
     await mockBrowserApis(page, 'test-project', tree);

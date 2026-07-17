@@ -174,20 +174,20 @@ describe('embedding-preferences-store', () => {
       }
 
       const legacyState: StorageValue<unknown> = {
-        version: 1,
         state: {
           enabledModelsByProvider: {
-            local: [],
-            transformers: [],
-            openai: [],
-            google: ['text-embedding-004'],
             cohere: [],
-            voyage: [],
-            ollama: [],
+            google: ['text-embedding-004'],
             lmstudio: [],
+            local: [],
+            ollama: [],
+            openai: [],
+            transformers: [],
+            voyage: [],
           },
           preferredRuntime: 'hosted',
         },
+        version: 1,
       };
 
       options.storage.setItem(options.name, legacyState);

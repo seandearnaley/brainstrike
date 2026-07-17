@@ -20,21 +20,21 @@ export function useTextTokenCount({
   const countingMode = tokenCache?.countingMode;
   const isWorkerReady = tokenCache?.isWorkerReady ?? false;
 
-  const [state, setState] = useState<UseTextTokenCountReturn>({ tokenCount: 0, loading: false });
+  const [state, setState] = useState<UseTextTokenCountReturn>({ loading: false, tokenCount: 0 });
   const lastTextRef = useRef<string>('');
   const lastModeRef = useRef<string>('');
 
   // biome-ignore lint/plugin: Async tokenization requires effect-driven state updates
   useEffect(() => {
     if (!(enabled && countTextTokens)) {
-      setState({ tokenCount: 0, loading: false });
+      setState({ loading: false, tokenCount: 0 });
       lastTextRef.current = '';
       lastModeRef.current = '';
       return;
     }
 
     if (!text) {
-      setState({ tokenCount: 0, loading: false });
+      setState({ loading: false, tokenCount: 0 });
       lastTextRef.current = '';
       lastModeRef.current = '';
       return;
@@ -43,7 +43,7 @@ export function useTextTokenCount({
     if (!isWorkerReady) {
       // CRITICAL: Never use heuristic fallback in preview token counting.
       // Token counts remain unavailable until worker readiness is confirmed.
-      setState({ tokenCount: 0, loading: false });
+      setState({ loading: false, tokenCount: 0 });
       lastTextRef.current = '';
       lastModeRef.current = '';
       return;
@@ -63,11 +63,11 @@ export function useTextTokenCount({
       try {
         const count = await countTextTokens(text);
         if (!cancelled) {
-          setState({ tokenCount: count, loading: false });
+          setState({ loading: false, tokenCount: count });
         }
       } catch {
         if (!cancelled) {
-          setState({ tokenCount: 0, loading: false });
+          setState({ loading: false, tokenCount: 0 });
         }
       }
     })();

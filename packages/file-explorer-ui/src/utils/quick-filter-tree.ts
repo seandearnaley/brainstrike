@@ -28,6 +28,42 @@ function shouldIncludeNode(node: IFileNode, includes: string[], excludes: string
   );
 }
 
+/**
+ * Copy-on-write children filter: returns the ORIGINAL array when every child
+ * is retained with identical identity. Fully matching subtrees keep their
+ * node objects across (deferred) keystrokes — the previous clone-everything
+ * pass allocated a full retained tree per query settle, and its fresh
+ * identities defeated memo'd rows and WeakMap-keyed derivation caches.
+ */
+function filterChildrenByPatterns(
+  children: IFileNode[],
+  includesLower: string[],
+  excludesLower: string[]
+): IFileNode[] {
+  let diverged: IFileNode[] | null = null;
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    if (!child) {
+      continue;
+    }
+    const filtered = filterNodeByPatterns(child, includesLower, excludesLower);
+    if (diverged === null) {
+      if (filtered === child) {
+        continue;
+      }
+      diverged = children.slice(0, index);
+      if (filtered) {
+        diverged.push(filtered);
+      }
+      continue;
+    }
+    if (filtered) {
+      diverged.push(filtered);
+    }
+  }
+  return diverged ?? children;
+}
+
 function filterNodeByPatterns(
   node: IFileNode,
   includesLower: string[],
@@ -42,14 +78,15 @@ function filterNodeByPatterns(
 
   if (node.type === 'directory') {
     const children = node.children ?? [];
-    const filteredChildren = children
-      .map((child) => filterNodeByPatterns(child, includesLower, excludesLower))
-      .filter(Boolean) as IFileNode[];
+    const filteredChildren = filterChildrenByPatterns(children, includesLower, excludesLower);
     if (filteredChildren.length > 0) {
-      return { ...node, children: filteredChildren };
+      // All children retained by identity → the directory itself is unchanged.
+      return filteredChildren === node.children ? node : { ...node, children: filteredChildren };
     }
     if (shouldIncludeNode(node, includesLower, excludesLower)) {
-      return { ...node, children: [] };
+      return node.children !== undefined && node.children.length === 0
+        ? node
+        : { ...node, children: [] };
     }
     return null;
   }
@@ -64,9 +101,47 @@ export function filterTreeByPatterns(
   includesLower: string[],
   excludesLower: string[]
 ): IFileNode[] {
-  return nodes
-    .map((node) => filterNodeByPatterns(node, includesLower, excludesLower))
-    .filter(Boolean) as IFileNode[];
+  return filterChildrenByPatterns(nodes, includesLower, excludesLower);
+}
+
+/**
+ * Quick-filter predicate for the RECURSIVE-SELECTION SCAN (not the display
+ * tree). Two rules, matching the display filter's directory semantics
+ * (`filterNodeByPatterns`):
+ *  - An EXCLUDE term matching a node's name drops it — for FILES **and
+ *    DIRECTORIES**. A directory whose name matches an exclude term (e.g.
+ *    `-node_modules`, `-dist`) is pruned so the scan never traverses into it,
+ *    exactly as the display filter removes the whole excluded subtree.
+ *  - A non-excluded DIRECTORY is always kept for traversal (a matching file
+ *    may live deeper in an as-yet-unloaded subtree), unlike the display filter
+ *    which additionally prunes name-mismatched empty dirs. FILES are then
+ *    include-filtered.
+ * Blank filter is a no-op (returns the same array).
+ */
+export function filterSelectionScanNodesByQuickFilter(
+  nodes: IFileNode[],
+  quickFilter: string
+): IFileNode[] {
+  if (!quickFilter.trim()) {
+    return nodes;
+  }
+  const { includes, excludes } = parseFilterString(quickFilter);
+  const includesLower = includes.map((value: string) => value.toLowerCase());
+  const excludesLower = excludes.map((value: string) => value.toLowerCase());
+  return nodes.filter((node) => {
+    const nameText = node.name.toLowerCase();
+    // Exclusion applies to files AND directories (an excluded directory is
+    // never traversed) — checked FIRST, mirroring the display filter.
+    if (excludesLower.some((pattern) => nameText.includes(pattern))) {
+      return false;
+    }
+    if (node.type === 'directory') {
+      return true;
+    }
+    return (
+      includesLower.length === 0 || includesLower.some((pattern) => nameText.includes(pattern))
+    );
+  });
 }
 
 /** Collect the visible FILE paths of a (filtered) tree. */

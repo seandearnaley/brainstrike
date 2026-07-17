@@ -30,8 +30,8 @@ import { useQueueHealthMetrics } from '../use-queue-health-metrics';
 const createMetrics = (overrides: Partial<QueueHealthMetrics> = {}): QueueHealthMetrics => ({
   durableQueue: null,
   ephemeralQueue: null,
-  workerHealth: null,
   lastUpdated: Date.now(),
+  workerHealth: null,
   ...overrides,
 });
 
@@ -50,10 +50,10 @@ describe('QueueStatusPopover', () => {
   describe('default state', () => {
     it('renders compact status when metrics are available', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
-        metrics: createMetrics(),
-        isLoading: false,
-        refresh: vi.fn(),
         error: null,
+        isLoading: false,
+        metrics: createMetrics(),
+        refresh: vi.fn(),
       });
 
       renderPopover();
@@ -66,18 +66,18 @@ describe('QueueStatusPopover', () => {
   describe('compact status display', () => {
     it('renders trigger with queue metrics', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 1,
+            nextRunnableAt: null,
             queued: 5,
             running: 2,
-            failed: 1,
             succeeded: 100,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -95,30 +95,30 @@ describe('QueueStatusPopover', () => {
 
     it('shows combined running count from durable and ephemeral queues', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 0,
+            nextRunnableAt: null,
             queued: 3,
             running: 2,
-            failed: 0,
             succeeded: 50,
-            nextRunnableAt: null,
           },
           ephemeralQueue: {
             active: 3,
             completed: 10,
             failed: 0,
-            totalEnqueued: 13,
             lastError: null,
-            throughputPerMinute: 5,
             latencyAvgMs: null,
             latencyP50Ms: null,
             latencyP95Ms: null,
+            throughputPerMinute: 5,
+            totalEnqueued: 13,
             windowErrorCount: 0,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -129,18 +129,18 @@ describe('QueueStatusPopover', () => {
 
     it('has accessible aria attributes', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 2,
+            nextRunnableAt: null,
             queued: 3,
             running: 1,
-            failed: 2,
             succeeded: 10,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -154,18 +154,18 @@ describe('QueueStatusPopover', () => {
   describe('status indicators', () => {
     it('shows success indicator when no errors and no active tasks', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 0,
+            nextRunnableAt: null,
             queued: 0,
             running: 0,
-            failed: 0,
             succeeded: 100,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -177,18 +177,18 @@ describe('QueueStatusPopover', () => {
 
     it('shows active indicator when tasks are running', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 0,
+            nextRunnableAt: null,
             queued: 5,
             running: 3,
-            failed: 0,
             succeeded: 10,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -200,18 +200,18 @@ describe('QueueStatusPopover', () => {
 
     it('shows warning indicator when there are failed tasks', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 5,
+            nextRunnableAt: null,
             queued: 0,
             running: 0,
-            failed: 5,
             succeeded: 10,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -223,23 +223,23 @@ describe('QueueStatusPopover', () => {
 
     it('shows warning indicator when ephemeral queue has lastError', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           ephemeralQueue: {
             active: 0,
             completed: 0,
             failed: 0,
-            totalEnqueued: 1,
             lastError: 'Worker crashed',
-            throughputPerMinute: 0,
             latencyAvgMs: null,
             latencyP50Ms: null,
             latencyP95Ms: null,
+            throughputPerMinute: 0,
+            totalEnqueued: 1,
             windowErrorCount: 1,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -255,18 +255,18 @@ describe('QueueStatusPopover', () => {
       const user = userEvent.setup();
 
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 0,
+            nextRunnableAt: null,
             queued: 3,
             running: 1,
-            failed: 0,
             succeeded: 50,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -284,18 +284,18 @@ describe('QueueStatusPopover', () => {
       const user = userEvent.setup();
 
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 0,
+            nextRunnableAt: null,
             queued: 0,
             running: 0,
-            failed: 0,
             succeeded: 100,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -315,18 +315,18 @@ describe('QueueStatusPopover', () => {
       const user = userEvent.setup();
 
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 0,
+            nextRunnableAt: null,
             queued: 5,
             running: 2,
-            failed: 0,
             succeeded: 10,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -343,18 +343,18 @@ describe('QueueStatusPopover', () => {
       const user = userEvent.setup();
 
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 3,
+            nextRunnableAt: null,
             queued: 0,
             running: 0,
-            failed: 3,
             succeeded: 10,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -371,18 +371,18 @@ describe('QueueStatusPopover', () => {
       const user = userEvent.setup();
 
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 1,
+            nextRunnableAt: null,
             queued: 5,
             running: 2,
-            failed: 1,
             succeeded: 100,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -402,18 +402,18 @@ describe('QueueStatusPopover', () => {
       const user = userEvent.setup();
 
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 0,
+            nextRunnableAt: null,
             queued: 3,
             running: 0,
-            failed: 0,
             succeeded: 50,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -437,18 +437,18 @@ describe('QueueStatusPopover', () => {
   describe('keyboard accessibility', () => {
     it('trigger is focusable with keyboard', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 0,
+            nextRunnableAt: null,
             queued: 0,
             running: 0,
-            failed: 0,
             succeeded: 0,
-            nextRunnableAt: null,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();
@@ -464,30 +464,30 @@ describe('QueueStatusPopover', () => {
   describe('combined failed count', () => {
     it('sums failed from both durable and ephemeral queues', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
+        error: null,
+        isLoading: false,
         metrics: createMetrics({
           durableQueue: {
+            failed: 3,
+            nextRunnableAt: null,
             queued: 0,
             running: 0,
-            failed: 3,
             succeeded: 10,
-            nextRunnableAt: null,
           },
           ephemeralQueue: {
             active: 0,
             completed: 5,
             failed: 2,
-            totalEnqueued: 7,
             lastError: null,
-            throughputPerMinute: 0,
             latencyAvgMs: null,
             latencyP50Ms: null,
             latencyP95Ms: null,
+            throughputPerMinute: 0,
+            totalEnqueued: 7,
             windowErrorCount: 0,
           },
         }),
-        isLoading: false,
         refresh: vi.fn(),
-        error: null,
       });
 
       renderPopover();

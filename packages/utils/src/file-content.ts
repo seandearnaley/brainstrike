@@ -13,6 +13,19 @@ const MAX_FILE_SIZE_BYTES = 1024 * 1024;
  */
 export const fileContent = {
   /**
+   * Checks if a file extension is known to be binary
+   */
+  isBinaryExtension(extension: string): boolean {
+    return checkBinaryExtension(extension);
+  },
+
+  /**
+   * Checks if a file size exceeds our maximum size limit
+   */
+  isFileTooLarge(size: number): boolean {
+    return size > MAX_FILE_SIZE_BYTES;
+  },
+  /**
    * Checks if the content appears to be text by examining the first 512 bytes
    * for null bytes or control characters
    */
@@ -39,23 +52,9 @@ export const fileContent = {
   },
 
   /**
-   * Checks if a file extension is known to be binary
-   */
-  isBinaryExtension(extension: string): boolean {
-    return checkBinaryExtension(extension);
-  },
-
-  /**
    * Checks if a file extension is known to be text
    */
   isTextExtension(extension: string): boolean {
     return checkTextExtension(extension);
-  },
-
-  /**
-   * Checks if a file size exceeds our maximum size limit
-   */
-  isFileTooLarge(size: number): boolean {
-    return size > MAX_FILE_SIZE_BYTES;
   },
 };

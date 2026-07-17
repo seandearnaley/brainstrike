@@ -120,9 +120,9 @@ function filterTreeNode(
 
   if (
     !shouldIncludeDirectory({
-      path,
-      hasVisibleChildren: visibleChildren.length > 0,
       compiledInclude,
+      hasVisibleChildren: visibleChildren.length > 0,
+      path,
     })
   ) {
     return null;

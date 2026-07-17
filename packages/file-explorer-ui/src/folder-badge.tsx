@@ -20,9 +20,9 @@ export const FolderBadge = React.memo(({ folderId, className }: FolderBadgeProps
       style={
         {
           '--folder-bg': colors?.light.bg,
-          '--folder-text': colors?.light.text,
           '--folder-dark-bg': colors?.dark.bg,
           '--folder-dark-text': colors?.dark.text,
+          '--folder-text': colors?.light.text,
           backgroundColor: 'var(--folder-bg)',
           color: 'var(--folder-text)',
         } as React.CSSProperties

@@ -28,8 +28,8 @@ vi.mock('@assistant-ui/react-markdown', () => ({
           | ((props: { language?: string; code?: string }) => React.ReactNode)
           | undefined
       )?.({
-        language: 'typescript',
         code: 'const answer = 42;',
+        language: 'typescript',
       })}
     </div>
   ),
@@ -143,8 +143,8 @@ describe('MarkdownText', () => {
     expect(electronWriteText).toHaveBeenCalledWith('const answer = 42;');
   });
 
-  it('falls back to web clipboard when the Electron bridge write fails', async () => {
-    const electronWriteText = vi.fn().mockResolvedValue({ ok: false, error: 'write failed' });
+  it('does not fall back to navigator when the Electron bridge write fails', async () => {
+    const electronWriteText = vi.fn().mockResolvedValue({ error: 'write failed', ok: false });
     (window as unknown as { clipboard?: { writeText: (text: string) => unknown } }).clipboard = {
       writeText: electronWriteText,
     };
@@ -154,14 +154,17 @@ describe('MarkdownText', () => {
     } as unknown as Navigator);
 
     render(<MarkdownText />);
-    fireEvent.click(screen.getByRole('button', { name: 'Copy code to clipboard' }));
+    const copyButton = screen.getByRole('button', { name: 'Copy code to clipboard' });
+    fireEvent.click(copyButton);
 
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith('const answer = 42;');
+      expect(electronWriteText).toHaveBeenCalledWith('const answer = 42;');
     });
+    expect(writeText).not.toHaveBeenCalled();
+    expect(copyButton).toHaveAttribute('title', 'Copy code');
   });
 
-  it('falls back to web clipboard when Electron clipboard is unavailable', async () => {
+  it('uses web clipboard when Electron clipboard is unavailable', async () => {
     (window as unknown as { clipboard?: { writeText?: (text: string) => unknown } }).clipboard = {};
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', {

@@ -6,6 +6,7 @@
 
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -31,7 +32,7 @@ describe('DrizzleFileChunkRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
     });
 
     // Run migrations to set up schema
@@ -49,11 +50,11 @@ describe('DrizzleFileChunkRepository', () => {
     // Create a test file record
     const now = new Date().toISOString();
     await fileRecordRepository.create({
+      createdAt: now,
       id: testFileRecordId,
       name: 'test.ts',
       path: '/src/test.ts',
       size: 1024,
-      createdAt: now,
       updatedAt: now,
     });
 
@@ -76,15 +77,15 @@ describe('DrizzleFileChunkRepository', () => {
     it('should insert a chunk and find it by id', async () => {
       const now = new Date().toISOString();
       const chunk = {
-        id: '00000000-0000-0000-0000-000000000010',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
+        chunkSize: 22,
+        chunkType: 'code' as const,
         content: 'const hello = "world";',
         contentHash: 'hash123',
-        tokenCount: 5,
-        chunkType: 'code' as const,
-        chunkSize: 22,
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000010',
+        tokenCount: 5,
         updatedAt: now,
       };
 
@@ -111,29 +112,29 @@ describe('DrizzleFileChunkRepository', () => {
 
       // Insert chunks out of order
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000012',
-        fileRecordId: testFileRecordId,
         chunkIndex: 2,
         content: 'chunk 2',
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000012',
         updatedAt: now,
       });
 
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000010',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
         content: 'chunk 0',
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000010',
         updatedAt: now,
       });
 
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000011',
-        fileRecordId: testFileRecordId,
         chunkIndex: 1,
         content: 'chunk 1',
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000011',
         updatedAt: now,
       });
 
@@ -150,19 +151,19 @@ describe('DrizzleFileChunkRepository', () => {
       const now = new Date().toISOString();
       const chunks = [
         {
-          id: '00000000-0000-0000-0000-000000000010',
-          fileRecordId: testFileRecordId,
           chunkIndex: 0,
           content: 'chunk 0',
           createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000010',
           updatedAt: now,
         },
         {
-          id: '00000000-0000-0000-0000-000000000011',
-          fileRecordId: testFileRecordId,
           chunkIndex: 1,
           content: 'chunk 1',
           createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000011',
           updatedAt: now,
         },
       ];
@@ -185,19 +186,19 @@ describe('DrizzleFileChunkRepository', () => {
       await expect(
         repository.insertMany([
           {
-            id: '00000000-0000-0000-0000-000000000010',
-            fileRecordId: testFileRecordId,
             chunkIndex: 0,
             content: 'chunk 0',
             createdAt: now,
+            fileRecordId: testFileRecordId,
+            id: '00000000-0000-0000-0000-000000000010',
             updatedAt: now,
           },
           {
-            id: '00000000-0000-0000-0000-000000000011',
-            fileRecordId: testFileRecordId,
             chunkIndex: 1,
             content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
             createdAt: now,
+            fileRecordId: testFileRecordId,
+            id: '00000000-0000-0000-0000-000000000011',
             updatedAt: now,
           },
         ])
@@ -209,17 +210,17 @@ describe('DrizzleFileChunkRepository', () => {
     it('should update chunk fields', async () => {
       const now = new Date().toISOString();
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000010',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
         content: 'original content',
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000010',
         updatedAt: now,
       });
 
       const updated = await repository.update({
-        id: '00000000-0000-0000-0000-000000000010',
         content: 'updated content',
+        id: '00000000-0000-0000-0000-000000000010',
         tokenCount: 10,
         updatedAt: new Date().toISOString(),
       });
@@ -231,19 +232,19 @@ describe('DrizzleFileChunkRepository', () => {
     it('should update embedding with timestamp', async () => {
       const now = new Date().toISOString();
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000010',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
         content: 'content',
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000010',
         updatedAt: now,
       });
 
       const embedding = [0.1, 0.2, 0.3];
       const updated = await repository.update({
-        id: '00000000-0000-0000-0000-000000000010',
         embedding,
         embeddingSetId: testEmbeddingSetId,
+        id: '00000000-0000-0000-0000-000000000010',
         updatedAt: new Date().toISOString(),
       });
 
@@ -255,8 +256,8 @@ describe('DrizzleFileChunkRepository', () => {
     it('rejects null bytes in chunk content before update reaches PGlite', async () => {
       await expect(
         repository.update({
-          id: '00000000-0000-0000-0000-000000000010',
           content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+          id: '00000000-0000-0000-0000-000000000010',
           updatedAt: new Date().toISOString(),
         })
       ).rejects.toThrow('File chunk content cannot contain null bytes.');
@@ -267,11 +268,11 @@ describe('DrizzleFileChunkRepository', () => {
     it('should delete a chunk', async () => {
       const now = new Date().toISOString();
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000010',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
         content: 'to delete',
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000010',
         updatedAt: now,
       });
 
@@ -293,19 +294,19 @@ describe('DrizzleFileChunkRepository', () => {
       const now = new Date().toISOString();
       await repository.insertMany([
         {
-          id: '00000000-0000-0000-0000-000000000010',
-          fileRecordId: testFileRecordId,
           chunkIndex: 0,
           content: 'chunk 0',
           createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000010',
           updatedAt: now,
         },
         {
-          id: '00000000-0000-0000-0000-000000000011',
-          fileRecordId: testFileRecordId,
           chunkIndex: 1,
           content: 'chunk 1',
           createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000011',
           updatedAt: now,
         },
       ]);
@@ -358,24 +359,24 @@ describe('DrizzleFileChunkRepository', () => {
 
       // Insert chunks with embeddings
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000010',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
         content: 'similar content',
+        createdAt: now,
         embedding: [0.9, 0.1, 0.0],
         embeddingSetId: testEmbeddingSetId,
-        createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000010',
         updatedAt: now,
       });
 
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000011',
-        fileRecordId: testFileRecordId,
         chunkIndex: 1,
         content: 'different content',
+        createdAt: now,
         embedding: [0.0, 0.1, 0.9],
         embeddingSetId: testEmbeddingSetId,
-        createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000011',
         updatedAt: now,
       });
 
@@ -394,41 +395,41 @@ describe('DrizzleFileChunkRepository', () => {
       const now = new Date().toISOString();
       const secondFileRecordId = '00000000-0000-0000-0000-000000000002';
       await fileRecordRepository.create({
+        createdAt: now,
         id: secondFileRecordId,
         name: 'other.ts',
         path: '/src/other.ts',
         size: 2048,
-        createdAt: now,
         updatedAt: now,
       });
 
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000020',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
         content: 'alpha chunk',
+        createdAt: now,
         embedding: [0.9, 0.1, 0.0],
         embeddingSetId: testEmbeddingSetId,
-        createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000020',
         updatedAt: now,
       });
 
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000021',
-        fileRecordId: secondFileRecordId,
         chunkIndex: 0,
         content: 'beta chunk',
+        createdAt: now,
         embedding: [0.8, 0.2, 0.0],
         embeddingSetId: testEmbeddingSetId,
-        createdAt: now,
+        fileRecordId: secondFileRecordId,
+        id: '00000000-0000-0000-0000-000000000021',
         updatedAt: now,
       });
 
       const allowlisted = await repository.searchSimilar([1.0, 0.0, 0.0], {
         embeddingSetId: testEmbeddingSetId,
+        filePaths: ['/src/test.ts'],
         limit: 10,
         threshold: 0,
-        filePaths: ['/src/test.ts'],
       });
       expect(allowlisted.map((r) => r.chunk.id)).toEqual(['00000000-0000-0000-0000-000000000020']);
 
@@ -445,8 +446,8 @@ describe('DrizzleFileChunkRepository', () => {
       const snapshotScoped = await repository.searchSimilar([1.0, 0.0, 0.0], {
         embeddingSetId: testEmbeddingSetId,
         limit: 10,
-        threshold: 0,
         selectionSnapshotId: snapshotId,
+        threshold: 0,
       });
       expect(snapshotScoped.map((r) => r.chunk.id)).toEqual([
         '00000000-0000-0000-0000-000000000021',
@@ -459,26 +460,26 @@ describe('DrizzleFileChunkRepository', () => {
       const now = new Date().toISOString();
 
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000010',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
-        content: 'code chunk',
         chunkType: 'code',
-        tokenCount: 10,
+        content: 'code chunk',
+        createdAt: now,
         embedding: [0.1, 0.2, 0.3],
         embeddingSetId: testEmbeddingSetId,
-        createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000010',
+        tokenCount: 10,
         updatedAt: now,
       });
 
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000011',
-        fileRecordId: testFileRecordId,
         chunkIndex: 1,
-        content: 'text chunk',
         chunkType: 'text',
-        tokenCount: 20,
+        content: 'text chunk',
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000011',
+        tokenCount: 20,
         updatedAt: now,
       });
 
@@ -494,22 +495,22 @@ describe('DrizzleFileChunkRepository', () => {
       const now = new Date().toISOString();
 
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000010',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
         content: 'with embedding',
+        createdAt: now,
         embedding: [0.1, 0.2, 0.3],
         embeddingSetId: testEmbeddingSetId,
-        createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000010',
         updatedAt: now,
       });
 
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000011',
-        fileRecordId: testFileRecordId,
         chunkIndex: 1,
         content: 'without embedding',
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000011',
         updatedAt: now,
       });
 
@@ -529,19 +530,19 @@ describe('DrizzleFileChunkRepository', () => {
 
       await repository.insertMany([
         {
-          id: '00000000-0000-0000-0000-000000000010',
-          fileRecordId: testFileRecordId,
           chunkIndex: 0,
           content: 'chunk 0',
           createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000010',
           updatedAt: now,
         },
         {
-          id: '00000000-0000-0000-0000-000000000011',
-          fileRecordId: testFileRecordId,
           chunkIndex: 1,
           content: 'chunk 1',
           createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000011',
           updatedAt: now,
         },
       ]);
@@ -587,13 +588,13 @@ describe('DrizzleFileChunkRepository', () => {
       const now = new Date().toISOString();
       await expect(
         repository.insert({
-          id: '00000000-0000-0000-0000-000000000099',
-          fileRecordId: testFileRecordId,
           chunkIndex: 0,
           content: 'test',
+          createdAt: now,
           embedding: [0.1, Number.NaN, 0.3],
           embeddingSetId: testEmbeddingSetId,
-          createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000099',
           updatedAt: now,
         })
       ).rejects.toThrow('Invalid');
@@ -603,13 +604,13 @@ describe('DrizzleFileChunkRepository', () => {
       const now = new Date().toISOString();
       await expect(
         repository.insert({
-          id: '00000000-0000-0000-0000-000000000099',
-          fileRecordId: testFileRecordId,
           chunkIndex: 0,
           content: 'test',
+          createdAt: now,
           embedding: [0.1, Number.POSITIVE_INFINITY, 0.3],
           embeddingSetId: testEmbeddingSetId,
-          createdAt: now,
+          fileRecordId: testFileRecordId,
+          id: '00000000-0000-0000-0000-000000000099',
           updatedAt: now,
         })
       ).rejects.toThrow('Invalid');
@@ -618,19 +619,19 @@ describe('DrizzleFileChunkRepository', () => {
     it('should reject NaN values when updating chunk embedding', async () => {
       const now = new Date().toISOString();
       await repository.insert({
-        id: '00000000-0000-0000-0000-000000000098',
-        fileRecordId: testFileRecordId,
         chunkIndex: 0,
         content: 'test',
         createdAt: now,
+        fileRecordId: testFileRecordId,
+        id: '00000000-0000-0000-0000-000000000098',
         updatedAt: now,
       });
 
       await expect(
         repository.update({
-          id: '00000000-0000-0000-0000-000000000098',
           embedding: [0.1, Number.NaN, 0.3],
           embeddingSetId: testEmbeddingSetId,
+          id: '00000000-0000-0000-0000-000000000098',
           updatedAt: new Date().toISOString(),
         })
       ).rejects.toThrow('Invalid');

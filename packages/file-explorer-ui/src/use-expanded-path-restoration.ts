@@ -1,6 +1,5 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
-import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
@@ -62,15 +61,60 @@ export function __resetRestorationLock(): void {
   restorationLocks.clear();
 }
 
-function getAllAncestorDirectories(filePath: string): string[] {
+function countNonEmptyPathSegments(filePath: string): number {
+  let segmentCount = 0;
+  let inSegment = false;
+  for (let index = 0; index < filePath.length; index += 1) {
+    if (filePath.charCodeAt(index) === 47) {
+      inSegment = false;
+    } else if (!inSegment) {
+      segmentCount += 1;
+      inSegment = true;
+    }
+  }
+  return segmentCount;
+}
+
+function appendAncestorSegment(currentPath: string, segment: string, isAbsolute: boolean): string {
+  if (currentPath !== '') {
+    return `${currentPath}/${segment}`;
+  }
+  return `${isAbsolute ? '/' : ''}${segment}`;
+}
+
+export function __getAllAncestorDirectories(filePath: string): string[] {
   const isAbsolute = filePath.startsWith('/');
-  const segments = extractPathSegments(filePath);
-  segments.pop();
+  const ancestorCount = countNonEmptyPathSegments(filePath) - 1;
+  if (ancestorCount <= 0) {
+    return [];
+  }
 
   const ancestors: string[] = [];
-  for (let index = 1; index <= segments.length; index += 1) {
-    const prefix = isAbsolute ? '/' : '';
-    ancestors.push(prefix + segments.slice(0, index).join('/'));
+  let currentPath = '';
+  let segmentStart = -1;
+  let emittedSegments = 0;
+  for (let index = 0; index <= filePath.length; index += 1) {
+    if (index < filePath.length && filePath.charCodeAt(index) !== 47) {
+      if (segmentStart === -1) {
+        segmentStart = index;
+      }
+      continue;
+    }
+
+    if (segmentStart === -1) {
+      continue;
+    }
+
+    emittedSegments += 1;
+    const segment = filePath.slice(segmentStart, index);
+    // Restoration runs for every persisted/selected path; append one segment at
+    // a time instead of rebuilding each ancestor from sliced segment arrays.
+    currentPath = appendAncestorSegment(currentPath, segment, isAbsolute);
+    ancestors.push(currentPath);
+    if (emittedSegments === ancestorCount) {
+      break;
+    }
+    segmentStart = -1;
   }
   return ancestors;
 }
@@ -80,7 +124,7 @@ function getParentDirectoriesForSelectedFiles(selectedFiles: Set<string>): Set<s
   for (const compositeKey of selectedFiles) {
     try {
       const { path } = decodeFileSelection(compositeKey);
-      const ancestors = getAllAncestorDirectories(path);
+      const ancestors = __getAllAncestorDirectories(path);
       for (const ancestor of ancestors) {
         parentDirectories.add(ancestor);
       }
@@ -247,8 +291,8 @@ function logPathsToRestore(
   storeState: FileExplorerState
 ): void {
   logger.debug('[Restoration Effect] Paths to restore', {
-    folderId: currentRootFolderId,
     expandedPathCount: storeState.expandedDirectoryPaths.size,
+    folderId: currentRootFolderId,
     parentDirsOfSelectedFiles: plan.parentDirectoriesOfSelectedFiles.size,
     queryCoveredDirectoryCount: plan.queryCoveredDirectories.size,
     selectedFileCount: storeState.selectedFilePaths.size,
@@ -296,7 +340,7 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
 
   try {
     await loadSpecificPaths(sortedPaths, (loaded, progressTotal, currentPath) => {
-      setRestorationProgress({ loaded, total: progressTotal, currentPath });
+      setRestorationProgress({ currentPath, loaded, total: progressTotal });
     });
 
     if (currentRootFolderIdRef.current !== currentRootFolderId) {
@@ -405,9 +449,9 @@ export function useExpandedPathRestoration(
         currentRootFolderId,
         fileTreeLength: fileTree.length,
         isTreeLoading,
+        restorationKey,
         setSettledFolderId,
         setSettledRestorationKey,
-        restorationKey,
       })
     ) {
       return;
@@ -465,8 +509,8 @@ export function useExpandedPathRestoration(
     setIsRestoringExpandedPaths(true);
 
     logger.info('Restoring expanded directories and file parent directories', {
-      folderId: currentRootFolderId,
       expandedPathCount: storeState.expandedDirectoryPaths.size,
+      folderId: currentRootFolderId,
       parentDirsOfSelectedFilesCount: plan.parentDirectoriesOfSelectedFiles.size,
       totalPathCount: plan.allPathsToRestore.size,
     });
@@ -475,7 +519,7 @@ export function useExpandedPathRestoration(
       (left, right) => getPathDepth(left) - getPathDepth(right)
     );
     const total = sortedPaths.length;
-    setRestorationProgress({ loaded: 0, total, currentPath: null });
+    setRestorationProgress({ currentPath: null, loaded: 0, total });
 
     void restoreExpandedPaths({
       currentRootFolderId,
@@ -483,13 +527,13 @@ export function useExpandedPathRestoration(
       instanceInProgressFolderIdRef,
       loadSpecificPaths,
       plan,
+      restorationKey,
       setExpandedPaths,
       setIsRestoringExpandedPaths,
+      setRestorationCompletionVersion,
       setRestorationProgress,
       setSettledFolderId,
       setSettledRestorationKey,
-      setRestorationCompletionVersion,
-      restorationKey,
       sortedPaths,
       store,
     });

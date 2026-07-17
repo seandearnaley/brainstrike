@@ -6,13 +6,13 @@ import { useFileFilters } from '../use-file-filters';
 // Helper to create file nodes
 const dummyHandle = {} as FileSystemFileHandle;
 const fileNode = (name: string, path: string): IFileNode => ({
-  type: 'file',
+  depth: 0,
+  handle: dummyHandle,
   name,
   path,
-  handle: dummyHandle,
-  depth: 0,
-  selectionState: 'unchecked',
   rootFolderId: 'root',
+  selectionState: 'unchecked',
+  type: 'file',
 });
 
 // Helper to create directory nodes
@@ -23,14 +23,14 @@ const dirNode = (
   children: IFileNode[],
   overrides: Partial<IFileNode> = {}
 ): IFileNode => ({
-  type: 'directory',
+  children,
+  depth: 0,
+  handle: dummyDirHandle,
   name,
   path,
-  handle: dummyDirHandle,
-  depth: 0,
-  selectionState: 'unchecked',
   rootFolderId: 'root',
-  children,
+  selectionState: 'unchecked',
+  type: 'directory',
   ...overrides,
 });
 

@@ -7,9 +7,9 @@ import {
 
 function createAccurateUtils(overrides?: Partial<AccurateTokenUtils>): AccurateTokenUtils {
   return {
+    countTokensAccurate: async (text: string) => text.length,
     getAccurateTokenCountingFailureReason: () => null,
     supportsAccurateTokenCounting: async () => true,
-    countTokensAccurate: async (text: string) => text.length,
     ...overrides,
   };
 }

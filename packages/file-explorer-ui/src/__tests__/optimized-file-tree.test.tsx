@@ -23,46 +23,46 @@ function StoreHandleBridge({ onStoreReady }: { onStoreReady: (store: FileExplore
 describe('OptimizedFileTree', () => {
   const mockFileTree: IFileNode[] = [
     {
-      name: 'src',
-      path: '/src',
-      type: 'directory',
-      isVisible: true,
-      handle: {} as FileSystemDirectoryHandle,
-      depth: 0,
-      selectionState: 'unchecked',
-      rootFolderId: 'root',
       children: [
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
+          isVisible: true,
           name: 'file1.txt',
           path: '/src/file1.txt',
-          type: 'file',
-          isVisible: true,
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
         },
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
+          isVisible: true,
           name: 'file2.txt',
           path: '/src/file2.txt',
-          type: 'file',
-          isVisible: true,
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ],
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      isVisible: true,
+      name: 'src',
+      path: '/src',
+      rootFolderId: 'root',
+      selectionState: 'unchecked',
+      type: 'directory',
     },
     {
+      depth: 0,
+      handle: {} as FileSystemFileHandle,
+      isVisible: true,
       name: 'test.txt',
       path: '/test.txt',
-      type: 'file',
-      isVisible: true,
-      handle: {} as FileSystemFileHandle,
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: 'root',
+      selectionState: 'unchecked',
+      type: 'file',
     },
   ];
 
@@ -77,7 +77,21 @@ describe('OptimizedFileTree', () => {
 
     const container = screen.getByTestId('file-tree-scroll-container');
     expect(container).toBeInTheDocument();
-    expect(container).toHaveClass('h-full', 'relative', 'flex-1', 'min-h-0', 'overflow-y-auto');
+    expect(container).toHaveClass(
+      'h-full',
+      'relative',
+      'flex-1',
+      'min-h-0',
+      'min-w-0',
+      'overflow-hidden'
+    );
+    expect(container).not.toHaveClass('overflow-y-auto');
+
+    const treegrid = screen.getByRole('treegrid', { name: 'File tree' });
+    expect(treegrid).toHaveClass('file-tree');
+    expect(treegrid).not.toHaveClass('h-full');
+    expect(treegrid).not.toHaveClass('min-h-0');
+    expect(treegrid).not.toHaveClass('flex-1');
   });
 
   it('renders file tree with correct role and label', async () => {
@@ -102,14 +116,14 @@ describe('OptimizedFileTree', () => {
     });
     const fileOnlyTree: IFileNode[] = [
       {
+        depth: 0,
+        handle: {} as FileSystemFileHandle,
+        isVisible: true,
         name: 'test.txt',
         path: '/test.txt',
-        type: 'file',
-        isVisible: true,
-        handle: {} as FileSystemFileHandle,
-        depth: 0,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'file',
       },
     ];
 
@@ -165,27 +179,27 @@ describe('OptimizedFileTree', () => {
   it('does not materialize stale children when an expanded directory is not fully loaded', async () => {
     let fileExplorerStore: FileExplorerStore | undefined;
     const loadedDirectoryNode: IFileNode = {
-      name: 'workspace',
-      path: '/workspace',
-      type: 'directory',
-      isVisible: true,
-      handle: {} as FileSystemDirectoryHandle,
-      depth: 0,
-      selectionState: 'unchecked',
-      rootFolderId: 'root',
-      loadState: 'loaded',
       children: [
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
+          isVisible: true,
           name: 'stale-child.ts',
           path: '/workspace/stale-child.ts',
-          type: 'file',
-          isVisible: true,
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ],
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      isVisible: true,
+      loadState: 'loaded',
+      name: 'workspace',
+      path: '/workspace',
+      rootFolderId: 'root',
+      selectionState: 'unchecked',
+      type: 'directory',
     };
     const loadedDirectoryTree: IFileNode[] = [loadedDirectoryNode];
     const loadingDirectoryTree: IFileNode[] = [
@@ -245,15 +259,15 @@ describe('OptimizedFileTree', () => {
     let fileExplorerStore: FileExplorerStore | undefined;
     const unloadedTree: IFileNode[] = [
       {
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        loadState: 'unloaded',
         name: 'apps',
         path: '/apps',
-        type: 'directory',
-        isVisible: true,
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 0,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        loadState: 'unloaded',
+        selectionState: 'unchecked',
+        type: 'directory',
       },
     ];
 
@@ -397,14 +411,14 @@ describe('OptimizedFileTree', () => {
 
     const newFileTree: IFileNode[] = [
       {
+        depth: 0,
+        handle: {} as FileSystemFileHandle,
+        isVisible: true,
         name: 'new-file.txt',
         path: '/new-file.txt',
-        type: 'file',
-        isVisible: true,
-        handle: {} as FileSystemFileHandle,
-        depth: 0,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'file',
       },
     ];
 
@@ -422,26 +436,26 @@ describe('OptimizedFileTree', () => {
   it('renders with invisible nodes filtered out', async () => {
     const treeWithInvisible: IFileNode[] = [
       {
-        name: 'visible',
-        path: '/visible',
-        type: 'directory',
-        isVisible: true,
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 0,
-        selectionState: 'unchecked',
-        rootFolderId: 'root',
         children: [
           {
+            depth: 1,
+            handle: {} as FileSystemFileHandle,
+            isVisible: false,
             name: 'invisible.txt',
             path: '/visible/invisible.txt',
-            type: 'file',
-            isVisible: false,
-            handle: {} as FileSystemFileHandle,
-            depth: 1,
-            selectionState: 'unchecked',
             rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'file',
           },
         ],
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        name: 'visible',
+        path: '/visible',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
       },
     ];
 
@@ -463,38 +477,38 @@ describe('OptimizedFileTree', () => {
   it('handles nested directory structure', async () => {
     const nestedTree: IFileNode[] = [
       {
-        name: 'level1',
-        path: '/level1',
-        type: 'directory',
-        isVisible: true,
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 0,
-        selectionState: 'unchecked',
-        rootFolderId: 'root',
         children: [
           {
-            name: 'level2',
-            path: '/level1/level2',
-            type: 'directory',
-            isVisible: true,
-            handle: {} as FileSystemDirectoryHandle,
-            depth: 1,
-            selectionState: 'unchecked',
-            rootFolderId: 'root',
             children: [
               {
+                depth: 2,
+                handle: {} as FileSystemFileHandle,
+                isVisible: true,
                 name: 'deep-file.txt',
                 path: '/level1/level2/deep-file.txt',
-                type: 'file',
-                isVisible: true,
-                handle: {} as FileSystemFileHandle,
-                depth: 2,
-                selectionState: 'unchecked',
                 rootFolderId: 'root',
+                selectionState: 'unchecked',
+                type: 'file',
               },
             ],
+            depth: 1,
+            handle: {} as FileSystemDirectoryHandle,
+            isVisible: true,
+            name: 'level2',
+            path: '/level1/level2',
+            rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'directory',
           },
         ],
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        name: 'level1',
+        path: '/level1',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
       },
     ];
 

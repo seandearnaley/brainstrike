@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');
   const app = electronUtils.createAppMock({
-    whenReadyResolved: true,
     documentsPath: '/mock/userData',
+    whenReadyResolved: true,
   });
   const ipcMain = electronUtils.createIpcMainMock();
   Object.assign(ipcMain, {
@@ -24,20 +24,20 @@ vi.mock('electron', async () => {
     (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).__invoke(channel, ...args)
   );
   const mockBrowserWindowInstance = {
-    once: vi.fn(),
-    on: vi.fn(),
-    show: vi.fn(),
+    getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
+    getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
+    isFullScreen: vi.fn(() => false),
+    isMaximized: vi.fn(() => false),
     loadFile: vi.fn(),
     loadURL: vi.fn(),
     maximize: vi.fn(),
-    isFullScreen: vi.fn(() => false),
-    isMaximized: vi.fn(() => false),
-    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
-    getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
+    on: vi.fn(),
+    once: vi.fn(),
+    show: vi.fn(),
     webContents: {
-      setWindowOpenHandler: vi.fn(),
       on: vi.fn(),
       openDevTools: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
     },
   };
   const BrowserWindow = vi.fn();
@@ -49,29 +49,30 @@ vi.mock('electron', async () => {
   });
   return {
     app,
+    BrowserWindow,
+    clipboard: {
+      writeText: vi.fn(),
+    },
     ipcMain,
     ipcRenderer,
-    screen,
-    BrowserWindow,
-    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
     Menu: {
-      setApplicationMenu: vi.fn(),
       buildFromTemplate: vi.fn(),
+      setApplicationMenu: vi.fn(),
     },
     powerMonitor: {
       on: vi.fn(),
     },
     powerSaveBlocker: {
-      start: vi.fn(() => 1),
       isStarted: vi.fn(() => true),
+      start: vi.fn(() => 1),
       stop: vi.fn(),
     },
+    protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
+    screen,
+    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
     shell: {
       openPath: vi.fn().mockResolvedValue(''),
       showItemInFolder: vi.fn(),
-    },
-    clipboard: {
-      writeText: vi.fn(),
     },
   };
 });

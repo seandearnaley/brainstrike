@@ -50,45 +50,45 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
 
     const chunks: FileChunkInsert[] = [
       {
-        id: 'c1',
-        fileRecordId: 'f1',
         chunkIndex: 0,
+        chunkSize: 1,
+        chunkType: 'text',
         content: 'A',
         contentHash: 'h1',
-        tokenCount: 1,
-        chunkType: 'text',
-        chunkSize: 1,
+        createdAt: now,
         embedding: e1,
         embeddingSetId: setId,
-        createdAt: now,
+        fileRecordId: 'f1',
+        id: 'c1',
+        tokenCount: 1,
         updatedAt: now,
       },
       {
-        id: 'c2',
-        fileRecordId: 'f1',
         chunkIndex: 1,
+        chunkSize: 1,
+        chunkType: 'text',
         content: 'B',
         contentHash: 'h2',
-        tokenCount: 1,
-        chunkType: 'text',
-        chunkSize: 1,
+        createdAt: now,
         embedding: e2,
         embeddingSetId: setId,
-        createdAt: now,
+        fileRecordId: 'f1',
+        id: 'c2',
+        tokenCount: 1,
         updatedAt: now,
       },
       {
-        id: 'c3',
-        fileRecordId: 'f1',
         chunkIndex: 2,
+        chunkSize: 1,
+        chunkType: 'text',
         content: 'C',
         contentHash: 'h3',
-        tokenCount: 1,
-        chunkType: 'text',
-        chunkSize: 1,
+        createdAt: now,
         embedding: e3,
         embeddingSetId: setId,
-        createdAt: now,
+        fileRecordId: 'f1',
+        id: 'c3',
+        tokenCount: 1,
         updatedAt: now,
       },
     ];
@@ -99,10 +99,10 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
     // Using chunkType narrows WHERE and increments param indexes before set lookup.
     // Previously, this triggered a bad parameter index in the standalone set query.
     const results = await repo.searchSimilar(q, {
-      limit: 10,
-      threshold: 0,
       chunkType: 'text',
       embeddingSetId: setId,
+      limit: 10,
+      threshold: 0,
     });
 
     // Should return all three, correctly ranked
@@ -120,11 +120,11 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
 
     // Callers that genuinely need the vector must opt in explicitly.
     const withVector = await repo.searchSimilar(q, {
-      limit: 10,
-      threshold: 0,
       chunkType: 'text',
       embeddingSetId: setId,
       includeEmbedding: true,
+      limit: 10,
+      threshold: 0,
     });
     for (const r of withVector) {
       expect(Array.isArray(r.chunk.embedding)).toBe(true);
@@ -133,10 +133,10 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
 
     // Higher threshold should filter to only the most similar one
     const strict = await repo.searchSimilar(q, {
-      limit: 10,
-      threshold: 0.85,
       chunkType: 'text',
       embeddingSetId: setId,
+      limit: 10,
+      threshold: 0.85,
     });
     expect(strict.map((r) => r.chunk.id)).toEqual(['c1']);
 
@@ -144,11 +144,11 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
     // SQL), but omit the heavy vector payload while preserving the dimension
     // count via vector_dims() so consumers can still show "N dims".
     const projected = await repo.searchSimilar(q, {
-      limit: 10,
-      threshold: 0,
       chunkType: 'text',
       embeddingSetId: setId,
       includeEmbedding: false,
+      limit: 10,
+      threshold: 0,
     });
     expect(projected.map((r) => r.chunk.id)).toEqual(['c1', 'c2', 'c3']);
     for (const r of projected) {
@@ -203,43 +203,43 @@ describe('searchSimilar SQL path (pgvector integration)', () => {
     const repo = new FileChunkRepository(db);
     await repo.insertMany([
       {
-        id: 'ca',
-        fileRecordId: 'fa',
         chunkIndex: 0,
+        chunkSize: 1,
+        chunkType: 'text',
         content: 'A',
         contentHash: 'ha',
-        tokenCount: 1,
-        chunkType: 'text',
-        chunkSize: 1,
+        createdAt: now,
         embedding: e,
         embeddingSetId: setId,
-        createdAt: now,
+        fileRecordId: 'fa',
+        id: 'ca',
+        tokenCount: 1,
         updatedAt: now,
       },
       {
-        id: 'cb',
-        fileRecordId: 'fb',
         chunkIndex: 0,
+        chunkSize: 1,
+        chunkType: 'text',
         content: 'B',
         contentHash: 'hb',
-        tokenCount: 1,
-        chunkType: 'text',
-        chunkSize: 1,
+        createdAt: now,
         embedding: e,
         embeddingSetId: setId,
-        createdAt: now,
+        fileRecordId: 'fb',
+        id: 'cb',
+        tokenCount: 1,
         updatedAt: now,
       },
     ]);
 
-    const all = await repo.searchSimilar(q, { limit: 10, threshold: 0, embeddingSetId: setId });
+    const all = await repo.searchSimilar(q, { embeddingSetId: setId, limit: 10, threshold: 0 });
     expect(all.map((r) => r.chunk.id).sort()).toEqual(['ca', 'cb']);
 
     const scoped = await repo.searchSimilar(q, {
-      limit: 10,
-      threshold: 0,
       embeddingSetId: setId,
+      limit: 10,
       rootId: 'root-b',
+      threshold: 0,
     });
     expect(scoped.map((r) => r.chunk.id)).toEqual(['cb']);
 

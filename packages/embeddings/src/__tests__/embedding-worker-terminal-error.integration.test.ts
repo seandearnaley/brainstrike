@@ -33,8 +33,8 @@ class TerminalErrorService implements EmbeddingService {
     // Allow first call to succeed for ensureModelDimension check
     if (this.callCount === 1) {
       return {
-        embedding: new Array(1536).fill(0),
         dimensions: 1536,
+        embedding: new Array(1536).fill(0),
         model: 'test-model',
         usage: { totalTokens: 10 },
       };
@@ -54,7 +54,7 @@ class TerminalErrorService implements EmbeddingService {
     }) => Promise<void> | void
   ): Promise<void> {
     const results = await this.generateEmbeddings(texts);
-    await onBatch({ startIndex: 0, endIndex: results.length, results });
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
@@ -63,7 +63,7 @@ class TerminalErrorService implements EmbeddingService {
     return this.generateEmbedding(text);
   }
   calculateSimilarity(_embedding1: number[], _embedding2: number[]): SimilarityResult {
-    return { similarity: 0, distance: 0, method: 'cosine' };
+    return { distance: 0, method: 'cosine', similarity: 0 };
   }
   getStatus(): EmbeddingStatus {
     return 'ready';
@@ -121,21 +121,25 @@ describe('Embedding Worker - Terminal Errors', () => {
 
     // 3. Enqueue a job
     await jq.enqueue({
-      queue: 'embeddings',
       jobType: 'embed_chunk',
       payload: {
         chunkId,
         embeddingSetId: setId,
-        modelKey: 'local::test-model',
         expectedDimension: 1536,
+        modelKey: 'local::test-model',
       },
+      queue: 'embeddings',
     });
 
     // 4. Start worker with terminal error service
     worker = await startEmbeddingWorker({
+      concurrency: 1,
       db,
       enable: true,
-      concurrency: 1,
+      // Align the worker's active model with the job payload so there is no
+      // model-switch reinit (whose DB lookup for the uncatalogued 'test-model'
+      // would otherwise throw and mask the injected terminal 'status 400').
+      modelKey: 'local::test-model',
       service: new TerminalErrorService(),
     });
 

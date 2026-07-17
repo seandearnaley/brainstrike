@@ -5,11 +5,10 @@ import { usePreviewPanelPreferences } from '../../preview/use-preview-panel-pref
 describe('usePreviewPanelPreferences', () => {
   const defaults = {
     activeTab: 'table',
+    footerMode: 'default' as const,
     groupingConfig: 'none',
     sortDirection: 'asc' as const,
     sortField: 'path' as const,
-    useTapestryRangesForContextOutput: true,
-    footerMode: 'default' as const,
   };
 
   afterEach(() => {
@@ -23,15 +22,15 @@ describe('usePreviewPanelPreferences', () => {
     localStorage.setItem(
       'previewPanelPreferences.v1',
       JSON.stringify({
-        columnVisibility: { size: false, tokens: 'nope' },
-        sortField: 'invalid-field',
-        sortDirection: 'up',
-        groupingConfig: 'folder',
         activeTab: 'unknown',
         collapsedGroups: ['keep', 12, null],
-        footerMode: 'not-a-mode',
-        footerHeight: 9999,
+        columnVisibility: { size: false, tokens: 'nope' },
         footerCollapsed: true,
+        footerHeight: 9999,
+        footerMode: 'not-a-mode',
+        groupingConfig: 'folder',
+        sortDirection: 'up',
+        sortField: 'invalid-field',
       })
     );
 
@@ -64,8 +63,8 @@ describe('usePreviewPanelPreferences', () => {
     localStorage.setItem(
       'previewPanelPreferences.v1',
       JSON.stringify({
-        footerMode: 'compact',
         footerHeight: 500,
+        footerMode: 'compact',
       })
     );
 
@@ -85,7 +84,7 @@ describe('usePreviewPanelPreferences', () => {
         pageSize: 100,
         sortDirection: 'desc',
         sortField: 'tokens',
-        useTapestryRangesForContextOutput: false,
+        tapestryScale: 7,
       })
     );
 
@@ -97,13 +96,14 @@ describe('usePreviewPanelPreferences', () => {
     expect(result.current.pageSize).toBe(100);
     expect(result.current.sortDirection).toBe('desc');
     expect(result.current.sortField).toBe('tokens');
-    expect(result.current.useTapestryRangesForContextOutput).toBe(false);
+    expect(result.current.tapestryScale).toBe(7);
 
     act(() => {
       result.current.setActiveTab('table');
       result.current.setCollapsedGroups(new Set(['group-b']));
       result.current.setGroupingConfig('rootFolder');
       result.current.setPageSize(250);
+      result.current.setTapestryScale(2);
     });
 
     await act(async () => {
@@ -117,8 +117,64 @@ describe('usePreviewPanelPreferences', () => {
       pageSize: 250,
       sortDirection: 'desc',
       sortField: 'tokens',
-      useTapestryRangesForContextOutput: false,
+      tapestryScale: 2,
     });
+  });
+
+  it('rejects an out-of-range stored Tapestry scale', () => {
+    localStorage.setItem(
+      'previewPanelPreferences.v1',
+      JSON.stringify({
+        tapestryScale: 99,
+      })
+    );
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.tapestryScale).toBe(4);
+  });
+
+  it('rejects a fractional stored Tapestry scale', () => {
+    localStorage.setItem(
+      'previewPanelPreferences.v1',
+      JSON.stringify({
+        tapestryScale: 3.5,
+      })
+    );
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.tapestryScale).toBe(4);
+  });
+
+  it('tolerates a stale useTapestryRangesForContextOutput field in a persisted blob (no migration mechanism, field silently ignored)', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem(
+      'previewPanelPreferences.v1',
+      JSON.stringify({
+        activeTab: 'tapestry',
+        sortField: 'tokens',
+        useTapestryRangesForContextOutput: false,
+      })
+    );
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    // The blob loads cleanly and the stale field is simply absent from state.
+    expect(result.current.activeTab).toBe('tapestry');
+    expect(result.current.sortField).toBe('tokens');
+    expect(result.current).not.toHaveProperty('useTapestryRangesForContextOutput');
+
+    act(() => {
+      result.current.setSortField('path');
+    });
+
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    const saved = JSON.parse(localStorage.getItem('previewPanelPreferences.v1') ?? '{}');
+    expect(saved).not.toHaveProperty('useTapestryRangesForContextOutput');
   });
 
   it('falls back to defaults when stored preferences cannot be parsed', () => {

@@ -3,6 +3,7 @@ import { calculateCosineSimilarity } from './embedding-math';
 import { TransformersBackend } from './transformers-backend';
 import type {
   EmbeddingConfig,
+  EmbeddingExecutionOptions,
   EmbeddingProgress,
   EmbeddingResult,
   EmbeddingService,
@@ -42,8 +43,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
     // has a keep-alive guard that prevents GPU idle crashes in Electron.
     // See: docs/debug-handoff-renderer-crash.md
     this._config = {
-      modelId: 'jinaai/jina-embeddings-v2-base-code', // Default HuggingFace ID
       device: 'webgpu',
+      modelId: 'jinaai/jina-embeddings-v2-base-code', // Default HuggingFace ID
       quantized: false,
       ...(options.streamBatchSize ? { streamBatchSize: options.streamBatchSize } : {}),
       ...(options.streamingWorkerUrl ? { streamingWorkerUrl: options.streamingWorkerUrl } : {}),
@@ -69,11 +70,11 @@ export class SimpleEmbeddingService implements EmbeddingService {
     const modelConfig: ModelConfig =
       typeof modelConfigOrId === 'string'
         ? {
+            description: 'Dynamically created config from model ID',
+            dimensions: DEFAULT_EMBEDDING_DIMENSION,
             id: modelConfigOrId,
             name: modelConfigOrId,
-            dimensions: DEFAULT_EMBEDDING_DIMENSION,
             quantized: false,
-            description: 'Dynamically created config from model ID',
             tags: ['local'],
           }
         : modelConfigOrId;
@@ -82,8 +83,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
     const shouldQuantize = modelConfig.dimensions <= 768 && !modelConfig.quantized;
 
     const config: Partial<EmbeddingConfig> = {
-      modelId: modelConfig.id,
       device: deviceOverride || this._config.device || 'webgpu',
+      modelId: modelConfig.id,
       quantized: shouldQuantize,
       ...(cacheDir ? { cacheDir } : {}),
     };
@@ -137,7 +138,10 @@ export class SimpleEmbeddingService implements EmbeddingService {
     }
   }
 
-  async generateEmbedding(text: string): Promise<EmbeddingResult> {
+  async generateEmbedding(
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
@@ -148,10 +152,13 @@ export class SimpleEmbeddingService implements EmbeddingService {
       this._currentModelConfig?.id || this._config.modelId,
       this._currentModelKey
     );
-    return this._backend.generateEmbedding(withPrompt, this._config.modelId);
+    return this._backend.generateEmbedding(withPrompt, this._config.modelId, options);
   }
 
-  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+  async generateEmbeddings(
+    texts: string[],
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult[]> {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
@@ -163,7 +170,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
         this._currentModelKey
       )
     );
-    return this._backend.generateEmbeddings(withPrompts, this._config.modelId);
+    return this._backend.generateEmbeddings(withPrompts, this._config.modelId, options);
   }
 
   async generateEmbeddingsStream(
@@ -197,14 +204,20 @@ export class SimpleEmbeddingService implements EmbeddingService {
   /**
    * Generate an embedding optimized for document/passages (indexing)
    */
-  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
-    return this.generateEmbedding(text);
+  async generateDocEmbedding(
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text, options);
   }
 
   /**
    * Generate an embedding optimized for search queries
    */
-  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+  async generateQueryEmbedding(
+    text: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
@@ -214,7 +227,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       this._currentModelConfig?.id || this._config.modelId,
       this._currentModelKey
     );
-    return this._backend.generateEmbedding(withPrompt, this._config.modelId);
+    return this._backend.generateEmbedding(withPrompt, this._config.modelId, options);
   }
 
   getStatus(): EmbeddingStatus {
@@ -270,9 +283,9 @@ export class SimpleEmbeddingService implements EmbeddingService {
         if (options?.onProgress && p.status === 'progress' && p.loaded && p.total) {
           const progressPercent = Math.round((p.loaded / p.total) * 100);
           options.onProgress({
-            stage: 'downloading',
-            progress: progressPercent,
             message: `Downloading ${p.file || 'model'}... ${progressPercent}%`,
+            progress: progressPercent,
+            stage: 'downloading',
           });
         }
       },

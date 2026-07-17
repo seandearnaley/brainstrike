@@ -7,20 +7,23 @@ import {
 } from '../context-selected-token-summary';
 
 const createRange = (overrides: Partial<{ isActive: boolean }> = {}) => ({
-  id: 'range-1',
-  startLine: 0,
-  endLine: 1,
-  isActive: overrides.isActive ?? true,
   color: '#22c55e',
+  endLine: 1,
+  id: 'range-1',
+  isActive: overrides.isActive ?? true,
+  startLine: 0,
 });
 
 describe('computeContextSelectedTokenSummary', () => {
   it('applies active ranges only for selected files', () => {
     const summary = computeContextSelectedTokenSummary({
-      sourceSelectedTokens: 30,
-      sourcePendingCount: 0,
+      fileContents: {
+        'a.ts': 'a\nb',
+        'b.ts': 'a\nb',
+      },
       selectedFiles: new Set(['a.ts']),
-      useTapestryRangesForContextOutput: true,
+      sourcePendingCount: 0,
+      sourceSelectedTokens: 30,
       tapestryRangesByKey: {
         'a.ts': [createRange()],
         'b.ts': [createRange()],
@@ -29,10 +32,6 @@ describe('computeContextSelectedTokenSummary', () => {
         ['a.ts', 30],
         ['b.ts', 30],
       ]),
-      fileContents: {
-        'a.ts': 'a\nb',
-        'b.ts': 'a\nb',
-      },
     });
 
     expect(summary.outputSelectedTokens).toBe(20);
@@ -42,17 +41,16 @@ describe('computeContextSelectedTokenSummary', () => {
 
   it('does not count range-adjusted files when token counts are unavailable', () => {
     const summary = computeContextSelectedTokenSummary({
-      sourceSelectedTokens: 10,
-      sourcePendingCount: 1,
+      fileContents: {
+        'a.ts': 'a',
+      },
       selectedFiles: new Set(['a.ts']),
-      useTapestryRangesForContextOutput: true,
+      sourcePendingCount: 1,
+      sourceSelectedTokens: 10,
       tapestryRangesByKey: {
         'a.ts': [createRange()],
       } satisfies TapestryRangeMap,
       tokenCountByFile: new Map(),
-      fileContents: {
-        'a.ts': 'a',
-      },
     });
 
     expect(summary.outputSelectedTokens).toBe(10);
@@ -63,17 +61,16 @@ describe('computeContextSelectedTokenSummary', () => {
 
   it('treats fully inactive ranges as zero-token output for the file', () => {
     const summary = computeContextSelectedTokenSummary({
-      sourceSelectedTokens: 30,
-      sourcePendingCount: 0,
+      fileContents: {
+        'a.ts': 'a\nb',
+      },
       selectedFiles: new Set(['a.ts']),
-      useTapestryRangesForContextOutput: true,
+      sourcePendingCount: 0,
+      sourceSelectedTokens: 30,
       tapestryRangesByKey: {
         'a.ts': [createRange({ isActive: false })],
       } satisfies TapestryRangeMap,
       tokenCountByFile: new Map([['a.ts', 30]]),
-      fileContents: {
-        'a.ts': 'a\nb',
-      },
     });
 
     expect(summary.outputSelectedTokens).toBe(0);
@@ -81,37 +78,53 @@ describe('computeContextSelectedTokenSummary', () => {
     expect(summary.activeRangeFilesCount).toBe(0);
   });
 
-  it('returns source totals untouched when tapestry ranges are disabled', () => {
+  it('counts full file tokens for a rangeless selected file (no explicit ranges entry)', () => {
     const summary = computeContextSelectedTokenSummary({
-      sourceSelectedTokens: 42,
-      sourcePendingCount: 3,
-      selectedFiles: new Set(['a.ts']),
-      useTapestryRangesForContextOutput: false,
-      tapestryRangesByKey: {
-        'a.ts': [createRange()],
-      } satisfies TapestryRangeMap,
-      tokenCountByFile: new Map([['a.ts', 42]]),
       fileContents: {
         'a.ts': 'a\nb',
       },
+      selectedFiles: new Set(['a.ts']),
+      sourcePendingCount: 0,
+      sourceSelectedTokens: 42,
+      // No entry for 'a.ts' — the per-file rule always applies, with no
+      // separate toggle: rangeless selected files count their full tokens.
+      tapestryRangesByKey: {} satisfies TapestryRangeMap,
+      tokenCountByFile: new Map([['a.ts', 42]]),
     });
 
-    expect(summary).toEqual({
+    expect(summary.outputSelectedTokens).toBe(42);
+    expect(summary.rangeAdjustedFilesCount).toBe(0);
+    expect(summary.activeRangeFilesCount).toBe(0);
+  });
+
+  it('counts full file tokens for a literally-present EMPTY range array (empty ≡ absent)', () => {
+    const summary = computeContextSelectedTokenSummary({
+      fileContents: {
+        'a.ts': 'a\nb',
+      },
+      selectedFiles: new Set(['a.ts']),
+      sourcePendingCount: 0,
       sourceSelectedTokens: 42,
-      outputSelectedTokens: 42,
-      sourcePendingCount: 3,
-      outputPendingCount: 3,
-      rangeAdjustedFilesCount: 0,
-      activeRangeFilesCount: 0,
+      // A stray present-but-empty array must behave exactly like absence: full
+      // file tokens, NOT a range-adjusted 0.
+      tapestryRangesByKey: { 'a.ts': [] } satisfies TapestryRangeMap,
+      tokenCountByFile: new Map([['a.ts', 42]]),
     });
+
+    expect(summary.outputSelectedTokens).toBe(42);
+    expect(summary.rangeAdjustedFilesCount).toBe(0);
+    expect(summary.activeRangeFilesCount).toBe(0);
   });
 
   it('applies additive range adjustments while preserving source token baseline mismatches', () => {
     const summary = computeContextSelectedTokenSummary({
-      sourceSelectedTokens: 20,
-      sourcePendingCount: 0,
+      fileContents: {
+        'a.ts': 'a\nb',
+        'b.ts': 'a\nb',
+      },
       selectedFiles: new Set(['a.ts', 'b.ts']),
-      useTapestryRangesForContextOutput: true,
+      sourcePendingCount: 0,
+      sourceSelectedTokens: 20,
       tapestryRangesByKey: {
         'a.ts': [createRange()],
       } satisfies TapestryRangeMap,
@@ -119,10 +132,6 @@ describe('computeContextSelectedTokenSummary', () => {
         ['a.ts', 30],
         ['b.ts', 5],
       ]),
-      fileContents: {
-        'a.ts': 'a\nb',
-        'b.ts': 'a\nb',
-      },
     });
 
     // a.ts range keeps ~20 tokens (from 30) and b.ts is unadjusted (+5),
@@ -136,17 +145,17 @@ describe('computeContextSelectedTokenSummary', () => {
 describe('createSelectedFileContentSnapshot', () => {
   it('collects only selected files with explicit ranges and loaded content', () => {
     const snapshot = createSelectedFileContentSnapshot({
+      fileContents: {
+        'a.ts': 'alpha',
+        'b.ts': 'beta',
+        'c.ts': 'gamma',
+      },
       selectedFiles: new Set(['a.ts', 'b.ts']),
       tapestryRangesByKey: {
         'a.ts': [createRange()],
         'b.ts': [],
         'c.ts': [createRange()],
       } satisfies TapestryRangeMap,
-      fileContents: {
-        'a.ts': 'alpha',
-        'b.ts': 'beta',
-        'c.ts': 'gamma',
-      },
     });
 
     expect(snapshot).toEqual({ 'a.ts': 'alpha' });
@@ -158,7 +167,7 @@ describe('hasSameSelectedFileContentSnapshot', () => {
     expect(
       hasSameSelectedFileContentSnapshot(
         { 'a.ts': 'alpha', 'b.ts': 'beta' },
-        { 'b.ts': 'beta', 'a.ts': 'alpha' }
+        { 'a.ts': 'alpha', 'b.ts': 'beta' }
       )
     ).toBe(true);
 

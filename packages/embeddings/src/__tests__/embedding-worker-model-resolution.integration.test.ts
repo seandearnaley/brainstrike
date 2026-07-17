@@ -18,11 +18,11 @@ const { mockState } = vi.hoisted(() => ({
   mockState: {
     failureMessage: null as string | null,
     failureModelId: null as string | null,
-    initializedWith: [] as Array<{ id: string; dimensions: number }>,
     initializeAttempts: [] as string[],
+    initializedWith: [] as Array<{ id: string; dimensions: number }>,
+    streamAttempts: [] as string[],
     streamFailureMessage: null as string | null,
     streamFailureModelId: null as string | null,
-    streamAttempts: [] as string[],
   },
 }));
 
@@ -40,11 +40,11 @@ vi.mock('../bge-m3-service', () => {
         typeof modelKeyOrConfig === 'object'
           ? modelKeyOrConfig
           : {
+              description: 'mock',
+              dimensions: this.dimensions,
               id: typeof modelKeyOrConfig === 'string' ? modelKeyOrConfig : this.modelId,
               name: 'mock-model',
-              dimensions: this.dimensions,
               quantized: false,
-              description: 'mock',
               tags: ['mock'],
             };
 
@@ -55,7 +55,7 @@ vi.mock('../bge-m3-service', () => {
         throw new Error(mockState.failureMessage ?? `Failed to initialize ${cfg.id}`);
       }
       this.status = 'ready';
-      mockState.initializedWith.push({ id: cfg.id, dimensions: cfg.dimensions });
+      mockState.initializedWith.push({ dimensions: cfg.dimensions, id: cfg.id });
     }
 
     async initialize(config?: Partial<EmbeddingConfig>): Promise<void> {
@@ -67,8 +67,8 @@ vi.mock('../bge-m3-service', () => {
 
     async generateEmbedding(text: string): Promise<EmbeddingResult> {
       return {
-        embedding: new Array(this.dimensions).fill(0.1),
         dimensions: this.dimensions,
+        embedding: new Array(this.dimensions).fill(0.1),
         model: this.modelId,
         usage: { totalTokens: text.length },
       };
@@ -92,7 +92,7 @@ vi.mock('../bge-m3-service', () => {
         );
       }
       const results = await this.generateEmbeddings(texts);
-      await onBatch({ startIndex: 0, endIndex: results.length, results });
+      await onBatch({ endIndex: results.length, results, startIndex: 0 });
     }
 
     async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
@@ -104,7 +104,7 @@ vi.mock('../bge-m3-service', () => {
     }
 
     calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-      return { similarity: 1, distance: 0, method: 'cosine' };
+      return { distance: 0, method: 'cosine', similarity: 1 };
     }
 
     getStatus(): EmbeddingStatus {
@@ -121,8 +121,8 @@ vi.mock('../bge-m3-service', () => {
   }
 
   return {
-    SimpleEmbeddingService: MockSimpleEmbeddingService,
     __simpleServiceMockState: mockState,
+    SimpleEmbeddingService: MockSimpleEmbeddingService,
   };
 });
 
@@ -168,14 +168,14 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
     // Worker defaults to FALLBACK_MODEL_CONFIG.id ('Xenova/all-MiniLM-L6-v2')
     // which must exist in the database
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
     });
 
     await new Promise((r) => setTimeout(r, 50));
     expect(mockState.initializedWith[0]).toEqual({
-      id: 'Xenova/all-MiniLM-L6-v2',
       dimensions: 384,
+      id: 'Xenova/all-MiniLM-L6-v2',
     });
 
     await controller.stop();
@@ -193,16 +193,16 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
 
   it('accepts composite transformers keys and resolves dimensions from DB', async () => {
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       modelKey: 'transformers::Xenova/all-MiniLM-L6-v2',
     });
 
     await new Promise((r) => setTimeout(r, 50));
     const lastInit = mockState.initializedWith.at(-1);
     expect(lastInit).toEqual({
-      id: 'Xenova/all-MiniLM-L6-v2',
       dimensions: 384,
+      id: 'Xenova/all-MiniLM-L6-v2',
     });
 
     await controller.stop();
@@ -210,8 +210,8 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
 
   it('can start the worker loop without initializing the local model', async () => {
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       initializeLocalModelOnStart: false,
     });
 
@@ -224,8 +224,8 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
   it('throws a clear error when the model is missing from the database', async () => {
     await expect(
       startEmbeddingWorker({
-        db: db as unknown as IDatabase,
         concurrency: 1,
+        db: db as unknown as IDatabase,
         modelKey: 'nonexistent-model',
       })
     ).rejects.toThrow(/not found in database/i);
@@ -269,8 +269,8 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           JSON.stringify({
             chunkId,
             embeddingSetId,
-            modelKey: payloadModelKey,
             expectedDimension: 384,
+            modelKey: payloadModelKey,
           }),
           now,
         ]
@@ -278,9 +278,9 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
     }
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
-      concurrency: 1,
       claimBatchSize: 1,
+      concurrency: 1,
+      db: db as unknown as IDatabase,
       initializeLocalModelOnStart: false,
       leaseMs: 2000,
     });
@@ -347,8 +347,8 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           JSON.stringify({
             chunkId,
             embeddingSetId,
-            modelKey: payloadModelKey,
             expectedDimension: 384,
+            modelKey: payloadModelKey,
           }),
           now,
         ]
@@ -356,9 +356,9 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
     }
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
-      concurrency: 1,
       claimBatchSize: 1,
+      concurrency: 1,
+      db: db as unknown as IDatabase,
       initializeLocalModelOnStart: false,
       leaseMs: 2000,
     });
@@ -426,8 +426,8 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           JSON.stringify({
             chunkId,
             embeddingSetId,
-            modelKey: payloadModelKey,
             expectedDimension: 384,
+            modelKey: payloadModelKey,
           }),
           now,
         ]
@@ -435,15 +435,15 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
     }
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
-      concurrency: 1,
       claimBatchSize: 1,
+      concurrency: 1,
+      db: db as unknown as IDatabase,
       initializeLocalModelOnStart: false,
       leaseMs: 2000,
-      stopOnFatalLocalError: true,
       onFatalError: (error) => {
         fatalErrors.push(error.message);
       },
+      stopOnFatalLocalError: true,
     });
 
     await waitFor(async () => {
@@ -500,16 +500,16 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: payloadModelKey,
           expectedDimension: 384,
+          modelKey: payloadModelKey,
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 2000,
     });
 
@@ -570,18 +570,18 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: payloadModelKey,
           expectedDimension: 384,
+          modelKey: payloadModelKey,
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
-      leaseMs: 2000,
+      db: db as unknown as IDatabase,
       initializeLocalModelOnStart: false,
+      leaseMs: 2000,
     });
 
     expect(mockState.initializedWith).toEqual([]);
@@ -595,8 +595,8 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
 
     expect(mockState.initializedWith).toEqual([
       {
-        id: 'Xenova/all-MiniLM-L6-v2',
         dimensions: 384,
+        id: 'Xenova/all-MiniLM-L6-v2',
       },
     ]);
 

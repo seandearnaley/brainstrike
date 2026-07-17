@@ -5,7 +5,8 @@
     "@brainstrike/platform-utils": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0"
+    "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "catalog:"
   },
   "engines": {
     "node": ">=22"

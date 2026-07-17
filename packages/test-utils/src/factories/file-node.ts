@@ -1,4 +1,9 @@
-import type { FileNodeType, IFileNode, SelectionState } from '@brainstrike/types';
+import type {
+  DirectoryLoadState,
+  FileNodeType,
+  IFileNode,
+  SelectionState,
+} from '@brainstrike/types';
 import { vi } from 'vitest';
 
 interface BaseNodeOptions {
@@ -6,6 +11,7 @@ interface BaseNodeOptions {
   depth?: number;
   handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
   isVisible?: boolean;
+  loadState?: DirectoryLoadState;
   name: string;
   path: string;
   rootFolderId?: string;
@@ -24,22 +30,22 @@ export function createFileNode({
   const mockHandle =
     handle ||
     ({
+      createWritable: vi.fn(),
+      getFile: vi.fn().mockResolvedValue(new File([], name)),
+      isSameEntry: vi.fn(),
       kind: 'file' as const,
       name,
-      getFile: vi.fn().mockResolvedValue(new File([], name)),
-      createWritable: vi.fn(),
-      isSameEntry: vi.fn(),
     } as unknown as FileSystemFileHandle);
 
   return {
+    depth,
+    handle: mockHandle,
+    isVisible,
     name,
     path,
-    type: 'file' as FileNodeType,
-    handle: mockHandle,
-    depth,
-    selectionState,
     rootFolderId,
-    isVisible,
+    selectionState,
+    type: 'file' as FileNodeType,
   };
 }
 
@@ -51,28 +57,32 @@ export function createDirectoryNode({
   rootFolderId = 'test-folder',
   isVisible = true,
   children = [],
+  // Production trees always stamp materialized directories 'loaded' (the row
+  // builder refuses to descend otherwise), so fixtures mirror that invariant.
+  loadState = 'loaded',
 }: Partial<BaseNodeOptions> = {}): IFileNode {
   const mockHandle = {
-    kind: 'directory' as const,
-    name,
     entries: vi.fn().mockResolvedValue([]),
     getDirectoryHandle: vi.fn(),
     getFileHandle: vi.fn(),
+    isSameEntry: vi.fn(),
+    kind: 'directory' as const,
+    name,
     removeEntry: vi.fn(),
     resolve: vi.fn(),
-    isSameEntry: vi.fn(),
   } as unknown as FileSystemDirectoryHandle;
 
   return {
+    children,
+    depth,
+    handle: mockHandle,
+    isVisible,
+    loadState,
     name,
     path,
-    type: 'directory' as FileNodeType,
-    handle: mockHandle,
-    depth,
-    selectionState,
-    children,
     rootFolderId,
-    isVisible,
+    selectionState,
+    type: 'directory' as FileNodeType,
   };
 }
 
@@ -87,16 +97,16 @@ export function createNestedDirectoryStructure(
   const createLevel = (currentPath: string, currentDepth: number): IFileNode => {
     if (currentDepth === 0) {
       return createDirectoryNode({
-        name: currentPath.split('/').pop() || 'root',
-        path: currentPath,
         children: Array.from({ length: filesPerLevel }, (_, i) =>
           createFileNode({
+            depth: depth - currentDepth,
             name: `file${i}.txt`,
             path: `${currentPath}/file${i}.txt`,
-            depth: depth - currentDepth,
           })
         ),
         depth: depth - currentDepth,
+        name: currentPath.split('/').pop() || 'root',
+        path: currentPath,
       });
     }
 
@@ -104,9 +114,9 @@ export function createNestedDirectoryStructure(
       // Add files at this level
       ...Array.from({ length: filesPerLevel }, (_, i) =>
         createFileNode({
+          depth: depth - currentDepth,
           name: `file${i}.txt`,
           path: `${currentPath}/file${i}.txt`,
-          depth: depth - currentDepth,
         })
       ),
       // Add subdirectories
@@ -114,10 +124,10 @@ export function createNestedDirectoryStructure(
     ];
 
     return createDirectoryNode({
-      name: currentPath.split('/').pop() || 'root',
-      path: currentPath,
       children,
       depth: depth - currentDepth,
+      name: currentPath.split('/').pop() || 'root',
+      path: currentPath,
     });
   };
 
@@ -137,17 +147,17 @@ export function createFileTreeFromStructure(
 
     if (value === null) {
       return createFileNode({
+        depth,
         name,
         path,
-        depth,
       });
     }
 
     return createDirectoryNode({
+      children: createFileTreeFromStructure(value as Record<string, unknown>, path, depth + 1),
+      depth,
       name,
       path,
-      depth,
-      children: createFileTreeFromStructure(value as Record<string, unknown>, path, depth + 1),
     });
   });
 }
@@ -173,16 +183,16 @@ export interface LargeTreeConfig {
  * Total ≈ sum_{i=0}^{d} s^i * (1 + f) = (1 + f) * (s^(d+1) - 1) / (s - 1)
  */
 export const largeTreePresets = {
-  /** ~90 nodes - quick smoke test */
-  small: { targetNodeCount: 100, maxDepth: 4, filesPerDir: 5, subdirsPerDir: 2 },
-  /** ~726 nodes - typical project */
-  medium: { targetNodeCount: 700, maxDepth: 5, filesPerDir: 5, subdirsPerDir: 3 },
   /** ~7029 nodes - large project */
-  large: { targetNodeCount: 7000, maxDepth: 5, filesPerDir: 8, subdirsPerDir: 5 },
-  /** ~27342 nodes - repo-scale stress test */
-  repoScale: { targetNodeCount: 27_000, maxDepth: 6, filesPerDir: 6, subdirsPerDir: 5 },
+  large: { filesPerDir: 8, maxDepth: 5, subdirsPerDir: 5, targetNodeCount: 7000 },
+  /** ~726 nodes - typical project */
+  medium: { filesPerDir: 5, maxDepth: 5, subdirsPerDir: 3, targetNodeCount: 700 },
   /** ~84000 nodes - BST-149 mega stress test */
-  mega: { targetNodeCount: 84_000, maxDepth: 6, filesPerDir: 8, subdirsPerDir: 6 },
+  mega: { filesPerDir: 8, maxDepth: 6, subdirsPerDir: 6, targetNodeCount: 84_000 },
+  /** ~27342 nodes - repo-scale stress test */
+  repoScale: { filesPerDir: 6, maxDepth: 6, subdirsPerDir: 5, targetNodeCount: 27_000 },
+  /** ~90 nodes - quick smoke test */
+  small: { filesPerDir: 5, maxDepth: 4, subdirsPerDir: 2, targetNodeCount: 100 },
 } as const;
 
 /**
@@ -229,9 +239,9 @@ export function generateLargeTree(config: LargeTreeConfig): {
     for (let i = 0; i < filesPerDir; i++) {
       children.push(
         createFileNode({
+          depth,
           name: `file-${i}.ts`,
           path: `${path}/file-${i}.ts`,
-          depth,
         })
       );
     }
@@ -244,10 +254,10 @@ export function generateLargeTree(config: LargeTreeConfig): {
     }
 
     return createDirectoryNode({
+      children,
+      depth: depth - 1,
       name,
       path,
-      depth: depth - 1,
-      children,
     });
   };
 
@@ -265,7 +275,7 @@ export function generateLargeTree(config: LargeTreeConfig): {
     return count;
   };
 
-  return { tree, nodeCount: countNodes(tree) };
+  return { nodeCount: countNodes(tree), tree };
 }
 
 /**

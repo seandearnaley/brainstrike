@@ -26,48 +26,48 @@ export type { CSVColumn };
  */
 export const DEFAULT_FILE_RECORD_COLUMNS: CSVColumn<FileRecord>[] = [
   {
-    header: 'ID',
     getValue: (record) => record.id,
+    header: 'ID',
   },
   {
-    header: 'Name',
     getValue: (record) => record.name,
+    header: 'Name',
   },
   {
-    header: 'Path',
     getValue: (record) => record.path,
+    header: 'Path',
   },
   {
-    header: 'Size',
     getValue: (record) => formatFileSize(record.size),
+    header: 'Size',
   },
   {
-    header: 'Size (bytes)',
     getValue: (record) => record.size,
+    header: 'Size (bytes)',
   },
   {
-    header: 'Token Count',
     getValue: (record) => record.tokenCount || '',
+    header: 'Token Count',
   },
   {
-    header: 'Content Sample (500 chars)',
     getValue: (record) => truncateContent(record.content, 500),
+    header: 'Content Sample (500 chars)',
   },
   {
-    header: 'Content Hash',
     getValue: (record) => record.contentHash || '',
+    header: 'Content Hash',
   },
   {
-    header: 'Created At',
     getValue: (record) => formatDate(record.createdAt),
+    header: 'Created At',
   },
   {
-    header: 'Updated At',
     getValue: (record) => formatDate(record.updatedAt),
+    header: 'Updated At',
   },
   {
-    header: 'Processed At',
     getValue: (record) => formatDate(record.processedAt),
+    header: 'Processed At',
   },
 ];
 

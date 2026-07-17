@@ -20,44 +20,44 @@ describe('System Diagnostics Tool', () => {
   };
 
   const healthyDatabase: DatabaseDiagnostics = {
-    status: 'healthy',
     connected: true,
-    tables: {
-      fileRecords: 100,
-      chunks: 500,
-      embeddings: 400,
-      embeddingSets: 2,
-    },
-    sizeBytes: 50_000_000,
     lastMigration: '2024-01-15',
+    sizeBytes: 50_000_000,
+    status: 'healthy',
+    tables: {
+      chunks: 500,
+      embeddingSets: 2,
+      embeddings: 400,
+      fileRecords: 100,
+    },
   };
 
   const healthyQueue: QueueDiagnostics = {
-    status: 'healthy',
-    durableQueue: { queued: 0, running: 0, failed: 0, succeeded: 100 },
+    durableQueue: { failed: 0, queued: 0, running: 0, succeeded: 100 },
     ephemeralQueue: { pending: 0, processing: 0 },
-    throughput: 10,
     recentErrors: [],
+    status: 'healthy',
+    throughput: 10,
   };
 
   const healthyWorker: WorkerDiagnostics = {
-    status: 'healthy',
-    isRunning: true,
     activeWorkers: 2,
+    isRunning: true,
+    lastActivityAt: new Date().toISOString(),
     stats: {
+      averageLatencyMs: 150,
       chunksProcessed: 500,
       embeddingsGenerated: 400,
-      averageLatencyMs: 150,
     },
-    lastActivityAt: new Date().toISOString(),
+    status: 'healthy',
   };
 
   const healthyStorage: StorageDiagnostics = {
+    availableBytes: 1_000_000_000,
+    isWritable: true,
     status: 'healthy',
     type: 'IndexedDB',
-    availableBytes: 1_000_000_000,
     usedBytes: 50_000_000,
-    isWritable: true,
   };
 
   let deps: DiagnosticsToolDependencies;
@@ -67,8 +67,8 @@ describe('System Diagnostics Tool', () => {
     deps = {
       getDatabaseHealth: vi.fn().mockResolvedValue(healthyDatabase),
       getQueueHealth: vi.fn().mockResolvedValue(healthyQueue),
-      getWorkerHealth: vi.fn().mockResolvedValue(healthyWorker),
       getStorageHealth: vi.fn().mockResolvedValue(healthyStorage),
+      getWorkerHealth: vi.fn().mockResolvedValue(healthyWorker),
       logger: mockLogger,
     };
   });
@@ -126,8 +126,8 @@ describe('System Diagnostics Tool', () => {
     it('reports degraded status when any component degraded', async () => {
       deps.getQueueHealth = vi.fn().mockResolvedValue({
         ...healthyQueue,
-        status: 'degraded',
         durableQueue: { ...healthyQueue.durableQueue, failed: 5 },
+        status: 'degraded',
       });
 
       const tool = createSystemDiagnosticsTool(deps);
@@ -139,8 +139,8 @@ describe('System Diagnostics Tool', () => {
     it('reports unhealthy status when any component unhealthy', async () => {
       deps.getDatabaseHealth = vi.fn().mockResolvedValue({
         ...healthyDatabase,
-        status: 'unhealthy',
         connected: false,
+        status: 'unhealthy',
       });
 
       const tool = createSystemDiagnosticsTool(deps);
@@ -217,10 +217,9 @@ describe('System Diagnostics Tool', () => {
     });
 
     it('handles missing dependency gracefully', async () => {
-      deps.getDatabaseHealth = undefined;
-      deps.getWorkerHealth = undefined;
+      const { getDatabaseHealth: _db, getWorkerHealth: _worker, ...partialDeps } = deps;
 
-      const tool = createSystemDiagnosticsTool(deps);
+      const tool = createSystemDiagnosticsTool(partialDeps);
       const result = await tool.execute({ context: {} });
 
       expect(result.categoriesChecked).not.toContain('database');
@@ -245,8 +244,8 @@ describe('System Diagnostics Tool', () => {
       deps = {
         getDatabaseHealth: vi.fn().mockRejectedValue(new Error('Fail')),
         getQueueHealth: vi.fn().mockRejectedValue(new Error('Fail')),
-        getWorkerHealth: vi.fn().mockRejectedValue(new Error('Fail')),
         getStorageHealth: vi.fn().mockRejectedValue(new Error('Fail')),
+        getWorkerHealth: vi.fn().mockRejectedValue(new Error('Fail')),
         logger: mockLogger,
       };
 

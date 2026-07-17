@@ -29,10 +29,10 @@ describe('usePanelLayoutStore singleton fallback', () => {
       STORE_NAME,
       JSON.stringify({
         state: {
-          sizes: [4.488, 5.386, 0],
+          showConsole: true,
           showLeftPanel: false,
           showRightPanel: true,
-          showConsole: true,
+          sizes: [4.488, 5.386, 0],
         },
         version: 2,
       })
@@ -93,10 +93,10 @@ describe('usePanelLayoutStore singleton fallback', () => {
     }
 
     store.getState().setState({
-      sizes: [30, 25, 15],
+      showConsole: true,
       showLeftPanel: false,
       showRightPanel: true,
-      showConsole: true,
+      sizes: [30, 25, 15],
     });
 
     await persistApi.rehydrate();

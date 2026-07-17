@@ -76,56 +76,56 @@ interface MockSettingsCategory {
 }
 
 const mockState = vi.hoisted(() => ({
-  nativeEnabledToolIds: new Set<string>(),
-  setToolsEnabledMock: vi.fn<(toolIds: string[], enabled: boolean) => void>(),
-  resetToolsMock: vi.fn<() => void>(),
-  storedFolders: [] as string[],
-  clearStoredHandlesMock: vi.fn<() => void>(),
-  devInlineFixtureEnabled: false,
-  setDevInlineFixtureEnabledMock: vi.fn<(checked: boolean) => void>(),
-  capturedToolsOptions: null as CapturedToolsOptions | null,
   capturedFactoryResetOptions: null as CapturedFactoryResetOptions | null,
   capturedLoggingProps: null as CapturedLoggingProps | null,
+  capturedToolsOptions: null as CapturedToolsOptions | null,
+  clearStoredHandlesMock: vi.fn<() => void>(),
+  devInlineFixtureEnabled: false,
+  nativeEnabledToolIds: new Set<string>(),
   renderedCategoryIds: [] as string[],
+  resetToolsMock: vi.fn<() => void>(),
+  setDevInlineFixtureEnabledMock: vi.fn<(checked: boolean) => void>(),
+  setToolsEnabledMock: vi.fn<(toolIds: string[], enabled: boolean) => void>(),
+  storedFolders: [] as string[],
 }));
 
 vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   createSystemDiagnosticsSettingsCategory: (): MockSettingsCategory => ({
+    content: <div data-testid="diagnostics-category" />,
     id: 'diagnostics',
     title: 'Diagnostics',
-    content: <div data-testid="diagnostics-category" />,
   }),
 }));
 
 vi.mock('@brainstrike/app-shell/cost-tracking', () => ({
   createCostTrackingSettingsCategory: (): MockSettingsCategory => ({
+    content: <div data-testid="cost-tracking-category" />,
     id: 'cost-tracking',
     title: 'Cost Tracking',
-    content: <div data-testid="cost-tracking-category" />,
   }),
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useRestoreAccess: () => ({
-    storedFolders: mockState.storedFolders,
+    beginRestore: vi.fn(),
+    chooseDifferentFolder: vi.fn(),
     clearStoredHandles: mockState.clearStoredHandlesMock,
+    dismissRestore: vi.fn(),
     isCheckingStoredHandles: false,
     pendingRestore: null,
     showDeniedBanner: false,
     showStaleBanner: false,
-    beginRestore: vi.fn(),
-    dismissRestore: vi.fn(),
-    chooseDifferentFolder: vi.fn(),
+    storedFolders: mockState.storedFolders,
   }),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) =>
+  useFileExplorerStoreContext: () => (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       devInlineFixtureEnabled: mockState.devInlineFixtureEnabled,
       setDevInlineFixtureEnabled: mockState.setDevInlineFixtureEnabledMock,
     }),
-  useFileExplorerStoreContext: () => (selector: (state: Record<string, unknown>) => unknown) =>
+  useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       devInlineFixtureEnabled: mockState.devInlineFixtureEnabled,
       setDevInlineFixtureEnabled: mockState.setDevInlineFixtureEnabledMock,
@@ -146,11 +146,6 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
       id: 'appearance',
       title: 'Appearance',
     }),
-    createTokenCountingSettingsCategoryWithRuntimeSupport: (): MockSettingsCategory => ({
-      content: <div data-testid="token-counting-category" />,
-      id: 'token-counting',
-      title: 'Token Counting',
-    }),
     createFactoryResetSettingsCategory: (
       options?: CapturedFactoryResetOptions
     ): MockSettingsCategory => {
@@ -161,6 +156,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
         title: 'Factory Reset',
       };
     },
+    createTokenCountingSettingsCategoryWithRuntimeSupport: (): MockSettingsCategory => ({
+      content: <div data-testid="token-counting-category" />,
+      id: 'token-counting',
+      title: 'Token Counting',
+    }),
     SettingsPageContent: ({
       categories,
     }: {
@@ -185,8 +185,8 @@ vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', () => (
   useNativeToolPreferencesStore: {
     getState: () => ({
       isToolEnabled: (toolId: string) => mockState.nativeEnabledToolIds.has(toolId),
-      setToolsEnabled: mockState.setToolsEnabledMock,
       resetTools: mockState.resetToolsMock,
+      setToolsEnabled: mockState.setToolsEnabledMock,
     }),
   },
 }));
@@ -255,33 +255,33 @@ describe('SettingsPageContent tool operations', () => {
     const tools = await operations?.getTools();
     const expectedTools: MockToolDisplayMetadata[] = Object.entries(NATIVE_TOOL_DEFAULTS).map(
       ([id, metadata]) => ({
-        id,
-        source: 'native',
         category: metadata.category,
-        loadingTier: metadata.loadingTier,
         description: TOOL_DESCRIPTIONS[id] ?? `Native tool: ${id}`,
         enabled: id === enabledToolId,
         estimatedTokens: metadata.estimatedTokens,
+        id,
+        loadingTier: metadata.loadingTier,
         requiresApproval: metadata.requiresApproval,
+        source: 'native',
       })
     );
     expect(tools).toEqual(expectedTools);
 
     const stats = await operations?.getStats();
     const byCategory: Record<ToolCategory, number> = {
-      retrieval: expectedTools.filter((tool) => tool.category === 'retrieval').length,
       action: expectedTools.filter((tool) => tool.category === 'action').length,
       analysis: expectedTools.filter((tool) => tool.category === 'analysis').length,
       configuration: expectedTools.filter((tool) => tool.category === 'configuration').length,
+      retrieval: expectedTools.filter((tool) => tool.category === 'retrieval').length,
       validation: expectedTools.filter((tool) => tool.category === 'validation').length,
     };
     expect(stats).toEqual({
-      total: expectedTools.length,
-      enabled: 1,
-      disabled: expectedTools.length - 1,
-      bySource: { native: expectedTools.length, mcp: 0 },
       byCategory,
+      bySource: { mcp: 0, native: expectedTools.length },
+      disabled: expectedTools.length - 1,
+      enabled: 1,
       mcpServers: 0,
+      total: expectedTools.length,
     });
   });
 
@@ -319,9 +319,9 @@ describe('SettingsPageContent tool operations', () => {
     const toolId = getNativeToolIdAt(0);
     const result = await operations?.executeToolTest(toolId, { query: 'abc' });
     expect(result).toEqual({
-      success: false,
-      error: `Tool execution not yet implemented for ${toolId}. Web app requires API integration for tool execution.`,
       durationMs: 9,
+      error: `Tool execution not yet implemented for ${toolId}. Web app requires API integration for tool execution.`,
+      success: false,
     });
 
     performanceNowSpy.mockRestore();
@@ -335,8 +335,8 @@ describe('SettingsPageContent tool operations', () => {
 
     expect(mockState.capturedFactoryResetOptions).toEqual(
       expect.objectContaining({
-        isWebPlatform: true,
         hasStoredFolders: true,
+        isWebPlatform: true,
         onClearStoredFolders: mockState.clearStoredHandlesMock,
       })
     );
@@ -363,6 +363,8 @@ describe('SettingsPageContent tool operations', () => {
       'logging',
       'ai-tools',
       'permissions',
+      'subagents',
+      'notifications',
       'diagnostics',
       'factory-reset',
     ]);

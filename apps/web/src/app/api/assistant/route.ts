@@ -78,8 +78,8 @@ export async function POST(req: Request): Promise<Response> {
         reason: provider.disabledReason ?? 'missing_api_key',
       }),
       {
-        status: 503,
         headers: JSON_ERROR_HEADERS,
+        status: 503,
       }
     );
   }
@@ -99,8 +99,8 @@ export async function POST(req: Request): Promise<Response> {
     // client-supplied policy) so ask tools actually suspend on a normal turn.
     agentStream = await buildWebAssistantStream({
       agentMessages,
-      data,
       apiKey: provider.apiKey,
+      data,
       ...(toolApprovalAction ? { toolApprovalAction } : {}),
     });
   } catch (error) {
@@ -111,8 +111,8 @@ export async function POST(req: Request): Promise<Response> {
         message: 'Assistant stream initialization failed',
       }),
       {
-        status: 502,
         headers: JSON_ERROR_HEADERS,
+        status: 502,
       }
     );
   }
@@ -123,7 +123,7 @@ export async function POST(req: Request): Promise<Response> {
 
 function jsonError(status: number, error: string, message?: string): Response {
   return new Response(JSON.stringify(message ? { error, message } : { error }), {
-    status,
     headers: JSON_ERROR_HEADERS,
+    status,
   });
 }

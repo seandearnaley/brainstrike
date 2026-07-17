@@ -74,11 +74,11 @@ describe('RRF Algorithm', () => {
 
     it('should handle single list', () => {
       const list: RankedList = {
-        source: 'vector',
         items: [
           { id: 'doc1', score: 0.95 },
           { id: 'doc2', score: 0.87 },
         ],
+        source: 'vector',
       };
 
       const result = fuseRankedLists([list]);
@@ -94,21 +94,21 @@ describe('RRF Algorithm', () => {
 
     it('should fuse two lists with overlapping items', () => {
       const vectorList: RankedList = {
-        source: 'vector',
         items: [
           { id: 'doc1', score: 0.95 },
           { id: 'doc2', score: 0.87 },
           { id: 'doc3', score: 0.82 },
         ],
+        source: 'vector',
       };
 
       const ftsList: RankedList = {
-        source: 'fts',
         items: [
           { id: 'doc2', score: 15.2 },
           { id: 'doc4', score: 12.8 },
           { id: 'doc1', score: 8.5 },
         ],
+        source: 'fts',
       };
 
       const result = fuseRankedLists([vectorList, ftsList]);
@@ -131,13 +131,13 @@ describe('RRF Algorithm', () => {
 
     it('should sort results by RRF score descending', () => {
       const list1: RankedList = {
-        source: 'vector',
         items: [{ id: 'doc1' }, { id: 'doc2' }, { id: 'doc3' }],
+        source: 'vector',
       };
 
       const list2: RankedList = {
-        source: 'fts',
         items: [{ id: 'doc3' }, { id: 'doc2' }, { id: 'doc1' }],
+        source: 'fts',
       };
 
       const result = fuseRankedLists([list1, list2]);
@@ -154,14 +154,14 @@ describe('RRF Algorithm', () => {
 
     it('should apply weight to sources', () => {
       const vectorList: RankedList = {
-        source: 'vector',
         items: [{ id: 'doc1' }, { id: 'doc2' }],
+        source: 'vector',
         weight: 2.0, // Double weight
       };
 
       const ftsList: RankedList = {
-        source: 'fts',
         items: [{ id: 'doc2' }, { id: 'doc1' }],
+        source: 'fts',
         weight: 1.0,
       };
 
@@ -177,8 +177,8 @@ describe('RRF Algorithm', () => {
 
     it('should respect limit option', () => {
       const list: RankedList = {
-        source: 'vector',
         items: [{ id: 'doc1' }, { id: 'doc2' }, { id: 'doc3' }, { id: 'doc4' }, { id: 'doc5' }],
+        source: 'vector',
       };
 
       const result = fuseRankedLists([list], { limit: 3 });
@@ -189,13 +189,13 @@ describe('RRF Algorithm', () => {
 
     it('should respect minSourceCount option', () => {
       const vectorList: RankedList = {
-        source: 'vector',
         items: [{ id: 'doc1' }, { id: 'doc2' }, { id: 'doc3' }],
+        source: 'vector',
       };
 
       const ftsList: RankedList = {
-        source: 'fts',
         items: [{ id: 'doc2' }, { id: 'doc4' }],
+        source: 'fts',
       };
 
       const result = fuseRankedLists([vectorList, ftsList], { minSourceCount: 2 });
@@ -208,8 +208,8 @@ describe('RRF Algorithm', () => {
 
     it('should use custom k value', () => {
       const list: RankedList = {
-        source: 'vector',
         items: [{ id: 'doc1' }],
+        source: 'vector',
       };
 
       const resultDefault = fuseRankedLists([list], { k: 60 });
@@ -221,13 +221,13 @@ describe('RRF Algorithm', () => {
 
     it('should include contribution details', () => {
       const vectorList: RankedList = {
-        source: 'vector',
         items: [{ id: 'doc1', score: 0.95 }],
+        source: 'vector',
       };
 
       const ftsList: RankedList = {
-        source: 'fts',
         items: [{ id: 'doc1', score: 12.5 }],
+        source: 'fts',
       };
 
       const result = fuseRankedLists([vectorList, ftsList]);
@@ -245,13 +245,13 @@ describe('RRF Algorithm', () => {
 
     it('should handle items not in all lists', () => {
       const list1: RankedList = {
-        source: 'source1',
         items: [{ id: 'doc1' }, { id: 'doc2' }],
+        source: 'source1',
       };
 
       const list2: RankedList = {
-        source: 'source2',
         items: [{ id: 'doc3' }, { id: 'doc4' }],
+        source: 'source2',
       };
 
       const result = fuseRankedLists([list1, list2]);
@@ -292,8 +292,8 @@ describe('RRF Algorithm', () => {
 
       const resultEqual = fuseVectorAndFTS(vectorResults, ftsResults);
       const resultVectorHeavy = fuseVectorAndFTS(vectorResults, ftsResults, {
-        vectorWeight: 2.0,
         ftsWeight: 1.0,
+        vectorWeight: 2.0,
       });
 
       // doc1 should have higher score when vector is weighted more
@@ -329,9 +329,9 @@ describe('RRF Algorithm', () => {
 
     it('should normalize scores to 0-1 range', () => {
       const results: FusedResult[] = [
-        { id: 'doc1', rrfScore: 0.04, sourceCount: 2, contributions: [] },
-        { id: 'doc2', rrfScore: 0.02, sourceCount: 1, contributions: [] },
-        { id: 'doc3', rrfScore: 0.01, sourceCount: 1, contributions: [] },
+        { contributions: [], id: 'doc1', rrfScore: 0.04, sourceCount: 2 },
+        { contributions: [], id: 'doc2', rrfScore: 0.02, sourceCount: 1 },
+        { contributions: [], id: 'doc3', rrfScore: 0.01, sourceCount: 1 },
       ];
 
       const normalized = normalizeRRFScores(results);
@@ -343,20 +343,39 @@ describe('RRF Algorithm', () => {
 
     it('should handle results with max score of 0', () => {
       const results: FusedResult[] = [
-        { id: 'doc1', rrfScore: 0, sourceCount: 1, contributions: [] },
+        { contributions: [], id: 'doc1', rrfScore: 0, sourceCount: 1 },
       ];
 
       const normalized = normalizeRRFScores(results);
       expect(normalized[0].rrfScore).toBe(0);
     });
 
+    it('maps all-equal non-zero scores to 1.0 without producing NaN', () => {
+      // When every fused score is identical the score range collapses (max ===
+      // min). A range-based normalization would divide by zero → NaN; the guard
+      // maps every item to the top of the range (1.0) instead. There is no
+      // discriminating signal, so treating them all as top-ranked is correct.
+      const results: FusedResult[] = [
+        { contributions: [], id: 'doc1', rrfScore: 0.02, sourceCount: 1 },
+        { contributions: [], id: 'doc2', rrfScore: 0.02, sourceCount: 1 },
+        { contributions: [], id: 'doc3', rrfScore: 0.02, sourceCount: 1 },
+      ];
+
+      const normalized = normalizeRRFScores(results);
+
+      for (const item of normalized) {
+        expect(Number.isNaN(item.rrfScore)).toBe(false);
+        expect(item.rrfScore).toBe(1.0);
+      }
+    });
+
     it('should preserve other properties', () => {
       const results: FusedResult[] = [
         {
+          contributions: [{ contribution: 0.02, rank: 1, source: 'vector' }],
           id: 'doc1',
           rrfScore: 0.04,
           sourceCount: 2,
-          contributions: [{ source: 'vector', rank: 1, contribution: 0.02 }],
         },
       ];
 
@@ -466,18 +485,18 @@ describe('RRF Algorithm', () => {
 
     it('should support three or more ranking sources', () => {
       const vectorResults: RankedList = {
-        source: 'vector',
         items: [{ id: 'doc1' }, { id: 'doc2' }],
+        source: 'vector',
       };
 
       const ftsResults: RankedList = {
-        source: 'fts',
         items: [{ id: 'doc2' }, { id: 'doc3' }],
+        source: 'fts',
       };
 
       const recencyResults: RankedList = {
-        source: 'recency',
         items: [{ id: 'doc3' }, { id: 'doc1' }],
+        source: 'recency',
         weight: 0.5, // Lower weight for recency
       };
 

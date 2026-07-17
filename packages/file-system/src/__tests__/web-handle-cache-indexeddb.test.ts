@@ -93,15 +93,15 @@ function createCursor<TRecord>(
 
   let index = 0;
   const cursor: MockCursor<TRecord> = {
-    get value() {
-      return records[index] as TRecord;
+    continue: async () => {
+      index += 1;
+      return index < records.length ? cursor : null;
     },
     delete: async () => {
       deleteRecord(records[index] as TRecord);
     },
-    continue: async () => {
-      index += 1;
-      return index < records.length ? cursor : null;
+    get value() {
+      return records[index] as TRecord;
     },
   };
   return cursor;
@@ -176,13 +176,12 @@ function createMockDb(
 
   const db: MockDb = {
     close,
-    objectStoreNames: createObjectStoreNames(storeNames),
-    put: async (storeName, record) => {
+    delete: async (storeName, key) => {
       if (storeName === ROOT_STORE) {
-        rootRecords.set((record as StoredRootHandle).folderId, record as StoredRootHandle);
+        rootRecords.delete(key);
         return;
       }
-      fileRecords.set((record as StoredFileHandle).path, record as StoredFileHandle);
+      fileRecords.delete(key);
     },
     get: async (storeName, key) =>
       storeName === ROOT_STORE ? rootRecords.get(key) : fileRecords.get(key),
@@ -190,12 +189,13 @@ function createMockDb(
       storeName === ROOT_STORE
         ? Array.from(rootRecords.values())
         : Array.from(fileRecords.values()),
-    delete: async (storeName, key) => {
+    objectStoreNames: createObjectStoreNames(storeNames),
+    put: async (storeName, record) => {
       if (storeName === ROOT_STORE) {
-        rootRecords.delete(key);
+        rootRecords.set((record as StoredRootHandle).folderId, record as StoredRootHandle);
         return;
       }
-      fileRecords.delete(key);
+      fileRecords.set((record as StoredFileHandle).path, record as StoredFileHandle);
     },
     transaction: () => ({
       done: Promise.resolve(),
@@ -205,14 +205,14 @@ function createMockDb(
   };
 
   const upgradeDb: MockUpgradeDb = {
-    version: 1,
-    objectStoreNames: createObjectStoreNames(storeNames),
     createObjectStore: (name: string) => {
       storeNames.add(name);
       return {
         createIndex: vi.fn(),
       };
     },
+    objectStoreNames: createObjectStoreNames(storeNames),
+    version: 1,
   };
 
   return {
@@ -226,9 +226,9 @@ function createMockDb(
 
 function createDirectoryHandle(name: string): FileSystemDirectoryHandle {
   return {
+    entries: vi.fn(),
     kind: 'directory',
     name,
-    entries: vi.fn(),
     queryPermission: vi.fn().mockResolvedValue('granted'),
   } as unknown as FileSystemDirectoryHandle;
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 import {
   formatMcpConfig,
   parsePort,
@@ -8,7 +9,6 @@ import {
   waitForEndpoint,
   waitForEndpointOrChildExit,
 } from '../start-agent-devtools-session.mjs';
-import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 
 test('parsePort accepts a valid explicit port', () => {
   assert.equal(parsePort('9333'), 9333);
@@ -20,10 +20,7 @@ test('parsePort rejects privileged or invalid ports', () => {
 });
 
 test('resolveEndpoint returns the local browser url', () => {
-  assert.equal(
-    resolveEndpoint(agentDevToolsDefaults.defaultPort),
-    'http://127.0.0.1:9222'
-  );
+  assert.equal(resolveEndpoint(agentDevToolsDefaults.defaultPort), 'http://127.0.0.1:9222');
 });
 
 test('formatMcpConfig renders chrome-devtools-mcp browser-url config', () => {

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -30,7 +30,10 @@ function listFiles(root: string): string[] {
 }
 
 describe('ui architecture boundaries', () => {
-  it('does not import storage adapters directly', () => {
+  // Shared-foundation @brainstrike/storage (safe JSON / Zustand helpers) is allowed.
+  // The Electron-only subpath must stay out of renderer UI — that was the original
+  // architecture-reset invariant (theme/provider must not pull main-process adapters).
+  it('does not import Electron storage adapters', () => {
     const packageFiles: [relativePath: string, text: string][] = [
       ['package.json', readPackageFile('package.json')],
       ['tsconfig.json', readPackageFile('tsconfig.json')],
@@ -43,9 +46,14 @@ describe('ui architecture boundaries', () => {
       ]);
 
     const violatingFiles = [...packageFiles, ...sourceFiles]
-      .filter(([, text]) => text.includes('@brainstrike/storage'))
+      .filter(([, text]) => text.includes('@brainstrike/storage/electron'))
       .map(([relativePath]) => relativePath);
 
     expect(violatingFiles).toEqual([]);
+  });
+
+  it('does not retain or publicly export the retired localStorage prompt manager', () => {
+    expect(existsSync(path.join(UI_SRC_ROOT, 'prompt-management'))).toBe(false);
+    expect(readPackageFile('src/index.ts')).not.toContain("export * from './prompt-management'");
   });
 });

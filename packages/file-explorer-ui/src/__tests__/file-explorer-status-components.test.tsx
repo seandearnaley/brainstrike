@@ -9,9 +9,9 @@ import { DirectoryStatus, FilterStatus } from '../file-explorer-status-component
 describe('DirectoryStatus', () => {
   it('renders folder badge when handle is provided', () => {
     const handle: DirectoryHandle = {
-      path: '/root',
-      name: 'root',
       kind: 'directory',
+      name: 'root',
+      path: '/root',
       platform: 'web',
     };
     render(<DirectoryStatus rootDirectoryHandle={handle} />);

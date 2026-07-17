@@ -48,10 +48,12 @@ export function buildObservationalMemoryLookupKey(input: {
 /**
  * Select the LATEST observation generation for a lookup key, mirroring the memory
  * store's read order (`getObservationalMemory`: generationCount DESC, createdAt
- * DESC, LIMIT 1). Only the two token columns the meter needs are projected.
+ * DESC, LIMIT 1). Projects active, buffered, and pending/threshold state so the
+ * meter never mistakes unactivated background observations for no activity.
  */
 const OM_ROW_QUERY = `
-  SELECT "observationTokenCount", "totalTokensObserved"
+  SELECT "bufferedObservationChunks", config, "observationTokenCount",
+         "pendingMessageTokens", "totalTokensObserved"
   FROM mastra_observational_memory
   WHERE "lookupKey" = $1
   ORDER BY "generationCount" DESC, "createdAt" DESC
@@ -59,7 +61,10 @@ const OM_ROW_QUERY = `
 `;
 
 interface ObservationalMemoryRowQueryResult {
+  bufferedObservationChunks: unknown;
+  config: unknown;
   observationTokenCount: number | string;
+  pendingMessageTokens: number | string;
   totalTokensObserved: number | string;
 }
 
@@ -85,27 +90,27 @@ export function useObservationalMemoryRow(
   input: UseObservationalMemoryRowInput
 ): UseObservationalMemoryRowResult {
   const lookupKey = buildObservationalMemoryLookupKey({
+    resourceId: input.resourceId,
     scope: input.scope,
     threadId: input.threadId,
-    resourceId: input.resourceId,
   });
   const enabled = input.hasDurableCapability && lookupKey !== null;
 
   const result = usePGliteLiveQuery<ObservationalMemoryRowQueryResult>({
     cacheKey: makeLiveQueryKey('om-row', lookupKey ?? ''),
-    query: OM_ROW_QUERY,
-    params: [lookupKey ?? ''],
-    enabled,
     // Drop stale rows the instant the query is disabled (thread closed / scope id
     // missing) so a prior thread's OM never leaks into another / no thread.
     clearOnDisable: true,
+    enabled,
+    params: [lookupKey ?? ''],
+    query: OM_ROW_QUERY,
   });
 
   return {
+    error: result.error,
+    loading: enabled && result.loading,
     // Belt-and-suspenders with clearOnDisable: never surface a row from a
     // disabled query even if the live layer has not cleared yet.
     row: enabled ? (result.rows[0] ?? null) : null,
-    loading: enabled && result.loading,
-    error: result.error,
   };
 }

@@ -49,8 +49,8 @@ describe('LoadingOverlay', () => {
         isLoading={true}
         progressState={{
           loaded: 50,
-          total: 100,
           phase: 'loading',
+          total: 100,
         }}
       />
     );
@@ -63,8 +63,8 @@ describe('LoadingOverlay', () => {
         isLoading={true}
         progressState={{
           loaded: 0,
-          total: 0,
           phase: 'counting',
+          total: 0,
         }}
       />
     );
@@ -297,10 +297,10 @@ describe('LoadingOverlay', () => {
           <LoadingOverlay
             isLoading={true}
             progressState={{
-              loaded: 2,
-              total: 10,
-              phase: 'loading',
               currentPath: 'singlefile',
+              loaded: 2,
+              phase: 'loading',
+              total: 10,
             }}
           />
         );
@@ -314,10 +314,10 @@ describe('LoadingOverlay', () => {
           <LoadingOverlay
             isLoading={true}
             progressState={{
-              loaded: 2,
-              total: 10,
-              phase: 'loading',
               currentPath: '', // No path
+              loaded: 2,
+              phase: 'loading',
+              total: 10,
             }}
           />
         );
@@ -333,8 +333,8 @@ describe('LoadingOverlay', () => {
             isLoading={true}
             progressState={{
               loaded: 0,
-              total: 0,
               phase: 'loading',
+              total: 0,
             }}
           />
         );
@@ -347,8 +347,8 @@ describe('LoadingOverlay', () => {
             isLoading={true}
             progressState={{
               loaded: 0,
-              total: 0,
               phase: 'counting',
+              total: 0,
             }}
           />
         );
@@ -369,8 +369,8 @@ describe('LoadingOverlay', () => {
           isLoading={true}
           progressState={{
             loaded: 150,
-            total: 100, // This should not happen with the new logic, but testing edge case
             phase: 'loading',
+            total: 100, // This should not happen with the new logic, but testing edge case
           }}
         />
       );
@@ -384,8 +384,8 @@ describe('LoadingOverlay', () => {
           isLoading={true}
           progressState={{
             loaded: 3168,
-            total: 5000,
             phase: 'loading',
+            total: 5000,
           }}
         />
       );
@@ -399,8 +399,8 @@ describe('LoadingOverlay', () => {
           isLoading={true}
           progressState={{
             loaded: 5,
-            total: 0,
             phase: 'loading',
+            total: 0,
           }}
         />
       );
@@ -414,8 +414,8 @@ describe('LoadingOverlay', () => {
           isLoading={true}
           progressState={{
             loaded: 99,
-            total: 100,
             phase: 'loading',
+            total: 100,
           }}
         />
       );
@@ -429,8 +429,8 @@ describe('LoadingOverlay', () => {
           isLoading={true}
           progressState={{
             loaded: 1000,
-            total: 1000,
             phase: 'loading',
+            total: 1000,
           }}
         />
       );
@@ -445,10 +445,10 @@ describe('LoadingOverlay', () => {
         <LoadingOverlay
           isLoading={true}
           progressState={{
-            loaded: 2,
-            total: 10,
-            phase: 'loading',
             currentPath: 'foo/bar/baz/qux',
+            loaded: 2,
+            phase: 'loading',
+            total: 10,
           }}
         />
       );
@@ -463,10 +463,10 @@ describe('LoadingOverlay', () => {
         <LoadingOverlay
           isLoading={true}
           progressState={{
-            loaded: 2,
-            total: 10,
-            phase: 'loading',
             currentPath: 'bar/baz',
+            loaded: 2,
+            phase: 'loading',
+            total: 10,
           }}
         />
       );
@@ -484,8 +484,8 @@ describe('LoadingOverlay', () => {
           isLoading={true}
           progressState={{
             loaded: 10,
-            total: 100,
             phase: 'counting',
+            total: 100,
           }}
         />
       );
@@ -499,8 +499,8 @@ describe('LoadingOverlay', () => {
           isLoading={true}
           progressState={{
             loaded: 75,
-            total: 300,
             phase: 'loading',
+            total: 300,
           }}
         />
       );
@@ -520,8 +520,8 @@ describe('LoadingOverlay', () => {
           isLoading={true}
           progressState={{
             loaded: 50,
-            total: 0,
             phase: 'loading',
+            total: 0,
           }}
         />
       );

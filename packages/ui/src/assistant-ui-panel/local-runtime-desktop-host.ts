@@ -87,9 +87,9 @@ export function handleDesktopProgressEvent(
 
   if (progress.payload.kind === 'loading') {
     onLoadingProgress?.({
-      stage: 'loading',
-      progress: progress.payload.progress ?? 0,
       message: progress.payload.message ?? 'Loading Gemma local model',
+      progress: progress.payload.progress ?? 0,
+      stage: 'loading',
       ...(progress.payload.file ? { file: progress.payload.file } : {}),
     });
     return;
@@ -97,9 +97,9 @@ export function handleDesktopProgressEvent(
 
   if (progress.payload.kind === 'stage') {
     onLoadingProgress?.({
-      stage: 'generating',
-      progress: 0,
       message: createGeneratingMessage(progress.payload.message),
+      progress: 0,
+      stage: 'generating',
     });
     return;
   }

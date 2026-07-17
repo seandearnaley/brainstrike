@@ -8,8 +8,9 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "@brainstrike/test-utils": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

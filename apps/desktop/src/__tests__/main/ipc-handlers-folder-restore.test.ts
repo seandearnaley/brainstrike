@@ -7,11 +7,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock Electron modules first
 vi.mock('electron', () => ({
-  ipcMain: {
-    handle: vi.fn(),
-  },
   app: {
     getPath: vi.fn(),
+  },
+  ipcMain: {
+    handle: vi.fn(),
   },
 }));
 
@@ -45,20 +45,20 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
 
     // Mock file system adapter
     mockFileSystem = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
       watchDirectory: vi.fn(),
     } as ElectronFileSystemAdapter;
 
     // Mock storage adapter with proper vitest mock functions
     mockStorage = {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
       clear: vi.fn(),
       getAllKeys: vi.fn(),
+      getItem: vi.fn(),
+      removeItem: vi.fn(),
+      setItem: vi.fn(),
     } as unknown as ElectronStorageAdapter;
 
     // Mock store
@@ -102,9 +102,9 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       const testPath = '/test/folder/path';
       const resolvedPath = resolveTestPath(testPath);
       const expectedHandle: DirectoryHandle = {
-        path: resolvedPath,
-        name: path.basename(resolvedPath),
         kind: 'directory' as const,
+        name: path.basename(resolvedPath),
+        path: resolvedPath,
         platform: 'electron' as const,
       };
 
@@ -120,13 +120,14 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       expect(result).toEqual(expectedHandle);
     });
 
-    it('should handle errors gracefully and return null', async () => {
+    it('should propagate storage read errors', async () => {
       vi.mocked(mockStorage.getItem).mockRejectedValue(new Error('Storage error'));
 
       const handler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await handler?.();
 
-      expect(result).toBeNull();
+      await expect(handler?.()).rejects.toThrow('Storage error');
+      expect(mockStorage.getItem).toHaveBeenCalledWith('lastFolderPath');
+      expect(mockFileSystem.exists).not.toHaveBeenCalled();
     });
 
     it('should handle file system exists check errors gracefully', async () => {
@@ -157,15 +158,14 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
     });
 
-    it('should handle storage errors gracefully', async () => {
+    it('should propagate storage write errors', async () => {
       const testPath = '/test/folder/path';
       const resolvedPath = resolveTestPath(testPath);
       vi.mocked(mockStorage.setItem).mockRejectedValue(new Error('Storage error'));
 
       const handler = registeredHandlers.get('fs:saveLastFolder');
 
-      // Should not throw
-      await expect(handler?.(testPath)).resolves.toBeUndefined();
+      await expect(handler?.(testPath)).rejects.toThrow('Storage error');
       expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
     });
   });
@@ -187,9 +187,9 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       const result = await restoreHandler?.();
 
       expect(result).toEqual({
-        path: resolvedPath,
-        name: path.basename(resolvedPath),
         kind: 'directory',
+        name: path.basename(resolvedPath),
+        path: resolvedPath,
         platform: 'electron',
       });
     });
@@ -219,9 +219,9 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       const result = await restoreHandler?.();
 
       expect(result).toEqual({
-        path: windowsPath,
-        name: path.basename(windowsPath),
         kind: 'directory',
+        name: path.basename(windowsPath),
+        path: windowsPath,
         platform: 'electron',
       });
     });
@@ -237,9 +237,9 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       const result = await restoreHandler?.();
 
       expect(result).toEqual({
-        path: resolvedPath,
-        name: path.basename(resolvedPath),
         kind: 'directory',
+        name: path.basename(resolvedPath),
+        path: resolvedPath,
         platform: 'electron',
       });
     });

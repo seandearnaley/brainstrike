@@ -79,20 +79,20 @@ function mapRowToSnapshot(row: CollectionCoverageRow): CollectionEmbeddingCovera
   const totalFiles = row.totalfiles;
   const totalChunks = row.totalchunks;
   return {
-    pendingReindexFileCount,
     chunksMissingSourceRange,
-    totalFiles,
-    totalChunks,
+    pendingReindexFileCount,
     status: resolveCoverageStatus(totalFiles, pendingReindexFileCount, chunksMissingSourceRange),
+    totalChunks,
+    totalFiles,
   };
 }
 
 const IDLE_SNAPSHOT: CollectionEmbeddingCoverageSnapshot = {
-  pendingReindexFileCount: 0,
   chunksMissingSourceRange: 0,
-  totalFiles: 0,
-  totalChunks: 0,
+  pendingReindexFileCount: 0,
   status: 'idle',
+  totalChunks: 0,
+  totalFiles: 0,
 };
 
 export function useCollectionEmbeddingCoverage(activeCollectionId: string | null) {
@@ -105,9 +105,9 @@ export function useCollectionEmbeddingCoverage(activeCollectionId: string | null
     cacheKey: makeLiveQueryKey('collection-embedding-coverage', activeCollectionId),
     query: COLLECTION_EMBEDDING_COVERAGE_QUERY,
     ...(params ? { params } : {}),
-    mode: 'incremental',
-    key: 'embeddingsetid',
     enabled: Boolean(activeCollectionId),
+    key: 'embeddingsetid',
+    mode: 'incremental',
   });
 
   const snapshot = useMemo(() => {
@@ -121,5 +121,5 @@ export function useCollectionEmbeddingCoverage(activeCollectionId: string | null
     return mapRowToSnapshot(row);
   }, [activeCollectionId, rows]);
 
-  return { snapshot, error, loading };
+  return { error, loading, snapshot };
 }

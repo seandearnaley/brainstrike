@@ -7,7 +7,7 @@ import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
 export interface Queryable {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
 /**
@@ -277,13 +277,13 @@ export function parseEmbeddingLoose(embedding: unknown): number[] | undefined {
     }
 
     logger.warn('parseEmbeddingLoose: Unsupported embedding type', { type: typeof embedding });
-    return;
   } catch (error) {
     logger.warn('parseEmbeddingLoose: Failed to parse embedding', {
       error: error instanceof Error ? error.message : 'Unknown error',
     });
     return;
   }
+  return;
 }
 
 // Shared file_chunks column projections for read queries. Single source of truth
@@ -332,6 +332,28 @@ export const MAX_OVERFETCH_LIMIT = 10_000;
  */
 export function computeOverfetchLimit(limit: number): number {
   return Math.min(Math.max(limit * 10, 100), MAX_OVERFETCH_LIMIT);
+}
+
+/**
+ * Name of the BM25 index on `file_chunks.content` (migration 053). The BM25
+ * ranking expression references the index BY NAME via `to_bm25query(query,
+ * index)` — pg_textsearch resolves corpus statistics through it, and the query
+ * ERRORS if the index is absent, so the migration must always ship with (or
+ * before) any code using this constant. Code-owned literal — safe to
+ * interpolate into SQL.
+ */
+export const BM25_CONTENT_INDEX_NAME = 'idx_file_chunks_content_bm25';
+
+/**
+ * BM25 ranking expression for `file_chunks.content`, negated so the surfaced
+ * rank is HIGHER-IS-BETTER (pg_textsearch's `<@>` returns negative BM25
+ * scores, more negative = better). `queryParam` is the placeholder holding the
+ * raw query text (e.g. `$2`). Matching stays tsvector-based in the WHERE
+ * clause; BM25 only orders the matched set, always using the index's
+ * `text_config` regardless of the caller's match language.
+ */
+export function bm25RankExpression(queryParam: string): string {
+  return `(-(content <@> to_bm25query(${queryParam}, '${BM25_CONTENT_INDEX_NAME}')))::float8`;
 }
 
 /**
@@ -553,7 +575,7 @@ export interface UpdateBuilder {
 }
 
 export function createUpdateBuilder(startIndex = 1): UpdateBuilder {
-  return { setParts: [], values: [], index: startIndex };
+  return { index: startIndex, setParts: [], values: [] };
 }
 
 export function appendColumn(builder: UpdateBuilder, column: string, value: unknown): void {

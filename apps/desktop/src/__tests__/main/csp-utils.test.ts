@@ -9,7 +9,7 @@ describe('csp-utils', () => {
       "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' http://localhost:*"
     );
     expect(csp).toContain("connect-src 'self' ws://localhost:*");
-    expect(csp).toContain("img-src 'self' data: blob: http://localhost:*");
+    expect(csp).toContain("img-src 'self' data: blob: brainstrike-asset: http://localhost:*");
   });
 
   it('builds a production CSP without dev-only hosts', () => {

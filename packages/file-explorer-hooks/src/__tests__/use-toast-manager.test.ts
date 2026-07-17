@@ -5,7 +5,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { renderHook } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useToastManager } from '../use-toast-manager';
+import { DEFAULT_TOAST_DURATION_MS, useToastManager } from '../use-toast-manager';
 
 // Logger mock type for test purposes - uses generic Mock for variadic logging functions
 type LogFn = Mock<(...args: unknown[]) => void>;
@@ -32,12 +32,12 @@ interface MockToastResult {
 }
 
 const mockLogger = vi.hoisted<MockLogger>(() => ({
-  error: vi.fn(),
-  warn: vi.fn(),
-  info: vi.fn(),
   debug: vi.fn(),
-  trace: vi.fn(),
+  error: vi.fn(),
   fatal: vi.fn(),
+  info: vi.fn(),
+  trace: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/ui', () => ({
@@ -61,8 +61,8 @@ describe('useToastManager', () => {
     mockToast = vi.fn();
     mockDismiss = vi.fn();
     currentToastResult = {
-      toast: mockToast,
       dismiss: mockDismiss,
+      toast: mockToast,
       toasts: [],
     };
 
@@ -86,42 +86,79 @@ describe('useToastManager', () => {
     it('calls toast with provided parameters', () => {
       const { result } = setup();
       const toastParams = {
-        title: 'Test Toast',
         description: 'This is a test toast',
+        title: 'Test Toast',
         variant: 'default' as const,
-      };
-
-      result.current.showToast(toastParams);
-
-      expect(mockToast).toHaveBeenCalledWith(toastParams);
-    });
-
-    it('calls toast with destructive variant', () => {
-      const { result } = setup();
-      const toastParams = {
-        title: 'Error Toast',
-        description: 'This is an error toast',
-        variant: 'destructive' as const,
-      };
-
-      result.current.showToast(toastParams);
-
-      expect(mockToast).toHaveBeenCalledWith(toastParams);
-    });
-
-    it('applies default variant when missing', () => {
-      const { result } = setup();
-      const mockAction = {} as ToastActionElement;
-      const toastParams = {
-        title: 'Action Toast',
-        description: 'This is a toast with action',
-        action: mockAction,
       };
 
       result.current.showToast(toastParams);
 
       expect(mockToast).toHaveBeenCalledWith({
         ...toastParams,
+        duration: DEFAULT_TOAST_DURATION_MS,
+      });
+    });
+
+    it('calls toast with destructive variant and keeps it sticky by default', () => {
+      const { result } = setup();
+      const toastParams = {
+        description: 'This is an error toast',
+        title: 'Error Toast',
+        variant: 'destructive' as const,
+      };
+
+      result.current.showToast(toastParams);
+
+      // Errors must not vanish while the user glances away — no auto-dismiss
+      // unless the caller passes an explicit duration.
+      expect(mockToast).toHaveBeenCalledWith({
+        ...toastParams,
+        duration: 0,
+      });
+    });
+
+    it('applies default variant when missing', () => {
+      const { result } = setup();
+      const mockAction = {} as ToastActionElement;
+      const toastParams = {
+        action: mockAction,
+        description: 'This is a toast with action',
+        title: 'Action Toast',
+      };
+
+      result.current.showToast(toastParams);
+
+      expect(mockToast).toHaveBeenCalledWith({
+        ...toastParams,
+        duration: DEFAULT_TOAST_DURATION_MS,
+        variant: 'default',
+      });
+    });
+
+    it('honors an explicit duration, including 0 for a sticky toast', () => {
+      const { result } = setup();
+
+      result.current.showToast({
+        description: 'Long-running warning',
+        duration: 0,
+        title: 'Sticky',
+      });
+      expect(mockToast).toHaveBeenCalledWith({
+        description: 'Long-running warning',
+        duration: 0,
+        title: 'Sticky',
+        variant: 'default',
+      });
+
+      result.current.showToast({
+        description: 'Quick note',
+        duration: 2000,
+        title: 'Fast',
+      });
+      expect(mockToast).toHaveBeenLastCalledWith({
+        description: 'Quick note',
+        duration: 2000,
+        title: 'Fast',
         variant: 'default',
       });
     });
@@ -135,8 +172,9 @@ describe('useToastManager', () => {
       result.current.handlePartialRefreshError(error);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.title,
         description: 'Partial refresh failed',
+        duration: 0,
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     });
@@ -150,8 +188,9 @@ describe('useToastManager', () => {
       result.current.handleRefreshError(error);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.title,
         description: error.message,
+        duration: 0,
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     });
@@ -163,8 +202,9 @@ describe('useToastManager', () => {
       result.current.handleRefreshError(error);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.refreshFailed,
+        duration: 0,
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     });
@@ -178,8 +218,9 @@ describe('useToastManager', () => {
       result.current.handleBrowserCompatibilityError(reason);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.browserCompatibility,
         description: reason,
+        duration: 0,
+        title: FileExplorerStrings.error.browserCompatibility,
         variant: 'destructive',
       });
     });
@@ -197,8 +238,9 @@ describe('useToastManager', () => {
         error
       );
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.rootDirectoryFailed,
+        duration: 0,
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     });
@@ -211,8 +253,8 @@ describe('useToastManager', () => {
       const nextToast = vi.fn();
 
       result.current.showToast({
-        title: 'Initial',
         description: 'Initial render',
+        title: 'Initial',
       });
       expect(initialToast).toHaveBeenCalledTimes(1);
 
@@ -224,8 +266,8 @@ describe('useToastManager', () => {
       rerender();
 
       result.current.showToast({
-        title: 'Updated',
         description: 'After re-render',
+        title: 'Updated',
       });
       result.current.handlePartialRefreshError(new PartialRefreshError('Updated error', 2, 1));
       result.current.handleRefreshError(new Error('Generic'));

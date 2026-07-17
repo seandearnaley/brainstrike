@@ -36,11 +36,11 @@ const mockClearFileContents = vi.fn();
 
 describe('useFileExplorer', () => {
   const mockRootHandle: DirectoryHandle = {
-    path: '/mock-root',
-    name: 'mock-root',
-    kind: 'directory',
-    platform: 'web',
     _internal: {} as FileSystemDirectoryHandle,
+    kind: 'directory',
+    name: 'mock-root',
+    path: '/mock-root',
+    platform: 'web',
   };
   let initialFileTree: IFileNode[];
   let filteredTree: IFileNode[];
@@ -58,34 +58,34 @@ describe('useFileExplorer', () => {
 
     // Mock useFileExplorerStore to handle individual selector calls (split selector pattern)
     const mockStoreState: Partial<FileExplorerState> = {
-      currentFolderId: null,
-      folderStates: {},
-      selectedFilePaths: new Set<string>(),
-      expandedDirectoryPaths: new Set<string>(),
-      includeFilters: [], // Explicitly for the test
-      excludeFilters: [], // Explicitly for the test
-      useRegex: false, // Explicitly for the test
-      includeProjectTree: true,
-      folderSummaryThreshold: 5,
-      maxSelectionCount: 10,
-      lastActiveTab: 'files',
-      setCurrentFolderId: vi.fn(),
-      hydrateFolderState: vi.fn(),
-      setSelectedFiles: vi.fn(),
       addSelectedFile: vi.fn(),
-      removeSelectedFile: vi.fn(),
-      toggleSelectedFile: vi.fn(),
       clearSelectedFiles: vi.fn(),
-      setExpandedPaths: vi.fn(),
-      toggleDirectoryExpansion: vi.fn(),
-      expandAllDirectories: vi.fn(),
       collapseAllDirectories: vi.fn(),
+      currentFolderId: null,
+      excludeFilters: [], // Explicitly for the test
+      expandAllDirectories: vi.fn(),
+      expandedDirectoryPaths: new Set<string>(),
+      folderStates: {},
+      folderSummaryThreshold: 5,
+      hydrateFolderState: vi.fn(),
+      includeFilters: [], // Explicitly for the test
+      includeProjectTree: true,
+      lastActiveTab: 'files',
+      maxSelectionCount: 10,
+      removeSelectedFile: vi.fn(),
+      selectedFilePaths: new Set<string>(),
+      setCurrentFolderId: vi.fn(),
+      setExpandedPaths: vi.fn(),
       setFilters: vi.fn(),
-      setUseRegex: vi.fn(),
-      setIncludeProjectTree: vi.fn(),
       setFolderSummaryThreshold: vi.fn(),
-      setMaxSelectionCount: vi.fn(),
+      setIncludeProjectTree: vi.fn(),
       setLastActiveTab: vi.fn(),
+      setMaxSelectionCount: vi.fn(),
+      setSelectedFiles: vi.fn(),
+      setUseRegex: vi.fn(),
+      toggleDirectoryExpansion: vi.fn(),
+      toggleSelectedFile: vi.fn(),
+      useRegex: false, // Explicitly for the test
     };
 
     // Mock the store function to handle individual selector calls
@@ -101,35 +101,35 @@ describe('useFileExplorer', () => {
     mockSelectRootDirectory.mockResolvedValue(mockRootHandle);
 
     vi.mocked(useFileSystem).mockReturnValue({
+      addRootDirectory: vi.fn().mockResolvedValue(mockRootHandle),
+      clearRootDirectory: vi.fn(),
+      isAccessLoading: false,
+      isFileSystemAccessSupported: vi.fn().mockReturnValue({ reason: '', supported: true }),
+      registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
+      removeRootDirectory: vi.fn().mockResolvedValue(null),
       rootDirectoryHandle: mockRootHandle,
       rootDirectoryHandles: [mockRootHandle],
       rootIdByPath: new Map(),
-      isAccessLoading: false,
-      addRootDirectory: vi.fn().mockResolvedValue(mockRootHandle),
-      registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
-      removeRootDirectory: vi.fn().mockResolvedValue(null),
       selectRootDirectory: mockSelectRootDirectory,
-      setFocusedRoot: vi.fn(),
-      isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-      clearRootDirectory: vi.fn(),
-      setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      setFocusedRoot: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
     });
 
     vi.mocked(useFileTree).mockReturnValue({
+      error: null,
       fileTree: initialFileTree,
       isLoading: false,
-      error: null,
+      loadingProgress: { loaded: 0, phase: 'loading', total: 0 },
       refreshTree: mockRefreshTree,
-      loadingProgress: { loaded: 0, total: 0, phase: 'loading' },
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({
-      fileContents: { [encodeFileSelection(mockRootHandle.path, '/file1.ts')]: 'content1' },
-      isLoading: false,
-      error: null,
-      handleFileContentLoading: mockHandleFileContentLoading,
       clearFileContents: mockClearFileContents,
+      error: null,
+      fileContents: { [encodeFileSelection(mockRootHandle.path, '/file1.ts')]: 'content1' },
+      handleFileContentLoading: mockHandleFileContentLoading,
+      isLoading: false,
     });
   });
 
@@ -176,19 +176,19 @@ describe('useFileExplorer', () => {
 
   it('should throw when refreshing without root directory', async () => {
     vi.mocked(useFileSystem).mockReturnValue({
+      addRootDirectory: vi.fn().mockResolvedValue(null),
+      clearRootDirectory: vi.fn(),
+      isAccessLoading: false,
+      isFileSystemAccessSupported: vi.fn().mockReturnValue({ reason: '', supported: true }),
+      registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
+      removeRootDirectory: vi.fn().mockResolvedValue(null),
       rootDirectoryHandle: null,
       rootDirectoryHandles: [],
       rootIdByPath: new Map(),
-      isAccessLoading: false,
-      addRootDirectory: vi.fn().mockResolvedValue(null),
-      registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
-      removeRootDirectory: vi.fn().mockResolvedValue(null),
       selectRootDirectory: mockSelectRootDirectory,
-      setFocusedRoot: vi.fn(),
-      isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-      clearRootDirectory: vi.fn(),
-      setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      setFocusedRoot: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
     });
 
     const { result } = renderHook(() => useFileExplorer());

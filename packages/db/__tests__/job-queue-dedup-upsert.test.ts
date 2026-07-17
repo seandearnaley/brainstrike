@@ -20,17 +20,17 @@ describe('JobQueue dedupe upsert semantics', () => {
     const earlier = new Date(now.getTime() - 60_000).toISOString();
 
     const first = await jq.enqueue({
-      queue: 'embeddings',
+      dedupeKey: 'D:1',
       jobType: 'embed_chunk',
       payload: { n: 1 },
-      dedupeKey: 'D:1',
+      queue: 'embeddings',
       runAt: later,
     });
     const second = await jq.enqueue({
-      queue: 'embeddings',
+      dedupeKey: 'D:1',
       jobType: 'embed_chunk',
       payload: { n: 2 },
-      dedupeKey: 'D:1',
+      queue: 'embeddings',
       runAt: earlier,
     });
 

@@ -10,28 +10,39 @@ import {
 import { Archive, Brain, ChevronDown, Download, FileDown } from 'lucide-react';
 import type { ExportButtonsProps } from '../types';
 
+interface ExportDropdownProps extends ExportButtonsProps {
+  collapseLabelAtNarrowWidth?: boolean;
+}
+
 export function ExportDropdown({
   counts,
   countsStatus = 'ready',
   exportHandlers,
-}: ExportButtonsProps) {
+  collapseLabelAtNarrowWidth = false,
+}: ExportDropdownProps) {
   const countsPending = countsStatus === 'pending';
   const hasFiles = counts.records > 0;
   const hasChunks = counts.chunks > 0;
   const hasEmbeddings = counts.embeddings > 0;
   const hasAnyData = hasFiles || hasChunks;
+  const triggerLabel = countsPending ? 'Export pending' : 'Export';
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          className="flex items-center gap-1.5"
+          aria-label={triggerLabel}
+          className={`flex h-8 items-center gap-1.5 ${
+            collapseLabelAtNarrowWidth ? '@[420px]:min-w-28 @[420px]:px-3 px-2' : ''
+          }`}
           disabled={countsPending || !hasAnyData}
           size="sm"
           variant="outline"
         >
           <FileDown className="h-3.5 w-3.5" />
-          {countsPending ? 'Export pending' : 'Export'}
+          <span className={collapseLabelAtNarrowWidth ? '@[420px]:inline hidden' : undefined}>
+            {triggerLabel}
+          </span>
           <ChevronDown className="h-3 w-3 opacity-50" />
         </Button>
       </DropdownMenuTrigger>

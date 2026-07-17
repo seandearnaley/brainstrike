@@ -449,8 +449,8 @@ describe('onStateChange callback', () => {
       'running',
       'idle',
       expect.objectContaining({
-        timestamp: expect.any(String),
         durationInPreviousStateMs: expect.any(Number),
+        timestamp: expect.any(String),
       })
     );
   });

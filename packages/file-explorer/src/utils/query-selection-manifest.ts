@@ -23,6 +23,13 @@ export function buildQuerySelectionFingerprint(args: {
   folderId: string;
   includeFilters: readonly string[];
   kind: SelectionQueryDescriptor['kind'];
+  /**
+   * Active quick-filter (search-box) string. Folded in so a manifest scanned
+   * under one quick filter is never reused under another — the recursive scan
+   * respects the quick filter, so its result set is quick-filter-specific.
+   * Absent/empty is normalized to '' (a stable, distinct-from-active value).
+   */
+  quickFilter?: string;
   rootPath: string | null;
   useRegex: boolean;
 }): string {
@@ -33,6 +40,7 @@ export function buildQuerySelectionFingerprint(args: {
     folderId: args.folderId,
     includeFilters: [...args.includeFilters].sort(defaultCollator.compare),
     kind: args.kind,
+    quickFilter: args.quickFilter ?? '',
     rootPath: args.rootPath,
     useRegex: args.useRegex,
   });
@@ -51,13 +59,13 @@ export function buildQuerySelectionManifest(args: {
   });
 
   return {
-    filePaths: normalizedPaths,
-    pathSet: new Set(normalizedPaths),
     directoryCounts,
+    errorMessage: null,
+    filePaths: normalizedPaths,
     fingerprint: args.fingerprint,
+    pathSet: new Set(normalizedPaths),
     snapshotId: args.snapshotId,
     status: args.status ?? 'ready',
-    errorMessage: null,
   };
 }
 
@@ -66,13 +74,13 @@ export function createLoadingQuerySelectionManifest(args: {
   snapshotId: string | null;
 }): QuerySelectionManifest {
   return {
-    filePaths: [],
-    pathSet: new Set<string>(),
     directoryCounts: new Map<string, number>(),
+    errorMessage: null,
+    filePaths: [],
     fingerprint: args.fingerprint,
+    pathSet: new Set<string>(),
     snapshotId: args.snapshotId,
     status: 'loading',
-    errorMessage: null,
   };
 }
 
@@ -82,13 +90,13 @@ export function createErroredQuerySelectionManifest(args: {
   snapshotId: string | null;
 }): QuerySelectionManifest {
   return {
-    filePaths: [],
-    pathSet: new Set<string>(),
     directoryCounts: new Map<string, number>(),
+    errorMessage: args.errorMessage,
+    filePaths: [],
     fingerprint: args.fingerprint,
+    pathSet: new Set<string>(),
     snapshotId: args.snapshotId,
     status: 'error',
-    errorMessage: args.errorMessage,
   };
 }
 
@@ -106,8 +114,8 @@ function buildResolvedQuerySelection(
   for (const filePath of manifest.filePaths) {
     if (excludedPaths.has(filePath)) {
       accumulateAncestorDirectoryCounts([filePath], {
-        counts: directoryCounts,
         cache: ancestorCache,
+        counts: directoryCounts,
         delta: -1,
         includeRoot: true,
       });
@@ -124,8 +132,8 @@ function buildResolvedQuerySelection(
     filePaths.push(filePath);
     pathSet.add(filePath);
     accumulateAncestorDirectoryCounts([filePath], {
-      counts: directoryCounts,
       cache: ancestorCache,
+      counts: directoryCounts,
       includeRoot: true,
     });
   }
@@ -133,9 +141,9 @@ function buildResolvedQuerySelection(
   filePaths.sort(defaultCollator.compare);
 
   return {
+    directoryCounts,
     filePaths,
     pathSet,
-    directoryCounts,
     selectedCount: filePaths.length,
   };
 }
@@ -146,16 +154,15 @@ export function resolveQuerySelection(
 ): ResolvedQuerySelection {
   if (!descriptor) {
     return {
+      directoryCounts: new Map<string, number>(),
       filePaths: [],
       pathSet: new Set<string>(),
-      directoryCounts: new Map<string, number>(),
       selectedCount: 0,
     };
   }
 
   if (
-    !manifest ||
-    manifest.status !== 'ready' ||
+    manifest?.status !== 'ready' ||
     manifest.fingerprint !== descriptor.manifestFingerprint ||
     manifest.snapshotId !== descriptor.manifestSnapshotId
   ) {
@@ -165,9 +172,9 @@ export function resolveQuerySelection(
       includeRoot: true,
     });
     return {
+      directoryCounts,
       filePaths: includedFilePaths,
       pathSet: new Set(includedFilePaths),
-      directoryCounts,
       selectedCount: descriptor.totalSelectedCount,
     };
   }

@@ -11,29 +11,29 @@ import {
 } from '../embedding-models';
 
 const baseModel: DbModel = {
-  id: 'jinaai/jina-embeddings-v3',
-  providerId: 'transformers',
-  name: 'Jina V3',
-  description: 'Code embeddings',
-  tagline: null,
   bestFor: ['code', 'default'],
+  capabilities: { defaultDimension: 768, type: 'embedding' },
+  description: 'Code embeddings',
   icon: null,
+  id: 'jinaai/jina-embeddings-v3',
   isEnabled: true,
-  capabilities: { type: 'embedding', defaultDimension: 768 },
-  parameters: { size: '~300MB', contextWindow: 8192 },
+  name: 'Jina V3',
+  parameters: { contextWindow: 8192, size: '~300MB' },
+  providerId: 'transformers',
   sortOrder: 1,
+  tagline: null,
 };
 
 function makeModel(overrides: Partial<DbModel> = {}): DbModel {
   return {
     ...baseModel,
     ...overrides,
+    bestFor: overrides.bestFor ?? baseModel.bestFor,
     capabilities: {
       ...baseModel.capabilities,
       ...(overrides.capabilities ?? {}),
     },
     parameters: overrides.parameters ?? baseModel.parameters,
-    bestFor: overrides.bestFor ?? baseModel.bestFor,
   };
 }
 
@@ -55,8 +55,8 @@ describe('embedding-models utilities', () => {
   it('maps DbModel to ModelConfig with metadata', () => {
     const model = makeModel({
       description: null,
+      parameters: { contextWindow: '4096', size: 256 },
       tagline: 'Fast embeddings',
-      parameters: { size: 256, contextWindow: '4096' },
     });
     const config = toEmbeddingModelConfig(model);
 
@@ -91,7 +91,7 @@ describe('embedding-models utilities', () => {
     const models = [
       makeModel({ id: 'local-2', providerId: 'local', sortOrder: 2 }),
       makeModel({ id: 'hosted', providerId: 'openai', sortOrder: 1 }),
-      makeModel({ id: 'llm', capabilities: { type: 'llm' }, sortOrder: 3 }),
+      makeModel({ capabilities: { type: 'llm' }, id: 'llm', sortOrder: 3 }),
       makeModel({ id: 'local-1', providerId: 'transformers', sortOrder: 0 }),
     ];
 
@@ -103,7 +103,7 @@ describe('embedding-models utilities', () => {
     const models = [
       makeModel({ id: 'local', providerId: 'local', sortOrder: 0 }),
       makeModel({ id: 'hosted', providerId: 'openai', sortOrder: 1 }),
-      makeModel({ id: 'disabled', providerId: 'local', isEnabled: false, sortOrder: 2 }),
+      makeModel({ id: 'disabled', isEnabled: false, providerId: 'local', sortOrder: 2 }),
     ];
 
     const map = buildLocalEmbeddingModelConfigMap(models);
@@ -115,8 +115,8 @@ describe('embedding-models utilities', () => {
   it('ignores malformed models when building local config map', () => {
     const malformed = {
       ...makeModel(),
-      id: 'broken',
       capabilities: undefined,
+      id: 'broken',
     } as unknown as DbModel;
     const valid = makeModel({ id: 'valid-local', providerId: 'local' });
 
@@ -129,7 +129,7 @@ describe('embedding-models utilities', () => {
 
   it('resolves hosted model info without local config', () => {
     const result = resolveEmbeddingSetModelInfo(
-      { modelKey: 'openai::text-embedding-3-small', dimensions: 1536 },
+      { dimensions: 1536, modelKey: 'openai::text-embedding-3-small' },
       new Map()
     );
 
@@ -142,7 +142,7 @@ describe('embedding-models utilities', () => {
     const model = makeModel({ id: 'local-embed', providerId: 'transformers' });
     const map = buildLocalEmbeddingModelConfigMap([model]);
 
-    const result = resolveEmbeddingSetModelInfo({ modelKey: 'local-embed', dimensions: 768 }, map);
+    const result = resolveEmbeddingSetModelInfo({ dimensions: 768, modelKey: 'local-embed' }, map);
 
     expect(result.modelKey).toBe('local-embed');
     expect(result.dimensions).toBe(768);
@@ -151,14 +151,14 @@ describe('embedding-models utilities', () => {
 
   it('throws when model key is missing or invalid', () => {
     const map = new Map();
-    expect(() => resolveEmbeddingSetModelInfo({ modelKey: '  ', dimensions: 768 }, map)).toThrow(
+    expect(() => resolveEmbeddingSetModelInfo({ dimensions: 768, modelKey: '  ' }, map)).toThrow(
       'Embedding set has invalid model key.'
     );
   });
 
   it('throws when dimensions are invalid', () => {
     const map = new Map();
-    expect(() => resolveEmbeddingSetModelInfo({ modelKey: 'local', dimensions: 0 }, map)).toThrow(
+    expect(() => resolveEmbeddingSetModelInfo({ dimensions: 0, modelKey: 'local' }, map)).toThrow(
       'Embedding set dimensions are missing or invalid.'
     );
   });
@@ -166,17 +166,17 @@ describe('embedding-models utilities', () => {
   it('throws when dimensions are NaN or infinite', () => {
     const map = new Map();
     expect(() =>
-      resolveEmbeddingSetModelInfo({ modelKey: 'local', dimensions: Number.NaN }, map)
+      resolveEmbeddingSetModelInfo({ dimensions: Number.NaN, modelKey: 'local' }, map)
     ).toThrow('Embedding set dimensions are missing or invalid.');
     expect(() =>
-      resolveEmbeddingSetModelInfo({ modelKey: 'local', dimensions: Number.POSITIVE_INFINITY }, map)
+      resolveEmbeddingSetModelInfo({ dimensions: Number.POSITIVE_INFINITY, modelKey: 'local' }, map)
     ).toThrow('Embedding set dimensions are missing or invalid.');
   });
 
   it('includes empty available list when no models are registered', () => {
     const map = new Map();
     expect(() =>
-      resolveEmbeddingSetModelInfo({ modelKey: 'missing', dimensions: 768 }, map)
+      resolveEmbeddingSetModelInfo({ dimensions: 768, modelKey: 'missing' }, map)
     ).toThrow(/Available models: none/iu);
   });
 
@@ -185,7 +185,7 @@ describe('embedding-models utilities', () => {
     const map = buildLocalEmbeddingModelConfigMap([model]);
 
     expect(() =>
-      resolveEmbeddingSetModelInfo({ modelKey: 'missing', dimensions: 768 }, map)
+      resolveEmbeddingSetModelInfo({ dimensions: 768, modelKey: 'missing' }, map)
     ).toThrow(/Available models: known/iu);
   });
 
@@ -194,13 +194,13 @@ describe('embedding-models utilities', () => {
     const map = buildLocalEmbeddingModelConfigMap([model]);
 
     expect(() =>
-      resolveEmbeddingSetModelInfo({ modelKey: 'local', dimensions: 1024 }, map)
+      resolveEmbeddingSetModelInfo({ dimensions: 1024, modelKey: 'local' }, map)
     ).toThrow(/Embedding set dimensions \(1024\) do not match registry \(768\)/u);
   });
 
   it('accepts legacy hosted model keys', () => {
     const result = resolveEmbeddingSetModelInfo(
-      { modelKey: 'openai:text-embedding-3-small', dimensions: 1536 },
+      { dimensions: 1536, modelKey: 'openai:text-embedding-3-small' },
       new Map()
     );
 

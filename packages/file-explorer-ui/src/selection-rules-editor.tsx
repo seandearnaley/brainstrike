@@ -54,9 +54,9 @@ function stringsToPatternInputs(strings: string[]): PatternInput[] {
 
 /** Empty result for parseExistingRules */
 const EMPTY_PARSED_RULES = {
-  includePatterns: [] as PatternInput[],
   excludePatterns: [] as PatternInput[],
   excludeRoots: [] as PatternInput[],
+  includePatterns: [] as PatternInput[],
 };
 
 /** Parse existing rules from JSON to extract patterns */
@@ -83,7 +83,7 @@ function parseExistingRules(ruleSetJson: string | null): {
       enabledRules.filter((r) => r.type === 'root-exclude').flatMap((r) => r.roots)
     );
 
-    return { includePatterns, excludePatterns, excludeRoots };
+    return { excludePatterns, excludeRoots, includePatterns };
   } catch {
     return EMPTY_PARSED_RULES;
   }
@@ -106,13 +106,13 @@ function buildRuleSet(
 
   if (validIncludePatterns.length > 0) {
     const includeRule: GlobIncludeRule = {
-      id: generateUUID(),
-      type: 'glob-include',
-      patterns: validIncludePatterns,
-      label: 'Include patterns',
-      enabled: true,
       createdAt: now,
+      enabled: true,
+      id: generateUUID(),
+      label: 'Include patterns',
+      patterns: validIncludePatterns,
       priority: 0,
+      type: 'glob-include',
     };
     rules.push(includeRule);
   }
@@ -122,13 +122,13 @@ function buildRuleSet(
 
   if (validExcludeRoots.length > 0) {
     const rootExcludeRule: RootExcludeRule = {
-      id: generateUUID(),
-      type: 'root-exclude',
-      roots: validExcludeRoots,
-      label: 'Exclude directories',
-      enabled: true,
       createdAt: now,
+      enabled: true,
+      id: generateUUID(),
+      label: 'Exclude directories',
       priority: 0,
+      roots: validExcludeRoots,
+      type: 'root-exclude',
     };
     rules.push(rootExcludeRule);
   }
@@ -140,30 +140,40 @@ function buildRuleSet(
 
   if (validExcludePatterns.length > 0) {
     const excludeRule: GlobExcludeRule = {
-      id: generateUUID(),
-      type: 'glob-exclude',
-      patterns: validExcludePatterns,
-      label: 'Exclude patterns',
-      enabled: true,
       createdAt: now,
+      enabled: true,
+      id: generateUUID(),
+      label: 'Exclude patterns',
+      patterns: validExcludePatterns,
       priority: 0,
+      type: 'glob-exclude',
     };
     rules.push(excludeRule);
   }
 
   return {
-    version: SELECTION_RULES_SCHEMA_VERSION,
     folderId,
-    rules,
     metadata: {
       createdAt: now,
       updatedAt: now,
     },
+    rules,
+    version: SELECTION_RULES_SCHEMA_VERSION,
   };
 }
 
 /** Inner dialog content - render only, no hooks */
-const RulesEditorContent: React.FC<{
+const RulesEditorContent = ({
+  includePatterns,
+  excludePatterns,
+  excludeRoots,
+  onIncludePatternsChange,
+  onExcludePatternsChange,
+  onExcludeRootsChange,
+  onApply,
+  onCancel,
+  onApplyDefaults,
+}: {
   folderId: string;
   includePatterns: PatternInput[];
   excludePatterns: PatternInput[];
@@ -174,16 +184,6 @@ const RulesEditorContent: React.FC<{
   onApply: () => void;
   onCancel: () => void;
   onApplyDefaults: () => void;
-}> = ({
-  includePatterns,
-  excludePatterns,
-  excludeRoots,
-  onIncludePatternsChange,
-  onExcludePatternsChange,
-  onExcludeRootsChange,
-  onApply,
-  onCancel,
-  onApplyDefaults,
 }) => {
   const addIncludePattern = () => {
     onIncludePatternsChange([...includePatterns, { id: generateUUID(), pattern: '' }]);
@@ -459,13 +459,19 @@ const RulesEditorContent: React.FC<{
 };
 
 /** Stateful container - isolates hooks from compiled content */
-const RulesEditorContainer: React.FC<{
+const RulesEditorContainer = ({
+  isOpen,
+  onOpenChange,
+  folderId,
+  existingRuleSetJson,
+  onSave,
+}: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   folderId: string;
   existingRuleSetJson: string | null;
   onSave: (ruleSetJson: string) => void;
-}> = ({ isOpen, onOpenChange, folderId, existingRuleSetJson, onSave }) => {
+}) => {
   // Parse existing rules when dialog opens
   const initialState = useMemo(
     () => parseExistingRules(existingRuleSetJson),

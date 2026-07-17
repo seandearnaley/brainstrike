@@ -24,8 +24,8 @@ class SlowEmbeddingService implements EmbeddingService {
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     await new Promise((resolve) => setTimeout(resolve, 600)); // > 500ms heartbeat
     return {
-      embedding: new Array(768).fill(0.1),
       dimensions: 768,
+      embedding: new Array(768).fill(0.1),
       model: 'slow-model',
       usage: { totalTokens: 10 },
     };
@@ -47,7 +47,7 @@ class SlowEmbeddingService implements EmbeddingService {
     }) => Promise<void> | void
   ): Promise<void> {
     const results = await this.generateEmbeddings(texts);
-    await onBatch({ startIndex: 0, endIndex: results.length, results });
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
@@ -56,7 +56,7 @@ class SlowEmbeddingService implements EmbeddingService {
     return this.generateEmbedding(text);
   }
   calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-    return { similarity: 1, distance: 0, method: 'cosine' };
+    return { distance: 0, method: 'cosine', similarity: 1 };
   }
   getStatus(): EmbeddingStatus {
     return this.status;
@@ -114,17 +114,21 @@ describe('embedding-worker: heartbeat error logging', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
           expectedDimension: 768,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
         }),
         now,
       ]
     );
 
-    // Wrap db to throw on heartbeat updates
+    // Wrap db to throw on heartbeat lease-extension updates. The worker uses
+    // JobQueue.heartbeatBatch, whose SQL is `UPDATE job_queue AS j SET
+    // leased_until = $1, ...` — matching the lease-extension SET clause (which
+    // only the heartbeat statements lead with) is robust to that `AS j` alias,
+    // whereas the old `UPDATE job_queue SET leased_until` literal no longer hit.
     const throwingDb: IDatabase = {
       query: async (sql: string, params?: unknown[]) => {
-        if (sql.includes('UPDATE job_queue SET leased_until')) {
+        if (sql.includes('SET leased_until = $1')) {
           throw new Error('Simulated heartbeat failure');
         }
         return (db as unknown as IDatabase).query(sql, params);
@@ -133,13 +137,13 @@ describe('embedding-worker: heartbeat error logging', () => {
 
     const logs: Array<{ msg: string; meta?: unknown }> = [];
     const controller = await startEmbeddingWorker({
-      db: throwingDb,
       concurrency: 1,
-      leaseMs: 100,
+      db: throwingDb,
       heartbeatIntervalMs: 5,
+      leaseMs: 100,
+      log: (msg, meta) => logs.push({ meta, msg }),
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new SlowEmbeddingService(),
-      log: (msg, meta) => logs.push({ msg, meta }),
     });
 
     // Wait until job completes and ensure heartbeat error was logged at least once

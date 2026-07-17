@@ -18,89 +18,89 @@ beforeAll(() => {
 });
 
 const providers: DbProvider[] = [
-  { id: 'local', name: 'Local', icon: null, isEnabled: true, sortOrder: 0 },
-  { id: 'transformers', name: 'Transformers', icon: null, isEnabled: true, sortOrder: 1 },
-  { id: 'openai', name: 'OpenAI', icon: null, isEnabled: true, sortOrder: 2 },
+  { icon: null, id: 'local', isEnabled: true, name: 'Local', sortOrder: 0 },
+  { icon: null, id: 'transformers', isEnabled: true, name: 'Transformers', sortOrder: 1 },
+  { icon: null, id: 'openai', isEnabled: true, name: 'OpenAI', sortOrder: 2 },
 ];
 
 const baseModels: DbModel[] = [
   {
-    id: 'local-ready',
-    providerId: 'local',
-    name: 'Local Ready',
+    bestFor: null,
+    capabilities: { streaming: false, type: 'embedding' },
     description: 'Local embedding model',
-    tagline: null,
-    bestFor: null,
     icon: null,
+    id: 'local-ready',
     isEnabled: true,
-    capabilities: { type: 'embedding', streaming: false },
+    name: 'Local Ready',
     parameters: null,
-    sortOrder: 0,
-  },
-  {
-    id: 'local-downloading',
     providerId: 'local',
-    name: 'Local Downloading',
+    sortOrder: 0,
+    tagline: null,
+  },
+  {
+    bestFor: null,
+    capabilities: { streaming: false, type: 'embedding' },
     description: 'Downloading',
-    tagline: null,
-    bestFor: null,
     icon: null,
+    id: 'local-downloading',
     isEnabled: false,
-    capabilities: { type: 'embedding', streaming: false },
+    name: 'Local Downloading',
     parameters: null,
+    providerId: 'local',
     sortOrder: 1,
+    tagline: null,
   },
   {
-    id: 'transformers-stream',
-    providerId: 'transformers',
-    name: 'HF Stream Model',
+    bestFor: null,
+    capabilities: { streaming: true, type: 'embedding' },
     description: 'HF embeddings',
-    tagline: null,
-    bestFor: null,
     icon: null,
+    id: 'transformers-stream',
     isEnabled: false,
-    capabilities: { type: 'embedding', streaming: true },
+    name: 'HF Stream Model',
     parameters: null,
+    providerId: 'transformers',
     sortOrder: 2,
+    tagline: null,
   },
   {
-    id: 'gpt-5.2',
-    providerId: 'openai',
-    name: 'GPT-5.2',
+    bestFor: null,
+    capabilities: { streaming: false, type: 'llm' },
     description: 'Chat model',
-    tagline: null,
-    bestFor: null,
     icon: null,
+    id: 'gpt-5.2',
     isEnabled: false,
-    capabilities: { type: 'llm', streaming: false },
+    name: 'GPT-5.2',
     parameters: null,
-    sortOrder: 3,
-  },
-  {
-    id: 'text-embed',
     providerId: 'openai',
-    name: 'OpenAI Embed',
-    description: 'Remote embedding model',
-    tagline: null,
-    bestFor: null,
-    icon: null,
-    isEnabled: false,
-    capabilities: { type: 'embedding', streaming: false },
-    parameters: null,
     sortOrder: 3,
+    tagline: null,
   },
   {
-    id: 'mystery-model',
-    providerId: 'missing-provider',
-    name: 'Mystery Model',
-    description: 'Unknown provider model',
-    tagline: null,
     bestFor: null,
+    capabilities: { streaming: false, type: 'embedding' },
+    description: 'Remote embedding model',
     icon: null,
+    id: 'text-embed',
     isEnabled: false,
-    capabilities: { type: 'llm', streaming: false },
+    name: 'OpenAI Embed',
     parameters: null,
+    providerId: 'openai',
+    sortOrder: 3,
+    tagline: null,
+  },
+  {
+    bestFor: null,
+    capabilities: { streaming: false, type: 'llm' },
+    description: 'Unknown provider model',
+    icon: null,
+    id: 'mystery-model',
+    isEnabled: false,
+    name: 'Mystery Model',
+    parameters: null,
+    providerId: 'missing-provider',
     sortOrder: 4,
+    tagline: null,
   },
 ];
 
@@ -109,22 +109,22 @@ const makeProps = () => {
   const onDownload = vi.fn();
 
   return {
-    models: baseModels,
-    providers,
-    onToggle,
-    onDownload,
-    isDownloading: {
-      'local-downloading': true,
+    downloadedModels: {
+      'transformers-stream': true,
     },
     downloadProgress: {
       'local-downloading': 25,
     },
-    downloadedModels: {
-      'transformers-stream': true,
+    isDownloading: {
+      'local-downloading': true,
     },
     modelCacheDir: '/models',
-    onToggleSpy: onToggle,
+    models: baseModels,
+    onDownload,
     onDownloadSpy: onDownload,
+    onToggle,
+    onToggleSpy: onToggle,
+    providers,
   } as const;
 };
 
@@ -137,6 +137,12 @@ describe('ModelList', () => {
     expect(screen.getByText('Unknown Provider')).toBeTruthy();
 
     const searchInput = screen.getByPlaceholderText('Search models, providers, or tags');
+    expect(searchInput.className).toContain('pl-10');
+    expect(searchInput.style.paddingLeft).toBe('2.5rem');
+    expect(
+      searchInput.parentElement?.querySelector<HTMLElement>('[data-slot="settings-search-icon"]')
+        ?.style.left
+    ).toBe('0.75rem');
     await userEvent.clear(searchInput);
     await userEvent.type(searchInput, 'gpt');
 

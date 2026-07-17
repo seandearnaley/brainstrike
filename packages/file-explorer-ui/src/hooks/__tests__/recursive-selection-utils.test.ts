@@ -101,31 +101,31 @@ describe('recursive-selection-utils', () => {
 
   it('builds a stable query selection descriptor copy', () => {
     const descriptor = buildQuerySelectionDescriptor({
-      kind: 'recursive-select-all',
-      folderId: 'root',
-      rootPath: '/src',
       coveredDirectoryPaths: ['/src'],
-      includeFilters: ['**/*.ts'],
-      excludeFilters: ['**/*.test.ts'],
-      includedPaths: ['/src/manual.ts'],
       excludedPaths: ['/src/skip.ts'],
+      excludeFilters: ['**/*.test.ts'],
+      folderId: 'root',
+      includedPaths: ['/src/manual.ts'],
+      includeFilters: ['**/*.ts'],
+      kind: 'recursive-select-all',
       manifestFingerprint: 'fp',
       manifestSnapshotId: 'snapshot',
+      rootPath: '/src',
       totalSelectedCount: 2,
       useRegex: false,
     });
 
     expect(descriptor).toEqual({
-      kind: 'recursive-select-all',
-      folderId: 'root',
-      rootPath: '/src',
       coveredDirectoryPaths: ['/src'],
-      includeFilters: ['**/*.ts'],
-      excludeFilters: ['**/*.test.ts'],
-      includedPaths: ['/src/manual.ts'],
       excludedPaths: ['/src/skip.ts'],
+      excludeFilters: ['**/*.test.ts'],
+      folderId: 'root',
+      includedPaths: ['/src/manual.ts'],
+      includeFilters: ['**/*.ts'],
+      kind: 'recursive-select-all',
       manifestFingerprint: 'fp',
       manifestSnapshotId: 'snapshot',
+      rootPath: '/src',
       totalSelectedCount: 2,
       useRegex: false,
     });

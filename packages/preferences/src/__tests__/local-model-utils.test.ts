@@ -15,17 +15,17 @@ describe('local-model-utils', () => {
   it('detects enabled local llm models safely', () => {
     expect(
       isEnabledLocalLlmModel({
-        providerId: 'local',
-        isEnabled: true,
         capabilities: { type: 'llm' },
+        isEnabled: true,
+        providerId: 'local',
       })
     ).toBe(true);
 
     expect(
       isEnabledLocalLlmModel({
-        providerId: 'local',
-        isEnabled: true,
         capabilities: null,
+        isEnabled: true,
+        providerId: 'local',
       })
     ).toBe(false);
   });
@@ -34,14 +34,14 @@ describe('local-model-utils', () => {
     expect(
       hasEnabledLocalLlmModels([
         {
-          providerId: 'openai',
-          isEnabled: true,
           capabilities: { type: 'llm' },
+          isEnabled: true,
+          providerId: 'openai',
         },
         {
-          providerId: 'transformers',
-          isEnabled: true,
           capabilities: { type: 'llm' },
+          isEnabled: true,
+          providerId: 'transformers',
         },
       ])
     ).toBe(true);
@@ -49,9 +49,9 @@ describe('local-model-utils', () => {
     expect(
       hasEnabledLocalLlmModels([
         {
-          providerId: 'transformers',
-          isEnabled: true,
           capabilities: null,
+          isEnabled: true,
+          providerId: 'transformers',
         },
       ])
     ).toBe(false);

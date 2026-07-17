@@ -5,10 +5,10 @@ import { fileFilter } from '../path-filter';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
-  warn: vi.fn(),
-  info: vi.fn(),
-  error: vi.fn(),
   debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils/logger', () => ({
@@ -28,6 +28,8 @@ describe('fileFilter', () => {
         'build/index.html',
         'some/path/.DS_Store',
         'project/.pnpm-store/v10/files/0e',
+        '.turbo/cache/0be49de8c2ded0e8.tar.zst',
+        'project/.turbo/daemon/log.txt',
       ];
 
       for (const path of patterns) {
@@ -44,6 +46,7 @@ describe('fileFilter', () => {
         'build\\index.html',
         'some\\path\\.DS_Store',
         'project\\.pnpm-store\\v10\\files\\0e',
+        'project\\.turbo\\cache\\0be49de8c2ded0e8.tar.zst',
       ];
 
       for (const path of patterns) {
@@ -99,10 +102,10 @@ describe('fileFilter', () => {
   describe('matchWildcard', () => {
     it('should match strings against wildcard patterns', () => {
       const matches = [
-        { str: 'file.js', pattern: '*.js' },
-        { str: 'src/file.js', pattern: 'src/*.js' },
-        { str: 'src/components/Button.tsx', pattern: '**/*.tsx' },
-        { str: '.gitignore', pattern: '.*' },
+        { pattern: '*.js', str: 'file.js' },
+        { pattern: 'src/*.js', str: 'src/file.js' },
+        { pattern: '**/*.tsx', str: 'src/components/Button.tsx' },
+        { pattern: '.*', str: '.gitignore' },
       ];
 
       for (const { str, pattern } of matches) {
@@ -112,9 +115,9 @@ describe('fileFilter', () => {
 
     it("should not match strings that don't fit the pattern", () => {
       const nonMatches = [
-        { str: 'file.css', pattern: '*.js' },
-        { str: 'src/file.js', pattern: 'components/*.js' },
-        { str: 'src/Button.js', pattern: 'src/*.tsx' },
+        { pattern: '*.js', str: 'file.css' },
+        { pattern: 'components/*.js', str: 'src/file.js' },
+        { pattern: 'src/*.tsx', str: 'src/Button.js' },
       ];
 
       for (const { str, pattern } of nonMatches) {
@@ -162,9 +165,9 @@ describe('fileFilter', () => {
   describe('matchRegex', () => {
     it('should match strings against regex patterns', () => {
       const matches = [
-        { str: 'file.js', pattern: '\\.js$' },
-        { str: 'src/file.jsx', pattern: '\\.(js|jsx)$' },
-        { str: 'Button.tsx', pattern: '^[A-Z][a-z]+\\.(ts|tsx)$' },
+        { pattern: '\\.js$', str: 'file.js' },
+        { pattern: '\\.(js|jsx)$', str: 'src/file.jsx' },
+        { pattern: '^[A-Z][a-z]+\\.(ts|tsx)$', str: 'Button.tsx' },
       ];
 
       for (const { str, pattern } of matches) {
@@ -174,9 +177,9 @@ describe('fileFilter', () => {
 
     it("should not match strings that don't fit the pattern", () => {
       const nonMatches = [
-        { str: 'file.css', pattern: '\\.js$' },
-        { str: 'button.tsx', pattern: '^[A-Z][a-z]+\\.tsx$' },
-        { str: 'src/index.ts', pattern: '\\.js$' },
+        { pattern: '\\.js$', str: 'file.css' },
+        { pattern: '^[A-Z][a-z]+\\.tsx$', str: 'button.tsx' },
+        { pattern: '\\.js$', str: 'src/index.ts' },
       ];
 
       for (const { str, pattern } of nonMatches) {
@@ -279,8 +282,8 @@ describe('fileFilter', () => {
       });
 
       const options: FileFilterOptions = {
-        includeFilters: [],
         excludeFilters: [],
+        includeFilters: [],
         useRegex: false,
       };
 
@@ -296,8 +299,8 @@ describe('fileFilter', () => {
       });
 
       const options: FileFilterOptions = {
-        includeFilters: [],
         excludeFilters: [],
+        includeFilters: [],
         useRegex: false,
       };
 
@@ -314,8 +317,8 @@ describe('fileFilter', () => {
       });
 
       const options: FileFilterOptions = {
-        includeFilters: [], // Empty includes means don't filter inclusively
         excludeFilters: [],
+        includeFilters: [], // Empty includes means don't filter inclusively
         useRegex: false,
       };
 
@@ -331,8 +334,8 @@ describe('fileFilter', () => {
       });
 
       const options: FileFilterOptions = {
-        includeFilters: [],
         excludeFilters: ['*.js'],
+        includeFilters: [],
         useRegex: false,
       };
 
@@ -349,8 +352,8 @@ describe('fileFilter', () => {
       });
 
       const options: FileFilterOptions = {
-        includeFilters: [],
         excludeFilters: ['**/*.js'],
+        includeFilters: [],
         useRegex: false,
       };
 
@@ -366,8 +369,8 @@ describe('fileFilter', () => {
       });
 
       const options: FileFilterOptions = {
-        includeFilters: ['\\.tsx$'],
         excludeFilters: [],
+        includeFilters: ['\\.tsx$'],
         useRegex: true,
       };
 
@@ -383,8 +386,8 @@ describe('fileFilter', () => {
       });
 
       const options: FileFilterOptions = {
-        includeFilters: [], // Empty includes means include everything
         excludeFilters: [], // Empty excludes means exclude nothing
+        includeFilters: [], // Empty includes means include everything
         useRegex: false,
       };
 
@@ -400,8 +403,8 @@ describe('fileFilter', () => {
       });
 
       const options: FileFilterOptions = {
-        includeFilters: ['*.ts'],
         excludeFilters: [],
+        includeFilters: ['*.ts'],
         useRegex: false,
       };
 
@@ -414,15 +417,15 @@ describe('fileFilter', () => {
       const jsFile = createFileNode({ name: 'app.js', path: '/root/app.js' });
 
       const root = createDirectoryNode({
+        children: [jsFile],
         name: 'root',
         path: '/root',
-        children: [jsFile],
       });
 
       // Use empty filters to ensure no filtering happens
       const options: FileFilterOptions = {
-        includeFilters: [],
         excludeFilters: [],
+        includeFilters: [],
         useRegex: false,
       };
 
@@ -439,19 +442,19 @@ describe('fileFilter', () => {
     it("should include directories with matching children even if the directory doesn't match include filters", () => {
       const jsFile = createFileNode({ name: 'app.js', path: '/root/sub/app.js' });
       const sub = createDirectoryNode({
+        children: [jsFile],
         name: 'sub',
         path: '/root/sub',
-        children: [jsFile],
       });
       const root = createDirectoryNode({
+        children: [sub],
         name: 'root',
         path: '/root',
-        children: [sub],
       });
 
       const options: FileFilterOptions = {
-        includeFilters: ['**/*.js'],
         excludeFilters: [],
+        includeFilters: ['**/*.js'],
         useRegex: false,
       };
 
@@ -473,14 +476,14 @@ describe('fileFilter', () => {
     // NEW: Test directory that matches include filters but has no valid children
     it('should include empty directories that match include filters', () => {
       const emptyDir = createDirectoryNode({
+        children: [],
         name: 'src',
         path: '/src',
-        children: [],
       });
 
       const options: FileFilterOptions = {
-        includeFilters: ['**/src'],
         excludeFilters: [],
+        includeFilters: ['**/src'],
         useRegex: false,
       };
 
@@ -493,14 +496,14 @@ describe('fileFilter', () => {
     it('should exclude directories that do not match include filters and have no matching children', () => {
       const ignoredFile = createFileNode({ name: 'temp.tmp', path: '/cache/temp.tmp' });
       const cacheDir = createDirectoryNode({
+        children: [ignoredFile],
         name: 'cache',
         path: '/cache',
-        children: [ignoredFile],
       });
 
       const options: FileFilterOptions = {
-        includeFilters: ['**/*.js', '**/*.ts'],
         excludeFilters: [],
+        includeFilters: ['**/*.js', '**/*.ts'],
         useRegex: false,
       };
 
@@ -513,14 +516,14 @@ describe('fileFilter', () => {
       const jsFile = createFileNode({ name: 'app.js', path: '/src/app.js' });
       const cssFile = createFileNode({ name: 'style.css', path: '/src/style.css' });
       const srcDir = createDirectoryNode({
+        children: [jsFile, cssFile],
         name: 'src',
         path: '/src',
-        children: [jsFile, cssFile],
       });
 
       const options: FileFilterOptions = {
-        includeFilters: ['**/*.js'],
         excludeFilters: [],
+        includeFilters: ['**/*.js'],
         useRegex: false,
       };
 
@@ -534,14 +537,14 @@ describe('fileFilter', () => {
     it('should return the same node reference when no children are filtered (structural sharing)', () => {
       const child = createFileNode({ name: 'app.js', path: '/root/app.js' });
       const root = createDirectoryNode({
+        children: [child],
         name: 'root',
         path: '/root',
-        children: [child],
       });
 
       const options: FileFilterOptions = {
-        includeFilters: [],
         excludeFilters: [],
+        includeFilters: [],
         useRegex: false,
       };
 
@@ -553,14 +556,14 @@ describe('fileFilter', () => {
       const jsFile = createFileNode({ name: 'app.js', path: '/root/app.js' });
       const cssFile = createFileNode({ name: 'style.css', path: '/root/style.css' });
       const root = createDirectoryNode({
+        children: [jsFile, cssFile],
         name: 'root',
         path: '/root',
-        children: [jsFile, cssFile],
       });
 
       const options: FileFilterOptions = {
-        includeFilters: ['**/*.js'],
         excludeFilters: [],
+        includeFilters: ['**/*.js'],
         useRegex: false,
       };
 
@@ -572,12 +575,12 @@ describe('fileFilter', () => {
 
     it('should preserve references through nested unchanged directories', () => {
       const file = createFileNode({ name: 'app.js', path: '/root/sub/app.js' });
-      const sub = createDirectoryNode({ name: 'sub', path: '/root/sub', children: [file] });
-      const root = createDirectoryNode({ name: 'root', path: '/root', children: [sub] });
+      const sub = createDirectoryNode({ children: [file], name: 'sub', path: '/root/sub' });
+      const root = createDirectoryNode({ children: [sub], name: 'root', path: '/root' });
 
       const options: FileFilterOptions = {
-        includeFilters: [],
         excludeFilters: [],
+        includeFilters: [],
         useRegex: false,
       };
 
@@ -595,8 +598,8 @@ describe('fileFilter', () => {
       });
 
       const options: FileFilterOptions = {
-        includeFilters: [],
         excludeFilters: [],
+        includeFilters: [],
         useRegex: false,
       };
 

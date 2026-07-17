@@ -58,8 +58,8 @@ export async function readFullTree(
   sortFileNodes: (nodes: IFileNode[]) => IFileNode[] = (nodes) => nodes
 ): Promise<IFileNode[]> {
   const options: ParallelWalkerOptions = {
-    concurrency: 10, // Default concurrency
     abortSignal,
+    concurrency: 10, // Default concurrency
     onProgress: updateProgress,
     sortFileNodes,
   };
@@ -92,14 +92,14 @@ export async function readFullTreeWithOptions(
   } = options;
 
   return walkDirectoryParallel(fileSystemAdapter, rootHandle, {
-    concurrency,
     abortSignal,
+    concurrency,
     entryPolicy,
     onEntrySkipped,
-    propagateDirectoryReadErrors,
     onProgress: updateProgress,
-    sortFileNodes,
     onTreeSnapshot,
+    propagateDirectoryReadErrors,
     snapshotIntervalMs,
+    sortFileNodes,
   });
 }

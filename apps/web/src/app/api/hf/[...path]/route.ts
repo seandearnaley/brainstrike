@@ -82,8 +82,12 @@ function buildProxyResponseHeaders(upstream: Response): Headers {
       headers.set(headerName, value);
     }
   }
+  if (!upstream.ok && upstream.status !== 304) {
+    headers.set('cache-control', 'no-store');
+    return headers;
+  }
   if (!headers.has('cache-control')) {
-    headers.set('cache-control', upstream.ok ? 'public, max-age=31536000, immutable' : 'no-store');
+    headers.set('cache-control', 'public, max-age=31536000, immutable');
   }
   return headers;
 }
@@ -122,22 +126,22 @@ function isTrustedSameOriginRequest(request: Request): boolean {
 
 function createUnsupportedPathResponse(): Response {
   return new Response('Unsupported Hugging Face model path.', {
-    status: 403,
     headers: {
       'cache-control': 'no-store',
       'content-type': 'text/plain; charset=utf-8',
     },
+    status: 403,
   });
 }
 
 function createForbiddenProxyResponse(): Response {
   return new Response('Forbidden Hugging Face proxy request.', {
-    status: 403,
     headers: {
       'cache-control': 'no-store',
       'content-type': 'text/plain; charset=utf-8',
       'x-brainstrike-proxy-rejection': 'origin',
     },
+    status: 403,
   });
 }
 
@@ -178,11 +182,11 @@ async function proxyRequest(request: Request, pathSegments: string[]): Promise<R
       path: pathSegments.join('/'),
     });
     return new Response('Failed to reach Hugging Face upstream.', {
-      status: 502,
       headers: {
         'cache-control': 'no-store',
         'content-type': 'text/plain; charset=utf-8',
       },
+      status: 502,
     });
   }
 

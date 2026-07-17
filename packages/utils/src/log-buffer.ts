@@ -57,11 +57,11 @@ export class LogBuffer {
     // Optionally log how many were skipped
     if (this.skippedWhilePaused > 0) {
       this.records.push({
-        level: 'info' as LogRecord['level'],
-        timestamp: Date.now(),
-        message: `[LogBuffer] Resumed after skipping ${this.skippedWhilePaused} records during bulk operation`,
         args: [],
         bindings: {},
+        level: 'info' as LogRecord['level'],
+        message: `[LogBuffer] Resumed after skipping ${this.skippedWhilePaused} records during bulk operation`,
+        timestamp: Date.now(),
       });
       if (this.records.length > this.maxSize) {
         this.records.shift();
@@ -182,7 +182,7 @@ export class LogBuffer {
     if (this.maxArgSize === 0) {
       // No size limit - do a full clone
       try {
-        return JSON.parse(JSON.stringify(arg));
+        return structuredClone(arg);
       } catch {
         return String(arg);
       }
@@ -211,7 +211,7 @@ export class LogBuffer {
   ): { value: unknown; oversized: boolean } {
     const ctx = { currentSize: 0, maxSize };
     const clonedValue = this.cloneValue(arg, ctx);
-    return { value: clonedValue, oversized: ctx.currentSize > maxSize };
+    return { oversized: ctx.currentSize > maxSize, value: clonedValue };
   }
 
   /**

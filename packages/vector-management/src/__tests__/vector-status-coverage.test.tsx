@@ -13,17 +13,20 @@ interface MockDb {
 
 let mockDb: MockDb | null = { query: vi.fn() };
 let mockChunkRepository: object | null = {
-  getCoverageForSet: vi.fn().mockResolvedValue({ totalChunks: 10, chunksWithEmbeddingsForSet: 5 }),
   clearEmbeddingsForSet: vi.fn().mockResolvedValue(0),
+  getCoverageForSet: vi.fn().mockResolvedValue({ chunksWithEmbeddingsForSet: 5, totalChunks: 10 }),
 };
 let mockActiveId: string | null = 'set-1';
 const mockSetActiveId = vi.fn();
 const mockToast = vi.fn();
 
 const mockWorkerControls = {
-  workerLocalRunning: false,
+  resetWorker: vi.fn().mockResolvedValue(undefined),
   startingWorker: false,
+  startWorker: vi.fn().mockResolvedValue(undefined),
   startWorkerError: null as string | null,
+  stopWorker: vi.fn().mockResolvedValue(undefined),
+  workerLocalRunning: false,
   workerStatus: null as null | {
     active: boolean;
     embeddingRuntime?: {
@@ -40,48 +43,45 @@ const mockWorkerControls = {
     runtimeKind: 'embedding-host' | 'embedding-worker';
     state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
   },
-  startWorker: vi.fn().mockResolvedValue(undefined),
-  stopWorker: vi.fn().mockResolvedValue(undefined),
-  resetWorker: vi.fn().mockResolvedValue(undefined),
 };
 
 const mockQueueState = {
+  backfillActiveSet: vi.fn().mockResolvedValue(undefined),
   backfilling: false,
   backfillProgress: null as { done: number; total: number } | null,
+  clearQueue: vi.fn().mockResolvedValue(undefined),
   coverage: { total: 10, withSet: 5 },
-  queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-  throughput: 0,
-  recentErrorCount: 0,
+  lastError: null as string | null,
   latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+  queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+  recentErrorCount: 0,
+  retryFailed: vi.fn().mockResolvedValue(undefined),
   telemetryTrend: [] as Array<{
     throughput: number;
     latencyP95: number;
     errorCount: number;
     timestamp: number;
   }>,
-  lastError: null as string | null,
-  backfillActiveSet: vi.fn().mockResolvedValue(undefined),
-  retryFailed: vi.fn().mockResolvedValue(undefined),
-  clearQueue: vi.fn().mockResolvedValue(undefined),
-  wipeQueue: vi.fn().mockResolvedValue(undefined),
+  throughput: 0,
   validateApiKey: vi.fn().mockResolvedValue({ valid: true }),
+  wipeQueue: vi.fn().mockResolvedValue(undefined),
 };
 
 function createMockVectorQueueService(): VectorQueueService {
   return {
     backfill: vi.fn(async () => ({
+      failed: 0,
       queued: 0,
       running: 0,
-      failed: 0,
       succeeded: 0,
     })),
     clearQueue: vi.fn(async () => undefined),
     reembedSet: vi.fn(async () => ({
       clearedCount: 0,
       queueCounts: {
+        failed: 0,
         queued: 0,
         running: 0,
-        failed: 0,
         succeeded: 0,
       },
     })),
@@ -89,7 +89,7 @@ function createMockVectorQueueService(): VectorQueueService {
       coverage: null,
       lastError: null,
       latency: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
-      queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+      queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
       throughput: 0,
     })),
     retryFailed: vi.fn(async () => undefined),
@@ -107,11 +107,6 @@ vi.mock('@brainstrike/ui', async () => {
     Badge: ({ children, variant }: { children: React.ReactNode; variant?: string }) => (
       <span data-variant={variant}>{children}</span>
     ),
-    Card: ({ children }: { children: React.ReactNode }) => <div data-testid="card">{children}</div>,
-    CardHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    CardTitle: ({ children }: { children: React.ReactNode }) => <h3>{children}</h3>,
-    CardContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    Label: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
     Button: ({
       children,
       onClick,
@@ -129,6 +124,11 @@ vi.mock('@brainstrike/ui', async () => {
         {children}
       </button>
     ),
+    Card: ({ children }: { children: React.ReactNode }) => <div data-testid="card">{children}</div>,
+    CardContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    CardHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    CardTitle: ({ children }: { children: React.ReactNode }) => <h3>{children}</h3>,
+    Label: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
     Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     TooltipContent: ({ children }: { children: React.ReactNode }) => (
       <div role="tooltip">{children}</div>
@@ -144,8 +144,8 @@ vi.mock('@brainstrike/ui', async () => {
 vi.mock('@brainstrike/embeddings/backend', () => ({
   TransformersBackend: {
     getBestDevice: vi.fn(() => 'wasm'),
-    setVerboseOrtLogs: vi.fn(),
     getRuntimeStats: vi.fn(() => null),
+    setVerboseOrtLogs: vi.fn(),
   },
 }));
 
@@ -153,11 +153,11 @@ vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<object>('@brainstrike/db');
   return {
     ...(actual as object),
-    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    usePGliteDatabase: () => mockDb,
-    useFileChunkRepository: () => mockChunkRepository,
-    useVectorEnabled: () => mockVectorEnabled,
     JobQueue: class MockJobQueue {},
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+    useFileChunkRepository: () => mockChunkRepository,
+    usePGliteDatabase: () => mockDb,
+    useVectorEnabled: () => mockVectorEnabled,
   };
 });
 
@@ -165,24 +165,24 @@ vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: (selector: (state: object) => unknown) =>
     selector({
       devicePref: 'wasm' as 'webgpu' | 'wasm',
-      setDevicePref: vi.fn(),
       reinitEveryN: 100,
+      setDevicePref: vi.fn(),
       setReinitEveryN: vi.fn(),
-      verboseOrtLogs: false,
       setVerboseOrtLogs: vi.fn(),
+      verboseOrtLogs: false,
     }),
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
   useVectorStatusUIStore: (selector: (state: object) => unknown) =>
     selector({
-      isImporting: false,
-      isEmbeddingActive: false,
-      setIsImporting: vi.fn(),
-      setIsEmbeddingActive: vi.fn(),
       activeEmbeddingSetId: 'set-1',
-      setActiveEmbeddingSetId: vi.fn(),
+      isEmbeddingActive: false,
+      isImporting: false,
       schemaVerified: true,
+      setActiveEmbeddingSetId: vi.fn(),
+      setIsEmbeddingActive: vi.fn(),
+      setIsImporting: vi.fn(),
       setSchemaVerified: vi.fn(),
     }),
 }));
@@ -194,42 +194,42 @@ vi.mock('../embedding-runtime-provider', () => ({
       cancelBackfill: vi.fn(async () => {}),
       enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
       ensureStarted: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'running',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'running',
       })),
       getBackfillsInFlight: vi.fn(async () => []),
       getStatus: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'running',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'running',
       })),
       onBackfillProgress: vi.fn(() => () => {}),
       onStatus: vi.fn(() => () => {}),
       reset: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'stopped',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'stopped',
       })),
       start: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'running',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'running',
       })),
       stop: vi.fn(async () => ({
-        runtimeKind: 'embedding-worker',
-        runtimeId: 'embedding-worker:test',
-        state: 'stopped',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-worker:test',
+        runtimeKind: 'embedding-worker',
+        state: 'stopped',
       })),
     },
     service: createMockVectorQueueService(),
@@ -273,9 +273,9 @@ vi.mock('@brainstrike/utils/logger', async () => {
     ...actual,
     createLogger: () => ({
       debug: vi.fn(),
+      error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
     }),
   };
 });
@@ -286,11 +286,11 @@ function resetMockState(): void {
   mockVectorEnabled = false;
   mockDb = { query: vi.fn() };
   mockChunkRepository = {
-    getCoverageForSet: vi.fn().mockResolvedValue({
-      totalChunks: 10,
-      chunksWithEmbeddingsForSet: 5,
-    }),
     clearEmbeddingsForSet: vi.fn().mockResolvedValue(0),
+    getCoverageForSet: vi.fn().mockResolvedValue({
+      chunksWithEmbeddingsForSet: 5,
+      totalChunks: 10,
+    }),
   };
   mockActiveId = 'set-1';
   mockWorkerControls.workerLocalRunning = false;
@@ -303,7 +303,7 @@ function resetMockState(): void {
   mockQueueState.backfilling = false;
   mockQueueState.backfillProgress = null;
   mockQueueState.coverage = { total: 10, withSet: 5 };
-  mockQueueState.queueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
+  mockQueueState.queueCounts = { failed: 0, queued: 0, running: 0, succeeded: 0 };
   mockQueueState.throughput = 0;
   mockQueueState.recentErrorCount = 0;
   mockQueueState.lastError = null;
@@ -370,7 +370,7 @@ describe('VectorStatusWithDb', () => {
   });
 
   it('renders worker status badge as ✕ ERR when failed jobs present', () => {
-    mockQueueState.queueCounts = { queued: 0, running: 0, failed: 3, succeeded: 0 };
+    mockQueueState.queueCounts = { failed: 3, queued: 0, running: 0, succeeded: 0 };
     render(<VectorStatusWithDb />);
     expect(screen.getByText('✕ ERR')).toBeInTheDocument();
   });
@@ -395,10 +395,6 @@ describe('VectorStatusWithDb', () => {
   it('surfaces actual backend mismatch from embedding host metadata', () => {
     mockWorkerControls.workerStatus = {
       active: false,
-      lastError: null,
-      runtimeId: 'embedding-host:test',
-      runtimeKind: 'embedding-host',
-      state: 'running',
       embeddingRuntime: {
         actualWorkerMetadata: {
           device: 'wasm',
@@ -408,6 +404,10 @@ describe('VectorStatusWithDb', () => {
         backendMismatch: true,
         selectedDevicePreference: 'webgpu',
       },
+      lastError: null,
+      runtimeId: 'embedding-host:test',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     };
 
     render(<VectorStatusWithDb />);
@@ -428,7 +428,7 @@ describe('VectorStatusWithDb', () => {
   });
 
   it('renders queue counts', () => {
-    mockQueueState.queueCounts = { queued: 3, running: 1, failed: 0, succeeded: 5 };
+    mockQueueState.queueCounts = { failed: 0, queued: 3, running: 1, succeeded: 5 };
     render(<VectorStatusWithDb />);
     expect(screen.getByText('3/1/0')).toBeInTheDocument();
     expect(screen.getByText('Completed: 5')).toBeInTheDocument();
@@ -448,8 +448,8 @@ describe('VectorStatusWithDb', () => {
 
   it('renders sparklines for throughput, error and latency trends', () => {
     mockQueueState.telemetryTrend = [
-      { timestamp: Date.now() - 60_000, throughput: 5, latencyP95: 100, errorCount: 0 },
-      { timestamp: Date.now(), throughput: 10, latencyP95: 150, errorCount: 1 },
+      { errorCount: 0, latencyP95: 100, throughput: 5, timestamp: Date.now() - 60_000 },
+      { errorCount: 1, latencyP95: 150, throughput: 10, timestamp: Date.now() },
     ];
     render(<VectorStatusWithDb />);
     expect(screen.getByRole('img', { name: 'Queue throughput trend' })).toBeInTheDocument();
@@ -554,14 +554,14 @@ describe('VectorStatusWithDb', () => {
     });
 
     it('Retry button is disabled when no failed jobs', () => {
-      mockQueueState.queueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
+      mockQueueState.queueCounts = { failed: 0, queued: 0, running: 0, succeeded: 0 };
       render(<VectorStatusWithDb />);
       expect(screen.getByRole('button', { name: 'Retry failed jobs' })).toBeDisabled();
     });
 
     it('Retry button is enabled when failed jobs exist', () => {
       mockDb = { query: vi.fn() };
-      mockQueueState.queueCounts = { queued: 0, running: 0, failed: 2, succeeded: 0 };
+      mockQueueState.queueCounts = { failed: 2, queued: 0, running: 0, succeeded: 0 };
       render(<VectorStatusWithDb />);
       expect(screen.getByRole('button', { name: 'Retry failed jobs' })).not.toBeDisabled();
     });
@@ -569,7 +569,7 @@ describe('VectorStatusWithDb', () => {
     it('calls retryFailed when Retry is clicked', async () => {
       const user = userEvent.setup();
       mockDb = { query: vi.fn() };
-      mockQueueState.queueCounts = { queued: 0, running: 0, failed: 1, succeeded: 0 };
+      mockQueueState.queueCounts = { failed: 1, queued: 0, running: 0, succeeded: 0 };
       render(<VectorStatusWithDb />);
       await user.click(screen.getByRole('button', { name: 'Retry failed jobs' }));
       await waitFor(() => {
@@ -601,13 +601,13 @@ describe('VectorStatusWithDb', () => {
       const mockAdapter = {
         add: vi.fn(),
         addBulk: vi.fn(),
-        onProgress: vi.fn(() => () => {}),
-        pause: vi.fn(),
-        resume: vi.fn(),
         cancel: vi.fn(),
         drain: vi.fn(),
         isPaused: false,
         isProcessing: false,
+        onProgress: vi.fn(() => () => {}),
+        pause: vi.fn(),
+        resume: vi.fn(),
       };
       render(<VectorStatusWithDb queueAdapter={mockAdapter} />);
       expect(screen.getByText('Vector Status')).toBeInTheDocument();
@@ -618,14 +618,14 @@ describe('VectorStatusWithDb', () => {
     it('shows toast when API key validation fails', async () => {
       const user = userEvent.setup();
       mockQueueState.validateApiKey.mockResolvedValueOnce({
-        valid: false,
-        reason: 'missing-provider-key',
         message: 'API key not configured',
+        reason: 'missing-provider-key',
+        valid: false,
       });
       // need pending chunks to enable the backfill button
       mockActiveId = 'set-1';
       mockQueueState.coverage = { total: 10, withSet: 0 };
-      mockQueueState.queueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
+      mockQueueState.queueCounts = { failed: 0, queued: 0, running: 0, succeeded: 0 };
       render(<VectorStatusWithDb />);
 
       const backfillBtn = screen.getByRole('button', { name: 'Start worker and backfill' });
@@ -652,7 +652,7 @@ describe('Sparkline rendering edge cases', () => {
 
   it('renders with single-point trend data', () => {
     mockQueueState.telemetryTrend = [
-      { timestamp: Date.now(), throughput: 5, latencyP95: 100, errorCount: 0 },
+      { errorCount: 0, latencyP95: 100, throughput: 5, timestamp: Date.now() },
     ];
     render(<VectorStatusWithDb />);
     expect(screen.getByRole('img', { name: 'Queue throughput trend' })).toBeInTheDocument();
@@ -661,10 +661,10 @@ describe('Sparkline rendering edge cases', () => {
   it('handles NaN/Infinity values in trend gracefully', () => {
     mockQueueState.telemetryTrend = [
       {
-        timestamp: Date.now(),
-        throughput: Number.NaN,
-        latencyP95: Number.POSITIVE_INFINITY,
         errorCount: 0,
+        latencyP95: Number.POSITIVE_INFINITY,
+        throughput: Number.NaN,
+        timestamp: Date.now(),
       },
     ];
     render(<VectorStatusWithDb />);

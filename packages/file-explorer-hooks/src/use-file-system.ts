@@ -143,9 +143,9 @@ function ensureStamped(handle: DirectoryHandle, source: string): DirectoryHandle
   }
   const mintedRootId = crypto.randomUUID();
   logger.error('Recovered an unstamped root handle with a minted rootId', {
-    source,
-    path: handle.path,
     mintedRootId,
+    path: handle.path,
+    source,
   });
   return stampRootId(handle, mintedRootId);
 }
@@ -259,8 +259,8 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
     case 'setAllHandles':
       return {
         ...state,
-        rootDirectoryHandles: action.handles,
         rootDirectoryHandle: action.focused,
+        rootDirectoryHandles: action.handles,
         rootIdByPath: action.rootIdByPath,
       };
     default:
@@ -348,7 +348,7 @@ async function runMultiRootRestore({
       handles[0] ??
       null;
 
-    dispatch({ type: 'setAllHandles', handles, rootIdByPath: newRootIdByPath, focused });
+    dispatch({ focused, handles, rootIdByPath: newRootIdByPath, type: 'setAllHandles' });
 
     if (focused) {
       // Prefer the durable RootId UUID when available (storage v5).
@@ -370,7 +370,7 @@ async function runMultiRootRestore({
   } finally {
     if (!cancelledRef.value) {
       hasAttemptedRestoreRef.current = true;
-      dispatch({ type: 'setAccessLoading', loading: false });
+      dispatch({ loading: false, type: 'setAccessLoading' });
     }
     isRestoringRef.current = false;
   }
@@ -389,9 +389,9 @@ export function useFileSystem({
 
   const [{ rootDirectoryHandle, rootDirectoryHandles, isAccessLoading, rootIdByPath }, dispatch] =
     useReducer(reducer, {
+      isAccessLoading: false,
       rootDirectoryHandle: null,
       rootDirectoryHandles: [],
-      isAccessLoading: false,
       rootIdByPath: new Map<string, string>(),
     });
 
@@ -416,9 +416,9 @@ export function useFileSystem({
       typeof (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
     const hasAdapterAPI = typeof fileSystemAdapter?.requestDirectoryAccess === 'function';
     if (hasWebAPI || hasAdapterAPI) {
-      return { supported: true, reason: '' };
+      return { reason: '', supported: true };
     }
-    return { supported: false, reason: 'File system access not supported in this environment' };
+    return { reason: 'File system access not supported in this environment', supported: false };
   }, [fileSystemAdapter]);
 
   /**
@@ -433,7 +433,7 @@ export function useFileSystem({
     if (!supported) {
       throw new Error(reason);
     }
-    dispatch({ type: 'setAccessLoading', loading: true });
+    dispatch({ loading: true, type: 'setAccessLoading' });
     try {
       if (
         typeof (fileSystemAdapter as { addRoot?: () => Promise<RootDescriptor> }).addRoot ===
@@ -443,7 +443,7 @@ export function useFileSystem({
         const adapterWithAddRoot = fileSystemAdapter as { addRoot: () => Promise<RootDescriptor> };
         const descriptor = await adapterWithAddRoot.addRoot();
         const { handle, rootId, displayName, persisted } = descriptor;
-        dispatch({ type: 'addOrFocusHandle', handle, rootId });
+        dispatch({ handle, rootId, type: 'addOrFocusHandle' });
         // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
         updateCurrentFolderId(rootId);
         // Only register in the persistent store when the handle was actually persisted
@@ -455,7 +455,7 @@ export function useFileSystem({
       // Legacy fallback: requestDirectoryAccess → synthetic descriptor
       const handle = await fileSystemAdapter.requestDirectoryAccess();
       const rootId = crypto.randomUUID();
-      dispatch({ type: 'addOrFocusHandle', handle, rootId });
+      dispatch({ handle, rootId, type: 'addOrFocusHandle' });
       // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
       updateCurrentFolderId(rootId);
       addActiveRoot({ displayName: handle.name, path: getCanonicalFolderId(handle), rootId });
@@ -466,7 +466,7 @@ export function useFileSystem({
       }
       throw mapFileSystemError(error);
     } finally {
-      dispatch({ type: 'setAccessLoading', loading: false });
+      dispatch({ loading: false, type: 'setAccessLoading' });
     }
   }, [fileSystemAdapter, isFileSystemAccessSupported, updateCurrentFolderId, addActiveRoot]);
 
@@ -494,7 +494,7 @@ export function useFileSystem({
       //    one. The reducer shifts handle focus to the first remaining root.
       const remaining = rootDirectoryHandles.filter((h) => rootKeyOf(h) !== rootId);
       const wasFocused = rootDirectoryHandle !== null && rootKeyOf(rootDirectoryHandle) === rootId;
-      dispatch({ type: 'removeHandle', rootId });
+      dispatch({ rootId, type: 'removeHandle' });
 
       const nextFocused = wasFocused ? (remaining[0] ?? null) : rootDirectoryHandle;
 
@@ -542,7 +542,7 @@ export function useFileSystem({
         logger.debug('setFocusedRoot: unknown root identity, ignoring', { identity });
         return;
       }
-      dispatch({ type: 'addOrFocusHandle', handle: match });
+      dispatch({ handle: match, type: 'addOrFocusHandle' });
       // Write rootId (not path) to the store — folderStates keys by RootId (storage v5).
       updateCurrentFolderId(rootKeyOf(match));
     },
@@ -591,7 +591,7 @@ export function useFileSystem({
         // auto-restore reconcile to ONE root now that identity is rootId-only.
         const rootId = handle.rootId ?? adapterRootIdByPath.get(handle.path) ?? crypto.randomUUID();
         firstRootId ??= rootId;
-        dispatch({ type: 'addOrFocusHandle', handle, rootId });
+        dispatch({ handle, rootId, type: 'addOrFocusHandle' });
         addActiveRoot({
           displayName: handle.name,
           path: getCanonicalFolderId(handle),
@@ -603,7 +603,7 @@ export function useFileSystem({
       // by its already-assigned rootId so the dedupe matches the stamped entry.
       const first = handles[0];
       if (first && firstRootId !== null) {
-        dispatch({ type: 'addOrFocusHandle', handle: first, rootId: firstRootId });
+        dispatch({ handle: first, rootId: firstRootId, type: 'addOrFocusHandle' });
         // Write rootId (not path) to the store — folderStates keys by RootId (storage v5).
         updateCurrentFolderId(firstRootId);
       }
@@ -612,7 +612,7 @@ export function useFileSystem({
   );
 
   const clearRootDirectory = useCallback(() => {
-    dispatch({ type: 'setRoot', handle: null });
+    dispatch({ handle: null, type: 'setRoot' });
     updateCurrentFolderId(null);
   }, [updateCurrentFolderId]);
 
@@ -624,7 +624,7 @@ export function useFileSystem({
   const setRootDirectoryHandle = useCallback(
     (handle: DirectoryHandle | null) => {
       if (handle === null) {
-        dispatch({ type: 'setRoot', handle: null });
+        dispatch({ handle: null, type: 'setRoot' });
         updateCurrentFolderId(null);
         return;
       }
@@ -633,7 +633,7 @@ export function useFileSystem({
       // inline fixture, the restore modal) now supplies a rootId; ensureStamped is
       // the fail-loud backstop. Storage v5 keys folderStates by RootId.
       const stamped = ensureStamped(handle, 'setRootDirectoryHandle');
-      dispatch({ type: 'setRoot', handle: stamped });
+      dispatch({ handle: stamped, type: 'setRoot' });
       updateCurrentFolderId(rootKeyOf(stamped));
     },
     [updateCurrentFolderId]
@@ -646,7 +646,7 @@ export function useFileSystem({
    * while waiting for browser permission dialog.
    */
   const setAccessLoading = useCallback((loading: boolean) => {
-    dispatch({ type: 'setAccessLoading', loading });
+    dispatch({ loading, type: 'setAccessLoading' });
   }, []);
 
   const applyRestoredFolderState = useCallback(
@@ -673,7 +673,7 @@ export function useFileSystem({
       // (true first run).
       const persistedFolderId = getPersistedCurrentFolderId?.() ?? null;
       const rootId = persistedFolderId ?? crypto.randomUUID();
-      dispatch({ type: 'addOrFocusHandle', handle: restored, rootId });
+      dispatch({ handle: restored, rootId, type: 'addOrFocusHandle' });
 
       if (persistedFolderId === null) {
         updateCurrentFolderId(rootId);
@@ -704,7 +704,7 @@ export function useFileSystem({
     // --- Branch A: multi-root restore ---
     if (typeof adapterWithRestoreRoots.restoreRoots === 'function') {
       isRestoringRef.current = true;
-      dispatch({ type: 'setAccessLoading', loading: true });
+      dispatch({ loading: true, type: 'setAccessLoading' });
       // Use a mutable object so the cleanup closure can signal cancellation.
       const cancelledRef = { value: false };
       void runMultiRootRestore({
@@ -737,7 +737,7 @@ export function useFileSystem({
     // might see isAccessLoading=false and rootDirectoryHandle=null before the
     // restore completes, causing them to incorrectly clear persisted state.
     isRestoringRef.current = true;
-    dispatch({ type: 'setAccessLoading', loading: true });
+    dispatch({ loading: true, type: 'setAccessLoading' });
 
     let cancelled = false;
 
@@ -764,7 +764,7 @@ export function useFileSystem({
           // Mark as attempted only after a non-cancelled completion.
           // This allows retries when a run is cancelled (e.g. effect preflight cleanup).
           hasAttemptedRestoreRef.current = true;
-          dispatch({ type: 'setAccessLoading', loading: false });
+          dispatch({ loading: false, type: 'setAccessLoading' });
         }
         isRestoringRef.current = false;
       }
@@ -789,19 +789,19 @@ export function useFileSystem({
 
   return useMemo(
     () => ({
+      addRootDirectory,
+      clearRootDirectory,
+      isAccessLoading,
+      isFileSystemAccessSupported,
+      registerRestoredHandles,
+      removeRootDirectory,
       rootDirectoryHandle,
       rootDirectoryHandles,
       rootIdByPath,
-      isAccessLoading,
-      addRootDirectory,
-      registerRestoredHandles,
-      removeRootDirectory,
       selectRootDirectory,
-      setFocusedRoot,
-      isFileSystemAccessSupported,
-      clearRootDirectory,
-      setRootDirectoryHandle,
       setAccessLoading,
+      setFocusedRoot,
+      setRootDirectoryHandle,
     }),
     [
       rootDirectoryHandle,

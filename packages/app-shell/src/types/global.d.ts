@@ -1,4 +1,10 @@
 import type {
+  AssistantCheckpointRevertResult,
+  AssistantCheckpointRevertRunResult,
+  SkillsScanResultSummary,
+  UserSlashCommandsListResult,
+} from '@brainstrike/assistant-contract';
+import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
@@ -9,15 +15,44 @@ declare global {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
     };
+    /**
+     * Edit checkpoint (undo of agent file edits) revert bridge. Desktop only —
+     * web never defines it (no assistant server / main process). Invoke-only.
+     */
+    assistantCheckpoints?: {
+      revertEntry?: (
+        id: string,
+        options?: { force?: boolean }
+      ) => Promise<AssistantCheckpointRevertResult>;
+      revertRun?: (
+        runId: string,
+        options?: { force?: boolean }
+      ) => Promise<AssistantCheckpointRevertRunResult>;
+    };
     mcp?: {
       getConfig?: () => Promise<
         | {
+            error?: string;
             path: string;
             exists: boolean;
-            servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
+            servers?: Array<{
+              name: string;
+              transport: 'sse' | 'stdio' | 'streamable-http';
+            }>;
           }
         | undefined
       >;
+      onConfigUpdated?: (
+        callback: (config: {
+          error?: string;
+          path: string;
+          exists: boolean;
+          servers?: Array<{
+            name: string;
+            transport: 'sse' | 'stdio' | 'streamable-http';
+          }>;
+        }) => void
+      ) => (() => void) | undefined;
       watch?: () => Promise<{ watching: boolean }>;
       unwatch?: () => Promise<{ watching: false }>;
       listTools?: () => Promise<
@@ -51,6 +86,13 @@ declare global {
         ) => void
       ) => (() => void) | undefined;
     };
+    /**
+     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
+     * capability-check `window.skills` rather than `isElectron()`.
+     */
+    skills?: {
+      scan?: () => Promise<SkillsScanResultSummary>;
+    };
     tools?: {
       execute?: (
         toolId: string,
@@ -74,6 +116,14 @@ declare global {
       onWorkspaceContextTapestryUpdate?: (
         callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
       ) => (() => void) | undefined;
+    };
+    /**
+     * Desktop-only user-defined slash command discovery bridge. Absent on web
+     * (no preload) — capability-check `window.userCommands` rather than
+     * `isElectron()`.
+     */
+    userCommands?: {
+      list?: () => Promise<UserSlashCommandsListResult>;
     };
   }
 }

@@ -64,14 +64,14 @@ export function resolveJobModel(payload: EmbedChunkPayload): EmbeddingJobModel {
   if (parsed) {
     return {
       compositeKey,
-      provider: parsed.provider,
       modelId: parsed.modelId,
+      provider: parsed.provider,
     };
   }
 
   return {
     compositeKey,
-    provider: 'local',
     modelId: compositeKey,
+    provider: 'local',
   };
 }

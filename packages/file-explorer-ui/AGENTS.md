@@ -92,13 +92,13 @@ export default function Explorer() {
 * We instantiate a **scoped Zustand store** via `FileExplorerProvider`. Do **not** import or mutate the global store; always use `useFileExplorerStoreContext()`.
 * Selectors must use `createWithEqualityFn` or `shallow` where appropriate to prevent re-renders on large trees. See Zustand docs for `createWithEqualityFn` and `useShallow`. ([Zustand Documentation][1])
 
-### 2) Virtualization
+### 2) Virtualization / treegrid
 
-* `use-virtual-list.ts` implements fixed-row virtualization (absolute positioning). It exposes `{containerRef, range, offset, totalHeight}`; rows are absolutely positioned within a translated container.
-* Keep `ROW_HEIGHT` consistent across trees; changing row height requires changes in virtualization and tests.
-* Overscan is intentionally small (2–3). Increase only if you prove it’s needed.
+* File-tree virtualization is owned by shared **TreeTable** primitives (`packages/ui/src/tree-table/*`), not a package-local virtual-list hook. `OptimizedFileTree` adapts explorer rows onto TreeTable (`windowingStrategy="virtual"`).
+* Keep `ROW_HEIGHT` consistent across trees; changing row height requires changes in TreeTable consumers and tests.
+* Prefer adapting feature surfaces to the TreeTable API over duplicating tree render / virtualization logic here (root AGENTS.md TREEGRID CONVERGENCE CONTRACT).
+* `TreeTableViewport` owns both scroll axes and is the virtualizer scroll element. Explorer adapters must stay layout-only (`overflow-hidden`) so the native horizontal scrollbar remains at the panel bottom and the semantic sticky header stays bound to the actual scrollport.
 * For large DOMs, prefer CSS containment (`contain`, `content-visibility`) and GPU-friendly transforms when profiling says it helps. (Use judiciously—don’t paper over logic bugs.) ([GitHub][2])
-* If you ever swap the list engine, match **TanStack Virtual** semantics (range/offset/measure) and keep the same public props. TanStack’s guidance on virtualization interop is the bar. ([TanStack][3])
 
 ### 3) File content loading
 
@@ -259,7 +259,7 @@ Do these before reaching for cleverness:
 ## “Don’t break these invariants”
 
 * **ARIA semantics** for tree, tabs, and checkboxes must remain correct (APG-compliant). ([W3C][5])
-* **Virtualization contract**: `use-virtual-list` returns an **inclusive** `[start, end]` range and a container offset; rows are absolutely positioned at `(startIndex + rowIndex) * ROW_HEIGHT - offset`.
+* **Treegrid / virtualization contract**: explorer trees must use shared TreeTable (`packages/ui/src/tree-table/*`) as the canonical treegrid; do not reintroduce a local `use-virtual-list`. Preserve WAI-ARIA treegrid semantics and keep `ROW_HEIGHT` aligned with TreeTable consumers.
 * **Max selection** is enforced **before** mutating selection sets.
 * **Binary content** and **not accessible** markers are strings the UI recognizes; don’t change without updating all consumers/tests.
 

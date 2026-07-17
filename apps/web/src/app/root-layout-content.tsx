@@ -1,4 +1,3 @@
-import { ConnectedPromptManager } from '@brainstrike/app-shell';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
 import {
   type RootLayoutContentProps,
@@ -7,12 +6,20 @@ import {
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
+// Capability check from the dependency-light `availability` subpath (NOT
+// `/panel`) so the startup check does not defeat the lazy code-split in
+// notes-page-content.tsx.
+import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
-import { type ReactElement, type ReactNode, useCallback, useEffect } from 'react';
+import { NotebookPen } from 'lucide-react';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import ContextExplorerPageContent from './context-explorer-page-content';
+import NotesPageContent from './notes-page-content';
 import SettingsPageContent from './settings/page-content';
+
+const NOTES_NAVIGATION_ITEM: NavigationItem = { icon: NotebookPen, name: 'Notes', path: '/notes' };
 
 /**
  * Wrapper component that provides TokenCacheProvider.
@@ -43,7 +50,16 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
-  const navigationConfig = navigationItems as NavigationItem[];
+  // Capability gate: only surface the Notes tab when the File System Access
+  // directory picker exists (Chromium; Safari/Firefox omit it). Resolved once.
+  const notesAvailable = useMemo(() => isNotesVaultAvailable(), []);
+  const navigationConfig = useMemo<NavigationItem[]>(() => {
+    const items = [...(navigationItems as NavigationItem[])];
+    if (notesAvailable) {
+      items.push(NOTES_NAVIGATION_ITEM);
+    }
+    return items;
+  }, [notesAvailable]);
   const loadEmbeddingQueue = useCallback(async () => getEmbeddingQueue(), []);
   const loadLocalLlmBackend = useCallback(async () => {
     const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
@@ -71,13 +87,13 @@ export default function RootLayoutContent() {
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through
   // so the queue stays singleton while avoiding startup-time workerpool construction.
   const sharedProps: RootLayoutContentProps = {
-    databaseTabChunkingMode: 'local',
-    navigationItems: navigationConfig,
     contextExplorerPageContent: <ContextExplorerPageContent />,
-    settingsPageContent: <SettingsPageContent />,
-    promptsPageContent: <ConnectedPromptManager />,
+    databaseTabChunkingMode: 'local',
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
     loadLocalLlmBackend,
+    navigationItems: navigationConfig,
+    settingsPageContent: <SettingsPageContent />,
+    ...(notesAvailable ? { notesPageContent: <NotesPageContent /> } : {}),
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
 

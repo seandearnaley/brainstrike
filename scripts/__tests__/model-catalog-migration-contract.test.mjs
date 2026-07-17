@@ -445,8 +445,7 @@ const PROVIDER_DEFINITIONS = [
     assert.deepEqual(result.failures, [
       {
         file: 'packages/assistant-contract/src/provider-registry.ts',
-        message:
-          'Static provider-registry model for openai has an unresolvable id expression.',
+        message: 'Static provider-registry model for openai has an unresolvable id expression.',
       },
       {
         file: 'packages/assistant-contract/src/provider-registry.ts',

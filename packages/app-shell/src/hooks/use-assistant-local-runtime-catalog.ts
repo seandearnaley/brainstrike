@@ -20,8 +20,8 @@ interface UseAssistantLocalRuntimeCatalogResult {
 }
 
 const labelByRuntime = {
-  ollama: 'Ollama',
   lmstudio: 'LM Studio',
+  ollama: 'Ollama',
 } as const;
 
 export function useAssistantLocalRuntimeCatalog({
@@ -38,8 +38,8 @@ export function useAssistantLocalRuntimeCatalog({
   useEffect(() => {
     let cancelled = false;
     setLocalRuntimeStatuses({
-      ollama: { state: 'checking' },
       lmstudio: { state: 'checking' },
+      ollama: { state: 'checking' },
     });
 
     void getLocalRuntimeStatuses({ diagnosticLogLevel: 'debug' })
@@ -51,13 +51,13 @@ export function useAssistantLocalRuntimeCatalog({
       .catch(() => {
         if (!cancelled) {
           const fallback = {
-            state: 'unavailable' as const,
             checkedAt: Date.now(),
             message: 'Local runtime probe failed',
+            state: 'unavailable' as const,
           };
           setLocalRuntimeStatuses({
-            ollama: fallback,
             lmstudio: fallback,
+            ollama: fallback,
           });
         }
       });
@@ -110,34 +110,35 @@ export function useAssistantLocalRuntimeCatalog({
       return;
     }
 
-    const detected = (Object.keys(labelByRuntime) as Array<keyof typeof labelByRuntime>)
-      .filter((runtimeId) => {
-        const status = localRuntimeStatuses[runtimeId];
-        return status.state === 'available' || status.state === 'stale';
-      })
-      .map((runtimeId) => {
-        const modelState = localRuntimeModels?.[runtimeId];
-        if (modelState?.state === 'loaded_non_empty' || modelState?.state === 'stale_cached') {
-          return `${labelByRuntime[runtimeId]} (${modelState.models.length} models)`;
-        }
-        if (modelState?.state === 'loaded_empty') {
-          return `${labelByRuntime[runtimeId]} (no models)`;
-        }
-        return labelByRuntime[runtimeId];
-      });
+    const detected = LOCAL_RUNTIME_PROVIDER_IDS.filter((runtimeId) => {
+      const status = localRuntimeStatuses[runtimeId];
+      return status.state === 'available' || status.state === 'stale';
+    }).map((runtimeId) => {
+      const modelState = localRuntimeModels?.[runtimeId];
+      if (modelState?.state === 'loaded_non_empty' || modelState?.state === 'stale_cached') {
+        return `${labelByRuntime[runtimeId]} (${modelState.models.length} models)`;
+      }
+      if (modelState?.state === 'loaded_empty') {
+        return `${labelByRuntime[runtimeId]} (no models)`;
+      }
+      if (modelState?.state === 'failed') {
+        return `${labelByRuntime[runtimeId]} (model discovery failed: ${modelState.message})`;
+      }
+      return labelByRuntime[runtimeId];
+    });
 
     if (detected.length > 0) {
       return `Detected local runtime: ${detected.join(' + ')} on localhost.`;
     }
 
-    const blockedRuntime = (Object.keys(labelByRuntime) as Array<keyof typeof labelByRuntime>).find(
+    const blockedRuntime = LOCAL_RUNTIME_PROVIDER_IDS.find(
       (runtimeId) => localRuntimeStatuses[runtimeId].state === 'blocked_web'
     );
     if (blockedRuntime) {
       return `${labelByRuntime[blockedRuntime]} probe was blocked by browser networking policy.`;
     }
 
-    const checking = (Object.keys(labelByRuntime) as Array<keyof typeof labelByRuntime>).some(
+    const checking = LOCAL_RUNTIME_PROVIDER_IDS.some(
       (runtimeId) => localRuntimeStatuses[runtimeId].state === 'checking'
     );
     if (checking) {

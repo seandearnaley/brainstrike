@@ -39,7 +39,7 @@ const defaultYieldToBrowser = (): Promise<void> =>
 
 function shouldSkipExpandAll(isAlreadyStarting: boolean): { skip: boolean; reason?: string } {
   if (isAlreadyStarting) {
-    return { skip: true, reason: 'blocked by double-click guard' };
+    return { reason: 'blocked by double-click guard', skip: true };
   }
   return { skip: false };
 }
@@ -233,6 +233,25 @@ function resetExpandAllOperation(args: {
   const { isExpandAllStartingRef, isExpandingAllRef } = args;
   isExpandAllStartingRef.current = false;
   isExpandingAllRef.current = false;
+}
+
+function finalizeExpandAllOperation(args: {
+  isExpandAllStartingRef: React.RefObject<boolean>;
+  isExpandingAllRef: React.RefObject<boolean>;
+  sessionId: number;
+  sessionIdRef: React.RefObject<number>;
+  setState: React.Dispatch<React.SetStateAction<ExpandAllState>>;
+}): void {
+  const { isExpandAllStartingRef, isExpandingAllRef, sessionId, sessionIdRef, setState } = args;
+  if (sessionIdRef.current !== sessionId) {
+    return;
+  }
+
+  resetExpandAllOperation({
+    isExpandAllStartingRef,
+    isExpandingAllRef,
+  });
+  setState({ isExpandingAll: false });
 }
 
 function createEmptyExpandAllMetrics(): ExpandAllMetrics {
@@ -621,32 +640,33 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
         logExpandAllOutcome({
           discoveredDirectories: result.discoveredDirectories,
           metrics,
+          now,
           outcome: 'completed',
           rootFolderId,
           startedAt,
-          now,
         });
         if (result.firstError) {
           handleExpandError(result.firstError, onError);
         }
-        setState({ isExpandingAll: false });
       } catch (err) {
         if (isAbortError(err)) {
           logExpandAllOutcome({
             discoveredDirectories: committedPaths.size,
             metrics: createEmptyExpandAllMetrics(),
+            now,
             outcome: 'cancelled',
             rootFolderId,
             startedAt,
-            now,
           });
         }
         handleExpandError(err, onError);
-        setState({ isExpandingAll: false });
       } finally {
-        resetExpandAllOperation({
+        finalizeExpandAllOperation({
           isExpandAllStartingRef,
           isExpandingAllRef,
+          sessionId,
+          sessionIdRef,
+          setState,
         });
       }
     },
@@ -668,9 +688,9 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
   );
 
   return {
-    isExpandingAll: state.isExpandingAll,
-    expandAllProgressively,
     cancelExpandAll,
+    expandAllProgressively,
+    isExpandingAll: state.isExpandingAll,
     isExpandingAllRef,
   };
 }

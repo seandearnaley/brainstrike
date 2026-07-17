@@ -21,8 +21,8 @@ describe('factory reset wires the permission policy store', () => {
     Object.defineProperty(globalWindow, 'caches', {
       configurable: true,
       value: {
-        keys: async () => [] as string[],
         delete: async () => true,
+        keys: async () => [] as string[],
       } as unknown as CacheStorage,
     });
   });
@@ -51,7 +51,7 @@ describe('factory reset wires the permission policy store', () => {
     // Reset restores defaultData() → enforce ON (the secure default).
     expect(state.enforce).toBe(true);
     expect(state.yolo).toBe(false);
-    expect(state.policies).toEqual({ read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' });
+    expect(state.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
     expect(state.sessionGrants.size).toBe(0);
     expect(state.perToolOverrides).toEqual({});
   });

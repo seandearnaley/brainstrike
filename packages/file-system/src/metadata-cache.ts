@@ -276,13 +276,13 @@ export class MetadataCache {
   getStats(): MetadataCacheStats {
     const total = this.hits + this.misses;
     return {
-      size: this.cache.size,
-      maxEntries: this.maxEntries,
-      hits: this.hits,
-      misses: this.misses,
-      expirations: this.expirations,
       evictions: this.evictions,
+      expirations: this.expirations,
       hitRate: total > 0 ? (this.hits / total) * 100 : 0,
+      hits: this.hits,
+      maxEntries: this.maxEntries,
+      misses: this.misses,
+      size: this.cache.size,
     };
   }
 

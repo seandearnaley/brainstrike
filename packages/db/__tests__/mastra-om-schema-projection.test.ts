@@ -49,16 +49,19 @@ interface ColumnRow {
  * the same PR as the version bump — that is the whole point of the guard.
  */
 const REQUIRED_OM_COLUMNS: Record<string, { dataType: string; isNullable: 'NO' | 'YES' }> = {
+  bufferedObservationChunks: { dataType: 'jsonb', isNullable: 'YES' },
+  config: { dataType: 'jsonb', isNullable: 'NO' },
+  createdAt: { dataType: 'timestamp with time zone', isNullable: 'NO' },
+  generationCount: { dataType: 'integer', isNullable: 'NO' },
   // Row identity + latest-generation ordering (getObservationalMemory orders by
   // generationCount DESC, createdAt DESC).
   id: { dataType: 'text', isNullable: 'NO' },
-  generationCount: { dataType: 'integer', isNullable: 'NO' },
-  createdAt: { dataType: 'timestamp with time zone', isNullable: 'NO' },
   // Row keying — the meter looks up `thread:{threadId}` against lookupKey.
   lookupKey: { dataType: 'text', isNullable: 'NO' },
-  threadId: { dataType: 'text', isNullable: 'YES' },
-  // The "observation" segment value.
+  // Active observation context and pending activation progress.
   observationTokenCount: { dataType: 'integer', isNullable: 'NO' },
+  pendingMessageTokens: { dataType: 'integer', isNullable: 'NO' },
+  threadId: { dataType: 'text', isNullable: 'YES' },
   // The compaction-benefit stat numerator (totalTokensObserved − observationTokenCount).
   totalTokensObserved: { dataType: 'integer', isNullable: 'NO' },
 };
@@ -67,7 +70,7 @@ describe('Mastra OM schema projection (drift guard)', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = new PGlite({ extensions: { vector, pg_trgm: pgTrgm } });
+    db = new PGlite({ extensions: { pg_trgm: pgTrgm, vector } });
     await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
   });
 
@@ -123,7 +126,12 @@ describe('Mastra OM schema projection (drift guard)', () => {
       const columns = await readOmColumns();
       // The meter's honest-state contract relies on these being NOT NULL integers:
       // a NULL here would be a malformed row → error state, never a fabricated 0.
-      for (const name of ['observationTokenCount', 'totalTokensObserved', 'generationCount']) {
+      for (const name of [
+        'observationTokenCount',
+        'pendingMessageTokens',
+        'totalTokensObserved',
+        'generationCount',
+      ]) {
         const actual = columns.get(name);
         expect(actual?.data_type, `${name} must be integer`).toBe('integer');
         expect(actual?.is_nullable, `${name} must be NOT NULL`).toBe('NO');

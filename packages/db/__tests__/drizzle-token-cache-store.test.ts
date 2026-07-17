@@ -7,6 +7,7 @@
 import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -26,15 +27,15 @@ describe('DrizzleTokenCacheStore', () => {
 
   function createEntry(overrides: Partial<TokenCacheEntry> = {}): TokenCacheEntry {
     return {
-      folderId: testFolderId,
-      filePath: 'src/test.ts',
       contentHash: 'abc123',
+      countingMode: 'heuristic',
+      createdAt: new Date().toISOString(),
+      filePath: 'src/test.ts',
       fileSize: 1024,
+      folderId: testFolderId,
+      modelEncoding: TOKEN_ESTIMATOR_ID,
       mtimeMs: Date.now(),
       tokenCount: 100,
-      countingMode: 'heuristic',
-      modelEncoding: TOKEN_ESTIMATOR_ID,
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       ...overrides,
     };
@@ -42,7 +43,7 @@ describe('DrizzleTokenCacheStore', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
     });
 
     const migrationResult = await runMigrations(client);
@@ -198,8 +199,8 @@ describe('DrizzleTokenCacheStore', () => {
       await store.set(
         createEntry({
           filePath: 'src/stale.ts',
-          tokenCount: 999,
           modelEncoding: 'o200k_base',
+          tokenCount: 999,
         })
       );
 
@@ -214,7 +215,7 @@ describe('DrizzleTokenCacheStore', () => {
     it('should get all entries for a folder', async () => {
       await store.set(createEntry({ filePath: 'src/file1.ts' }));
       await store.set(createEntry({ filePath: 'src/file2.ts' }));
-      await store.set(createEntry({ folderId: 'other-folder', filePath: 'src/file3.ts' }));
+      await store.set(createEntry({ filePath: 'src/file3.ts', folderId: 'other-folder' }));
 
       const entries = await store.getAllForFolder(testFolderId);
 
@@ -272,7 +273,7 @@ describe('DrizzleTokenCacheStore', () => {
     it('should clear all entries for a folder', async () => {
       await store.set(createEntry({ filePath: 'src/file1.ts' }));
       await store.set(createEntry({ filePath: 'src/file2.ts' }));
-      await store.set(createEntry({ folderId: 'other-folder', filePath: 'src/file3.ts' }));
+      await store.set(createEntry({ filePath: 'src/file3.ts', folderId: 'other-folder' }));
 
       const cleared = await store.clearFolder(testFolderId);
 
@@ -289,7 +290,7 @@ describe('DrizzleTokenCacheStore', () => {
   describe('clearAll', () => {
     it('should clear all entries and return count', async () => {
       await store.set(createEntry({ filePath: 'src/file1.ts' }));
-      await store.set(createEntry({ folderId: 'other-folder', filePath: 'src/file2.ts' }));
+      await store.set(createEntry({ filePath: 'src/file2.ts', folderId: 'other-folder' }));
 
       const cleared = await store.clearAll();
 
@@ -318,8 +319,8 @@ describe('DrizzleTokenCacheStore', () => {
       await store.set(
         createEntry({
           filePath: 'src/stale.ts',
-          tokenCount: 999,
           modelEncoding: 'o200k_base',
+          tokenCount: 999,
         })
       );
 
@@ -332,17 +333,17 @@ describe('DrizzleTokenCacheStore', () => {
   describe('getStats', () => {
     it('should return statistics for folder', async () => {
       await store.set(
-        createEntry({ filePath: 'src/file1.ts', tokenCount: 100, countingMode: 'heuristic' })
+        createEntry({ countingMode: 'heuristic', filePath: 'src/file1.ts', tokenCount: 100 })
       );
       await store.set(
-        createEntry({ filePath: 'src/file2.ts', tokenCount: 200, countingMode: 'heuristic' })
+        createEntry({ countingMode: 'heuristic', filePath: 'src/file2.ts', tokenCount: 200 })
       );
       await store.set(
         createEntry({
-          filePath: 'src/stale.ts',
-          tokenCount: 999,
           countingMode: 'heuristic',
+          filePath: 'src/stale.ts',
           modelEncoding: 'o200k_base',
+          tokenCount: 999,
         })
       );
 
@@ -357,7 +358,7 @@ describe('DrizzleTokenCacheStore', () => {
     it('should return global statistics when no folder specified', async () => {
       await store.set(createEntry({ filePath: 'src/file1.ts', tokenCount: 100 }));
       await store.set(
-        createEntry({ folderId: 'other-folder', filePath: 'src/file2.ts', tokenCount: 200 })
+        createEntry({ filePath: 'src/file2.ts', folderId: 'other-folder', tokenCount: 200 })
       );
 
       const stats = await store.getStats();
@@ -369,9 +370,9 @@ describe('DrizzleTokenCacheStore', () => {
 
   describe('findByCountingMode', () => {
     it('should find entries by counting mode', async () => {
-      await store.set(createEntry({ filePath: 'src/file1.ts', countingMode: 'accurate' }));
-      await store.set(createEntry({ filePath: 'src/file2.ts', countingMode: 'heuristic' }));
-      await store.set(createEntry({ filePath: 'src/file3.ts', countingMode: 'heuristic' }));
+      await store.set(createEntry({ countingMode: 'accurate', filePath: 'src/file1.ts' }));
+      await store.set(createEntry({ countingMode: 'heuristic', filePath: 'src/file2.ts' }));
+      await store.set(createEntry({ countingMode: 'heuristic', filePath: 'src/file3.ts' }));
 
       const heuristic = await store.findByCountingMode(testFolderId, 'heuristic');
 
@@ -380,7 +381,7 @@ describe('DrizzleTokenCacheStore', () => {
 
     it('should respect limit', async () => {
       for (let i = 0; i < 5; i++) {
-        await store.set(createEntry({ filePath: `src/file${i}.ts`, countingMode: 'heuristic' }));
+        await store.set(createEntry({ countingMode: 'heuristic', filePath: `src/file${i}.ts` }));
       }
 
       const limited = await store.findByCountingMode(testFolderId, 'heuristic', 3);

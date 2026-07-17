@@ -105,7 +105,7 @@ function buildListItems(
 
   for (const [folderId, files] of Object.entries(folderGroups)) {
     const totalTokens = files.reduce((sum, file) => sum + (file.tokens || 0), 0);
-    items.push({ folderId, type: 'folder-header', fileCount: files.length, totalTokens });
+    items.push({ fileCount: files.length, folderId, totalTokens, type: 'folder-header' });
 
     if (!collapsedFolders.has(folderId)) {
       items.push(...files);
@@ -127,7 +127,7 @@ export function usePreviewPanelState({
 }: UsePreviewPanelStateProps) {
   const [batchSelectedFiles, setBatchSelectedFiles] = useState<Set<string>>(new Set());
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
-  const [sortConfig] = useState<SortConfig>({ key: 'path', direction: 'asc' });
+  const [sortConfig] = useState<SortConfig>({ direction: 'asc', key: 'path' });
   const [cachedSelectionStats, setCachedSelectionStats] = useState<{
     cachedFileCount: number;
     selection: Set<string>;
@@ -180,10 +180,10 @@ export function usePreviewPanelState({
   // Use the persistent token cache hook
   // This provides automatic caching with PGlite persistence when available
   const persistentCache = usePersistentTokenCache({
-    fileContents,
-    tokenCounting,
     decodeFileSelection,
+    fileContents,
     onTokenResolved: handleTokenResolved,
+    tokenCounting,
   });
   const { cacheVersion, getCachedSelectionStats, getFileSize, getTokenCount } = persistentCache;
 
@@ -299,8 +299,8 @@ export function usePreviewPanelState({
 
       performUndoableAction(compositeKey, compositeKey, {
         actionName: 'File removed',
-        itemDescription: `Removed "${path}" from selection`,
         getStateSnapshot: () => new Set(selectedFiles),
+        itemDescription: `Removed "${path}" from selection`,
         onUndo: (key, snapshot) => {
           const restoredFiles = new Set(snapshot);
           restoredFiles.add(key);
@@ -322,8 +322,8 @@ export function usePreviewPanelState({
     onSelectionChange(newSelectedFiles);
     performUndoableAction('batch-remove', 'batch-remove', {
       actionName: 'Files removed',
-      itemDescription: `Removed ${batchSelectedFiles.size} files from selection`,
       getStateSnapshot: () => new Set(selectedFiles),
+      itemDescription: `Removed ${batchSelectedFiles.size} files from selection`,
       onUndo: (_key, snapshot) => {
         const restoredFiles = new Set(snapshot);
         onSelectionChange(restoredFiles);
@@ -424,9 +424,9 @@ export function usePreviewPanelState({
     }
 
     return {
-      totalTokens,
-      totalFiles,
       pendingCount: Math.max(0, totalFiles - resolvedCount),
+      totalFiles,
+      totalTokens,
     };
   }, [
     cachedSelectionStats.selection,
@@ -439,20 +439,20 @@ export function usePreviewPanelState({
 
   return {
     batchSelectedFiles,
+    collapseAllFolders,
     collapsedFolders,
+    expandAllFolders,
     flatListItems,
-    handleRemoveFile,
+    formatFileSize,
     handleBatchRemove,
+    handleDeselectAll,
+    handleRemoveFile,
+    handleSelectAll,
+    isAllFilesSelected,
+    loadingFiles,
     toggleFileSelection,
     toggleFolderCollapse,
-    expandAllFolders,
-    collapseAllFolders,
-    handleSelectAll,
-    handleDeselectAll,
-    isAllFilesSelected,
-    formatFileSize,
     totalStats,
-    loadingFiles,
   };
 }
 

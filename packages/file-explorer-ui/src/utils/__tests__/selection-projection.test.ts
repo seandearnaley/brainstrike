@@ -20,16 +20,16 @@ function createDescriptor(
   overrides: Partial<SelectionQueryDescriptor> = {}
 ): SelectionQueryDescriptor {
   return {
-    kind: 'recursive-select-all',
-    folderId: 'folder-1',
-    rootPath: null,
     coveredDirectoryPaths: ['/src'],
-    includeFilters: ['**/*.ts'],
-    excludeFilters: [],
-    includedPaths: [],
     excludedPaths: [],
+    excludeFilters: [],
+    folderId: 'folder-1',
+    includedPaths: [],
+    includeFilters: ['**/*.ts'],
+    kind: 'recursive-select-all',
     manifestFingerprint: 'fp-1',
     manifestSnapshotId: 'snapshot-1',
+    rootPath: null,
     totalSelectedCount: 2,
     useRegex: false,
     ...overrides,
@@ -38,13 +38,13 @@ function createDescriptor(
 
 function createManifest(overrides: Partial<QuerySelectionManifest> = {}): QuerySelectionManifest {
   return {
-    filePaths: ['/src/index.ts', '/src/utils.ts'],
-    pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
     directoryCounts: new Map([['/src', 2]]),
+    errorMessage: null,
+    filePaths: ['/src/index.ts', '/src/utils.ts'],
     fingerprint: 'fp-1',
+    pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
     snapshotId: 'snapshot-1',
     status: 'ready',
-    errorMessage: null,
     ...overrides,
   };
 }
@@ -52,9 +52,9 @@ function createManifest(overrides: Partial<QuerySelectionManifest> = {}): QueryS
 function createSelectionModel(overrides: Partial<SelectionModel> = {}): SelectionModel {
   return {
     ...createEmptySelectionModel(),
+    materializedPaths: new Set<string>(),
     mode: 'query',
     queryDescriptor: createDescriptor(),
-    materializedPaths: new Set<string>(),
     ...overrides,
   };
 }
@@ -108,7 +108,6 @@ describe('selection-projection', () => {
 
   it('keeps absolute desktop-style ancestor directories covered while loading', () => {
     const descriptor = createDescriptor({
-      folderId: '/mock/desktop-selection-root-packages',
       coveredDirectoryPaths: [
         '/mock',
         '/mock/desktop-selection-root-packages',
@@ -116,6 +115,7 @@ describe('selection-projection', () => {
         '/mock/desktop-selection-root-packages/packages/agent',
         '/mock/desktop-selection-root-packages/packages/app-shell',
       ],
+      folderId: '/mock/desktop-selection-root-packages',
     });
 
     const materializedPaths = new Set([
@@ -179,8 +179,8 @@ describe('selection-projection', () => {
 
   it('counts the root directory for absolute materialized paths while loading', () => {
     const descriptor = createDescriptor({
-      folderId: '/workspace',
       coveredDirectoryPaths: ['/'],
+      folderId: '/workspace',
     });
     const materializedPaths = new Set(['/README.md', '/src/index.ts']);
 
@@ -222,9 +222,9 @@ describe('selection-projection', () => {
       totalSelectedCount: 1,
     });
     const manifest = createManifest({
+      directoryCounts: new Map<string, number>(),
       filePaths: [],
       pathSet: new Set<string>(),
-      directoryCounts: new Map<string, number>(),
     });
 
     expect(getQuerySelectionMatchingCount(descriptor, manifest, 'folder-1', '/src')).toBe(0);
@@ -232,8 +232,8 @@ describe('selection-projection', () => {
 
   it('matches absolute and relative path variants against include and exclude filters', () => {
     const descriptor = createDescriptor({
-      includeFilters: ['src/**/*.ts'],
       excludeFilters: ['src/**/ignore.ts'],
+      includeFilters: ['src/**/*.ts'],
     });
 
     expect(isQuerySelectionPathSelected(descriptor, null, 'folder-1', '/src/index.ts')).toBe(false);
@@ -308,20 +308,20 @@ describe('selection-projection', () => {
 
     const rulesKeys = materializeCompositeKeysForSelectionModel({
       currentFolderId: 'folder-1',
-      selectedFilePaths: new Set<string>(),
       querySelectionManifest: null,
+      selectedFilePaths: new Set<string>(),
       selectionModel: {
         ...createEmptySelectionModel(),
-        mode: 'rules',
         materializedPaths: new Set(['/src/index.ts']),
+        mode: 'rules',
       },
     });
     expect(rulesKeys).toEqual(new Set(['folder-1|@|/src/index.ts']));
 
     const queryKeys = materializeCompositeKeysForSelectionModel({
       currentFolderId: 'folder-1',
-      selectedFilePaths: new Set<string>(),
       querySelectionManifest: manifest,
+      selectedFilePaths: new Set<string>(),
       selectionModel: createSelectionModel(),
     });
     expect(queryKeys).toEqual(new Set(['folder-1|@|/src/index.ts', 'folder-1|@|/src/utils.ts']));
@@ -330,8 +330,8 @@ describe('selection-projection', () => {
   it('returns selection counts for explicit, query, and rules modes', () => {
     const explicitModel: SelectionModel = {
       ...createEmptySelectionModel(),
-      mode: 'explicit',
       explicitPaths: new Set(['/src/index.ts']),
+      mode: 'explicit',
     };
     expect(getSelectionCount(explicitModel, new Set(['folder-1|@|/src/index.ts']), null)).toBe(1);
 
@@ -340,8 +340,8 @@ describe('selection-projection', () => {
 
     const rulesModel: SelectionModel = {
       ...createEmptySelectionModel(),
-      mode: 'rules',
       materializedPaths: new Set(['/src/index.ts', '/src/utils.ts']),
+      mode: 'rules',
     };
     expect(getSelectionCount(rulesModel, new Set<string>(), null)).toBe(2);
   });
@@ -349,8 +349,8 @@ describe('selection-projection', () => {
   it('uses rule materialized paths in generic selection lookup', () => {
     const selectionModel: SelectionModel = {
       ...createEmptySelectionModel(),
-      mode: 'rules',
       materializedPaths: new Set(['/src/index.ts']),
+      mode: 'rules',
     };
 
     expect(

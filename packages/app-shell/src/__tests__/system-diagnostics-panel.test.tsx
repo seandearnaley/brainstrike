@@ -104,15 +104,6 @@ describe('SystemDiagnosticsPanel', () => {
             sourceState: 'running',
             state: 'idle',
           },
-          llmHost: {
-            active: true,
-            lastError: null,
-            pendingRequestCount: 1,
-            runtimeId: 'llm-host:active',
-            runtimeKind: 'llm-host',
-            sourceState: 'running',
-            state: 'active',
-          },
           indexing: {
             activeBackfills: [
               {
@@ -153,6 +144,15 @@ describe('SystemDiagnosticsPanel', () => {
                 },
               ],
             },
+          },
+          llmHost: {
+            active: true,
+            lastError: null,
+            pendingRequestCount: 1,
+            runtimeId: 'llm-host:active',
+            runtimeKind: 'llm-host',
+            sourceState: 'running',
+            state: 'active',
           },
           migration: {
             attemptCount: 2,

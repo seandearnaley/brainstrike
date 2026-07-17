@@ -53,9 +53,9 @@ function getDescriptorMatchers(descriptor: SelectionQueryDescriptor): Descriptor
   }
 
   const matchers: DescriptorMatchers = {
-    includedPaths: new Set(descriptor.includedPaths),
-    excludedPaths: new Set(descriptor.excludedPaths),
     coveredDirectoryPaths: new Set(descriptor.coveredDirectoryPaths),
+    excludedPaths: new Set(descriptor.excludedPaths),
+    includedPaths: new Set(descriptor.includedPaths),
     matchesExclude: createPathMatcher(descriptor.excludeFilters, descriptor.useRegex),
     matchesInclude: createPathMatcher(descriptor.includeFilters, descriptor.useRegex),
   };

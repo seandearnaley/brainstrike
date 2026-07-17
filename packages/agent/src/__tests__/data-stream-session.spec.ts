@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { StreamChunk } from '../index';
 import {
   AssistantDataStreamSession,
@@ -6,6 +6,7 @@ import {
   createRandomId,
   resolveDataStreamSession,
 } from '../stream/data-stream';
+import { SessionSubscription } from '../stream/session-subscription';
 import { boundToolOutputForModel, TOOL_RESULT_TOO_LARGE_CODE } from '../stream/tool-output-limits';
 
 interface Encoded {
@@ -70,6 +71,26 @@ function parseLines(lines: string[]): Encoded[] {
 }
 
 describe('AssistantDataStreamSession', () => {
+  it('removes a canceled subscription without closing an already-canceled controller', () => {
+    const controller = {
+      close: vi.fn(() => {
+        throw new TypeError('Controller is already closed');
+      }),
+      enqueue: vi.fn(),
+    } as unknown as ReadableStreamDefaultController<Uint8Array>;
+    const session = {
+      isClosed: () => false,
+      pullEvent: () => undefined,
+      removeSubscription: vi.fn(),
+    };
+    const subscription = new SessionSubscription(session, controller, 0);
+
+    subscription.cancel();
+
+    expect(controller.close).not.toHaveBeenCalled();
+    expect(session.removeSubscription).toHaveBeenCalledWith(subscription);
+  });
+
   it('createRandomId returns a prefixed UUID-shaped value', () => {
     const firstId = createRandomId('sess');
     const secondId = createRandomId('sess');
@@ -89,42 +110,42 @@ describe('AssistantDataStreamSession', () => {
       { type: 'text-delta', value: 'Hello ' },
       { type: 'text-delta', value: 'world' },
       {
-        type: 'tool-event',
         name: 'weather.lookup',
+        payload: { args: { city: 'SF' }, toolCallId: 'call-1' },
         status: 'start',
-        payload: { toolCallId: 'call-1', args: { city: 'SF' } },
+        type: 'tool-event',
       },
       {
-        type: 'tool-event',
         name: 'weather.lookup',
+        payload: { argsTextDelta: '{"city":', step: 'input_stream_delta', toolCallId: 'call-1' },
         status: 'progress',
-        payload: { step: 'input_stream_delta', toolCallId: 'call-1', argsTextDelta: '{"city":' },
+        type: 'tool-event',
       },
       {
-        type: 'tool-event',
         name: 'weather.lookup',
+        payload: { argsTextDelta: '"SF"}', step: 'input_stream_delta', toolCallId: 'call-1' },
         status: 'progress',
-        payload: { step: 'input_stream_delta', toolCallId: 'call-1', argsTextDelta: '"SF"}' },
+        type: 'tool-event',
       },
       {
-        type: 'tool-event',
         name: 'weather.lookup',
-        status: 'progress',
         payload: { step: 'input_stream_end', toolCallId: 'call-1' },
+        status: 'progress',
+        type: 'tool-event',
       },
       {
-        type: 'tool-event',
         name: 'weather.lookup',
+        payload: { output: { tempC: 18 }, toolCallId: 'call-1' },
         status: 'success',
-        payload: { toolCallId: 'call-1', output: { tempC: 18 } },
+        type: 'tool-event',
       },
       { type: 'text-delta', value: ' Done.' },
-      { type: 'finish', usage: { promptTokens: 5, completionTokens: 7 } },
+      { type: 'finish', usage: { completionTokens: 7, promptTokens: 5 } },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'sess-test',
       messageId: 'msg-test',
+      sessionId: 'sess-test',
     });
 
     const lines = await readResponse(session.createResponse());
@@ -162,23 +183,23 @@ describe('AssistantDataStreamSession', () => {
   it('emits completed tool-call args before successful non-streaming tool results', async () => {
     const chunks: StreamChunk[] = [
       {
-        type: 'tool-event',
         name: 'weather.lookup',
+        payload: { args: { city: 'SF' }, toolCallId: 'call-direct' },
         status: 'start',
-        payload: { toolCallId: 'call-direct', args: { city: 'SF' } },
+        type: 'tool-event',
       },
       {
-        type: 'tool-event',
         name: 'weather.lookup',
+        payload: { output: { tempC: 18 }, toolCallId: 'call-direct' },
         status: 'success',
-        payload: { toolCallId: 'call-direct', output: { tempC: 18 } },
+        type: 'tool-event',
       },
-      { type: 'finish', usage: { promptTokens: 5, completionTokens: 7 } },
+      { type: 'finish', usage: { completionTokens: 7, promptTokens: 5 } },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'direct-tool-success',
       messageId: 'msg-direct-tool-success',
+      sessionId: 'direct-tool-success',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -191,14 +212,37 @@ describe('AssistantDataStreamSession', () => {
     expect(events[toolCallIndex]).toStrictEqual({
       code: '9',
       value: {
+        args: { city: 'SF' },
         toolCallId: 'call-direct',
         toolName: 'weather.lookup',
-        args: { city: 'SF' },
       },
     });
     expect(events[toolResultIndex]).toStrictEqual({
       code: 'a',
-      value: { toolCallId: 'call-direct', result: { tempC: 18 } },
+      value: { result: { tempC: 18 }, toolCallId: 'call-direct' },
+    });
+  });
+
+  it('preserves provider-reported billed cost on the finish message', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        billedCostUsd: 0.0042,
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 7, promptTokens: 5 },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      messageId: 'msg-provider-cost',
+      sessionId: 'provider-cost',
+    });
+
+    const finish = parseLines(await readResponse(session.createResponse())).at(-1)?.value;
+    expect(finish).toMatchObject({
+      billedCostUsd: 0.0042,
+      usage: { inputTokens: 5, outputTokens: 7 },
     });
   });
 
@@ -213,16 +257,16 @@ describe('AssistantDataStreamSession', () => {
         type: 'tool-approval-required',
       },
       {
-        type: 'message-finish',
         finishReason: 'tool-calls',
         path: [],
-        usage: { promptTokens: 0, completionTokens: 0 },
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
       },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'approval-required',
       messageId: 'msg-approval-required',
+      sessionId: 'approval-required',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -242,9 +286,9 @@ describe('AssistantDataStreamSession', () => {
     expect(events[toolCallIndex]).toStrictEqual({
       code: '9',
       value: {
+        args: { mode: 'replace', paths: ['src/index.ts'] },
         toolCallId: 'approval-1',
         toolName: 'brainstrike.updateWorkspaceContextSelection',
-        args: { mode: 'replace', paths: ['src/index.ts'] },
       },
     });
     expect(events[approvalIndex]).toStrictEqual({
@@ -264,8 +308,8 @@ describe('AssistantDataStreamSession', () => {
       code: 'd',
       value: {
         finishReason: 'tool-calls',
-        usage: { inputTokens: 0, outputTokens: 0 },
         path: [],
+        usage: { inputTokens: 0, outputTokens: 0 },
       },
     });
   });
@@ -273,20 +317,23 @@ describe('AssistantDataStreamSession', () => {
   it('prefers data-stream usage fields over legacy prompt/completion aliases', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Hello' },
+      // The declared StreamChunkFinish usage carries only the legacy
+      // prompt/completion aliases; this chunk intentionally adds the modern
+      // fields too, to prove the mapper prefers them over the aliases.
       {
         type: 'finish',
         usage: {
+          completionTokens: 7,
           inputTokens: 11,
           outputTokens: 13,
           promptTokens: 5,
-          completionTokens: 7,
         },
-      },
+      } as unknown as StreamChunk,
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'usage-precedence',
       messageId: 'msg-usage-precedence',
+      sessionId: 'usage-precedence',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -300,46 +347,46 @@ describe('AssistantDataStreamSession', () => {
   it('encodes assistant run events as assistant-ui named data parts', async () => {
     const chunks: StreamChunk[] = [
       {
-        type: 'run-event',
         event: {
           id: 'event-1',
           kind: 'memory.configured',
           label: 'Memory configured',
+          metadata: {
+            resourceId: 'workspace-1',
+            threadId: 'thread-1',
+          },
           sequence: 1,
           status: 'completed',
           timestamp: '2026-04-24T12:00:00.000Z',
-          metadata: {
-            threadId: 'thread-1',
-            resourceId: 'workspace-1',
-          },
         },
+        type: 'run-event',
       },
       { type: 'text-delta', value: 'Hello' },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'run-events',
       messageId: 'msg-run-events',
+      sessionId: 'run-events',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
     const runEvent = events.find((evt) => evt.code === 'aui-data');
 
     expect(runEvent?.value).toStrictEqual({
-      name: 'brainstrike.run-event',
       data: {
         id: 'event-1',
         kind: 'memory.configured',
         label: 'Memory configured',
+        metadata: {
+          resourceId: 'workspace-1',
+          threadId: 'thread-1',
+        },
         sequence: 1,
         status: 'completed',
         timestamp: '2026-04-24T12:00:00.000Z',
-        metadata: {
-          threadId: 'thread-1',
-          resourceId: 'workspace-1',
-        },
       },
+      name: 'brainstrike.run-event',
     });
   });
 
@@ -349,12 +396,12 @@ describe('AssistantDataStreamSession', () => {
       { type: 'reasoning-delta', value: '' },
       { type: 'reasoning-delta', value: 'Checking memory state' },
       { type: 'text-delta', value: 'Visible answer' },
-      { type: 'finish', usage: { promptTokens: 3, completionTokens: 4 } },
+      { type: 'finish', usage: { completionTokens: 4, promptTokens: 3 } },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'reasoning',
       messageId: 'msg-reasoning',
+      sessionId: 'reasoning',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -374,8 +421,8 @@ describe('AssistantDataStreamSession', () => {
     }
 
     const session = new AssistantDataStreamSession(failingStream(), () => {}, {
-      sessionId: 'source-error',
       messageId: 'msg-source-error',
+      sessionId: 'source-error',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -385,8 +432,8 @@ describe('AssistantDataStreamSession', () => {
       code: 'd',
       value: {
         finishReason: 'error',
-        usage: { inputTokens: 0, outputTokens: 0 },
         path: [],
+        usage: { inputTokens: 0, outputTokens: 0 },
       },
     });
   });
@@ -395,8 +442,8 @@ describe('AssistantDataStreamSession', () => {
     const chunks: StreamChunk[] = [{ type: 'text-delta', value: 'Partial answer' }];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'missing-finish',
       messageId: 'msg-missing-finish',
+      sessionId: 'missing-finish',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -422,12 +469,12 @@ describe('AssistantDataStreamSession', () => {
       { type: 'text-delta', value: 'First ' },
       { type: 'text-delta', value: 'chunk' },
       { type: 'text-delta', value: '!' },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+      { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'resume',
       messageId: 'msg-resume',
+      sessionId: 'resume',
     });
 
     const allLines = await readResponse(session.createResponse());
@@ -445,17 +492,17 @@ describe('AssistantDataStreamSession', () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Working...' },
       {
-        type: 'tool-event',
         name: 'failing.tool',
+        payload: { error: 'boom', toolCallId: 'oops' },
         status: 'error',
-        payload: { toolCallId: 'oops', error: 'boom' },
+        type: 'tool-event',
       },
-      { type: 'finish', usage: { promptTokens: 2, completionTokens: 0 } },
+      { type: 'finish', usage: { completionTokens: 0, promptTokens: 2 } },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'err',
       messageId: 'msg-err',
+      sessionId: 'err',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -468,9 +515,9 @@ describe('AssistantDataStreamSession', () => {
       toolCallId?: string;
     };
     expect(toolResult).toStrictEqual({
-      toolCallId: 'oops',
-      result: 'boom',
       isError: true,
+      result: 'boom',
+      toolCallId: 'oops',
     });
 
     const visibleText = events
@@ -489,23 +536,23 @@ describe('AssistantDataStreamSession', () => {
   it('surfaces every pending tool execution error before finishing recoverably', async () => {
     const chunks: StreamChunk[] = [
       {
-        type: 'tool-event',
         name: 'first.tool',
+        payload: { error: 'first failed', toolCallId: 'first' },
         status: 'error',
-        payload: { toolCallId: 'first', error: 'first failed' },
+        type: 'tool-event',
       },
       {
-        type: 'tool-event',
         name: 'second.tool',
+        payload: { error: 'second failed', toolCallId: 'second' },
         status: 'error',
-        payload: { toolCallId: 'second', error: 'second failed' },
+        type: 'tool-event',
       },
-      { type: 'finish', usage: { promptTokens: 2, completionTokens: 0 } },
+      { type: 'finish', usage: { completionTokens: 0, promptTokens: 2 } },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'multi-tool-err',
       messageId: 'msg-multi-tool-err',
+      sessionId: 'multi-tool-err',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -525,28 +572,28 @@ describe('AssistantDataStreamSession', () => {
   it('surfaces model length finishes after tool calls instead of ending silently', async () => {
     const chunks: StreamChunk[] = [
       {
-        type: 'tool-event',
         name: 'brainstrike.queryEmbeddingSpace',
+        payload: { args: { query: 'database config' }, toolCallId: 'call-context' },
         status: 'start',
-        payload: { toolCallId: 'call-context', args: { query: 'database config' } },
-      },
-      {
         type: 'tool-event',
-        name: 'brainstrike.queryEmbeddingSpace',
-        status: 'success',
-        payload: { toolCallId: 'call-context', output: { context: 'result' } },
       },
       {
-        type: 'message-finish',
+        name: 'brainstrike.queryEmbeddingSpace',
+        payload: { output: { context: 'result' }, toolCallId: 'call-context' },
+        status: 'success',
+        type: 'tool-event',
+      },
+      {
         finishReason: 'length',
-        usage: { promptTokens: 20, completionTokens: 500 },
         path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 500, promptTokens: 20 },
       },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'length-after-tools',
       messageId: 'msg-length-after-tools',
+      sessionId: 'length-after-tools',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -569,16 +616,16 @@ describe('AssistantDataStreamSession', () => {
   it('does not surface intermediate tool-call finishes as visible errors', async () => {
     const chunks: StreamChunk[] = [
       {
-        type: 'message-finish',
         finishReason: 'tool-calls',
-        usage: { promptTokens: 20, completionTokens: 4 },
         path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 4, promptTokens: 20 },
       },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'tool-calls-finish',
       messageId: 'msg-tool-calls-finish',
+      sessionId: 'tool-calls-finish',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -592,16 +639,16 @@ describe('AssistantDataStreamSession', () => {
   it('surfaces abnormal other finishes as visible errors', async () => {
     const chunks: StreamChunk[] = [
       {
-        type: 'message-finish',
         finishReason: 'other',
-        usage: { promptTokens: 20, completionTokens: 4 },
         path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 4, promptTokens: 20 },
       },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'abnormal-finish',
       messageId: 'msg-abnormal-finish',
+      sessionId: 'abnormal-finish',
     });
 
     const events = parseLines(await readResponse(session.createResponse()));
@@ -629,12 +676,12 @@ describe('AssistantDataStreamSession', () => {
         yield { type: 'text-delta', value: `chunk${i} ` };
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
-      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: maxChunks } };
+      yield { type: 'finish', usage: { completionTokens: maxChunks, promptTokens: 1 } };
     }
 
     const session = new AssistantDataStreamSession(slowStream(), () => {}, {
-      sessionId: 'abort-test',
       messageId: 'msg-abort',
+      sessionId: 'abort-test',
     });
 
     const response = session.createResponse();
@@ -671,12 +718,12 @@ describe('AssistantDataStreamSession', () => {
         yield { type: 'text-delta', value: `chunk${i} ` };
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: 100 } };
+      yield { type: 'finish', usage: { completionTokens: 100, promptTokens: 1 } };
     }
 
     const session = new AssistantDataStreamSession(longStream(), () => {}, {
-      sessionId: 'immediate-abort',
       messageId: 'msg-immediate',
+      sessionId: 'immediate-abort',
     });
 
     const response = session.createResponse();
@@ -707,12 +754,12 @@ describe('AssistantDataStreamSession', () => {
         yield { type: 'text-delta', value: `chunk${i} ` };
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
-      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: maxChunks } };
+      yield { type: 'finish', usage: { completionTokens: maxChunks, promptTokens: 1 } };
     }
 
     const session = new AssistantDataStreamSession(simpleStream(), () => {}, {
-      sessionId: 'cancel-all-test',
       messageId: 'msg-cancel-all',
+      sessionId: 'cancel-all-test',
     });
 
     // Create two concurrent response streams
@@ -746,12 +793,12 @@ describe('AssistantDataStreamSession', () => {
       { type: 'text-delta', value: 'Chunk 1 ' },
       { type: 'text-delta', value: 'Chunk 2 ' },
       { type: 'text-delta', value: 'Chunk 3' },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 3 } },
+      { type: 'finish', usage: { completionTokens: 3, promptTokens: 1 } },
     ];
 
     const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      sessionId: 'multi-response',
       messageId: 'msg-multi',
+      sessionId: 'multi-response',
     });
 
     // Create first response and read all
@@ -766,13 +813,13 @@ describe('AssistantDataStreamSession', () => {
   it('resolves session by event ID through session manager', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Test' },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } },
+      { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
     ];
 
     // Use session manager to create session
     const session = assistantDataStreamSessions.create(createAsyncStream(chunks), {
-      sessionId: 'manager-test',
       messageId: 'msg-manager',
+      sessionId: 'manager-test',
     });
 
     // Read first chunk to generate event ID
@@ -805,12 +852,12 @@ describe('AssistantDataStreamSession', () => {
       { type: 'text-delta', value: 'B ' },
       { type: 'text-delta', value: 'C ' },
       { type: 'text-delta', value: 'D' },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 4 } },
+      { type: 'finish', usage: { completionTokens: 4, promptTokens: 1 } },
     ];
 
     const session = assistantDataStreamSessions.create(createAsyncStream(chunks), {
-      sessionId: 'flush-test',
       messageId: 'msg-flush',
+      sessionId: 'flush-test',
     });
 
     // Read all events
@@ -835,7 +882,7 @@ describe('AssistantDataStreamSession', () => {
 
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Quick' },
-      { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } },
+      { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
     ];
 
     const session = new AssistantDataStreamSession(
@@ -845,9 +892,9 @@ describe('AssistantDataStreamSession', () => {
         cleanupSessionId = sessionId;
       },
       {
-        sessionId: 'cleanup-test',
-        messageId: 'msg-cleanup',
         cleanupDelayMs: 10, // Short delay for testing
+        messageId: 'msg-cleanup',
+        sessionId: 'cleanup-test',
       }
     );
 
@@ -865,31 +912,31 @@ describe('AssistantDataStreamSession', () => {
     it('emits ToolCall chunk before ToolCallResult on error', async () => {
       const chunks: StreamChunk[] = [
         {
-          type: 'tool-event',
           name: 'testTool',
-          status: 'start',
           payload: {
             callId: 'call_123',
-            toolCallId: 'call_123',
             input: { param: 'value' },
+            toolCallId: 'call_123',
           },
+          status: 'start',
+          type: 'tool-event',
         },
         {
-          type: 'tool-event',
           name: 'testTool',
-          status: 'error',
           payload: {
             callId: 'call_123',
-            toolCallId: 'call_123',
             error: 'Not connected',
+            toolCallId: 'call_123',
           },
+          status: 'error',
+          type: 'tool-event',
         },
-        { type: 'finish', usage: { promptTokens: 10, completionTokens: 20 } },
+        { type: 'finish', usage: { completionTokens: 20, promptTokens: 10 } },
       ];
 
       const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-        sessionId: 'tool-error-test',
         messageId: 'msg-tool-error',
+        sessionId: 'tool-error-test',
       });
 
       const response = await readResponse(session.createResponse());
@@ -918,18 +965,18 @@ describe('AssistantDataStreamSession', () => {
       expect(toolCall).toBeDefined();
       const toolCallChunk = assertDefined(toolCall, 'Expected ToolCall chunk');
       expect(toolCallChunk.value).toMatchObject({
+        args: { param: 'value' },
         toolCallId: 'call_123',
         toolName: 'testTool',
-        args: { param: 'value' },
       });
 
       // Verify ToolCallResult with error flag was emitted
       expect(toolResult).toBeDefined();
       const toolResultChunk = assertDefined(toolResult, 'Expected ToolCallResult chunk');
       expect(toolResultChunk.value).toMatchObject({
-        toolCallId: 'call_123',
-        result: 'Not connected',
         isError: true,
+        result: 'Not connected',
+        toolCallId: 'call_123',
       });
 
       // Tool execution errors should stay attached to the tool result instead
@@ -952,31 +999,31 @@ describe('AssistantDataStreamSession', () => {
     it('handles tool error without explicit input in error payload', async () => {
       const chunks: StreamChunk[] = [
         {
-          type: 'tool-event',
           name: 'brokenTool',
-          status: 'start',
           payload: {
             callId: 'call_456',
-            toolCallId: 'call_456',
             input: { query: 'test' },
+            toolCallId: 'call_456',
           },
+          status: 'start',
+          type: 'tool-event',
         },
         {
-          type: 'tool-event',
           name: 'brokenTool',
-          status: 'error',
           payload: {
             callId: 'call_456',
+            error: { code: 500, message: 'Internal error' },
             toolCallId: 'call_456',
-            error: { message: 'Internal error', code: 500 },
           },
+          status: 'error',
+          type: 'tool-event',
         },
-        { type: 'finish', usage: { promptTokens: 5, completionTokens: 10 } },
+        { type: 'finish', usage: { completionTokens: 10, promptTokens: 5 } },
       ];
 
       const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-        sessionId: 'tool-error-no-input',
         messageId: 'msg-error-no-input',
+        sessionId: 'tool-error-no-input',
       });
 
       const response = await readResponse(session.createResponse());
@@ -988,16 +1035,16 @@ describe('AssistantDataStreamSession', () => {
       // Should still emit ToolCall with args from the start event
       expect(toolCall).toBeDefined();
       expect(toolCall?.value).toMatchObject({
+        args: { query: 'test' },
         toolCallId: 'call_456',
         toolName: 'brokenTool',
-        args: { query: 'test' },
       });
 
       // Should emit error result with the error object
       expect(toolResult).toBeDefined();
       expect(toolResult?.value).toMatchObject({
-        toolCallId: 'call_456',
         isError: true,
+        toolCallId: 'call_456',
       });
       expect(toolResult?.value).toHaveProperty('result');
     });
@@ -1005,50 +1052,50 @@ describe('AssistantDataStreamSession', () => {
     it('handles tool error with args text delta', async () => {
       const chunks: StreamChunk[] = [
         {
-          type: 'tool-event',
           name: 'streamTool',
+          payload: {
+            callId: 'call_789',
+            toolCallId: 'call_789',
+          },
           status: 'start',
-          payload: {
-            callId: 'call_789',
-            toolCallId: 'call_789',
-          },
+          type: 'tool-event',
         },
         {
-          type: 'tool-event',
           name: 'streamTool',
-          status: 'progress',
           payload: {
-            callId: 'call_789',
-            step: 'input_stream_delta',
             argsTextDelta: '{"location"',
-          },
-        },
-        {
-          type: 'tool-event',
-          name: 'streamTool',
-          status: 'progress',
-          payload: {
             callId: 'call_789',
             step: 'input_stream_delta',
-            argsTextDelta: ':"SF"}',
           },
+          status: 'progress',
+          type: 'tool-event',
         },
         {
-          type: 'tool-event',
           name: 'streamTool',
-          status: 'error',
+          payload: {
+            argsTextDelta: ':"SF"}',
+            callId: 'call_789',
+            step: 'input_stream_delta',
+          },
+          status: 'progress',
+          type: 'tool-event',
+        },
+        {
+          name: 'streamTool',
           payload: {
             callId: 'call_789',
-            toolCallId: 'call_789',
             error: 'Connection timeout',
+            toolCallId: 'call_789',
           },
+          status: 'error',
+          type: 'tool-event',
         },
-        { type: 'finish', usage: { promptTokens: 10, completionTokens: 15 } },
+        { type: 'finish', usage: { completionTokens: 15, promptTokens: 10 } },
       ];
 
       const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-        sessionId: 'tool-error-streamed',
         messageId: 'msg-error-streamed',
+        sessionId: 'tool-error-streamed',
       });
 
       const response = await readResponse(session.createResponse());
@@ -1061,59 +1108,59 @@ describe('AssistantDataStreamSession', () => {
       // Should have emitted the args text deltas
       expect(argsDeltas).toHaveLength(2);
       expect(argsDeltas[0]?.value).toMatchObject({
-        toolCallId: 'call_789',
         argsTextDelta: '{"location"',
+        toolCallId: 'call_789',
       });
       expect(argsDeltas[1]?.value).toMatchObject({
-        toolCallId: 'call_789',
         argsTextDelta: ':"SF"}',
+        toolCallId: 'call_789',
       });
 
       // Should emit ToolCall with reconstructed args from deltas
       expect(toolCall).toBeDefined();
       expect(toolCall?.value).toMatchObject({
+        args: { location: 'SF' },
         toolCallId: 'call_789',
         toolName: 'streamTool',
-        args: { location: 'SF' },
       });
 
       // Should emit error result
       expect(toolResult).toBeDefined();
       expect(toolResult?.value).toMatchObject({
-        toolCallId: 'call_789',
-        result: 'Connection timeout',
         isError: true,
+        result: 'Connection timeout',
+        toolCallId: 'call_789',
       });
     });
 
     it('keeps the assistant message recoverable when a tool fails', async () => {
       const chunks: StreamChunk[] = [
         {
-          type: 'tool-event',
           name: 'failTool',
-          status: 'start',
           payload: {
             callId: 'call_error',
-            toolCallId: 'call_error',
             input: { test: 'value' },
+            toolCallId: 'call_error',
           },
+          status: 'start',
+          type: 'tool-event',
         },
         {
-          type: 'tool-event',
           name: 'failTool',
-          status: 'error',
           payload: {
             callId: 'call_error',
-            toolCallId: 'call_error',
             error: 'Tool failed',
+            toolCallId: 'call_error',
           },
+          status: 'error',
+          type: 'tool-event',
         },
-        { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } },
+        { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
       ];
 
       const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-        sessionId: 'step-error-test',
         messageId: 'msg-step-error',
+        sessionId: 'step-error-test',
       });
 
       const response = await readResponse(session.createResponse());
@@ -1139,35 +1186,80 @@ describe('AssistantDataStreamSession', () => {
       });
     });
 
+    it('does not surface a suspended tool call as a failed tool action', async () => {
+      const chunks: StreamChunk[] = [
+        {
+          name: 'earlier.tool',
+          payload: {
+            error: 'Earlier tool failure',
+            toolCallId: 'call-earlier',
+          },
+          status: 'error',
+          type: 'tool-event',
+        },
+        {
+          name: 'brainstrike.submitPlan',
+          payload: {
+            error: 'Tool execution failed',
+            toolCallId: 'call-plan',
+          },
+          status: 'error',
+          type: 'tool-event',
+        },
+        {
+          runId: 'run-plan',
+          suspendPayload: { title: 'Implementation plan' },
+          toolCallId: 'call-plan',
+          toolName: 'brainstrike.submitPlan',
+          type: 'tool-suspend-required',
+        },
+        { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        messageId: 'msg-suspended-tool',
+        sessionId: 'suspended-tool-test',
+      });
+
+      const parsed = parseLines(await readResponse(session.createResponse()));
+      const visibleText = parsed
+        .filter((part) => part.code === '0')
+        .map((part) => part.value)
+        .join('');
+
+      expect(visibleText).toContain('Earlier tool failure');
+      expect(visibleText).not.toContain('Tool execution failed');
+    });
+
     it('turns oversized successful tool output into a bounded recoverable tool error', async () => {
       const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
       const chunks: StreamChunk[] = [
         {
-          type: 'tool-event',
           name: 'filesystem.search_files',
-          status: 'start',
           payload: {
             callId: 'call_files',
-            toolCallId: 'call_files',
             input: { path: '.', pattern: '*.ts' },
+            toolCallId: 'call_files',
           },
+          status: 'start',
+          type: 'tool-event',
         },
         {
-          type: 'tool-event',
           name: 'filesystem.search_files',
-          status: 'success',
           payload: {
             callId: 'call_files',
-            toolCallId: 'call_files',
             output: oversizedOutput,
+            toolCallId: 'call_files',
           },
+          status: 'success',
+          type: 'tool-event',
         },
-        { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } },
+        { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
       ];
 
       const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-        sessionId: 'oversized-tool-result-test',
         messageId: 'msg-oversized-tool-result',
+        sessionId: 'oversized-tool-result-test',
       });
 
       const parsed = parseLines(await readResponse(session.createResponse()));
@@ -1187,11 +1279,11 @@ describe('AssistantDataStreamSession', () => {
       const serializedToolResult = JSON.stringify(toolResult);
 
       expect(toolResult).toMatchObject({
-        toolCallId: 'call_files',
         isError: true,
         result: {
           code: 'tool_result_too_large',
         },
+        toolCallId: 'call_files',
       });
       expect(toolResult?.result?.error).toContain(
         'filesystem.search_files returned too much output'
@@ -1291,8 +1383,8 @@ describe('AssistantDataStreamSession', () => {
       };
 
       const session = new AssistantDataStreamSession(failingStream, () => {}, {
-        sessionId: 'iterator-throws-test',
         messageId: 'msg-iterator-throws',
+        sessionId: 'iterator-throws-test',
       });
 
       const response = await readResponse(session.createResponse());

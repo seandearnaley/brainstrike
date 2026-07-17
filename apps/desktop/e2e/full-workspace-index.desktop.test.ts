@@ -421,8 +421,8 @@ test.describe('Full Workspace Index run', () => {
 
       await writeEvidence({
         completedAt: new Date().toISOString(),
-        durationMs: Date.now() - startedAt,
         droppedSampleCount,
+        durationMs: Date.now() - startedAt,
         fatalLogMatches,
         requiredDevice,
         roots,
@@ -440,8 +440,8 @@ test.describe('Full Workspace Index run', () => {
       const finalSnapshot = samples.at(-1)?.snapshot;
       await writeEvidence({
         completedAt: new Date().toISOString(),
-        durationMs: Date.now() - startedAt,
         droppedSampleCount,
+        durationMs: Date.now() - startedAt,
         error: {
           message: error instanceof Error ? error.message : String(error),
           name: error instanceof Error ? error.name : 'Error',

@@ -65,11 +65,11 @@ export function ModelRegistrySettingsSection() {
     } catch (err) {
       logger.error('Failed to download model', err);
       toast({
-        title: 'Download Failed',
         description:
           err instanceof Error
             ? err.message
             : 'An unknown error occurred while downloading the model.',
+        title: 'Download Failed',
         variant: 'destructive',
       });
     }

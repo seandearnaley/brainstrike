@@ -23,8 +23,8 @@ vi.mock('@brainstrike/utils/file-content', async (importOriginal) => {
     fileContent: {
       ...actual.fileContent,
       isBinaryExtension: vi.fn(),
-      isTextExtension: vi.fn(),
       isTextContent: vi.fn(),
+      isTextExtension: vi.fn(),
     },
   };
 });
@@ -41,26 +41,26 @@ vi.mock('@brainstrike/utils/file-explorer-utils', async (importOriginal) => {
 });
 
 const mockFileSystemAdapter: FileSystemAdapter = {
-  readFile: vi.fn(),
-  readDirectory: vi.fn(),
-  requestDirectoryAccess: vi.fn(),
   exists: vi.fn(),
+  readDirectory: vi.fn(),
+  readFile: vi.fn(),
+  requestDirectoryAccess: vi.fn(),
 };
 
 const mockFileNode = {
-  name: 'test.txt',
-  path: '/test.txt',
-  type: 'file' as const,
+  depth: 0,
   handle: {
-    kind: 'file' as const,
-    name: 'test.txt',
     createWritable: vi.fn(),
     getFile: vi.fn(),
     isSameEntry: vi.fn(),
+    kind: 'file' as const,
+    name: 'test.txt',
   } as unknown as FileSystemFileHandle,
+  name: 'test.txt',
+  path: '/test.txt',
   rootFolderId: 'root1',
-  depth: 0,
   selectionState: 'unchecked' as const,
+  type: 'file' as const,
 };
 
 const mockRequest = {
@@ -95,12 +95,12 @@ describe('DirectFileContentProcessor', () => {
       'root1|@|/test.txt': 'file content',
     });
     expect(mockReadFile).toHaveBeenCalledWith({
-      path: '/test.txt',
-      name: 'test.txt',
+      _internal: mockFileNode.handle,
       kind: 'file',
+      name: 'test.txt',
+      path: '/test.txt',
       platform: 'web',
       rootFolderId: 'root1',
-      _internal: mockFileNode.handle,
     });
   });
 
@@ -118,14 +118,14 @@ describe('DirectFileContentProcessor', () => {
         compositeKey: 'fixture-root|@|docs/guide.md',
         fileNode: {
           ...mockFileNode,
-          name: 'guide.md',
-          path: 'docs/guide.md',
           handle: {
             kind: 'file',
             name: 'guide.md',
             path: 'fixture-root/docs/guide.md',
             platform: 'web',
           } as unknown as FileSystemFileHandle,
+          name: 'guide.md',
+          path: 'docs/guide.md',
           rootFolderId: 'fixture-root',
         },
         fileSystemAdapter: mockFileSystemAdapter,
@@ -344,20 +344,20 @@ describe('WorkerFileContentProcessor', () => {
     const results = await processor.processFiles([mockRequest]);
 
     expect(createFileContentWorker).toHaveBeenCalledWith({
-      fileSystemAdapter: mockFileSystemAdapter,
       concurrency: 3,
+      fileSystemAdapter: mockFileSystemAdapter,
     });
     expect(mockWorker).toHaveBeenCalledWith(
       [
         expect.objectContaining({
           compositeKey: 'root1|@|/test.txt',
-          path: '/test.txt',
           handle: expect.objectContaining({
+            kind: 'file',
             name: 'test.txt',
             path: '/test.txt',
-            kind: 'file',
             platform: 'web',
           }),
+          path: '/test.txt',
         }),
       ],
       undefined,
@@ -412,14 +412,14 @@ describe('WorkerFileContentProcessor', () => {
         compositeKey: 'fixture-root|@|docs/guide.md',
         fileNode: {
           ...mockFileNode,
-          name: 'guide.md',
-          path: 'docs/guide.md',
           handle: {
             kind: 'file',
             name: 'guide.md',
             path: 'fixture-root/docs/guide.md',
             platform: 'web',
           } as unknown as FileSystemFileHandle,
+          name: 'guide.md',
+          path: 'docs/guide.md',
           rootFolderId: 'fixture-root',
         },
         fileSystemAdapter: mockFileSystemAdapter,

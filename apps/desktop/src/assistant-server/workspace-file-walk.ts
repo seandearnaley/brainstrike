@@ -82,7 +82,7 @@ function recordFile(
   ) {
     return;
   }
-  ctx.onFile({ relativePath: childRelative, absolutePath: childAbsolute });
+  ctx.onFile({ absolutePath: childAbsolute, relativePath: childRelative });
 }
 
 /**
@@ -124,7 +124,7 @@ async function visitDirectory(
   try {
     dirEntries = await fsPromises.readdir(currentAbsolutePath, { withFileTypes: true });
   } catch (error) {
-    logger.debug('workspace walk: unreadable directory skipped', { path: relativePosix, error });
+    logger.debug('workspace walk: unreadable directory skipped', { error, path: relativePosix });
     return;
   }
 
@@ -190,19 +190,19 @@ export async function walkWorkspaceRoot(options: WalkRootOptions): Promise<WalkR
     canonicalRootPath = await fsPromises.realpath(options.root.path);
   } catch (error) {
     logger.warn('workspace walk: root is not accessible', {
-      rootId: options.root.rootId,
       error,
+      rootId: options.root.rootId,
     });
     return { filesScanned: 0, scanLimited: false };
   }
 
   const ctx: WalkContext = {
     canonicalRootPath,
+    filesScanned: 0,
     includeIgnored: options.includeIgnored === true,
     onFile: options.onFile,
     policy: createBackgroundIndexingEntryPolicy({ preset: 'balanced' }),
     scanLimited: false,
-    filesScanned: 0,
   };
   await visitDirectory(ctx, canonicalRootPath, '');
   return { filesScanned: ctx.filesScanned, scanLimited: ctx.scanLimited };

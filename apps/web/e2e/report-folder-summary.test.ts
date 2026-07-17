@@ -7,7 +7,6 @@ import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 test.describe('Report Folder Summary Threshold', () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
-      'test.ts': null,
       src: {
         'file1.ts': null,
         'file2.ts': null,
@@ -18,6 +17,7 @@ test.describe('Report Folder Summary Threshold', () => {
         'file7.ts': null,
         'file8.ts': null,
       },
+      'test.ts': null,
     };
 
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });

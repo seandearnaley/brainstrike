@@ -100,8 +100,8 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
     expect(policy).toMatchObject({
       allowNewWork: true,
       allowPowerSaveBlocker: true,
-      contentReadConcurrency: 4,
       completionOverlapBatches: 3,
+      contentReadConcurrency: 4,
       importBatchSize: 48,
       maxPendingCompletionChunks: 64,
       reason: 'idle-ac',

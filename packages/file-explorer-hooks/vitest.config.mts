@@ -1,19 +1,8 @@
 import path from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  test: {
-    environment: 'happy-dom',
-    globals: true,
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    include: ['src/__tests__/**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
-    pool: 'threads',
-    // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
-    maxWorkers: 1,
-    isolate: true,
-    testTimeout: 30_000,
-  },
   resolve: {
     alias: [
       {
@@ -40,6 +29,22 @@ export default defineConfig({
         find: '@brainstrike/workers/file-content-worker',
         replacement: path.resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
       },
+      // Registry fills the remaining workspace deps (types, hooks, storage,
+      // platform-utils, file-explorer, test-utils, …) from SOURCE. Hand-rolled
+      // entries above win by first-match. See workspace-src-aliases (#1066/#1207).
+      ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
     ],
+  },
+  test: {
+    environment: 'happy-dom',
+    exclude: ['node_modules', 'dist'],
+    globals: true,
+    include: ['src/__tests__/**/*.test.{ts,tsx}'],
+    isolate: true,
+    // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
+    maxWorkers: 1,
+    pool: 'threads',
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    testTimeout: 30_000,
   },
 });

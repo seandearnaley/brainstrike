@@ -1,0 +1,19 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // startup-splash.test.ts asserts web/desktop startup-splash parity by
+      // reading apps/desktop/index.html — a CROSS-PACKAGE file turbo's default
+      // input hash for this package does not cover. Without this, a
+      // desktop-only splash edit replays a stale cached green for the parity
+      // test. $TURBO_DEFAULT$ keeps the normal inputs; the extra entry adds
+      // the desktop file to the hash.
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/desktop/index.html"]
+    },
+    "test:coverage": {
+      // Same cross-package input as `test`: the coverage lane runs the full
+      // suite including startup-splash.test.ts.
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/desktop/index.html"]
+    }
+  }
+}

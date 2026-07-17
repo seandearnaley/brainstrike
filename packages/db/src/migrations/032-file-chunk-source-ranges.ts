@@ -1,7 +1,13 @@
 import type { Migration } from './migration-runner';
 
 export const migration032FileChunkSourceRanges: Migration = {
-  version: 32,
+  down: `
+    ALTER TABLE file_chunks
+      DROP COLUMN IF EXISTS end_offset,
+      DROP COLUMN IF EXISTS start_offset,
+      DROP COLUMN IF EXISTS end_line,
+      DROP COLUMN IF EXISTS start_line;
+  `,
   name: 'file_chunk_source_ranges',
   up: `
     ALTER TABLE file_chunks
@@ -26,11 +32,5 @@ export const migration032FileChunkSourceRanges: Migration = {
        OR start_offset IS NULL
        OR end_offset IS NULL;
   `,
-  down: `
-    ALTER TABLE file_chunks
-      DROP COLUMN IF EXISTS end_offset,
-      DROP COLUMN IF EXISTS start_offset,
-      DROP COLUMN IF EXISTS end_line,
-      DROP COLUMN IF EXISTS start_line;
-  `,
+  version: 32,
 };

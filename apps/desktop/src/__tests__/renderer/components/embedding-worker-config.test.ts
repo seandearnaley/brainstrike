@@ -12,11 +12,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { loggerInfoMock, registryStoreState, resolveWorkspaceIndexingQosPolicyMock } = vi.hoisted(
   () => ({
     loggerInfoMock: vi.fn(),
-    resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
     registryStoreState: {
-      setDownloadProgress: vi.fn(),
       setDownloading: vi.fn(),
+      setDownloadProgress: vi.fn(),
     },
+    resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
   })
 );
 
@@ -168,19 +168,19 @@ describe('createEmbeddingWorkerConfig', () => {
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
     expect(config).toMatchObject({
-      db: scheduledDb,
       claimBatchSize: 16,
       concurrency: 1,
+      db: scheduledDb,
       interBatchDelayMs: 75,
       leaseMs: 60_000,
+      log: expect.any(Function),
       maxPendingCompletionBatches: 2,
       maxPendingCompletionBytes: 786_432,
       maxPendingCompletionChunks: 32,
-      streamBatchSize: 8,
-      log: expect.any(Function),
       onDownloadProgress: expect.any(Function),
       resolveClaimBatchSize: expect.any(Function),
       resolvePipelineCapacity: expect.any(Function),
+      streamBatchSize: 8,
       waitForBackgroundPermit: expect.any(Function),
     });
     expect(db.query).not.toHaveBeenCalled();
@@ -488,7 +488,7 @@ describe('createEmbeddingWorkerConfig', () => {
         new Promise<void>((resolve) => {
           releaseForegroundWork = resolve;
         }),
-      { priority: 'foreground', label: 'test foreground query' }
+      { label: 'test foreground query', priority: 'foreground' }
     );
 
     await vi.waitFor(() => {
@@ -537,7 +537,7 @@ describe('createEmbeddingWorkerConfig', () => {
       async () => {
         now += 130;
       },
-      { priority: 'foreground', label: 'slow foreground query' }
+      { label: 'slow foreground query', priority: 'foreground' }
     );
 
     expect(scheduler.getSnapshot().priorityStats.foreground.serviceP95Ms).toBeGreaterThan(120);
@@ -559,7 +559,7 @@ describe('createEmbeddingWorkerConfig', () => {
         new Promise<void>((resolve) => {
           releaseForegroundWork = resolve;
         }),
-      { priority: 'foreground', label: 'test foreground query' }
+      { label: 'test foreground query', priority: 'foreground' }
     );
 
     await vi.waitFor(() => {
@@ -601,7 +601,7 @@ describe('createEmbeddingWorkerConfig', () => {
       async () => {
         now += 130;
       },
-      { priority: 'normal', label: 'collection count refresh' }
+      { label: 'collection count refresh', priority: 'normal' }
     );
 
     expect(scheduler.getSnapshot().priorityStats.normal.serviceP95Ms).toBeGreaterThan(120);
@@ -623,8 +623,8 @@ describe('createEmbeddingWorkerConfig', () => {
     }
 
     await scheduler.run(async () => undefined, {
-      priority: 'foreground',
       label: 'foreground quiet boundary',
+      priority: 'foreground',
     });
     now += 50;
 
@@ -648,7 +648,7 @@ describe('createEmbeddingWorkerConfig', () => {
       async () => {
         now += 20;
       },
-      { priority: 'foreground', label: 'fast foreground query' }
+      { label: 'fast foreground query', priority: 'foreground' }
     );
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
@@ -671,9 +671,9 @@ describe('createEmbeddingWorkerConfig', () => {
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
     expect(config).toMatchObject({
-      db: scheduledDb,
       claimBatchSize: 4,
       concurrency: 3,
+      db: scheduledDb,
       interBatchDelayMs: 75,
       leaseMs: 45_000,
       maxPendingCompletionBatches: 3,

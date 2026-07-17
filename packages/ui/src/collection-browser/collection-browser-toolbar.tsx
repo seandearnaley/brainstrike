@@ -14,9 +14,9 @@ import { FilterControls } from './filter-controls';
 import { type CollectionBrowserToolbarProps, DEFAULT_FILTERS, type GroupByKey } from './types';
 
 const GROUP_BY_OPTIONS: { value: GroupByKey; label: string }[] = [
-  { value: 'none', label: 'No Grouping' },
-  { value: 'status', label: 'By Status' },
-  { value: 'type', label: 'By Type' },
+  { label: 'No Grouping', value: 'none' },
+  { label: 'By Status', value: 'status' },
+  { label: 'By Type', value: 'type' },
 ];
 
 // Container-query breakpoints that drive collapse of the inline filter UI.

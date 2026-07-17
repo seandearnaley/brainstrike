@@ -26,6 +26,13 @@ export interface RootIdentity {
    * Logs once per unmapped DB id so a silent drop never goes unobserved.
    */
   resolveAdapterRootId: (dbRootId: string) => string | null;
+  /**
+   * DB `roots.id` values for the currently-mounted, reconciled workspace roots
+   * (the VALUES of the reconciliation map). This is the authoritative query
+   * scope for workspace search — the single source of truth alongside
+   * `resolveAdapterRootId`, so both derive from the same provider.
+   */
+  workspaceDbRootIds: readonly string[];
 }
 
 const RootIdentityContext = createContext<RootIdentity | null>(null);
@@ -62,6 +69,7 @@ export function RootIdentityProvider({
         }
         return adapterRootId;
       },
+      workspaceDbRootIds: [...dbRootIdByAdapterRootId.values()],
     };
   }, [dbRootIdByAdapterRootId]);
 

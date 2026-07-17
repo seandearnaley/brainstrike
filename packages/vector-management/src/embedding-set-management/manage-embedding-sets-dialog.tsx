@@ -58,16 +58,16 @@ function mapRowToSet(row: {
   lastEmbeddedAt: string | null;
 }): EmbeddingSetWithStats {
   const base = {
-    id: String(row.id),
-    modelKey: String(row.modelKey),
-    modelId: String(row.modelId),
+    chunkCount: Number(row.chunkCount ?? 0),
+    createdAt: String(row.createdAt),
     dimensions: Number(row.dimensions),
     distance: String(row.distance) as EmbeddingSet['distance'],
-    createdAt: String(row.createdAt),
-    chunkCount: Number(row.chunkCount ?? 0),
     embeddingCount: Number(row.embeddingCount ?? 0),
     fileCount: Number(row.fileCount ?? 0),
+    id: String(row.id),
     lastEmbeddedAt: row.lastEmbeddedAt ? String(row.lastEmbeddedAt) : null,
+    modelId: String(row.modelId),
+    modelKey: String(row.modelKey),
   };
 
   return {
@@ -100,14 +100,14 @@ function dbModelToPickerModel(dbModel: DbModel): ModelPickerModel {
   const modelKey = isLocal ? dbModel.id : `${providerId}::${dbModel.id}`;
 
   return {
-    id: modelKey,
-    providerId: isLocal ? 'local' : providerId,
-    name: dbModel.name ?? dbModel.id,
-    description: dbModel.description ?? dbModel.tagline ?? null,
     capabilities: {
-      type: 'embedding',
       defaultDimension: dbModel.capabilities.defaultDimension ?? 768,
+      type: 'embedding',
     },
+    description: dbModel.description ?? dbModel.tagline ?? null,
+    id: modelKey,
+    name: dbModel.name ?? dbModel.id,
+    providerId: isLocal ? 'local' : providerId,
   };
 }
 
@@ -135,12 +135,12 @@ type DialogAction =
   | { type: 'clear_selected' };
 
 const INITIAL_DIALOG_STATE: DialogState = {
-  sets: [],
-  loading: false,
   createDialogOpen: false,
-  renameDialogOpen: false,
   deleteDialogOpen: false,
+  loading: false,
+  renameDialogOpen: false,
   selectedSet: null,
+  sets: [],
 };
 
 function dialogReducer(state: DialogState, action: DialogAction): DialogState {
@@ -227,7 +227,7 @@ export function ManageEmbeddingSetsDialog({
       );
 
       const mapped: EmbeddingSetWithStats[] = result.rows.map(mapRowToSet);
-      dispatch({ type: 'sets_loaded', sets: mapped });
+      dispatch({ sets: mapped, type: 'sets_loaded' });
     } catch (error) {
       logger.error('Failed to load embedding sets', { error });
       dispatch({ type: 'sets_error' });
@@ -256,11 +256,11 @@ export function ManageEmbeddingSetsDialog({
   };
 
   const handleEditSet = (set: EmbeddingSetWithStats) => {
-    dispatch({ type: 'open_rename', set });
+    dispatch({ set, type: 'open_rename' });
   };
 
   const handleDeleteSet = (set: EmbeddingSetWithStats) => {
-    dispatch({ type: 'open_delete', set });
+    dispatch({ set, type: 'open_delete' });
   };
 
   const handleSetAction = async (newSetId?: string) => {

@@ -25,14 +25,39 @@ export interface CodeSurfaceSelection {
   readonly to: number;
 }
 
+export interface CodeSurfaceContextMenuSelection extends CodeSurfaceSelection {
+  /** Exact editor text at invocation time; null when the selection is collapsed. */
+  readonly text: string | null;
+}
+
 export interface CodeSurfaceProps {
   readonly ariaLabel?: string | undefined;
   readonly className?: string | undefined;
   readonly editable?: boolean | undefined;
+  /**
+   * 1-based line to scroll into view on first content render (e.g. a
+   * search-match target). When provided it WINS over {@link initialScrollTop}
+   * (see the mount effect) — line targeting is an explicit intent that
+   * supersedes restored scroll position. First-render only, like initialScrollTop.
+   */
+  readonly initialLine?: number | undefined;
   readonly initialScrollTop?: number | undefined;
+  /**
+   * Inclusive, 1-based line range to select on first content render (e.g. a
+   * search chunk the user opened so the block is highlighted and ready to copy).
+   * When provided it WINS over {@link initialLine} and {@link initialScrollTop}
+   * and implies the scroll (the range is scrolled into view — no double-scroll).
+   * The editor is read-only, but CodeMirror still renders and lets the user copy
+   * the selection. First-render only, like initialLine.
+   */
+  readonly initialSelection?: { readonly startLine: number; readonly endLine: number } | undefined;
   readonly language?: string | undefined;
   readonly lineWrapping?: boolean | undefined;
   readonly onChange?: ((value: string) => void) | undefined;
+  /** Synchronous semantic selection snapshot taken from EditorView on `contextmenu`. */
+  readonly onContextMenuSelection?:
+    | ((selection: CodeSurfaceContextMenuSelection) => void)
+    | undefined;
   readonly onScrollTopChange?: ((scrollTop: number) => void) | undefined;
   readonly onSelectionChange?: ((selection: CodeSurfaceSelection) => void) | undefined;
   readonly path?: string | undefined;
@@ -43,6 +68,9 @@ export interface CodeSurfaceProps {
 
 interface CodeSurfaceCallbacks {
   readonly onChange: ((value: string) => void) | undefined;
+  readonly onContextMenuSelection:
+    | ((selection: CodeSurfaceContextMenuSelection) => void)
+    | undefined;
   readonly onScrollTopChange: ((scrollTop: number) => void) | undefined;
   readonly onSelectionChange: ((selection: CodeSurfaceSelection) => void) | undefined;
 }
@@ -61,11 +89,15 @@ const BASE_EXTENSIONS: Extension[] = [
   highlightActiveLine(),
   syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
   EditorView.theme({
-    '&': {
-      backgroundColor: 'hsl(var(--background))',
+    // CodeMirror's built-in active-line colors are hardcoded light-blue and
+    // ignore the app theme (a bright band in dark mode). Use theme tokens so
+    // both modes get a subtle, correct highlight.
+    '.cm-activeLine': {
+      backgroundColor: 'hsl(var(--muted) / 0.4)',
+    },
+    '.cm-activeLineGutter': {
+      backgroundColor: 'hsl(var(--muted) / 0.6)',
       color: 'hsl(var(--foreground))',
-      height: '100%',
-      minHeight: '100%',
     },
     '.cm-content': {
       caretColor: 'hsl(var(--foreground))',
@@ -104,6 +136,12 @@ const BASE_EXTENSIONS: Extension[] = [
       // CodeMirror injects selection styles with high specificity; keep app theme contrast.
       backgroundColor: 'hsl(var(--primary) / 0.2) !important',
     },
+    '&': {
+      backgroundColor: 'hsl(var(--background))',
+      color: 'hsl(var(--foreground))',
+      height: '100%',
+      minHeight: '100%',
+    },
   }),
 ];
 
@@ -111,10 +149,13 @@ export function CodeSurface({
   ariaLabel = 'Code viewer',
   className,
   editable = false,
+  initialLine,
+  initialSelection,
   initialScrollTop = 0,
   language,
   lineWrapping = false,
   onChange,
+  onContextMenuSelection,
   onScrollTopChange,
   onSelectionChange,
   path,
@@ -130,13 +171,16 @@ export function CodeSurface({
   const contentAttributesCompartmentRef = useRef(new Compartment());
   const callbacksRef = useRef<CodeSurfaceCallbacks>({
     onChange,
+    onContextMenuSelection,
     onScrollTopChange,
     onSelectionChange,
   });
   const initialConfigRef = useRef({
     ariaLabel,
     editable,
+    initialLine,
     initialScrollTop,
+    initialSelection,
     lineWrapping,
     value,
   });
@@ -149,10 +193,11 @@ export function CodeSurface({
   useEffect(() => {
     callbacksRef.current = {
       onChange,
+      onContextMenuSelection,
       onScrollTopChange,
       onSelectionChange,
     };
-  }, [onChange, onScrollTopChange, onSelectionChange]);
+  }, [onChange, onContextMenuSelection, onScrollTopChange, onSelectionChange]);
 
   useEffect(() => {
     // EditorView is intentionally created once; prop updates are handled by sync effects below.
@@ -191,6 +236,22 @@ export function CodeSurface({
               });
             }
           }),
+          EditorView.domEventHandlers({
+            contextmenu: (_event, editorView) => {
+              const range = editorView.state.selection.main;
+              callbacksRef.current.onContextMenuSelection?.({
+                from: range.from,
+                text:
+                  range.from === range.to
+                    ? null
+                    : editorView.state.doc.sliceString(range.from, range.to),
+                to: range.to,
+              });
+              // Claiming context is observational. Radix/the browser still owns
+              // whether the event opens a menu, so do not prevent it here.
+              return false;
+            },
+          }),
         ],
       }),
     });
@@ -203,6 +264,38 @@ export function CodeSurface({
     viewRef.current = view;
     const restoreScrollFrame = window.requestAnimationFrame(() => {
       if (viewRef.current !== view) {
+        return;
+      }
+      // Precedence (all first-render only): an explicit `initialSelection`
+      // (chunk-targeted open) wins over `initialLine` (line-targeted open, e.g.
+      // a workspace-search match), which wins over `initialScrollTop` (restored
+      // scroll position). Each applies only when provided, so ordinary
+      // reopen-restore is unaffected.
+      const targetSelection = initialConfig.initialSelection;
+      if (targetSelection) {
+        const lineCount = view.state.doc.lines;
+        const startLine = Math.min(Math.max(1, Math.floor(targetSelection.startLine)), lineCount);
+        const endLine = Math.min(
+          Math.max(startLine, Math.floor(targetSelection.endLine)),
+          lineCount
+        );
+        const fromPos = view.state.doc.line(startLine).from;
+        const toPos = view.state.doc.line(endLine).to;
+        // Read-only editors still allow (and render) a selection, so the user can
+        // copy the block immediately. The selection scroll target replaces the
+        // line/scroll paths above (initialSelection implies the scroll).
+        view.dispatch({
+          effects: EditorView.scrollIntoView(fromPos, { y: 'center' }),
+          selection: EditorSelection.range(fromPos, toPos),
+        });
+        return;
+      }
+      const targetLine = initialConfig.initialLine;
+      if (typeof targetLine === 'number' && targetLine > 0) {
+        const lineCount = view.state.doc.lines;
+        const clampedLine = Math.min(Math.max(1, Math.floor(targetLine)), lineCount);
+        const linePos = view.state.doc.line(clampedLine).from;
+        view.dispatch({ effects: EditorView.scrollIntoView(linePos, { y: 'center' }) });
         return;
       }
       view.scrollDOM.scrollTop = Math.max(0, initialConfig.initialScrollTop);

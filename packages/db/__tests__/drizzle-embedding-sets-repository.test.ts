@@ -6,6 +6,7 @@
 
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,7 +21,7 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
     });
 
     // Run migrations to set up schema
@@ -118,11 +119,11 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       );
 
       expect(stats.rows[0]).toEqual({
-        file_count: 0,
         chunk_count: 0,
-        embedded_chunk_count: 0,
-        pending_chunk_count: 0,
         dirty: false,
+        embedded_chunk_count: 0,
+        file_count: 0,
+        pending_chunk_count: 0,
       });
     });
 
@@ -133,10 +134,10 @@ describe('DrizzleEmbeddingSetsRepository', () => {
         1024,
         'cosine',
         {
-          name: 'My Custom Set',
-          description: 'Test description',
-          tags: 'test,voyage',
           category: 'testing',
+          description: 'Test description',
+          name: 'My Custom Set',
+          tags: 'test,voyage',
         }
       );
 
@@ -169,12 +170,12 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
       expect(second.id).toBe(first.id);
       expect(first).toMatchObject({
-        name: 'Workspace Index',
         description: 'System-managed workspace index for assistant retrieval.',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
         dimensions: 384,
         distance: 'cosine',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        name: 'Workspace Index',
         systemRole: 'workspace-index',
       });
     });
@@ -206,17 +207,17 @@ describe('DrizzleEmbeddingSetsRepository', () => {
     it('falls back to the protected workspace index row when insert loses a unique-index race', async () => {
       type EmbeddingSetRow = typeof schema.embeddingSets.$inferSelect;
       const workspaceIndexRow: EmbeddingSetRow = {
-        id: 'workspace-index-set',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
+        category: null,
+        createdAt: new Date('2026-06-07T00:00:00.000Z'),
+        description: 'System-managed workspace index for assistant retrieval.',
         dimensions: 384,
         distance: 'cosine',
-        createdAt: new Date('2026-06-07T00:00:00.000Z'),
+        id: 'workspace-index-set',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
         name: 'Workspace Index',
-        description: 'System-managed workspace index for assistant retrieval.',
-        tags: null,
-        category: null,
         systemRole: 'workspace-index',
+        tags: null,
       };
       let selectCalls = 0;
       const selectLimit = vi.fn(async () => {
@@ -332,8 +333,8 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       );
 
       const updated = await repository.updateMetadata(created.id, {
-        name: 'Updated Name',
         description: 'Updated description',
+        name: 'Updated Name',
       });
 
       expect(updated).toBeDefined();
@@ -407,8 +408,8 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
       expect(found).toMatchObject({
         id: '00000000-0000-0000-0000-000000000999',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
         modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
       });
 
       const repaired = await client.query<{ model_id: string; model_key: string }>(
@@ -416,8 +417,8 @@ describe('DrizzleEmbeddingSetsRepository', () => {
         ['00000000-0000-0000-0000-000000000999']
       );
       expect(repaired.rows[0]).toEqual({
-        model_key: 'local::Xenova/all-MiniLM-L6-v2',
         model_id: 'Xenova/all-MiniLM-L6-v2',
+        model_key: 'local::Xenova/all-MiniLM-L6-v2',
       });
     });
   });

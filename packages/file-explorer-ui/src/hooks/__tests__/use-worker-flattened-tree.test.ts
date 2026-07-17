@@ -25,11 +25,11 @@ describe('useWorkerFlattenedTree', () => {
     mockCleanup = vi.fn();
 
     mockPort = {
+      flattenTree: vi.fn(),
       onFlattenedRows: vi.fn((handler) => {
         capturedHandler = handler;
         return mockCleanup;
       }),
-      flattenTree: vi.fn(),
     };
   });
 
@@ -40,9 +40,9 @@ describe('useWorkerFlattenedTree', () => {
 
       const { result } = renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 5000, // Below 10,000 threshold
+          expandedPaths,
+          portRef,
         })
       );
 
@@ -57,14 +57,36 @@ describe('useWorkerFlattenedTree', () => {
 
       const { result } = renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 15_000, // Above 10,000 threshold
+          expandedPaths,
+          portRef,
         })
       );
 
       expect(result.current.isWorkerEnabled).toBe(true);
       expect(mockPort.onFlattenedRows).toHaveBeenCalledOnce();
+    });
+
+    it('stays disabled when enabled is false, even above threshold or forced', () => {
+      // The consumer disables the worker whenever the normalized-tree render
+      // path is active — the worker's flattened output would be discarded, and
+      // its late arrival triggers a spurious row rebuild.
+      const portRef = { current: mockPort as unknown as FileTreeWorkerPort };
+      const expandedPaths = new Set<string>();
+
+      const { result } = renderHook(() =>
+        useWorkerFlattenedTree({
+          approximateNodeCount: 15_000,
+          enabled: false,
+          expandedPaths,
+          forceWorker: true,
+          portRef,
+        })
+      );
+
+      expect(result.current.isWorkerEnabled).toBe(false);
+      expect(mockPort.onFlattenedRows).not.toHaveBeenCalled();
+      expect(mockPort.flattenTree).not.toHaveBeenCalled();
     });
 
     it('enables worker flattening when forceWorker is true', () => {
@@ -73,10 +95,10 @@ describe('useWorkerFlattenedTree', () => {
 
       const { result } = renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 100, // Well below threshold
+          expandedPaths,
           forceWorker: true,
+          portRef,
         })
       );
 
@@ -92,9 +114,9 @@ describe('useWorkerFlattenedTree', () => {
 
       renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 15_000,
+          expandedPaths,
+          portRef,
         })
       );
 
@@ -107,9 +129,9 @@ describe('useWorkerFlattenedTree', () => {
 
       const { unmount } = renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 15_000,
+          expandedPaths,
+          portRef,
         })
       );
 
@@ -126,9 +148,9 @@ describe('useWorkerFlattenedTree', () => {
 
       renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 15_000,
+          expandedPaths,
+          portRef,
         })
       );
 
@@ -143,9 +165,9 @@ describe('useWorkerFlattenedTree', () => {
 
       renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 15_000,
+          expandedPaths,
+          portRef,
         })
       );
 
@@ -158,9 +180,9 @@ describe('useWorkerFlattenedTree', () => {
 
       renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 5000, // Below threshold
+          expandedPaths,
+          portRef,
         })
       );
 
@@ -174,9 +196,9 @@ describe('useWorkerFlattenedTree', () => {
       const { rerender } = renderHook(
         ({ paths }) =>
           useWorkerFlattenedTree({
-            portRef,
-            expandedPaths: paths,
             approximateNodeCount: 15_000,
+            expandedPaths: paths,
+            portRef,
           }),
         { initialProps: { paths: expandedPaths } }
       );
@@ -198,9 +220,9 @@ describe('useWorkerFlattenedTree', () => {
       const { rerender } = renderHook(
         ({ revision }) =>
           useWorkerFlattenedTree({
-            portRef,
-            expandedPaths,
             approximateNodeCount: 15_000,
+            expandedPaths,
+            portRef,
             treeRevision: revision,
           }),
         { initialProps: { revision: 1 } }
@@ -220,9 +242,9 @@ describe('useWorkerFlattenedTree', () => {
 
       const { result } = renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 15_000,
+          expandedPaths,
+          portRef,
         })
       );
 
@@ -246,9 +268,9 @@ describe('useWorkerFlattenedTree', () => {
 
       const { result } = renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 15_000,
+          expandedPaths,
+          portRef,
         })
       );
 
@@ -258,26 +280,26 @@ describe('useWorkerFlattenedTree', () => {
       // Simulate worker response
       const mockNodes: FlattenedNode[] = [
         {
+          depth: 0,
           node: {
-            path: '/root',
-            name: 'root',
-            type: 'directory',
-            loadState: 'loaded',
             children: [],
             depth: 0,
+            loadState: 'loaded',
+            name: 'root',
+            path: '/root',
             rootFolderId: 'root',
+            type: 'directory',
           },
-          depth: 0,
         },
         {
-          node: {
-            path: '/root/file.ts',
-            name: 'file.ts',
-            type: 'file',
-            depth: 1,
-            rootFolderId: 'root',
-          },
           depth: 1,
+          node: {
+            depth: 1,
+            name: 'file.ts',
+            path: '/root/file.ts',
+            rootFolderId: 'root',
+            type: 'file',
+          },
         },
       ];
 
@@ -302,9 +324,9 @@ describe('useWorkerFlattenedTree', () => {
 
       const { result } = renderHook(() =>
         useWorkerFlattenedTree({
-          portRef,
-          expandedPaths,
           approximateNodeCount: 5000, // Below threshold
+          expandedPaths,
+          portRef,
         })
       );
 

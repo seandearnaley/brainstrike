@@ -1,5 +1,5 @@
 import * as m from 'motion/react-m';
-import { type FC, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { cn } from '../lib/utils';
 
 /**
@@ -7,12 +7,17 @@ import { cn } from '../lib/utils';
  * overflows `collapsedHeight`. Measures via ResizeObserver so the toggle only
  * appears when there is genuinely hidden content.
  */
-export const ExpandableMessageContent: FC<{
+export const ExpandableMessageContent = ({
+  children,
+  className,
+  collapsedHeight = 176,
+  testId,
+}: {
   children: ReactNode;
   className: string;
   collapsedHeight?: number;
   testId?: string;
-}> = ({ children, className, collapsedHeight = 176, testId }) => {
+}) => {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const contentId = useId();
   const [expanded, setExpanded] = useState(false);

@@ -60,8 +60,8 @@ export interface Command {
 
 export interface CommandRegistry {
   /** Commands runnable in this context: capability ⊆ ctx AND isAvailable. */
-  available(ctx: CommandContext): readonly Command[];
-  byId(id: string): Command | undefined;
+  available: (ctx: CommandContext) => readonly Command[];
+  byId: (id: string) => Command | undefined;
   /** Every registered command, unfiltered (used by tests/diagnostics). */
-  listAll(): readonly Command[];
+  listAll: () => readonly Command[];
 }

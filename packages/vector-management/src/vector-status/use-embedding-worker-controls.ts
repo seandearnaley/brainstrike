@@ -77,8 +77,8 @@ export function useEmbeddingWorkerControls(
     const syncStatus = (status: EmbeddingRuntimeStatus) => {
       setWorkerStatus(status);
       applyHostStatus(status, {
-        setStartWorkerError,
         setStartingWorker,
+        setStartWorkerError,
         setWorkerLocalRunning,
       });
       syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
@@ -100,8 +100,8 @@ export function useEmbeddingWorkerControls(
       const status = await controller.start();
       setWorkerStatus(status);
       applyHostStatus(status, {
-        setStartWorkerError,
         setStartingWorker,
+        setStartWorkerError,
         setWorkerLocalRunning,
       });
       syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
@@ -122,13 +122,13 @@ export function useEmbeddingWorkerControls(
     setStartWorkerError(null);
     try {
       await launchWorker({
-        title: 'Worker started',
         description: 'Local embedding worker is running.',
+        title: 'Worker started',
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setStartWorkerError(message);
-      toast({ title: 'Failed to start worker', description: message, variant: 'destructive' });
+      toast({ description: message, title: 'Failed to start worker', variant: 'destructive' });
       throw error;
     } finally {
       setStartingWorker(false);
@@ -140,8 +140,8 @@ export function useEmbeddingWorkerControls(
       const status = await controller.stop();
       setWorkerStatus(status);
       applyHostStatus(status, {
-        setStartWorkerError,
         setStartingWorker,
+        setStartWorkerError,
         setWorkerLocalRunning,
       });
       syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
@@ -149,7 +149,7 @@ export function useEmbeddingWorkerControls(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setStartWorkerError(message);
-      toast({ title: 'Failed to stop worker', description: message, variant: 'destructive' });
+      toast({ description: message, title: 'Failed to stop worker', variant: 'destructive' });
     }
   }, [controller, setIsEmbeddingQueueActive, toast]);
 
@@ -160,8 +160,8 @@ export function useEmbeddingWorkerControls(
       const status = await controller.reset();
       setWorkerStatus(status);
       applyHostStatus(status, {
-        setStartWorkerError,
         setStartingWorker,
+        setStartWorkerError,
         setWorkerLocalRunning,
       });
       syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
@@ -170,26 +170,26 @@ export function useEmbeddingWorkerControls(
       }
       dispatchQueueDrainedEvent();
       toast({
-        title: 'Worker reset',
         description: 'Embedding worker restarted successfully.',
+        title: 'Worker reset',
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setStartWorkerError(message);
-      toast({ title: 'Worker reset failed', description: message, variant: 'destructive' });
+      toast({ description: message, title: 'Worker reset failed', variant: 'destructive' });
     } finally {
       setStartingWorker(false);
     }
   }, [controller, setIsEmbeddingQueueActive, toast]);
 
   return {
-    workerLocalRunning,
-    startingWorker,
-    startWorkerError,
-    workerStatus,
     clearWorkerError,
-    startWorker,
-    stopWorker,
     resetWorker,
+    startingWorker,
+    startWorker,
+    startWorkerError,
+    stopWorker,
+    workerLocalRunning,
+    workerStatus,
   };
 }

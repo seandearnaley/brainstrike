@@ -38,6 +38,13 @@ function createMockWorker() {
         errorHandlers.push(handler as (event: ErrorEvent) => void);
       }
     }),
+    clearPostedMessages: () => {
+      postedMessages.length = 0;
+    },
+    getPostedMessages: () => postedMessages,
+    postMessage: vi.fn((message: unknown) => {
+      postedMessages.push(message);
+    }),
     removeEventListener: vi.fn((type: string, handler: (event: unknown) => void) => {
       if (type === 'message') {
         const idx = messageHandlers.indexOf(handler as (event: MessageEvent) => void);
@@ -51,10 +58,12 @@ function createMockWorker() {
         }
       }
     }),
-    postMessage: vi.fn((message: unknown) => {
-      postedMessages.push(message);
-    }),
-    terminate: vi.fn(),
+    simulateError: (message: string) => {
+      const event = { filename: 'worker.js', lineno: 1, message } as ErrorEvent;
+      for (const handler of errorHandlers) {
+        handler(event);
+      }
+    },
 
     // Test helpers
     simulateMessage: (data: WorkerResponse) => {
@@ -63,16 +72,7 @@ function createMockWorker() {
         handler(event);
       }
     },
-    simulateError: (message: string) => {
-      const event = { message, filename: 'worker.js', lineno: 1 } as ErrorEvent;
-      for (const handler of errorHandlers) {
-        handler(event);
-      }
-    },
-    getPostedMessages: () => postedMessages,
-    clearPostedMessages: () => {
-      postedMessages.length = 0;
-    },
+    terminate: vi.fn(),
   };
 
   return mockWorker as unknown as Worker & {
@@ -117,14 +117,14 @@ describe('createChunkingWorkerPort', () => {
       mockWorker.simulateMessage({ type: 'ready' });
 
       mockWorker.simulateMessage({
-        type: 'parser-host:invoke',
-        requestId: 'oxc-ipc-1',
         payload: { content: 'x', options: {}, requestId: 'oxc-ipc-1' },
+        requestId: 'oxc-ipc-1',
+        type: 'parser-host:invoke',
       } as unknown as Parameters<typeof mockWorker.simulateMessage>[0]);
       mockWorker.simulateMessage({
-        type: 'parser-host:reply',
         requestId: 'oxc-ipc-1',
         response: { ok: true, requestId: 'oxc-ipc-1', root: { type: 'Program' } },
+        type: 'parser-host:reply',
       } as unknown as Parameters<typeof mockWorker.simulateMessage>[0]);
 
       // No warn about unknown message type — those envelopes must be
@@ -153,36 +153,36 @@ describe('createChunkingWorkerPort', () => {
       const messages = mockWorker.getPostedMessages();
       expect(messages).toHaveLength(1);
       expect(messages[0]).toMatchObject({
-        type: 'chunk',
-        fileRecordId: 'file-1',
         content: 'content',
         fileName: 'test.ts',
         filePath: '/test.ts',
+        fileRecordId: 'file-1',
         options: { strategy: 'sentence' },
+        type: 'chunk',
       });
 
       // Simulate worker response
       const result: ChunkResult = {
-        type: 'result',
-        id: (messages[0] as { id: string }).id,
-        fileRecordId: 'file-1',
         chunks: [
           {
             chunkIndex: 0,
+            chunkSize: 7,
+            chunkType: 'sentence',
             content: 'content',
             contentHash: 'hash-1',
-            startLine: 1,
             endLine: 1,
-            startOffset: 0,
             endOffset: 7,
+            startLine: 1,
+            startOffset: 0,
             tokenCount: 10,
-            chunkType: 'sentence',
-            chunkSize: 7,
           },
         ],
+        fileRecordId: 'file-1',
+        id: (messages[0] as { id: string }).id,
+        skipped: false,
         strategyUsed: 'sentence',
         totalTokens: 10,
-        skipped: false,
+        type: 'result',
       };
       mockWorker.simulateMessage(result);
 
@@ -202,10 +202,10 @@ describe('createChunkingWorkerPort', () => {
 
       const messages = mockWorker.getPostedMessages();
       const error: ChunkError = {
-        type: 'error',
-        id: (messages[0] as { id: string }).id,
-        fileRecordId: 'file-1',
         error: 'Parse error',
+        fileRecordId: 'file-1',
+        id: (messages[0] as { id: string }).id,
+        type: 'error',
       };
       mockWorker.simulateMessage(error);
 
@@ -220,8 +220,8 @@ describe('createChunkingWorkerPort', () => {
       mockWorker.clearPostedMessages();
 
       const files = [
-        { fileRecordId: 'file-1', content: 'content 1', fileName: 'a.ts', filePath: '/a.ts' },
-        { fileRecordId: 'file-2', content: 'content 2', fileName: 'b.ts', filePath: '/b.ts' },
+        { content: 'content 1', fileName: 'a.ts', filePath: '/a.ts', fileRecordId: 'file-1' },
+        { content: 'content 2', fileName: 'b.ts', filePath: '/b.ts', fileRecordId: 'file-2' },
       ];
 
       const promise = port.chunkBatch(files, { strategy: 'sentence' });
@@ -229,31 +229,31 @@ describe('createChunkingWorkerPort', () => {
       const messages = mockWorker.getPostedMessages();
       expect(messages).toHaveLength(1);
       expect(messages[0]).toMatchObject({
-        type: 'chunk-batch',
         requests: expect.arrayContaining([
-          expect.objectContaining({ fileRecordId: 'file-1', content: 'content 1' }),
-          expect.objectContaining({ fileRecordId: 'file-2', content: 'content 2' }),
+          expect.objectContaining({ content: 'content 1', fileRecordId: 'file-1' }),
+          expect.objectContaining({ content: 'content 2', fileRecordId: 'file-2' }),
         ]),
+        type: 'chunk-batch',
       });
 
       // Simulate results for both files
       const result1: ChunkResult = {
-        type: 'result',
-        id: 'chunk-1',
-        fileRecordId: 'file-1',
         chunks: [],
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+        skipped: false,
         strategyUsed: 'sentence',
         totalTokens: 10,
-        skipped: false,
+        type: 'result',
       };
       const result2: ChunkResult = {
-        type: 'result',
-        id: 'chunk-2',
-        fileRecordId: 'file-2',
         chunks: [],
+        fileRecordId: 'file-2',
+        id: 'chunk-2',
+        skipped: false,
         strategyUsed: 'sentence',
         totalTokens: 20,
-        skipped: false,
+        type: 'result',
       };
 
       mockWorker.simulateMessage(result1);
@@ -271,26 +271,26 @@ describe('createChunkingWorkerPort', () => {
       mockWorker.clearPostedMessages();
 
       const files = [
-        { fileRecordId: 'file-1', content: 'content 1', fileName: 'a.ts', filePath: '/a.ts' },
-        { fileRecordId: 'file-2', content: 'content 2', fileName: 'b.ts', filePath: '/b.ts' },
+        { content: 'content 1', fileName: 'a.ts', filePath: '/a.ts', fileRecordId: 'file-1' },
+        { content: 'content 2', fileName: 'b.ts', filePath: '/b.ts', fileRecordId: 'file-2' },
       ];
 
       const callbacks: ChunkingBatchCallbacks = {
-        onProgress: vi.fn(),
         onFileComplete: vi.fn(),
         onFileError: vi.fn(),
+        onProgress: vi.fn(),
       };
 
       const promise = port.chunkBatch(files, { strategy: 'sentence' }, callbacks);
 
       // Simulate progress
       const progress: ChunkProgress = {
-        type: 'progress',
-        id: 'chunk-1',
-        fileRecordId: 'file-1',
         chunksCreated: 3,
         currentIndex: 0,
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
         totalFiles: 2,
+        type: 'progress',
       };
       mockWorker.simulateMessage(progress);
 
@@ -298,13 +298,13 @@ describe('createChunkingWorkerPort', () => {
 
       // Complete the batch
       mockWorker.simulateMessage({
-        type: 'result',
-        id: 'chunk-1',
-        fileRecordId: 'file-1',
         chunks: [],
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+        skipped: false,
         strategyUsed: 'sentence',
         totalTokens: 10,
-        skipped: false,
+        type: 'result',
       } satisfies ChunkResult);
 
       expect(callbacks.onFileComplete).toHaveBeenCalledWith(
@@ -313,13 +313,13 @@ describe('createChunkingWorkerPort', () => {
       );
 
       mockWorker.simulateMessage({
-        type: 'result',
-        id: 'chunk-2',
-        fileRecordId: 'file-2',
         chunks: [],
+        fileRecordId: 'file-2',
+        id: 'chunk-2',
+        skipped: false,
         strategyUsed: 'sentence',
         totalTokens: 20,
-        skipped: false,
+        type: 'result',
       } satisfies ChunkResult);
 
       await promise;
@@ -333,8 +333,8 @@ describe('createChunkingWorkerPort', () => {
       mockWorker.clearPostedMessages();
 
       const files = [
-        { fileRecordId: 'file-1', content: 'content 1', fileName: 'a.ts', filePath: '/a.ts' },
-        { fileRecordId: 'file-2', content: 'content 2', fileName: 'b.ts', filePath: '/b.ts' },
+        { content: 'content 1', fileName: 'a.ts', filePath: '/a.ts', fileRecordId: 'file-1' },
+        { content: 'content 2', fileName: 'b.ts', filePath: '/b.ts', fileRecordId: 'file-2' },
       ];
 
       const callbacks: ChunkingBatchCallbacks = {
@@ -345,10 +345,10 @@ describe('createChunkingWorkerPort', () => {
 
       // First file errors
       const error: ChunkError = {
-        type: 'error',
-        id: 'chunk-1',
-        fileRecordId: 'file-1',
         error: 'Parse failed',
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+        type: 'error',
       };
       mockWorker.simulateMessage(error);
 
@@ -362,17 +362,17 @@ describe('createChunkingWorkerPort', () => {
       mockWorker.clearPostedMessages();
 
       const files = [
-        { fileRecordId: 'file-1', content: 'content 1', fileName: 'a.ts', filePath: '/a.ts' },
-        { fileRecordId: 'file-2', content: 'content 2', fileName: 'b.ts', filePath: '/b.ts' },
+        { content: 'content 1', fileName: 'a.ts', filePath: '/a.ts', fileRecordId: 'file-1' },
+        { content: 'content 2', fileName: 'b.ts', filePath: '/b.ts', fileRecordId: 'file-2' },
       ];
 
       const promise = port.chunkBatch(files, { strategy: 'sentence', tokenTrueSizing: true });
 
       mockWorker.simulateMessage({
-        type: 'error',
-        id: 'chunk-1',
-        fileRecordId: 'file-1',
         error: 'Error: Accurate token counting unavailable: tiktoken encoder failed to initialize',
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+        type: 'error',
       } satisfies ChunkError);
 
       await expect(promise).rejects.toThrow('terminal tokenizer failure state');
@@ -395,21 +395,21 @@ describe('createChunkingWorkerPort', () => {
       const batchPromise = port.chunkBatch(
         [
           {
-            fileRecordId: 'file-1',
             content: 'const marker = "<|endoftext|>";',
             fileName: 'a.ts',
             filePath: '/a.ts',
+            fileRecordId: 'file-1',
           },
         ],
         { strategy: 'sentence', tokenTrueSizing: true }
       );
 
       mockWorker.simulateMessage({
-        type: 'error',
-        id: 'chunk-1',
-        fileRecordId: 'file-1',
         error:
           'Accurate token counting failed: The text contains a special token that is not allowed: <|endoftext|>',
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+        type: 'error',
       } satisfies ChunkError);
 
       await expect(batchPromise).rejects.toThrow(
@@ -425,13 +425,13 @@ describe('createChunkingWorkerPort', () => {
       const nextRequest = mockWorker.getPostedMessages().at(-1) as { id: string };
 
       mockWorker.simulateMessage({
-        type: 'result',
-        id: nextRequest.id,
-        fileRecordId: 'file-2',
         chunks: [],
+        fileRecordId: 'file-2',
+        id: nextRequest.id,
+        skipped: false,
         strategyUsed: 'sentence',
         totalTokens: 4,
-        skipped: false,
+        type: 'result',
       } satisfies ChunkResult);
 
       await expect(filePromise).resolves.toMatchObject({
@@ -461,27 +461,27 @@ describe('toFileChunkInserts', () => {
     const chunks = [
       {
         chunkIndex: 0,
+        chunkSize: 11,
+        chunkType: 'sentence' as const,
         content: 'First chunk',
         contentHash: 'hash-1',
-        tokenCount: 10,
-        chunkType: 'sentence' as const,
-        chunkSize: 11,
-        startLine: 1,
         endLine: 2,
-        startOffset: 0,
         endOffset: 11,
+        startLine: 1,
+        startOffset: 0,
+        tokenCount: 10,
       },
       {
         chunkIndex: 1,
+        chunkSize: 12,
+        chunkType: 'sentence' as const,
         content: 'Second chunk',
         contentHash: 'hash-2',
-        tokenCount: 15,
-        chunkType: 'sentence' as const,
-        chunkSize: 12,
-        startLine: 4,
         endLine: 6,
-        startOffset: 13,
         endOffset: 25,
+        startLine: 4,
+        startOffset: 13,
+        tokenCount: 15,
       },
     ];
 
@@ -489,21 +489,21 @@ describe('toFileChunkInserts', () => {
 
     expect(inserts).toHaveLength(2);
     expect(inserts[0]).toMatchObject({
-      id: 'file-123_chunk_0',
-      fileRecordId: 'file-123',
       chunkIndex: 0,
       content: 'First chunk',
       contentHash: 'hash-1',
-      tokenCount: 10,
-      startLine: 1,
       endLine: 2,
-      startOffset: 0,
       endOffset: 11,
+      fileRecordId: 'file-123',
+      id: 'file-123_chunk_0',
+      startLine: 1,
+      startOffset: 0,
+      tokenCount: 10,
     });
     expect(inserts[1]).toMatchObject({
-      id: 'file-123_chunk_1',
-      fileRecordId: 'file-123',
       chunkIndex: 1,
+      fileRecordId: 'file-123',
+      id: 'file-123_chunk_1',
     });
   });
 
@@ -511,15 +511,15 @@ describe('toFileChunkInserts', () => {
     const chunks = [
       {
         chunkIndex: 0,
+        chunkSize: 5,
+        chunkType: 'sentence' as const,
         content: 'Chunk',
         contentHash: 'hash-1',
-        startLine: 1,
         endLine: 1,
-        startOffset: 0,
         endOffset: 5,
+        startLine: 1,
+        startOffset: 0,
         tokenCount: 5,
-        chunkType: 'sentence' as const,
-        chunkSize: 5,
       },
     ];
 
@@ -532,15 +532,15 @@ describe('toFileChunkInserts', () => {
     const chunks = [
       {
         chunkIndex: 0,
+        chunkSize: 5,
+        chunkType: 'sentence' as const,
         content: 'Chunk',
         contentHash: 'hash-1',
-        startLine: 1,
         endLine: 1,
-        startOffset: 0,
         endOffset: 5,
+        startLine: 1,
+        startOffset: 0,
         tokenCount: 5,
-        chunkType: 'sentence' as const,
-        chunkSize: 5,
       },
     ];
 
@@ -554,11 +554,11 @@ describe('toFileChunkInserts', () => {
     const chunks = [
       {
         chunkIndex: 0,
+        chunkSize: 5,
+        chunkType: 'sentence' as const,
         content: 'Chunk',
         contentHash: 'hash-1',
         tokenCount: 5,
-        chunkType: 'sentence' as const,
-        chunkSize: 5,
       },
     ];
 

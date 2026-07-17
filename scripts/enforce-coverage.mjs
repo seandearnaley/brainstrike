@@ -7,7 +7,7 @@ import path from 'node:path';
 
 // Default thresholds applied to all packages unless overridden below.
 // Keep these aligned with root vitest.config.mts global thresholds.
-const DEFAULT_THRESHOLDS = { lines: 80, functions: 65, branches: 62, statements: 75 };
+const DEFAULT_THRESHOLDS = { branches: 62, functions: 65, lines: 80, statements: 75 };
 
 // Optional strict overrides for key packages.
 // NOTE: Thresholds recalibrated for Vitest 4's v8 coverage provider (BST-55)
@@ -18,67 +18,62 @@ const OVERRIDES = new Map([
   // High-coverage packages with strict enforcement
   // Vitest 4: L 94.52% | F 76.75% | B 66.23% | S 74.64%
   // Recalibrated 2025-01 after FileTreeIndex type-change handling and handle cleanup additions
-  ['@brainstrike/file-explorer-ui', { lines: 94, functions: 76, branches: 66, statements: 74 }],
+  ['@brainstrike/file-explorer-ui', { branches: 66, functions: 76, lines: 94, statements: 74 }],
   // App shell — measured 2026-03: L 99.41% | F 89.87% | B 76.03% | S 88.07%
   // Ratcheted after database-demo hooks, format utils, and export handler test additions.
-  ['@brainstrike/app-shell', { lines: 98, functions: 88, branches: 75, statements: 87 }],
+  ['@brainstrike/app-shell', { branches: 75, functions: 88, lines: 98, statements: 87 }],
   // Desktop — measured 2026-03: L 91.45% | F 71.10% | B 61.33% | S 71.54%
   // Recalibrated 2026-03 — coverage drifted from new IPC code; Phase 3 work needed.
-  ['@brainstrike/desktop', { lines: 90, functions: 70, branches: 60, statements: 70 }],
+  ['@brainstrike/desktop', { branches: 60, functions: 70, lines: 90, statements: 70 }],
   // Configuration and utility package thresholds recalibrated in 2026-03.
-  ['@brainstrike/config', { lines: 98, functions: 98, branches: 80, statements: 98 }],
-  ['@brainstrike/tailwind-config', { lines: 10, functions: 0, branches: 0, statements: 10 }],
-  ['@brainstrike/types', { lines: 20, functions: 50, branches: 0, statements: 20 }],
+  ['@brainstrike/config', { branches: 80, functions: 98, lines: 98, statements: 98 }],
+  ['@brainstrike/tailwind-config', { branches: 0, functions: 0, lines: 10, statements: 10 }],
+  ['@brainstrike/types', { branches: 0, functions: 50, lines: 20, statements: 20 }],
   // File system — measured 2026-03: L 88.65% | F 89.52% | B 71.18% | S 78.31%
   // Ratcheted after utils-browser and path-validation branch test additions.
-  ['@brainstrike/file-system', { lines: 88, functions: 89, branches: 70, statements: 77 }],
+  ['@brainstrike/file-system', { branches: 70, functions: 89, lines: 88, statements: 77 }],
   // Test utilities are helper scaffolding used by other packages' tests
-  ['@brainstrike/test-utils', { lines: 75, functions: 70, branches: 70, statements: 65 }],
+  ['@brainstrike/test-utils', { branches: 70, functions: 70, lines: 75, statements: 65 }],
   // Build utilities — measured 2026-03: L 100% | F 100% | B 90.48% | S 98.04%
   // Ratcheted after resolveAssistantVendorChunk, getter, and getLazySurface test additions.
-  ['@brainstrike/build-utils', { lines: 99, functions: 99, branches: 89, statements: 97 }],
+  ['@brainstrike/build-utils', { branches: 89, functions: 99, lines: 99, statements: 97 }],
   // DB package thresholds ratcheted in 2026-03 after repository coverage additions.
-  ['@brainstrike/db', { lines: 85, functions: 73, branches: 61, statements: 70 }],
+  ['@brainstrike/db', { branches: 61, functions: 73, lines: 85, statements: 70 }],
   // DB Explorer thresholds recalibrated in 2026-03.
-  ['@brainstrike/db-explorer', { lines: 95, functions: 75, branches: 62, statements: 74 }],
+  ['@brainstrike/db-explorer', { branches: 62, functions: 75, lines: 95, statements: 74 }],
   // Web app — measured 2026-03: L 99.44% | F 86.41% | B 74.77% | S 90.27%
   // Ratcheted after partial-mock refactoring restored coverage for stream-helpers and routes.
-  ['@brainstrike/web', { lines: 98, functions: 85, branches: 73, statements: 89 }],
+  ['@brainstrike/web', { branches: 73, functions: 85, lines: 98, statements: 89 }],
   // Embeddings — heavy integration excluded from unit coverage
   // Vitest 4: L 0.00% | F 0.00% | B 0.00% | S 0.00% (no files covered)
-  ['@brainstrike/embeddings', { lines: 0, functions: 0, branches: 0, statements: 0 }],
+  ['@brainstrike/embeddings', { branches: 0, functions: 0, lines: 0, statements: 0 }],
   // Chunking worker thresholds ratcheted in 2026-03 after strict skip/cap strategy-path coverage additions.
   // Note: Worker code runs in browser context; some paths untestable in Node.js
-  ['@brainstrike/chunking-worker', { lines: 87, functions: 85, branches: 54, statements: 71 }],
+  ['@brainstrike/chunking-worker', { branches: 54, functions: 85, lines: 87, statements: 71 }],
   // Embedding worker — Vitest 4: L 89.76% | F 93.33% | B 53.46% | S 74.64%
   // Recalibrated 2024-12 after worker log verbosity changes.
   // Note: ~10% of code (self.onerror, self.onunhandledrejection) runs only in browser
   // Web Worker context where `typeof self !== 'undefined'`. This code cannot be tested
   // in Node.js - it's guarded by runtime environment check and legitimately untestable.
-  ['@brainstrike/embedding-worker', { lines: 89, functions: 93, branches: 53, statements: 74 }],
+  ['@brainstrike/embedding-worker', { branches: 53, functions: 93, lines: 89, statements: 74 }],
   // File explorer — measured 2026-03: L 96.44% | F 86.53% | B 80.43% | S 87.93%
   // Ratcheted after state-serialization, file-selection-actions, tab-persistence, worker-storage branch tests.
-  ['@brainstrike/file-explorer', { lines: 95, functions: 85, branches: 79, statements: 86 }],
+  ['@brainstrike/file-explorer', { branches: 79, functions: 85, lines: 95, statements: 86 }],
   // File tree worker thresholds recalibrated in 2026-03.
-  ['@brainstrike/file-tree-worker', { lines: 92, functions: 90, branches: 68, statements: 84 }],
+  ['@brainstrike/file-tree-worker', { branches: 68, functions: 90, lines: 92, statements: 84 }],
   // File import thresholds ratcheted in 2026-03 after worker initialization/timeout edge-case tests.
-  ['@brainstrike/file-import', { lines: 95, functions: 83, branches: 61, statements: 79 }],
+  ['@brainstrike/file-import', { branches: 61, functions: 83, lines: 95, statements: 79 }],
   // UI package — measured 2026-04 after the Gemma local-runtime assistant-panel expansion
   // and fresh uncached coverage regeneration: L 93.84% | F 69.35% | B 59.68% | S 79.03%.
   // Previous function/branch thresholds were being masked by stale coverage artifacts.
   // Follow-up BST-492 tracks restoring stricter UI package coverage.
-  ['@brainstrike/ui', { lines: 92, functions: 69, branches: 59, statements: 77 }],
+  ['@brainstrike/ui', { branches: 59, functions: 69, lines: 92, statements: 77 }],
   // Token cache — elevated after token-utils-lite branch/path coverage improvements
-  ['@brainstrike/token-cache', { lines: 92, functions: 92, branches: 62, statements: 82 }],
+  ['@brainstrike/token-cache', { branches: 62, functions: 92, lines: 92, statements: 82 }],
   // Queue thresholds ratcheted in 2026-03 after workerpool adapter control-flow/telemetry coverage additions.
-  ['@brainstrike/queue', { lines: 90, functions: 90, branches: 80, statements: 90 }],
+  ['@brainstrike/queue', { branches: 80, functions: 90, lines: 90, statements: 90 }],
   // Preferences package thresholds ratcheted in 2026-03 after settings/store coverage additions.
-  ['@brainstrike/preferences', { lines: 82, functions: 70, branches: 63, statements: 76 }],
-  // Queue telemetry collector thresholds ratcheted in 2026-03 after CLI shutdown-path coverage additions.
-  [
-    '@brainstrike/queue-telemetry-collector',
-    { lines: 88, functions: 90, branches: 78, statements: 88 },
-  ],
+  ['@brainstrike/preferences', { branches: 63, functions: 70, lines: 82, statements: 76 }],
 ]);
 
 // DB coverage is intentionally split into dedicated test:coverage:db:* lanes
@@ -212,10 +207,10 @@ function summarize(json) {
   }
   const pct = (cov, tot) => (tot ? (100 * cov) / tot : 0);
   return {
-    lines: { total: lnTot, covered: lnCov, pct: pct(lnCov, lnTot) },
-    statements: { total: stTot, covered: stCov, pct: pct(stCov, stTot) },
-    functions: { total: fnTot, covered: fnCov, pct: pct(fnCov, fnTot) },
-    branches: { total: brTot, covered: brCov, pct: pct(brCov, brTot) },
+    branches: { covered: brCov, pct: pct(brCov, brTot), total: brTot },
+    functions: { covered: fnCov, pct: pct(fnCov, fnTot), total: fnTot },
+    lines: { covered: lnCov, pct: pct(lnCov, lnTot), total: lnTot },
+    statements: { covered: stCov, pct: pct(stCov, stTot), total: stTot },
   };
 }
 

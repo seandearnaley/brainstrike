@@ -102,7 +102,7 @@ describe('ChunkingHostRuntime', () => {
     });
     dbQueryMock.mockResolvedValue({
       rows: [
-        { name: 'mock-file1.txt', path: '/mock/mock-file1.txt', content: 'mock file content' },
+        { content: 'mock file content', name: 'mock-file1.txt', path: '/mock/mock-file1.txt' },
       ],
     });
 
@@ -120,16 +120,16 @@ describe('ChunkingHostRuntime', () => {
 
     await act(async () => {
       onRequestCallback?.({
-        type: 'request',
         channel: 'chunk',
+        payload: {
+          fileRecordId: 'file-1',
+          kind: 'chunk-file-by-id',
+          options: {},
+          requestId: 'req-1',
+        },
         requestId: 'req-1',
         runtimeId: 'test-runtime',
-        payload: {
-          kind: 'chunk-file-by-id',
-          requestId: 'req-1',
-          fileRecordId: 'file-1',
-          options: {},
-        },
+        type: 'request',
       });
     });
 
@@ -146,10 +146,10 @@ describe('ChunkingHostRuntime', () => {
       );
       expect(reportResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'result',
           channel: 'chunk-result',
           requestId: 'req-1',
           runtimeId: 'test-runtime',
+          type: 'result',
         })
       );
     });
@@ -157,23 +157,23 @@ describe('ChunkingHostRuntime', () => {
 
   it('fails fast when the file record content is missing', async () => {
     dbQueryMock.mockResolvedValue({
-      rows: [{ name: 'mock-file1.txt', path: '/mock/mock-file1.txt', content: null }],
+      rows: [{ content: null, name: 'mock-file1.txt', path: '/mock/mock-file1.txt' }],
     });
 
     render(<ChunkingHostRuntime />);
 
     await act(async () => {
       onRequestCallback?.({
-        type: 'request',
         channel: 'chunk',
+        payload: {
+          fileRecordId: 'file-1',
+          kind: 'chunk-file-by-id',
+          options: {},
+          requestId: 'req-2',
+        },
         requestId: 'req-2',
         runtimeId: 'test-runtime',
-        payload: {
-          kind: 'chunk-file-by-id',
-          requestId: 'req-2',
-          fileRecordId: 'file-1',
-          options: {},
-        },
+        type: 'request',
       });
     });
 
@@ -181,14 +181,14 @@ describe('ChunkingHostRuntime', () => {
       expect(chunkFileMock).not.toHaveBeenCalled();
       expect(reportResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
           channel: 'chunk-error',
+          payload: expect.objectContaining({
+            errorMessage: expect.stringContaining('missing content'),
+            fileRecordId: 'file-1',
+          }),
           requestId: 'req-2',
           runtimeId: 'test-runtime',
-          payload: expect.objectContaining({
-            fileRecordId: 'file-1',
-            errorMessage: expect.stringContaining('missing content'),
-          }),
+          type: 'error',
         })
       );
     });
@@ -206,23 +206,23 @@ describe('ChunkingHostRuntime', () => {
       type: 'result',
     });
     dbQueryMock.mockResolvedValue({
-      rows: [{ name: 'empty.ts', path: '/mock/empty.ts', content: '' }],
+      rows: [{ content: '', name: 'empty.ts', path: '/mock/empty.ts' }],
     });
 
     render(<ChunkingHostRuntime />);
 
     await act(async () => {
       onRequestCallback?.({
-        type: 'request',
         channel: 'chunk',
+        payload: {
+          fileRecordId: 'file-empty',
+          kind: 'chunk-file-by-id',
+          options: {},
+          requestId: 'req-empty',
+        },
         requestId: 'req-empty',
         runtimeId: 'test-runtime',
-        payload: {
-          kind: 'chunk-file-by-id',
-          requestId: 'req-empty',
-          fileRecordId: 'file-empty',
-          options: {},
-        },
+        type: 'request',
       });
     });
 
@@ -232,16 +232,16 @@ describe('ChunkingHostRuntime', () => {
       });
       expect(reportResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'result',
           channel: 'chunk-result',
-          requestId: 'req-empty',
-          runtimeId: 'test-runtime',
           payload: expect.objectContaining({
             result: expect.objectContaining({
               skipped: true,
               skipReason: 'Empty file content',
             }),
           }),
+          requestId: 'req-empty',
+          runtimeId: 'test-runtime',
+          type: 'result',
         })
       );
     });
@@ -256,28 +256,28 @@ describe('ChunkingHostRuntime', () => {
 
     await act(async () => {
       onRequestCallback?.({
-        type: 'request',
         channel: 'chunk',
+        payload: {
+          fileRecordId: 'file-1',
+          kind: 'chunk-file-by-id',
+          options: {},
+          requestId: 'req-bad-rows',
+        },
         requestId: 'req-bad-rows',
         runtimeId: 'test-runtime',
-        payload: {
-          kind: 'chunk-file-by-id',
-          requestId: 'req-bad-rows',
-          fileRecordId: 'file-1',
-          options: {},
-        },
+        type: 'request',
       });
     });
 
     await waitFor(() => {
       expect(reportResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
           channel: 'chunk-error',
-          requestId: 'req-bad-rows',
           payload: expect.objectContaining({
             errorMessage: 'Chunking host could not find file record file-1.',
           }),
+          requestId: 'req-bad-rows',
+          type: 'error',
         })
       );
     });
@@ -309,16 +309,16 @@ describe('ChunkingHostRuntime', () => {
 
     await act(async () => {
       onRequestCallback?.({
-        type: 'request',
         channel: 'chunk',
+        payload: {
+          fileRecordId: 'file-1',
+          kind: 'chunk-file-by-id',
+          options: {},
+          requestId: 'req-heartbeat',
+        },
         requestId: 'req-heartbeat',
         runtimeId: 'test-runtime',
-        payload: {
-          kind: 'chunk-file-by-id',
-          requestId: 'req-heartbeat',
-          fileRecordId: 'file-1',
-          options: {},
-        },
+        type: 'request',
       });
       await Promise.resolve();
     });
@@ -329,22 +329,22 @@ describe('ChunkingHostRuntime', () => {
 
     expect(reportResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'progress',
         channel: 'chunk',
-        requestId: 'req-heartbeat',
-        runtimeId: 'test-runtime',
         payload: {
           chunksCreated: 0,
-          fileRecordId: 'file-1',
           currentIndex: 0,
+          fileRecordId: 'file-1',
           totalFiles: 1,
         },
+        requestId: 'req-heartbeat',
+        runtimeId: 'test-runtime',
+        type: 'progress',
       })
     );
 
     await act(async () => {
       resolveQuery?.({
-        rows: [{ name: 'mock-file1.txt', path: '/mock/mock-file1.txt', content: '' }],
+        rows: [{ content: '', name: 'mock-file1.txt', path: '/mock/mock-file1.txt' }],
       });
       await Promise.resolve();
       await Promise.resolve();
@@ -352,9 +352,9 @@ describe('ChunkingHostRuntime', () => {
 
     expect(reportResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'result',
         channel: 'chunk-result',
         requestId: 'req-heartbeat',
+        type: 'result',
       })
     );
   });
@@ -378,7 +378,7 @@ describe('ChunkingHostRuntime', () => {
     );
     dbQueryMock.mockResolvedValue({
       rows: [
-        { name: 'mock-file1.txt', path: '/mock/mock-file1.txt', content: 'mock file content' },
+        { content: 'mock file content', name: 'mock-file1.txt', path: '/mock/mock-file1.txt' },
       ],
     });
 
@@ -386,16 +386,16 @@ describe('ChunkingHostRuntime', () => {
 
     await act(async () => {
       onRequestCallback?.({
-        type: 'request',
         channel: 'chunk',
+        payload: {
+          fileRecordId: 'file-1',
+          kind: 'chunk-file-by-id',
+          options: {},
+          requestId: 'req-3',
+        },
         requestId: 'req-3',
         runtimeId: 'test-runtime',
-        payload: {
-          kind: 'chunk-file-by-id',
-          requestId: 'req-3',
-          fileRecordId: 'file-1',
-          options: {},
-        },
+        type: 'request',
       });
     });
 
@@ -405,11 +405,11 @@ describe('ChunkingHostRuntime', () => {
     await waitFor(() => {
       expect(reportStatusMock).toHaveBeenCalledWith(
         expect.objectContaining({
+          active: false,
+          lastError: null,
           runtimeId: 'test-runtime',
           runtimeKind: 'chunking-host',
           state: 'stopped',
-          active: false,
-          lastError: null,
         })
       );
     });

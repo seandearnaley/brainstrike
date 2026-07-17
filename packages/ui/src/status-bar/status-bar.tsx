@@ -26,27 +26,35 @@ export function StatusBar({
   testId = 'status-bar',
 }: StatusBarProps): React.ReactElement {
   return (
-    <output
-      aria-live="polite"
+    <footer
       className={cn(
-        'flex h-6 items-center justify-between px-2',
-        'border-border border-t bg-muted/50',
-        'text-muted-foreground text-xs',
+        'grid h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-1.5',
+        'border-border/80 border-t bg-muted/70',
+        'text-[11px] text-muted-foreground leading-none',
         className
       )}
       data-testid={testId}
     >
-      <div className="flex items-center gap-2" data-testid={`${testId}-left`}>
+      <div
+        className="col-start-1 flex h-full w-full min-w-0 items-center gap-1 justify-self-start overflow-hidden whitespace-nowrap"
+        data-testid={`${testId}-left`}
+      >
         {leftContent}
       </div>
       {centerContent && (
-        <div className="flex items-center gap-2" data-testid={`${testId}-center`}>
+        <div
+          className="col-start-2 flex h-full min-w-0 items-center gap-1 justify-self-center overflow-hidden whitespace-nowrap"
+          data-testid={`${testId}-center`}
+        >
           {centerContent}
         </div>
       )}
-      <div className="flex items-center gap-2" data-testid={`${testId}-right`}>
+      <div
+        className="col-start-3 flex h-full w-full min-w-0 items-center justify-end gap-1 justify-self-end overflow-hidden whitespace-nowrap"
+        data-testid={`${testId}-right`}
+      >
         {rightContent}
       </div>
-    </output>
+    </footer>
   );
 }

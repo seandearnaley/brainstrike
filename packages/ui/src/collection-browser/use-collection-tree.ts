@@ -293,10 +293,10 @@ function getSearchableFields(node: TreeNode<BrowserNodeData>): string[] {
  */
 const STATUS_PRIORITY: Record<EmbeddingStatus, number> = {
   complete: 0,
-  processing: 1,
-  pending: 2,
   failed: 3,
   none: 4,
+  pending: 2,
+  processing: 1,
 };
 
 /**
@@ -424,13 +424,10 @@ function sortNodes(
 /**
  * Check if a node matches the current search query
  */
-function matchesSearch(node: TreeNode<BrowserNodeData>, searchQuery: string): boolean {
-  if (!searchQuery) {
-    return true;
-  }
-  const query = searchQuery.toLowerCase();
-  const fields = getSearchableFields(node);
-  return fields.some((field) => field.toLowerCase().includes(query));
+function getSearchableText(node: TreeNode<BrowserNodeData>): string {
+  return getSearchableFields(node)
+    .map((field) => field.toLowerCase())
+    .join('\n');
 }
 
 /**
@@ -449,16 +446,16 @@ function createEmbeddingNode(
   parentId: string
 ): TreeNode<BrowserNodeData> {
   const embeddingData: EmbeddingData = {
-    vectorId: chunk.id,
     dimensions: resolveEmbeddingDimensions(chunk),
+    vectorId: chunk.id,
   };
   return {
-    id: `embedding-${chunk.id}`,
-    type: 'embedding',
-    depth: 2,
     data: embeddingData,
-    parentId,
+    depth: 2,
     hasChildren: false,
+    id: `embedding-${chunk.id}`,
+    parentId,
+    type: 'embedding',
   };
 }
 
@@ -478,10 +475,10 @@ function createChunkNode(
   );
 
   const chunkData: ChunkData = {
-    index: chunk.chunkIndex,
     content: chunk.content ?? '',
-    tokenCount: chunk.tokenCount,
     embeddingStatus: chunkStatus,
+    index: chunk.chunkIndex,
+    tokenCount: chunk.tokenCount,
   };
 
   if (fileName) {
@@ -489,12 +486,12 @@ function createChunkNode(
   }
 
   const chunkNode: TreeNode<BrowserNodeData> = {
-    id: `chunk-${chunk.id}`,
-    type: 'chunk',
-    depth: 1,
     data: chunkData,
-    parentId,
+    depth: 1,
     hasChildren: hasEmbedding,
+    id: `chunk-${chunk.id}`,
+    parentId,
+    type: 'chunk',
   };
 
   ctx.all.push(chunkNode);
@@ -532,24 +529,24 @@ function createFileNode(
   const progress = totalChunkCount > 0 ? Math.round((embeddedChunks / totalChunkCount) * 100) : 0;
 
   const fileData: FileData = {
+    chunkCount: totalChunkCount,
+    embeddingProgress: progress,
+    embeddingStatus,
     name: file.name,
     path: file.path,
     size: file.size,
-    chunkCount: totalChunkCount,
-    embeddingStatus,
-    embeddingProgress: progress,
   };
   if (file.processedAt) {
     fileData.importedAt = new Date(file.processedAt);
   }
 
   const fileNode: TreeNode<BrowserNodeData> = {
-    id: `file-${file.id}`,
-    type: 'file',
-    depth: 0,
     data: fileData,
-    parentId,
+    depth: 0,
     hasChildren: totalChunkCount > 0,
+    id: `file-${file.id}`,
+    parentId,
+    type: 'file',
   };
 
   ctx.all.push(fileNode);
@@ -589,14 +586,15 @@ function matchesEmbeddingStatus(
  */
 function matchesStandardNodeFilters(
   node: TreeNode<BrowserNodeData>,
-  filters: CollectionBrowserFilters
+  filters: CollectionBrowserFilters,
+  searchMatchIds: ReadonlySet<string>
 ): boolean {
   const nodeType = node.type as CollectionNodeType;
   const typeMatches = filters.nodeTypes.has(nodeType);
   if (!typeMatches) {
     return false;
   }
-  if (!matchesSearch(node, filters.searchQuery)) {
+  if (filters.searchQuery && !searchMatchIds.has(node.id)) {
     return false;
   }
   return matchesEmbeddingStatus(node, filters.embeddingStatus);
@@ -608,6 +606,7 @@ function matchesStandardNodeFilters(
 interface FilterContext {
   childrenMap: Map<string, TreeNode<BrowserNodeData>[]>;
   filters: CollectionBrowserFilters;
+  searchMatchIds: ReadonlySet<string>;
 }
 
 /**
@@ -630,9 +629,9 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
     }
     if (visiting.has(node.id)) {
       warnCycleOnce({
+        maxWarnings: MAX_WARNED_FILTER_CYCLE_NODE_IDS,
         nodeId: node.id,
         warnedNodeIds: warnedCycleNodeIds,
-        maxWarnings: MAX_WARNED_FILTER_CYCLE_NODE_IDS,
         warningMessage: `[CollectionTree] Cycle detected while filtering node "${node.id}". Excluding this cycle path.`,
       });
       cache.set(node.id, false);
@@ -641,7 +640,7 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
 
     visiting.add(node.id);
     try {
-      const selfMatches = matchesStandardNodeFilters(node, ctx.filters);
+      const selfMatches = matchesStandardNodeFilters(node, ctx.filters, ctx.searchMatchIds);
 
       const children = ctx.childrenMap.get(node.id) ?? [];
       // Keep parent nodes visible when descendants match, even if the parent
@@ -828,7 +827,7 @@ function buildSemanticVisibleNodeIds(
     }
   }
 
-  return { visibleNodeIds, matchingCount };
+  return { matchingCount, visibleNodeIds };
 }
 
 function countMatchingNodes(
@@ -908,8 +907,8 @@ function computeSemanticFilteredRoots(
   includeGroupHeadersWithVisibleChildren(roots, childrenMap, visibleNodeIds);
 
   return {
-    filteredRoots: roots.filter((root) => visibleNodeIds.has(root.id)),
     filteredCount: matchingCount,
+    filteredRoots: roots.filter((root) => visibleNodeIds.has(root.id)),
   };
 }
 
@@ -924,12 +923,12 @@ function computeStandardFilteredRoots(
   matchesNodeFilters: (node: TreeNode<BrowserNodeData>) => boolean
 ): { filteredRoots: TreeNode<BrowserNodeData>[]; filteredCount: number } {
   if (hasDefaultFilters(filters)) {
-    return { filteredRoots: roots, filteredCount: allNodes.length };
+    return { filteredCount: allNodes.length, filteredRoots: roots };
   }
 
   return {
-    filteredRoots: roots.filter((root) => matchesVisibleFilter(root)),
     filteredCount: countMatchingNodes(roots, childrenMap, matchesNodeFilters),
+    filteredRoots: roots.filter((root) => matchesVisibleFilter(root)),
   };
 }
 
@@ -1027,9 +1026,9 @@ function applyGrouping(
 } {
   if (groupBy === 'none') {
     return {
-      groupedRoots: rootNodes,
-      groupedChildrenMap: childrenMap,
       groupedAllNodes: allNodes,
+      groupedChildrenMap: childrenMap,
+      groupedRoots: rootNodes,
     };
   }
 
@@ -1063,20 +1062,20 @@ function applyGrouping(
     const groupLabel = getGroupLabel(groupBy, groupValue);
 
     const groupHeaderData: GroupHeaderData = {
-      groupLabel,
       groupKey: groupBy,
+      groupLabel,
       groupValue,
       itemCount: files.length,
     };
 
     const groupNode: TreeNode<BrowserNodeData> = {
-      id: groupId,
-      type: 'group',
-      depth: 0,
-      data: groupHeaderData,
-      parentId: null,
-      hasChildren: files.length > 0,
       childCount: files.length,
+      data: groupHeaderData,
+      depth: 0,
+      hasChildren: files.length > 0,
+      id: groupId,
+      parentId: null,
+      type: 'group',
     };
 
     groupedRoots.push(groupNode);
@@ -1100,7 +1099,7 @@ function applyGrouping(
 
   const groupedAllNodes = [...allNodesById.values()];
 
-  return { groupedRoots, groupedChildrenMap, groupedAllNodes };
+  return { groupedAllNodes, groupedChildrenMap, groupedRoots };
 }
 
 /**
@@ -1131,16 +1130,16 @@ export function useCollectionTree({
 
     const roots = data.files.map((file) => createFileNode(file, null, data, ctx, chunksByFile));
 
-    return { rootNodes: roots, allNodes: ctx.all, childrenMap: ctx.children };
+    return { allNodes: ctx.all, childrenMap: ctx.children, rootNodes: roots };
   }, [data]);
 
   // Apply grouping if a groupBy key is set
   const { rootNodes, allNodes, childrenMap } = React.useMemo(() => {
     if (groupBy === 'none') {
       return {
-        rootNodes: rawRootNodes,
         allNodes: rawAllNodes,
         childrenMap: rawChildrenMap,
+        rootNodes: rawRootNodes,
       };
     }
     const { groupedRoots, groupedChildrenMap, groupedAllNodes } = applyGrouping(
@@ -1150,11 +1149,54 @@ export function useCollectionTree({
       groupBy
     );
     return {
-      rootNodes: groupedRoots,
       allNodes: groupedAllNodes,
       childrenMap: groupedChildrenMap,
+      rootNodes: groupedRoots,
     };
   }, [rawRootNodes, rawAllNodes, rawChildrenMap, groupBy]);
+
+  const searchableTextByNode = React.useMemo(() => {
+    const searchableText = new WeakMap<TreeNode<BrowserNodeData>, string>();
+    for (const node of allNodes) {
+      searchableText.set(node, getSearchableText(node));
+    }
+    return searchableText;
+  }, [allNodes]);
+
+  // Compute text matches once so filtering, counting, and highlighting share
+  // the same result instead of rescanning large chunk content independently.
+  const { searchMatchIds, searchExpandIds } = React.useMemo(() => {
+    const matchIds = new Set<string>();
+    const expandIds = new Set<string>();
+    if (!filters.searchQuery) {
+      return { searchExpandIds: expandIds, searchMatchIds: matchIds };
+    }
+
+    const query = filters.searchQuery.toLowerCase();
+    const nodeParentMap = new Map<string, string | null>();
+    for (const node of allNodes) {
+      nodeParentMap.set(node.id, node.parentId);
+    }
+
+    for (const node of allNodes) {
+      const searchableText = searchableTextByNode.get(node);
+      if (searchableText === undefined) {
+        throw new Error(`Missing search index entry for collection node "${node.id}".`);
+      }
+      if (!searchableText.includes(query)) {
+        continue;
+      }
+      matchIds.add(node.id);
+
+      let currentParentId = node.parentId;
+      while (currentParentId) {
+        expandIds.add(currentParentId);
+        currentParentId = nodeParentMap.get(currentParentId) ?? null;
+      }
+    }
+
+    return { searchExpandIds: expandIds, searchMatchIds: matchIds };
+  }, [allNodes, filters.searchQuery, searchableTextByNode]);
 
   // Compute semantic search match IDs and scores
   const { semanticMatchIds, similarityScores, semanticExpandIds } = React.useMemo(() => {
@@ -1163,9 +1205,9 @@ export function useCollectionTree({
 
     if (!semanticResults || semanticResults.length === 0) {
       return {
+        semanticExpandIds: expandIds,
         semanticMatchIds: matchIds,
         similarityScores: new Map<string, number>(),
-        semanticExpandIds: expandIds,
       };
     }
 
@@ -1190,7 +1232,7 @@ export function useCollectionTree({
     // Compute aggregated scores (includes parent nodes)
     const scores = computeAggregatedScores(semanticResults, allNodes, childrenMap);
 
-    return { semanticMatchIds: matchIds, similarityScores: scores, semanticExpandIds: expandIds };
+    return { semanticExpandIds: expandIds, semanticMatchIds: matchIds, similarityScores: scores };
   }, [semanticResults, allNodes, childrenMap]);
 
   // Apply sorting to children at each level
@@ -1245,10 +1287,11 @@ export function useCollectionTree({
 
   const filterContext = React.useMemo<FilterContext>(
     () => ({
-      filters,
       childrenMap: sortedChildrenMap,
+      filters,
+      searchMatchIds,
     }),
-    [filters, sortedChildrenMap]
+    [filters, searchMatchIds, sortedChildrenMap]
   );
 
   const matchesStandardFilters = React.useMemo(
@@ -1256,8 +1299,8 @@ export function useCollectionTree({
     [filterContext]
   );
   const matchesDirectNodeFilters = React.useCallback(
-    (node: TreeNode<BrowserNodeData>) => matchesStandardNodeFilters(node, filters),
-    [filters]
+    (node: TreeNode<BrowserNodeData>) => matchesStandardNodeFilters(node, filters, searchMatchIds),
+    [filters, searchMatchIds]
   );
 
   // Apply filters (use sorted versions)
@@ -1347,49 +1390,16 @@ export function useCollectionTree({
     [sortedChildrenMap, semanticVisibleNodeIds, matchesStandardFilters]
   );
 
-  // Compute search match IDs and nodes to auto-expand (text search)
-  const { searchMatchIds, searchExpandIds } = React.useMemo(() => {
-    const matchIds = new Set<string>();
-    const expandIds = new Set<string>();
-
-    // No search query means no matches to highlight
-    if (!filters.searchQuery) {
-      return { searchMatchIds: matchIds, searchExpandIds: expandIds };
-    }
-
-    // Build a map from node ID to parent ID for traversal
-    const nodeParentMap = new Map<string, string | null>();
-    for (const node of allNodes) {
-      nodeParentMap.set(node.id, node.parentId);
-    }
-
-    // Find all nodes that match the search query
-    for (const node of allNodes) {
-      if (matchesSearch(node, filters.searchQuery)) {
-        matchIds.add(node.id);
-
-        // Walk up the tree and mark all ancestors for expansion
-        let currentParentId = node.parentId;
-        while (currentParentId) {
-          expandIds.add(currentParentId);
-          currentParentId = nodeParentMap.get(currentParentId) ?? null;
-        }
-      }
-    }
-
-    return { searchMatchIds: matchIds, searchExpandIds: expandIds };
-  }, [allNodes, filters.searchQuery]);
-
   return {
-    nodes: visibleNodes,
-    rootNodes: filteredRoots,
-    totalCount: allNodes.length,
     filteredCount,
     getChildren,
-    searchMatchIds,
+    nodes: visibleNodes,
+    rootNodes: filteredRoots,
     searchExpandIds,
-    similarityScores,
-    semanticMatchIds,
+    searchMatchIds,
     semanticExpandIds,
+    semanticMatchIds,
+    similarityScores,
+    totalCount: allNodes.length,
   };
 }

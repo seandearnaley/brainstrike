@@ -12,19 +12,20 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
-    "@electric-sql/pglite": "0.5.1",
-    "lucide-react": "^1.8.0"
+    "@electric-sql/pglite": "0.5.4",
+    "lucide-react": "^1.23.0"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^25.6.0",
-    "@types/react": "^19.2.14",
-    "happy-dom": "^20.9.0",
-    "jsdom": "29.0.2",
-    "vitest": "^4.1.4",
-    "zustand": "^5.0.12"
+    "@brainstrike/test-utils": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "happy-dom": "catalog:",
+    "jsdom": "catalog:",
+    "vitest": "catalog:",
+    "zustand": "catalog:"
   },
   "engines": {
     "node": ">=22"

@@ -31,9 +31,9 @@ export const getMemoryUsage = async (page: Page): Promise<MemoryInfo> =>
   await page.evaluate(() => {
     const memory = (performance as any).memory;
     return {
-      used: memory?.usedJSHeapSize || 0,
-      total: memory?.totalJSHeapSize || 0,
       limit: memory?.jsHeapSizeLimit || 0,
+      total: memory?.totalJSHeapSize || 0,
+      used: memory?.usedJSHeapSize || 0,
     };
   });
 
@@ -58,7 +58,7 @@ export const measureTime = async <T>(
     return measure?.duration || 0;
   }, name);
 
-  return { result, duration };
+  return { duration, result };
 };
 
 /**
@@ -69,17 +69,7 @@ export const installRenderTracker = async (page: Page) => {
     let renderCount = 0;
 
     (window as any).__renderTracker = {
-      renderCount: 0,
-      renderTimes: [],
       activeRenders: new Set(),
-
-      startRender: (componentName = 'unknown') => {
-        renderCount++;
-        const renderKey = `render-${componentName}-${renderCount}`;
-        (window as any).__renderTracker.activeRenders.add(renderKey);
-        performance.mark(`${renderKey}-start`);
-        return renderKey;
-      },
 
       endRender: (renderKey: string) => {
         if (!(window as any).__renderTracker.activeRenders.has(renderKey)) {
@@ -101,18 +91,28 @@ export const installRenderTracker = async (page: Page) => {
       getRenderMetrics: (): RenderMetrics => {
         const times = (window as any).__renderTracker.renderTimes;
         return {
-          totalRenders: times.length,
           averageRenderTime:
             times.length > 0 ? times.reduce((a: number, b: number) => a + b, 0) / times.length : 0,
           maxRenderTime: times.length > 0 ? Math.max(...times) : 0,
           renderTimes: [...times],
+          totalRenders: times.length,
         };
       },
+      renderCount: 0,
+      renderTimes: [],
 
       reset: () => {
         (window as any).__renderTracker.renderCount = 0;
         (window as any).__renderTracker.renderTimes = [];
         (window as any).__renderTracker.activeRenders.clear();
+      },
+
+      startRender: (componentName = 'unknown') => {
+        renderCount++;
+        const renderKey = `render-${componentName}-${renderCount}`;
+        (window as any).__renderTracker.activeRenders.add(renderKey);
+        performance.mark(`${renderKey}-start`);
+        return renderKey;
       },
     };
   });
@@ -174,11 +174,11 @@ export const createMetric = (
   const passed = value <= threshold;
   const metric = {
     name,
-    value,
-    threshold,
-    unit,
-    timestamp: Date.now(),
     passed,
+    threshold,
+    timestamp: Date.now(),
+    unit,
+    value,
   };
 
   const status = passed ? '✅' : '❌';
@@ -199,13 +199,13 @@ export const saveMetricsToFile = async (metrics: PerformanceMetric[], filename?:
   const filePath = path.join(metricsDir, filename || defaultFilename);
 
   const data = {
-    timestamp: new Date().toISOString(),
     metrics,
     summary: {
-      total: metrics.length,
-      passed: metrics.filter((m) => m.passed).length,
       failed: metrics.filter((m) => m.passed === false).length,
+      passed: metrics.filter((m) => m.passed).length,
+      total: metrics.length,
     },
+    timestamp: new Date().toISOString(),
   };
 
   await fs.writeFile(filePath, JSON.stringify(data, null, 2));
@@ -243,7 +243,7 @@ export const compareWithBaseline = async (
       const improvement = ((baseline.value - current.value) / baseline.value) * 100;
       const comparison = improvement > 5 ? 'improved' : improvement < -5 ? 'regressed' : 'stable';
 
-      return { ...current, comparison, improvement, baseline: baseline.value };
+      return { ...current, baseline: baseline.value, comparison, improvement };
     });
 
     console.log('📊 Performance Comparison:');

@@ -30,13 +30,13 @@ export function formatMcpConfig(endpoint) {
     {
       mcpServers: {
         'brainstrike-devtools': {
-          command: 'npx',
           args: [
             '-y',
             agentDevToolsDefaults.mcpPackage,
             `--browser-url=${endpoint}`,
             '--no-usage-statistics',
           ],
+          command: 'npx',
         },
       },
     },
@@ -131,7 +131,9 @@ function describeChildExit(code, signal) {
 
 export async function waitForEndpointOrChildExit(endpoint, child) {
   if (!isChildRunning(child)) {
-    throw new Error(`${describeChildExit(child.exitCode, child.signalCode)} before ${endpoint} was ready.`);
+    throw new Error(
+      `${describeChildExit(child.exitCode, child.signalCode)} before ${endpoint} was ready.`
+    );
   }
 
   const controller = new AbortController();
@@ -195,8 +197,8 @@ async function main() {
   const env = {
     ...process.env,
     BRAINSTRIKE_AGENT_DEVTOOLS: '1',
-    BRAINSTRIKE_AGENT_DEVTOOLS_PORT: String(port),
     BRAINSTRIKE_AGENT_DEVTOOLS_HOST: '127.0.0.1',
+    BRAINSTRIKE_AGENT_DEVTOOLS_PORT: String(port),
     BRAINSTRIKE_DB_ROOT_PATH: userDataDir,
     BRAINSTRIKE_E2E_USER_DATA_DIR: userDataDir,
   };

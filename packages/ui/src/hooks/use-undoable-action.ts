@@ -42,7 +42,6 @@ export function useUndoableAction<T, S = unknown>() {
       clearUndoTimeout(key);
       const snapshot = options.getStateSnapshot?.() as S;
       const toastResult = toast({
-        title: options.actionName,
         description: React.createElement(
           'div',
           { className: 'flex items-center justify-between gap-2' },
@@ -54,30 +53,31 @@ export function useUndoableAction<T, S = unknown>() {
           React.createElement(
             Button,
             {
-              variant: 'outline',
-              size: 'sm',
               className: 'flex-shrink-0',
               onClick: () => {
                 options.onUndo(item, snapshot);
                 clearUndoTimeout(key);
               },
+              size: 'sm',
+              variant: 'outline',
             },
             'Undo'
           )
         ),
         duration: options.duration ?? 5000,
+        title: options.actionName,
       });
       const toastId = toastResult?.id || `toast-${key}-${Date.now()}`;
       const timeoutId = window.setTimeout(() => {
         clearUndoTimeout(key);
       }, options.duration ?? 5000);
-      undoTimeoutsRef.current.set(key, { timeoutId, toastId, item, snapshot });
+      undoTimeoutsRef.current.set(key, { item, snapshot, timeoutId, toastId });
     },
     [toast, clearUndoTimeout]
   );
 
   return {
-    performUndoableAction,
     clearUndoTimeout,
+    performUndoableAction,
   };
 }

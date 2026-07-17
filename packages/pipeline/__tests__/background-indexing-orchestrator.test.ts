@@ -9,18 +9,18 @@ import {
 const inFlightBackfills = [
   {
     embeddingSetId: 'set-1',
-    requestId: 'background-indexing-backfill:active',
     progress: { current: 1, total: 4 },
+    requestId: 'background-indexing-backfill:active',
   },
   {
     embeddingSetId: 'set-2',
-    requestId: 'background-indexing-backfill:stale',
     progress: { current: 1, total: 2 },
+    requestId: 'background-indexing-backfill:stale',
   },
   {
     embeddingSetId: 'set-3',
-    requestId: 'manual-backfill:keep',
     progress: null,
+    requestId: 'manual-backfill:keep',
   },
 ];
 
@@ -55,8 +55,8 @@ describe('background indexing orchestrator', () => {
   });
 
   it('treats partial coverage as needing a managed backfill', () => {
-    expect(needsEmbeddingBackfill({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })).toBe(false);
-    expect(needsEmbeddingBackfill({ totalChunks: 10, chunksWithEmbeddingsForSet: 10 })).toBe(false);
-    expect(needsEmbeddingBackfill({ totalChunks: 10, chunksWithEmbeddingsForSet: 9 })).toBe(true);
+    expect(needsEmbeddingBackfill({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })).toBe(false);
+    expect(needsEmbeddingBackfill({ chunksWithEmbeddingsForSet: 10, totalChunks: 10 })).toBe(false);
+    expect(needsEmbeddingBackfill({ chunksWithEmbeddingsForSet: 9, totalChunks: 10 })).toBe(true);
   });
 });

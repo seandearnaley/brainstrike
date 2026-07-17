@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^25.6.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"
@@ -26,7 +26,7 @@
   "private": true,
   "scripts": {
     "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
-    "clean": "node ../../scripts/rimraf.mjs dist",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",

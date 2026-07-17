@@ -107,6 +107,8 @@ export interface TreeTableColumn<T> {
   maxWidth?: number;
   /** Minimum width in pixels */
   minWidth?: number;
+  /** Keep row content aligned when a consumer hides selected row checkboxes. */
+  reserveCheckboxSpace?: boolean;
   /** When false, leaf rows do not reserve empty expand-toggle space in the tree column. */
   reserveToggleSpace?: boolean;
   /**
@@ -120,6 +122,8 @@ export interface TreeTableColumn<T> {
   showSortIndicator?: boolean;
   /** Whether this column is sortable */
   sortable?: boolean;
+  /** Pin expand and checkbox controls to the first row line when cell content can grow. */
+  treeControlsPosition?: 'center' | 'top';
   /** Fixed width in pixels or CSS string */
   width?: number | string;
 }
@@ -206,6 +210,23 @@ export interface SortState {
 }
 
 /**
+ * Checkbox state for tri-state parent checkboxes.
+ */
+export type CheckboxState = 'checked' | 'unchecked' | 'indeterminate';
+
+/**
+ * Next state requested by a user checkbox interaction.
+ * Indeterminate always resolves to `'checked'` (check) on activation.
+ */
+export type TreeTableCheckboxNextState = 'checked' | 'unchecked';
+
+/**
+ * Visible checkbox states plus an explicit hide sentinel.
+ * `undefined` from `getCheckboxState` is treated the same as `'hidden'`.
+ */
+export type TreeTableCheckboxRenderState = CheckboxState | 'hidden';
+
+/**
  * Main props for the TreeTable component.
  */
 export interface TreeTableProps<T> {
@@ -225,7 +246,7 @@ export interface TreeTableProps<T> {
   autoWindowingContext?: TreeTableAutoWindowingContext;
 
   // Styling
-  /** Additional CSS class for the container */
+  /** Additional CSS class for the semantic table element. */
   className?: string;
   /**
    * Controlled map of column id → pixel width.
@@ -249,6 +270,22 @@ export interface TreeTableProps<T> {
   // Expansion state
   /** Set of expanded node IDs */
   expandedIds: Set<string>;
+  /**
+   * Optional accessible name for a row's checkbox. Defaults to `Select ${node.id}`
+   * when omitted. Use this when the node id is not a human-readable label (e.g.
+   * search chunk rows that should read "Select lines 8–12").
+   */
+  getCheckboxAriaLabel?: (node: TreeNode<T>) => string | undefined;
+
+  // Checkbox
+  /**
+   * Pluggable per-node checkbox state. When provided, TreeTable renders a
+   * checkbox for each node whose return value is a visible CheckboxState. Return
+   * `'hidden'` or `undefined` to omit the checkbox for that row (e.g. match
+   * leaves under a chunk). Takes precedence over the built-in
+   * `multiSelectedIds` cascade when resolving visual state.
+   */
+  getCheckboxState?: (node: TreeNode<T>) => TreeTableCheckboxRenderState | undefined;
 
   // Highlighting (e.g., search results)
   /** Set of highlighted node IDs */
@@ -269,6 +306,26 @@ export interface TreeTableProps<T> {
    * row virtualization, keyboard navigation, and ARIA row metadata.
    */
   nodesArePreFlattened?: boolean;
+  /**
+   * Pluggable checkbox change handler. Receives the node and the next
+   * checked/unchecked state. When provided, replaces the built-in
+   * select-descendants cascade from `onMultiSelectChange` for checkbox
+   * clicks (and Space when the pluggable path is active).
+   *
+   * Providing `getCheckboxState` without this handler is supported for
+   * read-only/display use: checkbox clicks and Space are ignored (they do not
+   * fall through to `onMultiSelectChange`, whose cascade map is empty in that
+   * mode).
+   */
+  onCheckboxChange?: (node: TreeNode<T>, nextState: TreeTableCheckboxNextState) => void;
+  /**
+   * Consumer-provided Space handler for rows whose checkbox is rendered in the
+   * cell (not TreeTable's pluggable checkbox). Return `true` to consume Space
+   * (toggle the consumer's own selection) so it does NOT fall through to row
+   * activation (`onSelect`) — APG: Space toggles selection, Enter activates.
+   * Takes precedence over the internal pluggable-checkbox Space handler.
+   */
+  onCheckboxSpace?: (nodeId: string) => boolean;
   /** Callback to collapse all nodes */
   onCollapseAll?: () => void;
   /**
@@ -312,8 +369,8 @@ export interface TreeTableProps<T> {
   selectedId?: string | null;
   /** Selection mode */
   selectionMode?: SelectionMode;
-
-  // Checkbox
+  /** Whether clicking row chrome changes selection. Disable for checkbox-only multi-selection. */
+  selectOnRowClick?: boolean;
   /** Whether to show checkboxes for row selection */
   showCheckbox?: boolean;
   /** Whether to render the header row. Prefer this prop over CSS-only header hiding. */
@@ -322,14 +379,11 @@ export interface TreeTableProps<T> {
   // Sorting
   /** Current sort state */
   sortState?: SortState;
+  /** Additional CSS class for the sole scroll viewport. */
+  viewportClassName?: string | undefined;
   /** Windowing strategy for row rendering */
   windowingStrategy?: TreeTableWindowingStrategy;
 }
-
-/**
- * Checkbox state for tri-state parent checkboxes.
- */
-export type CheckboxState = 'checked' | 'unchecked' | 'indeterminate';
 
 /**
  * Props for the TreeTableRow component.
@@ -337,6 +391,8 @@ export type CheckboxState = 'checked' | 'unchecked' | 'indeterminate';
 export interface TreeTableRowProps<T> {
   /** ARIA role inherited from the table container */
   ariaRole?: 'treegrid' | 'grid' | undefined;
+  /** Accessible name for the row checkbox (defaults to `Select ${node.id}`). */
+  checkboxAriaLabel?: string | undefined;
   /** Checkbox state (for tri-state parent logic) */
   checkboxState?: CheckboxState | undefined;
   /** Additional CSS class */
@@ -349,7 +405,10 @@ export interface TreeTableRowProps<T> {
   isFocused?: boolean;
   /** Ref callback for measuring element */
   measureRef?: (node: HTMLTableRowElement | null) => void;
-  /** Callback when checkbox is toggled */
+  /**
+   * Callback when checkbox is toggled.
+   * Built-in path passes nodeId only; pluggable path is wired at TreeTable.
+   */
   onCheckboxChange?: ((nodeId: string) => void) | undefined;
   /** Callback when row is clicked */
   onClick?: (nodeId: string, event: React.MouseEvent) => void;

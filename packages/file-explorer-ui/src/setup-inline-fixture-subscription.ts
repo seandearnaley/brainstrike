@@ -100,8 +100,8 @@ async function readRows(
   if (!query) {
     if (!accessIssues.some((issue) => issue.source === 'electronAPI.db.query')) {
       accessIssues.push({
-        source: 'electronAPI.db.query',
         reason: 'database bridge unavailable',
+        source: 'electronAPI.db.query',
       });
     }
     return [];
@@ -111,8 +111,8 @@ async function readRows(
     return Array.isArray(result.rows) ? result.rows : [];
   } catch (error) {
     accessIssues.push({
-      source,
       reason: error instanceof Error ? error.message : String(error),
+      source,
     });
     return [];
   }
@@ -180,14 +180,14 @@ function createIndexingDebugApi(): IndexingDebugApi {
         ]);
 
       return {
-        roots,
-        collectionStats,
-        queueCounts,
         chunkingBacklog,
+        collectionStats,
         hosts: {
           chunking,
           embedding,
         },
+        queueCounts,
+        roots,
         ...(accessIssues.length > 0 ? { accessIssues } : {}),
       };
     },
@@ -244,7 +244,7 @@ export function setupInlineFixtureSubscription(
       logger.info('Inline fixture cleared');
       return null;
     } catch (error) {
-      logger.warn('Failed to toggle inline fixture', { error, enabled });
+      logger.warn('Failed to toggle inline fixture', { enabled, error });
       // Roll back the toggle without re-entering the subscription loop.
       suppressNextSubscription = true;
       store.getState().setDevInlineFixtureEnabled(!enabled);
@@ -260,7 +260,7 @@ export function setupInlineFixtureSubscription(
     options?: FixtureLoadOptions
   ): void => {
     void applyFixtureState(enabled, fixture, options).catch((error) => {
-      logger.error('Inline fixture toggle crashed outside guarded flow', { error, enabled });
+      logger.error('Inline fixture toggle crashed outside guarded flow', { enabled, error });
     });
   };
 

@@ -53,7 +53,7 @@ describe('useCancelButtonDelay', () => {
     const { result, rerender } = renderHook(
       ({ isLoading, cancellable, isCancelling }) =>
         useCancelButtonDelay(isLoading, cancellable, isCancelling),
-      { initialProps: { isLoading: true, cancellable: true, isCancelling: false } }
+      { initialProps: { cancellable: true, isCancelling: false, isLoading: true } }
     );
 
     // Wait for button to appear
@@ -63,7 +63,7 @@ describe('useCancelButtonDelay', () => {
     expect(result.current).toBe(true);
 
     // Stop loading
-    rerender({ isLoading: false, cancellable: true, isCancelling: false });
+    rerender({ cancellable: true, isCancelling: false, isLoading: false });
     expect(result.current).toBe(false);
   });
 
@@ -71,7 +71,7 @@ describe('useCancelButtonDelay', () => {
     const { result, rerender } = renderHook(
       ({ isLoading, cancellable, isCancelling }) =>
         useCancelButtonDelay(isLoading, cancellable, isCancelling),
-      { initialProps: { isLoading: true, cancellable: true, isCancelling: false } }
+      { initialProps: { cancellable: true, isCancelling: false, isLoading: true } }
     );
 
     // Wait for button to appear
@@ -81,7 +81,7 @@ describe('useCancelButtonDelay', () => {
     expect(result.current).toBe(true);
 
     // Start cancelling
-    rerender({ isLoading: true, cancellable: true, isCancelling: true });
+    rerender({ cancellable: true, isCancelling: true, isLoading: true });
     expect(result.current).toBe(false);
   });
 
@@ -89,7 +89,7 @@ describe('useCancelButtonDelay', () => {
     const { result, rerender } = renderHook(
       ({ isLoading, cancellable, isCancelling }) =>
         useCancelButtonDelay(isLoading, cancellable, isCancelling),
-      { initialProps: { isLoading: true, cancellable: true, isCancelling: false } }
+      { initialProps: { cancellable: true, isCancelling: false, isLoading: true } }
     );
 
     // Advance part way
@@ -98,7 +98,7 @@ describe('useCancelButtonDelay', () => {
     });
 
     // Make not cancellable
-    rerender({ isLoading: true, cancellable: false, isCancelling: false });
+    rerender({ cancellable: false, isCancelling: false, isLoading: true });
 
     // Advance past what would have been the delay
     act(() => {
@@ -113,13 +113,13 @@ describe('useCancelButtonDelay', () => {
     const { result, rerender } = renderHook(
       ({ isLoading, cancellable, isCancelling }) =>
         useCancelButtonDelay(isLoading, cancellable, isCancelling),
-      { initialProps: { isLoading: false, cancellable: true, isCancelling: false } }
+      { initialProps: { cancellable: true, isCancelling: false, isLoading: false } }
     );
 
     expect(result.current).toBe(false);
 
     // Start loading
-    rerender({ isLoading: true, cancellable: true, isCancelling: false });
+    rerender({ cancellable: true, isCancelling: false, isLoading: true });
 
     // Advance time
     act(() => {

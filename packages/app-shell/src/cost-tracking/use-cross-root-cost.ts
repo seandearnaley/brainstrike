@@ -49,9 +49,9 @@ interface MappedRows {
  */
 function mapLiveRows(rawRows: readonly Record<string, unknown>[]): MappedRows {
   try {
-    return { rows: rawRows.map(mapCrossRootUsageRow), error: null };
+    return { error: null, rows: rawRows.map(mapCrossRootUsageRow) };
   } catch (error: unknown) {
-    return { rows: [], error: error instanceof Error ? error : new Error(String(error)) };
+    return { error: error instanceof Error ? error : new Error(String(error)), rows: [] };
   }
 }
 
@@ -77,9 +77,9 @@ export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootC
 
   const liveQuery = usePGliteLiveQuery<Record<string, unknown>>({
     cacheKey: makeLiveQueryKey('cross-root-usage', resourceId),
-    query: CROSS_ROOT_USAGE_AGGREGATION_SQL,
-    params,
     enabled: available,
+    params,
+    query: CROSS_ROOT_USAGE_AGGREGATION_SQL,
   });
 
   const mapped = useMemo<MappedRows>(() => mapLiveRows(liveQuery.rows), [liveQuery.rows]);

@@ -105,12 +105,12 @@ export function buildLocalToolDefinitions(
         return null;
       }
       return {
-        type: 'function' as const,
         function: {
-          name: tool.id,
           description: tool.description ?? tool.id,
+          name: tool.id,
           parameters,
         },
+        type: 'function' as const,
       };
     })
     .filter((definition): definition is LocalLlmToolDefinition => Boolean(definition));

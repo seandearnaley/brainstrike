@@ -60,14 +60,8 @@ function createMockWorkerPort(
   let terminateCalls = 0;
 
   return {
-    chunkFileCalls,
-    terminateCalls,
-    isReady: () => ready,
-    terminate: () => {
-      terminateCalls++;
-    },
     async chunkFile(fileRecordId, content, fileName, filePath) {
-      chunkFileCalls.push({ fileRecordId, content, fileName, filePath });
+      chunkFileCalls.push({ content, fileName, filePath, fileRecordId });
 
       if (shouldFail) {
         throw new Error(failMessage);
@@ -76,29 +70,35 @@ function createMockWorkerPort(
       const chunks: PortableChunk[] = chunkResult.chunks ?? [
         {
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: content.slice(0, 100),
           contentHash: 'hash123',
-          startLine: 1,
           endLine: 1,
-          startOffset: 0,
           endOffset: content.slice(0, 100).length,
+          startLine: 1,
+          startOffset: 0,
           tokenCount: Math.ceil(content.length / 4),
-          chunkType: 'text',
-          chunkSize: 100,
         },
       ];
 
       return {
-        type: 'result',
-        id: 'chunk-1',
-        fileRecordId,
         chunks,
+        fileRecordId,
+        id: 'chunk-1',
+        skipped: chunkResult.skipped ?? false,
         strategyUsed: chunkResult.strategyUsed ?? 'sentence',
         totalTokens: chunkResult.totalTokens ?? chunks.reduce((sum, c) => sum + c.tokenCount, 0),
-        skipped: chunkResult.skipped ?? false,
+        type: 'result',
         ...(chunkResult.skipReason === undefined ? {} : { skipReason: chunkResult.skipReason }),
       } as WorkerChunkResult;
     },
+    chunkFileCalls,
+    isReady: () => ready,
+    terminate: () => {
+      terminateCalls++;
+    },
+    terminateCalls,
   };
 }
 
@@ -107,8 +107,8 @@ function createMockWorkerPort(
  */
 function createChunkingInput(overrides: Partial<ChunkingInput> = {}): ChunkingInput {
   return {
-    fileId: generateFileId(),
     content: 'const hello = "world";',
+    fileId: generateFileId(),
     fileName: 'test.ts',
     filePath: '/src/test.ts',
     strategy: 'recursive',
@@ -143,23 +143,23 @@ describe('createChunkingStage', () => {
           chunks: [
             {
               chunkIndex: 0,
+              chunkSize: 256,
+              chunkType: 'code',
               content: 'chunk content',
               contentHash: 'abc123',
               tokenCount: 10,
-              chunkType: 'code',
-              chunkSize: 256,
             },
             {
               chunkIndex: 1,
+              chunkSize: 256,
+              chunkType: 'code',
               content: 'more content',
               contentHash: 'def456',
               tokenCount: 8,
-              chunkType: 'code',
-              chunkSize: 256,
             },
           ],
-          totalTokens: 18,
           strategyUsed: 'recursive',
+          totalTokens: 18,
         },
       });
       const stage = createChunkingStage({ workerPort });
@@ -176,9 +176,9 @@ describe('createChunkingStage', () => {
     it('handles skipped files', async () => {
       const workerPort = createMockWorkerPort({
         chunkResult: {
+          chunks: [],
           skipped: true,
           skipReason: 'Binary file',
-          chunks: [],
           totalTokens: 0,
         },
       });
@@ -193,8 +193,8 @@ describe('createChunkingStage', () => {
 
     it('handles worker errors gracefully', async () => {
       const workerPort = createMockWorkerPort({
-        shouldFail: true,
         failMessage: 'Worker crashed',
+        shouldFail: true,
       });
       const stage = createChunkingStage({ workerPort });
 
@@ -221,8 +221,8 @@ describe('createChunkingStage', () => {
     it('uses default strategy when not specified', async () => {
       const workerPort = createMockWorkerPort();
       const stage = createChunkingStage({
-        workerPort,
         defaultStrategy: 'token',
+        workerPort,
       });
 
       const input = createChunkingInput();
@@ -236,9 +236,9 @@ describe('createChunkingStage', () => {
     it('passes maxTokens and overlap to worker', async () => {
       const workerPort = createMockWorkerPort();
       const stage = createChunkingStage({
-        workerPort,
         defaultMaxTokens: 512,
         defaultOverlap: 50,
+        workerPort,
       });
 
       await stage.chunkFile(createChunkingInput());
@@ -358,7 +358,7 @@ describe('createChunkingStage', () => {
         createChunkingInput({ fileName: 'c.ts' }),
       ];
 
-      const result = await stage.chunkBatch({ files, continueOnError: false });
+      const result = await stage.chunkBatch({ continueOnError: false, files });
 
       expect(result.results.length).toBeLessThanOrEqual(2);
       expect(callCount).toBe(2); // Third file should not be processed
@@ -381,27 +381,27 @@ describe('createChunkingStage', () => {
           chunks: [
             {
               chunkIndex: 0,
+              chunkSize: 100,
+              chunkType: 'text',
               content: 'a',
               contentHash: 'h1',
-              startLine: 1,
               endLine: 1,
-              startOffset: 0,
               endOffset: 1,
+              startLine: 1,
+              startOffset: 0,
               tokenCount: 10,
-              chunkType: 'text',
-              chunkSize: 100,
             },
             {
               chunkIndex: 1,
+              chunkSize: 100,
+              chunkType: 'text',
               content: 'b',
               contentHash: 'h2',
-              startLine: 1,
               endLine: 1,
-              startOffset: 0,
               endOffset: 1,
+              startLine: 1,
+              startOffset: 0,
               tokenCount: 20,
-              chunkType: 'text',
-              chunkSize: 100,
             },
           ],
           totalTokens: 30,

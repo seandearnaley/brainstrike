@@ -36,46 +36,46 @@ describe('lazy-tree-loader', () => {
 
   // Helper to create a mock file node
   const createFileNode = (overrides: Partial<IFileNode> = {}): IFileNode => ({
+    depth: 0,
+    handle: mockHandle,
+    isVisible: true,
     name: 'test-file.ts',
     path: '/root/test-file.ts',
-    type: 'file',
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
-    isVisible: true,
-    handle: mockHandle,
+    selectionState: 'unchecked',
+    type: 'file',
     ...overrides,
   });
 
   // Helper to create a mock directory node (simulating adapter output with children: [])
   const createDirectoryNode = (overrides: Partial<IFileNode> = {}): IFileNode => ({
+    children: [], // Adapters set this to empty array
+    depth: 0,
+    handle: mockHandle,
+    isVisible: true,
     name: 'test-dir',
     path: '/root/test-dir',
-    type: 'directory',
-    depth: 0,
-    selectionState: 'unchecked',
-    children: [], // Adapters set this to empty array
     rootFolderId: 'root',
-    isVisible: true,
-    handle: mockHandle,
+    selectionState: 'unchecked',
+    type: 'directory',
     ...overrides,
   });
 
   // Helper to create a mock directory handle
   const createDirectoryHandle = (overrides: Partial<DirectoryHandle> = {}): DirectoryHandle => ({
-    path: '/root',
-    name: 'root',
     kind: 'directory',
+    name: 'root',
+    path: '/root',
     platform: 'electron',
     ...overrides,
   });
 
   // Helper to create a mock file system adapter
   const createMockAdapter = (readDirectoryResult: IFileNode[] = []): FileSystemAdapter => ({
-    requestDirectoryAccess: vi.fn(),
+    exists: vi.fn(),
     readDirectory: vi.fn().mockResolvedValue(readDirectoryResult),
     readFile: vi.fn(),
-    exists: vi.fn(),
+    requestDirectoryAccess: vi.fn(),
     watchDirectory: vi.fn(),
   });
 
@@ -117,7 +117,7 @@ describe('lazy-tree-loader', () => {
   describe('loadRootDirectory', () => {
     it('sets loadState=unloaded for directories', async () => {
       const mockChildren = [
-        createDirectoryNode({ name: 'subdir', path: '/root/subdir', children: [] }),
+        createDirectoryNode({ children: [], name: 'subdir', path: '/root/subdir' }),
         createFileNode({ name: 'file.ts', path: '/root/file.ts' }),
       ];
       const adapter = createMockAdapter(mockChildren);
@@ -131,7 +131,7 @@ describe('lazy-tree-loader', () => {
 
     it('removes children property from directories (adapters set children: [])', async () => {
       const mockChildren = [
-        createDirectoryNode({ name: 'subdir', path: '/root/subdir', children: [] }),
+        createDirectoryNode({ children: [], name: 'subdir', path: '/root/subdir' }),
       ];
       const adapter = createMockAdapter(mockChildren);
       const handle = createDirectoryHandle();
@@ -178,28 +178,47 @@ describe('lazy-tree-loader', () => {
       expect(result[0]!.rootFolderId).toBe('/my-project');
     });
 
-    it('throws on abort signal', async () => {
+    it('preserves the signal reason when aborted before the root read', async () => {
       const adapter = createMockAdapter([]);
       const handle = createDirectoryHandle();
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled root load');
+      abortController.abort(abortReason);
 
       await expect(
         loadRootDirectory(adapter, handle, { abortSignal: abortController.signal })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+
+      expect(adapter.readDirectory).not.toHaveBeenCalled();
+    });
+
+    it('preserves the signal reason when the root read rejects after cancellation', async () => {
+      const adapter = createMockAdapter([]);
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled rejected root read');
+      const readError = new Error('root directory I/O failed');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        throw readError;
+      });
+
+      await expect(
+        loadRootDirectory(adapter, handle, { abortSignal: abortController.signal })
+      ).rejects.toBe(abortReason);
     });
   });
 
   describe('loadDirectoryChildren', () => {
     it('sets loadState=unloaded for nested directories', async () => {
       const mockChildren = [
-        createDirectoryNode({ name: 'nested', path: '/root/parent/nested', children: [] }),
+        createDirectoryNode({ children: [], name: 'nested', path: '/root/parent/nested' }),
       ];
       const adapter = createMockAdapter(mockChildren);
       const parentNode = createDirectoryNode({
+        depth: 0,
         name: 'parent',
         path: '/root/parent',
-        depth: 0,
         rootFolderId: 'root',
       });
 
@@ -210,7 +229,7 @@ describe('lazy-tree-loader', () => {
 
     it('removes children property from nested directories', async () => {
       const mockChildren = [
-        createDirectoryNode({ name: 'nested', path: '/root/parent/nested', children: [] }),
+        createDirectoryNode({ children: [], name: 'nested', path: '/root/parent/nested' }),
       ];
       const adapter = createMockAdapter(mockChildren);
       const parentNode = createDirectoryNode({
@@ -230,9 +249,9 @@ describe('lazy-tree-loader', () => {
       ];
       const adapter = createMockAdapter(mockChildren);
       const parentNode = createDirectoryNode({
+        depth: 2,
         name: 'parent',
         path: '/root/parent',
-        depth: 2,
       });
 
       const result = await loadDirectoryChildren(adapter, parentNode);
@@ -262,11 +281,41 @@ describe('lazy-tree-loader', () => {
         'Cannot load children of non-directory node'
       );
     });
+
+    it('preserves the signal reason when aborted before the child read', async () => {
+      const adapter = createMockAdapter([]);
+      const parentNode = createDirectoryNode({ path: '/root/parent' });
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled child load');
+      abortController.abort(abortReason);
+
+      await expect(
+        loadDirectoryChildren(adapter, parentNode, { abortSignal: abortController.signal })
+      ).rejects.toBe(abortReason);
+
+      expect(adapter.readDirectory).not.toHaveBeenCalled();
+    });
+
+    it('preserves the signal reason when the child read rejects after cancellation', async () => {
+      const adapter = createMockAdapter([]);
+      const parentNode = createDirectoryNode({ path: '/root/parent' });
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled rejected child read');
+      const readError = new Error('child directory I/O failed');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        throw readError;
+      });
+
+      await expect(
+        loadDirectoryChildren(adapter, parentNode, { abortSignal: abortController.signal })
+      ).rejects.toBe(abortReason);
+    });
   });
 
   describe('updateNodeChildren', () => {
     it('updates children of target node', () => {
-      const tree: IFileNode[] = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+      const tree: IFileNode[] = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
       const newChildren = [createFileNode({ path: '/root/dir/file.ts' })];
 
       const result = updateNodeChildren(tree, '/root/dir', newChildren, 'loaded');
@@ -278,8 +327,8 @@ describe('lazy-tree-loader', () => {
     it('traverses nested paths', () => {
       const tree: IFileNode[] = [
         createDirectoryNode({
+          children: [createDirectoryNode({ loadState: 'loading', path: '/root/parent/child' })],
           path: '/root/parent',
-          children: [createDirectoryNode({ path: '/root/parent/child', loadState: 'loading' })],
         }),
       ];
       const newChildren = [createFileNode({ path: '/root/parent/child/file.ts' })];
@@ -303,7 +352,7 @@ describe('lazy-tree-loader', () => {
 
   describe('setNodeLoadState', () => {
     it('sets loadState on target node', () => {
-      const tree: IFileNode[] = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree: IFileNode[] = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
 
       const result = setNodeLoadState(tree, '/root/dir', 'loading');
 
@@ -311,7 +360,7 @@ describe('lazy-tree-loader', () => {
     });
 
     it('sets error message when provided', () => {
-      const tree: IFileNode[] = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+      const tree: IFileNode[] = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
 
       const result = setNodeLoadState(tree, '/root/dir', 'error', 'Failed to load');
 
@@ -322,9 +371,9 @@ describe('lazy-tree-loader', () => {
     it('clears error when not provided', () => {
       const tree: IFileNode[] = [
         createDirectoryNode({
-          path: '/root/dir',
-          loadState: 'error',
           loadError: 'Previous error',
+          loadState: 'error',
+          path: '/root/dir',
         }),
       ];
 
@@ -349,13 +398,13 @@ describe('lazy-tree-loader', () => {
     it('finds nested node', () => {
       const tree: IFileNode[] = [
         createDirectoryNode({
-          path: '/root/parent',
           children: [
             createDirectoryNode({
-              path: '/root/parent/child',
               children: [createFileNode({ path: '/root/parent/child/file.ts' })],
+              path: '/root/parent/child',
             }),
           ],
+          path: '/root/parent',
         }),
       ];
 
@@ -393,20 +442,45 @@ describe('lazy-tree-loader', () => {
       const mockChildren = [createFileNode({ name: 'file.ts', path: '/root/parent/file.ts' })];
       const adapter = createMockAdapter(mockChildren);
       const parentNode = createDirectoryNode({
+        depth: 0,
         name: 'parent',
         path: '/root/parent',
-        depth: 0,
         rootFolderId: 'root',
       });
 
       const batches: { nodes: IFileNode[]; done: boolean }[] = [];
       await loadDirectoryChildrenStreaming(adapter, parentNode, (nodes, meta) => {
-        batches.push({ nodes, done: meta.done });
+        batches.push({ done: meta.done, nodes });
       });
 
       expect(batches).toHaveLength(1);
       expect(batches[0]!.done).toBe(true);
       expect(batches[0]!.nodes).toHaveLength(1);
+    });
+
+    it('preserves the signal reason when the non-streaming fallback is aborted during read', async () => {
+      const adapter = createMockAdapter();
+      const parentNode = createDirectoryNode({
+        depth: 0,
+        name: 'parent',
+        path: '/root/parent',
+        rootFolderId: 'root',
+      });
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled child fallback');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        return [];
+      });
+      const onBatch = vi.fn();
+
+      await expect(
+        loadDirectoryChildrenStreaming(adapter, parentNode, onBatch, {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
     });
 
     it('uses streaming when adapter supports it', async () => {
@@ -424,15 +498,15 @@ describe('lazy-tree-loader', () => {
       });
 
       const parentNode = createDirectoryNode({
+        depth: 0,
         name: 'parent',
         path: '/root/parent',
-        depth: 0,
         rootFolderId: 'root',
       });
 
       const batches: { nodes: IFileNode[]; done: boolean; total: number }[] = [];
       await loadDirectoryChildrenStreaming(adapter, parentNode, (nodes, meta) => {
-        batches.push({ nodes, done: meta.done, total: meta.total });
+        batches.push({ done: meta.done, nodes, total: meta.total });
       });
 
       expect(batches).toHaveLength(2);
@@ -453,13 +527,14 @@ describe('lazy-tree-loader', () => {
       const adapter = createMockAdapter([]);
       const parentNode = createDirectoryNode({ path: '/root/parent' });
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled child enumeration');
+      abortController.abort(abortReason);
 
       await expect(
         loadDirectoryChildrenStreaming(adapter, parentNode, vi.fn(), {
           abortSignal: abortController.signal,
         })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
     });
   });
 
@@ -471,7 +546,7 @@ describe('lazy-tree-loader', () => {
 
       const batches: { nodes: IFileNode[]; done: boolean }[] = [];
       await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
-        batches.push({ nodes, done: meta.done });
+        batches.push({ done: meta.done, nodes });
       });
 
       expect(batches).toHaveLength(1);
@@ -479,10 +554,30 @@ describe('lazy-tree-loader', () => {
       expect(batches[0]!.nodes).toHaveLength(1);
     });
 
+    it('preserves the signal reason when the root fallback is aborted during read', async () => {
+      const adapter = createMockAdapter();
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      const abortReason = new Error('caller cancelled root fallback');
+      vi.mocked(adapter.readDirectory).mockImplementation(async () => {
+        abortController.abort(abortReason);
+        return [];
+      });
+      const onBatch = vi.fn();
+
+      await expect(
+        loadRootDirectoryStreaming(adapter, handle, onBatch, {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
+    });
+
     it('uses streaming when adapter supports it', async () => {
       const adapter = createMockAdapter();
       adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
-        onBatch([createDirectoryNode({ name: 'src', path: '/root/src', children: [] })], {
+        onBatch([createDirectoryNode({ children: [], name: 'src', path: '/root/src' })], {
           done: false,
           total: 2,
         });
@@ -496,7 +591,7 @@ describe('lazy-tree-loader', () => {
 
       const batches: { nodes: IFileNode[]; done: boolean }[] = [];
       await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
-        batches.push({ nodes, done: meta.done });
+        batches.push({ done: meta.done, nodes });
       });
 
       expect(batches).toHaveLength(2);
@@ -507,7 +602,7 @@ describe('lazy-tree-loader', () => {
     it('sets loadState=unloaded for directories in streamed results', async () => {
       const adapter = createMockAdapter();
       adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
-        onBatch([createDirectoryNode({ name: 'src', path: '/root/src', children: [] })], {
+        onBatch([createDirectoryNode({ children: [], name: 'src', path: '/root/src' })], {
           done: true,
           total: 1,
         });
@@ -531,13 +626,43 @@ describe('lazy-tree-loader', () => {
       const adapter = createMockAdapter([]);
       const handle = createDirectoryHandle();
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled root enumeration');
+      abortController.abort(abortReason);
 
       await expect(
         loadRootDirectoryStreaming(adapter, handle, vi.fn(), {
           abortSignal: abortController.signal,
         })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+    });
+
+    it('propagates cancellation after a partial batch without emitting successful completion', async () => {
+      const adapter = createMockAdapter();
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      const abortReason = new DOMException('Directory enumeration cancelled', 'AbortError');
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch, options) => {
+        onBatch([createFileNode({ name: 'partial.ts', path: '/root/partial.ts' })], {
+          done: false,
+          total: 1,
+        });
+        abortController.abort(abortReason);
+        options?.signal?.throwIfAborted();
+      });
+      const batches: Array<{ done: boolean; names: string[] }> = [];
+
+      await expect(
+        loadRootDirectoryStreaming(
+          adapter,
+          handle,
+          (nodes, meta) => {
+            batches.push({ done: meta.done, names: nodes.map((node) => node.name) });
+          },
+          { abortSignal: abortController.signal }
+        )
+      ).rejects.toBe(abortReason);
+
+      expect(batches).toEqual([{ done: false, names: ['partial.ts'] }]);
     });
   });
 
@@ -548,7 +673,7 @@ describe('lazy-tree-loader', () => {
         // Emit 3 batches with deterministic data (names chosen to test sorting)
         onBatch(
           [
-            createDirectoryNode({ name: 'zulu', path: '/root/zulu', children: [] }),
+            createDirectoryNode({ children: [], name: 'zulu', path: '/root/zulu' }),
             createFileNode({ name: 'beta.ts', path: '/root/beta.ts' }),
           ],
           { done: false, total: 6 }
@@ -556,14 +681,14 @@ describe('lazy-tree-loader', () => {
         onBatch(
           [
             createFileNode({ name: 'alpha.ts', path: '/root/alpha.ts' }),
-            createDirectoryNode({ name: 'src', path: '/root/src', children: [] }),
+            createDirectoryNode({ children: [], name: 'src', path: '/root/src' }),
           ],
           { done: false, total: 6 }
         );
         onBatch(
           [
             createFileNode({ name: 'gamma.ts', path: '/root/gamma.ts' }),
-            createDirectoryNode({ name: 'docs', path: '/root/docs', children: [] }),
+            createDirectoryNode({ children: [], name: 'docs', path: '/root/docs' }),
           ],
           { done: true, total: 6 }
         );
@@ -573,7 +698,7 @@ describe('lazy-tree-loader', () => {
       const batches: { nodes: IFileNode[]; done: boolean; total: number }[] = [];
 
       await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
-        batches.push({ nodes: [...nodes], done: meta.done, total: meta.total });
+        batches.push({ done: meta.done, nodes: [...nodes], total: meta.total });
       });
 
       // Verify batch count
@@ -603,13 +728,13 @@ describe('lazy-tree-loader', () => {
         onBatch(
           [
             createFileNode({ name: 'valid.ts', path: '/root/valid.ts' }),
-            createDirectoryNode({ name: 'node_modules', path: '/root/node_modules', children: [] }),
+            createDirectoryNode({ children: [], name: 'node_modules', path: '/root/node_modules' }),
           ],
           { done: false, total: 4 }
         );
         onBatch(
           [
-            createDirectoryNode({ name: '.git', path: '/root/.git', children: [] }),
+            createDirectoryNode({ children: [], name: '.git', path: '/root/.git' }),
             createFileNode({ name: 'also-valid.ts', path: '/root/also-valid.ts' }),
           ],
           { done: true, total: 4 }
@@ -620,7 +745,7 @@ describe('lazy-tree-loader', () => {
       const batches: { nodes: IFileNode[]; done: boolean }[] = [];
 
       await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
-        batches.push({ nodes: [...nodes], done: meta.done });
+        batches.push({ done: meta.done, nodes: [...nodes] });
       });
 
       // Intermediate batch should only contain valid.ts (node_modules filtered)
@@ -652,7 +777,7 @@ describe('lazy-tree-loader', () => {
       const batches: { nodes: IFileNode[]; done: boolean }[] = [];
 
       await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
-        batches.push({ nodes: [...nodes], done: meta.done });
+        batches.push({ done: meta.done, nodes: [...nodes] });
       });
 
       expect(batches).toHaveLength(2);

@@ -30,20 +30,20 @@ describe('pipeline eviction policy', () => {
 
     // Load first GPU pipeline
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'e1',
       model: 'model-a',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     // Load second GPU pipeline — should evict the first
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'e2',
       model: 'model-b',
       texts: ['world'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     expect(dispose1).toHaveBeenCalled();
@@ -63,11 +63,11 @@ describe('pipeline eviction policy', () => {
 
     for (let i = 0; i < 4; i++) {
       await runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: `w${i}`,
         model: `wasm-model-${i}`,
         texts: ['hello'],
-        deviceHint: 'wasm',
+        type: 'embed',
       });
     }
 
@@ -99,21 +99,21 @@ describe('pipeline eviction policy', () => {
     // Load 3 WASM pipelines (at max)
     for (let i = 0; i < 3; i++) {
       await runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: `w${i}`,
         model: `wasm-model-${i}`,
         texts: ['hello'],
-        deviceHint: 'wasm',
+        type: 'embed',
       });
     }
 
     // Load 1 GPU pipeline — should NOT evict any WASM pipelines
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'g0',
       model: 'gpu-model',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     for (const { disposeMock } of wasmExtractors) {
@@ -130,11 +130,11 @@ describe('pipeline eviction policy', () => {
     const runEmbedding = await loadWorker();
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'idle-test',
       model: 'idle-model',
       texts: ['hello'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // Advance past the idle timeout (5 min) + one sweep interval (30s)
@@ -152,11 +152,11 @@ describe('pipeline eviction policy', () => {
     const runEmbedding = await loadWorker();
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'active-1',
       model: 'active-model',
       texts: ['hello'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // Advance 4 minutes (close to timeout but not past it)
@@ -164,11 +164,11 @@ describe('pipeline eviction policy', () => {
 
     // Use the pipeline again (cache hit updates lastUsedAt)
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'active-2',
       model: 'active-model',
       texts: ['still here'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // Advance another 4 minutes — should NOT evict because lastUsedAt was reset
@@ -200,20 +200,20 @@ describe('pipeline eviction policy', () => {
 
     // Load a quick pipeline first to populate cache
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'quick',
       model: 'quick-model',
       texts: ['hello'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // Start a slow inference on a different model
     const slowPromise = runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'slow',
       model: 'slow-model',
       texts: ['thinking...'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     await Promise.resolve();
 
@@ -242,9 +242,9 @@ describe('pipeline eviction policy', () => {
       onnx: {
         webgpu: {
           device: {
+            createCommandEncoder: () => ({ finish: () => ({}) }),
             lost: new Promise(() => {}),
             queue: { submit: submitMock },
-            createCommandEncoder: () => ({ finish: () => ({}) }),
           },
         },
       },
@@ -259,11 +259,11 @@ describe('pipeline eviction policy', () => {
 
     // Load first GPU pipeline — starts keep-alive
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'ka1',
       model: 'gpu-model-1',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -276,11 +276,11 @@ describe('pipeline eviction policy', () => {
     // Load second GPU pipeline — evicts first, keep-alive may stop briefly
     // then the new GPU pipeline exists so keep-alive should still be managed
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'ka2',
       model: 'gpu-model-2',
       texts: ['world'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     expect(dispose1).toHaveBeenCalled();
@@ -295,11 +295,11 @@ describe('pipeline eviction policy', () => {
     const runEmbedding = await loadWorker();
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'emp-1',
       model: 'emp-model',
       texts: ['hello'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // Advance past idle timeout — should evict and stop the sweep timer
@@ -310,11 +310,11 @@ describe('pipeline eviction policy', () => {
     const { extractor: extractor2 } = makeExtractor('empty2');
     pipelineMock.mockResolvedValue(extractor2);
     const result = await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'emp-2',
       model: 'emp-model-2',
       texts: ['world'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     expect(result.vectors).toHaveLength(1);
   });
@@ -336,32 +336,32 @@ describe('pipeline eviction policy', () => {
     for (let i = 0; i < 3; i++) {
       vi.advanceTimersByTime(1000); // space them 1s apart
       await runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: `lru-${i}`,
         model: `lru-model-${i}`,
         texts: ['hello'],
-        deviceHint: 'wasm',
+        type: 'embed',
       });
     }
 
     // Touch the FIRST pipeline (makes it most recently used)
     vi.advanceTimersByTime(1000);
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'lru-touch',
       model: 'lru-model-0',
       texts: ['touch'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // Load 4th — should evict model-1 (oldest by lastUsedAt), NOT model-0
     vi.advanceTimersByTime(1000);
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'lru-4',
       model: 'lru-model-3',
       texts: ['new'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // model-1 was the LRU (inserted second, never touched again)
@@ -386,21 +386,21 @@ describe('pipeline eviction policy', () => {
 
     for (let i = 0; i < 3; i++) {
       await runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: `evict-${i}`,
         model: `evict-model-${i}`,
         texts: ['hello'],
-        deviceHint: 'wasm',
+        type: 'embed',
       });
       vi.advanceTimersByTime(1000);
     }
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'evict-3',
       model: 'evict-model-3',
       texts: ['new'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     await Promise.resolve();
 
@@ -414,16 +414,16 @@ describe('pipeline eviction policy', () => {
       );
 
     expect(eviction).toMatchObject({
-      type: 'diagnostic',
-      diagnostic: 'pipeline-cache',
-      event: 'evicted',
-      reason: 'resident-limit',
       cacheSize: 2,
+      diagnostic: 'pipeline-cache',
       entry: expect.objectContaining({
         cacheKey: 'evict-model-0|wasm|fp16',
         model: 'evict-model-0',
         residencyMs: 3000,
       }),
+      event: 'evicted',
+      reason: 'resident-limit',
+      type: 'diagnostic',
     });
   });
 });

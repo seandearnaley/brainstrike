@@ -26,7 +26,7 @@ interface DrizzleLiveQueryOptions {
  * avoiding the need for complex Drizzle generic types.
  */
 interface DrizzleQueryLike {
-  toSQL(): { sql: string; params: unknown[] };
+  toSQL: () => { sql: string; params: unknown[] };
 }
 
 /**
@@ -34,7 +34,7 @@ interface DrizzleQueryLike {
  */
 function extractQueryDetails(query: DrizzleQueryLike): { sql: string; params: readonly unknown[] } {
   const { sql, params } = query.toSQL();
-  return { sql, params };
+  return { params, sql };
 }
 
 /**
@@ -82,8 +82,8 @@ export function useDrizzleLiveQuery<T extends Record<string, unknown>>(
       offset?: number;
       limit?: number;
     } = {
-      query: queryDetails?.sql ?? 'SELECT 1 WHERE false', // Fallback that returns no rows
       enabled: enabled && Boolean(queryDetails),
+      query: queryDetails?.sql ?? 'SELECT 1 WHERE false', // Fallback that returns no rows
     };
 
     if (queryDetails?.params) {
@@ -140,8 +140,8 @@ export function useDrizzleLiveQueryWithRefresh<T extends Record<string, unknown>
     () =>
       ({
         ...result,
-        refreshCount,
         forceRefresh,
+        refreshCount,
       }) as LiveQueryHookResult<T> & { refreshCount: number; forceRefresh: () => void },
     [result, refreshCount, forceRefresh]
   );

@@ -22,15 +22,15 @@ vi.mock('../openai-api-key', () => ({
 }));
 
 vi.mock('../provider-api-key', () => ({
-  resolveProviderEnvKey: vi.fn(),
   readProviderSecretKey: vi.fn(),
+  resolveProviderEnvKey: vi.fn(),
 }));
 
 const mockSecretsService = {
-  saveKey: vi.fn(),
-  getKey: vi.fn(() => Promise.resolve('test-api-key')),
   deleteKey: vi.fn(),
+  getKey: vi.fn(() => Promise.resolve('test-api-key')),
   listProviders: vi.fn(() => Promise.resolve(['openai'])),
+  saveKey: vi.fn(),
 };
 
 vi.mock('../secrets', () => ({
@@ -86,7 +86,7 @@ describe('registerAgentIpcHandlers', () => {
       const mockStreamChunks = [
         { type: 'text-delta', value: 'Hello' },
         { type: 'text-delta', value: ' world!' },
-        { type: 'finish', usage: { promptTokens: 10, completionTokens: 5 } },
+        { type: 'finish', usage: { completionTokens: 5, promptTokens: 10 } },
       ];
 
       // Mock agent module
@@ -120,16 +120,16 @@ describe('registerAgentIpcHandlers', () => {
       const messages = [
         {
           id: '1',
+          parts: [{ text: 'Hello', type: 'text' as const }],
           role: 'user' as const,
-          parts: [{ type: 'text' as const, text: 'Hello' }],
         },
       ];
 
       const runtime = {
+        mcpEnabled: true,
+        model: 'gpt-5.2',
         projectId: 'test-project',
         provider: 'openai',
-        model: 'gpt-5.2',
-        mcpEnabled: true,
       };
 
       const result = await chatHandler({} as IpcMainInvokeEvent, messages, runtime);
@@ -170,8 +170,8 @@ describe('registerAgentIpcHandlers', () => {
       const messages = [
         {
           id: '1',
+          parts: [{ text: 'Test', type: 'text' as const }],
           role: 'user' as const,
-          parts: [{ type: 'text' as const, text: 'Test' }],
         },
       ];
 
@@ -184,9 +184,9 @@ describe('registerAgentIpcHandlers', () => {
 
     it('should handle tool events in the stream', async () => {
       const mockStreamChunks = [
-        { type: 'tool-event', name: 'search', status: 'start', payload: {} },
-        { type: 'tool-event', name: 'search', status: 'progress', payload: { progress: 50 } },
-        { type: 'tool-event', name: 'search', status: 'success', payload: { results: [] } },
+        { name: 'search', payload: {}, status: 'start', type: 'tool-event' },
+        { name: 'search', payload: { progress: 50 }, status: 'progress', type: 'tool-event' },
+        { name: 'search', payload: { results: [] }, status: 'success', type: 'tool-event' },
       ];
 
       const mockAsyncIterator = {
@@ -218,8 +218,8 @@ describe('registerAgentIpcHandlers', () => {
       const messages = [
         {
           id: '1',
+          parts: [{ text: 'Using tool', type: 'text' as const }],
           role: 'assistant' as const,
-          parts: [{ type: 'text' as const, text: 'Using tool' }],
         },
       ];
 
@@ -234,10 +234,10 @@ describe('registerAgentIpcHandlers', () => {
       const mockStreamChunks = [
         { type: 'text-delta', value: 'Response' },
         {
-          type: 'message-finish',
           finishReason: 'stop' as const,
-          usage: { promptTokens: 20, completionTokens: 10 },
           path: [0, 1, 2],
+          type: 'message-finish',
+          usage: { completionTokens: 10, promptTokens: 20 },
         },
       ];
 
@@ -270,8 +270,8 @@ describe('registerAgentIpcHandlers', () => {
       const messages = [
         {
           id: '1',
+          parts: [{ text: 'Query', type: 'text' as const }],
           role: 'user' as const,
-          parts: [{ type: 'text' as const, text: 'Query' }],
         },
       ];
 
@@ -293,10 +293,10 @@ describe('registerAgentIpcHandlers', () => {
           type: 'tool-approval-required',
         },
         {
-          type: 'message-finish',
           finishReason: 'tool-calls',
-          usage: { promptTokens: 0, completionTokens: 0 },
           path: [],
+          type: 'message-finish',
+          usage: { completionTokens: 0, promptTokens: 0 },
         },
       ];
 
@@ -329,8 +329,8 @@ describe('registerAgentIpcHandlers', () => {
       const messages: AgentMessage[] = [
         {
           id: '1',
+          parts: [{ text: 'Update selected context', type: 'text' }],
           role: 'user',
-          parts: [{ type: 'text', text: 'Update selected context' }],
         },
       ];
 
@@ -368,28 +368,28 @@ describe('registerAgentIpcHandlers', () => {
       const messages = [
         {
           id: '1',
+          parts: [{ text: 'System prompt', type: 'text' as const }],
           role: 'system' as const,
-          parts: [{ type: 'text' as const, text: 'System prompt' }],
         },
       ];
 
       const runtime = {
+        mcpEnabled: false,
+        model: 'claude-sonnet-4-6',
         projectId: 'proj-123',
         provider: 'anthropic',
-        model: 'claude-sonnet-4-6',
-        mcpEnabled: false,
       };
 
       await chatHandler({} as IpcMainInvokeEvent, messages, runtime);
 
       expect(mockStreamMastraAgent).toHaveBeenCalledWith(messages, {
         runtime: {
+          apiKey: 'secret-key',
+          mcpConfig,
+          mcpEnabled: false,
+          model: 'claude-sonnet-4-6',
           projectId: 'proj-123',
           provider: 'anthropic',
-          model: 'claude-sonnet-4-6',
-          mcpEnabled: false,
-          mcpConfig,
-          apiKey: 'secret-key',
         },
       });
     });
@@ -411,7 +411,7 @@ describe('registerAgentIpcHandlers', () => {
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
       const rawConfig = {
-        servers: [{ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['/tmp'] }],
+        servers: [{ args: ['/tmp'], command: 'npx', name: 'filesystem', transport: 'stdio' }],
       };
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: rawConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
@@ -419,8 +419,8 @@ describe('registerAgentIpcHandlers', () => {
       const messages = [
         {
           id: '1',
+          parts: [{ text: 'Hello', type: 'text' as const }],
           role: 'user' as const,
-          parts: [{ type: 'text' as const, text: 'Hello' }],
         },
       ];
 
@@ -451,7 +451,7 @@ describe('registerAgentIpcHandlers', () => {
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
       const rawConfig = {
-        servers: [{ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['/tmp'] }],
+        servers: [{ args: ['/tmp'], command: 'npx', name: 'filesystem', transport: 'stdio' }],
       };
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: rawConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
@@ -459,14 +459,14 @@ describe('registerAgentIpcHandlers', () => {
       const messages = [
         {
           id: '1',
+          parts: [{ text: 'Hello', type: 'text' as const }],
           role: 'user' as const,
-          parts: [{ type: 'text' as const, text: 'Hello' }],
         },
       ];
 
       await chatHandler({} as IpcMainInvokeEvent, messages, {
-        provider: 'openai',
         mcpConfig: rawConfig as never,
+        provider: 'openai',
       });
 
       expect(mockStreamMastraAgent).toHaveBeenCalledTimes(1);
@@ -485,8 +485,8 @@ describe('registerAgentIpcHandlers', () => {
       const messages = [
         {
           id: '1',
+          parts: [{ text: 'Hello', type: 'text' as const }],
           role: 'user' as const,
-          parts: [{ type: 'text' as const, text: 'Hello' }],
         },
       ];
 
@@ -510,8 +510,8 @@ describe('registerAgentIpcHandlers', () => {
       const messages = [
         {
           id: '1',
+          parts: [{ text: 'Hello', type: 'text' as const }],
           role: 'user' as const,
-          parts: [{ type: 'text' as const, text: 'Hello' }],
         },
       ];
 

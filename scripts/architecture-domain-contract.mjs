@@ -54,9 +54,9 @@ export const listWorkspacePackages = async ({ root }) => {
       throw new Error(`${packageJson} is missing a package name`);
     }
     packages.push({
+      directory: path.dirname(packageJson),
       name: packageManifest.name,
       packageJson,
-      directory: path.dirname(packageJson),
     });
   }
 
@@ -82,15 +82,17 @@ export const validateArchitectureDomainContract = async ({
 } = {}) => {
   const errors = [];
   const workspacePackages = await listWorkspacePackages({ root });
-  const workspacePackageNames = new Set(workspacePackages.map((workspacePackage) => workspacePackage.name));
+  const workspacePackageNames = new Set(
+    workspacePackages.map((workspacePackage) => workspacePackage.name)
+  );
 
   if (!contract || typeof contract !== 'object') {
     return {
       errors: ['architecture/domain-map.json must contain a JSON object'],
       summary: {
-        workspaceCount: workspacePackages.length,
         domainCount: 0,
         stackPhaseCount: 0,
+        workspaceCount: workspacePackages.length,
       },
     };
   }
@@ -99,8 +101,8 @@ export const validateArchitectureDomainContract = async ({
     errors.push('architecture/domain-map.json version must be 1');
   }
 
-  const domains = assertArray({ value: contract.domains, label: 'domains', errors });
-  const stack = assertArray({ value: contract.stack, label: 'stack', errors });
+  const domains = assertArray({ errors, label: 'domains', value: contract.domains });
+  const stack = assertArray({ errors, label: 'stack', value: contract.stack });
   const domainIds = new Set();
   const classifiedPackages = new Map();
 
@@ -121,9 +123,9 @@ export const validateArchitectureDomainContract = async ({
     domainIds.add(domain.id);
 
     const packages = assertArray({
-      value: domain.packages,
-      label: `Domain ${domain.id} packages`,
       errors,
+      label: `Domain ${domain.id} packages`,
+      value: domain.packages,
     });
 
     for (const packageName of packages) {
@@ -143,9 +145,9 @@ export const validateArchitectureDomainContract = async ({
       continue;
     }
     const mayDependOn = assertArray({
-      value: domain.mayDependOn,
-      label: `Domain ${domain.id} mayDependOn`,
       errors,
+      label: `Domain ${domain.id} mayDependOn`,
+      value: domain.mayDependOn,
     });
     for (const dependencyDomainId of mayDependOn) {
       if (!domainIds.has(dependencyDomainId)) {
@@ -191,10 +193,7 @@ export const validateArchitectureDomainContract = async ({
       );
     }
 
-    if (
-      typeof phase.planningArtifact !== 'string' ||
-      !phase.planningArtifact.endsWith('.html')
-    ) {
+    if (typeof phase.planningArtifact !== 'string' || !phase.planningArtifact.endsWith('.html')) {
       errors.push(`Stack phase ${phase.id} must reference an HTML planningArtifact`);
     } else if (!(await pathExists(path.join(root, phase.planningArtifact)))) {
       errors.push(
@@ -206,9 +205,7 @@ export const validateArchitectureDomainContract = async ({
   }
 
   const boundaryExceptions = contract.boundaryExceptions ?? [];
-  if (!Array.isArray(boundaryExceptions)) {
-    errors.push('boundaryExceptions must be an array when present');
-  } else {
+  if (Array.isArray(boundaryExceptions)) {
     const exceptionIds = new Set();
     for (const exception of boundaryExceptions) {
       if (!exception || typeof exception !== 'object') {
@@ -243,15 +240,17 @@ export const validateArchitectureDomainContract = async ({
         );
       }
     }
+  } else {
+    errors.push('boundaryExceptions must be an array when present');
   }
 
   return {
     errors: errors.sort(),
     summary: {
-      workspaceCount: workspacePackages.length,
+      classifiedPackageCount: classifiedPackages.size,
       domainCount: domains.length,
       stackPhaseCount: stack.length,
-      classifiedPackageCount: classifiedPackages.size,
+      workspaceCount: workspacePackages.length,
     },
   };
 };
@@ -259,7 +258,7 @@ export const validateArchitectureDomainContract = async ({
 const runCli = async () => {
   const root = process.cwd();
   const contract = await loadArchitectureDomainContract({ root });
-  const result = await validateArchitectureDomainContract({ root, contract });
+  const result = await validateArchitectureDomainContract({ contract, root });
 
   if (result.errors.length > 0) {
     console.error('Architecture domain contract failed:');

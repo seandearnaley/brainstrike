@@ -124,7 +124,7 @@ describe('useResizeObserver', () => {
     renderHook(() => useResizeObserver(ref, onResize));
 
     // Simulate ResizeObserver firing
-    const mockEntry = createMockEntry(element, { width: 100, height: 200 });
+    const mockEntry = createMockEntry(element, { height: 200, width: 100 });
 
     mockResizeObserverCallback?.([mockEntry], {} as ResizeObserver);
 
@@ -145,8 +145,8 @@ describe('useResizeObserver', () => {
 
     renderHook(() => useResizeObserver(ref, onResize));
 
-    const mockEntry1 = createMockEntry(element, { width: 100, height: 200 });
-    const mockEntry2 = createMockEntry(element, { width: 150, height: 250 });
+    const mockEntry1 = createMockEntry(element, { height: 200, width: 100 });
+    const mockEntry2 = createMockEntry(element, { height: 250, width: 150 });
 
     // Simulate multiple ResizeObserver events
     mockResizeObserverCallback?.([mockEntry1], {} as ResizeObserver);
@@ -170,7 +170,7 @@ describe('useResizeObserver', () => {
     const { unmount } = renderHook(() => useResizeObserver(ref, onResize));
 
     // Simulate ResizeObserver firing to schedule RAF
-    const mockEntry = createMockEntry(element, { width: 100, height: 200 });
+    const mockEntry = createMockEntry(element, { height: 200, width: 100 });
 
     mockResizeObserverCallback?.([mockEntry], {} as ResizeObserver);
 
@@ -200,7 +200,7 @@ describe('useResizeObserver', () => {
     expect(mockObserve).toHaveBeenCalledTimes(1);
 
     // Simulate resize
-    const mockEntry = createMockEntry(element, { width: 100, height: 200 });
+    const mockEntry = createMockEntry(element, { height: 200, width: 100 });
 
     mockResizeObserverCallback?.([mockEntry], {} as ResizeObserver);
     rafCallback?.(performance.now());
@@ -217,8 +217,8 @@ describe('useResizeObserver', () => {
 
     renderHook(() => useResizeObserver(ref, onResize));
 
-    const mockEntry1 = createMockEntry(element, { width: 100, height: 200 });
-    const mockEntry2 = createMockEntry(element, { width: 150, height: 250 });
+    const mockEntry1 = createMockEntry(element, { height: 200, width: 100 });
+    const mockEntry2 = createMockEntry(element, { height: 250, width: 150 });
 
     // Pass multiple entries in a single callback (rare but possible)
     mockResizeObserverCallback?.([mockEntry1, mockEntry2], {} as ResizeObserver);
@@ -321,7 +321,7 @@ describe('useResizeObserver', () => {
       renderHook(() => useResizeObserver(ref, onResize, { disabled: true }));
 
       // Try to simulate a resize (shouldn't work since we never observed)
-      const mockEntry = createMockEntry(element, { width: 100, height: 200 });
+      const mockEntry = createMockEntry(element, { height: 200, width: 100 });
 
       // Since we never observed, mockResizeObserverCallback should be null
       // or if a new observer was created (it wasn't), calling it shouldn't trigger our callback

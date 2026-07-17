@@ -16,9 +16,9 @@ describe('boundToolOutputForModel structural degradation', () => {
 
   it('trims an oversized collection result to fit instead of erroring', () => {
     const matches = Array.from({ length: 500 }, (_, i) => ({
-      path: `packages/db/src/some/deep/path/file-${i}.ts`,
       line: i + 1,
       lineText: 'const db = new PGlite(dataDir, { extensions });',
+      path: `packages/db/src/some/deep/path/file-${i}.ts`,
     }));
     const bounded = boundToolOutputForModel('brainstrike.grepSearch', {
       matches,
@@ -48,11 +48,11 @@ describe('boundToolOutputForModel structural degradation', () => {
     expect(bounded.errorText).toContain('returned too much output');
     expect(bounded.errorText).toContain('tokens');
     expect(bounded.output).toMatchObject({
-      code: TOOL_RESULT_TOO_LARGE_CODE,
-      truncated: true,
-      maxTokens: 3000,
       // 20_002 serialized chars (string quotes) at 4 chars/token.
       approxTokens: Math.ceil(20_002 / 4),
+      code: TOOL_RESULT_TOO_LARGE_CODE,
+      maxTokens: 3000,
+      truncated: true,
     });
   });
 
@@ -63,11 +63,37 @@ describe('boundToolOutputForModel structural degradation', () => {
     expect(bounded.errorText).toContain('returned too much output');
   });
 
+  it('trims an oversized delegation subAgentToolResults list instead of erroring', () => {
+    const subAgentToolResults = Array.from({ length: 300 }, (_, i) => ({
+      args: { pattern: `pattern-${i}` },
+      result: { matches: [`packages/db/src/some/deep/path/file-${i}.ts:${i}`] },
+      toolCallId: `child-call-${i}`,
+      toolName: 'brainstrike_grepSearch',
+    }));
+    const bounded = boundToolOutputForModel('agent-explore', {
+      subAgentToolResults,
+      text: 'Explored the workspace and found the flag.',
+    });
+
+    expect(bounded.errorText).toBeUndefined();
+    const output = bounded.output as {
+      hint?: string;
+      omittedItems?: number;
+      subAgentToolResults: unknown[];
+      truncated?: boolean;
+    };
+    expect(output.truncated).toBe(true);
+    expect(output.subAgentToolResults.length).toBeGreaterThan(0);
+    expect(output.subAgentToolResults.length).toBeLessThan(300);
+    expect(output.omittedItems).toBe(300 - output.subAgentToolResults.length);
+    expect(output.hint).toContain('subAgentToolResults');
+  });
+
   it('is idempotent for structurally trimmed results', () => {
     const matches = Array.from({ length: 500 }, (_, i) => ({
-      path: `packages/db/src/file-${i}.ts`,
       line: i,
       lineText: 'const db = new PGlite(dataDir, { extensions });',
+      path: `packages/db/src/file-${i}.ts`,
     }));
     const first = boundToolOutputForModel('tool', { matches, totalMatches: 500 });
     const second = boundToolOutputForModel('tool', first.output);

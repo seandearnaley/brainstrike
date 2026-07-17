@@ -59,11 +59,11 @@ type FormAction =
   | { type: 'LOAD'; preset: ViewFilterPreset };
 
 const EMPTY_FORM: FormState = {
-  name: '',
-  includes: '',
   excludes: '',
-  useRegex: false,
   icon: 'file',
+  includes: '',
+  name: '',
+  useRegex: false,
 };
 
 function formReducer(state: FormState, action: FormAction): FormState {
@@ -82,11 +82,11 @@ function formReducer(state: FormState, action: FormAction): FormState {
       return EMPTY_FORM;
     case 'LOAD':
       return {
-        name: action.preset.name,
-        includes: action.preset.includes.join(', '),
         excludes: action.preset.excludes.join(', '),
-        useRegex: action.preset.useRegex,
         icon: action.preset.icon,
+        includes: action.preset.includes.join(', '),
+        name: action.preset.name,
+        useRegex: action.preset.useRegex,
       };
     default:
       return state;
@@ -95,22 +95,22 @@ function formReducer(state: FormState, action: FormAction): FormState {
 
 // Map icon names to Lucide components
 const ICON_MAP: Record<ViewFilterPresetIcon, React.ElementType> = {
+  box: Box,
+  code: Code,
+  cpu: Cpu,
+  database: Database,
   file: File,
   'file-code': FileCode,
   'file-text': FileText,
+  'flask-conical': FlaskConical,
   folder: FolderOpen,
   'folder-open': FolderOpen,
-  code: Code,
-  settings: Settings,
-  database: Database,
-  box: Box,
-  user: User,
-  layout: LayoutGrid,
   globe: Globe,
-  cpu: Cpu,
+  layout: LayoutGrid,
   palette: Palette,
-  'flask-conical': FlaskConical,
+  settings: Settings,
   'test-tube': FlaskConical,
+  user: User,
 };
 
 /** Look up the Lucide icon component for a given preset icon name. Falls back to Filter. */
@@ -467,7 +467,7 @@ export function ViewFilterPresetDropdown({
   // Start editing a preset - initialize edit form with preset values
   const startEditing = useCallback((preset: ViewFilterPreset) => {
     setEditingId(preset.id);
-    dispatchEdit({ type: 'LOAD', preset });
+    dispatchEdit({ preset, type: 'LOAD' });
   }, []);
 
   const handleCreate = useCallback(async () => {
@@ -476,16 +476,16 @@ export function ViewFilterPresetDropdown({
     }
 
     const input: CreateViewFilterPresetInput = {
-      name: newForm.name.trim(),
+      excludes: newForm.excludes
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
       icon: newForm.icon,
       includes: newForm.includes
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      excludes: newForm.excludes
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
+      name: newForm.name.trim(),
       useRegex: newForm.useRegex,
     };
 
@@ -506,16 +506,16 @@ export function ViewFilterPresetDropdown({
     }
 
     const input: UpdateViewFilterPresetInput = {
-      name: editForm.name.trim(),
+      excludes: editForm.excludes
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
       icon: editForm.icon,
       includes: editForm.includes
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      excludes: editForm.excludes
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
+      name: editForm.name.trim(),
       useRegex: editForm.useRegex,
     };
 

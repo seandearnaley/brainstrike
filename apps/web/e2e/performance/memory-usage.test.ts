@@ -13,9 +13,9 @@ test.describe('Performance: Memory Usage', () => {
     await page.evaluate(() => {
       const memory = (performance as any).memory;
       return {
-        used: memory?.usedJSHeapSize || 0,
-        total: memory?.totalJSHeapSize || 0,
         limit: memory?.jsHeapSizeLimit || 0,
+        total: memory?.totalJSHeapSize || 0,
+        used: memory?.usedJSHeapSize || 0,
       };
     });
 
@@ -27,14 +27,14 @@ test.describe('Performance: Memory Usage', () => {
   test('memory usage with large file contents', async ({ page }) => {
     // Create tree with various file sizes
     const tree: FileTree = {
-      'small.txt': createFileWithSize(1), // 1KB
-      'medium.txt': createFileWithSize(50), // 50KB
-      'large.txt': createFileWithSize(500), // 500KB
-      'huge.txt': createFileWithSize(1000), // 1MB
       folder: {
         'nested1.txt': createFileWithSize(100),
         'nested2.txt': createFileWithSize(200),
       },
+      'huge.txt': createFileWithSize(1000), // 1MB
+      'large.txt': createFileWithSize(500), // 500KB
+      'medium.txt': createFileWithSize(50), // 50KB
+      'small.txt': createFileWithSize(1), // 1KB
     };
 
     await mockBrowserApis(page, 'memory-test', tree);
@@ -53,7 +53,7 @@ test.describe('Performance: Memory Usage', () => {
     await page.waitForTimeout(1000);
 
     // Expand folder
-    const expandButton = page.locator('[data-testid="expand-collapse-button"]').first();
+    const expandButton = page.getByRole('button', { exact: true, name: 'Expand' }).first();
     await expandButton.click();
 
     // Select and load each file sequentially
@@ -134,7 +134,7 @@ test.describe('Performance: Memory Usage', () => {
 
     // Navigate deep into tree structure
     for (let i = 0; i < 5; i++) {
-      const expandButton = page.locator('[data-testid="expand-collapse-button"]').first();
+      const expandButton = page.getByRole('button', { exact: true, name: 'Expand' }).first();
       await expandButton.click();
       await page.waitForTimeout(200);
 

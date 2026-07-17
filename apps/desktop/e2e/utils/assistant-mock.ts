@@ -1,9 +1,9 @@
 import type { Page } from '@playwright/test';
 
 const DEFAULT_MODELS: Record<string, string> = {
-  openai: 'gpt-5.4',
   anthropic: 'claude-sonnet-4-6',
   google: 'gemini-3.5-flash',
+  openai: 'gpt-5.4',
   openrouter: 'openai/gpt-5.4',
 } as const;
 
@@ -43,8 +43,8 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
       'assistant-preferences.v1',
       JSON.stringify({
         state: {
-          selectedProvider: 'openai',
           modelsByProvider: payload.models,
+          selectedProvider: 'openai',
         },
         version: 1,
       })
@@ -103,6 +103,9 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
     };
 
     const stream = new ReadableStream<Uint8Array>({
+      cancel() {
+        aborted = true;
+      },
       async pull(controller) {
         if (aborted) {
           return handleAbort(controller);
@@ -112,9 +115,6 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
           return;
         }
         await processNextChunk(controller);
-      },
-      cancel() {
-        aborted = true;
       },
     });
 
@@ -130,12 +130,12 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
     }
 
     return new Response(stream, {
-      status: 200,
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-store',
+        'Content-Type': 'text/plain; charset=utf-8',
         'x-vercel-ai-data-stream': 'v1',
       },
+      status: 200,
     });
   }
 
@@ -145,8 +145,8 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
 
     if (url.includes('/assistant/status') || url.endsWith('/status')) {
       return new Response(JSON.stringify({ enabled: true }), {
-        status: 200,
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        status: 200,
       });
     }
 
@@ -162,12 +162,12 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
 }
 
 const defaultOptions: Required<AssistantMockOptions> = {
-  provider: 'openai',
   apiKey: 'test-api-key-for-e2e-tests',
-  message: 'Hello from desktop assistant!',
   errorMessage: 'Assistant request failed.',
-  variant: 'simple',
+  message: 'Hello from desktop assistant!',
   models: DEFAULT_MODELS,
+  provider: 'openai',
+  variant: 'simple',
 };
 
 function buildAssistantStreamChunks(options: Required<AssistantMockOptions>): Array<{
@@ -197,13 +197,13 @@ function buildAssistantStreamChunks(options: Required<AssistantMockOptions>): Ar
 
     enqueueChunk('e', {
       finishReason,
-      usage: dataStreamUsage,
       isContinued: false,
+      usage: dataStreamUsage,
     });
     enqueueChunk('d', {
       finishReason,
-      usage: dataStreamUsage,
       path: [],
+      usage: dataStreamUsage,
     });
   };
 
@@ -213,55 +213,55 @@ function buildAssistantStreamChunks(options: Required<AssistantMockOptions>): Ar
     case 'stream-error':
       writeAssistantText(options.errorMessage);
       enqueueChunk('3', options.errorMessage);
-      writeFinish('error', { promptTokens: 0, completionTokens: 0 });
+      writeFinish('error', { completionTokens: 0, promptTokens: 0 });
       return chunks;
     case 'detailed':
       writeAssistantText(options.message);
-      writeFinish('stop', { promptTokens: 5, completionTokens: 8 });
+      writeFinish('stop', { completionTokens: 8, promptTokens: 5 });
       return chunks;
     case 'tool': {
       const toolCallId = createToolCallId();
-      const args = { query: 'mock retrieval query', limit: 3 };
+      const args = { limit: 3, query: 'mock retrieval query' };
       enqueueChunk('b', { toolCallId, toolName: 'brainstrike.retrieveContext' });
-      enqueueChunk('c', { toolCallId, argsTextDelta: JSON.stringify(args) });
+      enqueueChunk('c', { argsTextDelta: JSON.stringify(args), toolCallId });
       enqueueChunk('9', {
+        args,
         toolCallId,
         toolName: 'brainstrike.retrieveContext',
-        args,
       });
       enqueueChunk('a', {
-        toolCallId,
         result: {
+          chunks: [{ chunkIndex: 0, filePath: 'src/app.ts', id: 'chunk-1', tokenCount: 5 }],
           context: 'File: src/app.ts\nconst answer = 42;',
-          chunks: [{ id: 'chunk-1', filePath: 'src/app.ts', chunkIndex: 0, tokenCount: 5 }],
         },
+        toolCallId,
       });
       writeAssistantText(options.message);
-      writeFinish('stop', { promptTokens: 5, completionTokens: 8 });
+      writeFinish('stop', { completionTokens: 8, promptTokens: 5 });
       return chunks;
     }
     case 'tool-error': {
       const toolCallId = createToolCallId();
-      const args = { query: 'mock retrieval query', limit: 3 };
+      const args = { limit: 3, query: 'mock retrieval query' };
       enqueueChunk('b', { toolCallId, toolName: 'brainstrike.retrieveContext' });
-      enqueueChunk('c', { toolCallId, argsTextDelta: JSON.stringify(args) });
+      enqueueChunk('c', { argsTextDelta: JSON.stringify(args), toolCallId });
       enqueueChunk('9', {
+        args,
         toolCallId,
         toolName: 'brainstrike.retrieveContext',
-        args,
       });
       enqueueChunk('a', {
-        toolCallId,
-        result: { error: options.errorMessage },
         isError: true,
+        result: { error: options.errorMessage },
+        toolCallId,
       });
       writeAssistantText(options.errorMessage);
-      writeFinish('stop', { promptTokens: 5, completionTokens: 8 });
+      writeFinish('stop', { completionTokens: 8, promptTokens: 5 });
       return chunks;
     }
     default:
       writeAssistantText(options.message);
-      writeFinish('stop', { promptTokens: 10, completionTokens: 5 });
+      writeFinish('stop', { completionTokens: 5, promptTokens: 10 });
       return chunks;
   }
 }
@@ -279,12 +279,12 @@ export async function setupAssistantMock(
       };
       await globals.secrets?.saveKey?.(provider, apiKey);
     },
-    { provider: merged.provider, apiKey: merged.apiKey }
+    { apiKey: merged.apiKey, provider: merged.provider }
   );
 
   const installPayload: AssistantMockInstallPayload = {
-    provider: merged.provider,
     models: merged.models,
+    provider: merged.provider,
     streamChunks: buildAssistantStreamChunks(merged),
   };
 

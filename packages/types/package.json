@@ -3,10 +3,10 @@
   "description": "Shared TypeScript types for Brainstrike monorepo",
   "version": "0.1.0",
   "devDependencies": {
-    "@swc/core": "^1.15.30",
-    "@types/node": "^25.6.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "@swc/core": "^1.15.43",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

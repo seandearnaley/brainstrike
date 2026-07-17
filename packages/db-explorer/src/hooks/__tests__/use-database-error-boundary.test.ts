@@ -28,8 +28,8 @@ describe('useDatabaseErrorBoundary', () => {
 
       expect(mockToast).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: 'Operation Failed',
           description: 'Network connection failed. Please check your connection and try again.',
+          title: 'Operation Failed',
           variant: 'destructive',
         })
       );
@@ -126,15 +126,15 @@ describe('useDatabaseErrorBoundary', () => {
 
       await act(async () => {
         await result.current.executeWithErrorBoundary(operation, {
-          successTitle: 'Success',
-          successMessage: 'Operation completed',
           showSuccessToast: true,
+          successMessage: 'Operation completed',
+          successTitle: 'Success',
         });
       });
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Success',
         description: 'Operation completed',
+        title: 'Success',
       });
     });
 
@@ -159,7 +159,7 @@ describe('useDatabaseErrorBoundary', () => {
 
     it('should call custom error handler', async () => {
       const { result } = renderHook(() =>
-        useDatabaseErrorBoundary({ toast: mockToast, onError: mockOnError })
+        useDatabaseErrorBoundary({ onError: mockOnError, toast: mockToast })
       );
 
       const error = new Error('Test error');
@@ -175,8 +175,8 @@ describe('useDatabaseErrorBoundary', () => {
     it('should handle non-Error objects', async () => {
       const { result } = renderHook(() =>
         useDatabaseErrorBoundary({
-          toast: mockToast,
           fallbackMessage: 'Custom fallback message',
+          toast: mockToast,
         })
       );
 
@@ -203,7 +203,7 @@ describe('useDatabaseErrorBoundary', () => {
       });
 
       const { result } = renderHook(() =>
-        useDatabaseErrorBoundary({ toast: mockToast, onError: errorThrowingHandler })
+        useDatabaseErrorBoundary({ onError: errorThrowingHandler, toast: mockToast })
       );
 
       await act(async () => {
@@ -271,27 +271,27 @@ describe('useDatabaseErrorBoundary', () => {
 
       const setLoading = vi.fn();
       const operations = [
-        { operation: vi.fn().mockResolvedValue({ id: 1 }), name: 'Op1' },
-        { operation: vi.fn().mockResolvedValue({ id: 2 }), name: 'Op2' },
-        { operation: vi.fn().mockResolvedValue({ id: 3 }), name: 'Op3' },
+        { name: 'Op1', operation: vi.fn().mockResolvedValue({ id: 1 }) },
+        { name: 'Op2', operation: vi.fn().mockResolvedValue({ id: 2 }) },
+        { name: 'Op3', operation: vi.fn().mockResolvedValue({ id: 3 }) },
       ];
 
       const response = await act(
         async () =>
           await result.current.executeMultipleOperations(operations, setLoading, {
-            successTitle: 'All Done',
             successMessage: 'All operations completed',
+            successTitle: 'All Done',
           })
       );
 
       expect(response).toEqual({
-        results: [{ id: 1 }, { id: 2 }, { id: 3 }],
         allSucceeded: true,
         failedCount: 0,
+        results: [{ id: 1 }, { id: 2 }, { id: 3 }],
       });
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'All Done',
         description: 'All operations completed',
+        title: 'All Done',
       });
     });
 
@@ -300,27 +300,27 @@ describe('useDatabaseErrorBoundary', () => {
 
       const setLoading = vi.fn();
       const operations = [
-        { operation: vi.fn().mockResolvedValue({ id: 1 }), name: 'Op1' },
-        { operation: vi.fn().mockRejectedValue(new Error('Failed')), name: 'Op2' },
-        { operation: vi.fn().mockResolvedValue({ id: 3 }), name: 'Op3' },
+        { name: 'Op1', operation: vi.fn().mockResolvedValue({ id: 1 }) },
+        { name: 'Op2', operation: vi.fn().mockRejectedValue(new Error('Failed')) },
+        { name: 'Op3', operation: vi.fn().mockResolvedValue({ id: 3 }) },
       ];
 
       const response = await act(
         async () =>
           await result.current.executeMultipleOperations(operations, setLoading, {
-            partialSuccessTitle: 'Partial Success',
             partialSuccessMessage: 'Some operations completed',
+            partialSuccessTitle: 'Partial Success',
           })
       );
 
       expect(response).toEqual({
-        results: [{ id: 1 }, null, { id: 3 }],
         allSucceeded: false,
         failedCount: 1,
+        results: [{ id: 1 }, null, { id: 3 }],
       });
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Partial Success',
         description: 'Some operations completed',
+        title: 'Partial Success',
         variant: 'default',
       });
     });
@@ -331,13 +331,13 @@ describe('useDatabaseErrorBoundary', () => {
       const setLoading = vi.fn();
       const op3 = vi.fn().mockResolvedValue({ id: 3 });
       const operations = [
-        { operation: vi.fn().mockResolvedValue({ id: 1 }), name: 'Op1' },
+        { name: 'Op1', operation: vi.fn().mockResolvedValue({ id: 1 }) },
         {
-          operation: vi.fn().mockRejectedValue(new Error('Critical failure')),
-          name: 'Op2',
           critical: true,
+          name: 'Op2',
+          operation: vi.fn().mockRejectedValue(new Error('Critical failure')),
         },
-        { operation: op3, name: 'Op3' },
+        { name: 'Op3', operation: op3 },
       ];
 
       const response = await act(
@@ -349,8 +349,8 @@ describe('useDatabaseErrorBoundary', () => {
       expect(op3).not.toHaveBeenCalled();
       expect(mockToast).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: 'Critical Operation Failed',
           description: expect.stringContaining('Op2 failed: Critical failure'),
+          title: 'Critical Operation Failed',
         })
       );
     });
@@ -360,8 +360,8 @@ describe('useDatabaseErrorBoundary', () => {
 
       const setLoading = vi.fn();
       const operations = [
-        { operation: vi.fn().mockRejectedValue(new Error('Failed 1')), name: 'Op1' },
-        { operation: vi.fn().mockRejectedValue(new Error('Failed 2')), name: 'Op2' },
+        { name: 'Op1', operation: vi.fn().mockRejectedValue(new Error('Failed 1')) },
+        { name: 'Op2', operation: vi.fn().mockRejectedValue(new Error('Failed 2')) },
       ];
 
       const response = await act(
@@ -371,8 +371,8 @@ describe('useDatabaseErrorBoundary', () => {
       expect(response.allSucceeded).toBe(false);
       expect(response.failedCount).toBe(2);
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'All Operations Failed',
         description: 'None of the database operations completed successfully.',
+        title: 'All Operations Failed',
         variant: 'destructive',
       });
     });
@@ -381,10 +381,10 @@ describe('useDatabaseErrorBoundary', () => {
       const { result } = renderHook(() => useDatabaseErrorBoundary({ toast: mockToast }));
 
       const setLoading = vi.fn();
-      const clearResult = { deletedFiles: 10, deletedChunks: 50 };
+      const clearResult = { deletedChunks: 50, deletedFiles: 10 };
       const operations = [
-        { operation: vi.fn().mockResolvedValue(clearResult), name: 'Clear DB' },
-        { operation: vi.fn().mockResolvedValue({ success: true }), name: 'Reload' },
+        { name: 'Clear DB', operation: vi.fn().mockResolvedValue(clearResult) },
+        { name: 'Reload', operation: vi.fn().mockResolvedValue({ success: true }) },
       ];
 
       await act(async () => {
@@ -394,8 +394,8 @@ describe('useDatabaseErrorBoundary', () => {
       });
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Database Cleared',
         description: 'Deleted 10 files and 50 chunks. Data reloaded successfully.',
+        title: 'Database Cleared',
       });
     });
 
@@ -403,10 +403,10 @@ describe('useDatabaseErrorBoundary', () => {
       const { result } = renderHook(() => useDatabaseErrorBoundary({ toast: mockToast }));
 
       const setLoading = vi.fn();
-      const clearResult = { deletedFiles: 5, deletedChunks: 20 };
+      const clearResult = { deletedChunks: 20, deletedFiles: 5 };
       const operations = [
-        { operation: vi.fn().mockResolvedValue(clearResult), name: 'Clear DB' },
-        { operation: vi.fn().mockRejectedValue(new Error('Reload failed')), name: 'Reload' },
+        { name: 'Clear DB', operation: vi.fn().mockResolvedValue(clearResult) },
+        { name: 'Reload', operation: vi.fn().mockRejectedValue(new Error('Reload failed')) },
       ];
 
       await act(async () => {
@@ -416,8 +416,8 @@ describe('useDatabaseErrorBoundary', () => {
       });
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Partial Success',
         description: 'Deleted 5 files and 20 chunks, but some data reload operations failed.',
+        title: 'Partial Success',
         variant: 'default',
       });
     });
@@ -475,8 +475,8 @@ describe('useDatabaseErrorBoundary', () => {
       expect(loggerErrorSpy).toHaveBeenCalledWith(
         'Database operation failed',
         expect.objectContaining({
-          operation: 'anonymous',
           error,
+          operation: 'anonymous',
           stack: expect.any(String),
         })
       );

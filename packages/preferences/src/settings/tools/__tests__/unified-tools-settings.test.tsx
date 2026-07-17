@@ -15,10 +15,10 @@ import { UnifiedToolsSettings } from '../unified-tools-settings';
 
 const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
   usePGliteLiveQueryMock: vi.fn(() => ({
-    rows: [],
-    loading: false,
     error: null,
+    loading: false,
     refresh: vi.fn(),
+    rows: [],
   })),
 }));
 
@@ -142,8 +142,8 @@ const { ToolGroupAccordionMock, renderToolGroupAccordion } = vi.hoisted(() => {
   );
 
   return {
-    ToolGroupAccordionMock: vi.fn(renderToolGroupAccordion),
     renderToolGroupAccordion,
+    ToolGroupAccordionMock: vi.fn(renderToolGroupAccordion),
   };
 });
 
@@ -195,9 +195,34 @@ vi.mock('@brainstrike/ui', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/ui')>('@brainstrike/ui');
   return {
     ...actual,
+    Accordion: ({
+      children,
+      type,
+      defaultValue,
+    }: {
+      children: React.ReactNode;
+      type?: string;
+      defaultValue?: string[];
+    }) => (
+      <div data-default-value={defaultValue?.join(',')} data-testid="accordion" data-type={type}>
+        {children}
+      </div>
+    ),
+    Card: ({ children, 'data-testid': dataTestId, ...rest }: CardMockProps) => {
+      const testId = dataTestId ?? 'card';
+      return (
+        <div {...rest} data-testid={testId}>
+          {children}
+        </div>
+      );
+    },
+    CardContent: ({ children, ...rest }: CardContentMockProps) => <div {...rest}>{children}</div>,
+    Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
+    ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     Tabs: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="tabs-container">{children}</div>
     ),
+    TabsContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     TabsList: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="tabs-list">{children}</div>
     ),
@@ -214,99 +239,74 @@ vi.mock('@brainstrike/ui', async () => {
         {children}
       </button>
     ),
-    TabsContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
-    Accordion: ({
-      children,
-      type,
-      defaultValue,
-    }: {
-      children: React.ReactNode;
-      type?: string;
-      defaultValue?: string[];
-    }) => (
-      <div data-default-value={defaultValue?.join(',')} data-testid="accordion" data-type={type}>
-        {children}
-      </div>
-    ),
-    ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    Card: ({ children, 'data-testid': dataTestId, ...rest }: CardMockProps) => {
-      const testId = dataTestId ?? 'card';
-      return (
-        <div {...rest} data-testid={testId}>
-          {children}
-        </div>
-      );
-    },
-    CardContent: ({ children, ...rest }: CardContentMockProps) => <div {...rest}>{children}</div>,
   };
 });
 
 describe('UnifiedToolsSettings', () => {
   const mockTools: ToolDisplayMetadata[] = [
     {
-      id: 'brainstrike.hybridSearch',
-      source: 'native',
       category: 'retrieval',
-      loadingTier: 'critical',
       description: 'Hybrid search tool',
       enabled: true,
       estimatedTokens: 150,
+      id: 'brainstrike.hybridSearch',
+      loadingTier: 'critical',
       requiresApproval: false,
+      source: 'native',
     },
     {
-      id: 'brainstrike.vectorSearch',
-      source: 'native',
       category: 'retrieval',
-      loadingTier: 'conditional',
       description: 'Vector search tool',
       enabled: false,
       estimatedTokens: 100,
+      id: 'brainstrike.vectorSearch',
+      loadingTier: 'conditional',
       requiresApproval: false,
+      source: 'native',
     },
     {
-      id: 'mcp__github__search_code',
-      source: 'mcp',
       category: 'retrieval',
-      loadingTier: 'conditional',
       description: 'GitHub code search',
       enabled: true,
-      serverName: 'github',
       estimatedTokens: 200,
+      id: 'mcp__github__search_code',
+      loadingTier: 'conditional',
       requiresApproval: false,
+      serverName: 'github',
+      source: 'mcp',
     },
   ];
 
   const mockStats: ToolStats = {
-    total: 3,
-    enabled: 2,
-    disabled: 1,
-    bySource: { native: 2, mcp: 1 },
     byCategory: {
-      retrieval: 3,
       action: 0,
       analysis: 0,
       configuration: 0,
+      retrieval: 3,
       validation: 0,
     },
+    bySource: { mcp: 1, native: 2 },
+    disabled: 1,
+    enabled: 2,
     mcpServers: 1,
+    total: 3,
   };
 
   const createMockOperations = (): ToolsSettingsOperations => ({
-    getTools: vi.fn().mockResolvedValue(mockTools),
-    getStats: vi.fn().mockResolvedValue(mockStats),
-    enableTools: vi.fn().mockResolvedValue(undefined),
     disableTools: vi.fn().mockResolvedValue(undefined),
+    enableTools: vi.fn().mockResolvedValue(undefined),
+    getStats: vi.fn().mockResolvedValue(mockStats),
+    getTools: vi.fn().mockResolvedValue(mockTools),
     resetTools: vi.fn().mockResolvedValue(undefined),
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
     usePGliteLiveQueryMock.mockReturnValue({
-      rows: [],
-      loading: false,
       error: null,
+      loading: false,
       refresh: vi.fn(),
+      rows: [],
     });
     localStorage.clear();
   });
@@ -315,19 +315,19 @@ describe('UnifiedToolsSettings', () => {
     it('passes incremental query mode and key through for keyed live tool rows', () => {
       const operations = createMockOperations();
       operations.toolsLiveQuery = {
-        query: 'SELECT id FROM tools ORDER BY id',
-        mode: 'incremental',
         key: 'id',
+        mode: 'incremental',
+        query: 'SELECT id FROM tools ORDER BY id',
       };
 
       render(<UnifiedToolsSettings operations={operations} />);
 
       expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          query: 'SELECT id FROM tools ORDER BY id',
           enabled: true,
-          mode: 'incremental',
           key: 'id',
+          mode: 'incremental',
+          query: 'SELECT id FROM tools ORDER BY id',
         })
       );
     });
@@ -654,9 +654,9 @@ describe('UnifiedToolsSettings', () => {
 
     it('executes tool tests successfully and displays duration', async () => {
       const executeToolTest = vi.fn().mockResolvedValue({
-        success: true,
-        result: { ok: true },
         durationMs: 42,
+        result: { ok: true },
+        success: true,
       });
       const operations = { ...createMockOperations(), executeToolTest };
 
@@ -683,9 +683,9 @@ describe('UnifiedToolsSettings', () => {
 
     it('handles schema validation errors during execution', async () => {
       const executeToolTest = vi.fn().mockResolvedValue({
-        success: false,
-        error: 'Input schema validation failed',
         durationMs: 8,
+        error: 'Input schema validation failed',
+        success: false,
       });
       const operations = { ...createMockOperations(), executeToolTest };
 
@@ -725,9 +725,9 @@ describe('UnifiedToolsSettings', () => {
 
     it('rejects invalid JSON input before execution', async () => {
       const executeToolTest = vi.fn().mockResolvedValue({
-        success: true,
-        result: { ok: true },
         durationMs: 5,
+        result: { ok: true },
+        success: true,
       });
       const operations = { ...createMockOperations(), executeToolTest };
 
@@ -781,14 +781,14 @@ describe('UnifiedToolsSettings', () => {
       expect(pending.has('brainstrike.vectorSearch')).toBe(true);
 
       pending.get('brainstrike.hybridSearch')?.({
-        success: true,
-        result: { ok: 1 },
         durationMs: 11,
+        result: { ok: 1 },
+        success: true,
       });
       pending.get('brainstrike.vectorSearch')?.({
-        success: true,
-        result: { ok: 2 },
         durationMs: 22,
+        result: { ok: 2 },
+        success: true,
       });
 
       await waitFor(() => {
@@ -852,7 +852,7 @@ describe('UnifiedToolsSettings', () => {
 
     it('does not show MCP config alert when mcpAvailable is false', async () => {
       const operations = createMockOperations();
-      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ path: '/test', exists: false });
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ exists: false, path: '/test' });
 
       render(<UnifiedToolsSettings mcpAvailable={false} operations={operations} />);
 
@@ -863,7 +863,7 @@ describe('UnifiedToolsSettings', () => {
 
     it('shows MCP config alert when config is missing', async () => {
       const operations = createMockOperations();
-      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ path: '/test', exists: false });
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ exists: false, path: '/test' });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -874,10 +874,10 @@ describe('UnifiedToolsSettings', () => {
 
     it('shows sample config creation errors from the missing-config alert', async () => {
       const operations = createMockOperations();
-      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ path: '/test', exists: false });
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ exists: false, path: '/test' });
       operations.createSampleConfig = vi.fn().mockResolvedValue({
-        success: false,
         error: 'template write failed',
+        success: false,
       });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -897,7 +897,7 @@ describe('UnifiedToolsSettings', () => {
 
     it('hides MCP config alert when dismissed', async () => {
       const operations = createMockOperations();
-      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ path: '/test', exists: false });
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ exists: false, path: '/test' });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -977,14 +977,14 @@ describe('UnifiedToolsSettings', () => {
     it('loads MCP config editor content when editor operations are provided', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -996,17 +996,41 @@ describe('UnifiedToolsSettings', () => {
       expect(screen.getByTestId('mcp-config-path-input')).toHaveValue('/tmp/mcp.config.json');
     });
 
-    it('saves MCP config editor content', async () => {
+    it('recommends Streamable HTTP for new remote MCP servers and labels SSE as legacy', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      expect(
+        await screen.findByText(/use `streamable-http` for new remote endpoints/iu)
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Streamable HTTP example \(recommended\)/u)).toBeInTheDocument();
+      expect(screen.getByText(/Legacy SSE example/u)).toBeInTheDocument();
+      expect(
+        screen.getByText(/"url": "https:\/\/your-host\.example\.com\/mcp"/u)
+      ).toBeInTheDocument();
+    });
+
+    it('saves MCP config editor content', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -1027,14 +1051,14 @@ describe('UnifiedToolsSettings', () => {
     it('applies an absolute MCP config path and shows a success status', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
       operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -1062,14 +1086,14 @@ describe('UnifiedToolsSettings', () => {
     it('resets MCP config path when apply is clicked with whitespace input', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
       operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -1091,15 +1115,15 @@ describe('UnifiedToolsSettings', () => {
     it('shows an error when MCP config save fails validation', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi.fn().mockResolvedValue({
-        success: false,
-        path: '/tmp/mcp.config.json',
         error: 'Invalid JSONC payload',
+        path: '/tmp/mcp.config.json',
+        success: false,
       });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -1121,14 +1145,14 @@ describe('UnifiedToolsSettings', () => {
     it('runs browse and reset path actions from the MCP editor controls', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
       operations.openMcpConfig = vi.fn().mockResolvedValue(undefined);
       operations.resetMcpConfig = vi.fn().mockResolvedValue(undefined);
 
@@ -1158,14 +1182,14 @@ describe('UnifiedToolsSettings', () => {
     it('shows created-template status when config is auto-created on load', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: false,
-        created: true,
         content: '{\n  "servers": []\n}',
+        created: true,
+        exists: false,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -1181,7 +1205,7 @@ describe('UnifiedToolsSettings', () => {
       operations.readMcpConfigText = vi.fn().mockRejectedValue(new Error('Config read failed'));
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -1193,14 +1217,14 @@ describe('UnifiedToolsSettings', () => {
     it('rejects relative MCP config paths in the editor', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
       operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -1225,14 +1249,14 @@ describe('UnifiedToolsSettings', () => {
     it('confirms before discarding unsaved editor changes on reload', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -1264,14 +1288,14 @@ describe('UnifiedToolsSettings', () => {
     it('keeps unsaved changes when reload confirmation is canceled', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -1301,14 +1325,14 @@ describe('UnifiedToolsSettings', () => {
     it('exposes accessible labels for MCP config path and editor fields', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -1321,15 +1345,15 @@ describe('UnifiedToolsSettings', () => {
     it('associates status and error feedback with the editor via aria-describedby', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: false,
-        created: true,
         content: '{\n  "servers": []\n}',
+        created: true,
+        exists: false,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi.fn().mockResolvedValue({
-        success: false,
-        path: '/tmp/mcp.config.json',
         error: 'Invalid JSONC payload',
+        path: '/tmp/mcp.config.json',
+        success: false,
       });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
@@ -1365,14 +1389,14 @@ describe('UnifiedToolsSettings', () => {
     it('saves MCP config from the editor with Ctrl+S', async () => {
       const operations = createMockOperations();
       operations.readMcpConfigText = vi.fn().mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
       operations.writeMcpConfigText = vi
         .fn()
-        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+        .mockResolvedValue({ path: '/tmp/mcp.config.json', success: true });
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
@@ -1380,7 +1404,7 @@ describe('UnifiedToolsSettings', () => {
       fireEvent.change(editor, {
         target: { value: '{\n  "servers": [{"transport":"stdio","name":"x","command":"node"}]\n}' },
       });
-      fireEvent.keyDown(editor, { key: 's', ctrlKey: true });
+      fireEvent.keyDown(editor, { ctrlKey: true, key: 's' });
 
       await waitFor(() => {
         expect(operations.writeMcpConfigText).toHaveBeenCalledTimes(1);
@@ -1402,9 +1426,9 @@ describe('UnifiedToolsSettings', () => {
     it('shows budget summary when budgetManager is provided', async () => {
       const operations = createMockOperations();
       const mockBudgetManager = {
-        getCriticalToolsBudget: () => 5000,
         getConditionalToolsBudget: () => 10_000,
         getContextResultsBudget: () => 20_000,
+        getCriticalToolsBudget: () => 5000,
       };
 
       render(

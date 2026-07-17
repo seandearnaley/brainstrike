@@ -9,21 +9,21 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
     ...actual,
     createLogger: () => ({
       debug: vi.fn(),
+      error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
     }),
   };
 });
 
 function createFileNode(overrides: Partial<IFileNode> & { name: string; path: string }): IFileNode {
   return {
-    type: 'file',
     depth: 0,
     handle: {} as FileSystemFileHandle,
-    selectionState: 'unchecked',
-    rootFolderId: '/root',
     isVisible: true,
+    rootFolderId: '/root',
+    selectionState: 'unchecked',
+    type: 'file',
     ...overrides,
   };
 }
@@ -32,14 +32,14 @@ function createDirectoryNode(
   overrides: Partial<IFileNode> & { name: string; path: string }
 ): IFileNode {
   return {
-    type: 'directory',
+    children: [],
     depth: 0,
     handle: {} as FileSystemDirectoryHandle,
-    selectionState: 'unchecked',
-    rootFolderId: '/root',
     isVisible: true,
     loadState: 'unloaded',
-    children: [],
+    rootFolderId: '/root',
+    selectionState: 'unchecked',
+    type: 'directory',
     ...overrides,
   };
 }
@@ -48,35 +48,35 @@ function createMockAdapter(directoryMap: Record<string, IFileNode[]>): FileSyste
   const readDirectory = vi.fn(async (handle: DirectoryHandle) => directoryMap[handle.path] ?? []);
 
   return {
-    requestDirectoryAccess: vi.fn(),
+    exists: vi.fn(),
     readDirectory,
     readFile: vi.fn(),
-    exists: vi.fn(),
+    requestDirectoryAccess: vi.fn(),
   } as unknown as FileSystemAdapter;
 }
 
 describe('recursive-selection-query', () => {
   it('stops on already-loaded visible files before reading deeper unloaded directories', async () => {
     const adapter = createMockAdapter({
-      '/root/src': [createFileNode({ path: '/root/src/deep.ts', name: 'deep.ts', depth: 2 })],
+      '/root/src': [createFileNode({ depth: 2, name: 'deep.ts', path: '/root/src/deep.ts' })],
     });
 
     const root = createDirectoryNode({
-      path: '/root',
-      name: 'root',
-      loadState: 'loaded',
       children: [
-        createFileNode({ path: '/root/README.md', name: 'README.md', depth: 1 }),
-        createDirectoryNode({ path: '/root/src', name: 'src', depth: 1, loadState: 'unloaded' }),
+        createFileNode({ depth: 1, name: 'README.md', path: '/root/README.md' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'src', path: '/root/src' }),
       ],
+      loadState: 'loaded',
+      name: 'root',
+      path: '/root',
     });
 
     const result = await querySelectableFiles({
-      roots: [root],
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
       maxResults: 1,
+      roots: [root],
       useRegex: false,
     });
 
@@ -88,29 +88,29 @@ describe('recursive-selection-query', () => {
     const adapter = createMockAdapter({
       '/root': [
         createDirectoryNode({
-          path: '/root/a-dir',
-          name: 'a-dir',
           depth: 1,
           loadState: 'unloaded',
+          name: 'a-dir',
+          path: '/root/a-dir',
         }),
-        createFileNode({ path: '/root/file-1.ts', name: 'file-1.ts', depth: 1 }),
-        createFileNode({ path: '/root/file-2.ts', name: 'file-2.ts', depth: 1 }),
+        createFileNode({ depth: 1, name: 'file-1.ts', path: '/root/file-1.ts' }),
+        createFileNode({ depth: 1, name: 'file-2.ts', path: '/root/file-2.ts' }),
       ],
-      '/root/a-dir': [createFileNode({ path: '/root/a-dir/deep.ts', name: 'deep.ts', depth: 2 })],
+      '/root/a-dir': [createFileNode({ depth: 2, name: 'deep.ts', path: '/root/a-dir/deep.ts' })],
     });
 
     const root = createDirectoryNode({
-      path: '/root',
-      name: 'root',
       loadState: 'unloaded',
+      name: 'root',
+      path: '/root',
     });
 
     const result = await querySelectableFiles({
-      roots: [root],
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
       maxResults: 2,
+      roots: [root],
       useRegex: false,
     });
 
@@ -126,23 +126,23 @@ describe('recursive-selection-query', () => {
   it('does not mark the limit reached when matches exactly fill the requested cap', async () => {
     const adapter = createMockAdapter({
       '/root': [
-        createFileNode({ path: '/root/file-1.ts', name: 'file-1.ts', depth: 1 }),
-        createFileNode({ path: '/root/file-2.ts', name: 'file-2.ts', depth: 1 }),
+        createFileNode({ depth: 1, name: 'file-1.ts', path: '/root/file-1.ts' }),
+        createFileNode({ depth: 1, name: 'file-2.ts', path: '/root/file-2.ts' }),
       ],
     });
 
     const root = createDirectoryNode({
-      path: '/root',
-      name: 'root',
       loadState: 'unloaded',
+      name: 'root',
+      path: '/root',
     });
 
     const result = await querySelectableFiles({
-      roots: [root],
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
       maxResults: 2,
+      roots: [root],
       useRegex: false,
     });
 
@@ -155,18 +155,18 @@ describe('recursive-selection-query', () => {
     const makeFiles = (prefix: string, count: number): IFileNode[] =>
       Array.from({ length: count }, (_, index) =>
         createFileNode({
-          path: `${prefix}/file-${index}.ts`,
-          name: `file-${index}.ts`,
           depth: 2,
+          name: `file-${index}.ts`,
+          path: `${prefix}/file-${index}.ts`,
         })
       );
 
     const adapter = createMockAdapter({
       '/root': [
-        createDirectoryNode({ path: '/root/a', name: 'a', depth: 1, loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/b', name: 'b', depth: 1, loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/c', name: 'c', depth: 1, loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/d', name: 'd', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'a', path: '/root/a' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'b', path: '/root/b' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'c', path: '/root/c' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'd', path: '/root/d' }),
       ],
       '/root/a': makeFiles('/root/a', 40),
       '/root/b': makeFiles('/root/b', 40),
@@ -175,18 +175,18 @@ describe('recursive-selection-query', () => {
     });
 
     const root = createDirectoryNode({
-      path: '/root',
-      name: 'root',
       loadState: 'unloaded',
+      name: 'root',
+      path: '/root',
     });
 
     const result = await querySelectableFiles({
-      roots: [root],
+      concurrency: 4,
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
       maxResults: 160,
-      concurrency: 4,
+      roots: [root],
       useRegex: false,
     });
 
@@ -198,28 +198,28 @@ describe('recursive-selection-query', () => {
     const adapter = createMockAdapter({
       '/root': [
         createDirectoryNode({
-          path: '/root/loop',
-          name: 'loop',
           depth: 1,
           loadState: 'unloaded',
+          name: 'loop',
+          path: '/root/loop',
         }),
       ],
       '/root/loop': [
         createDirectoryNode({
-          path: '/root/loop',
-          name: 'loop',
           depth: 2,
           loadState: 'unloaded',
+          name: 'loop',
+          path: '/root/loop',
         }),
-        createFileNode({ path: '/root/loop/file.ts', name: 'file.ts', depth: 2 }),
+        createFileNode({ depth: 2, name: 'file.ts', path: '/root/loop/file.ts' }),
       ],
     });
 
     const result = await querySelectableFiles({
-      roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
+      roots: [createDirectoryNode({ loadState: 'unloaded', name: 'root', path: '/root' })],
       useRegex: false,
     });
 
@@ -230,12 +230,12 @@ describe('recursive-selection-query', () => {
   it('applies filterTreeFn to loaded and adapter-read nodes', async () => {
     const adapter = createMockAdapter({
       '/root': [
-        createDirectoryNode({ path: '/root/src', name: 'src', depth: 1, loadState: 'unloaded' }),
-        createFileNode({ path: '/root/readme.md', name: 'readme.md', depth: 1 }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'src', path: '/root/src' }),
+        createFileNode({ depth: 1, name: 'readme.md', path: '/root/readme.md' }),
       ],
       '/root/src': [
-        createFileNode({ path: '/root/src/keep.ts', name: 'keep.ts', depth: 2 }),
-        createFileNode({ path: '/root/src/skip.md', name: 'skip.md', depth: 2 }),
+        createFileNode({ depth: 2, name: 'keep.ts', path: '/root/src/keep.ts' }),
+        createFileNode({ depth: 2, name: 'skip.md', path: '/root/src/skip.md' }),
       ],
     });
 
@@ -244,17 +244,17 @@ describe('recursive-selection-query', () => {
     );
 
     const root = createDirectoryNode({
-      path: '/root',
-      name: 'root',
       loadState: 'unloaded',
+      name: 'root',
+      path: '/root',
     });
 
     const result = await querySelectableFiles({
-      roots: [root],
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       filterTreeFn,
       includeFilters: [],
-      excludeFilters: [],
+      roots: [root],
       useRegex: false,
     });
 
@@ -266,22 +266,22 @@ describe('recursive-selection-query', () => {
     const progress = vi.fn();
     const adapter = createMockAdapter({
       '/root': [
-        createFileNode({ path: '/root/visible.ts', name: 'visible.ts', depth: 1 }),
+        createFileNode({ depth: 1, name: 'visible.ts', path: '/root/visible.ts' }),
         createFileNode({
-          path: '/root/hidden.ts',
-          name: 'hidden.ts',
           depth: 1,
           isVisible: false,
+          name: 'hidden.ts',
+          path: '/root/hidden.ts',
         }),
       ],
     });
 
     const result = await querySelectableFiles({
-      roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
       onProgress: progress,
+      roots: [createDirectoryNode({ loadState: 'unloaded', name: 'root', path: '/root' })],
       useRegex: false,
     });
 
@@ -295,11 +295,11 @@ describe('recursive-selection-query', () => {
 
     await expect(
       querySelectableFiles({
-        roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+        abortSignal: controller.signal,
+        excludeFilters: [],
         fileSystemAdapter: createMockAdapter({}),
         includeFilters: [],
-        excludeFilters: [],
-        abortSignal: controller.signal,
+        roots: [createDirectoryNode({ loadState: 'unloaded', name: 'root', path: '/root' })],
         useRegex: false,
       })
     ).rejects.toThrow(/cancelled/i);
@@ -307,21 +307,21 @@ describe('recursive-selection-query', () => {
 
   it('returns immediately when no slots are available', async () => {
     const adapter = createMockAdapter({
-      '/root': [createFileNode({ path: '/root/file.ts', name: 'file.ts', depth: 1 })],
+      '/root': [createFileNode({ depth: 1, name: 'file.ts', path: '/root/file.ts' })],
     });
 
     const root = createDirectoryNode({
-      path: '/root',
-      name: 'root',
       loadState: 'unloaded',
+      name: 'root',
+      path: '/root',
     });
 
     const result = await querySelectableFiles({
-      roots: [root],
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
       maxResults: 0,
+      roots: [root],
       useRegex: false,
     });
 
@@ -333,27 +333,27 @@ describe('recursive-selection-query', () => {
     const adapter = createMockAdapter({
       '/root': [
         createDirectoryNode({
-          path: '/root/a',
-          name: 'a',
           depth: 1,
           loadState: 'unloaded',
+          name: 'a',
+          path: '/root/a',
         }),
         createDirectoryNode({
-          path: '/root/b',
-          name: 'b',
           depth: 1,
           loadState: 'unloaded',
+          name: 'b',
+          path: '/root/b',
         }),
       ],
     });
 
     await expect(
       querySelectableFiles({
-        roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+        excludeFilters: [],
         fileSystemAdapter: adapter,
         includeFilters: [],
-        excludeFilters: [],
         maxDirectories: 2,
+        roots: [createDirectoryNode({ loadState: 'unloaded', name: 'root', path: '/root' })],
         useRegex: false,
       })
     ).rejects.toThrow('Recursive selection traversal limit exceeded (2)');
@@ -363,18 +363,18 @@ describe('recursive-selection-query', () => {
     const makeFiles = (prefix: string, count: number): IFileNode[] =>
       Array.from({ length: count }, (_, index) =>
         createFileNode({
-          path: `${prefix}/file-${index}.ts`,
-          name: `file-${index}.ts`,
           depth: 2,
+          name: `file-${index}.ts`,
+          path: `${prefix}/file-${index}.ts`,
         })
       );
 
     const adapter = createMockAdapter({
       '/root': [
-        createDirectoryNode({ path: '/root/a', name: 'a', depth: 1, loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/b', name: 'b', depth: 1, loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/c', name: 'c', depth: 1, loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/d', name: 'd', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'a', path: '/root/a' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'b', path: '/root/b' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'c', path: '/root/c' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'd', path: '/root/d' }),
       ],
       '/root/a': makeFiles('/root/a', 200),
       '/root/b': makeFiles('/root/b', 200),
@@ -383,18 +383,18 @@ describe('recursive-selection-query', () => {
     });
 
     const root = createDirectoryNode({
-      path: '/root',
-      name: 'root',
       loadState: 'unloaded',
+      name: 'root',
+      path: '/root',
     });
 
     const result = await querySelectableFiles({
-      roots: [root],
+      concurrency: 2,
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
       maxResults: 300,
-      concurrency: 2,
+      roots: [root],
       useRegex: false,
     });
 
@@ -422,17 +422,17 @@ describe('recursive-selection-query', () => {
     const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
       if (handle.path === '/root') {
         return [
-          createDirectoryNode({ path: '/root/a', name: 'a', depth: 1, loadState: 'unloaded' }),
-          createDirectoryNode({ path: '/root/b', name: 'b', depth: 1, loadState: 'unloaded' }),
-          createDirectoryNode({ path: '/root/c', name: 'c', depth: 1, loadState: 'unloaded' }),
+          createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'a', path: '/root/a' }),
+          createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'b', path: '/root/b' }),
+          createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'c', path: '/root/c' }),
         ];
       }
       if (handle.path === '/root/a') {
         return Array.from({ length: 300 }, (_, index) =>
           createFileNode({
-            path: `/root/a/file-${index}.ts`,
-            name: `file-${index}.ts`,
             depth: 2,
+            name: `file-${index}.ts`,
+            path: `/root/a/file-${index}.ts`,
           })
         );
       }
@@ -446,25 +446,25 @@ describe('recursive-selection-query', () => {
     });
 
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory,
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const root = createDirectoryNode({
-      path: '/root',
-      name: 'root',
       loadState: 'unloaded',
+      name: 'root',
+      path: '/root',
     });
 
     const result = await querySelectableFiles({
-      roots: [root],
+      concurrency: 2,
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
       maxResults: 300,
-      concurrency: 2,
+      roots: [root],
       useRegex: false,
     });
 
@@ -479,41 +479,41 @@ describe('recursive-selection-query', () => {
 
   it('dedupes duplicate directory paths across the traversal frontier', async () => {
     const adapter = createMockAdapter({
-      '/root/shared': [createFileNode({ path: '/root/shared/a.ts', name: 'a.ts', depth: 2 })],
+      '/root/shared': [createFileNode({ depth: 2, name: 'a.ts', path: '/root/shared/a.ts' })],
     });
 
     const sharedDirectory = createDirectoryNode({
-      path: '/root/shared',
-      name: 'shared',
       depth: 1,
       loadState: 'unloaded',
+      name: 'shared',
+      path: '/root/shared',
     });
 
     const result = await querySelectableFiles({
-      roots: [
-        createDirectoryNode({
-          path: '/root',
-          name: 'root',
-          loadState: 'loaded',
-          children: [sharedDirectory],
-        }),
-        createDirectoryNode({
-          path: '/root-2',
-          name: 'root-2',
-          loadState: 'loaded',
-          children: [
-            createDirectoryNode({
-              path: '/root/shared',
-              name: 'shared',
-              depth: 1,
-              loadState: 'unloaded',
-            }),
-          ],
-        }),
-      ],
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
+      roots: [
+        createDirectoryNode({
+          children: [sharedDirectory],
+          loadState: 'loaded',
+          name: 'root',
+          path: '/root',
+        }),
+        createDirectoryNode({
+          children: [
+            createDirectoryNode({
+              depth: 1,
+              loadState: 'unloaded',
+              name: 'shared',
+              path: '/root/shared',
+            }),
+          ],
+          loadState: 'loaded',
+          name: 'root-2',
+          path: '/root-2',
+        }),
+      ],
       useRegex: false,
     });
 
@@ -526,10 +526,10 @@ describe('recursive-selection-query', () => {
     let maxActiveReads = 0;
     const childDirectories = Array.from({ length: 40 }, (_, index) =>
       createDirectoryNode({
-        path: `/root/dir-${index}`,
-        name: `dir-${index}`,
         depth: 1,
         loadState: 'unloaded',
+        name: `dir-${index}`,
+        path: `/root/dir-${index}`,
       })
     );
 
@@ -545,33 +545,33 @@ describe('recursive-selection-query', () => {
 
       return [
         createFileNode({
-          path: `${handle.path}/file.ts`,
-          name: 'file.ts',
           depth: 2,
+          name: 'file.ts',
+          path: `${handle.path}/file.ts`,
         }),
       ];
     });
 
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory,
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const root = createDirectoryNode({
-      path: '/root',
-      name: 'root',
       loadState: 'unloaded',
+      name: 'root',
+      path: '/root',
     });
 
     const result = await querySelectableFiles({
-      roots: [root],
+      concurrency: 999,
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
       maxResults: 400,
-      concurrency: 999,
+      roots: [root],
       useRegex: false,
     });
 
@@ -582,25 +582,124 @@ describe('recursive-selection-query', () => {
   it('does not prematurely close a throughput batch when synchronous directory reads settle immediately', async () => {
     const adapter = createMockAdapter({
       '/root': [
-        createDirectoryNode({ path: '/root/a', name: 'a', depth: 1, loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/b', name: 'b', depth: 1, loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/c', name: 'c', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'a', path: '/root/a' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'b', path: '/root/b' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'c', path: '/root/c' }),
       ],
-      '/root/a': [createFileNode({ path: '/root/a/a.ts', name: 'a.ts', depth: 2 })],
-      '/root/b': [createFileNode({ path: '/root/b/b.ts', name: 'b.ts', depth: 2 })],
-      '/root/c': [createFileNode({ path: '/root/c/c.ts', name: 'c.ts', depth: 2 })],
+      '/root/a': [createFileNode({ depth: 2, name: 'a.ts', path: '/root/a/a.ts' })],
+      '/root/b': [createFileNode({ depth: 2, name: 'b.ts', path: '/root/b/b.ts' })],
+      '/root/c': [createFileNode({ depth: 2, name: 'c.ts', path: '/root/c/c.ts' })],
     });
 
     const result = await querySelectableFiles({
-      roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+      concurrency: 2,
+      excludeFilters: [],
       fileSystemAdapter: adapter,
       includeFilters: [],
-      excludeFilters: [],
-      concurrency: 2,
       maxResults: 10,
+      roots: [createDirectoryNode({ loadState: 'unloaded', name: 'root', path: '/root' })],
       useRegex: false,
     });
 
     expect(result.filePaths).toEqual(['/root/a/a.ts', '/root/b/b.ts', '/root/c/c.ts']);
+  });
+});
+
+describe('recursive-selection-query directory hydration updates', () => {
+  it('returns RAW children updates for every adapter-read directory (filters not applied)', async () => {
+    const adapter = createMockAdapter({
+      '/root/sub': [
+        createFileNode({ depth: 2, name: 'b.ts', path: '/root/sub/b.ts' }),
+        createFileNode({ depth: 2, name: 'c.md', path: '/root/sub/c.md' }),
+      ],
+    });
+    const root = createDirectoryNode({
+      children: [
+        createFileNode({ depth: 1, name: 'a.ts', path: '/root/a.ts' }),
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'sub', path: '/root/sub' }),
+      ],
+      loadState: 'loaded',
+      name: 'root',
+      path: '/root',
+    });
+
+    const result = await querySelectableFiles({
+      collectDirectoryUpdates: true,
+      excludeFilters: [],
+      fileSystemAdapter: adapter,
+      // Workspace filter drops markdown — the SELECTION must respect it, but
+      // hydration updates must carry the RAW listing (the normalized tree is
+      // the unfiltered universe; display filtering happens downstream).
+      filterTreeFn: (tree) => tree.filter((node) => !node.path.endsWith('.md')),
+      includeFilters: [],
+      roots: [root],
+      useRegex: false,
+    });
+
+    expect(result.filePaths.sort()).toEqual(['/root/a.ts', '/root/sub/b.ts']);
+    expect(result.directoryUpdates).toEqual([
+      {
+        children: [
+          expect.objectContaining({ path: '/root/sub/b.ts' }),
+          expect.objectContaining({ path: '/root/sub/c.md' }),
+        ],
+        path: '/root/sub',
+      },
+    ]);
+  });
+
+  it('returns no update for directories that were already loaded in the tree', async () => {
+    const adapter = createMockAdapter({});
+    const root = createDirectoryNode({
+      children: [
+        createDirectoryNode({
+          children: [createFileNode({ depth: 2, name: 'x.ts', path: '/root/lib/x.ts' })],
+          depth: 1,
+          loadState: 'loaded',
+          name: 'lib',
+          path: '/root/lib',
+        }),
+      ],
+      loadState: 'loaded',
+      name: 'root',
+      path: '/root',
+    });
+
+    const result = await querySelectableFiles({
+      collectDirectoryUpdates: true,
+      excludeFilters: [],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      roots: [root],
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual(['/root/lib/x.ts']);
+    expect(result.directoryUpdates).toEqual([]);
+  });
+
+  it('does not retain directory updates unless collection is opted in (select-all memory guard)', async () => {
+    const adapter = createMockAdapter({
+      '/root/sub': [createFileNode({ depth: 2, name: 'b.ts', path: '/root/sub/b.ts' })],
+    });
+    const root = createDirectoryNode({
+      children: [
+        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'sub', path: '/root/sub' }),
+      ],
+      loadState: 'loaded',
+      name: 'root',
+      path: '/root',
+    });
+
+    const result = await querySelectableFiles({
+      excludeFilters: [],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      roots: [root],
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual(['/root/sub/b.ts']);
+    expect(result.directoryUpdates).toEqual([]);
   });
 });

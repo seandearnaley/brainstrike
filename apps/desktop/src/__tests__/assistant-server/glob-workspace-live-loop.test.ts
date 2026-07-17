@@ -34,7 +34,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
-const USAGE = { promptTokens: 8, completionTokens: 4, totalTokens: 12 } as const;
+const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
 
 /**
  * Scripted host client: the first generation requests the glob tool; once the
@@ -46,8 +46,6 @@ function createScriptedHostClient(
 ): LocalLlmHostClient & { requests: LocalLlmHostGenerateRequest[] } {
   const requests: LocalLlmHostGenerateRequest[] = [];
   return {
-    requests,
-    warmup: vi.fn().mockResolvedValue(undefined),
     generate: (
       request: LocalLlmHostGenerateRequest,
       options: LocalLlmHostRequestOptions = {}
@@ -60,27 +58,29 @@ function createScriptedHostClient(
         options.onProgress?.({ kind: 'text', text: 'Found ' });
         options.onProgress?.({ kind: 'text', text: 'Found the files.' });
         return Promise.resolve({
-          text: 'Found the files.',
           finishReason: 'stop',
+          text: 'Found the files.',
           usage: USAGE,
         });
       }
       return Promise.resolve({
-        text: '',
         finishReason: 'tool_calls',
+        text: '',
         toolCalls: [
           {
+            function: {
+              arguments: JSON.stringify({ pattern }),
+              name: 'brainstrike_globWorkspace',
+            },
             id: 'call-glob-1',
             type: 'function',
-            function: {
-              name: 'brainstrike_globWorkspace',
-              arguments: JSON.stringify({ pattern }),
-            },
           },
         ],
         usage: USAGE,
       });
     },
+    requests,
+    warmup: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -133,15 +133,15 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
         [
           {
             id: 'u-glob',
+            parts: [{ text: 'list every test file', type: 'text' }],
             role: 'user',
-            parts: [{ type: 'text', text: 'list every test file' }],
           },
         ],
         {
           runtime: {
-            provider: 'local',
-            model: 'onnx-community/gemma-4-E2B-it-ONNX',
             localLlmHostClient: hostClient,
+            model: 'onnx-community/gemma-4-E2B-it-ONNX',
+            provider: 'local',
             providerOptions: { local: { thinking: { enabled: false } } },
           } as RuntimeData,
           tools: { 'brainstrike.globWorkspace': globTool },
@@ -176,7 +176,7 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
       expect(serialized).not.toContain('/src/main.ts');
       expect(serialized).not.toContain('button.tsx');
     } finally {
-      await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });
 });

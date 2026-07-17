@@ -139,7 +139,7 @@ export class DrizzleEmbeddingCacheRepository {
       );
 
     if (!row) {
-      return { hit: false, entry: null };
+      return { entry: null, hit: false };
     }
 
     // Update access time and increment access count (fire-and-forget)
@@ -151,20 +151,20 @@ export class DrizzleEmbeddingCacheRepository {
       // Alert if failure rate exceeds threshold (triggers error-level logging)
       if (this.metrics.failedAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
         this.logger.error('Cache access time update failures exceeded threshold', {
-          totalFailures: this.metrics.failedAccessTimeUpdates,
-          threshold: FAILURE_ALERT_THRESHOLD,
           lastError: errorMsg,
+          threshold: FAILURE_ALERT_THRESHOLD,
+          totalFailures: this.metrics.failedAccessTimeUpdates,
         });
       } else {
         this.logger.warn('Failed to update cache access time', {
-          id: row.id,
           error: errorMsg,
+          id: row.id,
           totalFailures: this.metrics.failedAccessTimeUpdates,
         });
       }
     });
 
-    return { hit: true, entry: row };
+    return { entry: row, hit: true };
   }
 
   /**
@@ -247,10 +247,10 @@ export class DrizzleEmbeddingCacheRepository {
         // Alert if failure rate exceeds threshold (triggers error-level logging)
         if (this.metrics.failedBatchAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
           this.logger.error('Batch cache access time update failures exceeded threshold', {
-            totalFailures: this.metrics.failedBatchAccessTimeUpdates,
-            threshold: FAILURE_ALERT_THRESHOLD,
-            lastError: errorMsg,
             lastBatchSize: idsToUpdate.length,
+            lastError: errorMsg,
+            threshold: FAILURE_ALERT_THRESHOLD,
+            totalFailures: this.metrics.failedBatchAccessTimeUpdates,
           });
         } else {
           this.logger.warn('Failed to batch update cache access times', {
@@ -263,9 +263,9 @@ export class DrizzleEmbeddingCacheRepository {
     }
 
     this.logger.debug('Batch cache lookup completed', {
-      requested: requests.length,
       hits: result.size,
       misses: requests.length - result.size,
+      requested: requests.length,
     });
 
     return result;
@@ -301,22 +301,22 @@ export class DrizzleEmbeddingCacheRepository {
     const [row] = await this.db
       .insert(embeddingCache)
       .values({
-        id,
-        contentHash,
-        modelKey,
-        embedding,
-        dimensions,
-        createdAt: now,
-        accessedAt: now,
         accessCount: 1,
+        accessedAt: now,
+        contentHash,
+        createdAt: now,
+        dimensions,
+        embedding,
+        id,
+        modelKey,
       })
       .onConflictDoUpdate({
-        target: [embeddingCache.contentHash, embeddingCache.modelKey],
         set: {
+          accessCount: sql`${embeddingCache.accessCount} + 1`,
           // On conflict, update access time and increment count
           accessedAt: now,
-          accessCount: sql`${embeddingCache.accessCount} + 1`,
         },
+        target: [embeddingCache.contentHash, embeddingCache.modelKey],
       })
       .returning();
 
@@ -365,14 +365,14 @@ export class DrizzleEmbeddingCacheRepository {
         }
 
         return {
-          id: generateUUID(),
-          contentHash: entry.contentHash,
-          modelKey: entry.modelKey,
-          embedding: entry.embedding,
-          dimensions: entry.dimensions,
-          createdAt: now,
-          accessedAt: now,
           accessCount: 1,
+          accessedAt: now,
+          contentHash: entry.contentHash,
+          createdAt: now,
+          dimensions: entry.dimensions,
+          embedding: entry.embedding,
+          id: generateUUID(),
+          modelKey: entry.modelKey,
         };
       });
 
@@ -380,11 +380,11 @@ export class DrizzleEmbeddingCacheRepository {
         .insert(embeddingCache)
         .values(values)
         .onConflictDoUpdate({
-          target: [embeddingCache.contentHash, embeddingCache.modelKey],
           set: {
-            accessedAt: now,
             accessCount: sql`${embeddingCache.accessCount} + 1`,
+            accessedAt: now,
           },
+          target: [embeddingCache.contentHash, embeddingCache.modelKey],
         })
         .returning({ id: embeddingCache.id });
 
@@ -470,8 +470,8 @@ export class DrizzleEmbeddingCacheRepository {
       .returning({ id: embeddingCache.id });
 
     this.logger.info('Cleared cache for model', {
-      modelKey,
       deleted: result.length,
+      modelKey,
     });
 
     return result.length;
@@ -496,7 +496,7 @@ export class DrizzleEmbeddingCacheRepository {
     const totalEntries = countResult?.count ?? 0;
 
     if (totalEntries <= RECOMMENDED_MAX_CACHE_ENTRIES) {
-      return { needed: false, evicted: 0, totalEntries };
+      return { evicted: 0, needed: false, totalEntries };
     }
 
     // Calculate how many entries to evict to reach target utilization
@@ -505,23 +505,23 @@ export class DrizzleEmbeddingCacheRepository {
 
     if (dryRun) {
       this.logger.info('Cache eviction dry run', {
-        totalEntries,
-        threshold: RECOMMENDED_MAX_CACHE_ENTRIES,
-        wouldEvict: toEvict,
         targetCount,
+        threshold: RECOMMENDED_MAX_CACHE_ENTRIES,
+        totalEntries,
+        wouldEvict: toEvict,
       });
-      return { needed: true, evicted: toEvict, totalEntries };
+      return { evicted: toEvict, needed: true, totalEntries };
     }
 
     const evicted = await this.evictOldest(toEvict);
     this.logger.info('Cache eviction completed', {
-      totalEntries,
-      threshold: RECOMMENDED_MAX_CACHE_ENTRIES,
       evicted,
       newTotal: totalEntries - evicted,
+      threshold: RECOMMENDED_MAX_CACHE_ENTRIES,
+      totalEntries,
     });
 
-    return { needed: true, evicted, totalEntries };
+    return { evicted, needed: true, totalEntries };
   }
 
   /**
@@ -547,10 +547,10 @@ export class DrizzleEmbeddingCacheRepository {
       .limit(1);
 
     return {
+      newestAccessedAt: newestResult?.accessedAt ?? null,
+      oldestAccessedAt: oldestResult?.accessedAt ?? null,
       totalEntries: countResult?.count ?? 0,
       totalHits: Number(hitsResult?.total ?? 0),
-      oldestAccessedAt: oldestResult?.accessedAt ?? null,
-      newestAccessedAt: newestResult?.accessedAt ?? null,
     };
   }
 
@@ -561,8 +561,8 @@ export class DrizzleEmbeddingCacheRepository {
     await this.db
       .update(embeddingCache)
       .set({
-        accessedAt: new Date(),
         accessCount: sql`${embeddingCache.accessCount} + 1`,
+        accessedAt: new Date(),
       })
       .where(eq(embeddingCache.id, id));
   }
@@ -579,8 +579,8 @@ export class DrizzleEmbeddingCacheRepository {
     await this.db
       .update(embeddingCache)
       .set({
-        accessedAt: new Date(),
         accessCount: sql`${embeddingCache.accessCount} + 1`,
+        accessedAt: new Date(),
       })
       .where(inArray(embeddingCache.id, ids));
   }

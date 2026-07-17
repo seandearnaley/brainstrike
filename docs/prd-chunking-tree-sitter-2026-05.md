@@ -1,6 +1,6 @@
 # PRD: Multi-language AST chunking via tree-sitter (WASM)
 
-**Status**: Draft — awaiting §13 approval
+**Status**: Shipped — Phases 2–9 landed via recovery merge #1011; tree-sitter Python is default-on in both apps since 2026-05-18. A §13 sign-off was never recorded — the rollout shipped ahead of the paperwork; this line is the record that the shipped defaults are intentional.
 **Owner**: Sean Dearnaley
 **Created**: 2026-05-17
 **Target packages**: `@brainstrike/chunking-worker` (new `treeSitterAdapter`), `apps/web` + `apps/desktop` (asset bundling)

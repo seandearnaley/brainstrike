@@ -2,7 +2,7 @@ import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { FileContentError } from '@brainstrike/types';
+import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
 import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import {
@@ -12,13 +12,13 @@ import {
 } from '@brainstrike/workers/file-content-worker';
 
 export interface FileContentProcessor {
-  processFiles(
+  processFiles: (
     requests: FileContentRequest[],
     onProgress?: (event: { key: string; loaded: number; total: number }) => void,
     options?: {
       abortSignal?: AbortSignal;
     }
-  ): Promise<Record<string, string>>;
+  ) => Promise<Record<string, string>>;
 }
 
 export interface FileContentRequest {
@@ -74,8 +74,8 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
 
   constructor(fileSystemAdapter: FileSystemAdapter, concurrency = 3) {
     this.worker = createFileContentWorker({
-      fileSystemAdapter,
       concurrency,
+      fileSystemAdapter,
     });
   }
 
@@ -102,12 +102,12 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
     const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
     const fileHandle: FileHandle = {
-      path: getCanonicalFileHandlePath(fileNode),
-      name: fileNode.name,
+      _internal: fileNode.handle,
       kind: 'file',
+      name: fileNode.name,
+      path: getCanonicalFileHandlePath(fileNode),
       platform,
       rootFolderId: fileNode.rootFolderId,
-      _internal: fileNode.handle,
     };
 
     const knownFileSize = getKnownFileSize(fileNode.size);
@@ -171,12 +171,12 @@ export class DirectFileContentProcessor implements FileContentProcessor {
     const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
     const fileHandle: FileHandle = {
-      path: getCanonicalFileHandlePath(fileNode),
-      name: fileNode.name,
+      _internal: fileNode.handle,
       kind: 'file',
+      name: fileNode.name,
+      path: getCanonicalFileHandlePath(fileNode),
       platform,
       rootFolderId: fileNode.rootFolderId,
-      _internal: fileNode.handle,
     };
 
     if (knownFileSize !== null) {
@@ -187,18 +187,18 @@ export class DirectFileContentProcessor implements FileContentProcessor {
     const extension = fileExplorer.getFileExtension(fileNode.path);
 
     if (fileContent.isBinaryExtension(extension)) {
-      throw new FileContentError('Binary file - preview not available', fileNode.path, 'BINARY');
+      throw new FileContentError(BINARY_CONTENT_MESSAGE, fileNode.path, 'BINARY');
     }
 
     if (fileContent.isTextExtension(extension)) {
       if (!fileContent.isTextContent(content)) {
-        throw new FileContentError('Binary file - preview not available', fileNode.path, 'BINARY');
+        throw new FileContentError(BINARY_CONTENT_MESSAGE, fileNode.path, 'BINARY');
       }
       return content;
     }
 
     if (!fileContent.isTextContent(content)) {
-      throw new FileContentError('Binary file - preview not available', fileNode.path, 'BINARY');
+      throw new FileContentError(BINARY_CONTENT_MESSAGE, fileNode.path, 'BINARY');
     }
     return content;
   }

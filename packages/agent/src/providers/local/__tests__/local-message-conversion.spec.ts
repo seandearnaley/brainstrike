@@ -11,33 +11,33 @@ type V2Prompt = LanguageModelV2CallOptions['prompt'];
 describe('convertPromptToLocalMessages', () => {
   it('preserves assistant tool calls alongside text for multi-step loops', () => {
     const prompt = [
-      { role: 'user', content: [{ type: 'text', text: 'Weather in Paris?' }] },
+      { content: [{ text: 'Weather in Paris?', type: 'text' }], role: 'user' },
       {
-        role: 'assistant',
         content: [
-          { type: 'text', text: 'Checking.' },
+          { text: 'Checking.', type: 'text' },
           {
-            type: 'tool-call',
+            input: { city: 'Paris' },
             toolCallId: 'call-1',
             toolName: 'get_weather',
-            input: { city: 'Paris' },
+            type: 'tool-call',
           },
         ],
+        role: 'assistant',
       },
     ] as V2Prompt;
 
     const messages = convertPromptToLocalMessages(prompt);
 
     expect(messages).toEqual([
-      { role: 'user', content: 'Weather in Paris?' },
+      { content: 'Weather in Paris?', role: 'user' },
       {
-        role: 'assistant',
         content: 'Checking.',
+        role: 'assistant',
         toolCalls: [
           {
+            function: { arguments: '{"city":"Paris"}', name: 'get_weather' },
             id: 'call-1',
             type: 'function',
-            function: { name: 'get_weather', arguments: '{"city":"Paris"}' },
           },
         ],
       },
@@ -47,15 +47,15 @@ describe('convertPromptToLocalMessages', () => {
   it('emits an assistant message when it has tool calls but no text', () => {
     const prompt = [
       {
-        role: 'assistant',
         content: [
           {
-            type: 'tool-call',
+            input: '{"q":"pgvector"}',
             toolCallId: 'call-2',
             toolName: 'search',
-            input: '{"q":"pgvector"}',
+            type: 'tool-call',
           },
         ],
+        role: 'assistant',
       },
     ] as V2Prompt;
 
@@ -63,13 +63,13 @@ describe('convertPromptToLocalMessages', () => {
 
     expect(messages).toEqual([
       {
-        role: 'assistant',
         content: '',
+        role: 'assistant',
         toolCalls: [
           {
+            function: { arguments: '{"q":"pgvector"}', name: 'search' },
             id: 'call-2',
             type: 'function',
-            function: { name: 'search', arguments: '{"q":"pgvector"}' },
           },
         ],
       },
@@ -77,7 +77,7 @@ describe('convertPromptToLocalMessages', () => {
   });
 
   it('drops assistant messages with neither text nor tool calls', () => {
-    const prompt = [{ role: 'assistant', content: [] }] as V2Prompt;
+    const prompt = [{ content: [], role: 'assistant' }] as V2Prompt;
     expect(convertPromptToLocalMessages(prompt)).toEqual([]);
   });
 });
@@ -86,17 +86,17 @@ describe('parseToolResultMessage', () => {
   it('reads the AI SDK v2 output envelope (json)', () => {
     const messages = parseToolResultMessage([
       {
-        type: 'tool-result',
+        output: { type: 'json', value: { temperatureC: 21 } },
         toolCallId: 'call-1',
         toolName: 'get_weather',
-        output: { type: 'json', value: { temperatureC: 21 } },
+        type: 'tool-result',
       },
     ]);
 
     expect(messages).toEqual([
       {
-        role: 'tool',
         content: '',
+        role: 'tool',
         toolCallId: 'call-1',
         toolResponses: [{ name: 'get_weather', response: { temperatureC: 21 } }],
       },
@@ -106,10 +106,10 @@ describe('parseToolResultMessage', () => {
   it('reads the AI SDK v2 output envelope (text)', () => {
     const messages = parseToolResultMessage([
       {
-        type: 'tool-result',
+        output: { type: 'text', value: 'plain answer' },
         toolCallId: 'call-1',
         toolName: 'lookup',
-        output: { type: 'text', value: 'plain answer' },
+        type: 'tool-result',
       },
     ]);
 
@@ -119,10 +119,10 @@ describe('parseToolResultMessage', () => {
   it('wraps error outputs as { error } to match the UI tool bridge', () => {
     const messages = parseToolResultMessage([
       {
-        type: 'tool-result',
+        output: { type: 'error-text', value: 'boom' },
         toolCallId: 'call-1',
         toolName: 'lookup',
-        output: { type: 'error-text', value: 'boom' },
+        type: 'tool-result',
       },
     ]);
 
@@ -132,10 +132,10 @@ describe('parseToolResultMessage', () => {
   it('still reads the legacy bare result field', () => {
     const messages = parseToolResultMessage([
       {
-        type: 'tool-result',
+        result: { legacy: true },
         toolCallId: 'call-1',
         toolName: 'lookup',
-        result: { legacy: true },
+        type: 'tool-result',
       },
     ]);
 
@@ -146,19 +146,19 @@ describe('parseToolResultMessage', () => {
 describe('extractToolCallsFromParts', () => {
   it('serializes non-string input as JSON arguments', () => {
     const calls = extractToolCallsFromParts([
-      { type: 'tool-call', toolCallId: 'c1', toolName: 't', input: { a: 1 } },
+      { input: { a: 1 }, toolCallId: 'c1', toolName: 't', type: 'tool-call' },
     ]);
     expect(calls[0]?.function.arguments).toBe('{"a":1}');
   });
 
   it('serializes missing input as empty object arguments', () => {
     const calls = extractToolCallsFromParts([
-      { type: 'tool-call', toolCallId: 'c1', toolName: 't' },
+      { toolCallId: 'c1', toolName: 't', type: 'tool-call' },
     ]);
     expect(calls[0]?.function.arguments).toBe('{}');
   });
 
   it('ignores non tool-call parts', () => {
-    expect(extractToolCallsFromParts([{ type: 'text', text: 'hi' }])).toEqual([]);
+    expect(extractToolCallsFromParts([{ text: 'hi', type: 'text' }])).toEqual([]);
   });
 });

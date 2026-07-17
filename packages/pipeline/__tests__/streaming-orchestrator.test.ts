@@ -35,18 +35,18 @@ function createMockReader(contentMap: Record<string, string | null> = {}): Conte
   const prefetchCalls: string[][] = [];
 
   return {
-    readCalls,
-    releaseCalls,
+    async prefetchBatch(keys: string[]) {
+      prefetchCalls.push([...keys]);
+    },
     prefetchCalls,
+    readCalls,
     async readContent(compositeKey: string) {
       readCalls.push(compositeKey);
       return contentMap[compositeKey] ?? null;
     },
+    releaseCalls,
     releaseContent(compositeKey: string) {
       releaseCalls.push(compositeKey);
-    },
-    async prefetchBatch(keys: string[]) {
-      prefetchCalls.push([...keys]);
     },
   };
 }
@@ -56,9 +56,9 @@ function createMockReader(contentMap: Record<string, string | null> = {}): Conte
  */
 function createSuccessProcessor(): (key: string, content: string) => Promise<FileProcessResult> {
   return async (_key: string, content: string) => ({
-    success: true,
     chunksCreated: Math.ceil(content.length / 100),
     jobsEnqueued: Math.ceil(content.length / 100),
+    success: true,
   });
 }
 
@@ -73,11 +73,11 @@ function createTrackingProcessor(): {
   return {
     calls,
     processor: async (key: string, content: string) => {
-      calls.push({ key, content });
+      calls.push({ content, key });
       return {
-        success: true,
         chunksCreated: 1,
         jobsEnqueued: 1,
+        success: true,
       };
     },
   };
@@ -122,10 +122,10 @@ describe('streamingImport', () => {
         compositeKeys: ['folder:test.ts'],
         contentReader: reader,
         processFile: async () => ({
-          success: true,
           chunksCreated: 5,
-          jobsEnqueued: 5,
           existed: false,
+          jobsEnqueued: 5,
+          success: true,
         }),
       });
 
@@ -151,9 +151,9 @@ describe('streamingImport', () => {
         compositeKeys: Object.keys(contentMap),
         contentReader: reader,
         processFile: async (_key, content) => ({
-          success: true,
           chunksCreated: content.length,
           jobsEnqueued: content.length * 2,
+          success: true,
         }),
       });
 
@@ -254,8 +254,8 @@ describe('streamingImport', () => {
   describe('error handling', () => {
     it('isolates errors to individual files by default', async () => {
       const contentMap = {
-        'f:ok1.ts': 'good1',
         'f:bad.ts': 'will fail',
+        'f:ok1.ts': 'good1',
         'f:ok2.ts': 'good2',
       };
       const reader = createMockReader(contentMap);
@@ -267,7 +267,7 @@ describe('streamingImport', () => {
           if (key.includes('bad')) {
             throw new Error('Intentional failure');
           }
-          return { success: true, chunksCreated: 1, jobsEnqueued: 1 };
+          return { chunksCreated: 1, jobsEnqueued: 1, success: true };
         },
       });
 
@@ -279,8 +279,8 @@ describe('streamingImport', () => {
 
     it('stops on first error when continueOnError is false', async () => {
       const contentMap = {
-        'f:ok1.ts': 'good1',
         'f:bad.ts': 'will fail',
+        'f:ok1.ts': 'good1',
         'f:ok2.ts': 'should not process',
       };
       const reader = createMockReader(contentMap);
@@ -294,10 +294,10 @@ describe('streamingImport', () => {
       };
 
       const result = await streamingImport({
-        compositeKeys: Object.keys(contentMap),
+        compositeKeys: ['f:ok1.ts', 'f:bad.ts', 'f:ok2.ts'],
         contentReader: reader,
-        processFile: wrappedProcessor,
         options: { continueOnError: false },
+        processFile: wrappedProcessor,
       });
 
       // Should have processed ok1 and bad, but not ok2
@@ -337,9 +337,9 @@ describe('streamingImport', () => {
       await streamingImport({
         compositeKeys: Object.keys(contentMap),
         contentReader: reader,
-        processFile: createSuccessProcessor(),
         onProgress: (p) => progressUpdates.push({ ...p }),
         options: { progressThrottleMs: 0 }, // Disable throttling for tests
+        processFile: createSuccessProcessor(),
       });
 
       // Should have progress updates
@@ -358,13 +358,13 @@ describe('streamingImport', () => {
       await streamingImport({
         compositeKeys: ['folder:myfile.ts'],
         contentReader: reader,
-        processFile: createSuccessProcessor(),
         onProgress: (p) => {
           if (p.currentFile) {
             capturedFile = p.currentFile;
           }
         },
         options: { progressThrottleMs: 0 },
+        processFile: createSuccessProcessor(),
       });
 
       expect(capturedFile).toBe('folder:myfile.ts');
@@ -376,14 +376,14 @@ describe('streamingImport', () => {
       await streamingImport({
         compositeKeys: ['f:slow.ts'],
         contentReader: reader,
-        processFile: async () => {
-          await new Promise((r) => setTimeout(r, 10));
-          return { success: true, chunksCreated: 1, jobsEnqueued: 1 };
-        },
         onProgress: (p) => {
           expect(p.elapsedMs).toBeGreaterThanOrEqual(0);
         },
         options: { progressThrottleMs: 0 },
+        processFile: async () => {
+          await new Promise((r) => setTimeout(r, 10));
+          return { chunksCreated: 1, jobsEnqueued: 1, success: true };
+        },
       });
     });
   });
@@ -407,14 +407,14 @@ describe('streamingImport', () => {
       await streamingImport({
         compositeKeys: Object.keys(contentMap),
         contentReader: reader,
+        options: { concurrency: 2 },
         processFile: async () => {
           currentConcurrent++;
           maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
           await new Promise((r) => setTimeout(r, 10));
           currentConcurrent--;
-          return { success: true, chunksCreated: 1, jobsEnqueued: 1 };
+          return { chunksCreated: 1, jobsEnqueued: 1, success: true };
         },
-        options: { concurrency: 2 },
       });
 
       // With concurrency 2, we should see at most 2 concurrent
@@ -435,8 +435,8 @@ describe('streamingImport', () => {
       await streamingImport({
         compositeKeys: Object.keys(contentMap),
         contentReader: reader,
-        processFile: createSuccessProcessor(),
         options: { concurrency: 2, prefetchAhead: 2 },
+        processFile: createSuccessProcessor(),
       });
 
       // Should have called prefetch
@@ -483,7 +483,7 @@ describe('streamingImport', () => {
           if (processCount === 2) {
             controller.abort();
           }
-          return { success: true, chunksCreated: 1, jobsEnqueued: 1 };
+          return { chunksCreated: 1, jobsEnqueued: 1, success: true };
         },
         signal: controller.signal,
       });

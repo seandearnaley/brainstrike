@@ -8,7 +8,7 @@ import { addLogListener, LogLevel, resetLogger, setLogLevel } from '@brainstrike
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileTree } from '../tree/use-file-tree-context';
+import { type FileTreeRefreshResult, useFileTree } from '../tree/use-file-tree-context';
 import { __resetInFlightRootLoads } from '../tree/use-lazy-file-tree';
 import * as normalizedFileTree from '../utils/normalized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -18,12 +18,16 @@ let requestLoadHandler:
   | null = null;
 
 const mockWorkerPort = {
-  init: vi.fn(),
-  expandAll: vi.fn().mockResolvedValue({ patches: [], expandedPaths: [], loadedCount: 0 }),
-  loadPaths: vi.fn().mockResolvedValue({ patches: [], expandedPaths: [], loadedCount: 0 }),
   abort: vi.fn(),
-  terminate: vi.fn(),
-  updateTree: vi.fn(),
+  expandAll: vi.fn().mockResolvedValue({ expandedPaths: [], loadedCount: 0, patches: [] }),
+  init: vi.fn(),
+  loadPaths: vi.fn().mockResolvedValue({ expandedPaths: [], loadedCount: 0, patches: [] }),
+  onChildrenLoaded: vi.fn(() => () => {}),
+  onError: vi.fn(() => () => {}),
+  onExpandedPathsDelta: vi.fn(() => () => {}),
+  onLog: vi.fn(() => () => {}),
+  onNodeLoadStateChanged: vi.fn(() => () => {}),
+  onProgress: vi.fn(() => () => {}),
   onRequestLoad: vi.fn(
     (handler: (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>) => {
       requestLoadHandler = handler;
@@ -35,26 +39,22 @@ const mockWorkerPort = {
     }
   ),
   onTreeSnapshot: vi.fn(() => () => {}),
-  onChildrenLoaded: vi.fn(() => () => {}),
-  onNodeLoadStateChanged: vi.fn(() => () => {}),
-  onExpandedPathsDelta: vi.fn(() => () => {}),
-  onProgress: vi.fn(() => () => {}),
-  onError: vi.fn(() => () => {}),
-  onLog: vi.fn(() => () => {}),
+  terminate: vi.fn(),
+  updateTree: vi.fn(),
 };
 
 // Mock the file-tree-worker to avoid Worker instantiation in tests
 vi.mock('@brainstrike/file-tree-worker', () => ({
-  resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
   createFileTreeWorkerPort: vi.fn(() => mockWorkerPort),
+  resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
 }));
 
 // Mock global Worker for jsdom environment
 vi.stubGlobal(
   'Worker',
   vi.fn().mockImplementation(() => ({
-    postMessage: vi.fn(),
     addEventListener: vi.fn(),
+    postMessage: vi.fn(),
     removeEventListener: vi.fn(),
     terminate: vi.fn(),
   }))
@@ -63,57 +63,57 @@ vi.stubGlobal(
 // Helper to create mock file system with nested structure
 const createNestedMockFileSystem = () => ({
   parent: {
-    name: 'parent',
-    type: 'directory' as const,
     children: {
       child: {
-        name: 'child',
-        type: 'directory' as const,
         children: {
           'nested-file.txt': {
+            content: 'nested content',
             name: 'nested-file.txt',
             type: 'file' as const,
-            content: 'nested content',
           },
         },
+        name: 'child',
+        type: 'directory' as const,
       },
     },
+    name: 'parent',
+    type: 'directory' as const,
   },
 });
 
 const createExpandAllMockFileSystem = () => ({
   alpha: {
-    name: 'alpha',
-    type: 'directory' as const,
     children: {
       'alpha.test.ts': {
+        content: 'alpha test',
         name: 'alpha.test.ts',
         type: 'file' as const,
-        content: 'alpha test',
       },
     },
+    name: 'alpha',
+    type: 'directory' as const,
   },
   beta: {
-    name: 'beta',
-    type: 'directory' as const,
     children: {
       nested: {
-        name: 'nested',
-        type: 'directory' as const,
         children: {
           'nested.spec.ts': {
+            content: 'nested spec',
             name: 'nested.spec.ts',
             type: 'file' as const,
-            content: 'nested spec',
           },
         },
+        name: 'nested',
+        type: 'directory' as const,
       },
     },
+    name: 'beta',
+    type: 'directory' as const,
   },
   gamma: {
+    children: {},
     name: 'gamma',
     type: 'directory' as const,
-    children: {},
   },
 });
 
@@ -124,13 +124,13 @@ function createWorkerDirectoryNode(
   children: WorkerFileNode[]
 ): WorkerFileNode {
   return {
+    children,
+    depth,
+    loadState: 'loaded',
     name,
     path,
-    type: 'directory',
-    depth,
     rootFolderId: 'mock-root',
-    loadState: 'loaded',
-    children,
+    type: 'directory',
   };
 }
 
@@ -184,36 +184,6 @@ async function mockWorkerExpandAllThroughLoadRequests(): Promise<{
   );
 
   return {
-    patches: [
-      {
-        type: 'childrenLoaded',
-        payload: {
-          path: 'mock-root/alpha',
-          children: getChildren(rootResults, 'mock-root/alpha'),
-          loadState: 'loaded',
-        },
-      },
-      {
-        type: 'childrenLoaded',
-        payload: { path: 'mock-root/beta', children: betaChildren, loadState: 'loaded' },
-      },
-      {
-        type: 'childrenLoaded',
-        payload: {
-          path: 'mock-root/gamma',
-          children: getChildren(rootResults, 'mock-root/gamma'),
-          loadState: 'loaded',
-        },
-      },
-      {
-        type: 'childrenLoaded',
-        payload: {
-          path: 'mock-root/beta/nested',
-          children: getChildren(nestedResults, 'mock-root/beta/nested'),
-          loadState: 'loaded',
-        },
-      },
-    ],
     expandedPaths: [
       'mock-root/alpha',
       'mock-root/beta',
@@ -221,6 +191,36 @@ async function mockWorkerExpandAllThroughLoadRequests(): Promise<{
       'mock-root/beta/nested',
     ],
     loadedCount: 4,
+    patches: [
+      {
+        payload: {
+          children: getChildren(rootResults, 'mock-root/alpha'),
+          loadState: 'loaded',
+          path: 'mock-root/alpha',
+        },
+        type: 'childrenLoaded',
+      },
+      {
+        payload: { children: betaChildren, loadState: 'loaded', path: 'mock-root/beta' },
+        type: 'childrenLoaded',
+      },
+      {
+        payload: {
+          children: getChildren(rootResults, 'mock-root/gamma'),
+          loadState: 'loaded',
+          path: 'mock-root/gamma',
+        },
+        type: 'childrenLoaded',
+      },
+      {
+        payload: {
+          children: getChildren(nestedResults, 'mock-root/beta/nested'),
+          loadState: 'loaded',
+          path: 'mock-root/beta/nested',
+        },
+        type: 'childrenLoaded',
+      },
+    ],
   };
 }
 
@@ -231,8 +231,8 @@ describe('useFileTree (lazy loading version)', () => {
     mockAdapter = new MockFileSystemAdapter();
     vi.clearAllMocks();
     requestLoadHandler = null;
-    mockWorkerPort.loadPaths.mockResolvedValue({ patches: [], expandedPaths: [], loadedCount: 0 });
-    mockWorkerPort.expandAll.mockResolvedValue({ patches: [], expandedPaths: [], loadedCount: 0 });
+    mockWorkerPort.loadPaths.mockResolvedValue({ expandedPaths: [], loadedCount: 0, patches: [] });
+    mockWorkerPort.expandAll.mockResolvedValue({ expandedPaths: [], loadedCount: 0, patches: [] });
     __resetInFlightRootLoads();
     resetLogger();
     setLogLevel(LogLevel.DEBUG);
@@ -245,8 +245,8 @@ describe('useFileTree (lazy loading version)', () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeNull();
     expect(result.current.loadingProgress).toEqual({
-      loadingCount: 0,
       isInitialLoading: false,
+      loadingCount: 0,
     });
     expect(result.current.cancellable).toBe(false);
     expect(result.current.isCancelling).toBe(false);
@@ -334,9 +334,529 @@ describe('useFileTree (lazy loading version)', () => {
 
       expect(result.current.isCancelling).toBe(false);
     });
+
+    it('passes a signal to root streaming and ignores a terminal batch after cancellation', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const terminalNodes = await mockAdapter.readDirectory(handle);
+      let releaseRootLoad: (() => void) | null = null;
+      let rootSignal: AbortSignal | undefined;
+
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch, options) => {
+          rootSignal = options?.signal;
+          await new Promise<void>((resolve) => {
+            releaseRootLoad = () => {
+              onBatch(terminalNodes, { done: true, total: terminalNodes.length });
+              resolve();
+            };
+          });
+        });
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(result.current.isLoading).toBe(true);
+      });
+
+      act(() => {
+        result.current.cancelOperation();
+      });
+      const wasLoadingAfterCancel = result.current.isLoading;
+
+      await act(async () => {
+        releaseRootLoad?.();
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      expect(rootSignal).toBeInstanceOf(AbortSignal);
+      expect(rootSignal?.aborted).toBe(true);
+      expect(wasLoadingAfterCancel).toBe(false);
+      expect(result.current.fileTree).toEqual([]);
+      expect(mockWorkerPort.init).not.toHaveBeenCalled();
+    });
+
+    it('preserves the committed root snapshot when a same-root refresh is cancelled', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const rootId = 'committed-root-id';
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle, { rootId }), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const committedTree = result.current.fileTree;
+      const committedRootPaths = result.current.__internalNormalizedTreeRef?.current.rootPaths;
+      const committedDirectoryPath = committedTree.find((node) => node.type === 'directory')?.path;
+      const committedWorkerInitCount = mockWorkerPort.init.mock.calls.length;
+      expect(committedDirectoryPath).toBeDefined();
+
+      let releaseRefresh: (() => void) | null = null;
+      let refreshSignal: AbortSignal | undefined;
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch, options) => {
+          refreshSignal = options?.signal;
+          await new Promise<void>((resolve) => {
+            releaseRefresh = () => {
+              onBatch(committedTree, { done: true, total: committedTree.length });
+              resolve();
+            };
+          });
+        });
+
+      let refreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'completed',
+      });
+      act(() => {
+        refreshPromise = result.current.refreshTree();
+      });
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(result.current.isLoading).toBe(true);
+      });
+      act(() => {
+        result.current.cancelOperation();
+      });
+      const refreshIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      let refreshOutcome: FileTreeRefreshResult = { status: 'completed' };
+      await act(async () => {
+        releaseRefresh?.();
+        refreshOutcome = await refreshPromise;
+        await refreshIoPromise;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      expect(refreshSignal?.aborted).toBe(true);
+      expect(refreshOutcome).toEqual({ status: 'cancelled' });
+      expect(result.current.fileTree).toEqual(committedTree);
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toEqual(
+        committedRootPaths
+      );
+      expect(
+        result.current.__internalMaterializeSubtree?.(committedDirectoryPath ?? '')
+      ).toBeDefined();
+      expect(mockWorkerPort.init).toHaveBeenCalledTimes(committedWorkerInitCount);
+      expect(mockWorkerPort.init).toHaveBeenLastCalledWith(expect.any(Array), rootId);
+
+      if (!(requestLoadHandler && committedDirectoryPath)) {
+        throw new Error('Expected worker request handler and committed root directory path');
+      }
+      await expect(requestLoadHandler('committed-root', [committedDirectoryPath])).resolves.toEqual(
+        [expect.objectContaining({ children: expect.any(Array), path: committedDirectoryPath })]
+      );
+    });
+
+    it('keeps a pending same-root refresh authoritative when active expand-all is cancelled', async () => {
+      mockAdapter.setMockFileSystem(createExpandAllMockFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const sourceDirectory = result.current.fileTree.find((node) => node.type === 'directory');
+      if (!sourceDirectory) {
+        throw new Error('Expected a committed directory before overlapping operations');
+      }
+
+      const refreshedDirectoryPath = `${handle.path}/refresh-only`;
+      const refreshedTree = [
+        {
+          ...sourceDirectory,
+          name: 'refresh-only',
+          path: refreshedDirectoryPath,
+        },
+      ];
+      const expandAllDeferred = createDeferred<{
+        expandedPaths: string[];
+        loadedCount: number;
+        patches: AccumulatedFileTreePatchMessage[];
+      }>();
+      mockWorkerPort.expandAll.mockReturnValueOnce(expandAllDeferred.promise);
+
+      let releaseRefresh: (() => void) | null = null;
+      let refreshSignal: AbortSignal | undefined;
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch, options) => {
+          refreshSignal = options?.signal;
+          await new Promise<void>((resolve) => {
+            releaseRefresh = () => {
+              onBatch(refreshedTree, { done: true, total: refreshedTree.length });
+              resolve();
+            };
+          });
+        });
+
+      let expandedPaths = new Set<string>();
+      let expandPromise = Promise.resolve();
+      act(() => {
+        expandPromise = result.current.expandAllProgressively((updater) => {
+          expandedPaths = updater(expandedPaths);
+        });
+      });
+      await waitFor(() => expect(result.current.isExpandingAll).toBe(true));
+
+      let refreshSettled = false;
+      let refreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'cancelled',
+      });
+      act(() => {
+        refreshPromise = result.current.refreshTree();
+        void refreshPromise.then(() => {
+          refreshSettled = true;
+        });
+      });
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(result.current.isLoading).toBe(true);
+      });
+
+      act(() => {
+        result.current.cancelExpandAll();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const rootWasAbortedByExpandCancel = refreshSignal?.aborted;
+      const refreshWasPendingAfterExpandCancel = !refreshSettled;
+      const refreshWasLoadingAfterExpandCancel = result.current.isLoading;
+
+      const refreshIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      let refreshOutcome: FileTreeRefreshResult = { status: 'cancelled' };
+      await act(async () => {
+        releaseRefresh?.();
+        await refreshIoPromise;
+        refreshOutcome = await refreshPromise;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+
+      const committedTreeAfterRefresh = result.current.fileTree;
+      expandAllDeferred.reject(new Error('Operation aborted after refresh committed'));
+      await act(async () => {
+        await expandPromise;
+      });
+
+      expect(rootWasAbortedByExpandCancel).toBe(false);
+      expect(refreshOutcome).toEqual({ status: 'completed' });
+      expect(refreshWasPendingAfterExpandCancel).toBe(true);
+      expect(refreshWasLoadingAfterExpandCancel).toBe(true);
+      expect(mockWorkerPort.abort).toHaveBeenCalled();
+      expect(result.current.isExpandingAll).toBe(false);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.fileTree).toEqual(refreshedTree);
+      expect(result.current.fileTree).toEqual(committedTreeAfterRefresh);
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toEqual([
+        refreshedDirectoryPath,
+      ]);
+      expect(result.current.__internalMaterializeSubtree?.(refreshedDirectoryPath)).toBeDefined();
+      expect(mockWorkerPort.init).toHaveBeenLastCalledWith(expect.any(Array), handle.path);
+
+      if (!requestLoadHandler) {
+        throw new Error('Expected worker request handler after refreshed root commit');
+      }
+      await expect(requestLoadHandler('refreshed-root', [refreshedDirectoryPath])).resolves.toEqual(
+        [expect.objectContaining({ children: expect.any(Array), path: refreshedDirectoryPath })]
+      );
+    });
+
+    it.each([
+      'cancelRecursiveSelect',
+      'cancelSelectAll',
+    ] as const)('keeps a pending root refresh authoritative when %s runs', async (cancelMethod) => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const sourceFile = result.current.fileTree.find((node) => node.type === 'file');
+      if (!sourceFile) {
+        throw new Error('Expected a committed file before recursive cancellation');
+      }
+      const refreshedPath = `${handle.path}/${cancelMethod}-refresh.ts`;
+      const refreshedTree = [
+        ...result.current.fileTree,
+        { ...sourceFile, name: `${cancelMethod}-refresh.ts`, path: refreshedPath },
+      ];
+
+      let releaseRefresh: (() => void) | null = null;
+      let refreshSignal: AbortSignal | undefined;
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch, options) => {
+          refreshSignal = options?.signal;
+          await new Promise<void>((resolve) => {
+            releaseRefresh = () => {
+              onBatch(refreshedTree, { done: true, total: refreshedTree.length });
+              resolve();
+            };
+          });
+        });
+
+      let refreshSettled = false;
+      let refreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'cancelled',
+      });
+      act(() => {
+        refreshPromise = result.current.refreshTree();
+        void refreshPromise.then(() => {
+          refreshSettled = true;
+        });
+      });
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(result.current.isLoading).toBe(true);
+      });
+
+      act(() => {
+        result.current[cancelMethod]();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const rootWasAbortedByRecursiveCancel = refreshSignal?.aborted;
+      const refreshWasPendingAfterRecursiveCancel = !refreshSettled;
+
+      const refreshIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      let refreshOutcome: FileTreeRefreshResult = { status: 'cancelled' };
+      await act(async () => {
+        releaseRefresh?.();
+        await refreshIoPromise;
+        refreshOutcome = await refreshPromise;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(rootWasAbortedByRecursiveCancel).toBe(false);
+      expect(refreshOutcome).toEqual({ status: 'completed' });
+      expect(refreshWasPendingAfterRecursiveCancel).toBe(true);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.fileTree).toHaveLength(refreshedTree.length);
+      expect(result.current.fileTree).toEqual(expect.arrayContaining(refreshedTree));
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toContain(
+        refreshedPath
+      );
+      expect(mockWorkerPort.init).toHaveBeenLastCalledWith(expect.any(Array), handle.path);
+    });
+
+    it.each([
+      { changePath: true, changeRootId: false, switchKind: 'path-only' },
+      { changePath: false, changeRootId: true, switchKind: 'rootId-only' },
+    ])('atomically clears committed root state when a $switchKind switch is cancelled', async ({
+      changePath,
+      changeRootId,
+    }) => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const firstHandle = await mockAdapter.requestDirectoryAccess();
+      const secondHandle = changePath
+        ? { ...firstHandle, name: 'next-root', path: 'next-root' }
+        : { ...firstHandle };
+      const firstRootId = 'first-root-id';
+      const secondRootId = changeRootId ? 'second-root-id' : firstRootId;
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result, rerender } = renderHook(
+        ({ handle, rootId }) => useFileTree(handle, { rootId }),
+        {
+          initialProps: { handle: firstHandle, rootId: firstRootId },
+          wrapper: TestWrapper,
+        }
+      );
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const staleDirectoryPath = result.current.fileTree.find(
+        (node) => node.type === 'directory'
+      )?.path;
+      expect(staleDirectoryPath).toBeDefined();
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).not.toEqual([]);
+      expect(mockWorkerPort.init).toHaveBeenLastCalledWith(expect.any(Array), firstRootId);
+
+      const lateChildren = result.current.fileTree.map((node) => ({
+        ...node,
+        path: node.path.replace(firstHandle.path, secondHandle.path),
+        rootFolderId: secondRootId,
+      }));
+      let releaseRootSwitch: (() => void) | null = null;
+      let rootSwitchSignal: AbortSignal | undefined;
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch, options) => {
+          rootSwitchSignal = options?.signal;
+          await new Promise<void>((resolve) => {
+            releaseRootSwitch = () => {
+              onBatch(lateChildren, { done: true, total: lateChildren.length });
+              resolve();
+            };
+          });
+        });
+
+      act(() => {
+        rerender({ handle: secondHandle, rootId: secondRootId });
+      });
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(result.current.isLoading).toBe(true);
+      });
+      expect(readDirectoryStreamingSpy.mock.calls[0]?.[0]).toMatchObject({
+        path: secondHandle.path,
+      });
+
+      act(() => {
+        result.current.cancelOperation();
+      });
+      const rootSwitchIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      await act(async () => {
+        releaseRootSwitch?.();
+        await rootSwitchIoPromise;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      expect(rootSwitchSignal?.aborted).toBe(true);
+      expect(result.current.fileTree).toEqual([]);
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toEqual([]);
+      expect(result.current.__internalNormalizedTreeRef?.current.nodeByPath.size).toBe(0);
+      expect(
+        result.current.__internalMaterializeSubtree?.(staleDirectoryPath ?? '')
+      ).toBeUndefined();
+      expect(mockWorkerPort.init).toHaveBeenLastCalledWith([], secondRootId);
+
+      if (!(requestLoadHandler && staleDirectoryPath)) {
+        throw new Error('Expected worker request handler and prior root directory path');
+      }
+      await expect(requestLoadHandler('stale-root', [staleDirectoryPath])).resolves.toEqual([
+        { error: 'Handle not found', path: staleDirectoryPath },
+      ]);
+
+      readDirectoryStreamingSpy.mockImplementation(async (_handle, onBatch) => {
+        onBatch(lateChildren, { done: true, total: lateChildren.length });
+      });
+      await act(async () => {
+        await expect(result.current.refreshTree()).resolves.toEqual({ status: 'completed' });
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.fileTree).toEqual(lateChildren);
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toEqual(
+        lateChildren.map((node) => node.path)
+      );
+      expect(mockWorkerPort.init).toHaveBeenLastCalledWith(expect.any(Array), secondRootId);
+    });
+
+    it('settles an atomic root switch and permits retry when worker reset throws', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const firstHandle = await mockAdapter.requestDirectoryAccess();
+      const secondHandle = { ...firstHandle, name: 'next-root', path: 'next-root' };
+      const firstRootId = 'first-root-id';
+      const secondRootId = 'second-root-id';
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result, rerender } = renderHook(
+        ({ handle, rootId }) => useFileTree(handle, { rootId }),
+        {
+          initialProps: { handle: firstHandle, rootId: firstRootId },
+          wrapper: TestWrapper,
+        }
+      );
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const staleDirectoryPath = result.current.fileTree.find(
+        (node) => node.type === 'directory'
+      )?.path;
+      if (!staleDirectoryPath) {
+        throw new Error('Expected a committed directory before switching roots');
+      }
+      const nextChildren = result.current.fileTree.map((node) => ({
+        ...node,
+        path: node.path.replace(firstHandle.path, secondHandle.path),
+        rootFolderId: secondRootId,
+      }));
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch) => {
+          onBatch(nextChildren, { done: true, total: nextChildren.length });
+        });
+      const workerResetError = new Error('worker reset failed');
+      mockWorkerPort.init.mockImplementationOnce(() => {
+        throw workerResetError;
+      });
+
+      act(() => {
+        rerender({ handle: secondHandle, rootId: secondRootId });
+      });
+
+      await waitFor(() => expect(result.current.error).toBe(workerResetError));
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.fileTree).toEqual([]);
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toEqual([]);
+      expect(result.current.__internalNormalizedTreeRef?.current.nodeByPath.size).toBe(0);
+      expect(result.current.__internalMaterializeSubtree?.(staleDirectoryPath)).toBeUndefined();
+      expect(readDirectoryStreamingSpy).not.toHaveBeenCalled();
+
+      if (!requestLoadHandler) {
+        throw new Error('Expected worker request handler after failed root reset');
+      }
+      await expect(requestLoadHandler('failed-root-reset', [staleDirectoryPath])).resolves.toEqual([
+        { error: 'Handle not found', path: staleDirectoryPath },
+      ]);
+
+      let retryOutcome: FileTreeRefreshResult = { status: 'cancelled' };
+      await act(async () => {
+        retryOutcome = await result.current.refreshTree();
+      });
+
+      expect(retryOutcome).toEqual({ status: 'completed' });
+      expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+      expect(result.current.error).toBeNull();
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.fileTree).toEqual(nextChildren);
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toEqual(
+        nextChildren.map((node) => node.path)
+      );
+      expect(mockWorkerPort.init).toHaveBeenLastCalledWith(expect.any(Array), secondRootId);
+    });
   });
 
   describe('Error handling', () => {
+    it('rejects a manual refresh with the exact adapter error', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const refreshError = new Error('manual refresh failed');
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockRejectedValueOnce(refreshError);
+
+      await act(async () => {
+        await expect(result.current.refreshTree()).rejects.toBe(refreshError);
+      });
+
+      expect(result.current.error).toBe(refreshError);
+      expect(result.current.isLoading).toBe(false);
+    });
+
     it('should handle non-Error exceptions properly', async () => {
       const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
       mockAdapter.setMockFileSystem(mockFS);
@@ -358,6 +878,78 @@ describe('useFileTree (lazy loading version)', () => {
       expect(result.current.error).toBeInstanceOf(Error);
       expect(result.current.error?.message).toBe('String error');
       expect(result.current.fileTree).toEqual([]);
+    });
+
+    it('preserves a committed refresh snapshot and permits retry when worker init throws', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const rootId = 'committed-root-id';
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle, { rootId }), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const committedTree = result.current.fileTree;
+      const committedRootPaths = result.current.__internalNormalizedTreeRef?.current.rootPaths;
+      const committedDirectoryPath = committedTree.find((node) => node.type === 'directory')?.path;
+      const sourceFile = committedTree.find((node) => node.type === 'file');
+      if (!(committedDirectoryPath && sourceFile)) {
+        throw new Error('Expected committed directory and file nodes before refresh');
+      }
+      const refreshedPath = `${handle.path}/refreshed-only.ts`;
+      const refreshedTree = [
+        {
+          ...sourceFile,
+          name: 'refreshed-only.ts',
+          path: refreshedPath,
+        },
+      ];
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(
+        async (_handle, onBatch) => {
+          onBatch(refreshedTree, { done: true, total: refreshedTree.length });
+        }
+      );
+      const workerInitError = new Error('worker init failed');
+      mockWorkerPort.init.mockImplementationOnce(() => {
+        throw workerInitError;
+      });
+
+      await act(async () => {
+        await expect(result.current.refreshTree()).rejects.toBe(workerInitError);
+      });
+
+      expect(result.current.error).toBe(workerInitError);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.fileTree).toEqual(committedTree);
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toEqual(
+        committedRootPaths
+      );
+      expect(result.current.__internalMaterializeSubtree?.(committedDirectoryPath)).toBeDefined();
+
+      if (!requestLoadHandler) {
+        throw new Error('Expected worker request handler after failed refresh commit');
+      }
+      await expect(requestLoadHandler('failed-refresh', [committedDirectoryPath])).resolves.toEqual(
+        [expect.objectContaining({ children: expect.any(Array), path: committedDirectoryPath })]
+      );
+
+      let retryOutcome: FileTreeRefreshResult = { status: 'cancelled' };
+      await act(async () => {
+        retryOutcome = await result.current.refreshTree();
+      });
+
+      expect(retryOutcome).toEqual({ status: 'completed' });
+      expect(result.current.error).toBeNull();
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.fileTree).toEqual(refreshedTree);
+      expect(result.current.__internalNormalizedTreeRef?.current.rootPaths).toEqual([
+        refreshedPath,
+      ]);
+      expect(result.current.__internalMaterializeSubtree?.(committedDirectoryPath)).toBeUndefined();
+      expect(mockWorkerPort.init).toHaveBeenLastCalledWith(expect.any(Array), rootId);
     });
 
     it('reports an error when streaming root loading never emits a final batch', async () => {
@@ -497,9 +1089,8 @@ describe('useFileTree (lazy loading version)', () => {
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-      // Refresh should work without throwing
       await act(async () => {
-        await expect(result.current.refreshTree()).resolves.not.toThrow();
+        await expect(result.current.refreshTree()).resolves.toEqual({ status: 'completed' });
       });
     });
 
@@ -550,12 +1141,12 @@ describe('useFileTree (lazy loading version)', () => {
       const initialProps: HookProps = { handle: null };
 
       const { result, rerender } = renderHook(({ handle }: HookProps) => useFileTree(handle), {
-        wrapper: TestWrapper,
         initialProps,
+        wrapper: TestWrapper,
       });
 
       await act(async () => {
-        await result.current.refreshTree();
+        await expect(result.current.refreshTree()).resolves.toEqual({ status: 'cancelled' });
       });
 
       const handle = await mockAdapter.requestDirectoryAccess();
@@ -582,8 +1173,8 @@ describe('useFileTree (lazy loading version)', () => {
         FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result, rerender } = renderHook(({ handle }) => useFileTree(handle), {
-        wrapper: TestWrapper,
         initialProps: { handle: initialHandle },
+        wrapper: TestWrapper,
       });
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -638,6 +1229,156 @@ describe('useFileTree (lazy loading version)', () => {
       expect(readDirectoryStreamingSpy).toHaveBeenCalledTimes(1);
       expect(firstHook.result.current.fileTree.length).toBeGreaterThan(0);
       expect(secondHook.result.current.fileTree.length).toBeGreaterThan(0);
+    });
+
+    it('keeps a shared root request alive until its last consumer cancels', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const terminalNodes = await mockAdapter.readDirectory(handle);
+      let releaseRootLoad: (() => void) | null = null;
+      let rootSignal: AbortSignal | undefined;
+
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch, options) => {
+          rootSignal = options?.signal;
+          await new Promise<void>((resolve) => {
+            releaseRootLoad = () => {
+              onBatch(terminalNodes, { done: true, total: terminalNodes.length });
+              resolve();
+            };
+          });
+        });
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const firstHook = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+      const secondHook = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(firstHook.result.current.isLoading).toBe(true);
+        expect(secondHook.result.current.isLoading).toBe(true);
+      });
+
+      act(() => {
+        firstHook.result.current.cancelOperation();
+      });
+      const wasUnderlyingAbortedAfterFirstCancel = rootSignal?.aborted;
+      const wasFirstConsumerLoadingAfterCancel = firstHook.result.current.isLoading;
+      const wasSecondConsumerLoadingAfterFirstCancel = secondHook.result.current.isLoading;
+
+      act(() => {
+        secondHook.result.current.cancelOperation();
+      });
+      const wasUnderlyingAbortedAfterLastCancel = rootSignal?.aborted;
+
+      await act(async () => {
+        releaseRootLoad?.();
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(firstHook.result.current.isLoading).toBe(false);
+        expect(secondHook.result.current.isLoading).toBe(false);
+      });
+
+      expect(rootSignal).toBeInstanceOf(AbortSignal);
+      expect(wasUnderlyingAbortedAfterFirstCancel).toBe(false);
+      expect(wasUnderlyingAbortedAfterLastCancel).toBe(true);
+      expect(wasFirstConsumerLoadingAfterCancel).toBe(false);
+      expect(wasSecondConsumerLoadingAfterFirstCancel).toBe(true);
+      expect(firstHook.result.current.fileTree).toEqual([]);
+      expect(secondHook.result.current.fileTree).toEqual([]);
+    });
+
+    it('lets a joined refresh commit after the starter cancels without clearing either snapshot', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const starterHook = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+      const joinerHook = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+
+      await waitFor(() => {
+        expect(starterHook.result.current.isLoading).toBe(false);
+        expect(joinerHook.result.current.isLoading).toBe(false);
+      });
+      const starterSnapshot = starterHook.result.current.fileTree;
+      const joinerSnapshot = joinerHook.result.current.fileTree;
+      const sourceNode = joinerSnapshot.find((node) => node.type === 'file');
+      if (!sourceNode) {
+        throw new Error('Expected a committed file node for the joined refresh');
+      }
+      const refreshedPath = `${handle.path}/refreshed-file.ts`;
+      const refreshedTree = [
+        ...joinerSnapshot,
+        {
+          ...sourceNode,
+          name: 'refreshed-file.ts',
+          path: refreshedPath,
+        },
+      ];
+      let releaseSharedRefresh: (() => void) | null = null;
+      let sharedRefreshSignal: AbortSignal | undefined;
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (_handle, onBatch, options) => {
+          sharedRefreshSignal = options?.signal;
+          await new Promise<void>((resolve) => {
+            releaseSharedRefresh = () => {
+              onBatch(refreshedTree, { done: true, total: refreshedTree.length });
+              resolve();
+            };
+          });
+        });
+
+      let starterRefreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'completed',
+      });
+      let joinerRefreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'completed',
+      });
+      act(() => {
+        starterRefreshPromise = starterHook.result.current.refreshTree();
+        joinerRefreshPromise = joinerHook.result.current.refreshTree();
+      });
+      await waitFor(() => {
+        expect(readDirectoryStreamingSpy).toHaveBeenCalledOnce();
+        expect(starterHook.result.current.isLoading).toBe(true);
+        expect(joinerHook.result.current.isLoading).toBe(true);
+      });
+
+      act(() => {
+        starterHook.result.current.cancelOperation();
+      });
+
+      expect(sharedRefreshSignal?.aborted).toBe(false);
+      expect(starterHook.result.current.isLoading).toBe(false);
+      expect(joinerHook.result.current.isLoading).toBe(true);
+      expect(starterHook.result.current.fileTree).toEqual(starterSnapshot);
+      expect(joinerHook.result.current.fileTree).toEqual(joinerSnapshot);
+
+      const sharedRefreshIoPromise = readDirectoryStreamingSpy.mock.results[0]?.value;
+      let starterOutcome: FileTreeRefreshResult = { status: 'completed' };
+      let joinerOutcome: FileTreeRefreshResult = { status: 'cancelled' };
+      await act(async () => {
+        releaseSharedRefresh?.();
+        await sharedRefreshIoPromise;
+        [starterOutcome, joinerOutcome] = await Promise.all([
+          starterRefreshPromise,
+          joinerRefreshPromise,
+        ]);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(sharedRefreshSignal?.aborted).toBe(false);
+      expect(starterOutcome).toEqual({ status: 'cancelled' });
+      expect(joinerOutcome).toEqual({ status: 'completed' });
+      expect(starterHook.result.current.fileTree).toEqual(starterSnapshot);
+      expect(joinerHook.result.current.fileTree).toEqual(refreshedTree);
+      expect(starterHook.result.current.isLoading).toBe(false);
+      expect(joinerHook.result.current.isLoading).toBe(false);
     });
 
     it('does NOT share a root load between loaders with different rootId (no rootFolderId contamination)', async () => {
@@ -768,7 +1509,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before non-streaming child load');
       }
 
@@ -849,8 +1590,8 @@ describe('useFileTree (lazy loading version)', () => {
           loadedCount: 1,
           patches: [
             {
+              payload: { children: [], loadState: 'loaded', path: 'mock-root/alpha' },
               type: 'childrenLoaded',
-              payload: { path: 'mock-root/alpha', children: [], loadState: 'loaded' },
             },
           ],
         });
@@ -914,7 +1655,7 @@ describe('useFileTree (lazy loading version)', () => {
           (node) => node.type === 'directory' && node.name === 'parent'
         );
         expect(initialParentDir?.type).toBe('directory');
-        if (!initialParentDir || initialParentDir.type !== 'directory') {
+        if (initialParentDir?.type !== 'directory') {
           throw new Error('Expected parent directory to be present before restoration');
         }
 
@@ -931,14 +1672,14 @@ describe('useFileTree (lazy loading version)', () => {
           (node) => node.type === 'directory' && node.name === 'parent'
         );
         expect(parentDir?.type).toBe('directory');
-        if (!parentDir || parentDir.type !== 'directory') {
+        if (parentDir?.type !== 'directory') {
           throw new Error('Expected parent directory to be restored');
         }
         expect(parentDir.loadState).toBe('loaded');
 
         const childDir = parentDir.children?.find((node) => node.name === 'child');
         expect(childDir?.type).toBe('directory');
-        if (!childDir || childDir.type !== 'directory') {
+        if (childDir?.type !== 'directory') {
           throw new Error('Expected child directory to be restored');
         }
         expect(childDir.loadState).toBe('loaded');
@@ -977,7 +1718,7 @@ describe('useFileTree (lazy loading version)', () => {
           (node) => node.type === 'directory' && node.name === 'parent'
         );
         expect(parentDir?.type).toBe('directory');
-        if (!parentDir || parentDir.type !== 'directory') {
+        if (parentDir?.type !== 'directory') {
           throw new Error('Expected parent directory to be restored');
         }
 
@@ -1053,7 +1794,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory to be present before restoration');
       }
 
@@ -1071,7 +1812,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.path === parentDir.path
       );
       expect(parentAfterDirectLoad?.type).toBe('directory');
-      if (!parentAfterDirectLoad || parentAfterDirectLoad.type !== 'directory') {
+      if (parentAfterDirectLoad?.type !== 'directory') {
         throw new Error('Expected parent directory after direct load');
       }
       expect(parentAfterDirectLoad.children?.some((child) => child.path === childPath)).toBe(true);
@@ -1082,12 +1823,12 @@ describe('useFileTree (lazy loading version)', () => {
           loadedCount: 1,
           patches: [
             {
-              type: 'childrenLoaded',
               payload: {
                 children: [],
                 loadState: 'loaded',
                 path: childPath,
               },
+              type: 'childrenLoaded',
             },
           ],
         });
@@ -1098,7 +1839,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.path === parentDir.path
       );
       expect(parentAfterRestoration?.type).toBe('directory');
-      if (!parentAfterRestoration || parentAfterRestoration.type !== 'directory') {
+      if (parentAfterRestoration?.type !== 'directory') {
         throw new Error('Expected parent directory after restoration');
       }
       const childAfterRestoration = parentAfterRestoration.children?.find(
@@ -1236,7 +1977,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before loading children');
       }
 
@@ -1274,7 +2015,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before refreshing children');
       }
 
@@ -1284,20 +2025,20 @@ describe('useFileTree (lazy loading version)', () => {
 
       mockAdapter.setMockFileSystem({
         parent: {
-          name: 'parent',
-          type: 'directory' as const,
           children: {
             child: {
+              children: {},
               name: 'child',
               type: 'directory' as const,
-              children: {},
             },
             'fresh-file.md': {
+              content: 'new content',
               name: 'fresh-file.md',
               type: 'file' as const,
-              content: 'new content',
             },
           },
+          name: 'parent',
+          type: 'directory' as const,
         },
       });
 
@@ -1307,7 +2048,7 @@ describe('useFileTree (lazy loading version)', () => {
 
       const refreshedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
       expect(refreshedParent?.type).toBe('directory');
-      if (!refreshedParent || refreshedParent.type !== 'directory') {
+      if (refreshedParent?.type !== 'directory') {
         throw new Error('Expected parent directory after refresh');
       }
       expect(refreshedParent.loadState).toBe('loaded');
@@ -1337,7 +2078,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before restoration');
       }
 
@@ -1347,12 +2088,12 @@ describe('useFileTree (lazy loading version)', () => {
 
       const loadedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
       expect(loadedParent?.type).toBe('directory');
-      if (!loadedParent || loadedParent.type !== 'directory') {
+      if (loadedParent?.type !== 'directory') {
         throw new Error('Expected loaded parent directory before worker patch');
       }
       const childDir = loadedParent.children?.find((node) => node.name === 'child');
       expect(childDir?.type).toBe('directory');
-      if (!childDir || childDir.type !== 'directory') {
+      if (childDir?.type !== 'directory') {
         throw new Error('Expected child directory handle before worker patch');
       }
 
@@ -1362,7 +2103,6 @@ describe('useFileTree (lazy loading version)', () => {
         loadedCount: 1,
         patches: [
           {
-            type: 'childrenLoaded',
             payload: {
               children: [
                 {
@@ -1377,6 +2117,7 @@ describe('useFileTree (lazy loading version)', () => {
               loadState: 'loaded',
               path: parentDir.path,
             },
+            type: 'childrenLoaded',
           },
         ],
       });
@@ -1403,7 +2144,6 @@ describe('useFileTree (lazy loading version)', () => {
         loadedCount: 1,
         patches: [
           {
-            type: 'childrenLoaded',
             payload: {
               children: [
                 {
@@ -1418,6 +2158,7 @@ describe('useFileTree (lazy loading version)', () => {
               loadState: 'loaded',
               path: 'mock-root/parent',
             },
+            type: 'childrenLoaded',
           },
         ],
       });
@@ -1469,7 +2210,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before cache assertions');
       }
 
@@ -1479,12 +2220,12 @@ describe('useFileTree (lazy loading version)', () => {
 
       const loadedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
       expect(loadedParent?.type).toBe('directory');
-      if (!loadedParent || loadedParent.type !== 'directory') {
+      if (loadedParent?.type !== 'directory') {
         throw new Error('Expected loaded parent directory before loading child');
       }
       const childDir = loadedParent.children?.find((node) => node.name === 'child');
       expect(childDir?.type).toBe('directory');
-      if (!childDir || childDir.type !== 'directory') {
+      if (childDir?.type !== 'directory') {
         throw new Error('Expected child directory before cache assertions');
       }
 
@@ -1547,14 +2288,14 @@ describe('useFileTree (lazy loading version)', () => {
 
       const betaDirectory = result.current.fileTree.find((node) => node.path === 'mock-root/beta');
       expect(betaDirectory?.type).toBe('directory');
-      if (!betaDirectory || betaDirectory.type !== 'directory') {
+      if (betaDirectory?.type !== 'directory') {
         throw new Error('Expected beta directory to be present');
       }
       const nestedDirectory = betaDirectory.children?.find(
         (node) => node.path === 'mock-root/beta/nested'
       );
       expect(nestedDirectory?.type).toBe('directory');
-      if (!nestedDirectory || nestedDirectory.type !== 'directory') {
+      if (nestedDirectory?.type !== 'directory') {
         throw new Error('Expected nested directory to be present');
       }
       expect(nestedDirectory.loadState).toBe('loaded');
@@ -1566,22 +2307,22 @@ describe('useFileTree (lazy loading version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
       mockWorkerPort.expandAll.mockResolvedValueOnce({
-        patches: [
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/alpha', children: [], loadState: 'loaded' },
-          },
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/beta', children: [], loadState: 'loaded' },
-          },
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/gamma', children: [], loadState: 'loaded' },
-          },
-        ],
         expandedPaths: ['mock-root/alpha', 'mock-root/beta', 'mock-root/gamma'],
         loadedCount: 3,
+        patches: [
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/alpha' },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/beta' },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/gamma' },
+            type: 'childrenLoaded',
+          },
+        ],
       });
 
       const TestWrapper = ({ children }: { children: ReactNode }) =>
@@ -1657,30 +2398,30 @@ describe('useFileTree (lazy loading version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
       mockWorkerPort.expandAll.mockResolvedValueOnce({
-        patches: [
-          {
-            type: 'childrenLoaded',
-            payload: {
-              path: 'mock-root/alpha',
-              children: [],
-              loadState: 'loaded',
-            },
-          },
-          {
-            type: 'childrenLoaded',
-            payload: {
-              path: 'mock-root/beta',
-              children: [],
-              loadState: 'loaded',
-            },
-          },
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/gamma', children: [], loadState: 'loaded' },
-          },
-        ],
         expandedPaths: ['mock-root/alpha', 'mock-root/beta', 'mock-root/gamma'],
         loadedCount: 3,
+        patches: [
+          {
+            payload: {
+              children: [],
+              loadState: 'loaded',
+              path: 'mock-root/alpha',
+            },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: {
+              children: [],
+              loadState: 'loaded',
+              path: 'mock-root/beta',
+            },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/gamma' },
+            type: 'childrenLoaded',
+          },
+        ],
       });
       const applyBulkSpy = vi.spyOn(normalizedFileTree, 'applyNormalizedDirectoryChildrenUpdates');
 
@@ -1717,22 +2458,22 @@ describe('useFileTree (lazy loading version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
       mockWorkerPort.expandAll.mockResolvedValueOnce({
-        patches: [
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/alpha', children: [], loadState: 'loaded' },
-          },
-          {
-            type: 'nodeLoadStateChanged',
-            payload: {
-              path: 'mock-root/beta',
-              loadState: 'error',
-              loadError: 'Permission denied',
-            },
-          },
-        ],
         expandedPaths: ['mock-root/alpha'],
         loadedCount: 1,
+        patches: [
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/alpha' },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: {
+              loadError: 'Permission denied',
+              loadState: 'error',
+              path: 'mock-root/beta',
+            },
+            type: 'nodeLoadStateChanged',
+          },
+        ],
       });
 
       const TestWrapper = ({ children }: { children: ReactNode }) =>
@@ -1758,6 +2499,50 @@ describe('useFileTree (lazy loading version)', () => {
       expect(betaDirectory?.type).toBe('directory');
       expect(betaDirectory?.loadState).toBe('error');
       expect(betaDirectory?.loadError).toBe('Permission denied');
+    });
+  });
+
+  describe('recursive-select tree hydration', () => {
+    it('hydrates scanned directories so a completed folder select can derive checked without manual expansion', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentNode = result.current.fileTree.find((n) => n.name === 'parent');
+      if (!parentNode) {
+        throw new Error('parent directory not found in loaded root');
+      }
+      expect(parentNode.loadState).toBe('unloaded');
+
+      const addMultipleSelectedFiles = vi.fn();
+      await act(async () => {
+        await result.current.selectFolderRecursively(
+          parentNode,
+          'folder-1',
+          addMultipleSelectedFiles,
+          1000,
+          0,
+          0
+        );
+      });
+
+      // The scan read parent/ and parent/child/ from the adapter — the lazy
+      // tree must ingest those listings (loadState 'loaded' + counts) so the
+      // tri-state derivation can prove completeness immediately. Previously
+      // the selection landed but the tree stayed unloaded, leaving the folder
+      // stuck at indeterminate until the user expanded every subdirectory.
+      await waitFor(() => {
+        expect(result.current.__internalGetDescendantFileCount?.(parentNode.path)).toBe(1);
+      });
+      const hydratedParent = result.current.fileTree.find((n) => n.name === 'parent');
+      expect(hydratedParent?.loadState).toBe('loaded');
+      const child = hydratedParent?.children?.find((n) => n.name === 'child');
+      expect(child?.loadState).toBe('loaded');
+      expect(child?.children?.map((n) => n.name)).toEqual(['nested-file.txt']);
     });
   });
 });

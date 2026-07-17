@@ -11,6 +11,16 @@ interface ModelPickerItemProps {
   theme?: 'light' | 'dark';
 }
 
+function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    return `${Number((tokens / 1_000_000).toFixed(1))}M context`;
+  }
+  if (tokens >= 1000) {
+    return `${Math.round(tokens / 1000)}K context`;
+  }
+  return `${tokens} context`;
+}
+
 export function ModelPickerItem({
   model,
   isSelected,
@@ -18,35 +28,62 @@ export function ModelPickerItem({
   theme = 'light',
 }: ModelPickerItemProps) {
   const providerColor = getProviderColor(model.providerId, theme);
+  const metadata = [
+    model.contextWindow ? formatContextWindow(model.contextWindow) : null,
+    model.capabilities.defaultDimension
+      ? `${model.capabilities.defaultDimension.toLocaleString()} dimensions`
+      : null,
+    model.capabilities.streaming ? 'Streaming' : null,
+  ].filter((value): value is string => value !== null);
 
   return (
     <Command.Item
       className={cn(
-        'relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pr-2 pl-8 text-sm outline-none aria-selected:bg-accent aria-selected:text-accent-foreground',
+        'group/item relative grid min-h-14 cursor-pointer select-none grid-cols-[2rem_minmax(0,1fr)_1.75rem] items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-sm outline-none transition-[border-color,background-color,box-shadow] aria-selected:border-border/60 aria-selected:bg-accent/60 aria-selected:text-accent-foreground aria-selected:shadow-sm',
         // Force pointer events to ensure items are clickable even if cmdk thinks they are disabled
         'pointer-events-auto opacity-100',
-        isSelected && 'bg-accent/15'
+        isSelected && 'border-border/70 bg-accent/45 shadow-sm'
       )}
       onSelect={onSelect}
-      style={isSelected ? { borderLeft: `2px solid ${providerColor}` } : undefined}
       value={model.id}
     >
-      <div className="flex flex-1 flex-col">
-        <div className="flex items-center justify-between">
-          <span className="font-medium">{model.name}</span>
-          {isSelected && <Check className="h-4 w-4" style={{ color: providerColor }} />}
-        </div>
+      <span className="grid size-8 place-items-center rounded-lg border border-border/60 bg-background/70 shadow-xs">
+        <span
+          className="size-2.5 rounded-full ring-4 ring-current/10"
+          style={{ backgroundColor: providerColor, color: providerColor }}
+        />
+      </span>
+      <div className="min-w-0">
+        <span className="block truncate font-medium leading-5">{model.name}</span>
         {model.description && (
-          <span className="line-clamp-1 text-muted-foreground text-xs">{model.description}</span>
+          <span className="block truncate text-muted-foreground text-xs leading-4">
+            {model.description}
+          </span>
         )}
-      </div>
-      <div className="ml-2 flex gap-1">
-        {model.capabilities.streaming && (
-          <span className="rounded border bg-background/50 px-1 text-[10px] text-muted-foreground uppercase">
-            Stream
+        {metadata.length > 0 && (
+          <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground leading-4">
+            {metadata.map((label) => (
+              <span
+                className="rounded-md border border-border/50 bg-background/55 px-1.5"
+                key={label}
+              >
+                {label}
+              </span>
+            ))}
           </span>
         )}
       </div>
+      <span
+        className={cn(
+          'grid size-7 place-items-center rounded-full border transition-colors',
+          isSelected
+            ? 'border-current bg-background/80 shadow-xs'
+            : 'border-transparent text-transparent'
+        )}
+        style={isSelected ? { color: providerColor } : undefined}
+      >
+        <Check className="size-3.5" />
+      </span>
     </Command.Item>
   );
 }

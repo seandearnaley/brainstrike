@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 
@@ -8,28 +9,56 @@ export default defineConfig({
   optimizeDeps: {
     include: ['@brainstrike/hooks', '@brainstrike/ui'],
   },
-  test: {
-    environment: 'happy-dom',
-    globals: true,
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    testTimeout: 15_000, // uiComponent timeout (getAdjustedTimeout not available in build context)
-    include: [
-      'src/**/__tests__/**/*.test.{ts,tsx}',
-      // E2E utility unit tests use .vitest.ts extension to avoid Playwright extension conflict
-      'e2e/utils/__tests__/**/*.vitest.ts',
+  resolve: {
+    // Array form: first match wins, so config-local entries (deliberate
+    // overrides, curated subpath maps) come BEFORE the shared registry
+    // spread, mirroring the packages/* convention from B3 (#1651) and
+    // apps/desktop/vitest.config.mts (#1658).
+    alias: [
+      // Browser-safe agent subpath entries first (exact specifiers), then the
+      // agent ROOT as a plain prefix so `@brainstrike/agent` and its remaining
+      // node-only subpaths (`/pglite-mastra-memory`, …) resolve to SOURCE.
+      // The shared registry deliberately EXCLUDES agent (its root pulls
+      // Mastra/Node-only deps that cannot load in browser-only test lanes),
+      // but this app's src runtime-imports the agent root directly — a
+      // guarantee that vanished when B4 dropped `test.dependsOn: ["^build"]`.
+      // Aliasing the root to src keeps those lanes green without re-adding a
+      // build edge. Subpath entries MUST precede the root: a plain string
+      // `find` prefix-matches (`specifier.startsWith(find + '/')`), so
+      // `@brainstrike/agent` listed first would shadow every subpath below it.
+      ...Object.entries(
+        createAgentBrowserSafeAliasMap(resolve(import.meta.dirname, '../../packages/agent'))
+      ).map(([find, replacement]) => ({ find, replacement })),
+      {
+        find: '@brainstrike/agent',
+        replacement: resolve(import.meta.dirname, '../../packages/agent/src'),
+      },
+      // @brainstrike/workers has no `src/` dir (worker files live at the
+      // package root), so the registry skips it — alias its subpaths and root
+      // explicitly, subpath first for the same prefix-shadowing reason above.
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: resolve(import.meta.dirname, '../../packages/workers/file-content-worker.ts'),
+      },
+      {
+        find: '@brainstrike/workers',
+        replacement: resolve(import.meta.dirname, '../../packages/workers'),
+      },
+      // B3/B4: shared workspace source-alias registry (#1651/#1658), so every
+      // other `@brainstrike/*` runtime import in this app's test lanes
+      // executes SOURCE instead of resolving to built dist via package
+      // `exports`. Replaces the hand-maintained map this file used to carry
+      // (every entry it listed besides the two exceptions above was already
+      // an exact match for what this registry derives from each package's own
+      // `exports` map).
+      ...workspaceSrcAliases(resolve(import.meta.dirname, '../../packages')),
     ],
-    exclude: ['node_modules', 'dist'],
-    // Use threads pool with increased parallelization for better CPU utilization
-    pool: 'threads',
-    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-    maxWorkers: process.env['CI'] ? '50%' : '100%',
+    preserveSymlinks: true,
+  },
+  test: {
     // Ensure coverage only counts actual source files to avoid skew from configs/e2e utils.
     coverage: {
       enabled: coverageEnabled,
-      provider: 'v8',
-      reportsDirectory: './coverage',
-      reporter: ['text', 'lcov', 'json'],
-      include: ['src/**/*.{ts,tsx}'],
       exclude: [
         '**/*.test.*',
         '**/__tests__/**',
@@ -42,117 +71,24 @@ export default defineConfig({
         '**/playwright.config.*',
         'e2e/**',
       ],
+      include: ['src/**/*.{ts,tsx}'],
+      provider: 'v8',
+      reporter: ['text', 'lcov', 'json'],
+      reportsDirectory: './coverage',
     },
-  },
-  resolve: {
-    alias: {
-      '@brainstrike/agent': resolve(import.meta.dirname, '../../packages/agent/src'),
-      ...createAgentBrowserSafeAliasMap(resolve(import.meta.dirname, '../../packages/agent')),
-      '@brainstrike/app-shell': resolve(import.meta.dirname, '../../packages/app-shell/src'),
-      '@brainstrike/db': resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
-      '@brainstrike/db-explorer': resolve(import.meta.dirname, '../../packages/db-explorer/src'),
-      '@brainstrike/embeddings/runtime-config': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/runtime-config.ts'
-      ),
-      '@brainstrike/embeddings/provider-core': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/provider-core.ts'
-      ),
-      '@brainstrike/embeddings/backend': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/backend-entry.ts'
-      ),
-      '@brainstrike/embeddings/factory': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/factory-entry.ts'
-      ),
-      '@brainstrike/embeddings/service': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/service-entry.ts'
-      ),
-      '@brainstrike/embeddings/worker': resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/worker-entry.ts'
-      ),
-      '@brainstrike/embeddings': resolve(import.meta.dirname, '../../packages/embeddings/src'),
-      '@brainstrike/queue/browser': resolve(
-        import.meta.dirname,
-        '../../packages/queue/src/browser.ts'
-      ),
-      '@brainstrike/queue': resolve(import.meta.dirname, '../../packages/queue/src'),
-      '@brainstrike/file-import/browser-queue-port': resolve(
-        import.meta.dirname,
-        '../../packages/file-import/src/browser-queue-port.ts'
-      ),
-      '@brainstrike/file-import/chunking-worker-context': resolve(
-        import.meta.dirname,
-        '../../packages/file-import/src/chunking-worker-context.tsx'
-      ),
-      '@brainstrike/file-import/enhanced-import': resolve(
-        import.meta.dirname,
-        '../../packages/file-import/src/enhanced-import.ts'
-      ),
-      '@brainstrike/file-import': resolve(import.meta.dirname, '../../packages/file-import/src'),
-      '@brainstrike/preferences': resolve(import.meta.dirname, '../../packages/preferences/src'),
-      '@brainstrike/platform-utils': resolve(
-        import.meta.dirname,
-        '../../packages/platform-utils/src'
-      ),
-      '@brainstrike/text-splitter/chunking-core': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/chunking-core.ts'
-      ),
-      '@brainstrike/text-splitter/token-counting-heuristics': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/token-counting-heuristics.ts'
-      ),
-      '@brainstrike/text-splitter/token-constants': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/token-constants.ts'
-      ),
-      '@brainstrike/text-splitter/token-utils-accurate-lite': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
-      ),
-      '@brainstrike/text-splitter': resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/index.ts'
-      ),
-      '@brainstrike/types': resolve(import.meta.dirname, '../../packages/types/src'),
-      '@brainstrike/vector-management': resolve(
-        import.meta.dirname,
-        '../../packages/vector-management/src'
-      ),
-      '@brainstrike/hooks': resolve(import.meta.dirname, '../../packages/hooks/src'),
-      '@brainstrike/ui': resolve(import.meta.dirname, '../../packages/ui/src'),
-      '@brainstrike/utils': resolve(import.meta.dirname, '../../packages/utils/src'),
-      '@brainstrike/file-explorer': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer/src'
-      ),
-      '@brainstrike/file-explorer-hooks': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-hooks/src'
-      ),
-      '@brainstrike/file-explorer-ui': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-ui/src'
-      ),
-      '@brainstrike/file-explorer-ui/indexing': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-ui/src/indexing'
-      ),
-      '@brainstrike/file-explorer-ui/shell': resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-ui/src/shell'
-      ),
-      '@brainstrike/workers': resolve(import.meta.dirname, '../../packages/workers'),
-      '@brainstrike/workers/file-content-worker': resolve(
-        import.meta.dirname,
-        '../../packages/workers/file-content-worker.ts'
-      ),
-    },
-    preserveSymlinks: true,
+    environment: 'happy-dom',
+    exclude: ['node_modules', 'dist'],
+    globals: true,
+    include: [
+      'src/**/__tests__/**/*.test.{ts,tsx}',
+      // E2E utility unit tests use .vitest.ts extension to avoid Playwright extension conflict
+      'e2e/utils/__tests__/**/*.vitest.ts',
+    ],
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
+    // Use threads pool with increased parallelization for better CPU utilization
+    pool: 'threads',
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    testTimeout: 15_000, // uiComponent timeout (getAdjustedTimeout not available in build context)
   },
 });

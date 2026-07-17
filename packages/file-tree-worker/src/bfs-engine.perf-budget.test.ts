@@ -21,12 +21,12 @@ const { BFSEngine } = await import('./bfs-engine');
 
 function createDirectoryNode(overrides: Partial<WorkerFileNode> = {}): WorkerFileNode {
   return {
+    depth: 1,
+    loadState: 'unloaded',
     name: 'dir',
     path: '/root/dir',
-    type: 'directory',
-    depth: 1,
     rootFolderId: 'root',
-    loadState: 'unloaded',
+    type: 'directory',
     ...overrides,
   };
 }
@@ -66,14 +66,14 @@ describe('BFSEngine performance budget reporting', () => {
 
     expect(perfTiming.checkBudget).toHaveBeenCalledWith('batch-load-1', 75, 'expandBatch');
     expect(messages).toContainEqual({
-      type: 'log',
       level: 'debug',
       message: '[expand-all] Slow batch: 1 dirs in 75ms',
+      type: 'log',
     });
     expect(messages).toContainEqual({
-      type: 'log',
       level: 'info',
       message: '[expand-all] 1 batch(es) exceeded performance budget',
+      type: 'log',
     });
   });
 });

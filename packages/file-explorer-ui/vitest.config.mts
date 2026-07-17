@@ -1,28 +1,12 @@
 import { resolve } from 'node:path';
 import { testBase } from '@brainstrike/test-utils/vitest.base';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import type { InlineConfig } from 'vitest';
 import { defineConfig } from 'vitest/config';
 // NOTE: TypeScript can get confused about Vitest type identities under pnpm workspaces.
 // Casting `test` here avoids noisy editor errors without affecting runtime behavior.
 
 export default defineConfig({
-  // Cast mitigates TS2769 type identity noise in some editors
-  test: {
-    ...testBase,
-    setupFiles: [
-      ...(testBase.setupFiles ?? []),
-      resolve(import.meta.dirname, './src/__tests__/setup/suppress-token-utils-warnings.ts'),
-    ],
-    // Default to happy-dom for speed; jsdom-only suites should annotate at file top
-    environment: 'happy-dom',
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
-    // Switch to threads to reduce memory/startup overhead
-    pool: 'threads',
-    // Keep isolation to avoid cross-file state until a deeper audit completes
-    isolate: true,
-    testTimeout: 30_000,
-  } as InlineConfig,
   resolve: {
     alias: [
       {
@@ -62,12 +46,12 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../utils/src/logger.ts'),
       },
       {
-        find: '@brainstrike/utils/safe-storage',
-        replacement: resolve(import.meta.dirname, '../utils/src/safe-storage.ts'),
-      },
-      {
         find: '@brainstrike/utils',
         replacement: resolve(import.meta.dirname, '../utils/src'),
+      },
+      {
+        find: '@brainstrike/storage',
+        replacement: resolve(import.meta.dirname, '../storage/src/index.ts'),
       },
       {
         find: '@brainstrike/file-explorer',
@@ -97,6 +81,38 @@ export default defineConfig({
         find: '@brainstrike/context-actions',
         replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
+      // @brainstrike/workers has no src/ dir (worker files at the package root),
+      // so the registry skips it; alias its subpaths explicitly.
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
+      },
+      {
+        find: '@brainstrike/workers/report-generation-worker',
+        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
+      },
+      // Registry fills the remaining workspace deps (file-system, selection-rules,
+      // token-cache, file-tree-worker, workers, platform-utils transitively, …)
+      // from SOURCE. Hand-rolled entries above win by first-match ordering.
+      // See @brainstrike/test-utils/workspace-src-aliases (incident #1066/#1207).
+      ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],
   },
+  // Cast mitigates TS2769 type identity noise in some editors
+  test: {
+    ...testBase,
+    // Default to happy-dom for speed; jsdom-only suites should annotate at file top
+    environment: 'happy-dom',
+    exclude: ['node_modules', 'dist'],
+    include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
+    // Keep isolation to avoid cross-file state until a deeper audit completes
+    isolate: true,
+    // Switch to threads to reduce memory/startup overhead
+    pool: 'threads',
+    setupFiles: [
+      ...(testBase.setupFiles ?? []),
+      resolve(import.meta.dirname, './src/__tests__/setup/suppress-token-utils-warnings.ts'),
+    ],
+    testTimeout: 30_000,
+  } as InlineConfig,
 });

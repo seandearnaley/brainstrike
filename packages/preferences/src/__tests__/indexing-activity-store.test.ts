@@ -1,10 +1,21 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
   type IndexingDatabaseWorkSnapshot,
+  type IndexingManagedCollectionStats,
   useIndexingActivityStore,
 } from '../stores/indexing-activity-store';
+
+const MANAGED_COLLECTION_STATS: IndexingManagedCollectionStats = {
+  chunkCount: 42,
+  dirty: false,
+  embeddedChunkCount: 30,
+  embeddingSetId: 'workspace-index-a',
+  fileCount: 7,
+  lastRefreshedAt: '2026-07-09T12:00:00.000Z',
+  pendingChunkCount: 12,
+};
 
 function createPriorityStats(
   overrides: Partial<IndexingDatabaseWorkPriorityStats> = {}
@@ -41,12 +52,12 @@ function createDatabaseWorkSnapshot(
     lastNormalAt: null,
     lastStartedAt: null,
     priorityStats: {
+      background: createPriorityStats(),
       foreground: createPriorityStats(),
       normal: createPriorityStats(),
-      background: createPriorityStats(),
     },
-    queued: { foreground: 0, normal: 0, background: 0 },
-    queuedLabels: { foreground: [], normal: [], background: [] },
+    queued: { background: 0, foreground: 0, normal: 0 },
+    queuedLabels: { background: [], foreground: [], normal: [] },
     runningLabel: null,
     runningPriority: null,
     snapshotAt: 0,
@@ -61,85 +72,157 @@ describe('indexing-activity-store', () => {
 
   it('starts unavailable instead of defaulting unknown queue state to idle zeroes', () => {
     expect(useIndexingActivityStore.getState().snapshot).toEqual({
-      status: 'unavailable',
-      phase: null,
-      queue: null,
       activeBackfills: [],
       background: {
         enabled: false,
         lastError: null,
-        paused: false,
         managedCollectionId: null,
         managedCollectionName: null,
-        state: 'disabled',
+        paused: false,
         pauseReasons: [],
+        state: 'disabled',
       },
       databaseWork: null,
-      worker: null,
       lastError: null,
       lastUpdatedAt: null,
+      phase: null,
+      queue: null,
+      status: 'unavailable',
+      worker: null,
+    });
+  });
+
+  it('starts managed collection stats explicitly unavailable', () => {
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: null,
+      error: null,
+      stats: null,
+      status: 'unavailable',
+    });
+  });
+
+  it('stores explicit managed collection stats lifecycle states without inventing zeroes', () => {
+    const { setManagedCollectionStats } = useIndexingActivityStore.getState();
+
+    setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: null,
+      status: 'loading',
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: null,
+      status: 'loading',
+    });
+
+    setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: null,
+      status: 'pending',
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: null,
+      status: 'pending',
+    });
+
+    setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'ready',
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'ready',
+    });
+  });
+
+  it('allows an error state to retain last-known stats for the same managed collection', () => {
+    useIndexingActivityStore.getState().setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: 'Managed collection stats query failed',
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'error',
+    });
+
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: 'workspace-index-a',
+      error: 'Managed collection stats query failed',
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'error',
     });
   });
 
   it('reports idle only after an explicit empty queue snapshot exists', () => {
     useIndexingActivityStore.getState().setQueueSnapshot({
+      failed: 0,
+      nextRunnableAt: null,
       queued: 0,
       running: 0,
-      failed: 0,
       succeeded: 4,
-      nextRunnableAt: null,
+      succeededLifetime: 4,
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'idle',
       phase: null,
       queue: {
+        failed: 0,
+        nextRunnableAt: null,
         queued: 0,
         running: 0,
-        failed: 0,
         succeeded: 4,
-        nextRunnableAt: null,
+        succeededLifetime: 4,
       },
+      status: 'idle',
     });
     expect(useIndexingActivityStore.getState().snapshot.lastUpdatedAt).toEqual(expect.any(Number));
   });
 
   it('does not report idle from a stopped worker without an explicit queue snapshot', () => {
     useIndexingActivityStore.getState().setWorkerSnapshot({
-      state: 'stopped',
       lastError: null,
+      state: 'stopped',
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'unavailable',
       phase: null,
       queue: null,
+      status: 'unavailable',
       worker: {
-        state: 'stopped',
         lastError: null,
+        state: 'stopped',
       },
     });
   });
 
   it('derives active queue state from queued and running jobs', () => {
     useIndexingActivityStore.getState().setQueueSnapshot({
+      failed: 0,
+      nextRunnableAt: '2026-04-25T12:00:00.000Z',
       queued: 8,
       running: 2,
-      failed: 0,
       succeeded: 20,
-      nextRunnableAt: '2026-04-25T12:00:00.000Z',
+      succeededLifetime: 20,
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'active',
       phase: 'queue',
       queue: {
+        failed: 0,
+        nextRunnableAt: '2026-04-25T12:00:00.000Z',
         queued: 8,
         running: 2,
-        failed: 0,
         succeeded: 20,
-        nextRunnableAt: '2026-04-25T12:00:00.000Z',
+        succeededLifetime: 20,
       },
+      status: 'active',
     });
   });
 
@@ -151,157 +234,244 @@ describe('indexing-activity-store', () => {
         backgroundYieldCount: 1,
         currentBackgroundWaitMs: 50,
         lastForegroundAt: 900,
-        queued: { foreground: 1, normal: 0, background: 4 },
+        queued: { background: 4, foreground: 1, normal: 0 },
       })
     );
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'active',
-      phase: 'background-indexing',
       databaseWork: {
         backgroundWaiting: true,
-        queued: { foreground: 1, normal: 0, background: 4 },
+        queued: { background: 4, foreground: 1, normal: 0 },
       },
+      phase: 'background-indexing',
+      status: 'active',
     });
   });
 
   it('keeps manual backfills visible independently of the active collection', () => {
     useIndexingActivityStore.getState().setBackfills([
       {
+        current: 3,
         embeddingSetId: 'set-other',
         requestId: 'embedding-backfill:1',
         source: 'manual',
-        current: 3,
         total: 10,
       },
     ]);
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'active',
-      phase: 'manual-backfill',
       activeBackfills: [
         {
+          current: 3,
           embeddingSetId: 'set-other',
           requestId: 'embedding-backfill:1',
           source: 'manual',
-          current: 3,
           total: 10,
         },
       ],
+      phase: 'manual-backfill',
+      status: 'active',
     });
   });
 
   it('reports paused background indexing before idle queue state', () => {
     useIndexingActivityStore.getState().setQueueSnapshot({
+      failed: 0,
+      nextRunnableAt: null,
       queued: 0,
       running: 0,
-      failed: 0,
       succeeded: 2,
-      nextRunnableAt: null,
+      succeededLifetime: 2,
     });
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
       lastError: null,
-      paused: true,
       managedCollectionId: 'set-1',
       managedCollectionName: 'Workspace cache',
-      state: 'paused',
+      paused: true,
       pauseReasons: ['Paused manually'],
+      state: 'paused',
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'paused',
-      phase: 'background-indexing',
       background: {
         enabled: true,
         lastError: null,
-        paused: true,
         managedCollectionId: 'set-1',
         managedCollectionName: 'Workspace cache',
-        state: 'paused',
+        paused: true,
         pauseReasons: ['Paused manually'],
+        state: 'paused',
       },
+      phase: 'background-indexing',
+      status: 'paused',
     });
   });
 
   it('reports errors from queue, worker, background, or explicit activity error', () => {
     useIndexingActivityStore.getState().setWorkerSnapshot({
-      state: 'error',
       lastError: 'Embedding worker crashed',
+      state: 'error',
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'error',
-      phase: 'embedding',
-      worker: {
-        state: 'error',
-        lastError: 'Embedding worker crashed',
-      },
       lastError: 'Embedding worker crashed',
+      phase: 'embedding',
+      status: 'error',
+      worker: {
+        lastError: 'Embedding worker crashed',
+        state: 'error',
+      },
     });
 
     useIndexingActivityStore.getState().setWorkerSnapshot(null);
     useIndexingActivityStore.getState().setQueueSnapshot({
+      failed: 1,
+      nextRunnableAt: null,
       queued: 0,
       running: 0,
-      failed: 1,
       succeeded: 2,
-      nextRunnableAt: null,
+      succeededLifetime: 2,
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'error',
-      phase: 'queue',
       lastError: '1 embedding job failed',
+      phase: 'queue',
+      status: 'error',
     });
 
     useIndexingActivityStore.getState().setQueueSnapshot({
+      failed: 0,
+      nextRunnableAt: null,
       queued: 0,
       running: 0,
-      failed: 0,
       succeeded: 2,
-      nextRunnableAt: null,
+      succeededLifetime: 2,
     });
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
       lastError: 'No root folder selected.',
-      paused: false,
       managedCollectionId: 'set-1',
       managedCollectionName: 'Workspace cache',
-      state: 'error',
+      paused: false,
       pauseReasons: [],
+      state: 'error',
     });
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'error',
-      phase: 'background-indexing',
       lastError: 'No root folder selected.',
+      phase: 'background-indexing',
+      status: 'error',
     });
 
     useIndexingActivityStore.getState().setIndexingActivityError('Live query failed');
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'error',
       lastError: 'Live query failed',
+      status: 'error',
     });
   });
 
   it('resets back to unavailable', () => {
     useIndexingActivityStore.getState().setQueueSnapshot({
+      failed: 0,
+      nextRunnableAt: null,
       queued: 1,
       running: 0,
-      failed: 0,
       succeeded: 0,
-      nextRunnableAt: null,
+      succeededLifetime: 0,
+    });
+    useIndexingActivityStore.getState().setManagedCollectionStats({
+      collectionId: 'workspace-index-a',
+      error: null,
+      stats: MANAGED_COLLECTION_STATS,
+      status: 'ready',
     });
 
     useIndexingActivityStore.getState().resetIndexingActivity();
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-      status: 'unavailable',
+      lastUpdatedAt: null,
       phase: null,
       queue: null,
-      lastUpdatedAt: null,
+      status: 'unavailable',
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toEqual({
+      collectionId: null,
+      error: null,
+      stats: null,
+      status: 'unavailable',
+    });
+  });
+
+  // The coordinator polls these setters at 0.5–1 s forever; value-equal
+  // snapshots must be no-ops (no new snapshot identity, no subscriber
+  // notification) or the always-mounted status item re-renders 2–3×/s while
+  // the app is idle.
+  describe('value-equal snapshot writes are no-ops', () => {
+    const queueSnapshot = () => ({
+      failed: 0,
+      nextRunnableAt: null,
+      queued: 3,
+      running: 1,
+      succeeded: 7,
+      succeededLifetime: 12,
+    });
+
+    it('setQueueSnapshot with an equal snapshot keeps identity and does not notify', () => {
+      useIndexingActivityStore.getState().setQueueSnapshot(queueSnapshot());
+      const before = useIndexingActivityStore.getState().snapshot;
+
+      const listener = vi.fn();
+      const unsubscribe = useIndexingActivityStore.subscribe(listener);
+      useIndexingActivityStore.getState().setQueueSnapshot(queueSnapshot());
+      unsubscribe();
+
+      expect(useIndexingActivityStore.getState().snapshot).toBe(before);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('setDatabaseWorkSnapshot with an equal snapshot keeps identity and does not notify', () => {
+      useIndexingActivityStore.getState().setDatabaseWorkSnapshot(createDatabaseWorkSnapshot());
+      const before = useIndexingActivityStore.getState().snapshot;
+
+      const listener = vi.fn();
+      const unsubscribe = useIndexingActivityStore.subscribe(listener);
+      useIndexingActivityStore.getState().setDatabaseWorkSnapshot(createDatabaseWorkSnapshot());
+      unsubscribe();
+
+      expect(useIndexingActivityStore.getState().snapshot).toBe(before);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('setManagedCollectionStats with equal stats keeps identity and does not notify', () => {
+      const stats = () => ({
+        collectionId: 'workspace-index-a',
+        error: null,
+        stats: { ...MANAGED_COLLECTION_STATS },
+        status: 'ready' as const,
+      });
+      useIndexingActivityStore.getState().setManagedCollectionStats(stats());
+      const before = useIndexingActivityStore.getState().managedCollectionStats;
+
+      const listener = vi.fn();
+      const unsubscribe = useIndexingActivityStore.subscribe(listener);
+      useIndexingActivityStore.getState().setManagedCollectionStats(stats());
+      unsubscribe();
+
+      expect(useIndexingActivityStore.getState().managedCollectionStats).toBe(before);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('a CHANGED queue snapshot still updates and notifies', () => {
+      useIndexingActivityStore.getState().setQueueSnapshot(queueSnapshot());
+      const listener = vi.fn();
+      const unsubscribe = useIndexingActivityStore.subscribe(listener);
+      useIndexingActivityStore.getState().setQueueSnapshot({ ...queueSnapshot(), queued: 4 });
+      unsubscribe();
+
+      expect(useIndexingActivityStore.getState().snapshot.queue?.queued).toBe(4);
+      expect(listener).toHaveBeenCalledTimes(1);
     });
   });
 });

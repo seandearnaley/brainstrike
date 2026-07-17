@@ -7,6 +7,7 @@
 import { addLogListener } from '@brainstrike/utils';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -26,7 +27,7 @@ describe('Drizzle Migration Runner', () => {
 
   beforeEach(async () => {
     db = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
     });
   });
 
@@ -142,13 +143,13 @@ describe('Drizzle Migration Runner', () => {
       `);
 
         expect(presets.rows).toEqual([
-          { name: 'TypeScript/JavaScript', is_default: true },
-          { name: 'All Code', is_default: true },
-          { name: 'Documentation', is_default: true },
-          { name: 'Config Files', is_default: true },
-          { name: 'Styles', is_default: true },
-          { name: 'Tests', is_default: true },
-          { name: 'All Files', is_default: true },
+          { is_default: true, name: 'TypeScript/JavaScript' },
+          { is_default: true, name: 'All Code' },
+          { is_default: true, name: 'Documentation' },
+          { is_default: true, name: 'Config Files' },
+          { is_default: true, name: 'Styles' },
+          { is_default: true, name: 'Tests' },
+          { is_default: true, name: 'All Files' },
         ]);
       },
       MIGRATION_RUN_TIMEOUT_MS
@@ -362,8 +363,8 @@ describe('Drizzle Migration Runner', () => {
         const onComplete = vi.fn();
 
         await runMigrations(db, {
-          onMigrationStart: onStart,
           onMigrationComplete: onComplete,
+          onMigrationStart: onStart,
         });
 
         expect(onStart).toHaveBeenCalled();

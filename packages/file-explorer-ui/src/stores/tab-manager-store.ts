@@ -21,12 +21,16 @@ interface TabManagerData {
 
 interface TabManagerActions {
   clearTabs: () => void;
+  /** Atomically keep only `tabId`; returns the resulting active tab. */
+  closeOtherTabs: (tabId: string) => string | null;
   /**
    * Close a tab and return the resulting active tab id (or null if no tabs remain).
    * Returning the successor makes the contract explicit so callers don't need to read
    * `useTabManagerStore.getState().activeTabId` immediately after closing.
    */
   closeTab: (tabId: string) => string | null;
+  /** Atomically close every tab after `tabId`; returns the resulting active tab. */
+  closeTabsToRight: (tabId: string) => string | null;
   openTab: (path: string, tabId: string, compositeKey: string) => void;
   setActiveTab: (tabId: string) => void;
   setTabError: (tabId: string, error: string) => void;
@@ -74,6 +78,7 @@ function migrateLegacyTabKey(name: string): string | null {
       activeTabId?: string | null;
     };
     const migrated: PersistedState = {
+      activeTabId: (parsed.activeTabId ?? null) as string | null,
       // Filter out malformed legacy entries before stringifying — without this, a
       // missing field would produce String(undefined) === 'undefined' and create a
       // phantom tab with that literal id. Unlikely on existing installs but cheap
@@ -87,12 +92,11 @@ function migrateLegacyTabKey(name: string): string | null {
                 typeof t.compositeKey === 'string'
             )
             .map((t) => ({
+              compositeKey: t.compositeKey,
               id: t.id,
               path: t.path,
-              compositeKey: t.compositeKey,
             }))
         : [],
-      activeTabId: (parsed.activeTabId ?? null) as string | null,
     };
     const wrapped = JSON.stringify({ state: migrated, version: 1 });
     try {
@@ -131,28 +135,80 @@ function migrateV1ToV2(ps: PersistedState): PersistedState {
       continue;
     }
     seen.add(nextId);
-    tabs.push({ id: nextId, path: t.path, compositeKey: t.compositeKey });
+    tabs.push({ compositeKey: t.compositeKey, id: nextId, path: t.path });
   }
   const remappedActive =
     ps.activeTabId === null ? null : (remap.get(ps.activeTabId) ?? ps.activeTabId);
   // If the originally-active id deduped away, fall back to the first remaining tab.
   const activeTabId =
     remappedActive !== null && seen.has(remappedActive) ? remappedActive : (tabs[0]?.id ?? null);
-  return { tabs, activeTabId };
+  return { activeTabId, tabs };
 }
 
 const storage = createJSONStorage(() =>
   createSafeJsonStateStorage({
-    scope: 'TabManagerStore',
     migrateOnGet: migrateLegacyTabKey,
+    scope: 'TabManagerStore',
   })
 );
 
 export const useTabManagerStore = create<TabManagerStore>()(
   persist(
     (set, get) => ({
-      tabs: [],
       activeTabId: null,
+
+      clearTabs: () => set({ activeTabId: null, tabs: [] }),
+
+      closeOtherTabs: (tabId) => {
+        const state = get();
+        const retainedTab = state.tabs.find((tab) => tab.id === tabId);
+        if (!retainedTab) {
+          return state.activeTabId;
+        }
+        if (state.tabs.length === 1 && state.activeTabId === tabId) {
+          return tabId;
+        }
+        set({ activeTabId: tabId, tabs: [retainedTab] });
+        return tabId;
+      },
+
+      closeTab: (tabId) => {
+        // Compute the successor against the snapshot from get() so the value we return
+        // never depends on observing post-set state — this used to reach into the
+        // updater closure via a let-mutation, which was correct but coupled the return
+        // contract to Zustand's synchronous-set internals. Reading first, then setting,
+        // makes the contract entirely explicit.
+        const state = get();
+        if (!state.tabs.some((tab) => tab.id === tabId)) {
+          return state.activeTabId;
+        }
+        const newTabs = state.tabs.filter((t) => t.id !== tabId);
+        let nextActive = state.activeTabId;
+        if (state.activeTabId === tabId) {
+          const prevIndex = state.tabs.findIndex((t) => t.id === tabId);
+          const candidate = newTabs[prevIndex] || newTabs[prevIndex - 1] || null;
+          nextActive = candidate ? candidate.id : null;
+        }
+        set({ activeTabId: nextActive, tabs: newTabs });
+        return nextActive;
+      },
+
+      closeTabsToRight: (tabId) => {
+        const state = get();
+        const targetIndex = state.tabs.findIndex((tab) => tab.id === tabId);
+        if (targetIndex === -1) {
+          return state.activeTabId;
+        }
+        const remainingTabs = state.tabs.slice(0, targetIndex + 1);
+        if (remainingTabs.length === state.tabs.length) {
+          return state.activeTabId;
+        }
+        const activeTabId = remainingTabs.some((tab) => tab.id === state.activeTabId)
+          ? state.activeTabId
+          : tabId;
+        set({ activeTabId, tabs: remainingTabs });
+        return activeTabId;
+      },
 
       openTab: (path, tabId, compositeKey) => {
         set((state) => {
@@ -161,11 +217,11 @@ export const useTabManagerStore = create<TabManagerStore>()(
             return { ...state, activeTabId: tabId };
           }
           const newTab: FileTabState = {
-            id: tabId,
-            path,
             compositeKey,
             content: null,
+            id: tabId,
             isLoading: true,
+            path,
           };
           const nextTabs = [...state.tabs, newTab];
           if (nextTabs.length > MAX_TABS) {
@@ -180,35 +236,15 @@ export const useTabManagerStore = create<TabManagerStore>()(
             });
             nextTabs.shift();
           }
-          return { tabs: nextTabs, activeTabId: tabId };
+          return { activeTabId: tabId, tabs: nextTabs };
         });
-      },
-
-      closeTab: (tabId) => {
-        // Compute the successor against the snapshot from get() so the value we return
-        // never depends on observing post-set state — this used to reach into the
-        // updater closure via a let-mutation, which was correct but coupled the return
-        // contract to Zustand's synchronous-set internals. Reading first, then setting,
-        // makes the contract entirely explicit.
-        const state = get();
-        const newTabs = state.tabs.filter((t) => t.id !== tabId);
-        let nextActive = state.activeTabId;
-        if (state.activeTabId === tabId) {
-          const prevIndex = state.tabs.findIndex((t) => t.id === tabId);
-          const candidate = newTabs[prevIndex] || newTabs[prevIndex - 1] || null;
-          nextActive = candidate ? candidate.id : null;
-        }
-        set({ tabs: newTabs, activeTabId: nextActive });
-        return nextActive;
       },
 
       setActiveTab: (tabId) => set({ activeTabId: tabId }),
 
-      updateTabContent: (tabId, content) =>
+      setTabError: (tabId, error) =>
         set((state) => ({
-          tabs: state.tabs.map((t) =>
-            t.id === tabId ? { ...t, content, isLoading: false, error: undefined } : t
-          ),
+          tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, error, isLoading: false } : t)),
         })),
 
       setTabLoading: (tabId, isLoading) =>
@@ -217,29 +253,35 @@ export const useTabManagerStore = create<TabManagerStore>()(
             t.id === tabId
               ? {
                   ...t,
-                  isLoading,
                   content: isLoading ? null : t.content,
                   error: isLoading ? undefined : t.error,
+                  isLoading,
                 }
               : t
           ),
         })),
+      tabs: [],
 
-      setTabError: (tabId, error) =>
+      updateTabContent: (tabId, content) =>
         set((state) => ({
-          tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, error, isLoading: false } : t)),
+          tabs: state.tabs.map((t) =>
+            t.id === tabId ? { ...t, content, error: undefined, isLoading: false } : t
+          ),
         })),
-
-      clearTabs: () => set({ tabs: [], activeTabId: null }),
     }),
     {
-      name: STORE_NAME,
-      version: 2,
-      storage,
-      partialize: (s): PersistedState => ({
-        tabs: s.tabs.map((t) => ({ id: t.id, path: t.path, compositeKey: t.compositeKey })),
-        activeTabId: s.activeTabId,
-      }),
+      merge: (persisted, current) => {
+        const ps = (persisted as unknown as PersistedState) || { activeTabId: null, tabs: [] };
+        const reconstructed: FileTabState[] = ps.tabs.map((t) => ({
+          compositeKey: t.compositeKey,
+          content: null,
+          error: undefined,
+          id: t.id,
+          isLoading: false,
+          path: t.path,
+        }));
+        return { ...current, activeTabId: ps.activeTabId, tabs: reconstructed } as TabManagerStore;
+      },
       // Migrations are written as a per-version chain so adding a v3 step is purely
       // additive — no need to update an existing guard. Future shape:
       //   let next = ps;
@@ -248,26 +290,21 @@ export const useTabManagerStore = create<TabManagerStore>()(
       //   return next;
       migrate: (persisted, version) => {
         let ps = (persisted as PersistedState | undefined) ?? {
-          tabs: [],
           activeTabId: null,
+          tabs: [],
         };
         if (version < 2) {
           ps = migrateV1ToV2(ps);
         }
         return ps;
       },
-      merge: (persisted, current) => {
-        const ps = (persisted as unknown as PersistedState) || { tabs: [], activeTabId: null };
-        const reconstructed: FileTabState[] = ps.tabs.map((t) => ({
-          id: t.id,
-          path: t.path,
-          compositeKey: t.compositeKey,
-          content: null,
-          isLoading: false,
-          error: undefined,
-        }));
-        return { ...current, tabs: reconstructed, activeTabId: ps.activeTabId } as TabManagerStore;
-      },
+      name: STORE_NAME,
+      partialize: (s): PersistedState => ({
+        activeTabId: s.activeTabId,
+        tabs: s.tabs.map((t) => ({ compositeKey: t.compositeKey, id: t.id, path: t.path })),
+      }),
+      storage,
+      version: 2,
     }
   )
 );
@@ -276,7 +313,7 @@ export const useTabManagerStore = create<TabManagerStore>()(
 export function __resetTabManagerStoreForTests() {
   try {
     // Clear in-memory state
-    useTabManagerStore.setState({ tabs: [], activeTabId: null });
+    useTabManagerStore.setState({ activeTabId: null, tabs: [] });
     // Clear persisted storage if available
     const persistApi = (
       useTabManagerStore as unknown as {

@@ -1,16 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const mockLogger = vi.hoisted(() => ({
-  warn: vi.fn(),
-  info: vi.fn(),
-  error: vi.fn(),
-  debug: vi.fn(),
-}));
-
-vi.mock('@brainstrike/utils/logger', () => ({
-  createLogger: vi.fn(() => mockLogger),
-}));
-
 import {
   generateContentHash,
   generateUUID,
@@ -28,22 +17,22 @@ describe('crypto-utils', () => {
     // Restore original methods
     if (originalRandomUUID) {
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: originalRandomUUID,
         configurable: true,
+        value: originalRandomUUID,
         writable: true,
       });
     }
     if (originalSubtle) {
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: originalSubtle,
         configurable: true,
+        value: originalSubtle,
         writable: true,
       });
     }
     if (originalGetRandomValues) {
       Object.defineProperty(globalThis.crypto, 'getRandomValues', {
-        value: originalGetRandomValues,
         configurable: true,
+        value: originalGetRandomValues,
         writable: true,
       });
     }
@@ -56,8 +45,8 @@ describe('crypto-utils', () => {
 
       // Mock crypto.randomUUID
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: vi.fn().mockReturnValue(mockUUID),
         configurable: true,
+        value: vi.fn().mockReturnValue(mockUUID),
         writable: true,
       });
 
@@ -69,8 +58,8 @@ describe('crypto-utils', () => {
     it('falls back to getRandomValues when randomUUID is unavailable', () => {
       // Remove crypto.randomUUID but keep getRandomValues
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -89,27 +78,26 @@ describe('crypto-utils', () => {
     it('throws when secure UUID APIs are unavailable', () => {
       // Remove both crypto.randomUUID and crypto.getRandomValues
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
       Object.defineProperty(globalThis.crypto, 'getRandomValues', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
       expect(() => generateUUID()).toThrowError(
         'Secure UUID generation requires crypto.randomUUID or crypto.getRandomValues.'
       );
-      expect(mockLogger.warn).not.toHaveBeenCalled();
     });
 
     it('generates unique UUIDs each time with fallback', () => {
       // Remove crypto.randomUUID to force fallback
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -127,113 +115,97 @@ describe('crypto-utils', () => {
   });
 
   describe('generateContentHash', () => {
-    it('uses crypto.subtle.digest when available', async () => {
-      const mockHash = new Uint8Array([1, 2, 3, 4]);
+    it('returns an exact 64-character SHA-256 digest', async () => {
+      const mockHash = new Uint8Array(32);
+      for (let index = 0; index < mockHash.length; index += 1) {
+        mockHash[index] = index;
+      }
       const mockDigest = vi.fn().mockResolvedValue(mockHash.buffer);
 
       // Mock crypto.subtle
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: { digest: mockDigest },
         configurable: true,
+        value: { digest: mockDigest },
         writable: true,
       });
 
       const result = await generateContentHash('test content');
 
       expect(mockDigest).toHaveBeenCalledWith('SHA-256', expect.any(Uint8Array));
-      expect(result).toBe('01020304');
+      expect(result).toBe('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f');
+      expect(result).toMatch(/^[0-9a-f]{64}$/);
     });
 
-    it('falls back when crypto.subtle is not available', async () => {
-      // Remove crypto.subtle
+    it('rejects an invalid SHA-256 digest length', async () => {
+      const mockDigest = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4]).buffer);
+
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
         configurable: true,
+        value: { digest: mockDigest },
         writable: true,
       });
 
-      const result = await generateContentHash('test content');
-
-      // Should return a deterministic hex string
-      expect(result).toMatch(/^[0-9a-f]{32}$/);
+      await expect(generateContentHash('test content')).rejects.toThrowError(
+        'SHA-256 returned an invalid 4-byte digest.'
+      );
     });
 
-    it('falls back when crypto.subtle.digest throws an error', async () => {
-      const mockDigest = vi.fn().mockRejectedValue(new Error('crypto.subtle error'));
+    it('rejects when crypto.subtle is not available', async () => {
+      // Remove crypto.subtle
+      Object.defineProperty(globalThis.crypto, 'subtle', {
+        configurable: true,
+        value: undefined,
+        writable: true,
+      });
+
+      await expect(generateContentHash('test content')).rejects.toThrowError(
+        'Content hashing requires crypto.subtle.digest.'
+      );
+    });
+
+    it('propagates crypto.subtle.digest failures', async () => {
+      const digestError = new Error('crypto.subtle error');
+      const mockDigest = vi.fn().mockRejectedValue(digestError);
 
       // Mock crypto.subtle with failing digest
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: { digest: mockDigest },
         configurable: true,
+        value: { digest: mockDigest },
         writable: true,
       });
 
-      const result = await generateContentHash('test content');
-
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'crypto.subtle.digest failed, using fallback hash',
-        { error: expect.any(Error) }
-      );
-      expect(result).toMatch(/^[0-9a-f]{32}$/);
+      await expect(generateContentHash('test content')).rejects.toBe(digestError);
     });
 
     it('generates consistent hashes for the same content', async () => {
-      // Force fallback
-      Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
-        configurable: true,
-        writable: true,
-      });
-
       const content = 'test content for hashing';
       const hash1 = await generateContentHash(content);
       const hash2 = await generateContentHash(content);
 
       expect(hash1).toBe(hash2);
-      expect(hash1).toMatch(/^[0-9a-f]{32}$/);
+      expect(hash1).toMatch(/^[0-9a-f]{64}$/);
     });
 
     it('generates different hashes for different content', async () => {
-      // Force fallback
-      Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
-        configurable: true,
-        writable: true,
-      });
-
       const hash1 = await generateContentHash('content 1');
       const hash2 = await generateContentHash('content 2');
 
       expect(hash1).not.toBe(hash2);
-      expect(hash1).toMatch(/^[0-9a-f]{32}$/);
-      expect(hash2).toMatch(/^[0-9a-f]{32}$/);
+      expect(hash1).toMatch(/^[0-9a-f]{64}$/);
+      expect(hash2).toMatch(/^[0-9a-f]{64}$/);
     });
 
     it('handles empty content', async () => {
-      // Force fallback
-      Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
-        configurable: true,
-        writable: true,
-      });
-
       const result = await generateContentHash('');
 
-      expect(result).toMatch(/^[0-9a-f]{32}$/);
+      expect(result).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
     });
 
     it('handles large content', async () => {
-      // Force fallback
-      Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
-        configurable: true,
-        writable: true,
-      });
-
       const largeContent = 'a'.repeat(10_000);
       const result = await generateContentHash(largeContent);
 
-      expect(result).toMatch(/^[0-9a-f]{32}$/);
+      expect(result).toMatch(/^[0-9a-f]{64}$/);
     });
   });
 
@@ -241,8 +213,8 @@ describe('crypto-utils', () => {
     it('returns true when crypto.subtle.digest is available', () => {
       // Ensure crypto.subtle is available with digest method
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: { digest: vi.fn() },
         configurable: true,
+        value: { digest: vi.fn() },
         writable: true,
       });
 
@@ -252,8 +224,8 @@ describe('crypto-utils', () => {
     it('returns false when crypto.subtle is undefined', () => {
       // Remove crypto.subtle
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -263,8 +235,8 @@ describe('crypto-utils', () => {
     it('returns false when crypto.subtle.digest is not a function', () => {
       // Set crypto.subtle with invalid digest
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: { digest: 'not a function' },
         configurable: true,
+        value: { digest: 'not a function' },
         writable: true,
       });
 
@@ -276,8 +248,8 @@ describe('crypto-utils', () => {
     it('returns true when crypto.randomUUID is available', () => {
       // Ensure crypto.randomUUID is available
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: vi.fn(),
         configurable: true,
+        value: vi.fn(),
         writable: true,
       });
 
@@ -287,8 +259,8 @@ describe('crypto-utils', () => {
     it('returns false when crypto.randomUUID is undefined', () => {
       // Remove crypto.randomUUID
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -298,8 +270,8 @@ describe('crypto-utils', () => {
     it('returns false when crypto.randomUUID is not a function', () => {
       // Set crypto.randomUUID to invalid value
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: 'not a function',
         configurable: true,
+        value: 'not a function',
         writable: true,
       });
 

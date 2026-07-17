@@ -118,9 +118,13 @@ describe('composer @file mentions', () => {
     const popover = await screen.findByRole('listbox', { name: 'File mentions' });
     await user.click(within(popover).getByText('a}b.ts'));
 
-    await waitFor(() => expect(input.value).toContain(':file[a}b.ts]{name=root-1::src/a%7Db.ts}'));
+    await waitFor(() =>
+      expect(input.value).toContain(
+        ':file[a}b.ts]{name=root-1::/.brainstrike-file-path-v1/src/a%7Db.ts}'
+      )
+    );
     expect(parseFileMentionDirectives(input.value)).toEqual([
-      expect.objectContaining({ rootId: 'root-1', path: 'src/a}b.ts' }),
+      expect.objectContaining({ path: 'src/a}b.ts', rootId: 'root-1' }),
     ]);
   });
 

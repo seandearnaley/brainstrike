@@ -125,6 +125,254 @@ function getRunEventsFromMessages(messages: readonly unknown[]): AssistantRunEve
   );
 }
 
+export interface AssistantRunEventRows {
+  readonly renderPlanKeys: Record<string, string>;
+  readonly statuses: Record<string, AssistantRunEventStatus>;
+}
+
+interface RunEventIndex {
+  readonly allByKind: Map<string, number>;
+  readonly byKindAndRun: Map<string, number>;
+  readonly byKindAndTool: Map<string, number>;
+  readonly byKindRunAndTool: Map<string, number>;
+  readonly withoutRunByKind: Map<string, number>;
+  readonly withoutRunByKindAndTool: Map<string, number>;
+}
+
+function runKey(kind: string, runId: string): string {
+  return `${kind}\u0000${runId}`;
+}
+
+function toolKey(kind: string, toolCallId: string): string {
+  return `${kind}\u0000${toolCallId}`;
+}
+
+function runToolKey(kind: string, runId: string, toolCallId: string): string {
+  return `${kind}\u0000${runId}\u0000${toolCallId}`;
+}
+
+function nextMatchingEventIndex(
+  index: RunEventIndex,
+  kind: string,
+  event: AssistantRunEvent,
+  matchTool: boolean
+): number {
+  const toolCallId = matchTool ? event.metadata?.['toolCallId'] : undefined;
+  const hasToolScope = typeof toolCallId === 'string';
+  const runId = event.runId;
+
+  if (!runId) {
+    return (
+      (hasToolScope
+        ? index.byKindAndTool.get(toolKey(kind, toolCallId))
+        : index.allByKind.get(kind)) ?? Number.POSITIVE_INFINITY
+    );
+  }
+
+  const sameRun = hasToolScope
+    ? index.byKindRunAndTool.get(runToolKey(kind, runId, toolCallId))
+    : index.byKindAndRun.get(runKey(kind, runId));
+  const withoutRun = hasToolScope
+    ? index.withoutRunByKindAndTool.get(toolKey(kind, toolCallId))
+    : index.withoutRunByKind.get(kind);
+  return Math.min(sameRun ?? Number.POSITIVE_INFINITY, withoutRun ?? Number.POSITIVE_INFINITY);
+}
+
+function resolveIndexedRunEventStatus(
+  event: AssistantRunEvent,
+  index: RunEventIndex
+): AssistantRunEventStatus {
+  if (event.status !== 'running') {
+    return event.status;
+  }
+  const completedKind = getMatchingCompletedKind(event.kind);
+  const failedKind = getMatchingFailedKind(event.kind);
+  if (!(completedKind || failedKind)) {
+    return event.status;
+  }
+
+  const candidates: Array<{ index: number; status: AssistantRunEventStatus }> = [];
+  if (completedKind) {
+    candidates.push({
+      index: nextMatchingEventIndex(index, completedKind, event, event.kind === 'tool.started'),
+      status: 'completed',
+    });
+  }
+  if (failedKind) {
+    candidates.push({
+      index: nextMatchingEventIndex(index, failedKind, event, event.kind === 'tool.started'),
+      status: 'failed',
+    });
+  }
+  candidates.push(
+    {
+      index: nextMatchingEventIndex(index, 'run.failed', event, false),
+      status: 'failed',
+    },
+    {
+      index: nextMatchingEventIndex(index, 'run.cancelled', event, false),
+      status: 'cancelled',
+    }
+  );
+  if (event.kind !== 'run.started') {
+    candidates.push({
+      index: nextMatchingEventIndex(index, 'run.finished', event, false),
+      status: 'completed',
+    });
+  }
+  candidates.sort((a, b) => a.index - b.index);
+  return candidates[0]?.index === Number.POSITIVE_INFINITY
+    ? event.status
+    : (candidates[0]?.status ?? event.status);
+}
+
+function collectIndexedRunEvents(messages: readonly unknown[]): {
+  events: AssistantRunEvent[];
+  toolCallIds: Set<string>;
+} {
+  const events: AssistantRunEvent[] = [];
+  const toolCallIds = new Set<string>();
+  for (const message of messages) {
+    for (const part of getMessageParts(message)) {
+      const event = getRunEventFromPart(part);
+      if (event) {
+        events.push(event);
+        continue;
+      }
+      if (isRecord(part) && part['type'] === 'tool-call') {
+        const toolCallId = part['toolCallId'];
+        if (typeof toolCallId === 'string') {
+          toolCallIds.add(toolCallId);
+        }
+      }
+    }
+  }
+  return { events, toolCallIds };
+}
+
+function createRunEventIndex(): RunEventIndex {
+  return {
+    allByKind: new Map(),
+    byKindAndRun: new Map(),
+    byKindAndTool: new Map(),
+    byKindRunAndTool: new Map(),
+    withoutRunByKind: new Map(),
+    withoutRunByKindAndTool: new Map(),
+  };
+}
+
+function addFutureRunEvent(
+  index: RunEventIndex,
+  event: AssistantRunEvent,
+  eventIndex: number
+): void {
+  index.allByKind.set(event.kind, eventIndex);
+  const toolCallId = event.metadata?.['toolCallId'];
+  if (typeof toolCallId === 'string') {
+    index.byKindAndTool.set(toolKey(event.kind, toolCallId), eventIndex);
+  }
+  if (event.runId) {
+    index.byKindAndRun.set(runKey(event.kind, event.runId), eventIndex);
+    if (typeof toolCallId === 'string') {
+      index.byKindRunAndTool.set(runToolKey(event.kind, event.runId, toolCallId), eventIndex);
+    }
+    return;
+  }
+  index.withoutRunByKind.set(event.kind, eventIndex);
+  if (typeof toolCallId === 'string') {
+    index.withoutRunByKindAndTool.set(toolKey(event.kind, toolCallId), eventIndex);
+  }
+}
+
+function hasIndexedTerminalEvent(event: AssistantRunEvent, index: RunEventIndex): boolean {
+  if (!event.kind.endsWith('.started')) {
+    return false;
+  }
+  const matchTool = event.kind === 'tool.started';
+  const completedKind = getMatchingCompletedKind(event.kind);
+  const failedKind = getMatchingFailedKind(event.kind);
+  const completedIndex = completedKind
+    ? nextMatchingEventIndex(index, completedKind, event, matchTool)
+    : Number.POSITIVE_INFINITY;
+  const failedIndex = failedKind
+    ? nextMatchingEventIndex(index, failedKind, event, matchTool)
+    : Number.POSITIVE_INFINITY;
+  return Number.isFinite(Math.min(completedIndex, failedIndex));
+}
+
+function initialRenderPlanKey(
+  event: AssistantRunEvent,
+  index: RunEventIndex,
+  toolCallIds: ReadonlySet<string>
+): string {
+  const toolCallId = event.metadata?.['toolCallId'];
+  const hasToolCard =
+    event.kind.startsWith('tool.') && typeof toolCallId === 'string' && toolCallIds.has(toolCallId);
+  return event.kind.startsWith('subagent.') || hasToolCard || hasIndexedTerminalEvent(event, index)
+    ? 'hidden'
+    : 'visible:1';
+}
+
+function applyRepeatedEventPlans(
+  events: readonly AssistantRunEvent[],
+  renderPlanKeys: Record<string, string>
+): void {
+  for (let start = 0; start < events.length; ) {
+    const first = events[start];
+    if (!first) {
+      return;
+    }
+    let end = start + 1;
+    while (end < events.length && isSameRunEventContent(first, events[end] as AssistantRunEvent)) {
+      end += 1;
+    }
+    if (renderPlanKeys[first.id] !== 'hidden' && end - start > 1) {
+      renderPlanKeys[first.id] = `visible:${end - start}`;
+      for (let duplicate = start + 1; duplicate < end; duplicate += 1) {
+        const duplicateEvent = events[duplicate];
+        if (duplicateEvent) {
+          renderPlanKeys[duplicateEvent.id] = 'hidden';
+        }
+      }
+    }
+    start = end;
+  }
+}
+
+/**
+ * One thread-wide derivation for every run-event row. Message parts are read
+ * exactly once; indexed terminal lookups replace each row's former full-thread
+ * status/render-plan scans.
+ */
+export function deriveAssistantRunEventRows(messages: readonly unknown[]): AssistantRunEventRows {
+  const { events, toolCallIds } = collectIndexedRunEvents(messages);
+  const futureEvents = createRunEventIndex();
+  const statusByIndex: Array<AssistantRunEventStatus | undefined> = [];
+  const planByIndex: Array<string | undefined> = [];
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex];
+    if (!event) {
+      continue;
+    }
+    statusByIndex[eventIndex] = resolveIndexedRunEventStatus(event, futureEvents);
+    planByIndex[eventIndex] = initialRenderPlanKey(event, futureEvents, toolCallIds);
+    addFutureRunEvent(futureEvents, event, eventIndex);
+  }
+
+  const renderPlanKeys: Record<string, string> = {};
+  const statuses: Record<string, AssistantRunEventStatus> = {};
+  for (const [eventIndex, event] of events.entries()) {
+    if (statuses[event.id] !== undefined) {
+      continue;
+    }
+    statuses[event.id] = statusByIndex[eventIndex] ?? event.status;
+    renderPlanKeys[event.id] = planByIndex[eventIndex] ?? 'visible:1';
+  }
+  applyRepeatedEventPlans(events, renderPlanKeys);
+
+  return { renderPlanKeys, statuses };
+}
+
 function hasSameRunScope(event: AssistantRunEvent, candidate: AssistantRunEvent): boolean {
   return !(event.runId && candidate.runId) || event.runId === candidate.runId;
 }
@@ -274,6 +522,12 @@ export function resolveAssistantRunEventRenderPlan(
   if (!event) {
     return VISIBLE_ONCE;
   }
+  // Subagent nested activity renders inside the SubagentExecutionCard, not the
+  // main timeline — a per-nested-tool row here would duplicate the card. Match
+  // the `subagent.` namespace precisely (never a bare `subagent`-prefixed word).
+  if (event.kind.startsWith('subagent.')) {
+    return HIDDEN;
+  }
   if (hasToolCallPartForEvent(messages, event)) {
     return HIDDEN;
   }
@@ -306,7 +560,7 @@ export function resolveAssistantRunEventStatus(
   messages: readonly unknown[],
   event: AssistantRunEvent | null
 ): AssistantRunEventStatus {
-  if (!event || event.status !== 'running') {
+  if (event?.status !== 'running') {
     return event?.status ?? 'info';
   }
 

@@ -12,10 +12,20 @@ describe('Button', () => {
   it('renders as child element', () => {
     render(
       <Button asChild>
+        {/* biome-ignore lint/a11y/noAmbiguousAnchorText: test fixture asserting asChild composition, not real content */}
         <a href="/link">Link</a>
       </Button>
     );
     const link = screen.getByRole('link', { name: 'Link' });
     expect(link).toHaveAttribute('href', '/link');
+  });
+
+  it('uses explicit transition properties instead of transition-all', () => {
+    render(<Button>Click</Button>);
+    const button = screen.getByRole('button', { name: 'Click' });
+    expect(button.className).toContain(
+      'transition-[color,background-color,border-color,box-shadow,opacity,transform]'
+    );
+    expect(button.className).not.toContain('transition-all');
   });
 });

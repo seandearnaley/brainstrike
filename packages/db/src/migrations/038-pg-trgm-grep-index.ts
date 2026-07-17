@@ -11,7 +11,11 @@ import type { Migration } from './migration-runner';
  */
 
 export const migration038PgTrgmGrepIndex: Migration = {
-  version: 38,
+  down: `
+    DROP INDEX IF EXISTS idx_file_chunks_content_trgm;
+
+    DROP EXTENSION IF EXISTS pg_trgm;
+  `,
   name: 'pg_trgm_grep_index',
   up: `
     CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -19,9 +23,5 @@ export const migration038PgTrgmGrepIndex: Migration = {
     CREATE INDEX IF NOT EXISTS idx_file_chunks_content_trgm
       ON file_chunks USING gin (content gin_trgm_ops);
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_file_chunks_content_trgm;
-
-    DROP EXTENSION IF EXISTS pg_trgm;
-  `,
+  version: 38,
 };

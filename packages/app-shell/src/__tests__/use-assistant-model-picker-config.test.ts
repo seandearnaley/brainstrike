@@ -4,28 +4,31 @@ import type { LlmProviderModelDefinition } from '../assistant-ui-panel-wrapper-r
 import { useAssistantModelPickerConfig } from '../hooks/use-assistant-model-picker-config';
 
 const openAiDefaultModel: LlmProviderModelDefinition = {
+  contextWindow: 200_000,
+  default: true,
   id: 'hosted-default',
   label: 'Hosted Default',
-  type: 'llm',
   supportsStreaming: true,
-  default: true,
-  contextWindow: 200_000,
+  type: 'llm',
+  vision: 'supported',
 };
 
 const openAiDisabledModel: LlmProviderModelDefinition = {
+  contextWindow: 200_000,
   id: 'hosted-disabled',
   label: 'Hosted Disabled',
-  type: 'llm',
   supportsStreaming: true,
-  contextWindow: 200_000,
+  type: 'llm',
+  vision: 'unsupported',
 };
 
 const ollamaModel: LlmProviderModelDefinition = {
+  contextWindow: 200_000,
   id: 'llama3.2',
   label: 'Llama 3.2',
-  type: 'llm',
   supportsStreaming: true,
-  contextWindow: 200_000,
+  type: 'llm',
+  vision: 'unknown',
 };
 
 describe('useAssistantModelPickerConfig', () => {
@@ -50,80 +53,80 @@ describe('useAssistantModelPickerConfig', () => {
 
     expect(result.current.providerGroups).toEqual([
       {
-        runtime: 'hosted',
         label: 'Hosted',
         providers: [
           expect.objectContaining({
-            id: 'openai',
-            name: 'OpenAI',
-            runtime: 'hosted',
             capabilities: expect.objectContaining({
               llm: true,
               supportsStandardEmbeddingDimension: true,
             }),
+            id: 'openai',
             models: expect.arrayContaining([
               expect.objectContaining({
+                default: true,
+                enabled: true,
                 id: 'hosted-default',
                 label: 'Hosted Default',
-                enabled: true,
-                default: true,
                 supportsStreaming: true,
                 type: 'llm',
               }),
               expect.objectContaining({
-                id: 'hosted-disabled',
                 enabled: false,
+                id: 'hosted-disabled',
               }),
             ]),
+            name: 'OpenAI',
+            runtime: 'hosted',
           }),
         ],
+        runtime: 'hosted',
       },
       {
-        runtime: 'local',
         label: 'Local',
         providers: [
           expect.objectContaining({
-            id: 'ollama',
-            name: 'Ollama (Local Runtime)',
-            runtime: 'local',
             capabilities: expect.objectContaining({
               llm: true,
               supportsStandardEmbeddingDimension: false,
             }),
+            id: 'ollama',
             models: [
               {
+                default: false,
+                enabled: true,
                 id: 'llama3.2',
                 label: 'Llama 3.2',
-                enabled: true,
-                default: false,
                 supportsStreaming: true,
                 type: 'llm',
               },
             ],
+            name: 'Ollama (Local Runtime)',
+            runtime: 'local',
           }),
         ],
+        runtime: 'local',
       },
     ]);
     expect(result.current.pickerProviders).toEqual([
-      { id: 'openai', name: 'OpenAI', icon: null },
-      { id: 'ollama', name: 'Ollama (Local Runtime)', icon: null },
+      { icon: null, id: 'openai', name: 'OpenAI' },
+      { icon: null, id: 'ollama', name: 'Ollama (Local Runtime)' },
     ]);
     expect(result.current.pickerModels).toEqual([
       {
-        id: 'hosted-default',
-        providerId: 'openai',
-        name: 'Hosted Default',
-        description: null,
+        capabilities: { streaming: true, type: 'llm', vision: 'supported' },
         contextWindow: 200_000,
-        capabilities: { type: 'llm', streaming: true },
+        description: null,
+        id: 'hosted-default',
+        name: 'Hosted Default',
+        providerId: 'openai',
       },
       {
-        id: 'llama3.2',
-        providerId: 'ollama',
-        name: 'Llama 3.2',
-        description: null,
+        capabilities: { streaming: true, type: 'llm', vision: 'unknown' },
         contextWindow: 200_000,
-        capabilities: { type: 'llm', streaming: true },
+        description: null,
+        id: 'llama3.2',
+        name: 'Llama 3.2',
+        providerId: 'ollama',
       },
     ]);
   });

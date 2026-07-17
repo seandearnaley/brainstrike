@@ -4,9 +4,9 @@ import type { StoredChunk } from './data-stream-codes';
 const logger = createLogger('AgentDataStream');
 
 export interface SessionLike {
-  isClosed(): boolean;
-  pullEvent(index: number): StoredChunk | undefined;
-  removeSubscription(subscription: SessionSubscription): void;
+  isClosed: () => boolean;
+  pullEvent: (index: number) => StoredChunk | undefined;
+  removeSubscription: (subscription: SessionSubscription) => void;
 }
 
 export class SessionSubscription {
@@ -72,6 +72,19 @@ export class SessionSubscription {
         logger.warn('Stream controller close failed', { error: closeError.message });
       }
     }
+    this.session.removeSubscription(this);
+  }
+
+  /**
+   * A ReadableStream cancel has already closed (or requested closure of) its
+   * controller. Only detach bookkeeping here; calling controller.close() again
+   * raises a noisy invalid-state error during normal request cancellation.
+   */
+  cancel(): void {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
     this.session.removeSubscription(this);
   }
 }

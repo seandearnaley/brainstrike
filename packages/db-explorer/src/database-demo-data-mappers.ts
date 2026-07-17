@@ -100,13 +100,13 @@ export interface CollectionFileDataSnapshot {
 
 export function mapRecordRow(row: FileRecordRow): DatabaseFileRecordSummary {
   const record: DatabaseFileRecordSummary = {
+    createdAt: row.createdAt,
+    hasEmbedding: row.hasEmbedding,
     id: row.id,
     name: row.name,
     path: row.path,
     size: row.size,
-    createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    hasEmbedding: row.hasEmbedding,
   };
 
   if (row.contentHash) {
@@ -140,17 +140,17 @@ export function mapRecordRow(row: FileRecordRow): DatabaseFileRecordSummary {
 
 export function mapChunkRow(row: FileChunkRow): DatabaseFileChunkSummary {
   const chunk: DatabaseFileChunkSummary = {
-    id: row.id,
-    fileRecordId: row.fileRecordId,
     chunkIndex: row.chunkIndex,
-    contentHash: row.contentHash,
-    tokenCount: row.tokenCount,
-    chunkType: row.chunkType,
     chunkSize: row.chunkSize,
+    chunkType: row.chunkType,
+    contentHash: row.contentHash,
     createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    hasEmbedding: row.hasEmbedding,
     embeddingDimensions: row.embeddingDimensions,
+    fileRecordId: row.fileRecordId,
+    hasEmbedding: row.hasEmbedding,
+    id: row.id,
+    tokenCount: row.tokenCount,
+    updatedAt: row.updatedAt,
   };
 
   if (row.embeddingSetId) {
@@ -168,41 +168,41 @@ export function mapChunkRow(row: FileChunkRow): DatabaseFileChunkSummary {
 
 function toCachedRecordSummary(record: DatabaseFileRecordSummary): CachedRecordSummary {
   const summary: CachedRecordSummary = {
-    id: record.id,
-    name: record.name,
-    path: record.path,
-    size: record.size,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    tokenCount: record.tokenCount,
+    chunkingStrategy: record.chunkingStrategy,
     chunksCount: record.chunksCount,
     chunksProcessedAt: record.chunksProcessedAt,
     contentHash: record.contentHash,
-    processedAt: record.processedAt,
-    hasEmbedding: record.hasEmbedding ?? false,
-    chunkingStrategy: record.chunkingStrategy,
-    embeddingSetId: record.embeddingSetId,
+    createdAt: record.createdAt,
     embeddedChunksCount: record.embeddedChunksCount,
+    embeddingSetId: record.embeddingSetId,
+    hasEmbedding: record.hasEmbedding ?? false,
+    id: record.id,
+    name: record.name,
+    path: record.path,
+    processedAt: record.processedAt,
+    size: record.size,
+    tokenCount: record.tokenCount,
+    updatedAt: record.updatedAt,
   };
   return summary;
 }
 
 function toCachedChunkSummary(chunk: DatabaseFileChunkSummary): CachedChunkSummary {
   return {
-    id: chunk.id,
-    fileRecordId: chunk.fileRecordId,
     chunkIndex: chunk.chunkIndex,
-    tokenCount: chunk.tokenCount,
-    chunkType: chunk.chunkType,
     chunkSize: chunk.chunkSize,
+    chunkType: chunk.chunkType,
     contentHash: chunk.contentHash,
     createdAt: chunk.createdAt,
-    updatedAt: chunk.updatedAt,
-    hasEmbedding: chunk.hasEmbedding ?? false,
     embeddingDimensions: chunk.embeddingDimensions ?? 0,
     embeddingHash: chunk.embeddingHash,
-    embeddingUpdatedAt: chunk.embeddingUpdatedAt,
     embeddingSetId: chunk.embeddingSetId,
+    embeddingUpdatedAt: chunk.embeddingUpdatedAt,
+    fileRecordId: chunk.fileRecordId,
+    hasEmbedding: chunk.hasEmbedding ?? false,
+    id: chunk.id,
+    tokenCount: chunk.tokenCount,
+    updatedAt: chunk.updatedAt,
   };
 }
 
@@ -224,25 +224,25 @@ export function buildCollectionFileDataSnapshot(
   chunks: DatabaseFileChunkSummary[]
 ): CollectionFileDataSnapshot {
   return {
+    chunks: chunks.map(toCachedChunkSummary),
+    collectionCounts,
     collectionId,
     page,
     pageSize,
-    totalRecords,
-    collectionCounts,
     records: records.map(toCachedRecordSummary),
-    chunks: chunks.map(toCachedChunkSummary),
+    totalRecords,
   };
 }
 
 export function restoreCachedRecord(summary: CachedRecordSummary): DatabaseFileRecordSummary {
   const record: DatabaseFileRecordSummary = {
+    createdAt: summary.createdAt,
+    hasEmbedding: summary.hasEmbedding,
     id: summary.id,
     name: summary.name,
     path: summary.path,
     size: summary.size,
-    createdAt: summary.createdAt,
     updatedAt: summary.updatedAt,
-    hasEmbedding: summary.hasEmbedding,
   };
   if (summary.tokenCount !== undefined) {
     record.tokenCount = summary.tokenCount;
@@ -273,17 +273,17 @@ export function restoreCachedRecord(summary: CachedRecordSummary): DatabaseFileR
 
 function restoreCachedChunk(summary: CachedChunkSummary): DatabaseFileChunkSummary {
   const chunk: DatabaseFileChunkSummary = {
-    id: summary.id,
-    fileRecordId: summary.fileRecordId,
     chunkIndex: summary.chunkIndex,
-    contentHash: summary.contentHash,
-    tokenCount: summary.tokenCount,
-    chunkType: summary.chunkType,
     chunkSize: summary.chunkSize,
+    chunkType: summary.chunkType,
+    contentHash: summary.contentHash,
     createdAt: summary.createdAt,
-    updatedAt: summary.updatedAt,
-    hasEmbedding: summary.hasEmbedding,
     embeddingDimensions: summary.embeddingDimensions,
+    fileRecordId: summary.fileRecordId,
+    hasEmbedding: summary.hasEmbedding,
+    id: summary.id,
+    tokenCount: summary.tokenCount,
+    updatedAt: summary.updatedAt,
   };
   if (summary.embeddingSetId !== undefined) {
     chunk.embeddingSetId = summary.embeddingSetId;
@@ -345,9 +345,9 @@ export function collectionCountsRowBelongsToCollection(
 
 export function mapCollectionCountsRow(row: CollectionCountsRow): DatabaseCollectionCounts {
   return {
-    records: normalizeCount(row.recordsCount),
     chunks: normalizeCount(row.chunksCount),
     embeddings: normalizeCount(row.embeddingsCount),
+    records: normalizeCount(row.recordsCount),
   };
 }
 

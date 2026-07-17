@@ -44,8 +44,6 @@ function createMockJobQueue(
   let jobCounter = 0;
 
   return {
-    enqueueCalls,
-    enqueuedJobs,
     async enqueue(params: EnqueueJobParams): Promise<EnqueuedJob> {
       if (options.shouldFail) {
         throw new Error(options.failMessage ?? 'Mock enqueue failure');
@@ -53,15 +51,17 @@ function createMockJobQueue(
 
       enqueueCalls.push(params);
       const job: EnqueuedJob = {
-        id: `job-${++jobCounter}` as EnqueuedJob['id'],
-        queue: params.queue,
-        jobType: params.jobType,
-        state: 'queued',
         dedupeKey: params.dedupeKey ?? null,
+        id: `job-${++jobCounter}` as EnqueuedJob['id'],
+        jobType: params.jobType,
+        queue: params.queue,
+        state: 'queued',
       };
       enqueuedJobs.push(job);
       return job;
     },
+    enqueueCalls,
+    enqueuedJobs,
   };
 }
 
@@ -79,17 +79,15 @@ function createMockJobQueueWithBatch(): JobQueueLike & {
   let jobCounter = 0;
 
   return {
-    enqueueCalls,
     batchCalls,
-    enqueuedJobs,
     async enqueue(params: EnqueueJobParams): Promise<EnqueuedJob> {
       enqueueCalls.push(params);
       const job: EnqueuedJob = {
-        id: `job-${++jobCounter}` as EnqueuedJob['id'],
-        queue: params.queue,
-        jobType: params.jobType,
-        state: 'queued',
         dedupeKey: params.dedupeKey ?? null,
+        id: `job-${++jobCounter}` as EnqueuedJob['id'],
+        jobType: params.jobType,
+        queue: params.queue,
+        state: 'queued',
       };
       enqueuedJobs.push(job);
       return job;
@@ -98,16 +96,18 @@ function createMockJobQueueWithBatch(): JobQueueLike & {
       batchCalls.push([...params]);
       return params.map((p) => {
         const job: EnqueuedJob = {
-          id: `job-${++jobCounter}` as EnqueuedJob['id'],
-          queue: p.queue,
-          jobType: p.jobType,
-          state: 'queued',
           dedupeKey: p.dedupeKey ?? null,
+          id: `job-${++jobCounter}` as EnqueuedJob['id'],
+          jobType: p.jobType,
+          queue: p.queue,
+          state: 'queued',
         };
         enqueuedJobs.push(job);
         return job;
       });
     },
+    enqueueCalls,
+    enqueuedJobs,
   };
 }
 
@@ -117,15 +117,15 @@ function createMockJobQueueWithBatch(): JobQueueLike & {
 function createSampleChunk(index: number, content = 'sample content'): ChunkOutput {
   return {
     chunkIndex: index,
+    chunkSize: 512,
+    chunkType: 'text',
     content,
     contentHash: `hash-${index}` as ContentHash,
-    startLine: index + 1,
     endLine: index + 1,
-    startOffset: index,
     endOffset: index + content.length,
+    startLine: index + 1,
+    startOffset: index,
     tokenCount: content.split(' ').length,
-    chunkType: 'text',
-    chunkSize: 512,
   };
 }
 
@@ -134,9 +134,9 @@ function createSampleChunk(index: number, content = 'sample content'): ChunkOutp
  */
 function createSampleInput(chunkCount = 3): EnqueueChunksInput {
   return {
-    fileId: toFileId('550e8400-e29b-41d4-a716-446655440000'),
-    embeddingSetId: toEmbeddingSetId('550e8400-e29b-41d4-a716-446655440001'),
     chunks: Array.from({ length: chunkCount }, (_, i) => createSampleChunk(i)),
+    embeddingSetId: toEmbeddingSetId('550e8400-e29b-41d4-a716-446655440001'),
+    fileId: toFileId('550e8400-e29b-41d4-a716-446655440000'),
   };
 }
 
@@ -211,8 +211,8 @@ describe('createEmbeddingStage', () => {
     it('uses default model key when not specified', async () => {
       const jobQueue = createMockJobQueue();
       const stage = createEmbeddingStage({
-        jobQueue,
         defaultModelKey: 'openai::text-embedding-3-small',
+        jobQueue,
       });
 
       const input = createSampleInput(1);
@@ -225,8 +225,8 @@ describe('createEmbeddingStage', () => {
     it('uses provided model key over default', async () => {
       const jobQueue = createMockJobQueue();
       const stage = createEmbeddingStage({
-        jobQueue,
         defaultModelKey: 'local::default-model',
+        jobQueue,
       });
 
       const input = {
@@ -261,8 +261,8 @@ describe('createEmbeddingStage', () => {
     it('generates correct dedupe key format', async () => {
       const jobQueue = createMockJobQueue();
       const stage = createEmbeddingStage({
-        jobQueue,
         defaultModelKey: 'openai::text-embedding-3-small',
+        jobQueue,
       });
 
       const input = createSampleInput(1);
@@ -297,9 +297,9 @@ describe('createEmbeddingStage', () => {
     it('includes all required fields in payload', async () => {
       const jobQueue = createMockJobQueue();
       const stage = createEmbeddingStage({
-        jobQueue,
         defaultModelKey: 'openai::test-model',
         expectedDimension: 1536,
+        jobQueue,
       });
 
       const input = createSampleInput(1);
@@ -474,11 +474,11 @@ describe('createEmbeddingStage', () => {
             throw new Error('Second file failed');
           }
           return {
-            id: `job-${callCount}` as EnqueuedJob['id'],
-            queue: params.queue,
-            jobType: params.jobType,
-            state: 'queued',
             dedupeKey: params.dedupeKey ?? null,
+            id: `job-${callCount}` as EnqueuedJob['id'],
+            jobType: params.jobType,
+            queue: params.queue,
+            state: 'queued',
           };
         },
       };
@@ -506,19 +506,19 @@ describe('createEmbeddingStage', () => {
             throw new Error('Stop here');
           }
           return {
-            id: `job-${callCount}` as EnqueuedJob['id'],
-            queue: params.queue,
-            jobType: params.jobType,
-            state: 'queued',
             dedupeKey: params.dedupeKey ?? null,
+            id: `job-${callCount}` as EnqueuedJob['id'],
+            jobType: params.jobType,
+            queue: params.queue,
+            state: 'queued',
           };
         },
       };
       const stage = createEmbeddingStage({ jobQueue });
 
       const result = await stage.enqueueBatch({
-        files: [createSampleInput(1), createSampleInput(1), createSampleInput(1)],
         continueOnError: false,
+        files: [createSampleInput(1), createSampleInput(1), createSampleInput(1)],
       });
 
       // Should have stopped after second file failed
@@ -528,8 +528,8 @@ describe('createEmbeddingStage', () => {
 
     it('captures error messages in file results', async () => {
       const jobQueue = createMockJobQueue({
-        shouldFail: true,
         failMessage: 'Specific error message',
+        shouldFail: true,
       });
       const stage = createEmbeddingStage({ jobQueue });
 
@@ -570,13 +570,13 @@ describe('createEmbeddingStage', () => {
 
       const result = await stage.enqueueBatch({
         files: [createSampleInput(1), createSampleInput(1), createSampleInput(1)],
-        signal: controller.signal,
         onProgress: () => {
           processCount++;
           if (processCount === 2) {
             controller.abort();
           }
         },
+        signal: controller.signal,
       });
 
       // Should have stopped before completing all files

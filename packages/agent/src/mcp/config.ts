@@ -1,36 +1,62 @@
 import { z } from 'zod';
 
-export const McpTransportEnum = z.enum(['stdio', 'sse']);
+export const McpTransportEnum = z.enum(['stdio', 'streamable-http', 'sse']);
 
 const StdioSchema = z.object({
-  transport: z.literal('stdio'),
-  name: z.string().min(1),
-  command: z.string().min(1),
   args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  command: z.string().min(1),
   enabledTools: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  name: z.string().min(1),
+  transport: z.literal('stdio'),
 });
 
-const SseSchema = z.object({
-  transport: z.literal('sse'),
+const HttpServerSchema = z.object({
+  enabledTools: z.array(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   name: z.string().min(1),
   url: z.string().url(),
-  headers: z.record(z.string(), z.string()).optional(),
-  enabledTools: z.array(z.string()).optional(),
 });
 
-export const McpServerSchema = z.discriminatedUnion('transport', [StdioSchema, SseSchema]);
-
-export const McpConfigSchema = z.object({
-  servers: z.array(McpServerSchema).min(1),
+const StreamableHttpSchema = HttpServerSchema.extend({
+  transport: z.literal('streamable-http'),
 });
+
+const SseSchema = HttpServerSchema.extend({
+  transport: z.literal('sse'),
+});
+
+export const McpServerSchema = z.discriminatedUnion('transport', [
+  StdioSchema,
+  StreamableHttpSchema,
+  SseSchema,
+]);
+
+export const McpConfigSchema = z
+  .object({
+    servers: z.array(McpServerSchema).min(1),
+  })
+  .superRefine((config, context) => {
+    const serverNames = new Set<string>();
+    for (const [index, server] of config.servers.entries()) {
+      if (serverNames.has(server.name)) {
+        context.addIssue({
+          code: 'custom',
+          message: 'duplicate server name',
+          path: ['servers', index, 'name'],
+        });
+        continue;
+      }
+      serverNames.add(server.name);
+    }
+  });
 
 export type McpServer = z.infer<typeof McpServerSchema>;
 export type McpConfig = z.infer<typeof McpConfigSchema>;
 
 function formatZodIssue(issue: z.ZodIssue): { path: string; message: string } {
   const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
-  return { path, message: issue.message };
+  return { message: issue.message, path };
 }
 
 export function parseMcpConfig(jsonText: string): McpConfig {

@@ -10,12 +10,18 @@ import {
   Toaster,
   TooltipProvider,
 } from '@brainstrike/ui';
-import { CollectionSyncStatusItem } from './status-items/collection-sync-status-item';
+import { AccountMenu } from './account-menu';
 import { DatabaseStatusItem } from './status-items/database-status-item';
 import { IndexingStatusItem } from './status-items/indexing-status-item';
 import type { AppLayoutProps } from './types';
 
-export function AppLayout({ children, config, currentPath, onNavigationClick }: AppLayoutProps) {
+export function AppLayout({
+  children,
+  config,
+  currentPath,
+  onNavigationClick,
+  onOpenSettings,
+}: AppLayoutProps) {
   useDatabaseStatusSync();
   const { fileSystemAdapter, storageAdapter } = useAdapters();
 
@@ -40,19 +46,19 @@ export function AppLayout({ children, config, currentPath, onNavigationClick }: 
                   {...(onNavigationClick && { onItemClick: onNavigationClick })}
                 >
                   <ThemeToggle />
+                  {onOpenSettings ? <AccountMenu onOpenSettings={onOpenSettings} /> : null}
                 </NavigationSidebar>
                 <main className="h-full flex-1 overflow-hidden">{children}</main>
               </div>
               {/* Status bar at bottom */}
               <StatusBar
-                centerContent={
-                  <div className="flex items-center gap-3">
-                    <CollectionSyncStatusItem />
-                    <IndexingStatusItem />
-                  </div>
-                }
                 leftContent={<DatabaseStatusItem />}
-                rightContent={<GlobalDownloadIndicator />}
+                rightContent={
+                  <>
+                    <GlobalDownloadIndicator />
+                    <IndexingStatusItem />
+                  </>
+                }
               />
             </div>
             <Toaster />

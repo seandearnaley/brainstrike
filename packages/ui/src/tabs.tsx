@@ -5,6 +5,16 @@ import { cn } from './lib/utils';
 
 const Tabs = TabsPrimitive.Root;
 
+/**
+ * Compact trigger sizing shared by panel-header tab strips (Library,
+ * Explorer|Search). Keeps every left/right panel on one segmented idiom
+ * instead of per-surface bespoke tab styles. h-full pins each trigger to the
+ * list's padded slot — the base trigger's intrinsic height (py-1.5 + line)
+ * exceeds a compact h-8 list's 24px content box and would otherwise hang off
+ * the list's bottom edge.
+ */
+const PANEL_TAB_TRIGGER_CLASS_NAME = 'h-full min-w-0 gap-1.5 px-2 py-0 text-xs';
+
 const TabsList = ({
   className,
   ref,
@@ -33,7 +43,7 @@ const TabsTrigger = ({
 }) => (
   <TabsPrimitive.Trigger
     className={cn(
-      'kinetic-depress inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-sm px-3 py-1.5 font-medium text-sm outline-hidden transition-all focus-visible:border-ring focus-visible:outline-1 focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-xs dark:data-[state=active]:border-input dark:data-[state=active]:bg-input/30 [&_svg:not([class*=size-])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0',
+      'kinetic-depress inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-sm px-3 py-1.5 font-medium text-sm outline-hidden transition-[color,background-color,border-color,box-shadow,opacity,transform] focus-visible:border-ring focus-visible:outline-1 focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-xs dark:data-[state=active]:border-input dark:data-[state=active]:bg-input/30 [&_svg:not([class*=size-])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0',
       className
     )}
     data-slot="tabs-trigger"
@@ -62,4 +72,4 @@ const TabsContent = ({
 );
 TabsContent.displayName = TabsPrimitive.Content.displayName;
 
-export { Tabs, TabsContent, TabsList, TabsTrigger };
+export { PANEL_TAB_TRIGGER_CLASS_NAME, Tabs, TabsContent, TabsList, TabsTrigger };

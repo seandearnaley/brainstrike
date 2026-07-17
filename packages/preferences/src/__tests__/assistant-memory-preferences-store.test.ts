@@ -32,24 +32,24 @@ describe('assistant-memory-preferences-store', () => {
     }
 
     const legacy: StorageValue<unknown> = {
-      version: 1,
       state: {
         observationalMemory: {
           enabled: true,
-          modelTarget: 'openai/gpt-5.2-chat-latest',
-          scope: 'thread',
           messageTokens: 30_000,
+          modelTarget: 'openai/gpt-5.2-chat-latest',
           observationTokens: 40_000,
           retrievalMode: 'off',
+          scope: 'thread',
         },
         semanticRecall: {
-          enabled: false,
           embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+          messageRange: 2,
           scope: 'resource',
           topK: 5,
-          messageRange: 2,
         },
       },
+      version: 1,
     };
 
     options.storage.setItem(options.name, legacy);
@@ -72,24 +72,24 @@ describe('assistant-memory-preferences-store', () => {
     // dropped target must still be remapped on hydration so the persisted state
     // and the settings UI never reference a removed model.
     const sameVersionStale: StorageValue<unknown> = {
-      version: 2,
       state: {
         observationalMemory: {
           enabled: true,
-          modelTarget: 'openai/gpt-5.2-chat-latest',
-          scope: 'thread',
           messageTokens: 30_000,
+          modelTarget: 'openai/gpt-5.2-chat-latest',
           observationTokens: 40_000,
           retrievalMode: 'off',
+          scope: 'thread',
         },
         semanticRecall: {
-          enabled: false,
           embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+          messageRange: 2,
           scope: 'resource',
           topK: 5,
-          messageRange: 2,
         },
       },
+      version: 2,
     };
 
     options.storage.setItem(options.name, sameVersionStale);
@@ -108,15 +108,15 @@ describe('assistant-memory-preferences-store', () => {
     expect(ASSISTANT_MEMORY_PREFERENCES_STORE_NAME).toBe('assistant-memory-preferences.v1');
     expect(state.observationalMemory).toEqual({
       enabled: true,
-      modelTarget: 'openai/gpt-5.4-mini',
-      scope: 'thread',
       messageTokens: 30_000,
+      modelTarget: 'openai/gpt-5.4-mini',
       observationTokens: 40_000,
       retrievalMode: 'off',
+      scope: 'thread',
     });
     expect(state.semanticRecall).toEqual({
-      enabled: false,
       embeddingModelTarget: 'openai/text-embedding-3-small',
+      enabled: false,
       messageRange: 2,
       scope: 'resource',
       topK: 5,
@@ -134,11 +134,11 @@ describe('assistant-memory-preferences-store', () => {
 
     expect(useAssistantMemoryPreferencesStore.getState().observationalMemory).toEqual({
       enabled: true,
-      modelTarget: 'anthropic/claude-haiku-4-5',
-      scope: 'resource',
       messageTokens: 16_500,
+      modelTarget: 'anthropic/claude-haiku-4-5',
       observationTokens: 25_250,
       retrievalMode: 'messages',
+      scope: 'resource',
     });
   });
 
@@ -170,15 +170,15 @@ describe('assistant-memory-preferences-store', () => {
     expect(useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings()).toEqual({
       observationalMemory: {
         enabled: true,
-        modelTarget: 'openai/gpt-5.4-mini',
-        scope: 'thread',
         messageTokens: 30_000,
+        modelTarget: 'openai/gpt-5.4-mini',
         observationTokens: 40_000,
         retrievalMode: 'off',
+        scope: 'thread',
       },
       semanticRecall: {
-        enabled: true,
         embeddingModelTarget: 'google/gemini-embedding-001',
+        enabled: true,
         messageRange: 2,
         scope: 'thread',
         topK: 5,

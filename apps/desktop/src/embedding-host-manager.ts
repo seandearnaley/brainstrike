@@ -57,10 +57,10 @@ export class EmbeddingHostManager {
         logger.error(message, { errorCode, errorDescription, url, windowRole: 'embedding-host' });
         this.lifecycle.setStatus(
           EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
-            state: 'error',
             active: false,
             lastError: message,
             runtimeId: this.getStatus().runtimeId,
+            state: 'error',
           })
         );
       },
@@ -68,16 +68,16 @@ export class EmbeddingHostManager {
         this.clearPendingInactiveStatus();
         this.rejectPendingQueryEmbeddingRequests(message);
         logger.error(message, {
-          reason,
           exitCode,
+          reason,
           windowRole: 'embedding-host',
         });
         this.lifecycle.setStatus(
           EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
-            state: 'error',
             active: false,
             lastError: message,
             runtimeId: this.getStatus().runtimeId,
+            state: 'error',
           })
         );
       },
@@ -135,10 +135,10 @@ export class EmbeddingHostManager {
 
     this.lifecycle.setStatus(
       EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
-        state: 'stopping',
         active: false,
         lastError: null,
         runtimeId: this.getStatus().runtimeId,
+        state: 'stopping',
       })
     );
     this.clearPendingInactiveStatus();
@@ -184,10 +184,10 @@ export class EmbeddingHostManager {
 
     this.lifecycle.setStatus(
       EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
-        state: 'starting',
         active: false,
         lastError: null,
         runtimeId: nextRuntimeId,
+        state: 'starting',
       })
     );
     this.clearPendingInactiveStatus();
@@ -207,10 +207,10 @@ export class EmbeddingHostManager {
       const message = error instanceof Error ? error.message : String(error);
       this.lifecycle.setStatus(
         EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
-          state: 'error',
           active: false,
           lastError: message,
           runtimeId: nextRuntimeId,
+          state: 'error',
         })
       );
       return this.getStatus();
@@ -273,8 +273,8 @@ export class EmbeddingHostManager {
         reject(new Error(`Embedding host query request ${request.requestId} timed out.`));
       }, QUERY_EMBEDDING_TIMEOUT_MS);
       this.pendingQueryEmbeddingRequests.set(request.requestId, {
-        resolve,
         reject,
+        resolve,
         timeoutId,
       });
 
@@ -320,10 +320,10 @@ export class EmbeddingHostManager {
 
     const currentStatus = this.lifecycle.getStatus();
     const baseStatus = EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
-      state: report.state,
       active: report.active,
       lastError: report.lastError,
       runtimeId: report.runtimeId,
+      state: report.state,
     });
     const nextStatus: EmbeddingHostStatus = {
       ...baseStatus,

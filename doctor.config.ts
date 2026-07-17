@@ -12,7 +12,7 @@
  *   per-dependency allowlist. Our dependency false-positives (CSS @imports, lazy
  *   prebundles, dynamic requires, peer deps) are curated in knip.jsonc and remain owned
  *   by `pnpm knip`. We therefore DISABLE deslop's two dependency rules here. See
- *   docs/react-doctor-migration-2026-06-15.md and the REACT DOCTOR section in AGENTS.md.
+ *   docs/react-doctor-migration-2026-06-15.md and the REACT DOCTOR section in docs/agents/ci-quality.md.
  *
  * Telemetry: disabled (local-first / privacy). `noScore`/`share` cover local runs;
  * CI additionally sets REACT_DOCTOR_NO_TELEMETRY=1 (the marketplace Action has no flag).
@@ -33,15 +33,33 @@
  * while we burn it down in stacked PRs.
  */
 export default {
-  lint: true,
+  // Local default; CI overrides scope/blocking via the Action inputs.
+  blocking: 'error' as const,
+
+  categories: {
+    // Accessibility is already enforced by this repo's biome a11y rules, and the team
+    // documents intentional exceptions with `biome-ignore` comments. react-doctor does
+    // NOT read biome-ignore, so it re-flags every documented exception plus custom ARIA
+    // widgets (SVG gauges, draggable range bands, listbox/combobox) where the suggested
+    // native tag is not a drop-in. An audit of all 28 a11y findings found 27
+    // false-positive/intentional and 1 genuine gap (fixed: vector-status Reinit label).
+    // Keeping this on duplicates biome and floods the gate with noise.
+    // biome-ignore lint/style/useNamingConvention: react-doctor category keys are PascalCase
+    Accessibility: 'off' as const,
+    // Security: an audit of all 6 real-source findings found 0 genuine issues — a test
+    // mock `new Function`, a guarded pgvector `sql.raw` (validated via
+    // validateEmbeddingVector), a non-crypto diagnostic signature, a localStorage
+    // sentinel mistaken for a secret, and pnpm-hardening nags. Secret detection is
+    // already covered by the lefthook `secrets-scan`. pnpm supply-chain hardening
+    // (minimumReleaseAge / trustPolicy) is tracked separately as an infra decision.
+    // biome-ignore lint/style/useNamingConvention: react-doctor category keys are PascalCase
+    Security: 'off' as const,
+  },
   deadCode: true,
+  lint: true,
 
   // No data leaves the machine.
   noScore: true,
-  share: false,
-
-  // Local default; CI overrides scope/blocking via the Action inputs.
-  blocking: 'error' as const,
 
   rules: {
     // Owned by knip (which has the curated ignoreDependencies allowlist). deslop cannot
@@ -64,24 +82,5 @@ export default {
     // memoization stays ON — it protects memo the compiler still needs.)
     'react-doctor/react-compiler-no-manual-memoization': 'off' as const,
   },
-
-  categories: {
-    // Accessibility is already enforced by this repo's biome a11y rules, and the team
-    // documents intentional exceptions with `biome-ignore` comments. react-doctor does
-    // NOT read biome-ignore, so it re-flags every documented exception plus custom ARIA
-    // widgets (SVG gauges, draggable range bands, listbox/combobox) where the suggested
-    // native tag is not a drop-in. An audit of all 28 a11y findings found 27
-    // false-positive/intentional and 1 genuine gap (fixed: vector-status Reinit label).
-    // Keeping this on duplicates biome and floods the gate with noise.
-    // biome-ignore lint/style/useNamingConvention: react-doctor category keys are PascalCase
-    Accessibility: 'off' as const,
-    // Security: an audit of all 6 real-source findings found 0 genuine issues — a test
-    // mock `new Function`, a guarded pgvector `sql.raw` (validated via
-    // validateEmbeddingVector), a non-crypto diagnostic signature, a localStorage
-    // sentinel mistaken for a secret, and pnpm-hardening nags. Secret detection is
-    // already covered by the lefthook `secrets-scan`. pnpm supply-chain hardening
-    // (minimumReleaseAge / trustPolicy) is tracked separately as an infra decision.
-    // biome-ignore lint/style/useNamingConvention: react-doctor category keys are PascalCase
-    Security: 'off' as const,
-  },
+  share: false,
 };

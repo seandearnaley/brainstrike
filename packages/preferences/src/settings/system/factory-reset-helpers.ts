@@ -1,5 +1,10 @@
 import { createLogger } from '@brainstrike/utils/logger';
+import { resetHookTrustStoreToDefaults } from '../../stores/hook-trust-store';
+import { resetNotificationPreferencesStoreToDefaults } from '../../stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from '../../stores/permission-policy-store';
+import { resetSkillsPreferencesStoreToDefaults } from '../../stores/skills-preferences-store';
+import { resetSubagentPersonasStoreToDefaults } from '../../stores/subagent-personas-store';
+import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from '../../stores/workspace-instructions-preferences-store';
 
 const logger = createLogger('FactoryReset');
 
@@ -31,6 +36,7 @@ export const FALLBACK_INDEXED_DB_NAMES = [
   // Non-PGlite IndexedDB stores (named bare, not via Emscripten IDBFS).
   'brainstrike-desktop', // Desktop renderer queue/embeddings database
   'brainstrike-file-handles', // Web File System Access handle cache (IndexedDB)
+  'brainstrike-notes-vault', // Notes vault directory handles (@brainstrike/notes-vault handle-store.ts)
   // NOTE: `brainstrike-web` was a PGlite store (idb://brainstrike-web) → its real
   // database name is `/pglite/brainstrike-web` (listed above), so there is no bare
   // `brainstrike-web` entry here.
@@ -199,11 +205,24 @@ async function clearIndexedDbDatabases(): Promise<void> {
  * stores under the BARE data-dir name at the OPFS root, so these are bare.
  * Keep in sync with `getOpfsAhpBrowserPGliteDataDir` and engine-version bumps.
  */
-export const FALLBACK_OPFS_DIR_NAMES = ['app-pg18', 'web-pg18', 'app', 'web'] as const;
+export const FALLBACK_OPFS_DIR_NAMES = [
+  'app-pg18',
+  'web-pg18',
+  'app',
+  'web',
+  'brainstrike-notes', // Notes vault default "My Notes" (@brainstrike/notes-vault default-vault.ts)
+] as const;
 
 // Matches the pglite OPFS-AHP root dirs for our db names (`app`/`web`), versioned
 // or not, so enumeration-based clearing never touches an unrelated OPFS consumer.
 const OPFS_PGLITE_DIR_RE = /^(?:app|web)(?:-pg\d+)?$/;
+
+// Non-pglite Brainstrike OPFS dirs that a reset must also wipe when enumerating.
+// (The fallback list alone is NOT enough: it only applies when enumeration
+// finds nothing, so a matching pglite dir would otherwise shield these.)
+const OPFS_NON_PGLITE_RESET_DIRS: ReadonlySet<string> = new Set([
+  'brainstrike-notes', // Notes vault default "My Notes" (@brainstrike/notes-vault default-vault.ts)
+]);
 
 /**
  * Removes Brainstrike's PGlite OPFS-AHP stores so a factory reset is a true fresh
@@ -239,7 +258,7 @@ async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]>
   if (typeof root.keys === 'function') {
     try {
       for await (const name of root.keys()) {
-        if (OPFS_PGLITE_DIR_RE.test(name)) {
+        if (OPFS_PGLITE_DIR_RE.test(name) || OPFS_NON_PGLITE_RESET_DIRS.has(name)) {
           names.push(name);
         }
       }
@@ -287,6 +306,24 @@ function isMissingStorageEntryError(error: unknown): boolean {
   return error.name === 'NotFoundError';
 }
 
+/**
+ * Session-only store resetters registered by higher layers that this package
+ * MUST NOT import (avoids a dependency cycle). The permission-policy store is
+ * reset directly below because it lives here; stores in feature packages (e.g.
+ * `@brainstrike/workspace-search`'s session search store) register through this
+ * seam from the layer that composes them (app-shell). Drained on every factory
+ * reset per the FACTORY RESET CONTRACT so session state does not survive a reset
+ * that (on the web path) may not force a reload.
+ */
+const sessionStoreResetters = new Set<() => void>();
+
+export function registerFactoryResetSessionStore(reset: () => void): () => void {
+  sessionStoreResetters.add(reset);
+  return () => {
+    sessionStoreResetters.delete(reset);
+  };
+}
+
 function clearBrowserStorage(): void {
   // Reset live in-memory stores that hold session-only state. The blanket
   // localStorage.clear() below wipes persisted slices, but session-lived state
@@ -297,6 +334,60 @@ function clearBrowserStorage(): void {
     resetPermissionPolicyStoreToDefaults();
   } catch (error) {
     logger.warn('Failed to reset permission policy store', { error });
+  }
+
+  // Subagent persona availability (delegation switch + per-persona disables)
+  // is a persisted preference; reset it with the other preference stores.
+  try {
+    resetSubagentPersonasStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset subagent personas store', { error });
+  }
+
+  // Same rationale as the permission-policy store above: `masterEnabled` is a
+  // live in-memory toggle that a reset without a reload (the web path) would
+  // otherwise leave on.
+  try {
+    resetNotificationPreferencesStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset notification preferences store', { error });
+  }
+
+  // Hook-trust approvals are persisted AND security-sensitive: a factory reset
+  // must forget every per-root project-hook approval so a re-mounted repo's
+  // hooks require fresh review (FACTORY RESET CONTRACT + hooks security spine).
+  try {
+    resetHookTrustStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset hook trust store', { error });
+  }
+
+  // Same rationale as the notification store above: `masterEnabled` and the
+  // per-root oversized opt-in map are live in-memory state a reset without a
+  // reload (web path) would otherwise leave in place.
+  try {
+    resetWorkspaceInstructionsPreferencesStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset workspace instructions preferences store', { error });
+  }
+
+  // Agent Skills preferences: the master toggle + per-skill disable map are
+  // live in-memory state a reset without a reload would otherwise leave in
+  // place (FACTORY RESET CONTRACT).
+  try {
+    resetSkillsPreferencesStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset skills preferences store', { error });
+  }
+
+  // Drain externally-registered session-store resetters (see the registry doc
+  // above). Each is guarded so one failure cannot abort the rest of the reset.
+  for (const reset of sessionStoreResetters) {
+    try {
+      reset();
+    } catch (error) {
+      logger.warn('Failed to reset a registered session store', { error });
+    }
   }
 
   // Clear localStorage - blanket clear, no fallback lists

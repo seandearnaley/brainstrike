@@ -24,13 +24,13 @@ const mockDirectory = (
   children: [string, MockFileHandle | MockDirectoryHandle][] = []
 ): MockDirectoryHandle => {
   return {
-    kind: 'directory',
-    name,
     async *entries() {
       for (const entry of children) {
         yield entry;
       }
     },
+    kind: 'directory',
+    name,
   } as MockDirectoryHandle; // Type assertion needed because of the async generator
 };
 // --- End Mocking Strategy ---
@@ -47,32 +47,32 @@ describe('readFullFileTree', () => {
 
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({
+      depth: 0,
+      isDepthTruncated: false,
+      isSymbolicLink: false,
       name: 'file1.txt',
       path: '/file1.txt',
-      type: 'file',
-      depth: 0,
       rootFolderId: 'root',
-      isSymbolicLink: false,
-      isDepthTruncated: false,
+      type: 'file',
     });
     expect(result[1]).toMatchObject({
+      depth: 0,
+      isDepthTruncated: false,
+      isSymbolicLink: false,
       name: 'dir1',
       path: '/dir1',
-      type: 'directory',
-      depth: 0,
       rootFolderId: 'root',
-      isSymbolicLink: false,
-      isDepthTruncated: false,
+      type: 'directory',
     });
     expect(result[1]!.children).toHaveLength(1);
     expect(result[1]!.children?.[0]).toMatchObject({
+      depth: 1,
+      isDepthTruncated: false,
+      isSymbolicLink: false,
       name: 'file2.txt',
       path: '/dir1/file2.txt',
-      type: 'file',
-      depth: 1,
       rootFolderId: 'root',
-      isSymbolicLink: false,
-      isDepthTruncated: false,
+      type: 'file',
     });
   });
 
@@ -90,28 +90,28 @@ describe('readFullFileTree', () => {
     const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
 
     expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ name: 'dirA', path: '/dirA', depth: 0, type: 'directory' });
+    expect(result[0]).toMatchObject({ depth: 0, name: 'dirA', path: '/dirA', type: 'directory' });
 
     const childrenOfA = result[0]!.children;
     expect(childrenOfA).toHaveLength(1);
     expect(childrenOfA?.[0]).toMatchObject({
+      depth: 1,
       name: 'dirB',
       path: '/dirA/dirB',
-      depth: 1,
       type: 'directory',
     });
 
     const childrenOfB = childrenOfA?.[0]!.children;
     expect(childrenOfB).toHaveLength(1);
     expect(childrenOfB?.[0]).toMatchObject({
+      children: [], // Symbolic link should have no children processed
+      depth: 2,
+      isDepthTruncated: false, // As per new logic, symlink is not depth truncated
+      isSymbolicLink: true,
       name: 'loop_to_a',
       path: '/dirA/dirB/loop_to_a',
-      type: 'directory',
-      depth: 2,
-      isSymbolicLink: true,
-      isDepthTruncated: false, // As per new logic, symlink is not depth truncated
-      children: [], // Symbolic link should have no children processed
       rootFolderId: 'root',
+      type: 'directory',
     });
   });
 
@@ -144,9 +144,9 @@ describe('readFullFileTree', () => {
     expect(result[0]!.name).toBe('d1');
     expect(result[0]!.depth).toBe(0);
     expect(result[0]!.children?.[0]).toMatchObject({
+      depth: 1, // d2 is at depth 1 relative to d1, overall depth is parentPath depth + 1
       name: 'd2',
       path: '/d1/d2',
-      depth: 1, // d2 is at depth 1 relative to d1, overall depth is parentPath depth + 1
       type: 'directory',
     });
     // d2 is at depth 1 (from d1), its children (d3) would be at depth 2.
@@ -168,14 +168,14 @@ describe('readFullFileTree', () => {
     const d2Node = d1Node.children?.[0]!; // This is d2
 
     expect(d2Node).toMatchObject({
+      children: [], // Children of d2 should be empty due to truncation
+      depth: 1, // depth relative to d0
+      isDepthTruncated: true,
+      isSymbolicLink: false,
       name: 'd2',
       path: '/d1/d2', // path from root d0
-      type: 'directory',
-      depth: 1, // depth relative to d0
-      isSymbolicLink: false,
-      isDepthTruncated: true,
-      children: [], // Children of d2 should be empty due to truncation
       rootFolderId: 'd0',
+      type: 'directory',
     });
   });
 
@@ -213,21 +213,21 @@ describe('readFullFileTree', () => {
 
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({
+      depth: 0,
       name: 'file1.txt',
       path: '/file1.txt',
       type: 'file', // Files don't get truncated, they just are or aren't there.
-      depth: 0,
       // isDepthTruncated is not applicable to files in this context
     });
     expect(result[1]).toMatchObject({
+      children: [],
+      depth: 0,
+      isDepthTruncated: true,
+      isSymbolicLink: false,
       name: 'dir1',
       path: '/dir1',
-      type: 'directory',
-      depth: 0,
-      isSymbolicLink: false,
-      isDepthTruncated: true,
-      children: [],
       rootFolderId: 'root',
+      type: 'directory',
     });
   });
 
@@ -269,10 +269,10 @@ describe('readFullFileTree', () => {
     const emptyDirNode = result.find((node) => node.name === 'emptyDir');
     expect(emptyDirNode).toBeDefined();
     expect(emptyDirNode).toMatchObject({
-      type: 'directory',
       children: [],
-      isSymbolicLink: false,
       isDepthTruncated: false,
+      isSymbolicLink: false,
+      type: 'directory',
     });
   });
 

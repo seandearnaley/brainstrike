@@ -34,9 +34,9 @@ import {
   type PerToolPermissionOverrides,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 interface PermissionPolicyData {
   /**
@@ -83,6 +83,8 @@ interface PermissionPolicyActions {
   clearSessionGrants: () => void;
   /** Grant "always allow for this session" for a category. */
   grantSessionCategory: (category: ToolRiskCategory) => void;
+  /** Revoke a single session grant; the category falls back to its policy. */
+  revokeSessionCategory: (category: ToolRiskCategory) => void;
   /** Set the decision for a single risk category. */
   setCategoryPolicy: (category: ToolRiskCategory, decision: PermissionDecision) => void;
   /** Toggle the master OPT-IN enforcement switch. */
@@ -153,10 +155,10 @@ function defaultData(): PermissionPolicyData {
     // enforce-on-by-default (P1 fix): with the default policies below, read/mcp
     // run free and edit/execute PROMPT for per-call approval.
     enforce: true,
-    policies: defaultPolicies(),
-    yolo: false,
     perToolOverrides: {},
+    policies: defaultPolicies(),
     sessionGrants: new Set<ToolRiskCategory>(),
+    yolo: false,
   };
 }
 
@@ -199,12 +201,10 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
   persist(
     (set) => ({
       ...defaultData(),
-      setCategoryPolicy: (category, decision) =>
-        set((state) => ({
-          policies: { ...state.policies, [category]: decision },
-        })),
-      setEnforce: (enforce) => set({ enforce }),
-      setYolo: (yolo) => set({ yolo }),
+      clearSessionGrants: () =>
+        set((state) =>
+          state.sessionGrants.size === 0 ? state : { sessionGrants: new Set<ToolRiskCategory>() }
+        ),
       grantSessionCategory: (category) =>
         set((state) => {
           if (state.sessionGrants.has(category)) {
@@ -214,10 +214,20 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
           next.add(category);
           return { sessionGrants: next };
         }),
-      clearSessionGrants: () =>
-        set((state) =>
-          state.sessionGrants.size === 0 ? state : { sessionGrants: new Set<ToolRiskCategory>() }
-        ),
+      revokeSessionCategory: (category) =>
+        set((state) => {
+          if (!state.sessionGrants.has(category)) {
+            return state;
+          }
+          const next = new Set(state.sessionGrants);
+          next.delete(category);
+          return { sessionGrants: next };
+        }),
+      setCategoryPolicy: (category, decision) =>
+        set((state) => ({
+          policies: { ...state.policies, [category]: decision },
+        })),
+      setEnforce: (enforce) => set({ enforce }),
       setToolOverride: (toolId, decision) =>
         set((state) => {
           const next = { ...state.perToolOverrides };
@@ -228,19 +238,9 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
           }
           return { perToolOverrides: next };
         }),
+      setYolo: (yolo) => set({ yolo }),
     }),
     {
-      name: STORE_NAME,
-      version: STORE_VERSION,
-      storage,
-      // SESSION-ONLY `sessionGrants` is intentionally excluded — only the
-      // persisted slice is written to storage.
-      partialize: (state) => ({
-        enforce: state.enforce,
-        policies: state.policies,
-        yolo: state.yolo,
-        perToolOverrides: state.perToolOverrides,
-      }),
       migrate: (persistedState, version) => {
         if (!(persistedState && typeof persistedState === 'object')) {
           return defaultData();
@@ -261,13 +261,24 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
             version >= STORE_VERSION && typeof candidate.enforce === 'boolean'
               ? candidate.enforce
               : true,
-          policies: sanitizePolicies(candidate.policies),
-          yolo: typeof candidate.yolo === 'boolean' ? candidate.yolo : false,
           perToolOverrides: sanitizeOverrides(candidate.perToolOverrides),
+          policies: sanitizePolicies(candidate.policies),
           // Session grants are never persisted; always start empty after rehydration.
           sessionGrants: new Set<ToolRiskCategory>(),
+          yolo: typeof candidate.yolo === 'boolean' ? candidate.yolo : false,
         } satisfies PermissionPolicyData;
       },
+      name: STORE_NAME,
+      // SESSION-ONLY `sessionGrants` is intentionally excluded — only the
+      // persisted slice is written to storage.
+      partialize: (state) => ({
+        enforce: state.enforce,
+        perToolOverrides: state.perToolOverrides,
+        policies: state.policies,
+        yolo: state.yolo,
+      }),
+      storage,
+      version: STORE_VERSION,
     }
   )
 );
@@ -293,12 +304,12 @@ export function resetPermissionPolicyStoreToDefaults(): void {
 
 export const permissionPolicySelectors = {
   enforce: (store: PermissionPolicyStore): boolean => store.enforce,
-  policies: (store: PermissionPolicyStore): PermissionPolicies => store.policies,
-  yolo: (store: PermissionPolicyStore): boolean => store.yolo,
-  sessionGrants: (store: PermissionPolicyStore): ReadonlySet<ToolRiskCategory> =>
-    store.sessionGrants,
   perToolOverrides: (store: PermissionPolicyStore): PerToolPermissionOverrides =>
     store.perToolOverrides,
+  policies: (store: PermissionPolicyStore): PermissionPolicies => store.policies,
+  sessionGrants: (store: PermissionPolicyStore): ReadonlySet<ToolRiskCategory> =>
+    store.sessionGrants,
+  yolo: (store: PermissionPolicyStore): boolean => store.yolo,
 };
 
 /**
@@ -317,10 +328,10 @@ export function buildPermissionToolGateSnapshotInput(
 ): PermissionToolGateSnapshotInput {
   return {
     enforce: store.enforce,
-    policies: { ...store.policies },
-    yolo: store.yolo,
-    sessionGrants: Array.from(store.sessionGrants),
     perToolOverrides: { ...store.perToolOverrides },
+    policies: { ...store.policies },
+    sessionGrants: Array.from(store.sessionGrants),
+    yolo: store.yolo,
   };
 }
 

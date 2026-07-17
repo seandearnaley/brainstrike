@@ -89,11 +89,11 @@ export function createToolCallPart(
   }
 
   return {
-    type: 'tool-call',
-    toolCallId: toolCall.id,
-    toolName: toolCall.function.name,
     args: parsedArgs,
     argsText: toolCall.function.arguments,
+    toolCallId: toolCall.id,
+    toolName: toolCall.function.name,
+    type: 'tool-call',
     ...(overrides?.result === undefined ? {} : { result: overrides.result }),
     ...(overrides?.isError === undefined ? {} : { isError: overrides.isError }),
   };
@@ -117,9 +117,9 @@ export function createLocalRunEvent(
 
 export function createRunEventPart(event: AssistantRunEvent): AssistantDataContentPart {
   return {
-    type: 'data',
-    name: ASSISTANT_RUN_EVENT_DATA_NAME,
     data: event,
+    name: ASSISTANT_RUN_EVENT_DATA_NAME,
+    type: 'data',
   };
 }
 
@@ -130,9 +130,9 @@ export function buildAssistantContentParts(
   runEventParts: readonly AssistantDataContentPart[] = []
 ): AssistantContentPart[] {
   return [
-    ...(reasoningText?.trim() ? [{ type: 'reasoning', text: reasoningText.trim() } as const] : []),
+    ...(reasoningText?.trim() ? [{ text: reasoningText.trim(), type: 'reasoning' } as const] : []),
     ...toolCallParts,
-    ...(text.trim() ? [{ type: 'text', text } as const] : []),
+    ...(text.trim() ? [{ text, type: 'text' } as const] : []),
     ...runEventParts,
   ];
 }

@@ -127,19 +127,7 @@ function resolveSelectedPreset(
  * Internal component that handles store connection and persistence.
  * Separated to ensure stable hook order for React Compiler.
  */
-const ToolbarPresetSelectorInner: React.FC<
-  ToolbarPresetSelectorProps & {
-    excludeFilters: readonly string[];
-    includeFilters: readonly string[];
-    viewFilterPresetId: string | null;
-    useRegex: boolean;
-    setViewFilterPresetId: (id: string | null) => void;
-    setFilters: (includes: string[], excludes: string[]) => void;
-    setUseRegex: (useRegex: boolean) => void;
-    isHydrated: boolean;
-    persistNow: () => Promise<void>;
-  }
-> = React.memo(
+const ToolbarPresetSelectorInner = React.memo(
   ({
     onFilterChange,
     className,
@@ -150,8 +138,20 @@ const ToolbarPresetSelectorInner: React.FC<
     setViewFilterPresetId,
     setFilters,
     setUseRegex,
+    clearDisabledFilters,
     isHydrated,
     persistNow,
+  }: ToolbarPresetSelectorProps & {
+    excludeFilters: readonly string[];
+    includeFilters: readonly string[];
+    viewFilterPresetId: string | null;
+    useRegex: boolean;
+    setViewFilterPresetId: (id: string | null) => void;
+    setFilters: (includes: string[], excludes: string[]) => void;
+    setUseRegex: (useRegex: boolean) => void;
+    clearDisabledFilters: () => void;
+    isHydrated: boolean;
+    persistNow: () => Promise<void>;
   }) => {
     // Load presets from database
     const { presets, loading, error, createPreset, updatePreset, deletePreset } =
@@ -159,8 +159,8 @@ const ToolbarPresetSelectorInner: React.FC<
 
     const activeFilters = useMemo<ActiveFilterState>(
       () => ({
-        includeFilters,
         excludeFilters,
+        includeFilters,
         useRegex,
       }),
       [includeFilters, excludeFilters, useRegex]
@@ -235,6 +235,10 @@ const ToolbarPresetSelectorInner: React.FC<
         // Apply the filter payload before setting the preset id so the synchronization
         // effect never observes a new preset id against stale filter state.
         setFilters(preset.includes, preset.excludes);
+        // Stale per-entry disable toggles reference the OUTGOING lists; a
+        // preset that reintroduces a toggled-off string must not arrive
+        // silently disabled (spike B9) — the effective filters ARE the preset.
+        clearDisabledFilters();
         setUseRegex(preset.useRegex);
         setViewFilterPresetId(preset.id);
 
@@ -255,7 +259,14 @@ const ToolbarPresetSelectorInner: React.FC<
           }
         }
       },
-      [setViewFilterPresetId, setFilters, setUseRegex, onFilterChange, persistNow]
+      [
+        setViewFilterPresetId,
+        setFilters,
+        setUseRegex,
+        clearDisabledFilters,
+        onFilterChange,
+        persistNow,
+      ]
     );
 
     // Filters are active but match no preset — the trigger must say so
@@ -287,8 +298,8 @@ ToolbarPresetSelectorInner.displayName = 'ToolbarPresetSelectorInner';
  * Provides a compact dropdown for quick preset selection in the toolbar.
  * Connects to the file explorer store and persists changes automatically.
  */
-const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
-  ({ onFilterChange, className }) => {
+const ToolbarPresetSelector = React.memo(
+  ({ onFilterChange, className }: ToolbarPresetSelectorProps) => {
     const store = useFileExplorerStoreContext();
     const { storageAdapter } = useAdapters();
     const isHydrated = useStoreHydrated(store);
@@ -302,6 +313,7 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
     const setViewFilterPresetId = useFileExplorerStoreSelector((s) => s.setViewFilterPresetId);
     const setFilters = useFileExplorerStoreSelector((s) => s.setFilters);
     const setUseRegex = useFileExplorerStoreSelector((s) => s.setUseRegex);
+    const clearDisabledFilters = useFileExplorerStoreSelector((s) => s.clearDisabledFilters);
 
     // ONE writer: the canonical store snapshot (same serializer as the
     // persist middleware), never a hand-merged patch — a second JSON writer
@@ -317,6 +329,7 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
     return (
       <ToolbarPresetSelectorInner
         className={className}
+        clearDisabledFilters={clearDisabledFilters}
         excludeFilters={excludeFilters}
         includeFilters={includeFilters}
         isHydrated={isHydrated}

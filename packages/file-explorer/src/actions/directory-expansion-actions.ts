@@ -40,6 +40,27 @@ export const createDirectoryExpansionActions = (
   set: SetState<FileExplorerState>,
   _get: GetState<FileExplorerState> // Marked as unused
 ): DirectoryExpansionActions => ({
+  collapseAllDirectories: () => {
+    set((state) => updateExpandedPaths(state, new Set()));
+  },
+
+  expandAllDirectories: (fileTree: IFileNode[]) => {
+    set((state) => {
+      const newExpandedPaths = new Set(state.expandedDirectoryPaths);
+      const addDirectoryPaths = (nodes: IFileNode[]) => {
+        for (const node of nodes) {
+          if (node.type === 'directory') {
+            newExpandedPaths.add(node.path);
+            if (node.children) {
+              addDirectoryPaths(node.children);
+            }
+          }
+        }
+      };
+      addDirectoryPaths(fileTree);
+      return updateExpandedPaths(state, newExpandedPaths);
+    });
+  },
   setExpandedPaths: (paths: ReadonlySet<string>) => {
     set((state) => updateExpandedPaths(state, new Set(paths)));
   },
@@ -60,27 +81,5 @@ export const createDirectoryExpansionActions = (
       }
       return updateExpandedPaths(state, newExpandedPaths);
     });
-  },
-
-  expandAllDirectories: (fileTree: IFileNode[]) => {
-    set((state) => {
-      const newExpandedPaths = new Set(state.expandedDirectoryPaths);
-      const addDirectoryPaths = (nodes: IFileNode[]) => {
-        for (const node of nodes) {
-          if (node.type === 'directory') {
-            newExpandedPaths.add(node.path);
-            if (node.children) {
-              addDirectoryPaths(node.children);
-            }
-          }
-        }
-      };
-      addDirectoryPaths(fileTree);
-      return updateExpandedPaths(state, newExpandedPaths);
-    });
-  },
-
-  collapseAllDirectories: () => {
-    set((state) => updateExpandedPaths(state, new Set()));
   },
 });

@@ -52,10 +52,10 @@ describe('ipc-llm-host', () => {
     ) => Promise<unknown>;
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
-        kind: 'generate',
         clientRequestId: 'req-1',
-        modelId: '',
+        kind: 'generate',
         messages: [],
+        modelId: '',
       })
     ).rejects.toThrow('Llm host generate payload.modelId must be a non-empty string.');
     expect(manager.generate).not.toHaveBeenCalled();
@@ -85,10 +85,10 @@ describe('ipc-llm-host', () => {
     ) => Promise<unknown>;
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
-        kind: 'generate',
         clientRequestId: 'req-1',
+        kind: 'generate',
+        messages: [{ content: null, role: 'user' }],
         modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-        messages: [{ role: 'user', content: null }],
       })
     ).rejects.toThrow('Llm host generate payload.messages[0].content must be a string.');
     expect(manager.generate).not.toHaveBeenCalled();
@@ -118,27 +118,26 @@ describe('ipc-llm-host', () => {
     ) => Promise<unknown>;
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
-        kind: 'generate',
         clientRequestId: 'req-1',
-        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        kind: 'generate',
         messages: [
           {
-            role: 'assistant',
             content: '',
+            role: 'assistant',
             toolCalls: [
               {
+                function: {
+                  arguments: '{}',
+                  name: 'read_file',
+                },
                 id: 'call_1',
                 type: 'function',
-                function: {
-                  name: 'read_file',
-                  arguments: '{}',
-                },
               },
             ],
           },
           {
-            role: 'tool',
             content: '',
+            role: 'tool',
             toolResponses: [
               {
                 name: 'read_file',
@@ -147,6 +146,7 @@ describe('ipc-llm-host', () => {
             ],
           },
         ],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
         options: {},
       })
     ).resolves.toEqual({ text: 'ok' });
@@ -178,10 +178,10 @@ describe('ipc-llm-host', () => {
     ) => Promise<unknown>;
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
-        kind: 'generate',
         clientRequestId: 'req-1',
+        kind: 'generate',
+        messages: [{ content: '', role: 'assistant' }],
         modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-        messages: [{ role: 'assistant', content: '' }],
         options: {},
       })
     ).rejects.toThrow(
@@ -214,13 +214,12 @@ describe('ipc-llm-host', () => {
     ) => Promise<unknown>;
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
-        kind: 'generate',
         clientRequestId: 'req-1',
-        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        kind: 'generate',
         messages: [
           {
-            role: 'assistant',
             content: '',
+            role: 'assistant',
             toolResponses: [
               {
                 name: 'read_file',
@@ -229,6 +228,7 @@ describe('ipc-llm-host', () => {
             ],
           },
         ],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
         options: {},
       })
     ).rejects.toThrow(
@@ -260,10 +260,10 @@ describe('ipc-llm-host', () => {
     ) => Promise<unknown>;
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
-        kind: 'generate',
         clientRequestId: 'req-1',
+        kind: 'generate',
+        messages: [{ content: '', role: 'user', toolCalls: [] }],
         modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-        messages: [{ role: 'user', content: '', toolCalls: [] }],
         options: {},
       })
     ).rejects.toThrow(
@@ -295,10 +295,10 @@ describe('ipc-llm-host', () => {
     ) => Promise<unknown>;
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
-        kind: 'generate',
         clientRequestId: 'req-1',
+        kind: 'generate',
+        messages: [{ content: '   ', role: 'user' }],
         modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-        messages: [{ role: 'user', content: '   ' }],
         options: {},
       })
     ).resolves.toEqual({ text: 'ok' });
@@ -328,10 +328,10 @@ describe('ipc-llm-host', () => {
     ) => Promise<unknown>;
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
-        kind: 'generate',
         clientRequestId: 'req-1',
+        kind: 'generate',
+        messages: [{ content: '', role: 'tool', toolCallId: 'call_1' }],
         modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-        messages: [{ role: 'tool', content: '', toolCallId: 'call_1' }],
         options: {},
       })
     ).resolves.toEqual({ text: 'ok' });
@@ -361,25 +361,25 @@ describe('ipc-llm-host', () => {
     ) => Promise<unknown>;
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
-        kind: 'generate',
         clientRequestId: 'req-1',
-        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        kind: 'generate',
         messages: [
           {
-            role: 'tool',
             content: '',
+            role: 'tool',
             toolCalls: [
               {
+                function: {
+                  arguments: '{}',
+                  name: 'read_file',
+                },
                 id: 'call_1',
                 type: 'function',
-                function: {
-                  name: 'read_file',
-                  arguments: '{}',
-                },
               },
             ],
           },
         ],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
         options: {},
       })
     ).rejects.toThrow(
@@ -511,10 +511,10 @@ describe('ipc-llm-host', () => {
       responseListener(
         { sender: { id: 1 } },
         {
-          type: 'result',
+          payload: { result: null },
           requestId: '',
           runtimeId: 'runtime',
-          payload: { result: null },
+          type: 'result',
         }
       )
     ).toThrow('Llm host response report.requestId must be a non-empty string.');

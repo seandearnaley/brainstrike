@@ -28,6 +28,13 @@ jobs:
     name: Desktop Full Regression
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    # NOT folded into the setup-workspace composite (Series C R9a): the
+    # Electron-version lookup + binary cache below must run BETWEEN Node setup
+    # and `pnpm install`, which the composite's fixed step order cannot
+    # express — see the matching note in test.yml's desktop-e2e job. The
+    # turbo cache step keeps its own literal YAML too, re-keyed on
+    # lockfile+turbo.jsonc content (same pattern as the composite) instead of
+    # a private per-job-per-sha key.
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -45,9 +52,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-desktop-e2e-${{ github.job }}-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
           restore-keys: |
-            ${{ runner.os }}-turbo-desktop-e2e-${{ github.job }}-
+            ${{ runner.os }}-${{ runner.arch }}-turbo-
 
       - name: Get Electron version
         id: electron-version
@@ -136,9 +143,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-desktop-e2e-${{ github.job }}-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
           restore-keys: |
-            ${{ runner.os }}-turbo-desktop-e2e-${{ github.job }}-
+            ${{ runner.os }}-${{ runner.arch }}-turbo-
 
       - name: Get Electron version
         id: electron-version
@@ -215,3 +222,52 @@ jobs:
           path: apps/desktop/test-results/
           retention-days: 1
           if-no-files-found: ignore
+
+  notify-failure:
+    name: Notify desktop E2E failure
+    # Fire if EITHER desktop regression job fails; failure() is true when any
+    # `needs` job concludes failure.
+    needs: [desktop-full-regression, desktop-embedding-e2e]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    # gh issue create / comment are sub-second under normal conditions; cap at
+    # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Ensure tracking label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create "desktop-e2e-failure" \
+            --repo "$REPO" \
+            --color d93f0b \
+            --description "Auto-opened by desktop-e2e.yml when the scheduled desktop E2E run fails" \
+            2>/dev/null || true
+
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          existing=$(gh issue list --repo "$REPO" \
+            --label "desktop-e2e-failure" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" \
+              --body "Nightly desktop E2E failed again. Run: $RUN_URL"
+          else
+            gh issue create --repo "$REPO" \
+              --title "Desktop E2E nightly failure ($(date -u +%Y-%m-%d))" \
+              --label "desktop-e2e-failure" \
+              --body "Nightly Desktop E2E workflow failed.
+
+          Run: $RUN_URL
+
+          This issue stays open while the failure persists and gets a new comment on each subsequent failure. Close it once the next nightly is green."
+          fi

@@ -34,9 +34,9 @@ describe('MockFileSystemAdapter', () => {
     it('should set the file system structure', () => {
       const mockFS = {
         'test.txt': {
+          content: 'test content',
           name: 'test.txt',
           type: 'file' as const,
-          content: 'test content',
         },
       };
 
@@ -48,9 +48,9 @@ describe('MockFileSystemAdapter', () => {
   describe('addMockEntry', () => {
     it('should add a file to the root', () => {
       const fileEntry: MockFileEntry = {
+        content: 'test content',
         name: 'test.txt',
         type: 'file',
-        content: 'test content',
       };
 
       adapter.addMockEntry('test.txt', fileEntry);
@@ -59,9 +59,9 @@ describe('MockFileSystemAdapter', () => {
 
     it('should add a file to a nested directory', () => {
       const fileEntry: MockFileEntry = {
+        content: 'nested content',
         name: 'nested.txt',
         type: 'file',
-        content: 'nested content',
       };
 
       adapter.addMockEntry('src/components/nested.txt', fileEntry);
@@ -70,9 +70,9 @@ describe('MockFileSystemAdapter', () => {
 
     it('should create intermediate directories automatically', () => {
       const fileEntry: MockFileEntry = {
+        content: 'deep content',
         name: 'deep.txt',
         type: 'file',
-        content: 'deep content',
       };
 
       adapter.addMockEntry('very/deep/path/deep.txt', fileEntry);
@@ -81,9 +81,9 @@ describe('MockFileSystemAdapter', () => {
 
     it('should handle empty path parts gracefully', () => {
       const fileEntry: MockFileEntry = {
+        content: 'test content',
         name: 'test.txt',
         type: 'file',
-        content: 'test content',
       };
 
       adapter.addMockEntry('//test.txt', fileEntry);
@@ -104,11 +104,11 @@ describe('MockFileSystemAdapter', () => {
       const handle = await adapter.requestDirectoryAccess();
 
       expect(handle).toEqual({
-        path: 'mock-root',
-        name: 'mock-root',
-        kind: 'directory',
-        platform: 'web',
         _internal: { mockRoot: true },
+        kind: 'directory',
+        name: 'mock-root',
+        path: 'mock-root',
+        platform: 'web',
       });
     });
   });
@@ -122,9 +122,9 @@ describe('MockFileSystemAdapter', () => {
     it('should throw error when no directory is selected', async () => {
       const freshAdapter = new MockFileSystemAdapter();
       const handle = {
-        path: 'test',
-        name: 'test',
         kind: 'directory' as const,
+        name: 'test',
+        path: 'test',
         platform: 'web' as const,
       };
 
@@ -135,9 +135,9 @@ describe('MockFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root',
-        name: 'mock-root',
         kind: 'directory' as const,
+        name: 'mock-root',
+        path: 'mock-root',
         platform: 'web' as const,
       };
 
@@ -153,9 +153,9 @@ describe('MockFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/src',
-        name: 'src',
         kind: 'directory' as const,
+        name: 'src',
+        path: 'mock-root/src',
         platform: 'web' as const,
       };
 
@@ -170,9 +170,9 @@ describe('MockFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/non-existent',
-        name: 'non-existent',
         kind: 'directory' as const,
+        name: 'non-existent',
+        path: 'mock-root/non-existent',
         platform: 'web' as const,
       };
 
@@ -184,9 +184,9 @@ describe('MockFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root',
-        name: 'mock-root',
         kind: 'directory' as const,
+        name: 'mock-root',
+        path: 'mock-root',
         platform: 'web' as const,
       };
 
@@ -208,9 +208,9 @@ describe('MockFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root',
-        name: 'mock-root',
         kind: 'directory' as const,
+        name: 'mock-root',
+        path: 'mock-root',
         platform: 'web' as const,
       };
 
@@ -231,9 +231,9 @@ describe('MockFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root',
-        name: 'mock-root',
         kind: 'directory' as const,
+        name: 'mock-root',
+        path: 'mock-root',
         platform: 'web' as const,
       };
 
@@ -258,15 +258,15 @@ describe('MockFileSystemAdapter', () => {
 
     it('should read file content', async () => {
       const handle = {
-        path: 'mock-root/package.json',
-        name: 'package.json',
-        kind: 'file' as const,
-        platform: 'web' as const,
         _internal: {
+          content: '{"name": "test-package", "version": "1.0.0"}',
           name: 'package.json',
           type: 'file' as const,
-          content: '{"name": "test-package", "version": "1.0.0"}',
         },
+        kind: 'file' as const,
+        name: 'package.json',
+        path: 'mock-root/package.json',
+        platform: 'web' as const,
       };
 
       const content = await adapter.readFile(handle);
@@ -275,14 +275,14 @@ describe('MockFileSystemAdapter', () => {
 
     it('should return empty string for files without content', async () => {
       const handle = {
-        path: 'mock-root/empty.txt',
-        name: 'empty.txt',
-        kind: 'file' as const,
-        platform: 'web' as const,
         _internal: {
           name: 'empty.txt',
           type: 'file' as const,
         },
+        kind: 'file' as const,
+        name: 'empty.txt',
+        path: 'mock-root/empty.txt',
+        platform: 'web' as const,
       };
 
       const content = await adapter.readFile(handle);
@@ -291,14 +291,14 @@ describe('MockFileSystemAdapter', () => {
 
     it('should throw error for non-file handles', async () => {
       const handle = {
-        path: 'mock-root/src',
-        name: 'src',
-        kind: 'file' as const,
-        platform: 'web' as const,
         _internal: {
           name: 'src',
           type: 'directory' as const,
         },
+        kind: 'file' as const,
+        name: 'src',
+        path: 'mock-root/src',
+        platform: 'web' as const,
       };
 
       await expect(adapter.readFile(handle)).rejects.toThrow('File not found: mock-root/src');
@@ -306,11 +306,11 @@ describe('MockFileSystemAdapter', () => {
 
     it('should throw error for missing internal data', async () => {
       const handle = {
-        path: 'mock-root/missing.txt',
-        name: 'missing.txt',
-        kind: 'file' as const,
-        platform: 'web' as const,
         _internal: null,
+        kind: 'file' as const,
+        name: 'missing.txt',
+        path: 'mock-root/missing.txt',
+        platform: 'web' as const,
       };
 
       await expect(adapter.readFile(handle)).rejects.toThrow(
@@ -369,9 +369,9 @@ describe('MockFileSystemAdapter', () => {
       await expect(
         freshAdapter.readDirectoryStreaming(
           {
-            path: 'mock-root',
-            name: 'mock-root',
             kind: 'directory',
+            name: 'mock-root',
+            path: 'mock-root',
             platform: 'web',
           },
           () => undefined
@@ -382,13 +382,17 @@ describe('MockFileSystemAdapter', () => {
     it('should reject when the signal is already aborted', async () => {
       const rootHandle = await adapter.requestDirectoryAccess();
       const abortController = new AbortController();
-      abortController.abort();
+      const abortReason = new Error('caller cancelled before enumeration');
+      abortController.abort(abortReason);
+      const onBatch = vi.fn();
 
       await expect(
-        adapter.readDirectoryStreaming(rootHandle, () => undefined, {
+        adapter.readDirectoryStreaming(rootHandle, onBatch, {
           signal: abortController.signal,
         })
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+
+      expect(onBatch).not.toHaveBeenCalled();
     });
 
     it('should emit an empty done batch for missing directories', async () => {
@@ -397,9 +401,9 @@ describe('MockFileSystemAdapter', () => {
 
       await adapter.readDirectoryStreaming(
         {
-          path: 'mock-root/missing',
-          name: 'missing',
           kind: 'directory',
+          name: 'missing',
+          path: 'mock-root/missing',
           platform: 'web',
         },
         (batch, meta) => {
@@ -417,9 +421,9 @@ describe('MockFileSystemAdapter', () => {
     it('should emit an empty done batch for empty directories', async () => {
       adapter.setMockFileSystem({
         empty: {
+          children: {},
           name: 'empty',
           type: 'directory',
-          children: {},
         },
       });
       await adapter.requestDirectoryAccess();
@@ -427,9 +431,9 @@ describe('MockFileSystemAdapter', () => {
 
       await adapter.readDirectoryStreaming(
         {
-          path: 'mock-root/empty',
-          name: 'empty',
           kind: 'directory',
+          name: 'empty',
+          path: 'mock-root/empty',
           platform: 'web',
         },
         (batch, meta) => {
@@ -480,19 +484,24 @@ describe('MockFileSystemAdapter', () => {
     it('should reject when aborted between streaming batches', async () => {
       const rootHandle = await adapter.requestDirectoryAccess();
       const abortController = new AbortController();
+      const abortReason = new DOMException('Directory enumeration cancelled', 'AbortError');
+      const completionStates: boolean[] = [];
 
       await expect(
         adapter.readDirectoryStreaming(
           rootHandle,
-          () => {
-            abortController.abort();
+          (_nodes, meta) => {
+            completionStates.push(meta.done);
+            abortController.abort(abortReason);
           },
           {
             batchSize: 1,
             signal: abortController.signal,
           }
         )
-      ).rejects.toThrow('Operation was cancelled');
+      ).rejects.toBe(abortReason);
+
+      expect(completionStates).toEqual([false]);
     });
   });
 
@@ -561,9 +570,9 @@ describe('MockFileSystemAdapter', () => {
       );
 
       const srcHandle = {
-        path: srcDir.path,
-        name: srcDir.name,
         kind: 'directory' as const,
+        name: srcDir.name,
+        path: srcDir.path,
         platform: 'web' as const,
       };
 
@@ -582,21 +591,21 @@ describe('MockFileSystemAdapter', () => {
 
     it('should handle custom file system structures', async () => {
       const customFS = {
-        'custom.txt': {
-          name: 'custom.txt',
-          type: 'file' as const,
-          content: 'custom content',
-        },
         'custom-dir': {
-          name: 'custom-dir',
-          type: 'directory' as const,
           children: {
             'nested.txt': {
+              content: 'nested content',
               name: 'nested.txt',
               type: 'file' as const,
-              content: 'nested content',
             },
           },
+          name: 'custom-dir',
+          type: 'directory' as const,
+        },
+        'custom.txt': {
+          content: 'custom content',
+          name: 'custom.txt',
+          type: 'file' as const,
         },
       };
 

@@ -70,8 +70,8 @@ export function completeToolCall<TController extends ToolCallControllerLike>(
   }
   const [key, entry] = resolved;
   entry.controller.setResponse({
-    result: cloneJsonSafe(payload ?? null),
     isError: status === 'error',
+    result: cloneJsonSafe(payload ?? null),
   });
   entry.controller.close();
   releaseToolEntry(registry, key);

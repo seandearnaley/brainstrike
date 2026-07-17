@@ -20,7 +20,6 @@ export interface ReportGenerationRequest {
   selectedFiles: Set<string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
   useRegex: boolean;
-  useTapestryRanges?: boolean;
 }
 
 export interface ReportProgressEvent {
@@ -42,7 +41,6 @@ export type CreateReportGenerator = (options?: ReportGenerationWorkerOptions) =>
 export interface ContextGenerationOverrides {
   projectTreeUsesViewFilters?: boolean;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
-  useTapestryRanges?: boolean;
 }
 
 interface UseReportGenerationProps {
@@ -96,20 +94,20 @@ export function useReportGeneration({
   const [progress, setProgress] = useState<ReportProgressEvent | null>(null);
 
   const payload = {
-    selectedFiles,
-    fileContents,
-    rootDirectoryHandle,
-    fileSystemAdapter,
-    includeFilters,
+    createReportGenerator,
     excludeFilters,
-    useRegex,
-    includeProjectTree,
-    projectTreeUsesViewFilters,
+    fileContents,
+    fileSystemAdapter,
     folderSummaryThreshold,
-    loadMissingContent,
     getFileContents,
     getRootDisplayInfoById,
-    createReportGenerator,
+    includeFilters,
+    includeProjectTree,
+    loadMissingContent,
+    projectTreeUsesViewFilters,
+    rootDirectoryHandle,
+    selectedFiles,
+    useRegex,
   };
   const payloadRef = useRef(payload);
   payloadRef.current = payload;
@@ -156,21 +154,20 @@ export function useReportGeneration({
       const rootDisplayInfoById = getRootDisplayInfo?.();
       return await worker(
         {
-          selectedFiles: s,
           fileContents: finalFileContents,
           rootDirectoryHandle: stableRoot as FileSystemDirectoryHandle | DirectoryHandle,
+          selectedFiles: s,
           ...(rootDisplayInfoById ? { rootDisplayInfoById } : {}),
-          includeFilters: inc,
           excludeFilters: exc,
-          useRegex: rx,
+          folderSummaryThreshold: thr,
+          includeFilters: inc,
           includeProjectTree: proj,
           // When override is undefined, use the latest persisted toggle from payloadRef.
           projectTreeUsesViewFilters: overrides?.projectTreeUsesViewFilters ?? treeUsesViewFilters,
-          folderSummaryThreshold: thr,
+          useRegex: rx,
           ...(overrides?.selectedLineRangesByFile
             ? { selectedLineRangesByFile: overrides.selectedLineRangesByFile }
             : {}),
-          useTapestryRanges: overrides?.useTapestryRanges ?? false,
         },
         (e: ReportProgressEvent) => setProgress(e)
       );

@@ -38,6 +38,78 @@ export function throwIfAborted(
   }
 }
 
+/**
+ * Generic leading+trailing throttle for high-frequency progress callbacks.
+ * The import pipeline reports once per FILE READ — thousands of emissions
+ * during initial indexing; unthrottled, each one became a status-store patch
+ * (and a re-render of every subscriber). Semantics: first report emits
+ * immediately; reports within the window coalesce to the LATEST value on the
+ * trailing edge; `flush()` emits the pending value now (call after the
+ * producing loop finishes so the final state always lands); `dispose()` drops
+ * pending work.
+ */
+export function createThrottledProgressReporter<T>(
+  emit: (value: T) => void,
+  throttleMs: number
+): {
+  dispose: () => void;
+  flush: () => void;
+  report: (value: T) => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let hasPending = false;
+  let pending: T | undefined;
+  let lastEmitAt = 0;
+
+  const clearTimer = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const emitNow = (value: T): void => {
+    clearTimer();
+    hasPending = false;
+    pending = undefined;
+    lastEmitAt = Date.now();
+    emit(value);
+  };
+
+  return {
+    dispose() {
+      clearTimer();
+      hasPending = false;
+      pending = undefined;
+    },
+    flush() {
+      if (hasPending) {
+        emitNow(pending as T);
+      }
+    },
+    report(value) {
+      pending = value;
+      hasPending = true;
+      const now = Date.now();
+      if (now - lastEmitAt >= throttleMs) {
+        emitNow(value);
+        return;
+      }
+      if (timer !== null) {
+        return;
+      }
+      timer = setTimeout(
+        () => {
+          if (hasPending) {
+            emitNow(pending as T);
+          }
+        },
+        Math.max(0, throttleMs - (now - lastEmitAt))
+      );
+    },
+  };
+}
+
 export function createScanningStatusReporter(
   emit: (path: string | null) => void,
   throttleMs = SCANNING_STATUS_THROTTLE_MS
@@ -65,6 +137,13 @@ export function createScanningStatusReporter(
   };
 
   return {
+    dispose() {
+      clearTimer();
+      pendingPath = null;
+    },
+    flush(path = pendingPath) {
+      emitNow(path ?? null);
+    },
     report(path) {
       pendingPath = path;
       const now = Date.now();
@@ -81,13 +160,6 @@ export function createScanningStatusReporter(
         },
         Math.max(0, throttleMs - (now - lastEmitAt))
       );
-    },
-    flush(path = pendingPath) {
-      emitNow(path ?? null);
-    },
-    dispose() {
-      clearTimer();
-      pendingPath = null;
     },
   };
 }
@@ -154,38 +226,38 @@ export function mapEnhancedProgressToStatus(
     case 'complete':
       return {
         ...base,
-        state: 'idle',
+        currentFilePath: null,
         pauseReasons: [],
         processedFiles: progress.total,
         queuedFiles: base.queueProgress?.pending ?? 0,
-        currentFilePath: null,
+        state: 'idle',
       };
     case 'embedding':
       return {
         ...base,
-        state: 'embedding',
+        currentFilePath: progress.embeddingProgress?.currentChunk ?? progress.current ?? null,
         pauseReasons: [],
         processedFiles: progress.embeddingProgress?.chunksProcessed ?? progress.completed,
         queuedFiles: progress.queueProgress?.pending ?? 0,
-        currentFilePath: progress.embeddingProgress?.currentChunk ?? progress.current ?? null,
+        state: 'embedding',
       };
     case 'chunking':
       return {
         ...base,
-        state: 'chunking',
+        currentFilePath: progress.chunkingProgress?.currentFile ?? progress.current ?? null,
         pauseReasons: [],
         processedFiles: progress.chunkingProgress?.filesProcessed ?? progress.completed,
         queuedFiles: 0,
-        currentFilePath: progress.chunkingProgress?.currentFile ?? progress.current ?? null,
+        state: 'chunking',
       };
     default:
       return {
         ...base,
-        state: 'importing',
+        currentFilePath: progress.current ?? null,
         pauseReasons: [],
         processedFiles: progress.completed,
         queuedFiles: Math.max(0, progress.total - progress.completed),
-        currentFilePath: progress.current ?? null,
+        state: 'importing',
       };
   }
 }
@@ -199,14 +271,14 @@ function buildEnhancedProgressStatusBase(
 ): WorkspaceCollectionSyncProgressStatusBase {
   return {
     activeRootPath: rootPath,
-    managedCollectionId,
-    managedCollectionName,
-    scanSummary: summary,
-    importProgress: toWorkspaceCollectionSyncImportProgress(progress),
     chunkingProgress: toWorkspaceCollectionSyncChunkingProgress(progress),
     embeddingProgress: toWorkspaceCollectionSyncEmbeddingProgress(progress),
-    queueProgress: toWorkspaceCollectionSyncQueueProgress(progress),
+    importProgress: toWorkspaceCollectionSyncImportProgress(progress),
     lastError: progress.errors[0]?.error ?? null,
+    managedCollectionId,
+    managedCollectionName,
+    queueProgress: toWorkspaceCollectionSyncQueueProgress(progress),
+    scanSummary: summary,
   };
 }
 
@@ -227,33 +299,34 @@ export function mapBackfillProgressToStatus(args: {
   const currentMessage = args.message?.trim() ? args.message : null;
 
   return {
-    state: args.state ?? 'embedding',
-    pauseReasons: [],
-    managedCollectionId: args.collection.id,
-    managedCollectionName: args.managedCollectionName,
-    backfillRequestId: args.requestId ?? null,
     activeRootPath: args.rootPath,
+    backfillRequestId: args.requestId ?? null,
     currentFilePath: currentMessage,
     lastError: null,
+    managedCollectionId: args.collection.id,
+    managedCollectionName: args.managedCollectionName,
+    pauseReasons: [],
+    state: args.state ?? 'embedding',
     ...(args.scanSummary
       ? {
-          scanSummary: args.scanSummary,
           importProgress: {
             completed: args.scanSummary.changedFiles,
-            total: args.scanSummary.changedFiles,
             current: null,
             errorCount: 0,
+            total: args.scanSummary.changedFiles,
           },
           processedFiles: args.scanSummary.discoveredFiles,
+          scanSummary: args.scanSummary,
         }
       : {}),
     chunkingProgress: args.chunkingProgress,
     embeddingProgress: {
       chunksProcessed: processedChunks,
-      totalChunks,
       currentChunk: currentMessage,
       modelName: args.collection.modelId,
+      totalChunks,
     },
+    queuedFiles: Math.max(0, totalChunks - processedChunks),
     queueProgress: {
       failed: 0,
       lastError: null,
@@ -262,7 +335,6 @@ export function mapBackfillProgressToStatus(args: {
       processed: processedChunks,
       totalQueued: totalChunks,
     },
-    queuedFiles: Math.max(0, totalChunks - processedChunks),
   };
 }
 
@@ -271,9 +343,9 @@ export function toWorkspaceCollectionSyncImportProgress(
 ): WorkspaceCollectionSyncImportProgress {
   return {
     completed: progress.completed,
-    total: progress.total,
     current: progress.current ?? null,
     errorCount: progress.errors.length,
+    total: progress.total,
   };
 }
 
@@ -284,11 +356,11 @@ export function toWorkspaceCollectionSyncChunkingProgress(
     return null;
   }
   return {
-    filesProcessed: progress.chunkingProgress.filesProcessed,
-    totalFiles: progress.chunkingProgress.totalFiles,
-    currentFile: progress.chunkingProgress.currentFile ?? null,
     chunksCreated: progress.chunkingProgress.chunksCreated,
+    currentFile: progress.chunkingProgress.currentFile ?? null,
+    filesProcessed: progress.chunkingProgress.filesProcessed,
     strategyUsed: progress.chunkingProgress.strategyUsed ?? null,
+    totalFiles: progress.chunkingProgress.totalFiles,
   };
 }
 
@@ -300,9 +372,9 @@ function toWorkspaceCollectionSyncEmbeddingProgress(
   }
   return {
     chunksProcessed: progress.embeddingProgress.chunksProcessed,
-    totalChunks: progress.embeddingProgress.totalChunks,
     currentChunk: progress.embeddingProgress.currentChunk ?? null,
     modelName: progress.embeddingProgress.modelName ?? null,
+    totalChunks: progress.embeddingProgress.totalChunks,
   };
 }
 
@@ -313,12 +385,12 @@ function toWorkspaceCollectionSyncQueueProgress(
     return null;
   }
   return {
-    pending: progress.queueProgress.pending,
-    processed: progress.queueProgress.processed,
     failed: progress.queueProgress.failed,
-    totalQueued: progress.queueProgress.totalQueued,
     lastError: progress.queueProgress.lastError,
     lastEvent: progress.queueProgress.lastEvent ?? null,
+    pending: progress.queueProgress.pending,
+    processed: progress.queueProgress.processed,
+    totalQueued: progress.queueProgress.totalQueued,
   };
 }
 
@@ -333,9 +405,9 @@ export function buildNormalizedChunkingProgress(args: {
   if (args.batchChunking) {
     return {
       ...args.batchChunking,
+      chunksCreated: args.cumulativeChunksCreated + args.batchChunking.chunksCreated,
       filesProcessed: args.cumulativeFilesChunked + args.batchChunking.filesProcessed,
       totalFiles: args.totalFiles,
-      chunksCreated: args.cumulativeChunksCreated + args.batchChunking.chunksCreated,
       ...(args.batchChunking.strategyUsed
         ? { strategyUsed: args.batchChunking.strategyUsed }
         : args.latestStrategyUsed
@@ -348,9 +420,9 @@ export function buildNormalizedChunkingProgress(args: {
   }
   return {
     ...args.latestChunkingProgress,
+    chunksCreated: args.cumulativeChunksCreated,
     filesProcessed: args.cumulativeFilesChunked,
     totalFiles: args.totalFiles,
-    chunksCreated: args.cumulativeChunksCreated,
     ...(args.latestStrategyUsed ? { strategyUsed: args.latestStrategyUsed } : {}),
   };
 }
@@ -363,8 +435,8 @@ export function buildBatchImportErrors(
     const batchError = progress.errors[errorIndex - cumulativeErrorCount];
     return (
       batchError ?? {
-        file: `batch:${errorIndex}`,
         error: 'Background cache import error.',
+        file: `batch:${errorIndex}`,
       }
     );
   });

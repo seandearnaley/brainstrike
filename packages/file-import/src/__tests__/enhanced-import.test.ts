@@ -23,17 +23,17 @@ function createBaseRunner(
   return async (request: BaseImportRunnerRequest<unknown>) => {
     if (progress) {
       request.onProgress({
-        total: progress.total,
         completed: progress.completed,
         current: 'file',
         errors: [],
+        total: progress.total,
       });
     }
     return results.map((result) => {
       const baseResult: { id: string; imported: boolean; existed: boolean; error?: string } = {
+        existed: result.existed,
         id: result.id,
         imported: result.imported,
-        existed: result.existed,
       };
       if (result.error !== undefined) {
         baseResult.error = result.error;
@@ -55,29 +55,24 @@ describe('runEnhancedImport', () => {
 
   it('returns base results when chunking is disabled', async () => {
     const baseResults: EnhancedImportResult[] = [
-      { id: '1', imported: true, existed: false, chunksCreated: 0 },
+      { chunksCreated: 0, existed: false, id: '1', imported: true },
     ];
     const onProgress = vi.fn();
     let latest: EnhancedImportProgress | null = null;
 
     const injectedQueueProgress: NonNullable<EnhancedImportProgress['queueProgress']> = {
+      failed: 1,
+      lastError: 'temporary failure',
       pending: 2,
       processed: 3,
-      failed: 1,
       totalQueued: 4,
-      lastError: 'temporary failure',
     };
 
     const results = await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
-      baseImportRunner: createBaseRunner(baseResults, { total: 1, completed: 1 }),
+      baseImportRunner: createBaseRunner(baseResults, { completed: 1, total: 1 }),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: false,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       progressHandlers: {
         emit: onProgress,
@@ -91,18 +86,23 @@ describe('runEnhancedImport', () => {
           }
         },
       },
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
-    expect(results).toEqual([{ id: '1', imported: true, existed: false, chunksCreated: 0 }]);
+    expect(results).toEqual([{ chunksCreated: 0, existed: false, id: '1', imported: true }]);
     expect(onProgress).toHaveBeenCalledWith(
-      expect.objectContaining({ phase: 'importing', total: 1, completed: 1 })
+      expect.objectContaining({ completed: 1, phase: 'importing', total: 1 })
     );
     expect(latest).toEqual(
       expect.objectContaining({
-        phase: 'complete',
-        total: 1,
         completed: 1,
+        phase: 'complete',
         queueProgress: injectedQueueProgress,
+        total: 1,
       })
     );
   });
@@ -110,10 +110,10 @@ describe('runEnhancedImport', () => {
   it('does not throw error when embeddings disabled (chunks still get embedding_set_id)', async () => {
     const chunkingImpl = vi.fn().mockResolvedValue([
       {
+        chunksCreated: 1,
+        existed: false,
         id: '1',
         imported: true,
-        existed: false,
-        chunksCreated: 1,
       } satisfies EnhancedImportResult,
     ]);
     const embeddingsImpl = vi.fn().mockResolvedValue(undefined);
@@ -130,11 +130,11 @@ describe('runEnhancedImport', () => {
         return Promise.resolve({
           rows: [
             {
-              id: 'legacy-set',
-              modelKey: 'legacy-model',
+              createdAt: new Date().toISOString(),
               dimensions: 768,
               distance: 'cosine',
-              createdAt: new Date().toISOString(),
+              id: 'legacy-set',
+              modelKey: 'legacy-model',
             },
           ],
         });
@@ -156,32 +156,32 @@ describe('runEnhancedImport', () => {
     const resolvedSetIdSpy = vi.fn();
 
     const results = await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       embedding: {
+        chunkRepository: {} as never,
         enabled: false,
         model: 'db-model',
-        service: {} as never,
-        chunkRepository: {} as never,
-        resolveTargetEmbeddingSetId: () => 'legacy-set',
         onResolvedTargetSetId: resolvedSetIdSpy,
+        resolveTargetEmbeddingSetId: () => 'legacy-set',
+        service: {} as never,
       },
       ports: { sql: sqlPort },
+      processChunkingImpl: chunkingImpl,
+      processEmbeddingsImpl: embeddingsImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
-      processEmbeddingsImpl: embeddingsImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     // Should succeed and chunks should be created with embedding_set_id
@@ -192,10 +192,10 @@ describe('runEnhancedImport', () => {
   it('passes queue ports through to chunking implementation', async () => {
     const chunkingImpl = vi.fn().mockResolvedValue([
       {
+        chunksCreated: 2,
+        existed: false,
         id: '1',
         imported: true,
-        existed: false,
-        chunksCreated: 2,
       } satisfies EnhancedImportResult,
     ]);
     const queuePort: EmbeddingJobQueuePort = {
@@ -207,9 +207,9 @@ describe('runEnhancedImport', () => {
           return Promise.resolve({
             rows: [
               {
+                capabilities: JSON.stringify({ defaultDimension: 768, type: 'embedding' }),
                 id: 'mock-model',
                 providerId: 'transformers',
-                capabilities: JSON.stringify({ type: 'embedding', defaultDimension: 768 }),
               },
             ],
           });
@@ -236,38 +236,38 @@ describe('runEnhancedImport', () => {
     };
 
     const results = await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 2 },
+        { chunksCreated: 2, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
-      ports: { embeddingQueue: queuePort, sql: sqlPort },
       embedding: {
+        chunkRepository: {} as never,
         enabled: true,
         model: 'mock-model',
-        service: {} as never,
-        chunkRepository: {} as never,
         resolveTargetEmbeddingSetId: () => 'set-1',
+        service: {} as never,
         targetDimension: 384,
       },
+      ports: { embeddingQueue: queuePort, sql: sqlPort },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(chunkingImpl).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({
-        repository: expect.anything(),
         chunkRepository: expect.anything(),
+        repository: expect.anything(),
       }),
       expect.objectContaining({ embedQueueEnabled: true })
     );
@@ -276,10 +276,10 @@ describe('runEnhancedImport', () => {
     await options?.enqueueJobsForChunks?.(
       [
         {
-          id: 'chunk-1',
-          fileRecordId: '1',
           content: 'example',
           contentHash: 'hash',
+          fileRecordId: '1',
+          id: 'chunk-1',
         } as never,
       ],
       '1'
@@ -288,11 +288,11 @@ describe('runEnhancedImport', () => {
       expect.any(Array),
       '1',
       expect.objectContaining({
-        model: 'local::mock-model',
-        targetEmbeddingSetId: 'set-1',
-        targetDimension: 384,
-        provider: 'local',
         dimensionParameter: null,
+        model: 'local::mock-model',
+        provider: 'local',
+        targetDimension: 384,
+        targetEmbeddingSetId: 'set-1',
       })
     );
     expect(results[0]?.chunksCreated).toBe(2);
@@ -324,52 +324,52 @@ describe('runEnhancedImport', () => {
       await options.enqueueJobsForChunks?.(
         [
           {
-            id: 'chunk-openai',
-            fileRecordId: '1',
             content: 'hosted content',
             contentHash: 'hash-openai',
+            fileRecordId: '1',
+            id: 'chunk-openai',
           } as never,
         ],
         '1'
       );
       return [
         {
+          chunksCreated: 1,
+          existed: false,
           id: '1',
           imported: true,
-          existed: false,
-          chunksCreated: 1,
         } satisfies EnhancedImportResult,
       ];
     });
     const resolvedSetIdSpy = vi.fn();
 
     const results = await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        chunkRepository: {} as never,
+        enabled: true,
+        model: 'text-embedding-3-small',
+        onResolvedTargetSetId: resolvedSetIdSpy,
+        provider: 'openai',
+        resolveTargetEmbeddingSetId: () => 'preferred-hosted-set',
+        service: {} as never,
       },
       ports: { embeddingQueue: queuePort, sql: sqlPort },
-      embedding: {
-        enabled: true,
-        provider: 'openai',
-        model: 'text-embedding-3-small',
-        service: {} as never,
-        chunkRepository: {} as never,
-        resolveTargetEmbeddingSetId: () => 'preferred-hosted-set',
-        onResolvedTargetSetId: resolvedSetIdSpy,
-      },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('openai');
@@ -392,40 +392,40 @@ describe('runEnhancedImport', () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
     const chunkingImpl = vi.fn().mockResolvedValue([
       {
+        chunksCreated: 1,
+        existed: false,
         id: '1',
         imported: true,
-        existed: false,
-        chunksCreated: 1,
       } satisfies EnhancedImportResult,
     ]);
     const resolvedSetIdSpy = vi.fn();
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       embedding: {
-        enabled: true,
-        provider: 'openai',
-        model: 'text-embedding-3-small',
-        service: {} as never,
         chunkRepository: {} as never,
-        resolveTargetEmbeddingSetId: () => 'preferred-hosted-set',
+        enabled: true,
+        model: 'text-embedding-3-small',
         onResolvedTargetSetId: resolvedSetIdSpy,
+        provider: 'openai',
+        resolveTargetEmbeddingSetId: () => 'preferred-hosted-set',
+        service: {} as never,
       },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(resolvedSetIdSpy).toHaveBeenCalledWith('preferred-hosted-set');
@@ -465,50 +465,50 @@ describe('runEnhancedImport', () => {
       await options.enqueueJobsForChunks?.(
         [
           {
-            id: 'chunk-voyage',
-            fileRecordId: '1',
             content: 'voyage content',
             contentHash: 'hash-voyage',
+            fileRecordId: '1',
+            id: 'chunk-voyage',
           } as never,
         ],
         '1'
       );
       return [
         {
+          chunksCreated: 1,
+          existed: false,
           id: '1',
           imported: true,
-          existed: false,
-          chunksCreated: 1,
         } satisfies EnhancedImportResult,
       ];
     });
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        chunkRepository: {} as never,
+        enabled: true,
+        model: 'voyage-3-lite',
+        provider: 'voyage',
+        resolveTargetEmbeddingSetId: () => 'preferred-voyage-set',
+        service: {} as never,
       },
       ports: { embeddingQueue: queuePort, sql: sqlPort },
-      embedding: {
-        enabled: true,
-        provider: 'voyage',
-        model: 'voyage-3-lite',
-        service: {} as never,
-        chunkRepository: {} as never,
-        resolveTargetEmbeddingSetId: () => 'preferred-voyage-set',
-      },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('voyage');
@@ -528,17 +528,20 @@ describe('runEnhancedImport', () => {
 
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: '1', imported: true },
         ]),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
+        },
+        embedding: {
+          chunkRepository: {} as never,
+          enabled: true,
+          model: 'text-embedding-3-small',
+          provider: 'openai',
+          resolveTargetEmbeddingSetId: () => null,
+          service: {} as never,
         },
         ports: {
           sql: {
@@ -546,16 +549,13 @@ describe('runEnhancedImport', () => {
             runInTransaction: vi.fn(),
           },
         },
-        embedding: {
-          enabled: true,
-          provider: 'openai',
-          model: 'text-embedding-3-small',
-          service: {} as never,
-          chunkRepository: {} as never,
-          resolveTargetEmbeddingSetId: () => null,
-        },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toThrow('Hosted provider "openai" requires an API key before running embeddings.');
@@ -564,26 +564,26 @@ describe('runEnhancedImport', () => {
   it('rejects enabled embeddings when neither a model nor target set is available', async () => {
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: '1', imported: true },
         ]),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
         },
         embedding: {
-          enabled: true,
-          service: {} as never,
           chunkRepository: {} as never,
+          enabled: true,
           resolveTargetEmbeddingSetId: () => null,
+          service: {} as never,
         },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toThrow('Embedding is enabled but no model key or target set was provided.');
@@ -597,27 +597,27 @@ describe('runEnhancedImport', () => {
 
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: '1', imported: true },
         ]),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
         },
         embedding: {
-          enabled: true,
-          service: {} as never,
           chunkRepository: {} as never,
+          enabled: true,
           resolveTargetEmbeddingSetId: () => 'missing-set',
+          service: {} as never,
         },
         ports: { sql: sqlPort },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toThrow('Unable to resolve embedding model for set "missing-set".');
@@ -626,26 +626,26 @@ describe('runEnhancedImport', () => {
   it('rejects target-set-only embedding resolution when SQL access is missing', async () => {
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: '1', imported: true },
         ]),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
         },
         embedding: {
-          enabled: true,
-          service: {} as never,
           chunkRepository: {} as never,
+          enabled: true,
           resolveTargetEmbeddingSetId: () => 'sql-required-set',
+          service: {} as never,
         },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toThrow('Unable to resolve embedding model for set "sql-required-set".');
@@ -659,27 +659,27 @@ describe('runEnhancedImport', () => {
 
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: '1', imported: true },
         ]),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
         },
         embedding: {
-          enabled: true,
-          service: {} as never,
           chunkRepository: {} as never,
+          enabled: true,
           resolveTargetEmbeddingSetId: () => 'invalid-key-set',
+          service: {} as never,
         },
         ports: { sql: sqlPort },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toThrow('Embedding set invalid-key-set has invalid model key "   ".');
@@ -690,9 +690,9 @@ describe('runEnhancedImport', () => {
       query: vi.fn().mockResolvedValue({
         rows: [
           {
+            capabilities: '{invalid json',
             id: 'broken-model',
             providerId: 'transformers',
-            capabilities: '{invalid json',
           },
         ],
       }),
@@ -701,28 +701,28 @@ describe('runEnhancedImport', () => {
 
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: '1', imported: true },
         ]),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
         },
         embedding: {
+          chunkRepository: {} as never,
           enabled: true,
           model: 'local::broken-model',
-          service: {} as never,
-          chunkRepository: {} as never,
           resolveTargetEmbeddingSetId: () => 'broken-set',
+          service: {} as never,
         },
         ports: { sql: sqlPort },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toThrow('Model "broken-model" has invalid capabilities JSON:');
@@ -733,9 +733,9 @@ describe('runEnhancedImport', () => {
       query: vi.fn().mockResolvedValue({
         rows: [
           {
+            capabilities: { defaultDimension: 768, type: 'chat' },
             id: 'chat-model',
             providerId: 'transformers',
-            capabilities: { type: 'chat', defaultDimension: 768 },
           },
         ],
       }),
@@ -744,28 +744,28 @@ describe('runEnhancedImport', () => {
 
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: '1', imported: true },
         ]),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
         },
         embedding: {
+          chunkRepository: {} as never,
           enabled: true,
           model: 'local::chat-model',
-          service: {} as never,
-          chunkRepository: {} as never,
           resolveTargetEmbeddingSetId: () => 'chat-set',
+          service: {} as never,
         },
         ports: { sql: sqlPort },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toThrow('Model "chat-model" is not an embedding model.');
@@ -773,21 +773,21 @@ describe('runEnhancedImport', () => {
 
   it('rejects local registry rows with invalid dimensions and invalid payloads', async () => {
     const baseParams = {
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       progressHandlers: {
         update: (updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null) =>
           updater(null),
+      },
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
       },
     };
 
@@ -795,20 +795,20 @@ describe('runEnhancedImport', () => {
       runEnhancedImport({
         ...baseParams,
         embedding: {
+          chunkRepository: {} as never,
           enabled: true,
           model: 'local::zero-dimension-model',
-          service: {} as never,
-          chunkRepository: {} as never,
           resolveTargetEmbeddingSetId: () => 'zero-dimension-set',
+          service: {} as never,
         },
         ports: {
           sql: {
             query: vi.fn().mockResolvedValue({
               rows: [
                 {
+                  capabilities: { defaultDimension: 0, type: 'embedding' },
                   id: 'zero-dimension-model',
                   providerId: 'transformers',
-                  capabilities: { type: 'embedding', defaultDimension: 0 },
                 },
               ],
             }),
@@ -822,20 +822,20 @@ describe('runEnhancedImport', () => {
       runEnhancedImport({
         ...baseParams,
         embedding: {
+          chunkRepository: {} as never,
           enabled: true,
           model: 'local::invalid-payload-model',
-          service: {} as never,
-          chunkRepository: {} as never,
           resolveTargetEmbeddingSetId: () => 'invalid-payload-set',
+          service: {} as never,
         },
         ports: {
           sql: {
             query: vi.fn().mockResolvedValue({
               rows: [
                 {
+                  capabilities: null,
                   id: 'invalid-payload-model',
                   providerId: 'transformers',
-                  capabilities: null,
                 },
               ],
             }),
@@ -851,23 +851,23 @@ describe('runEnhancedImport', () => {
       await options.processEmbeddings?.(
         [
           {
-            id: 'chunk-1',
             content: 'hello',
+            id: 'chunk-1',
           } as never,
         ],
         {
+          chunksCreated: 1,
+          existed: false,
           id: '1',
           imported: true,
-          existed: false,
-          chunksCreated: 1,
         }
       );
       return [
         {
+          chunksCreated: 1,
+          existed: false,
           id: '1',
           imported: true,
-          existed: false,
-          chunksCreated: 1,
         } satisfies EnhancedImportResult,
       ];
     });
@@ -875,24 +875,24 @@ describe('runEnhancedImport', () => {
 
     // Mock SQL responses for embedding set queries
     const sqlMockResponses: Record<string, () => Promise<{ rows: unknown[] }>> = {
+      'FROM embedding_sets s': () =>
+        Promise.resolve({ rows: [{ id: 'set-2', modelKey: 'local::db-model' }] }),
       'FROM models': () =>
         Promise.resolve({
           rows: [
             {
+              capabilities: JSON.stringify({ defaultDimension: 768, type: 'embedding' }),
               id: 'db-model',
               providerId: 'transformers',
-              capabilities: JSON.stringify({ type: 'embedding', defaultDimension: 768 }),
             },
           ],
         }),
-      'SELECT model_key': () => Promise.resolve({ rows: [{ modelKey: 'local::db-model' }] }),
+      'INSERT INTO embedding_sets': () => Promise.resolve({ rows: [{ id: 'set-2' }] }),
       'SELECT id, model_key': () =>
         Promise.resolve({
-          rows: [{ id: 'set-2', modelKey: 'local::db-model', dimensions: 768, distance: 'cosine' }],
+          rows: [{ dimensions: 768, distance: 'cosine', id: 'set-2', modelKey: 'local::db-model' }],
         }),
-      'FROM embedding_sets s': () =>
-        Promise.resolve({ rows: [{ id: 'set-2', modelKey: 'local::db-model' }] }),
-      'INSERT INTO embedding_sets': () => Promise.resolve({ rows: [{ id: 'set-2' }] }),
+      'SELECT model_key': () => Promise.resolve({ rows: [{ modelKey: 'local::db-model' }] }),
       'UPDATE embedding_sets': () => Promise.resolve({ rows: [] }),
     };
 
@@ -912,31 +912,31 @@ describe('runEnhancedImport', () => {
     const resolvedSetIdSpy = vi.fn();
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       embedding: {
-        enabled: true,
-        service: {} as never,
         chunkRepository: {} as never,
-        resolveTargetEmbeddingSetId: () => 'set-2',
+        enabled: true,
         onResolvedTargetSetId: resolvedSetIdSpy,
+        resolveTargetEmbeddingSetId: () => 'set-2',
+        service: {} as never,
       },
       ports: { sql: sqlPort },
+      processChunkingImpl: chunkingImpl,
+      processEmbeddingsImpl: embeddingsImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
-      processEmbeddingsImpl: embeddingsImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     // Verify SQL port is used to query embedding sets
@@ -967,10 +967,10 @@ describe('runEnhancedImport', () => {
         return Promise.resolve({
           rows: [
             {
-              id: 'preferred-set',
-              modelKey: 'local::different-model',
               dimensions: 384,
               distance: 'cosine',
+              id: 'preferred-set',
+              modelKey: 'local::different-model',
             },
           ],
         });
@@ -985,9 +985,9 @@ describe('runEnhancedImport', () => {
         return Promise.resolve({
           rows: [
             {
+              capabilities: { defaultDimension: 768, type: 'embedding' },
               id: 'mock-model',
               providerId: 'transformers',
-              capabilities: { type: 'embedding', defaultDimension: 768 },
             },
           ],
         });
@@ -1001,39 +1001,39 @@ describe('runEnhancedImport', () => {
     const resolvedSetIdSpy = vi.fn();
     const chunkingImpl = vi.fn().mockResolvedValue([
       {
+        chunksCreated: 1,
+        existed: false,
         id: '1',
         imported: true,
-        existed: false,
-        chunksCreated: 1,
       } satisfies EnhancedImportResult,
     ]);
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       embedding: {
+        chunkRepository: {} as never,
         enabled: true,
         model: 'local::mock-model',
-        service: {} as never,
-        chunkRepository: {} as never,
-        resolveTargetEmbeddingSetId: () => 'preferred-set',
         onResolvedTargetSetId: resolvedSetIdSpy,
+        resolveTargetEmbeddingSetId: () => 'preferred-set',
+        service: {} as never,
       },
       ports: { sql: sqlPort },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(resolvedSetIdSpy).toHaveBeenCalledWith('fresh-set');
@@ -1051,9 +1051,9 @@ describe('runEnhancedImport', () => {
         return Promise.resolve({
           rows: [
             {
+              capabilities: { defaultDimension: 768, type: 'embedding' },
               id: 'recover-model',
               providerId: 'transformers',
-              capabilities: { type: 'embedding', defaultDimension: 768 },
             },
           ],
         });
@@ -1076,25 +1076,20 @@ describe('runEnhancedImport', () => {
     const resolvedSetIdSpy = vi.fn();
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       embedding: {
+        chunkRepository: {} as never,
         enabled: true,
         model: 'local::recover-model',
-        service: {} as never,
-        chunkRepository: {} as never,
-        resolveTargetEmbeddingSetId: () => 'preferred-recover-set',
         onResolvedTargetSetId: resolvedSetIdSpy,
+        resolveTargetEmbeddingSetId: () => 'preferred-recover-set',
+        service: {} as never,
       },
       ports: {
         sql: {
@@ -1102,12 +1097,17 @@ describe('runEnhancedImport', () => {
           runInTransaction: vi.fn(),
         },
       },
+      processChunkingImpl: vi
+        .fn()
+        .mockResolvedValue([{ chunksCreated: 1, existed: false, id: '1', imported: true }]),
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: vi
-        .fn()
-        .mockResolvedValue([{ id: '1', imported: true, existed: false, chunksCreated: 1 }]),
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(resolvedSetIdSpy).toHaveBeenCalledWith('recovered-set');
@@ -1122,9 +1122,9 @@ describe('runEnhancedImport', () => {
         return Promise.resolve({
           rows: [
             {
+              capabilities: { defaultDimension: 768, type: 'embedding' },
               id: 'query-failure-model',
               providerId: 'transformers',
-              capabilities: { type: 'embedding', defaultDimension: 768 },
             },
           ],
         });
@@ -1144,24 +1144,19 @@ describe('runEnhancedImport', () => {
 
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: '1', imported: true },
         ]),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
         },
         embedding: {
+          chunkRepository: {} as never,
           enabled: true,
           model: 'local::query-failure-model',
-          service: {} as never,
-          chunkRepository: {} as never,
           resolveTargetEmbeddingSetId: () => 'query-failure-set',
+          service: {} as never,
         },
         ports: {
           sql: {
@@ -1171,6 +1166,11 @@ describe('runEnhancedImport', () => {
         },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toThrow('matching set query failed');
@@ -1193,32 +1193,32 @@ describe('runEnhancedImport', () => {
     };
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       embedding: {
+        chunkRepository: {} as never,
         enabled: false,
         model: 'local::db-model',
-        service: {} as never,
-        chunkRepository: {} as never,
         resolveTargetEmbeddingSetId: () => null,
+        service: {} as never,
       },
       ports: { sql: sqlPort },
+      processChunkingImpl: vi
+        .fn()
+        .mockResolvedValue([{ chunksCreated: 1, existed: false, id: '1', imported: true }]),
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: vi
-        .fn()
-        .mockResolvedValue([{ id: '1', imported: true, existed: false, chunksCreated: 1 }]),
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     // When embeddings are disabled, should NOT create embedding set
@@ -1237,34 +1237,29 @@ describe('runEnhancedImport', () => {
     >;
     const chunkingImpl = vi.fn().mockResolvedValue([
       {
+        chunksCreated: 3,
+        existed: false,
         id: '1',
         imported: true,
-        existed: false,
-        chunksCreated: 3,
       } satisfies EnhancedImportResult,
     ]);
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 3 },
+        { chunksCreated: 3, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        chunkingWorkerPort,
+        chunkOverlap: 120,
+        chunkSize: 1200,
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
         strategy: 'markdown',
         strategyExplicit: true,
-        chunkSize: 1200,
-        chunkOverlap: 120,
         streamBatchSize: 25,
         tokenLimit: 3000,
         tokenTrueSizing: false,
         useStreamingForLargeFiles: false,
-        chunkingWorkerPort,
       },
       ports: {
         sql: {
@@ -1272,25 +1267,30 @@ describe('runEnhancedImport', () => {
           runInTransaction,
         },
       },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(chunkingImpl.mock.calls[0]?.[2]).toEqual(
       expect.objectContaining({
         chunkingStrategy: 'markdown',
-        forceStrategy: true,
-        chunkSize: 1200,
+        chunkingWorkerPort,
         chunkOverlap: 120,
+        chunkSize: 1200,
+        embedQueueEnabled: false,
+        forceStrategy: true,
+        runInTransaction,
         streamBatchSize: 25,
         tokenLimit: 3000,
         tokenTrueSizing: false,
         useStreamingForLargeFiles: false,
-        chunkingWorkerPort,
-        runInTransaction,
-        embedQueueEnabled: false,
       })
     );
   });
@@ -1302,18 +1302,18 @@ describe('runEnhancedImport', () => {
     await expect(
       runEnhancedImport({
         abortSignal: controller.signal,
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: vi.fn(),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: false,
-          deps: { repository: {} as never, chunkRepository: {} as never },
         },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toMatchObject({ name: 'AbortError' });
@@ -1323,31 +1323,31 @@ describe('runEnhancedImport', () => {
     const controller = new AbortController();
     const chunkingImpl = vi.fn().mockResolvedValue([
       {
+        chunksCreated: 1,
+        existed: false,
         id: '1',
         imported: true,
-        existed: false,
-        chunksCreated: 1,
       } satisfies EnhancedImportResult,
     ]);
 
     await runEnhancedImport({
       abortSignal: controller.signal,
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(chunkingImpl.mock.calls[0]?.[2]).toEqual(
@@ -1360,27 +1360,27 @@ describe('runEnhancedImport', () => {
   it('rejects local embedding models when registry SQL access is unavailable', async () => {
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: '1', imported: true },
         ]),
         chunking: {
+          deps: { chunkRepository: {} as never, repository: {} as never },
           enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
         },
         embedding: {
+          chunkRepository: {} as never,
           enabled: true,
           model: 'local::requires-sql-model',
-          service: {} as never,
-          chunkRepository: {} as never,
           resolveTargetEmbeddingSetId: () => 'requires-sql-set',
+          service: {} as never,
         },
         progressHandlers: {
           update: (updater) => updater(null),
+        },
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(['1']),
         },
       })
     ).rejects.toThrow('Database access is required to resolve local embedding models.');
@@ -1395,9 +1395,9 @@ describe('runEnhancedImport', () => {
         return Promise.resolve({
           rows: [
             {
+              capabilities: { defaultDimension: 512, type: 'embedding' },
               id: 'preferred-model',
               providerId: 'transformers',
-              capabilities: { type: 'embedding', defaultDimension: 512 },
             },
           ],
         });
@@ -1410,10 +1410,10 @@ describe('runEnhancedImport', () => {
         return Promise.resolve({
           rows: [
             {
-              id: 'preferred-set',
-              modelKey: 'local::preferred-model',
               dimensions: 512,
               distance: 'cosine',
+              id: 'preferred-set',
+              modelKey: 'local::preferred-model',
             },
           ],
         });
@@ -1423,33 +1423,28 @@ describe('runEnhancedImport', () => {
     const resolvedSetIdSpy = vi.fn();
     const chunkingImpl = vi.fn().mockResolvedValue([
       {
+        chunksCreated: 1,
+        existed: false,
         id: '1',
         imported: true,
-        existed: false,
-        chunksCreated: 1,
       } satisfies EnhancedImportResult,
     ]);
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       embedding: {
+        chunkRepository: {} as never,
         enabled: true,
         model: 'local::preferred-model',
-        service: {} as never,
-        chunkRepository: {} as never,
-        resolveTargetEmbeddingSetId: () => 'preferred-set',
         onResolvedTargetSetId: resolvedSetIdSpy,
+        resolveTargetEmbeddingSetId: () => 'preferred-set',
+        service: {} as never,
       },
       ports: {
         sql: {
@@ -1457,10 +1452,15 @@ describe('runEnhancedImport', () => {
           runInTransaction: vi.fn(),
         },
       },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(resolvedSetIdSpy).toHaveBeenCalledWith('preferred-set');
@@ -1488,9 +1488,9 @@ describe('runEnhancedImport', () => {
         return Promise.resolve({
           rows: [
             {
+              capabilities: { defaultDimension: 256, type: 'embedding' },
               id: 'canonical-tx-model',
               providerId: 'transformers',
-              capabilities: { type: 'embedding', defaultDimension: 256 },
             },
           ],
         });
@@ -1518,43 +1518,38 @@ describe('runEnhancedImport', () => {
         tx,
         [
           {
-            id: 'chunk-tx',
-            fileRecordId: '1',
             content: 'transactional content',
             contentHash: 'hash-tx',
+            fileRecordId: '1',
+            id: 'chunk-tx',
           } as never,
         ],
         '1'
       );
       return [
         {
+          chunksCreated: 1,
+          existed: false,
           id: '1',
           imported: true,
-          existed: false,
-          chunksCreated: 1,
         } satisfies EnhancedImportResult,
       ];
     });
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       embedding: {
+        chunkRepository: {} as never,
         enabled: true,
         model: 'local::canonical-tx-model',
-        service: {} as never,
-        chunkRepository: {} as never,
         resolveTargetEmbeddingSetId: () => 'preferred-for-reuse',
+        service: {} as never,
       },
       ports: {
         embeddingQueue: queuePort,
@@ -1563,10 +1558,15 @@ describe('runEnhancedImport', () => {
           runInTransaction,
         },
       },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(sqlPortQuery).toHaveBeenCalledWith(
@@ -1577,11 +1577,11 @@ describe('runEnhancedImport', () => {
       expect.any(Array),
       '1',
       expect.objectContaining({
-        transaction: tx,
         model: 'local::canonical-tx-model',
-        targetEmbeddingSetId: 'reused-set',
         provider: 'local',
         targetDimension: 256,
+        targetEmbeddingSetId: 'reused-set',
+        transaction: tx,
       })
     );
   });
@@ -1592,14 +1592,15 @@ describe('runEnhancedImport', () => {
     };
     const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
     const sqlPort = {
+      insertChunksAndEnqueueEmbeddingJobs,
       query: vi.fn().mockImplementation((sql: string) => {
         if (sql.includes('FROM models')) {
           return Promise.resolve({
             rows: [
               {
+                capabilities: { defaultDimension: 384, type: 'embedding' },
                 id: 'atomic-model',
                 providerId: 'transformers',
-                capabilities: { type: 'embedding', defaultDimension: 384 },
               },
             ],
           });
@@ -1616,56 +1617,55 @@ describe('runEnhancedImport', () => {
         }
         return Promise.resolve({ rows: [] });
       }),
-      insertChunksAndEnqueueEmbeddingJobs,
     } as SqlExecutorPort & {
       insertChunksAndEnqueueEmbeddingJobs: typeof insertChunksAndEnqueueEmbeddingJobs;
     };
     const chunk = {
-      id: 'chunk-atomic',
-      fileRecordId: '1',
       content: 'atomic content',
       contentHash: 'hash-atomic',
+      fileRecordId: '1',
+      id: 'chunk-atomic',
     } as never;
     const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
       await options.insertChunksAndEnqueueEmbeddingJobs?.([chunk], '1');
       return [
         {
+          chunksCreated: 1,
+          existed: false,
           id: '1',
           imported: true,
-          existed: false,
-          chunksCreated: 1,
         } satisfies EnhancedImportResult,
       ];
     });
 
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(['1']),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner: createBaseRunner([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: '1', imported: true },
       ]),
       chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
         enabled: true,
-        deps: { repository: {} as never, chunkRepository: {} as never },
       },
       embedding: {
+        chunkRepository: {} as never,
         enabled: true,
         model: 'local::atomic-model',
-        service: null,
-        chunkRepository: {} as never,
         resolveTargetEmbeddingSetId: () => 'atomic-set',
+        service: null,
       },
       ports: {
         embeddingQueue: queuePort,
         sql: sqlPort,
       },
+      processChunkingImpl: chunkingImpl,
       progressHandlers: {
         update: (updater) => updater(null),
       },
-      processChunkingImpl: chunkingImpl,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
     });
 
     expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
@@ -1673,9 +1673,9 @@ describe('runEnhancedImport', () => {
       '1',
       expect.objectContaining({
         model: 'local::atomic-model',
-        targetEmbeddingSetId: null,
         provider: 'local',
         targetDimension: 384,
+        targetEmbeddingSetId: null,
       })
     );
     expect(queuePort.enqueueBatch).not.toHaveBeenCalled();

@@ -40,24 +40,24 @@ function node(
   hasChildren = false,
   depth = 0
 ): TreeNode<TestData> {
-  return { id, type: 'file', depth, data: { name }, parentId, hasChildren };
+  return { data: { name }, depth, hasChildren, id, parentId, type: 'file' };
 }
 
 function row<T>(n: TreeNode<T>, index: number): FlattenedRow<T> {
   return {
-    node: n,
-    index,
-    isExpanded: false,
-    isSelected: false,
-    isHighlighted: false,
-    isInContext: false,
-    matchesFilter: true,
     aria: {
       ariaLevel: n.depth + 1,
-      ariaSetSize: 1,
       ariaPosInSet: 1,
       ariaRowIndex: index + 2,
+      ariaSetSize: 1,
     },
+    index,
+    isExpanded: false,
+    isHighlighted: false,
+    isInContext: false,
+    isSelected: false,
+    matchesFilter: true,
+    node: n,
   };
 }
 

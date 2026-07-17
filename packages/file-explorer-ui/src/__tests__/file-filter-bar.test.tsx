@@ -5,9 +5,9 @@ import { FileFilterBar } from '../shell/file-filter-bar';
 
 describe('FileFilterBar', () => {
   const defaultProps = {
-    value: '',
     onChange: vi.fn(),
     onClear: vi.fn(),
+    value: '',
   };
 
   beforeEach(() => {

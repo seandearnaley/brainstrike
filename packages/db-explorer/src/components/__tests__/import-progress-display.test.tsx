@@ -21,10 +21,10 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 describe('ImportProgressDisplay', () => {
   it('renders basic import progress', () => {
     const mockProgress = {
-      phase: 'importing' as const,
-      total: 10,
       completed: 1,
       errors: [],
+      phase: 'importing' as const,
+      total: 10,
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -35,16 +35,16 @@ describe('ImportProgressDisplay', () => {
 
   it('renders chunking progress details', () => {
     const mockProgress = {
-      phase: 'chunking' as const,
-      total: 5,
-      completed: 2,
-      errors: [],
       chunkingProgress: {
+        chunksCreated: 42,
         currentFile: 'test-file.txt',
         filesProcessed: 2,
         totalFiles: 5,
-        chunksCreated: 42,
       },
+      completed: 2,
+      errors: [],
+      phase: 'chunking' as const,
+      total: 5,
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -61,16 +61,16 @@ describe('ImportProgressDisplay', () => {
 
   it('renders embedding progress details', () => {
     const mockProgress = {
+      completed: 10,
+      embeddingProgress: {
+        chunksProcessed: 10,
+        currentChunk: 'chunk-123',
+        modelName: 'text-embedding-3-small',
+        totalChunks: 20,
+      },
+      errors: [],
       phase: 'embedding' as const,
       total: 20,
-      completed: 10,
-      errors: [],
-      embeddingProgress: {
-        currentChunk: 'chunk-123',
-        chunksProcessed: 10,
-        totalChunks: 20,
-        modelName: 'text-embedding-3-small',
-      },
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -87,10 +87,10 @@ describe('ImportProgressDisplay', () => {
 
   it('does not render chunking details when not in chunking phase', () => {
     const mockProgress = {
-      phase: 'importing' as const,
-      total: 10,
       completed: 1,
       errors: [],
+      phase: 'importing' as const,
+      total: 10,
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -100,16 +100,16 @@ describe('ImportProgressDisplay', () => {
 
   it('does not render embedding details when not in embedding phase', () => {
     const mockProgress = {
-      phase: 'chunking' as const,
-      total: 10,
-      completed: 1,
-      errors: [],
       chunkingProgress: {
+        chunksCreated: 5,
         currentFile: 'test.txt',
         filesProcessed: 1,
         totalFiles: 10,
-        chunksCreated: 5,
       },
+      completed: 1,
+      errors: [],
+      phase: 'chunking' as const,
+      total: 10,
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -121,10 +121,10 @@ describe('ImportProgressDisplay', () => {
   it('calls onClose when provided', () => {
     const mockOnClose = vi.fn();
     const mockProgress = {
-      phase: 'importing' as const,
-      total: 10,
       completed: 1,
       errors: [],
+      phase: 'importing' as const,
+      total: 10,
     };
 
     render(<ImportProgressDisplay onClose={mockOnClose} progress={mockProgress} />);
@@ -137,16 +137,16 @@ describe('ImportProgressDisplay', () => {
 
   it('handles complete progress correctly', () => {
     const mockProgress = {
-      phase: 'chunking' as const,
-      total: 5,
-      completed: 5,
-      errors: [],
       chunkingProgress: {
+        chunksCreated: 100,
         currentFile: 'last-file.txt',
         filesProcessed: 5,
         totalFiles: 5,
-        chunksCreated: 100,
       },
+      completed: 5,
+      errors: [],
+      phase: 'chunking' as const,
+      total: 5,
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -159,17 +159,17 @@ describe('ImportProgressDisplay', () => {
 
   it('renders strategy when provided', () => {
     const mockProgress = {
-      phase: 'chunking' as const,
-      total: 3,
-      completed: 1,
-      errors: [],
       chunkingProgress: {
+        chunksCreated: 12,
         currentFile: 'code.ts',
         filesProcessed: 1,
-        totalFiles: 3,
-        chunksCreated: 12,
         strategyUsed: 'recursive' as const,
+        totalFiles: 3,
       },
+      completed: 1,
+      errors: [],
+      phase: 'chunking' as const,
+      total: 3,
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -179,23 +179,23 @@ describe('ImportProgressDisplay', () => {
 
   it('renders queue progress details when provided', () => {
     const mockProgress = {
-      phase: 'embedding' as const,
-      total: 10,
       completed: 3,
       errors: [],
+      phase: 'embedding' as const,
       queueProgress: {
-        pending: 2,
-        processed: 5,
         failed: 1,
-        totalQueued: 8,
         lastError: null,
         lastEvent: {
           chunkId: 'chunk-42',
-          status: 'completed' as const,
-          model: 'text-embedding-3-small',
           elapsedMs: 128,
+          model: 'text-embedding-3-small',
+          status: 'completed' as const,
         },
+        pending: 2,
+        processed: 5,
+        totalQueued: 8,
       },
+      total: 10,
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -209,13 +209,13 @@ describe('ImportProgressDisplay', () => {
 
   it('exposes the error disclosure with aria-expanded + aria-controls', () => {
     const mockProgress = {
-      phase: 'importing' as const,
-      total: 5,
       completed: 5,
       errors: [
-        { file: 'a.txt', error: 'boom' },
-        { file: 'b.txt', error: 'kaboom' },
+        { error: 'boom', file: 'a.txt' },
+        { error: 'kaboom', file: 'b.txt' },
       ],
+      phase: 'importing' as const,
+      total: 5,
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -248,22 +248,22 @@ describe('ImportProgressDisplay', () => {
 
   it('labels the chunking and embedding progress bars and the import progress bar', () => {
     const mockProgress = {
-      phase: 'embedding' as const,
-      total: 10,
-      completed: 4,
-      errors: [],
       chunkingProgress: {
+        chunksCreated: 8,
         currentFile: 'x.ts',
         filesProcessed: 2,
         totalFiles: 5,
-        chunksCreated: 8,
       },
+      completed: 4,
       embeddingProgress: {
-        currentChunk: 'c-1',
         chunksProcessed: 3,
-        totalChunks: 6,
+        currentChunk: 'c-1',
         modelName: 'gemma',
+        totalChunks: 6,
       },
+      errors: [],
+      phase: 'embedding' as const,
+      total: 10,
     };
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
@@ -283,10 +283,10 @@ describe('ImportProgressDisplay', () => {
 
   it('renders the spinner stage with aria-hidden when not complete', () => {
     const mockProgress = {
-      phase: 'importing' as const,
-      total: 10,
       completed: 1,
       errors: [],
+      phase: 'importing' as const,
+      total: 10,
     };
 
     const { container } = render(

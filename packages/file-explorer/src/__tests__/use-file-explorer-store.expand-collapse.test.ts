@@ -6,63 +6,63 @@ import { useFileExplorerStore } from '../store';
 // A simple file tree for testing
 const sampleFileTree: IFileNode[] = [
   {
-    name: 'src',
-    path: 'src',
-    type: 'directory',
-    handle: {} as FileSystemDirectoryHandle,
-    depth: 0,
-    selectionState: 'unchecked',
-    rootFolderId: 'root',
     children: [
       {
-        name: 'components',
-        path: 'src/components',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
-        rootFolderId: 'root',
         children: [
           {
+            depth: 2,
+            handle: {} as FileSystemFileHandle,
             name: 'Header.tsx',
             path: 'src/components/Header.tsx',
-            type: 'file',
-            handle: {} as FileSystemFileHandle,
-            depth: 2,
-            selectionState: 'unchecked',
             rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'file',
           },
         ],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
+        name: 'components',
+        path: 'src/components',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
       },
       {
+        children: [],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'utils',
         path: 'src/utils',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       },
       {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
         name: 'index.ts',
         path: 'src/index.ts',
-        type: 'file',
-        handle: {} as FileSystemFileHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'file',
       },
     ],
+    depth: 0,
+    handle: {} as FileSystemDirectoryHandle,
+    name: 'src',
+    path: 'src',
+    rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'directory',
   },
   {
+    depth: 0,
+    handle: {} as FileSystemFileHandle,
     name: 'package.json',
     path: 'package.json',
-    type: 'file',
-    handle: {} as FileSystemFileHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'file',
   },
 ];
 
@@ -72,12 +72,12 @@ describe('FileExplorerStore expand/collapse functionality', () => {
     // Reset store state before each test
     useFileExplorerStore.setState({
       ...DEFAULT_STATE, // Use imported defaults
+      currentFolderId: null,
+      expandedDirectoryPaths: new Set<string>(),
+      folderStates: {}, // Reset folder states
       // Ensure lastActiveTab has a default
       lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
-      currentFolderId: null,
-      folderStates: {}, // Reset folder states
       selectedFilePaths: new Set<string>(),
-      expandedDirectoryPaths: new Set<string>(),
     }); // Simply set the desired state properties, don't replace
   });
 

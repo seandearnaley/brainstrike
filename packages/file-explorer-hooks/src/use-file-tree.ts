@@ -90,8 +90,8 @@ export function useFileTree(
   const [error, setError] = useState<Error | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgressState>({
     loaded: 0,
-    total: 0,
     phase: 'counting',
+    total: 0,
   });
   const progressRef = useRef<{
     loaded: number;
@@ -101,13 +101,13 @@ export function useFileTree(
     phase: LoadingProgressState['phase'];
     estimatedTotal: number;
   }>({
-    loaded: 0,
-    total: 0,
     batchCount: 0,
     /* Stryker disable next-line StringLiteral -- currentPath is surfaced only after asynchronous progress events */
     currentPath: '',
-    phase: 'counting',
     estimatedTotal: 1000,
+    loaded: 0,
+    phase: 'counting',
+    total: 0,
   });
   const rootNodesRef = useRef<IFileNode[]>([]);
   const refreshTrigger = useRef(0);
@@ -150,10 +150,10 @@ export function useFileTree(
       path // Always update when path changes
     ) {
       setLoadingProgress({
-        loaded: progressRef.current.loaded,
-        total: progressRef.current.total,
         currentPath: progressRef.current.currentPath,
+        loaded: progressRef.current.loaded,
         phase: progressRef.current.phase,
+        total: progressRef.current.total,
       });
       progressRef.current.batchCount = 0;
     }
@@ -169,10 +169,10 @@ export function useFileTree(
       const finalPath = getFinalPath(directoryHandle.platform, entry.path, relativePath);
       return {
         ...entry,
-        path: finalPath,
         depth: countSlashes(relativePath),
-        selectionState: 'unchecked' as const,
+        path: finalPath,
         rootFolderId,
+        selectionState: 'unchecked' as const,
       };
     },
     []
@@ -188,11 +188,11 @@ export function useFileTree(
       const finalPath = getFinalPath(directoryHandle.platform, entry.path, relativePath);
       return {
         ...entry,
-        path: finalPath,
-        depth: countSlashes(relativePath),
         children: [],
-        selectionState: 'unchecked' as const,
+        depth: countSlashes(relativePath),
+        path: finalPath,
         rootFolderId,
+        selectionState: 'unchecked' as const,
       };
     },
     []
@@ -201,21 +201,21 @@ export function useFileTree(
   const initializeProgress = useCallback(() => {
     progressRef.current.phase = 'counting';
     /* Stryker disable next-line ObjectLiteral, StringLiteral -- loadTree immediately reinitializes progress with runtime-calculated values */
-    setLoadingProgress({ loaded: 0, total: 0, phase: 'counting' });
+    setLoadingProgress({ loaded: 0, phase: 'counting', total: 0 });
 
     progressRef.current = {
-      loaded: 0,
-      total: progressRef.current.estimatedTotal,
       batchCount: 0,
       currentPath: '',
-      phase: 'loading',
       estimatedTotal: progressRef.current.estimatedTotal,
+      loaded: 0,
+      phase: 'loading',
+      total: progressRef.current.estimatedTotal,
     };
 
     setLoadingProgress({
       loaded: 0,
-      total: progressRef.current.estimatedTotal,
       phase: 'loading',
+      total: progressRef.current.estimatedTotal,
     });
   }, []);
 
@@ -296,19 +296,19 @@ export function useFileTree(
           const node = context.processDirectory(entry, relativePath, handle, context.rootFolderId);
 
           const dirHandle: DirectoryHandle = {
-            path: node.path,
-            name: entry.name,
-            kind: 'directory',
-            platform: handle.platform,
             _internal: entry.handle,
+            kind: 'directory',
+            name: entry.name,
+            path: node.path,
+            platform: handle.platform,
           };
 
           // Defer reading until the stack pop; failures handled centrally
           if (node.children) {
             stack.push({
               handle: dirHandle,
-              parent: node.children,
               isRoot: false,
+              parent: node.children,
               path: relativePath,
             });
           }
@@ -447,7 +447,7 @@ export function useFileTree(
       // Storage v5: stamp nodes with the durable RootId when threaded in;
       // fall back to the canonical path (legacy behaviour).
       const rootFolderId = rootFolderIdOption ?? rootHandle.path;
-      const stats: ProcessingStats = { successCount: 0, failCount: 0 };
+      const stats: ProcessingStats = { failCount: 0, successCount: 0 };
 
       if (abortSignal?.aborted) {
         throw new DOMException('Operation was cancelled', 'AbortError');
@@ -461,19 +461,19 @@ export function useFileTree(
       try {
         /* Stryker disable next-line ArrayDeclaration -- seed stack shape is validated via traversal integration tests */
         const stack: StackItem[] = [
-          { handle: directoryHandle, parent: [], isRoot, path: parentPath },
+          { handle: directoryHandle, isRoot, parent: [], path: parentPath },
         ];
 
         const context: ProcessingContext = {
-          rootFolderId,
           batchSize,
           fileSystemAdapter,
-          updateProgress,
-          processFile,
           processDirectory,
+          processFile,
+          rootFolderId,
+          rootNodesRef,
           setFileTree,
           sortFileNodes,
-          rootNodesRef,
+          updateProgress,
         };
 
         await processDirectoryStack(stack, context, stats, abortSignal);
@@ -517,17 +517,17 @@ export function useFileTree(
     rootNodesRef.current = [];
     setFileTree([]);
     progressRef.current = {
-      loaded: 0,
-      total: 0,
       batchCount: 0,
       /* Stryker disable next-line StringLiteral -- currentPath is surfaced only after asynchronous progress events */
       currentPath: '',
+      estimatedTotal: progressRef.current.estimatedTotal,
+      loaded: 0,
       /* Stryker disable next-line StringLiteral -- phase transitions are validated via downstream progress reporting */
       phase: 'counting',
-      estimatedTotal: progressRef.current.estimatedTotal,
+      total: 0,
     };
     /* Stryker disable next-line ObjectLiteral, StringLiteral -- loadTree immediately reinitializes progress via readFullTree instrumentation */
-    setLoadingProgress({ loaded: 0, total: 0, phase: 'counting' });
+    setLoadingProgress({ loaded: 0, phase: 'counting', total: 0 });
 
     try {
       const newTree = await readFullTree(
@@ -562,7 +562,7 @@ export function useFileTree(
       /* Stryker disable next-line BooleanLiteral -- loadTree reassigns loading flags in the same tick */
       setIsLoading(true);
       /* Stryker disable next-line ObjectLiteral, StringLiteral -- effect-only initialization is overwritten synchronously in loadTree */
-      setLoadingProgress({ loaded: 0, total: 0, phase: 'counting' });
+      setLoadingProgress({ loaded: 0, phase: 'counting', total: 0 });
     }
     /* Stryker disable next-line ArrayDeclaration -- dependency reduction makes mutations indistinguishable at runtime */
   }, [rootDirectoryHandle]);
@@ -588,10 +588,10 @@ export function useFileTree(
   }, [loadTree]);
 
   return {
+    error,
     fileTree,
     isLoading,
-    error,
-    refreshTree,
     loadingProgress,
+    refreshTree,
   };
 }

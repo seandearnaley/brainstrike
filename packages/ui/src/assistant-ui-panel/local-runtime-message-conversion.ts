@@ -20,8 +20,8 @@ export function convertMessages(messages: ChatModelRunOptions['messages']): Loca
     const role = msg.role === 'user' ? 'user' : msg.role === 'assistant' ? 'assistant' : 'system';
 
     result.push({
-      role,
       content: textContent,
+      role,
     });
   }
 

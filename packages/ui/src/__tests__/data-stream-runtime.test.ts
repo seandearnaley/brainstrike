@@ -1,4 +1,8 @@
 import type { ThreadMessage } from '@assistant-ui/react';
+import {
+  ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
+  AssistantAttachmentValidationError,
+} from '@brainstrike/assistant-contract';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import {
   AssistantMessageAccumulator,
@@ -9,6 +13,7 @@ import { asAsyncIterableStream } from 'assistant-stream/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BrainstrikeDataStreamRuntimeAdapter,
+  boundResentImageHistory,
   extractTransportBodyData,
   selectTransportMessagesForMastraMemory,
 } from '../assistant-ui-panel/data-stream-runtime';
@@ -23,11 +28,11 @@ vi.mock('@brainstrike/utils/string-utils', async (importOriginal) => {
 
 function message(id: string, role: ThreadMessage['role']): ThreadMessage {
   return {
-    id,
-    role,
-    content: [{ type: 'text', text: id }],
+    content: [{ text: id, type: 'text' }],
     createdAt: new Date(0),
+    id,
     metadata: { custom: {} },
+    role,
   } as ThreadMessage;
 }
 
@@ -104,7 +109,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toEqual([system, currentUser]);
   });
@@ -118,7 +123,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toEqual([currentUser, activeAssistant]);
   });
@@ -143,7 +148,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toEqual([currentUser, firstToolCall, firstToolResult, secondToolCall, secondToolResult]);
   });
@@ -158,7 +163,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toEqual([system, currentUser]);
   });
@@ -170,7 +175,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toBe(messages);
   });
@@ -184,23 +189,214 @@ describe('extractTransportBodyData', () => {
   it('returns only the app-specific data payload', () => {
     expect(
       extractTransportBodyData({
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toStrictEqual({
-      data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+      data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
     });
   });
 
   it('rejects body values outside the app-specific data payload', () => {
     expect(() =>
       extractTransportBodyData({
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
         messages: [],
         system: 'override',
       })
     ).toThrow(
       'Assistant runtime body only supports top-level data; unsupported field(s): messages, system'
     );
+  });
+});
+
+const MEGABYTE = 1024 * 1024;
+
+function imageDataUrl(decodedBytes: number, mediaType = 'image/png'): string {
+  return `data:${mediaType};base64,${Buffer.alloc(decodedBytes, 65).toString('base64')}`;
+}
+
+function wireUser(id: string, content: unknown[]): Record<string, unknown> {
+  return { content, id, role: 'user' };
+}
+
+function wireFilePart(dataUrl: string, mediaType = 'image/png'): Record<string, unknown> {
+  return { data: dataUrl, mediaType, type: 'file' };
+}
+
+function wireImageBytes(wireMessages: readonly unknown[]): number {
+  let total = 0;
+  for (const wireMessage of wireMessages) {
+    const content = (wireMessage as { content?: unknown[] }).content ?? [];
+    for (const part of content) {
+      const record = part as { data?: unknown; type?: unknown };
+      if (record.type === 'file' && typeof record.data === 'string') {
+        const body = record.data.slice(record.data.indexOf(';base64,') + ';base64,'.length);
+        total += Math.floor((body.length * 3) / 4);
+      }
+    }
+  }
+  return total;
+}
+
+describe('boundResentImageHistory', () => {
+  it('returns the same messages and no elision when history images fit the shared budget', () => {
+    const messages = [
+      wireUser('old-user', [{ text: 'earlier' }, wireFilePart(imageDataUrl(2 * MEGABYTE))]),
+      { content: [{ text: 'reply' }], role: 'assistant' },
+      wireUser('current-user', [{ text: 'now' }, wireFilePart(imageDataUrl(3 * MEGABYTE))]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toBeUndefined();
+    expect(result.messages).toBe(messages);
+  });
+
+  it('elides all history image bodies when the current turn consumes the whole budget', () => {
+    const historyImage = wireFilePart(imageDataUrl(MEGABYTE), 'image/jpeg');
+    const maxedCurrentTurn = [
+      wireFilePart(imageDataUrl(5 * MEGABYTE)),
+      wireFilePart(imageDataUrl(5 * MEGABYTE)),
+    ];
+    const messages = [
+      wireUser('old-user', [{ text: 'earlier' }, historyImage]),
+      wireUser('current-user', maxedCurrentTurn),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: MEGABYTE,
+      elidedImageCount: 1,
+      keptImageBytes: ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
+      strategy: 'newest-first-combined-image-budget',
+    });
+    const historyContent = (result.messages[0] as { content: unknown[] }).content;
+    expect(historyContent[0]).toEqual({ text: 'earlier' });
+    expect(historyContent[1]).toEqual({
+      text: expect.stringContaining('image/jpeg'),
+    });
+    expect((historyContent[1] as { text: string }).text).toContain('omitted');
+    // The current turn's own attachments are never elided.
+    expect((result.messages[1] as { content: unknown[] }).content).toEqual(maxedCurrentTurn);
+    expect(JSON.stringify(result.messages[0])).not.toContain(';base64,');
+  });
+
+  it('keeps the newest history images and elides older ones past the budget', () => {
+    const messages = [
+      wireUser('oldest-user', [wireFilePart(imageDataUrl(4 * MEGABYTE))]),
+      wireUser('middle-user', [wireFilePart(imageDataUrl(4 * MEGABYTE))]),
+      wireUser('newest-history-user', [wireFilePart(imageDataUrl(4 * MEGABYTE))]),
+      wireUser('current-user', [{ text: 'no image this turn' }]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: 4 * MEGABYTE,
+      elidedImageCount: 1,
+      keptImageBytes: 8 * MEGABYTE,
+      strategy: 'newest-first-combined-image-budget',
+    });
+    expect(JSON.stringify(result.messages[0])).not.toContain(';base64,');
+    expect(JSON.stringify(result.messages[1])).toContain(';base64,');
+    expect(JSON.stringify(result.messages[2])).toContain(';base64,');
+    expect(wireImageBytes(result.messages)).toBeLessThanOrEqual(
+      ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES
+    );
+  });
+
+  it('elides every image older than the first one that does not fit', () => {
+    const messages = [
+      // Would fit the leftover budget on its own, but sits past the cutoff.
+      wireUser('oldest-user', [wireFilePart(imageDataUrl(MEGABYTE))]),
+      wireUser('newer-user', [wireFilePart(imageDataUrl(5 * MEGABYTE))]),
+      wireUser('current-user', [
+        wireFilePart(imageDataUrl(3 * MEGABYTE)),
+        wireFilePart(imageDataUrl(3 * MEGABYTE)),
+      ]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: 6 * MEGABYTE,
+      elidedImageCount: 2,
+      keptImageBytes: 6 * MEGABYTE,
+      strategy: 'newest-first-combined-image-budget',
+    });
+    expect(JSON.stringify(result.messages[0])).not.toContain(';base64,');
+    expect(JSON.stringify(result.messages[1])).not.toContain(';base64,');
+  });
+
+  it('writes distinguishable notes for sibling attachments elided from one message', () => {
+    const messages = [
+      wireUser('old-user', [
+        wireFilePart(imageDataUrl(4 * MEGABYTE)),
+        wireFilePart(imageDataUrl(4 * MEGABYTE)),
+      ]),
+      wireUser('current-user', [
+        wireFilePart(imageDataUrl(4 * MEGABYTE)),
+        wireFilePart(imageDataUrl(4 * MEGABYTE)),
+      ]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    const [firstNote, secondNote] = (result.messages[0] as { content: { text: string }[] }).content;
+    expect(firstNote?.text).toContain('1 of 2');
+    expect(secondNote?.text).toContain('2 of 2');
+    expect(firstNote?.text).not.toEqual(secondNote?.text);
+  });
+
+  it('elides an unmeasurable history file part with a visible note instead of failing the turn', () => {
+    const messages = [
+      wireUser('old-user', [{ data: 'https://example.test/image.png', type: 'file' }]),
+      wireUser('current-user', [{ text: 'hello' }]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: 0,
+      elidedImageCount: 1,
+      keptImageBytes: 0,
+      strategy: 'newest-first-combined-image-budget',
+      unmeasurableImageCount: 1,
+    });
+    const note = (result.messages[0] as { content: { text?: string }[] }).content[0];
+    expect(note?.text).toContain('omitted');
+    expect(note?.text).toContain('not an inline base64 data URL');
+  });
+
+  it('does not let an unmeasurable history part consume budget or trigger the cutoff', () => {
+    const messages = [
+      wireUser('oldest-user', [wireFilePart(imageDataUrl(4 * MEGABYTE))]),
+      wireUser('newer-user', [{ data: 'https://example.test/image.png', type: 'file' }]),
+      wireUser('current-user', [{ text: 'no image this turn' }]),
+    ];
+
+    const result = boundResentImageHistory(messages);
+
+    expect(result.elision).toEqual({
+      elidedImageBytes: 0,
+      elidedImageCount: 1,
+      keptImageBytes: 4 * MEGABYTE,
+      strategy: 'newest-first-combined-image-budget',
+      unmeasurableImageCount: 1,
+    });
+    // The measurable older image still fits and ships.
+    expect(JSON.stringify(result.messages[0])).toContain(';base64,');
+    expect(JSON.stringify(result.messages[1])).not.toContain('example.test');
+  });
+
+  it('throws loudly on an unmeasurable current-turn file part instead of guessing', () => {
+    const messages = [
+      wireUser('old-user', [{ text: 'earlier' }]),
+      wireUser('current-user', [{ data: 'https://example.test/image.png', type: 'file' }]),
+    ];
+
+    expect(() => boundResentImageHistory(messages)).toThrow(AssistantAttachmentValidationError);
   });
 });
 
@@ -249,7 +445,7 @@ describe('assistant-stream integration', () => {
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({
       api: 'http://assistant.test/api/assistant',
       body: {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
         messages: [],
       },
       onError,
@@ -391,8 +587,8 @@ describe('assistant-stream integration', () => {
     expect(requestBody).toMatchObject({
       messages: [
         {
-          role: 'user',
           content: [{ text: 'hello' }],
+          role: 'user',
         },
       ],
     });
@@ -416,25 +612,25 @@ describe('assistant-stream integration', () => {
     });
     const userFileMessage = {
       ...message('file-user', 'user'),
-      content: [{ type: 'file', data: 'data:text/plain;base64,SGVsbG8=', mimeType: 'text/plain' }],
+      content: [{ data: 'data:text/plain;base64,SGVsbG8=', mimeType: 'text/plain', type: 'file' }],
     } as unknown as ThreadMessage;
     const assistantToolCallMessage = {
       ...message('assistant-tool-call', 'assistant'),
       content: [
         {
-          type: 'tool-call',
-          toolCallId: 'call-1',
-          toolName: 'lookup',
           args: { query: 'weather' },
           result: { tempC: 18 },
+          toolCallId: 'call-1',
+          toolName: 'lookup',
+          type: 'tool-call',
         },
         {
-          type: 'tool-call',
+          args: { query: 'broken' },
+          isError: true,
+          result: { message: 'failed' },
           toolCallId: 'call-2',
           toolName: 'lookup',
-          args: { query: 'broken' },
-          result: { message: 'failed' },
-          isError: true,
+          type: 'tool-call',
         },
       ],
     } as unknown as ThreadMessage;
@@ -449,50 +645,115 @@ describe('assistant-stream integration', () => {
 
     expect(requestBody?.['messages']).toEqual([
       {
-        role: 'system',
         content: [{ text: 'system prompt' }],
+        role: 'system',
       },
       {
+        content: [
+          { data: 'data:text/plain;base64,SGVsbG8=', mediaType: 'text/plain', type: 'file' },
+        ],
+        id: 'file-user',
         role: 'user',
-        content: [
-          { type: 'file', data: 'data:text/plain;base64,SGVsbG8=', mediaType: 'text/plain' },
-        ],
       },
       {
-        role: 'assistant',
         content: [
           {
-            type: 'tool-call',
-            toolCallId: 'call-1',
-            toolName: 'lookup',
             input: { query: 'weather' },
-          },
-          {
-            type: 'tool-call',
-            toolCallId: 'call-2',
-            toolName: 'lookup',
-            input: { query: 'broken' },
-          },
-        ],
-      },
-      {
-        role: 'tool',
-        content: [
-          {
-            type: 'tool-result',
             toolCallId: 'call-1',
             toolName: 'lookup',
-            output: { type: 'json', value: { tempC: 18 } },
+            type: 'tool-call',
           },
           {
-            type: 'tool-result',
+            input: { query: 'broken' },
             toolCallId: 'call-2',
             toolName: 'lookup',
-            output: { type: 'error-json', value: { message: 'failed' } },
+            type: 'tool-call',
           },
         ],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            output: { type: 'json', value: { tempC: 18 } },
+            toolCallId: 'call-1',
+            toolName: 'lookup',
+            type: 'tool-result',
+          },
+          {
+            output: { type: 'error-json', value: { message: 'failed' } },
+            toolCallId: 'call-2',
+            toolName: 'lookup',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
       },
     ]);
+  });
+
+  it('bounds resent history images on the wire and attaches elision metadata', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        dataStreamFromLines([
+          'f:{"messageId":"msg-test"}',
+          '0:"Done"',
+          'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+        ])
+      );
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      body: { data: { model: 'test-model' } },
+    });
+    const historyDataUrl = imageDataUrl(5 * MEGABYTE);
+    const historyUserMessage = {
+      ...message('history-user', 'user'),
+      content: [
+        { text: 'first image', type: 'text' },
+        { data: historyDataUrl, mimeType: 'image/png', type: 'file' },
+      ],
+    } as unknown as ThreadMessage;
+    const currentUserMessage = {
+      ...message('current-user', 'user'),
+      content: [
+        { data: imageDataUrl(3 * MEGABYTE), mimeType: 'image/png', type: 'file' },
+        { data: imageDataUrl(3 * MEGABYTE), mimeType: 'image/png', type: 'file' },
+      ],
+    } as unknown as ThreadMessage;
+
+    for await (const _message of adapter.run(
+      runOptions({
+        messages: [historyUserMessage, message('assistant-reply', 'assistant'), currentUserMessage],
+      })
+    )) {
+      // Consume the response so the request is fully exercised.
+    }
+
+    expect(requestBody?.['data']).toEqual({
+      model: 'test-model',
+      transportImageElision: {
+        elidedImageBytes: 5 * MEGABYTE,
+        elidedImageCount: 1,
+        keptImageBytes: 6 * MEGABYTE,
+        strategy: 'newest-first-combined-image-budget',
+      },
+    });
+    const wireMessages = requestBody?.['messages'] as {
+      content: { data?: string; text?: string }[];
+      role: string;
+    }[];
+    expect(wireMessages[0]?.content[0]).toEqual({ text: 'first image' });
+    expect(wireMessages[0]?.content[1]?.text).toContain('omitted');
+    expect(JSON.stringify(wireMessages[0])).not.toContain(';base64,');
+    expect(wireMessages[2]?.content).toHaveLength(2);
+    expect(wireMessages[2]?.content[0]?.data).toContain(';base64,');
+    // The elision is wire-only: the thread's own message record keeps the body.
+    expect((historyUserMessage.content[1] as unknown as { data: string }).data).toBe(
+      historyDataUrl
+    );
   });
 
   it('rejects runtime config fields that would override transport protocol data', async () => {
@@ -601,19 +862,19 @@ describe('assistant-stream integration', () => {
         context: {
           callSettings: {},
           config: providerConfig,
-          tools: {},
           system: 'System prompt',
+          tools: {},
         },
         messages: [oldUser, currentUser],
         runConfig,
         unstable_assistantMessageId: 'assistant-message',
-        unstable_parentId: null,
-        unstable_threadId: 'thread-id',
         unstable_getMessage: () =>
           ({
             ...finishMessage,
             metadata: { ...finishMessage.metadata, unstable_state: { mode: 'debug' } },
           }) as unknown as ThreadMessage,
+        unstable_parentId: null,
+        unstable_threadId: 'thread-id',
       })
     )) {
       // Consume the response so finish hooks run.
@@ -629,13 +890,6 @@ describe('assistant-stream integration', () => {
       })
     );
     expect(requestBody).toMatchObject({
-      system: 'System prompt',
-      threadId: 'thread-id',
-      parentId: null,
-      runConfig: { maxTokens: 128 },
-      unstable_assistantMessageId: 'assistant-message',
-      state: { mode: 'debug' },
-      temperature: 0.2,
       data: {
         memory: { resourceId: 'workspace', threadId: 'thread' },
         transportCompaction: {
@@ -644,10 +898,24 @@ describe('assistant-stream integration', () => {
           strategy: 'mastra-memory-current-turn',
         },
       },
+      parentId: null,
+      runConfig: { maxTokens: 128 },
+      state: { mode: 'debug' },
+      system: 'System prompt',
+      temperature: 0.2,
+      threadId: 'thread-id',
+      unstable_assistantMessageId: 'assistant-message',
     });
     expect(
       (requestBody?.['messages'] as unknown[]).map((item) => (item as { role: string }).role)
     ).toEqual(['user']);
+    expect(requestBody?.['messages']).toEqual([
+      {
+        content: [{ text: 'current-user' }],
+        id: 'current-user',
+        role: 'user',
+      },
+    ]);
   });
 
   it('reports null response bodies as transport failures', async () => {
@@ -784,13 +1052,13 @@ describe('assistant-stream integration', () => {
       async () =>
         new Response(
           new ReadableStream<Uint8Array>({
+            cancel() {
+              cancelCalled = true;
+            },
             pull(controller) {
               controller.enqueue(encoder.encode('x'.repeat(3000)));
               controller.enqueue(encoder.encode('y'.repeat(5000)));
               controller.enqueue(encoder.encode('tail-that-should-not-be-read'));
-            },
-            cancel() {
-              cancelCalled = true;
             },
           }),
           { status: 500 }
@@ -841,12 +1109,12 @@ describe('assistant-stream integration', () => {
       async () =>
         new Response(
           new ReadableStream<Uint8Array>({
+            cancel() {
+              cancelCalled = true;
+            },
             pull(controller) {
               controller.enqueue(encoder.encode('x'.repeat(4000)));
               controller.enqueue(encoder.encode('y'));
-            },
-            cancel() {
-              cancelCalled = true;
             },
           }),
           { status: 500 }
@@ -946,6 +1214,68 @@ describe('assistant-stream integration', () => {
     expect(lastMessage.status).toMatchObject({ type: 'complete' });
   });
 
+  it('does not expose a complete message until every decoded part has drained', async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            '0:"Done"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+    });
+
+    const yielded: { status?: { type?: string } }[] = [];
+    for await (const nextMessage of adapter.run(runOptions())) {
+      yielded.push(nextMessage as { status?: { type?: string } });
+    }
+
+    const firstCompleteIndex = yielded.findIndex((item) => item.status?.type === 'complete');
+    expect(firstCompleteIndex).toBe(yielded.length - 1);
+  });
+
+  it('preserves the authoritative abort reason instead of reporting a teardown error', async () => {
+    const abortController = new AbortController();
+    const abortReason = new DOMException('superseded by the next turn', 'AbortError');
+    const teardownError = new TypeError(
+      "Failed to execute 'enqueue' on 'ReadableStreamDefaultController': Cannot enqueue a chunk into a readable stream that is closed"
+    );
+    const onError = vi.fn();
+    const encoder = new TextEncoder();
+
+    globalThis.fetch = vi.fn(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('f:{"messageId":"msg-test"}\n'));
+          controller.enqueue(encoder.encode('0:"Started"\n'));
+          abortController.signal.addEventListener('abort', () => controller.error(teardownError), {
+            once: true,
+          });
+        },
+      });
+      return new Response(body);
+    }) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onError,
+    });
+    const iterator = adapter.run(runOptions({ abortSignal: abortController.signal }));
+
+    await expect(iterator.next()).resolves.toMatchObject({ done: false });
+    abortController.abort(abortReason);
+    const drainAfterAbort = async () => {
+      while (true) {
+        await iterator.next();
+      }
+    };
+    await expect(drainAfterAbort()).rejects.toBe(abortReason);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it('fires onUsage with provider token counts from finish-message chunks', async () => {
     const usageEvents: { inputTokens: number; outputTokens: number }[] = [];
     globalThis.fetch = vi.fn(
@@ -989,6 +1319,40 @@ describe('assistant-stream integration', () => {
 
     // Exact wire values forwarded to the callback.
     expect(usageEvents).toEqual([{ inputTokens: 123, outputTokens: 45 }]);
+  });
+
+  it('forwards provider-reported billed cost with token usage', async () => {
+    const usageEvents: Array<{
+      billedCostUsd?: number;
+      inputTokens: number;
+      outputTokens: number;
+    }> = [];
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-cost"}',
+            '0:"Hello"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":123,"outputTokens":45},"billedCostUsd":0.0042,"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage: (usage) => usageEvents.push(usage),
+    });
+
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      // drain
+    }
+
+    expect(usageEvents).toEqual([{ billedCostUsd: 0.0042, inputTokens: 123, outputTokens: 45 }]);
   });
 
   it('completes normally and does not call onUsage when finish-message chunk has no usage field', async () => {
@@ -1064,6 +1428,39 @@ describe('assistant-stream integration', () => {
     expect(onUsage).not.toHaveBeenCalled();
   });
 
+  it('forwards a cost-only zero-token finish when the transport supplies one', async () => {
+    const onUsage = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-cost-pause"}',
+            'd:{"finishReason":"tool-calls","usage":{"inputTokens":0,"outputTokens":0},"billedCostUsd":0.00125,"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage,
+    });
+
+    for await (const _message of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      // drain
+    }
+
+    expect(onUsage).toHaveBeenCalledWith({
+      billedCostUsd: 0.001_25,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+  });
+
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
     const messages = await readAssistantStreamMessages([
       'f:{"messageId":"msg-test"}',
@@ -1079,18 +1476,18 @@ describe('assistant-stream integration', () => {
       throw new Error('Expected an accumulated assistant message.');
     }
 
-    expect(lastMessage.status).toMatchObject({ type: 'complete', reason: 'stop' });
+    expect(lastMessage.status).toMatchObject({ reason: 'stop', type: 'complete' });
     expect(lastMessage.content).toMatchObject([
       {
-        type: 'tool-call',
+        args: { city: 'SF' },
+        isError: false,
+        result: { tempC: 18 },
         state: 'result',
         toolCallId: 'call-1',
         toolName: 'lookup',
-        args: { city: 'SF' },
-        result: { tempC: 18 },
-        isError: false,
+        type: 'tool-call',
       },
-      { type: 'text', text: 'Done' },
+      { text: 'Done', type: 'text' },
     ]);
   });
 });

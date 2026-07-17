@@ -12,7 +12,7 @@
  * - Full WAI-ARIA treegrid compliance
  */
 
-import { usePagination } from '@brainstrike/hooks';
+import { useEventCallback, usePagination } from '@brainstrike/hooks';
 import { observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
 import * as React from 'react';
 
@@ -27,8 +27,15 @@ import {
   flattenPreFlattenedTreeRows,
   flattenTreeRecursive,
   getDescendantIds,
+  reuseEqualFlattenedRows,
 } from './tree-utils';
-import type { CheckboxState, TreeNode, TreeTableProps, TreeTableRowProps } from './types';
+import type {
+  CheckboxState,
+  FlattenedRow,
+  TreeNode,
+  TreeTableProps,
+  TreeTableRowProps,
+} from './types';
 import { computeColumnBounds, useColumnSizing } from './use-column-sizing';
 import { type UseTreeKeyboardOptions, useTreeKeyboard } from './use-tree-keyboard';
 import { useTreeTableHandlers } from './use-tree-table-handlers';
@@ -45,6 +52,14 @@ const DEFAULT_CONTEXT_NODE_IDS = new Set<string>();
 const DEFAULT_LOADING_NODE_IDS = new Set<string>();
 const MAX_WARNED_CYCLE_NODE_IDS = 1000;
 const DEFAULT_PAGE_SIZE = 50;
+const KEYBOARD_FOCUS_KEYS = new Set([
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'End',
+  'Home',
+]);
 export const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
 const MIN_FALLBACK_VIRTUAL_ROWS = 1;
 // Performance-only fallback cache keyed by table container element.
@@ -202,10 +217,10 @@ function buildTablePaginationProps({
   const tablePaginationProps: React.ComponentProps<typeof TablePagination> = {
     currentPage,
     onPageChange,
+    onPageSizeChange,
     pageSize,
     totalItems,
     totalPages,
-    onPageSizeChange,
   };
   if (paginationOptions?.pageInfo !== undefined) {
     tablePaginationProps.pageInfo = paginationOptions.pageInfo;
@@ -273,9 +288,9 @@ function renderTableHeader<T>({
               onClick={() => column.sortable && onSortClick(column.id)}
               role="columnheader"
               style={{
-                width: resolvedWidth ?? column.width,
-                minWidth: column.minWidth,
                 maxWidth: column.maxWidth,
+                minWidth: column.minWidth,
+                width: resolvedWidth ?? column.width,
               }}
             >
               <div className={cn('flex items-center gap-1', column.headerContentClassName)}>
@@ -362,7 +377,7 @@ function resolvePaginationTotalItems(isPagedWindowing: boolean, rowCount: number
 
 interface TreeTableViewportProps {
   children: React.ReactNode;
-  className: string;
+  className?: string | undefined;
   maxHeight: string;
   parentRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -374,7 +389,11 @@ function TreeTableViewport({
   children,
 }: TreeTableViewportProps): React.ReactElement {
   return (
-    <div className={cn('min-w-0', className)} ref={parentRef} style={{ maxHeight, height: '100%' }}>
+    <div
+      className={cn('relative min-h-0 min-w-0 flex-1 overflow-auto', className)}
+      ref={parentRef}
+      style={{ maxHeight }}
+    >
       {children}
     </div>
   );
@@ -435,10 +454,10 @@ function getCycleFallbackState(
   warnedCycleNodeIds: Set<string>
 ): CheckboxState {
   warnCycleOnce({
-    nodeId,
-    warnedNodeIds: warnedCycleNodeIds,
     // Cap warning memory instead of clearing it; avoids repeated warnings for the same IDs.
     maxWarnings: MAX_WARNED_CYCLE_NODE_IDS,
+    nodeId,
+    warnedNodeIds: warnedCycleNodeIds,
     warningMessage: `[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`,
   });
   // Cycles indicate malformed tree data; prefer a conservative visual state
@@ -540,6 +559,21 @@ function buildCheckboxStateMap<T>(
 }
 
 /**
+ * Resolve the effective Space handler: a consumer-provided one wins; otherwise
+ * the internal pluggable-checkbox handler when that visual path is active.
+ */
+function resolveCheckboxSpaceHandler(
+  consumerHandler: ((nodeId: string) => boolean) | undefined,
+  pluggablePathActive: boolean,
+  pluggableHandler: (nodeId: string) => boolean
+): ((nodeId: string) => boolean) | undefined {
+  if (consumerHandler !== undefined) {
+    return consumerHandler;
+  }
+  return pluggablePathActive ? pluggableHandler : undefined;
+}
+
+/**
  * TreeTable - A virtualized hierarchical table component.
  *
  * Features:
@@ -576,6 +610,7 @@ export function TreeTable<T>({
   multiSelectedIds = DEFAULT_MULTI_SELECTED,
   onMultiSelectChange,
   selectionMode = 'single',
+  selectOnRowClick = true,
   highlightedIds = DEFAULT_HIGHLIGHTED,
   contextNodeIds = DEFAULT_CONTEXT_NODE_IDS,
   nodesArePreFlattened = false,
@@ -590,12 +625,17 @@ export function TreeTable<T>({
   onSortChange,
   loadingNodeIds = DEFAULT_LOADING_NODE_IDS,
   className,
+  viewportClassName,
   rowClassName,
   emptyState,
   ariaLabel = 'Tree table',
   ariaRole = 'treegrid',
   showHeader = true,
   showCheckbox = false,
+  getCheckboxState,
+  getCheckboxAriaLabel,
+  onCheckboxChange,
+  onCheckboxSpace,
   insetTreeControls = false,
   onRowDoubleClick,
   onRowContextMenu,
@@ -604,6 +644,7 @@ export function TreeTable<T>({
 }: TreeTableProps<T>) {
   const tableAriaRole = resolveTableAriaRole(ariaRole);
   const parentRef = React.useRef<HTMLDivElement>(null);
+  const [keyboardFocusVisible, setKeyboardFocusVisible] = React.useState(false);
   // Diagnostic-only cycle warning cache. This is intentionally mutable and
   // excluded from memo deps because it does not affect rendered output.
   const warnedCycleNodeIdsRef = React.useRef<Set<string>>(new Set());
@@ -616,6 +657,7 @@ export function TreeTable<T>({
 
   const getChildren = React.useMemo(() => createChildrenGetter(nodes), [nodes]);
 
+  const previousRowsByIdRef = React.useRef<ReadonlyMap<string, FlattenedRow<T>>>(new Map());
   const { rows, indexMap } = React.useMemo(() => {
     const nodesWithLoading =
       loadingNodeIds.size === 0
@@ -631,32 +673,36 @@ export function TreeTable<T>({
             return node;
           });
 
-    if (nodesArePreFlattened) {
-      return flattenPreFlattenedTreeRows(nodesWithLoading, {
-        expandedIds,
-        selectedId,
-        multiSelectedIds,
-        highlightedIds,
-        contextNodeIds,
-        rowIndexOffset: resolveRowIndexOffset(showHeader),
-      });
-    }
+    const flattened = nodesArePreFlattened
+      ? flattenPreFlattenedTreeRows(nodesWithLoading, {
+          contextNodeIds,
+          expandedIds,
+          highlightedIds,
+          multiSelectedIds,
+          rowIndexOffset: resolveRowIndexOffset(showHeader),
+          selectedId,
+        })
+      : flattenTreeRecursive(
+          nodesWithLoading.filter((n) => n.parentId === null),
+          {
+            contextNodeIds,
+            expandedIds,
+            highlightedIds,
+            multiSelectedIds,
+            rowIndexOffset: resolveRowIndexOffset(showHeader),
+            selectedId,
+          },
+          createChildrenGetter(nodesWithLoading)
+        );
 
-    const rootsWithLoading = nodesWithLoading.filter((n) => n.parentId === null);
-    const getChildrenWithLoading = createChildrenGetter(nodesWithLoading);
-
-    return flattenTreeRecursive(
-      rootsWithLoading,
-      {
-        expandedIds,
-        selectedId,
-        multiSelectedIds,
-        highlightedIds,
-        contextNodeIds,
-        rowIndexOffset: resolveRowIndexOffset(showHeader),
-      },
-      getChildrenWithLoading
-    );
+    // Structural sharing keyed by node id (see TREEGRID contract): a
+    // selection/highlight change re-flattens, but only rows whose computed
+    // fields changed get new identities — memo'd rows for the rest bail out.
+    // The render-phase cache write is safe: reuse is by value-equality, so a
+    // discarded concurrent render cannot make a later result incorrect.
+    const stabilizedRows = reuseEqualFlattenedRows(previousRowsByIdRef.current, flattened.rows);
+    previousRowsByIdRef.current = new Map(stabilizedRows.map((row) => [row.node.id, row]));
+    return { indexMap: flattened.indexMap, rows: stabilizedRows };
   }, [
     nodes,
     expandedIds,
@@ -672,10 +718,10 @@ export function TreeTable<T>({
   const resolvedWindowingStrategy = React.useMemo(
     () =>
       resolveWindowingStrategy({
-        strategy: windowingStrategy,
+        autoPagedRowThreshold,
         autoWindowingContext,
         rowCount: rows.length,
-        autoPagedRowThreshold,
+        strategy: windowingStrategy,
       }),
     [windowingStrategy, autoWindowingContext, rows.length, autoPagedRowThreshold]
   );
@@ -690,8 +736,8 @@ export function TreeTable<T>({
 
   const { currentPage, totalPages, startIndex, endIndex, goToPage, resetToFirstPage } =
     usePagination({
-      totalItems: paginationTotalItems,
       pageSize,
+      totalItems: paginationTotalItems,
     });
 
   const totalRowCount = resolveTotalRowCount(rows.length, showHeader);
@@ -706,10 +752,12 @@ export function TreeTable<T>({
     return map;
   }, [nodes]);
 
-  // Compute checkbox states in a single bottom-up pass across the whole tree.
-  // This avoids O(visibleRows * subtreeTraversal) work on each render.
+  const usesPluggableCheckbox = getCheckboxState !== undefined;
+
+  // Built-in cascade: compute checkbox states in a single bottom-up pass.
+  // Skipped when a pluggable getCheckboxState is provided (or checkboxes are off).
   const checkboxStates = React.useMemo((): Map<string, CheckboxState> => {
-    if (!showCheckbox) {
+    if (!showCheckbox || usesPluggableCheckbox) {
       return new Map();
     }
     return buildCheckboxStateMap(
@@ -718,41 +766,84 @@ export function TreeTable<T>({
       multiSelectedIds,
       warnedCycleNodeIdsRef.current
     );
-  }, [showCheckbox, nodes, multiSelectedIds, getChildren]);
+  }, [showCheckbox, usesPluggableCheckbox, nodes, multiSelectedIds, getChildren]);
 
-  // Handle checkbox toggle - select/deselect node and all descendants
-  const handleCheckboxChange = React.useCallback(
-    (nodeId: string) => {
-      if (!onMultiSelectChange) {
-        return;
-      }
-
-      const node = nodeById.get(nodeId);
-      if (!node) {
-        return;
-      }
-
-      const descendants = getDescendantIds(node, getChildren);
-      const currentState = checkboxStates.get(nodeId);
-      const newSelection = new Set(multiSelectedIds);
-
-      if (currentState === 'checked') {
-        // Deselect this node and all descendants
-        newSelection.delete(nodeId);
-        for (const descId of descendants) {
-          newSelection.delete(descId);
+  const resolveRowCheckboxState = React.useCallback(
+    (node: TreeNode<T>): CheckboxState | null => {
+      if (getCheckboxState) {
+        const state = getCheckboxState(node);
+        if (state === undefined || state === 'hidden') {
+          return null;
         }
-      } else {
-        // Select this node and all descendants
-        newSelection.add(nodeId);
-        for (const descId of descendants) {
-          newSelection.add(descId);
-        }
+        return state;
       }
-
-      onMultiSelectChange(newSelection);
+      if (!showCheckbox) {
+        return null;
+      }
+      return checkboxStates.get(node.id) ?? 'unchecked';
     },
-    [nodeById, getChildren, multiSelectedIds, onMultiSelectChange, checkboxStates]
+    [getCheckboxState, showCheckbox, checkboxStates]
+  );
+
+  const resolveNextCheckboxState = React.useCallback(
+    (current: CheckboxState | null): 'checked' | 'unchecked' => {
+      // Indeterminate and unchecked both activate to checked (standard tri-state UX).
+      return current === 'checked' ? 'unchecked' : 'checked';
+    },
+    []
+  );
+
+  // Handle checkbox toggle. Pluggable path wins over the built-in cascade.
+  // Identity-stable (useEventCallback): this is passed to every row, and a
+  // selection-dependent useCallback re-rendered all visible rows per toggle.
+  const handleCheckboxChange = useEventCallback((nodeId: string) => {
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      return;
+    }
+
+    if (onCheckboxChange) {
+      const current = resolveRowCheckboxState(node);
+      if (current === null) {
+        return;
+      }
+      onCheckboxChange(node, resolveNextCheckboxState(current));
+      return;
+    }
+
+    // Getter-only pluggable mode: do not mix with the built-in cascade.
+    // checkboxStates is empty when getCheckboxState is set, so falling through
+    // would treat every click as "unchecked → select".
+    if (getCheckboxState !== undefined) {
+      return;
+    }
+
+    if (!onMultiSelectChange) {
+      return;
+    }
+
+    const descendants = getDescendantIds(node, getChildren);
+    const currentState = checkboxStates.get(nodeId);
+    const newSelection = new Set(multiSelectedIds);
+
+    if (currentState === 'checked') {
+      newSelection.delete(nodeId);
+      for (const descId of descendants) {
+        newSelection.delete(descId);
+      }
+    } else {
+      newSelection.add(nodeId);
+      for (const descId of descendants) {
+        newSelection.add(descId);
+      }
+    }
+
+    onMultiSelectChange(newSelection);
+  });
+
+  const resolveRowCheckboxAriaLabel = React.useCallback(
+    (node: TreeNode<T>): string => getCheckboxAriaLabel?.(node) ?? `Select ${node.id}`,
+    [getCheckboxAriaLabel]
   );
 
   const getRowHeight = React.useCallback(
@@ -816,15 +907,15 @@ export function TreeTable<T>({
   // Setup virtualizer
   const rowVirtualizer = useVirtualizer({
     count: isVirtualWindowing ? rows.length : 0,
-    getScrollElement: () => parentRef.current,
     estimateSize: (index) => {
       const row = rows[index];
       return row ? getRowHeight(row.node) : 40;
     },
+    getScrollElement: () => parentRef.current,
+    observeElementRect: heightOnlyObserveRect,
     overscan,
     // Avoid react-virtual calling ReactDOM.flushSync during layout updates.
     useFlushSync: false,
-    observeElementRect: heightOnlyObserveRect,
   });
 
   const scrollToNode = React.useCallback(
@@ -898,16 +989,46 @@ export function TreeTable<T>({
   }, [isPagedWindowing, indexMap, pageSize, currentPage, displayedRows, scrollPagedRowIntoView]);
 
   // Setup keyboard navigation
+  const handlePluggableCheckboxSpace = React.useCallback(
+    (nodeId: string): boolean => {
+      // Getter-only pluggable mode: swallow Space so multi-select toggle does
+      // not run (parity with the click path's early return).
+      if (getCheckboxState !== undefined && onCheckboxChange === undefined) {
+        return true;
+      }
+      if (!onCheckboxChange) {
+        return false;
+      }
+      const node = nodeById.get(nodeId);
+      if (!node) {
+        return false;
+      }
+      const current = resolveRowCheckboxState(node);
+      if (current === null) {
+        return false;
+      }
+      onCheckboxChange(node, resolveNextCheckboxState(current));
+      return true;
+    },
+    [
+      getCheckboxState,
+      onCheckboxChange,
+      nodeById,
+      resolveRowCheckboxState,
+      resolveNextCheckboxState,
+    ]
+  );
+
   const keyboardOptions: UseTreeKeyboardOptions<T> = {
-    rows,
-    rowIndexById: indexMap,
-    nodes,
-    getChildren,
     expandedIds,
-    onToggleExpand,
-    selectionMode,
+    getChildren,
     isTableFocused: true,
+    nodes,
     onScrollToNode: scrollToNode,
+    onToggleExpand,
+    rowIndexById: indexMap,
+    rows,
+    selectionMode,
   };
   if (selectedId !== undefined) {
     keyboardOptions.selectedId = selectedId;
@@ -921,7 +1042,52 @@ export function TreeTable<T>({
   if (onMultiSelectChange !== undefined) {
     keyboardOptions.onMultiSelectChange = onMultiSelectChange;
   }
+  // A consumer-provided Space handler (for in-cell checkboxes) wins; otherwise
+  // the internal pluggable handler is used whenever that visual path is active.
+  const resolvedCheckboxSpace = resolveCheckboxSpaceHandler(
+    onCheckboxSpace,
+    getCheckboxState !== undefined || onCheckboxChange !== undefined,
+    handlePluggableCheckboxSpace
+  );
+  if (resolvedCheckboxSpace !== undefined) {
+    keyboardOptions.onCheckboxSpace = resolvedCheckboxSpace;
+  }
   const keyboard = useTreeKeyboard(keyboardOptions);
+  const handleTreeKeyDown = useEventCallback((event: React.KeyboardEvent) => {
+    if (
+      KEYBOARD_FOCUS_KEYS.has(event.key) &&
+      !(event.target instanceof HTMLInputElement) &&
+      !(event.target instanceof HTMLTextAreaElement)
+    ) {
+      setKeyboardFocusVisible(true);
+    }
+    keyboard.onKeyDown(event);
+  });
+  const handleTreePointerDown = React.useCallback(() => {
+    setKeyboardFocusVisible(false);
+  }, []);
+  const handleTreeBlur = React.useCallback((event: React.FocusEvent<HTMLTableElement>) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
+      return;
+    }
+    setKeyboardFocusVisible(false);
+  }, []);
+
+  // The TanStack virtualizer instance is identity-stable, so this adapter
+  // (and the measure callback ref derived from it) only changes when the
+  // windowing strategy flips. An inline object here re-attached the measure
+  // ref on every render — one synchronous layout read per visible row per
+  // render (see tree-table-render-stability.test.tsx).
+  const measureAdapter = React.useMemo(
+    () => ({
+      measureElement: (element: HTMLTableRowElement | null) => {
+        if (isVirtualWindowing && element) {
+          rowVirtualizer.measureElement(element);
+        }
+      },
+    }),
+    [isVirtualWindowing, rowVirtualizer]
+  );
 
   const {
     handleRowClick,
@@ -931,28 +1097,33 @@ export function TreeTable<T>({
     getRowClassName,
     measureRow,
   } = useTreeTableHandlers({
-    rows,
-    rowIndexById: indexMap,
-    nodeById,
     keyboard,
-    selectionMode,
-    selectedId,
     multiSelectedIds,
-    rowClassName,
-    sortState,
-    onSelect,
+    nodeById,
     onMultiSelectChange,
-    onSortChange,
-    onRowDoubleClick,
     onRowContextMenu,
-    rowVirtualizer: {
-      measureElement: (element) => {
-        if (isVirtualWindowing && element) {
-          rowVirtualizer.measureElement(element);
-        }
-      },
-    },
+    onRowDoubleClick,
+    onSelect,
+    onSortChange,
+    rowClassName,
+    rowIndexById: indexMap,
+    rows,
+    rowVirtualizer: measureAdapter,
+    selectedId,
+    selectionMode,
+    selectOnRowClick,
+    sortState,
   });
+  const getResolvedRowClassName = React.useCallback(
+    (node: TreeNode<T>): string =>
+      cn(
+        getRowClassName(node),
+        keyboardFocusVisible &&
+          keyboard.state.focusedId === node.id &&
+          'outline-2 outline-foreground/50 outline-solid -outline-offset-2'
+      ),
+    [getRowClassName, keyboard.state.focusedId, keyboardFocusVisible]
+  );
 
   const handlePaginationPageChange = React.useCallback(
     (nextPage: number) => {
@@ -993,11 +1164,11 @@ export function TreeTable<T>({
       buildTablePaginationProps({
         currentPage,
         onPageChange: handlePaginationPageChange,
+        onPageSizeChange: handlePageSizeChange,
         pageSize,
+        paginationOptions: pagination,
         totalItems: rows.length,
         totalPages,
-        onPageSizeChange: handlePageSizeChange,
-        paginationOptions: pagination,
       }),
     [
       currentPage,
@@ -1012,14 +1183,14 @@ export function TreeTable<T>({
   const tableHeader = React.useMemo(
     () =>
       renderTableHeader({
-        showHeader,
         columns,
-        sortState,
-        onSortChange,
-        onSortClick: handleSortClick,
         getResolvedWidth: columnSizing.getWidth,
         isColumnResizable: columnSizing.isResizable,
         onResize: columnSizing.setWidth,
+        onSortChange,
+        onSortClick: handleSortClick,
+        showHeader,
+        sortState,
       }),
     [
       showHeader,
@@ -1048,19 +1219,18 @@ export function TreeTable<T>({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <TreeTableViewport
-        className="min-w-0 overflow-auto"
-        maxHeight={maxHeight}
-        parentRef={parentRef}
-      >
+      <TreeTableViewport className={viewportClassName} maxHeight={maxHeight} parentRef={parentRef}>
         <Table
           aria-colcount={columns.length}
           aria-label={ariaLabel}
           aria-multiselectable={selectionMode === 'multi' || undefined}
           aria-rowcount={totalRowCount}
           className={className}
-          onKeyDown={keyboard.onKeyDown}
+          onBlur={handleTreeBlur}
+          onKeyDown={handleTreeKeyDown}
+          onPointerDownCapture={handleTreePointerDown}
           role={tableAriaRole}
+          scrollContainer={false}
           tabIndex={0}
         >
           <TreeTableColgroup columns={columns} getResolvedWidth={columnSizing.getWidth} />
@@ -1080,48 +1250,56 @@ export function TreeTable<T>({
                     return null;
                   }
 
+                  const rowCheckboxState = resolveRowCheckboxState(row.node);
+                  const rowShowsCheckbox = rowCheckboxState !== null;
                   return (
                     <TreeTableRow
+                      {...virtualRowMeasureProps}
                       ariaRole={tableAriaRole}
-                      checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
-                      className={getRowClassName(row.node)}
+                      checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
+                      checkboxState={rowCheckboxState ?? 'unchecked'}
+                      className={getResolvedRowClassName(row.node)}
                       columns={columns}
                       insetTreeControls={insetTreeControls}
                       isFocused={keyboard.state.focusedId === row.node.id}
                       key={row.node.id}
-                      onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
+                      onCheckboxChange={rowShowsCheckbox ? handleCheckboxChange : undefined}
                       onClick={handleRowClick}
                       onContextMenu={handleRowContextMenu}
                       onDoubleClick={handleRowDoubleClick}
                       onToggleExpand={onToggleExpand}
                       row={row}
-                      showCheckbox={showCheckbox}
+                      showCheckbox={rowShowsCheckbox}
                       totalRowCount={totalRowCount}
                       virtualIndex={virtualRow.index}
-                      {...virtualRowMeasureProps}
                     />
                   );
                 })
-              : displayedRows.map((row) => (
-                  <TreeTableRow
-                    ariaRole={tableAriaRole}
-                    checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
-                    className={getRowClassName(row.node)}
-                    columns={columns}
-                    insetTreeControls={insetTreeControls}
-                    isFocused={keyboard.state.focusedId === row.node.id}
-                    key={row.node.id}
-                    onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
-                    onClick={handleRowClick}
-                    onContextMenu={handleRowContextMenu}
-                    onDoubleClick={handleRowDoubleClick}
-                    onToggleExpand={onToggleExpand}
-                    row={row}
-                    showCheckbox={showCheckbox}
-                    totalRowCount={totalRowCount}
-                    virtualIndex={row.index}
-                  />
-                ))}
+              : displayedRows.map((row) => {
+                  const rowCheckboxState = resolveRowCheckboxState(row.node);
+                  const rowShowsCheckbox = rowCheckboxState !== null;
+                  return (
+                    <TreeTableRow
+                      ariaRole={tableAriaRole}
+                      checkboxAriaLabel={resolveRowCheckboxAriaLabel(row.node)}
+                      checkboxState={rowCheckboxState ?? 'unchecked'}
+                      className={getResolvedRowClassName(row.node)}
+                      columns={columns}
+                      insetTreeControls={insetTreeControls}
+                      isFocused={keyboard.state.focusedId === row.node.id}
+                      key={row.node.id}
+                      onCheckboxChange={rowShowsCheckbox ? handleCheckboxChange : undefined}
+                      onClick={handleRowClick}
+                      onContextMenu={handleRowContextMenu}
+                      onDoubleClick={handleRowDoubleClick}
+                      onToggleExpand={onToggleExpand}
+                      row={row}
+                      showCheckbox={rowShowsCheckbox}
+                      totalRowCount={totalRowCount}
+                      virtualIndex={row.index}
+                    />
+                  );
+                })}
 
             {isVirtualWindowing && paddingBottom > 0 && (
               <tr>

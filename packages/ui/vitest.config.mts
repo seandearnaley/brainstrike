@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
 
@@ -52,10 +53,6 @@ const workspaceAliases = [
     replacement: resolve(import.meta.dirname, '../utils/src/report-generator.ts'),
   },
   {
-    find: '@brainstrike/utils/safe-storage',
-    replacement: resolve(import.meta.dirname, '../utils/src/safe-storage.ts'),
-  },
-  {
     find: '@brainstrike/hooks',
     replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
   },
@@ -67,6 +64,10 @@ const workspaceAliases = [
     find: '@brainstrike/utils',
     replacement: resolve(import.meta.dirname, '../utils/src'),
   },
+  // Registry fills gaps (e.g. @brainstrike/context-actions, executed unmocked by
+  // action-context-menu.test.tsx). The hand-rolled entries above win by
+  // first-match ordering. See workspace-src-aliases (incident #1066/#1207).
+  ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
 ];
 
 export default defineConfig({
@@ -83,19 +84,7 @@ export default defineConfig({
           alias: workspaceAliases,
         },
         test: {
-          name: 'unit',
-          environment: 'happy-dom',
-          globals: true,
-          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-          include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
-          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
-          pool: 'threads',
-          maxWorkers: process.env['CI'] ? '50%' : '100%',
-          sequence: {
-            groupOrder: 0,
-          },
           coverage: {
-            include: ['src/**/*.{ts,tsx}'],
             exclude: [
               '**/__tests__/**',
               '**/*.browser.test.{ts,tsx}',
@@ -105,7 +94,28 @@ export default defineConfig({
               '**/dist/**',
               '**/index.ts',
             ],
+            include: ['src/**/*.{ts,tsx}'],
           },
+          environment: 'happy-dom',
+          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+          globals: true,
+          include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
+          maxWorkers: process.env['CI'] ? '50%' : '100%',
+          name: 'unit',
+          pool: 'threads',
+          sequence: {
+            groupOrder: 0,
+          },
+          server: {
+            deps: {
+              // react-shiki@0.10+ ships a top-level `import './style.css'` side effect in
+              // its shared component chunk; Vitest externalizes node_modules by default,
+              // which hands that CSS import to Node's native ESM loader (no CSS support)
+              // instead of Vite's transform pipeline. Inlining forces Vite to handle it.
+              inline: ['react-shiki'],
+            },
+          },
+          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
         },
       },
       {

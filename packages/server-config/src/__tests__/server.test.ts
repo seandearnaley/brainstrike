@@ -7,7 +7,6 @@ import {
   getBaseUrl,
   getDesktopBaseUrl,
   getDesktopPortsToCheck,
-  getPortsToCheck,
   getWebBaseUrl,
   getWebPortsToCheck,
   PORT_RANGE,
@@ -33,14 +32,6 @@ describe('server configuration', () => {
   test('getBaseUrl should use default port when no port provided', () => {
     const url = getBaseUrl();
     expect(url).toBe(`http://localhost:${DEFAULT_PORT}`);
-  });
-
-  test('getPortsToCheck should return array of ports', () => {
-    const ports = getPortsToCheck();
-    expect(Array.isArray(ports)).toBe(true);
-    expect(ports.length).toBeGreaterThan(0);
-    expect(ports[0]).toBe(PORT_RANGE.start);
-    expect(ports.at(-1)).toBe(PORT_RANGE.end);
   });
 
   test('getWebPortsToCheck should return array of web ports', () => {

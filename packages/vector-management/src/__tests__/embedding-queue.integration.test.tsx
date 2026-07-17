@@ -42,18 +42,18 @@ afterEach(() => {
 
 function createQueueResult(id: string): QueueResult {
   return {
-    type: 'result',
     id,
-    vectors: [Float32Array.of(0.1, 0.2)],
     metadata: {
-      model: 'integration-model',
-      device: 'webgpu',
-      dtype: 'fp16',
       batchSize: 1,
+      device: 'webgpu',
+      dimensions: 2,
+      dtype: 'fp16',
       elapsedMs: 1,
       fallbackApplied: false,
-      dimensions: 2,
+      model: 'integration-model',
     },
+    type: 'result',
+    vectors: [Float32Array.of(0.1, 0.2)],
   };
 }
 
@@ -63,33 +63,33 @@ function createTestQueue(): QueueAdapter {
   const adapter: QueueAdapter = {
     async add(task) {
       listeners.forEach((listener) => {
-        listener({ type: 'progress', id: task.id, phase: 'initializing', progress: 0 });
+        listener({ id: task.id, phase: 'initializing', progress: 0, type: 'progress' });
       });
 
       // Microtask to simulate async worker scheduling
       await Promise.resolve();
 
       listeners.forEach((listener) => {
-        listener({ type: 'progress', id: task.id, phase: 'embedding', progress: 0.5 });
+        listener({ id: task.id, phase: 'embedding', progress: 0.5, type: 'progress' });
       });
 
       const result: QueueResult = {
-        type: 'result',
         id: task.id,
-        vectors: [Float32Array.of(0.1, 0.2)],
         metadata: {
-          model: task.model,
-          device: 'webgpu',
-          dtype: 'fp16',
           batchSize: 1,
+          device: 'webgpu',
+          dimensions: 2,
+          dtype: 'fp16',
           elapsedMs: 1,
           fallbackApplied: false,
-          dimensions: 2,
+          model: task.model,
         },
+        type: 'result',
+        vectors: [Float32Array.of(0.1, 0.2)],
       };
 
       listeners.forEach((listener) => {
-        listener({ type: 'progress', id: task.id, phase: 'complete', progress: 1 });
+        listener({ id: task.id, phase: 'complete', progress: 1, type: 'progress' });
       });
 
       return result;
@@ -97,16 +97,16 @@ function createTestQueue(): QueueAdapter {
     async addBulk(tasks, opts) {
       return Promise.all(tasks.map((task) => adapter.add(task, opts)));
     },
+    async cancel() {},
+    async drain() {},
+    isPaused: false,
+    isProcessing: false,
     onProgress(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
     pause() {},
     resume() {},
-    async cancel() {},
-    async drain() {},
-    isPaused: false,
-    isProcessing: false,
   };
 
   return adapter;
@@ -142,8 +142,8 @@ function createManualQueueAdapter(): ManualQueueAdapter {
 
   return {
     add: addMock,
-    addMock,
     addBulk: async (tasks, opts) => Promise.all(tasks.map((task) => addMock(task, opts))),
+    addMock,
     cancel: cancelMock,
     cancelMock,
     drain: drainMock,
@@ -153,6 +153,12 @@ function createManualQueueAdapter(): ManualQueueAdapter {
         listener(event);
       }
     },
+    get isPaused() {
+      return true;
+    },
+    get isProcessing() {
+      return true;
+    },
     onProgress(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -161,22 +167,16 @@ function createManualQueueAdapter(): ManualQueueAdapter {
     pauseMock,
     resume: resumeMock,
     resumeMock,
-    get isPaused() {
-      return true;
-    },
-    get isProcessing() {
-      return true;
-    },
   };
 }
 
 function createTask(id: string): TaskPayload {
   return {
-    kind: 'embed',
+    deviceHint: 'webgpu',
     id,
+    kind: 'embed',
     model: 'integration-model',
     texts: [`text for ${id}`],
-    deviceHint: 'webgpu',
   };
 }
 
@@ -223,9 +223,9 @@ describe('Embedding queue integration', () => {
           active: metrics.active,
           completed: metrics.completed,
           failed: metrics.failed,
-          totalEnqueued: metrics.totalEnqueued,
           lastError: metrics.lastError,
           progress: { ...metrics.progress },
+          totalEnqueued: metrics.totalEnqueued,
         });
       }, [metrics]);
 
@@ -235,11 +235,11 @@ describe('Embedding queue integration', () => {
         }
         startedRef.current = true;
         void instrumentedQueue.add({
-          kind: 'embed',
+          deviceHint: 'webgpu',
           id: 'job-1',
+          kind: 'embed',
           model: 'integration-model',
           texts: ['hello embeddings'],
-          deviceHint: 'webgpu',
         });
       }, [instrumentedQueue]);
 
@@ -261,8 +261,8 @@ describe('Embedding queue integration', () => {
         active: 0,
         completed: 1,
         failed: 0,
-        totalEnqueued: 1,
         lastError: null,
+        totalEnqueued: 1,
       });
     });
 
@@ -318,8 +318,8 @@ describe('Embedding queue integration', () => {
     });
 
     await act(async () => {
-      queue.emit({ type: 'progress', id: 'manual-job', phase: 'embedding', progress: 0.25 });
-      queue.emit({ type: 'progress', id: 'manual-job', phase: 'embedding', progress: 0.25 });
+      queue.emit({ id: 'manual-job', phase: 'embedding', progress: 0.25, type: 'progress' });
+      queue.emit({ id: 'manual-job', phase: 'embedding', progress: 0.25, type: 'progress' });
     });
 
     await waitFor(() => {
@@ -333,7 +333,7 @@ describe('Embedding queue integration', () => {
 
     unsubscribe();
     await act(async () => {
-      queue.emit({ type: 'progress', id: 'manual-job', phase: 'complete', progress: 1 });
+      queue.emit({ id: 'manual-job', phase: 'complete', progress: 1, type: 'progress' });
     });
     expect(forwardedEvents).toHaveLength(2);
 
@@ -397,8 +397,8 @@ describe('Embedding queue integration', () => {
     const TestWorker = class {} as unknown as typeof Worker;
     Object.defineProperty(window, 'Worker', {
       configurable: true,
-      writable: true,
       value: TestWorker,
+      writable: true,
     });
 
     const contextRef: { current: EmbeddingQueueContextValue | null } = { current: null };
@@ -451,8 +451,8 @@ describe('Embedding queue integration', () => {
     } finally {
       Object.defineProperty(window, 'Worker', {
         configurable: true,
-        writable: true,
         value: originalWorker,
+        writable: true,
       });
     }
   });

@@ -12,7 +12,11 @@
  * - Semantic search mode and configuration
  */
 
-import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
+import {
+  type AnyContextAction,
+  createClipboardService,
+  defineContextAction,
+} from '@brainstrike/context-actions';
 import type { FileChunk } from '@brainstrike/db';
 import { useCollectionBrowserColumnSizesStore } from '@brainstrike/preferences';
 import {
@@ -51,7 +55,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
 import { type BrowserNodeDescriptor, browserNodeToTarget } from '../context-actions';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
-import { useCollectionBrowserStore } from '../stores/collection-browser-store';
+import {
+  collectionBrowserSelectors,
+  useCollectionBrowserStore,
+} from '../stores/collection-browser-store';
 import type {
   DatabaseFileChunkSummary,
   DatabaseFileRecordSummary,
@@ -59,6 +66,7 @@ import type {
 import { CollectionEmbeddingCoverageBanner } from './embedding-coverage-notice';
 
 const logger = createLogger('CollectionBrowserView');
+const clipboard = createClipboardService();
 
 function SearchErrorBanner({ message }: { message: string | null }) {
   if (!message) {
@@ -202,6 +210,30 @@ function transformToTreeInput(
     : chunks;
 
   return {
+    chunks: filteredChunks.map((chunk) => {
+      const chunkItem: {
+        id: string;
+        fileRecordId: string;
+        chunkIndex: number;
+        tokenCount: number;
+        hasEmbedding: boolean;
+        embeddingDimensions?: number;
+        embeddingSetId?: string;
+      } = {
+        chunkIndex: chunk.chunkIndex,
+        fileRecordId: chunk.fileRecordId,
+        hasEmbedding: chunk.hasEmbedding ?? false,
+        id: chunk.id,
+        tokenCount: chunk.tokenCount,
+      };
+      if ((chunk.hasEmbedding ?? false) && (chunk.embeddingDimensions ?? 0) > 0) {
+        chunkItem.embeddingDimensions = chunk.embeddingDimensions ?? 0;
+      }
+      if (chunk.embeddingSetId) {
+        chunkItem.embeddingSetId = chunk.embeddingSetId;
+      }
+      return chunkItem;
+    }),
     files: filteredRecords.map((record) => {
       const file: {
         embeddedChunksCount?: number;
@@ -232,30 +264,6 @@ function transformToTreeInput(
       }
       return file;
     }),
-    chunks: filteredChunks.map((chunk) => {
-      const chunkItem: {
-        id: string;
-        fileRecordId: string;
-        chunkIndex: number;
-        tokenCount: number;
-        hasEmbedding: boolean;
-        embeddingDimensions?: number;
-        embeddingSetId?: string;
-      } = {
-        id: chunk.id,
-        fileRecordId: chunk.fileRecordId,
-        chunkIndex: chunk.chunkIndex,
-        tokenCount: chunk.tokenCount,
-        hasEmbedding: chunk.hasEmbedding ?? false,
-      };
-      if ((chunk.hasEmbedding ?? false) && (chunk.embeddingDimensions ?? 0) > 0) {
-        chunkItem.embeddingDimensions = chunk.embeddingDimensions ?? 0;
-      }
-      if (chunk.embeddingSetId) {
-        chunkItem.embeddingSetId = chunk.embeddingSetId;
-      }
-      return chunkItem;
-    }),
     ...(pendingChunkIds ? { pendingChunkIds } : {}),
   };
 }
@@ -279,13 +287,13 @@ function buildFileData(
   const hasAllEmbeddings = totalChunkCount > 0 && embeddedChunkCount >= totalChunkCount;
   const hasSomeEmbeddings = embeddedChunkCount > 0;
   return {
+    chunkCount: totalChunkCount,
+    embeddingProgress:
+      totalChunkCount > 0 ? Math.round((embeddedChunkCount / totalChunkCount) * 100) : 0,
+    embeddingStatus: hasAllEmbeddings ? 'complete' : hasSomeEmbeddings ? 'pending' : 'none',
     name: file.name,
     path: file.path,
     size: file.size,
-    chunkCount: totalChunkCount,
-    embeddingStatus: hasAllEmbeddings ? 'complete' : hasSomeEmbeddings ? 'pending' : 'none',
-    embeddingProgress:
-      totalChunkCount > 0 ? Math.round((embeddedChunkCount / totalChunkCount) * 100) : 0,
   };
 }
 
@@ -298,10 +306,10 @@ function buildChunkData(chunkId: string, chunks: FileChunk[]): BrowserNodeData |
     return null;
   }
   return {
-    index: chunk.chunkIndex,
     content: chunk.content,
-    tokenCount: chunk.tokenCount,
     embeddingStatus: chunk.embedding && chunk.embedding.length > 0 ? 'complete' : 'none',
+    index: chunk.chunkIndex,
+    tokenCount: chunk.tokenCount,
   };
 }
 
@@ -314,8 +322,8 @@ function buildEmbeddingData(chunkId: string, chunks: FileChunk[]): BrowserNodeDa
     return null;
   }
   return {
-    vectorId: chunk.id,
     dimensions: chunk.embedding.length,
+    vectorId: chunk.id,
   };
 }
 
@@ -380,57 +388,72 @@ export function CollectionBrowserView({
   loadFileChunkSummaries,
   pagination,
 }: CollectionBrowserViewProps) {
-  // Use persistent store for all UI state
-  const {
-    expandedIds,
-    selectedId,
-    sortState,
-    isInspectorCollapsed,
-    inspectorWidth,
-    setExpandedIds,
-    removeExpandedIds,
-    setSelectedId,
-    setSortState,
-    setInspectorCollapsed,
-    setInspectorWidth,
-    // Filter state from store
-    searchQuery,
-    nodeTypes,
-    embeddingStatus,
-    setSearchQuery,
-    setNodeTypes,
-    setEmbeddingStatus,
-    // Semantic search state from store
-    searchMode,
-    semanticQuery,
-    searchConfigThreshold,
-    searchConfigLimit,
-    searchConfigDistanceMetric,
-    // Hybrid search state from store
-    searchConfigRetrievalMode,
-    searchConfigVectorWeight,
-    searchConfigFtsWeight,
-    searchPanelExpanded,
-    setSearchMode,
-    setSemanticQuery,
-    setSearchConfigThreshold,
-    setSearchConfigLimit,
-    setSearchConfigDistanceMetric,
-    // Hybrid search setters
-    setSearchConfigRetrievalMode,
-    setSearchConfigVectorWeight,
-    setSearchConfigFtsWeight,
-    setSearchPanelExpanded,
-    // Grouping and checkbox state
-    groupBy,
-    showCheckbox,
-    multiSelectEnabled,
-    setGroupBy,
-    setShowCheckbox,
-    setMultiSelectEnabled,
-    toggleExpanded,
-    expandIds,
-  } = useCollectionBrowserStore();
+  const expandedIds = useCollectionBrowserStore(collectionBrowserSelectors.expandedIds);
+  const selectedId = useCollectionBrowserStore(collectionBrowserSelectors.selectedId);
+  const sortState = useCollectionBrowserStore(collectionBrowserSelectors.sortState);
+  const isInspectorCollapsed = useCollectionBrowserStore(
+    collectionBrowserSelectors.isInspectorCollapsed
+  );
+  const inspectorWidth = useCollectionBrowserStore(collectionBrowserSelectors.inspectorWidth);
+  const searchQuery = useCollectionBrowserStore(collectionBrowserSelectors.searchQuery);
+  const nodeTypes = useCollectionBrowserStore(collectionBrowserSelectors.nodeTypes);
+  const embeddingStatus = useCollectionBrowserStore(collectionBrowserSelectors.embeddingStatus);
+  const searchMode = useCollectionBrowserStore(collectionBrowserSelectors.searchMode);
+  const semanticQuery = useCollectionBrowserStore(collectionBrowserSelectors.semanticQuery);
+  const searchConfigThreshold = useCollectionBrowserStore((state) => state.searchConfigThreshold);
+  const searchConfigLimit = useCollectionBrowserStore((state) => state.searchConfigLimit);
+  const searchConfigDistanceMetric = useCollectionBrowserStore(
+    (state) => state.searchConfigDistanceMetric
+  );
+  const searchConfigRetrievalMode = useCollectionBrowserStore(
+    (state) => state.searchConfigRetrievalMode
+  );
+  const searchConfigVectorWeight = useCollectionBrowserStore(
+    (state) => state.searchConfigVectorWeight
+  );
+  const searchConfigFtsWeight = useCollectionBrowserStore((state) => state.searchConfigFtsWeight);
+  const searchPanelExpanded = useCollectionBrowserStore(
+    collectionBrowserSelectors.searchPanelExpanded
+  );
+  const groupBy = useCollectionBrowserStore(collectionBrowserSelectors.groupBy);
+  const showCheckbox = useCollectionBrowserStore(collectionBrowserSelectors.showCheckbox);
+  const multiSelectEnabled = useCollectionBrowserStore(
+    collectionBrowserSelectors.multiSelectEnabled
+  );
+
+  const setExpandedIds = useCollectionBrowserStore((state) => state.setExpandedIds);
+  const removeExpandedIds = useCollectionBrowserStore((state) => state.removeExpandedIds);
+  const setSelectedId = useCollectionBrowserStore((state) => state.setSelectedId);
+  const setSortState = useCollectionBrowserStore((state) => state.setSortState);
+  const setInspectorCollapsed = useCollectionBrowserStore((state) => state.setInspectorCollapsed);
+  const setInspectorWidth = useCollectionBrowserStore((state) => state.setInspectorWidth);
+  const setSearchQuery = useCollectionBrowserStore((state) => state.setSearchQuery);
+  const setNodeTypes = useCollectionBrowserStore((state) => state.setNodeTypes);
+  const setEmbeddingStatus = useCollectionBrowserStore((state) => state.setEmbeddingStatus);
+  const setSearchMode = useCollectionBrowserStore((state) => state.setSearchMode);
+  const setSemanticQuery = useCollectionBrowserStore((state) => state.setSemanticQuery);
+  const setSearchConfigThreshold = useCollectionBrowserStore(
+    (state) => state.setSearchConfigThreshold
+  );
+  const setSearchConfigLimit = useCollectionBrowserStore((state) => state.setSearchConfigLimit);
+  const setSearchConfigDistanceMetric = useCollectionBrowserStore(
+    (state) => state.setSearchConfigDistanceMetric
+  );
+  const setSearchConfigRetrievalMode = useCollectionBrowserStore(
+    (state) => state.setSearchConfigRetrievalMode
+  );
+  const setSearchConfigVectorWeight = useCollectionBrowserStore(
+    (state) => state.setSearchConfigVectorWeight
+  );
+  const setSearchConfigFtsWeight = useCollectionBrowserStore(
+    (state) => state.setSearchConfigFtsWeight
+  );
+  const setSearchPanelExpanded = useCollectionBrowserStore((state) => state.setSearchPanelExpanded);
+  const setGroupBy = useCollectionBrowserStore((state) => state.setGroupBy);
+  const setShowCheckbox = useCollectionBrowserStore((state) => state.setShowCheckbox);
+  const setMultiSelectEnabled = useCollectionBrowserStore((state) => state.setMultiSelectEnabled);
+  const toggleExpanded = useCollectionBrowserStore((state) => state.toggleExpanded);
+  const expandIds = useCollectionBrowserStore((state) => state.expandIds);
 
   // Column widths are persisted independently from the rest of the collection
   // browser state so factory-reset + schema migration stays scoped per-surface.
@@ -444,10 +467,10 @@ export function CollectionBrowserView({
   // Convert store filter state to CollectionBrowserFilters format
   const filters = useMemo(
     (): CollectionBrowserFilters => ({
-      searchQuery,
-      nodeTypes: new Set(nodeTypes as CollectionNodeType[]),
       embeddingStatus: embeddingStatus as EmbeddingStatus | 'all',
+      nodeTypes: new Set(nodeTypes as CollectionNodeType[]),
       searchMatchesOnly: false,
+      searchQuery,
     }),
     [searchQuery, nodeTypes, embeddingStatus]
   );
@@ -483,15 +506,15 @@ export function CollectionBrowserView({
   // State for selected node inspection (derived from store selectedId)
   const { selectedNodeType, selectedNodeId } = useMemo(() => {
     if (!selectedId) {
-      return { selectedNodeType: null, selectedNodeId: null };
+      return { selectedNodeId: null, selectedNodeType: null };
     }
     const { nodeType, originalId } = parseNodeId(selectedId);
     if (!nodeType) {
-      return { selectedNodeType: null, selectedNodeId: null };
+      return { selectedNodeId: null, selectedNodeType: null };
     }
     return {
-      selectedNodeType: nodeType,
       selectedNodeId: originalId,
+      selectedNodeType: nodeType,
     };
   }, [selectedId]);
 
@@ -533,8 +556,8 @@ export function CollectionBrowserView({
         }
       } catch (error: unknown) {
         logger.warn('Failed to load selected chunk detail', {
-          error,
           chunkId: selectedNodeId,
+          error,
         });
       }
     };
@@ -560,10 +583,10 @@ export function CollectionBrowserView({
           return null;
         }
         return {
-          index: selectedChunk.chunkIndex,
           content: 'Loading chunk content...',
-          tokenCount: selectedChunk.tokenCount,
           embeddingStatus: selectedChunk.hasEmbedding ? 'complete' : 'none',
+          index: selectedChunk.chunkIndex,
+          tokenCount: selectedChunk.tokenCount,
         };
       }
       return buildSelectedNodeData(selectedNodeType, selectedNodeId, [selectedChunkDetail]);
@@ -580,8 +603,8 @@ export function CollectionBrowserView({
         return null;
       }
       return {
-        vectorId: selectedNodeId,
         dimensions: selectedChunk.embeddingDimensions ?? 0,
+        vectorId: selectedNodeId,
       };
     }
 
@@ -627,14 +650,14 @@ export function CollectionBrowserView({
     }
     logger.info('Collection browser expand-all requested', {
       activeCollectionId,
-      recordCount: records.length,
-      loadedChunkCount: chunks.length,
       expandableFileCount: allExpandableIds.size,
+      loadedChunkCount: chunks.length,
       page: pagination?.currentPage ?? null,
       pageSize: pagination?.pageSize ?? null,
-      totalRecords: pagination?.totalRecords ?? records.length,
+      recordCount: records.length,
       searchMode,
       semanticResultCount: searchResults.length,
+      totalRecords: pagination?.totalRecords ?? records.length,
     });
     handleExpandedIdsChange(allExpandableIds);
   }, [
@@ -666,12 +689,12 @@ export function CollectionBrowserView({
   // Build search config from store values
   const searchConfig: SearchConfig = useMemo(
     () => ({
-      threshold: searchConfigThreshold,
-      resultLimit: searchConfigLimit,
       distanceMetric: searchConfigDistanceMetric,
-      retrievalMode: searchConfigRetrievalMode,
-      vectorWeight: searchConfigVectorWeight,
       ftsWeight: searchConfigFtsWeight,
+      resultLimit: searchConfigLimit,
+      retrievalMode: searchConfigRetrievalMode,
+      threshold: searchConfigThreshold,
+      vectorWeight: searchConfigVectorWeight,
     }),
     [
       searchConfigThreshold,
@@ -781,20 +804,20 @@ export function CollectionBrowserView({
           existing.chunkCount++;
         } else {
           fileMap.set(result.fileRecordId, {
+            chunkCount: 1,
             id: result.fileRecordId,
             name: result.fileName,
             path: result.filePath,
             size: result.fileSize ?? 0,
-            chunkCount: 1,
           });
         }
         treeChunks.push({
-          id: result.chunkId,
-          fileRecordId: result.fileRecordId,
           chunkIndex: result.chunkIndex ?? i,
           content: result.content,
-          tokenCount: result.tokenCount ?? 0,
+          fileRecordId: result.fileRecordId,
           hasEmbedding: true,
+          id: result.chunkId,
+          tokenCount: result.tokenCount ?? 0,
           ...(result.embeddingDimensions === undefined
             ? {}
             : { embeddingDimensions: result.embeddingDimensions }),
@@ -803,16 +826,16 @@ export function CollectionBrowserView({
       }
 
       return {
+        chunks: treeChunks,
         files: Array.from(fileMap.values()).map((file) => ({
+          chunksCount: file.chunkCount,
+          embeddedChunksCount: file.chunkCount,
           id: file.id,
           name: file.name,
           path: file.path,
           size: file.size,
-          chunksCount: file.chunkCount,
-          embeddedChunksCount: file.chunkCount,
           ...(activeCollectionId ? { embeddingSetId: activeCollectionId } : {}),
         })),
-        chunks: treeChunks,
       } satisfies CollectionTreeInput;
     }
 
@@ -863,22 +886,22 @@ export function CollectionBrowserView({
 
     logger.info('Large collection browser tree materialized', {
       activeCollectionId,
-      searchMode,
-      hasSearched,
-      semanticResultCount: searchResults.length,
-      sourceRecordCount: records.length,
-      sourceChunkCount: chunks.length,
-      treeFileCount,
-      treeChunkCount,
       expandedIdCount: expandedIds.length,
-      selectedId,
-      pendingChunkCount: pendingChunkIds?.size ?? 0,
-      page: pagination?.currentPage ?? null,
-      pageSize: pagination?.pageSize ?? null,
-      totalRecords: pagination?.totalRecords ?? null,
       groupBy,
+      hasSearched,
       isLoading,
       isSearching,
+      page: pagination?.currentPage ?? null,
+      pageSize: pagination?.pageSize ?? null,
+      pendingChunkCount: pendingChunkIds?.size ?? 0,
+      searchMode,
+      selectedId,
+      semanticResultCount: searchResults.length,
+      sourceChunkCount: chunks.length,
+      sourceRecordCount: records.length,
+      totalRecords: pagination?.totalRecords ?? null,
+      treeChunkCount,
+      treeFileCount,
     });
   }, [
     activeCollectionId,
@@ -947,8 +970,8 @@ export function CollectionBrowserView({
           })
           .catch((error: unknown) => {
             logger.warn('Failed to load chunk detail for selection', {
-              error,
               chunkId: originalId,
+              error,
             });
           });
       }
@@ -1059,11 +1082,11 @@ export function CollectionBrowserView({
     if (hasChildren) {
       actions.push(
         defineContextAction({
+          appliesTo: ['collection', 'collection-file', 'chunk'] as const,
+          group: 'tree',
+          icon: ChevronRight,
           id: 'collection-browser.toggle-expand',
           label: () => (expandedIdsSet.has(nodeId) ? 'Collapse' : 'Expand'),
-          icon: ChevronRight,
-          group: 'tree',
-          appliesTo: ['collection', 'collection-file', 'chunk'] as const,
           run: () => {
             toggleExpanded(nodeId);
             return Promise.resolve({ ok: true });
@@ -1073,11 +1096,11 @@ export function CollectionBrowserView({
       if (nodeType === 'file') {
         actions.push(
           defineContextAction({
+            appliesTo: ['collection-file'] as const,
+            group: 'tree',
+            icon: ChevronsUpDown,
             id: 'collection-browser.expand-all-children',
             label: 'Expand All Children',
-            icon: ChevronsUpDown,
-            group: 'tree',
-            appliesTo: ['collection-file'] as const,
             run: async () => {
               const { originalId } = parseNodeId(nodeId);
               const fileChunks = await ensureFileChunksLoaded(originalId);
@@ -1097,11 +1120,11 @@ export function CollectionBrowserView({
 
     actions.push(
       defineContextAction({
+        appliesTo: ['collection', 'collection-file', 'chunk', 'embedding'] as const,
+        group: 'inspect',
+        icon: Eye,
         id: 'collection-browser.inspect',
         label: 'Inspect',
-        icon: Eye,
-        group: 'inspect',
-        appliesTo: ['collection', 'collection-file', 'chunk', 'embedding'] as const,
         run: () => {
           setSelectedId(nodeId);
           if (isInspectorCollapsed) {
@@ -1115,11 +1138,11 @@ export function CollectionBrowserView({
     if (multiSelectEnabled) {
       actions.push(
         defineContextAction({
+          appliesTo: ['collection', 'collection-file', 'chunk', 'embedding'] as const,
+          group: 'inspect',
+          icon: SquareCheck,
           id: 'collection-browser.select',
           label: 'Select',
-          icon: SquareCheck,
-          group: 'inspect',
-          appliesTo: ['collection', 'collection-file', 'chunk', 'embedding'] as const,
           run: () => {
             setSelectedId(nodeId);
             return Promise.resolve({ ok: true });
@@ -1145,33 +1168,37 @@ export function CollectionBrowserView({
   const bulkActions: BulkAction[] = useMemo(
     () => [
       {
+        applicableTypes: ['file', 'chunk'] as CollectionNodeType[],
+        icon: <ChevronsUpDown className="h-4 w-4" />,
         id: 'expand-selected',
         label: 'Expand',
-        icon: <ChevronsUpDown className="h-4 w-4" />,
         onAction: (selectedIds: Set<string>) => {
           expandIds(Array.from(selectedIds));
         },
-        applicableTypes: ['file', 'chunk'] as CollectionNodeType[],
       },
       {
+        applicableTypes: ['file', 'chunk'] as CollectionNodeType[],
+        icon: <ChevronsDownUp className="h-4 w-4" />,
         id: 'collapse-selected',
         label: 'Collapse',
-        icon: <ChevronsDownUp className="h-4 w-4" />,
         onAction: (selectedIds: Set<string>) => {
           removeExpandedIds(selectedIds);
         },
-        applicableTypes: ['file', 'chunk'] as CollectionNodeType[],
       },
       {
+        icon: <Copy className="h-4 w-4" />,
         id: 'copy-ids',
         label: 'Copy IDs',
-        icon: <Copy className="h-4 w-4" />,
         onAction: (selectedIds: Set<string>) => {
           const ids = Array.from(selectedIds)
             .map((id) => parseNodeId(id).originalId)
             .join('\n');
-          navigator.clipboard.writeText(ids).catch((error: unknown) => {
-            logger.warn('Failed to copy selected node IDs to clipboard', { error });
+          void clipboard.writeText(ids).then((outcome) => {
+            if (!outcome.ok) {
+              logger.warn('Failed to copy selected node IDs to clipboard', {
+                error: outcome.error,
+              });
+            }
           });
         },
       },
@@ -1191,7 +1218,7 @@ export function CollectionBrowserView({
   }, [activeCollectionId, searchMode, hasScopedSemanticSearch, scopedSearchResults.length]);
 
   return (
-    <div className="flex h-full flex-col" style={{ height }}>
+    <div className="flex h-full min-w-0 flex-col" style={{ height }}>
       {/* Search mode bar - Top level controls */}
       <SearchModeBar
         advancedOptions={
@@ -1233,7 +1260,7 @@ export function CollectionBrowserView({
       />
 
       {/* Main content area */}
-      <div className="relative flex min-h-0 flex-1 border-t">
+      <div className="relative flex min-h-0 min-w-0 flex-1 border-t">
         {/* Chip handle for collapsed inspector panel */}
         {hasInspectableSelection && isInspectorCollapsed && (
           <div className="absolute top-1/2 right-0 z-10 -translate-y-1/2">
@@ -1249,7 +1276,11 @@ export function CollectionBrowserView({
           </div>
         )}
 
-        <Group onLayoutChange={handleLayoutChange} orientation="horizontal">
+        <Group
+          className="min-w-0 flex-1"
+          onLayoutChange={handleLayoutChange}
+          orientation="horizontal"
+        >
           {/* Main browser */}
           <Panel
             className="min-h-0 min-w-0"
@@ -1258,50 +1289,57 @@ export function CollectionBrowserView({
             }%`}
             minSize="30%"
           >
-            <ActionContextMenu
-              controller={contextMenuController}
-              localActions={localContextActions}
-            >
-              {/* Capture-phase reset: every right-click starts with a clean
-                  target before the row handler claims it; unclaimed clicks
-                  leave it null and ActionContextMenu suppresses the menu. */}
-              <div
-                className="h-full min-h-0"
-                onContextMenuCapture={() => setContextMenuTarget(null)}
-              >
-                <CollectionBrowser
-                  bulkActions={bulkActions}
-                  className="h-full"
-                  columnSizes={columnSizes}
-                  data={treeData}
-                  emptyMessage={emptyMessage}
-                  expandedIds={expandedIdsSet}
-                  filters={filters}
-                  hasSearched={hasScopedSemanticSearch}
-                  height="100%"
-                  isLoading={isLoading}
-                  isSearching={isSearching}
-                  multiSelectEnabled={multiSelectEnabled}
-                  onColumnSizesChange={setColumnSizes}
-                  onContextMenu={handleContextMenu}
-                  onDoubleClick={handleDoubleClick}
-                  onExpandedIdsChange={handleExpandedIdsChange}
-                  onFiltersChange={handleFiltersChange}
-                  onSelect={handleSelect}
-                  onSelectedIdChange={handleSelectedIdChange}
-                  onSortChange={handleSortChange}
-                  searchMode={searchMode}
-                  selectedId={selectedId}
-                  showCheckbox={showCheckbox && multiSelectEnabled}
-                  treeWindowingStrategy="virtual"
-                  {...(sortState ? { sortState } : {})}
-                  {...(searchMode === 'semantic' && hasActiveCollection
-                    ? { semanticResults: scopedSearchResults }
-                    : {})}
-                  {...(groupBy === 'none' ? {} : { groupBy })}
-                />
+            <div className="flex h-full min-h-0 min-w-0 flex-col">
+              <div className="min-h-0 min-w-0 flex-1">
+                <ActionContextMenu
+                  controller={contextMenuController}
+                  localActions={localContextActions}
+                >
+                  {/* Capture-phase reset: every right-click starts with a clean
+                      target before the row handler claims it; unclaimed clicks
+                      leave it null and ActionContextMenu suppresses the menu. */}
+                  <div
+                    className="h-full min-h-0 min-w-0"
+                    onContextMenuCapture={() => setContextMenuTarget(null)}
+                  >
+                    <CollectionBrowser
+                      bulkActions={bulkActions}
+                      className="h-full"
+                      columnSizes={columnSizes}
+                      data={treeData}
+                      emptyMessage={emptyMessage}
+                      expandedIds={expandedIdsSet}
+                      filters={filters}
+                      hasSearched={hasScopedSemanticSearch}
+                      height="100%"
+                      isLoading={isLoading}
+                      isSearching={isSearching}
+                      multiSelectEnabled={multiSelectEnabled}
+                      onColumnSizesChange={setColumnSizes}
+                      onContextMenu={handleContextMenu}
+                      onDoubleClick={handleDoubleClick}
+                      onExpandedIdsChange={handleExpandedIdsChange}
+                      onFiltersChange={handleFiltersChange}
+                      onSelect={handleSelect}
+                      onSelectedIdChange={handleSelectedIdChange}
+                      onSortChange={handleSortChange}
+                      searchMode={searchMode}
+                      selectedId={selectedId}
+                      showCheckbox={showCheckbox && multiSelectEnabled}
+                      treeWindowingStrategy="virtual"
+                      {...(sortState ? { sortState } : {})}
+                      {...(searchMode === 'semantic' && hasActiveCollection
+                        ? { semanticResults: scopedSearchResults }
+                        : {})}
+                      {...(groupBy === 'none' ? {} : { groupBy })}
+                    />
+                  </div>
+                </ActionContextMenu>
               </div>
-            </ActionContextMenu>
+              {pagination && !isShowingSemanticResults && (
+                <CollectionBrowserPaginationFooter pagination={pagination} />
+              )}
+            </div>
           </Panel>
 
           {hasInspectableSelection && !isInspectorCollapsed && (
@@ -1335,10 +1373,6 @@ export function CollectionBrowserView({
           )}
         </Group>
       </div>
-
-      {pagination && !isShowingSemanticResults && (
-        <CollectionBrowserPaginationFooter pagination={pagination} />
-      )}
     </div>
   );
 }

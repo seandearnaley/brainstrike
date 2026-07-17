@@ -26,6 +26,7 @@ import {
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import type { IFileNode } from '@brainstrike/types';
+import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
@@ -151,13 +152,10 @@ interface DiscoveredPreparedFile {
 }
 
 const INACCESSIBLE_CONTENT_PREFIXES = ['File not accessible', 'File too large:'] as const;
-const INACCESSIBLE_CONTENT_VALUES = new Set([
-  'Binary file - preview not available',
-  'Error accessing file',
-]);
+const INACCESSIBLE_CONTENT_VALUES = new Set([BINARY_CONTENT_MESSAGE, 'Error accessing file']);
 const NULL_BYTE_CONTENT_ERROR = 'File contains null bytes and cannot be indexed.';
 
-function getContentIndexingError(content: string): string | null {
+export function getContentIndexingError(content: string): string | null {
   if (INACCESSIBLE_CONTENT_VALUES.has(content)) {
     return content;
   }
@@ -193,10 +191,10 @@ export function flattenFileNodes(nodes: readonly IFileNode[]): IFileNode[] {
 
 function createInitialImportProgress(total: number): ImportProgress {
   return {
-    total,
     completed: 0,
     current: '',
     errors: [],
+    total,
   };
 }
 
@@ -207,10 +205,10 @@ function buildImportProgress(
   errors: ImportProgress['errors'] = []
 ): ImportProgress {
   return {
-    total,
     completed,
     current: current ?? '',
     errors,
+    total,
   };
 }
 
@@ -226,16 +224,16 @@ async function toMutableRecord(
 ): Promise<RootFolderCacheMutableRecord> {
   const now = new Date().toISOString();
   return {
+    content,
+    contentHash: await generateContentHash(content),
     id: change.id,
     mtimeMs: change.mtimeMs,
     name: change.name,
     path: change.relativePath,
-    size: change.size,
-    updatedAt: now,
     processedAt: now,
-    content,
-    contentHash: await generateContentHash(content),
+    size: change.size,
     tokenCount: estimateTokenCount(content),
+    updatedAt: now,
   };
 }
 
@@ -272,13 +270,13 @@ async function collectDiscoveredPreparedFiles(args: {
       name: metadata.request.fileNode.name,
       relativePath: metadata.relativePath,
       request: metadata.request,
+      rootId: args.rootId,
       // The content.length fallback (UTF-16 code units, not bytes) deliberately
       // diverges from the scan's byte size: a file imported without a stat size
       // will mismatch the stat-cache comparison on later syncs and re-hash every
       // time. That is the SAFE direction (extra read, never a false skip) — do
       // not "fix" this by making the comparison tolerate the fallback value.
       size: metadata.size > 0 ? metadata.size : content.length,
-      rootId: args.rootId,
     });
   }
   return { excludedEntries, files: discoveredFiles };
@@ -354,19 +352,18 @@ async function buildBackgroundImportBatchMutations(args: {
     if (change.mode === 'replace') {
       mutations.push({
         mode: 'replace',
-        relativePath: change.relativePath,
         mutation: {
           mode: 'replace',
           record: {
             ...mutableRecord,
           },
         },
+        relativePath: change.relativePath,
       });
       continue;
     }
     mutations.push({
       mode: 'import',
-      relativePath: change.relativePath,
       mutation: {
         mode: 'import',
         record: {
@@ -374,6 +371,7 @@ async function buildBackgroundImportBatchMutations(args: {
           createdAt: batchCreatedAt,
         },
       },
+      relativePath: change.relativePath,
     });
   }
   return mutations;
@@ -398,14 +396,14 @@ async function applyBackgroundImportBatch(args: {
     }
     const message = 'Background cache import descriptor is missing.';
     skippedErrors.push({
-      file: change.relativePath,
       error: message,
+      file: change.relativePath,
     });
     skippedResults.push({
+      error: message,
+      existed: false,
       id: change.id,
       imported: false,
-      existed: false,
-      error: message,
     });
   }
   const mutations = await buildBackgroundImportBatchMutations({
@@ -424,8 +422,8 @@ async function applyBackgroundImportBatch(args: {
       rootId: args.rootId ?? null,
     });
     await args.applyManagedCacheBatch({
-      embeddingSetId: args.collectionId,
       changes: mutations.map((entry) => entry.mutation),
+      embeddingSetId: args.collectionId,
       rootId: args.rootId ?? null,
     });
     return {
@@ -433,9 +431,9 @@ async function applyBackgroundImportBatch(args: {
       results: [
         ...skippedResults,
         ...mutations.map((entry) => ({
+          existed: false,
           id: entry.mutation.record.id,
           imported: true,
-          existed: false,
         })),
       ],
     };
@@ -458,17 +456,17 @@ async function applyBackgroundImportBatch(args: {
       errors: [
         ...skippedErrors,
         ...mutations.map((entry) => ({
-          file: entry.relativePath,
           error: message,
+          file: entry.relativePath,
         })),
       ],
       results: [
         ...skippedResults,
         ...mutations.map((entry) => ({
+          error: message,
+          existed: false,
           id: entry.mutation.record.id,
           imported: false,
-          existed: false,
-          error: message,
         })),
       ],
     };
@@ -499,8 +497,8 @@ function buildBatchedEnhancedImportProgress(args: {
   return {
     ...args.progress,
     completed: args.cumulativeCompleted + args.progress.completed,
-    total: args.totalFiles,
     errors: buildBatchImportErrors(args.progress, args.cumulativeErrorCount),
+    total: args.totalFiles,
     ...(() => {
       const chunkingProgress = buildNormalizedChunkingProgress({
         batchChunking: args.progress.chunkingProgress,
@@ -530,12 +528,12 @@ function createFileBatchPreparations(
       // mtime_ms is a BIGINT (stored floored). Flooring here keeps the stat-cache
       // comparison consistent with the stored value AND keeps the DB write valid.
       mtimeMs: typeof node.lastModified === 'number' ? Math.floor(node.lastModified) : null,
+      relativePath,
       request: {
         compositeKey,
         fileNode: node,
         fileSystemAdapter,
       },
-      relativePath,
       size: node.size ?? 0,
     };
   });
@@ -832,8 +830,8 @@ export async function runRootFolderCacheImport(args: {
     ...(db.transaction ? { runInTransaction: db.transaction.bind(db) } : {}),
   };
   const rawEmbeddingQueue = createEmbeddingJobQueuePort<IDatabase>({
-    db,
     createQueue: (executor) => new JobQueue(executor),
+    db,
     defaultExpectedDimension: collection.dimensions,
   });
   const embeddingQueue = {
@@ -849,11 +847,11 @@ export async function runRootFolderCacheImport(args: {
     },
   };
   const embeddingConfig = {
+    chunkRepository,
     enabled: true,
     model: collection.modelKey,
-    service: null,
-    chunkRepository,
     resolveTargetEmbeddingSetId: () => collection.id,
+    service: null,
     targetDimension: collection.dimensions,
   };
   const processor =
@@ -901,11 +899,11 @@ export async function runRootFolderCacheImport(args: {
           .filter((request): request is FileContentRequest => request !== undefined),
         ({ key }) => {
           onProgress({
-            phase: 'importing',
             completed: cumulativeCompleted,
-            total: changes.length,
             current: batchMetadataByKey.get(key)?.relativePath ?? null,
             errors: [],
+            phase: 'importing',
+            total: changes.length,
           } as EnhancedImportProgress);
         },
         { abortSignal }
@@ -941,11 +939,6 @@ export async function runRootFolderCacheImport(args: {
       });
       const batchResults = await runEnhancedImport<IFileNode>({
         abortSignal,
-        request: {
-          selectedFilePaths,
-          fileTree: [],
-          fileContents,
-        },
         baseImportRunner: async ({
           selectedFilePaths: selectedKeys,
           onProgress: emitImportProgress,
@@ -990,14 +983,14 @@ export async function runRootFolderCacheImport(args: {
             if (!selectedKeys.has(change.compositeKey)) {
               const message = getSkippedBatchContentError(change, batchContents);
               errors.push({
-                file: change.relativePath,
                 error: message,
+                file: change.relativePath,
               });
               results.push({
+                error: message,
+                existed: false,
                 id: change.id,
                 imported: false,
-                existed: false,
-                error: message,
               });
               completed += 1;
               emitImportProgress(
@@ -1009,12 +1002,12 @@ export async function runRootFolderCacheImport(args: {
           return results;
         },
         chunking: {
-          enabled: true,
-          deps: {
-            repository: fileRecordRepository,
-            chunkRepository,
-          },
           chunkingWorkerPort,
+          deps: {
+            chunkRepository,
+            repository: fileRecordRepository,
+          },
+          enabled: true,
         },
         embedding: embeddingConfig,
         ports: {
@@ -1042,6 +1035,11 @@ export async function runRootFolderCacheImport(args: {
             );
           },
           update: () => null,
+        },
+        request: {
+          fileContents,
+          fileTree: [],
+          selectedFilePaths,
         },
       });
       logger.info('Workspace Index import batch chunking completed', {

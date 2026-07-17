@@ -33,13 +33,33 @@ import {
 } from '@brainstrike/embeddings/provider-core';
 import { countEstimatedTokens } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { PGlite } from '@electric-sql/pglite';
-import { getDatabase } from '../db-main';
+import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getSecretsService } from '../secrets';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantRetrievalTool');
+
+/**
+ * DB/provider/network errors here can embed request-derived content (bound
+ * query params, provider API messages, request URLs) in `.message` — never log
+ * it verbatim (mirrors `redactToolErrorForLog` in assistant-tools.ts).
+ */
+function redactErrorForLog(error: unknown): {
+  code?: string | number;
+  name: string;
+  redacted: true;
+} {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return {
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    name: error instanceof Error && error.name.length > 0 ? error.name : typeof error,
+    redacted: true,
+  };
+}
 
 const TOOL_ID = 'brainstrike.retrieveContext' as const;
 const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const;
@@ -62,21 +82,21 @@ const SNAPSHOT_TTL_MS = 1000 * 60 * 60; // 1 hour
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ERROR_MESSAGES = {
-  missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
-  missingQueryEmbeddingSpace: 'Select an embedding space before querying semantic context.',
-  invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
-  embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
-  unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
-  localEmbeddingHostUnavailable: 'Local embedding query host is unavailable.',
-  missingApiKey: 'No API key configured for the embedding provider.',
-  invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
-  invalidSelectionFilePaths: 'Selection file paths are invalid.',
-  selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
+  embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
+  invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
+  invalidSelectionFilePaths: 'Selection file paths are invalid.',
+  invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
+  localEmbeddingHostUnavailable: 'Local embedding query host is unavailable.',
+  missingApiKey: 'No API key configured for the embedding provider.',
+  missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
+  missingQueryEmbeddingSpace: 'Select an embedding space before querying semantic context.',
   missingSourceRange:
     'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
+  selectionTooLarge: 'Selection exceeds retrieval limits.',
+  unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
 } as const;
 
 const SAFE_ERROR_MESSAGES = new Set<string>([
@@ -209,7 +229,10 @@ interface QueryResult<T> {
   rows: T[];
 }
 
-async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string): Promise<EmbeddingSetRow> {
+async function resolveEmbeddingSet(
+  db: DesktopDatabase,
+  embeddingSetId: string
+): Promise<EmbeddingSetRow> {
   let result: QueryResult<EmbeddingSetRow>;
   try {
     result = (await db.query(
@@ -224,7 +247,10 @@ async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string): Promise<
       [embeddingSetId]
     )) as QueryResult<EmbeddingSetRow>;
   } catch (error) {
-    logger.error('Failed to load embedding set metadata', { embeddingSetId, error });
+    logger.error('Failed to load embedding set metadata', {
+      embeddingSetId,
+      error: redactErrorForLog(error),
+    });
     throw new Error(ERROR_MESSAGES.embeddingSetLookupFailed);
   }
   const row = result.rows[0];
@@ -253,52 +279,55 @@ function createHostedProvider(
   switch (provider) {
     case 'openai':
       return new OpenAIEmbeddingProvider({
-        provider: 'openai',
         modelId,
+        provider: 'openai',
         targetDimensions: dimensions,
         ...(apiKey ? { apiKey } : {}),
       });
     case 'ollama':
       return new OpenAIEmbeddingProvider({
-        provider: 'ollama',
-        modelId,
-        targetDimensions: dimensions,
         endpoint: 'http://127.0.0.1:11434/v1/embeddings',
+        modelId,
+        provider: 'ollama',
+        targetDimensions: dimensions,
         ...(apiKey ? { apiKey } : {}),
-        requiresApiKey: false,
         includeDimensions: false,
+        requiresApiKey: false,
       });
     case 'lmstudio':
       return new OpenAIEmbeddingProvider({
-        provider: 'lmstudio',
-        modelId,
-        targetDimensions: dimensions,
         endpoint: 'http://localhost:1234/v1/embeddings',
+        modelId,
+        provider: 'lmstudio',
+        targetDimensions: dimensions,
         ...(apiKey ? { apiKey } : {}),
-        requiresApiKey: false,
         includeDimensions: false,
+        requiresApiKey: false,
       });
     case 'google':
       if (!apiKey) {
         throw new Error(ERROR_MESSAGES.missingApiKey);
       }
-      return new GoogleEmbeddingProvider({ modelId, outputDimensions: dimensions, apiKey });
+      return new GoogleEmbeddingProvider({ apiKey, modelId, outputDimensions: dimensions });
     case 'cohere':
       if (!apiKey) {
         throw new Error(ERROR_MESSAGES.missingApiKey);
       }
-      return new CohereEmbeddingProvider({ modelId, inputType: 'search_query', apiKey });
+      return new CohereEmbeddingProvider({ apiKey, inputType: 'search_query', modelId });
     case 'voyage':
       if (!apiKey) {
         throw new Error(ERROR_MESSAGES.missingApiKey);
       }
-      return new VoyageEmbeddingProvider({ modelId, inputType: 'query', apiKey });
+      return new VoyageEmbeddingProvider({ apiKey, inputType: 'query', modelId });
     default:
       throw new Error(ERROR_MESSAGES.unsupportedProvider);
   }
 }
 
-async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[]): Promise<string> {
+async function createSelectionSnapshot(
+  db: DesktopDatabase,
+  filePaths: readonly string[]
+): Promise<string> {
   assertValidSelectionFilePaths(filePaths);
   // Best-effort cleanup to avoid blocking snapshot creation on purge failures.
   void db
@@ -441,24 +470,24 @@ function toContextChunks(
       });
     }
     const chunk: ContextPackerChunk = {
-      id: result.chunk.id,
-      content: result.chunk.content,
-      tokenCount: result.chunk.tokenCount ?? null,
       chunkIndex: result.chunk.chunkIndex,
-      startLine: result.chunk.startLine,
+      content: result.chunk.content,
       endLine: result.chunk.endLine,
-      startOffset: result.chunk.startOffset,
       endOffset: result.chunk.endOffset,
-      score: result.similarity,
+      id: result.chunk.id,
       metadata: {
-        fileRecordId: result.chunk.fileRecordId,
-        embeddingSetId: result.chunk.embeddingSetId,
         chunkType: result.chunk.chunkType,
-        rank: result.rank,
+        embeddingSetId: result.chunk.embeddingSetId,
+        fileRecordId: result.chunk.fileRecordId,
         fileTokenCount: fileInfo?.tokenCount ?? undefined,
+        rank: result.rank,
         rootId: fileInfo?.rootId ?? undefined,
         rootName: fileInfo?.rootName ?? undefined,
       },
+      score: result.similarity,
+      startLine: result.chunk.startLine,
+      startOffset: result.chunk.startOffset,
+      tokenCount: result.chunk.tokenCount ?? null,
     };
     if (fileInfo?.path !== undefined) {
       chunk.filePath = fileInfo.path;
@@ -482,7 +511,10 @@ interface RootLabel {
  * chunks can be disambiguated across roots that share a relative path. LEFT
  * JOIN so legacy/unrooted files still resolve (root id/name null).
  */
-async function loadRootLabels(db: PGlite, ids: readonly string[]): Promise<Map<string, RootLabel>> {
+async function loadRootLabels(
+  db: DesktopDatabase,
+  ids: readonly string[]
+): Promise<Map<string, RootLabel>> {
   const result = (await db.query(
     `SELECT fr.id, fr.root_id AS "rootId", r.display_name AS "rootName"
        FROM file_records fr
@@ -500,7 +532,7 @@ async function loadRootLabels(db: PGlite, ids: readonly string[]): Promise<Map<s
 
 async function buildFileRecordMap(
   repository: FileRecordRepository,
-  db: PGlite,
+  db: DesktopDatabase,
   ids: readonly string[]
 ): Promise<Map<string, FileRecordRow>> {
   const map = new Map<string, FileRecordRow>();
@@ -516,9 +548,9 @@ async function buildFileRecordMap(
       id: record.id,
       name: record.name,
       path: record.path,
-      tokenCount: record.tokenCount ?? null,
       rootId: label?.rootId ?? null,
       rootName: label?.rootName ?? null,
+      tokenCount: record.tokenCount ?? null,
     });
   }
   return map;
@@ -535,9 +567,9 @@ async function generateQueryEmbedding(
     throw new Error(ERROR_MESSAGES.missingApiKey);
   }
   const hostedProvider = createHostedProvider(provider, modelId, dimensions, apiKey);
-  const result = await hostedProvider.embed({ text: query, modelId });
+  const result = await hostedProvider.embed({ modelId, text: query });
   if (!result.ok) {
-    logger.warn('Embedding provider returned error', { provider, error: result.error });
+    logger.warn('Embedding provider returned error', { error: result.error, provider });
     throw new Error(ERROR_MESSAGES.embeddingFailed);
   }
   return result.value.embedding;
@@ -587,12 +619,12 @@ function assertEmbeddingDimensions(expected: number, actual: number): void {
   if (expected === actual) {
     return;
   }
-  logger.warn('Embedding dimension mismatch', { expected, actual });
+  logger.warn('Embedding dimension mismatch', { actual, expected });
   throw new Error(ERROR_MESSAGES.embeddingDimensionMismatch);
 }
 
 async function resolveSelectionState(
-  db: PGlite,
+  db: DesktopDatabase,
   runtimeData: RuntimeData | undefined,
   input: RetrievalContextInput
 ): Promise<RetrievalSelectionState> {
@@ -627,7 +659,7 @@ async function resolveSelectionState(
 }
 
 async function searchForChunks(
-  db: PGlite,
+  db: DesktopDatabase,
   embedding: number[],
   embeddingSetId: string,
   input: RetrievalContextInput,
@@ -639,9 +671,9 @@ async function searchForChunks(
   const threshold = input.threshold ?? DEFAULT_THRESHOLD;
 
   return chunkRepository.searchSimilar(embedding, {
+    embeddingSetId,
     limit,
     threshold,
-    embeddingSetId,
     ...(selection.filePaths ? { filePaths: selection.filePaths } : {}),
     ...(selection.selectionSnapshotId
       ? { selectionSnapshotId: selection.selectionSnapshotId }
@@ -651,7 +683,7 @@ async function searchForChunks(
 }
 
 async function packRetrievedContext(
-  db: PGlite,
+  db: DesktopDatabase,
   searchResults: Array<{
     chunk: {
       id: string;
@@ -698,7 +730,7 @@ async function packRetrievedContext(
   const packed = packer.pack(chunkInputs);
   const contextText = formatContext(packed.chunks);
 
-  return { packed, contextText, skippedSourceRangeChunks };
+  return { contextText, packed, skippedSourceRangeChunks };
 }
 
 async function runRetrieval(
@@ -716,7 +748,7 @@ async function runRetrieval(
     throw new Error(ERROR_MESSAGES.missingEmbeddingSet);
   }
 
-  const db = (await getDatabase()) as unknown as PGlite;
+  const db = await getDatabase();
   const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
   const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies);
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
@@ -743,19 +775,19 @@ async function runRetrieval(
   );
 
   return {
-    query,
-    embeddingSetId,
-    limit: input.limit ?? DEFAULT_LIMIT,
-    threshold: input.threshold ?? DEFAULT_THRESHOLD,
-    totalTokens: packed.totalTokens,
     budget: packed.budget,
-    remainingTokens: packed.remainingTokens,
-    skipped: packed.skipped + skippedSourceRangeChunks.length,
-    context: contextText,
     chunkContentIncludedInContext: packed.chunks.length > 0,
     chunks: stripChunkContent(packed.chunks),
+    context: contextText,
+    embeddingSetId,
+    limit: input.limit ?? DEFAULT_LIMIT,
+    query,
+    remainingTokens: packed.remainingTokens,
+    skipped: packed.skipped + skippedSourceRangeChunks.length,
     skippedForMissingSourceRange: skippedSourceRangeChunks.length,
     skippedSourceRangeChunks,
+    threshold: input.threshold ?? DEFAULT_THRESHOLD,
+    totalTokens: packed.totalTokens,
     ...(selectionState.selectionSnapshotId
       ? { selectionSnapshotId: selectionState.selectionSnapshotId }
       : {}),
@@ -767,12 +799,7 @@ function handleRetrievalError(error: unknown): never {
   if (SAFE_ERROR_MESSAGES.has(message)) {
     throw new Error(message);
   }
-  logger.error('Retrieval tool failed', { error });
-  if (process.env['NODE_ENV'] === 'development') {
-    const debugMessage =
-      error instanceof Error ? (error.stack ?? error.message) : String(error ?? 'Unknown error');
-    throw new Error(`${ERROR_MESSAGES.retrievalFailed} [Debug: ${debugMessage}]`);
-  }
+  logger.error('Retrieval tool failed', { error: redactErrorForLog(error) });
   throw new Error(ERROR_MESSAGES.retrievalFailed);
 }
 
@@ -781,10 +808,8 @@ export function createRetrievalTool(
   dependencies: RetrievalToolDependencies = {}
 ): MastraTools[string] {
   return {
-    id: TOOL_ID,
     description:
       'Retrieve and pack relevant project context from the active embedding set. Use for codebase questions.',
-    inputSchema: RetrievalContextInputSchema,
     execute: async (context: ToolContext<RetrievalContextInput>) => {
       try {
         return await runRetrieval(context.context, runtimeData, dependencies);
@@ -792,6 +817,8 @@ export function createRetrievalTool(
         handleRetrievalError(error);
       }
     },
+    id: TOOL_ID,
+    inputSchema: RetrievalContextInputSchema,
   };
 }
 
@@ -829,10 +856,8 @@ export function createQueryEmbeddingSpaceTool(
   dependencies: RetrievalToolDependencies = {}
 ): MastraTools[string] {
   return {
-    id: QUERY_EMBEDDING_SPACE_TOOL_ID,
     description:
       'Query semantic workspace context. Omit embeddingSetId for Workspace Index codebase searches; provide embeddingSetId only for a specific non-default embedding space. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
-    inputSchema: QueryEmbeddingSpaceInputSchema,
     execute: async (context: ToolContext<QueryEmbeddingSpaceInput>) => {
       const input = QueryEmbeddingSpaceInputSchema.parse(context.context);
       try {
@@ -841,6 +866,8 @@ export function createQueryEmbeddingSpaceTool(
         handleRetrievalError(error);
       }
     },
+    id: QUERY_EMBEDDING_SPACE_TOOL_ID,
+    inputSchema: QueryEmbeddingSpaceInputSchema,
   };
 }
 

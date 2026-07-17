@@ -1,11 +1,13 @@
 import type { WebSearchInput } from '@brainstrike/agent';
-import { fitItemsToCharBudget } from '@brainstrike/agent';
+import { fitItemsToCharBudget, WEB_SEARCH_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getSecretsService } from '../secrets';
 
 const logger = createLogger('AssistantWebSearchTool');
 
-export const WEB_SEARCH_TOOL_ID = 'brainstrike.webSearch' as const;
+// Single source of truth lives in @brainstrike/assistant-contract so the desktop
+// registry and the agent runtime's provider-native swap agree on the id.
+export { WEB_SEARCH_TOOL_ID };
 
 /**
  * The secrets-store provider id under which the Tavily API key is stored. NOT a
@@ -128,9 +130,9 @@ function normalizeResults(response: TavilyApiResponse): WebSearchResultItem[] {
       const url = coerceString(entry?.url);
       const title = coerceString(entry?.title) || url || 'Untitled result';
       return {
+        snippet: boundSnippet(coerceString(entry?.content)),
         title,
         url,
-        snippet: boundSnippet(coerceString(entry?.content)),
       };
     })
     .filter((item) => item.url.length > 0);
@@ -151,9 +153,9 @@ function buildBudgetedResult(args: {
       : undefined;
     return {
       available: true,
+      count: kept.length,
       query,
       results: kept.slice(),
-      count: kept.length,
       totalResults,
       truncated,
       ...(hint ? { hint } : {}),
@@ -194,10 +196,10 @@ export async function runWebSearch(
     logger.info('webSearch requested with an empty query; skipping network call');
     return {
       available: true,
-      query,
-      error: 'Empty search query.',
-      results: [],
       count: 0,
+      error: 'Empty search query.',
+      query,
+      results: [],
       totalResults: 0,
       truncated: false,
     };
@@ -208,35 +210,37 @@ export async function runWebSearch(
     logger.info('webSearch requested without a configured Tavily key');
     return {
       available: false,
-      query,
-      message: UNAVAILABLE_MESSAGE,
-      results: [],
       count: 0,
+      message: UNAVAILABLE_MESSAGE,
+      query,
+      results: [],
       totalResults: 0,
       truncated: false,
     };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  // AbortSignal.timeout aborts with TimeoutError (MDN). No external cancel
+  // signal is part of WebSearchToolDependencies today, so compose with
+  // AbortSignal.any only if one is added later — do not invent a cancel API.
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
     const response = await fetchImpl(TAVILY_SEARCH_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        // Bearer auth keeps the key out of the URL/query string.
-        authorization: `Bearer ${apiKey}`,
-      },
       // The Tavily REST API requires snake_case request fields; these are the
       // external service's wire contract, not our naming.
       body: JSON.stringify({
-        query,
         // biome-ignore lint/style/useNamingConvention: Tavily API wire field
         max_results: maxResults,
+        query,
         // biome-ignore lint/style/useNamingConvention: Tavily API wire field
         search_depth: 'basic',
       }),
-      signal: controller.signal,
+      headers: {
+        // Bearer auth keeps the key out of the URL/query string.
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+      signal,
     });
 
     if (!response.ok) {
@@ -245,10 +249,10 @@ export async function runWebSearch(
       logger.error('webSearch Tavily response not ok', { status: response.status });
       return {
         available: true,
-        query,
-        error: errorText,
-        results: [],
         count: 0,
+        error: errorText,
+        query,
+        results: [],
         totalResults: 0,
         truncated: false,
       };
@@ -256,23 +260,24 @@ export async function runWebSearch(
 
     const payload = (await response.json()) as TavilyApiResponse;
     const normalized = normalizeResults(payload).slice(0, maxResults);
-    return buildBudgetedResult({ query, items: normalized });
+    return buildBudgetedResult({ items: normalized, query });
   } catch (error) {
-    const aborted = error instanceof Error && error.name === 'AbortError';
-    const errorText = aborted
+    // AbortSignal.timeout uses TimeoutError; some runtimes/fetch paths still
+    // surface AbortError. Treat both as the non-fatal timeout result.
+    const timedOut =
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    const errorText = timedOut
       ? `Tavily search timed out after ${timeoutMs}ms.`
       : 'Tavily search failed due to a network error.';
-    logger.error('webSearch failed', { error, aborted });
+    logger.error('webSearch failed', { aborted: timedOut, error });
     return {
       available: true,
-      query,
-      error: errorText,
-      results: [],
       count: 0,
+      error: errorText,
+      query,
+      results: [],
       totalResults: 0,
       truncated: false,
     };
-  } finally {
-    clearTimeout(timeout);
   }
 }

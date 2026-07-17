@@ -6,9 +6,12 @@
 @import "@fontsource-variable/geist-mono";
 
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 @import "@brainstrike/ui/styles.css";
 @import "@brainstrike/file-explorer-ui/styles.css";
 @import "@brainstrike/app-shell/styles.css";
+@import "@brainstrike/workspace-search/styles.css";
+@import "@brainstrike/db-explorer/styles.css";
 @import "@brainstrike/ui/globals.css";
 @source "src/**/*.{ts,tsx}";
 

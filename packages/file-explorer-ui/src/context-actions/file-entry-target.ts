@@ -1,22 +1,24 @@
-import { type ContextTarget, isAbsolutePath, toRelativePath } from '@brainstrike/context-actions';
+import type { ContextTarget } from '@brainstrike/context-actions';
 import type { IFileNode } from '@brainstrike/types';
+import { resolveFileTargetIdentity } from './file-target-identity';
 
 /**
  * Adapts an IFileNode into the shared ContextTarget shape. Desktop nodes carry
  * absolute paths (electron adapter joins from the absolute root); web nodes
  * carry root-relative paths — the data itself tells us which.
  */
-export function fileNodeToTarget(node: IFileNode): ContextTarget | null {
+export function fileNodeToTarget(node: IFileNode, rootPath?: string | null): ContextTarget | null {
   if (node.type === 'loadMore') {
     return null;
   }
-  const absolute = isAbsolutePath(node.path) ? node.path : null;
   return {
-    kind: 'file-entry',
-    name: node.name,
-    relativePath: absolute ? toRelativePath(node.path, node.rootFolderId) : node.path,
-    absolutePath: absolute,
     entryType: node.type,
-    rootFolderId: node.rootFolderId,
+    kind: 'file-entry',
+    ...resolveFileTargetIdentity({
+      name: node.name,
+      path: node.path,
+      rootFolderId: node.rootFolderId,
+      ...(rootPath === undefined ? {} : { rootPath }),
+    }),
   };
 }

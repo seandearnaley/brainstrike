@@ -11,10 +11,6 @@ vi.mock('../assistant-ui-panel-wrapper-lazy', () => ({
   preloadAssistantUiPanelWrapper: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../mcp-banner', () => ({
-  McpBanner: () => <div>MCP banner</div>,
-}));
-
 // Import after mock to get the mocked version
 import { useAssistantAvailabilityWithLocal } from '../hooks/use-assistant-availability-with-local';
 
@@ -30,13 +26,15 @@ describe('AssistantChatPanel', () => {
 
     render(<AssistantChatPanel />);
 
-    expect(screen.getByText('Checking assistant availability…')).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-panel-loading')).toHaveClass('h-full');
+    expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-12');
+    expect(screen.getByText('Checking assistant availability…')).toHaveClass('sr-only');
   });
 
   it('renders disabled callout with optional reason', () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({
-      state: 'disabled',
       reason: 'no_provider',
+      state: 'disabled',
     });
 
     render(<AssistantChatPanel />);
@@ -46,7 +44,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('renders error callout when status fetch fails', () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'error', message: 'boom' });
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({ message: 'boom', state: 'error' });
 
     render(<AssistantChatPanel />);
 
@@ -59,7 +57,11 @@ describe('AssistantChatPanel', () => {
 
     render(<AssistantChatPanel />);
 
-    expect(screen.getByText('MCP banner')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Assistant' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Chat with the Brainstrike assistant while working anywhere in the app.')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('MCP banner')).not.toBeInTheDocument();
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
   });
 });

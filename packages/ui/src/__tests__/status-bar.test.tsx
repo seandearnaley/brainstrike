@@ -29,15 +29,46 @@ describe('StatusBar', () => {
     expect(screen.queryByTestId('status-bar-center')).not.toBeInTheDocument();
   });
 
-  it('uses semantic output element for accessibility', () => {
+  it('uses a footer landmark without making every high-frequency update a live announcement', () => {
     render(<StatusBar />);
     const statusBar = screen.getByTestId('status-bar');
-    expect(statusBar.tagName.toLowerCase()).toBe('output');
+    expect(statusBar.tagName.toLowerCase()).toBe('footer');
+    expect(statusBar).not.toHaveAttribute('aria-live');
   });
 
-  it('has aria-live="polite" for accessibility', () => {
-    render(<StatusBar />);
-    expect(screen.getByTestId('status-bar')).toHaveAttribute('aria-live', 'polite');
+  it('uses a stable three-column grid so changing edge content cannot move the center slot', () => {
+    render(
+      <StatusBar
+        centerContent={<span>Center</span>}
+        leftContent={<span>Left</span>}
+        rightContent={<span>Right</span>}
+      />
+    );
+
+    expect(screen.getByTestId('status-bar')).toHaveClass(
+      'grid',
+      'h-7',
+      'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]',
+      'border-border/80',
+      'bg-muted/70',
+      'text-[11px]',
+      'leading-none'
+    );
+    expect(screen.getByTestId('status-bar-left')).toHaveClass(
+      'h-full',
+      'w-full',
+      'overflow-hidden',
+      'whitespace-nowrap',
+      'justify-self-start'
+    );
+    expect(screen.getByTestId('status-bar-center')).toHaveClass('justify-self-center');
+    expect(screen.getByTestId('status-bar-right')).toHaveClass(
+      'h-full',
+      'w-full',
+      'overflow-hidden',
+      'whitespace-nowrap',
+      'justify-self-end'
+    );
   });
 
   it('applies custom className', () => {

@@ -79,7 +79,7 @@ function partitionSelectionByRoot(
       focusedKeys.add(key);
     }
   }
-  return { focusedKeys, byOtherRoot };
+  return { byOtherRoot, focusedKeys };
 }
 
 export const useSelectionManager = () => {
@@ -123,8 +123,8 @@ export const useSelectionManager = () => {
 
   // Pass stable state view and setter to the core hook
   const core = useCoreSelectionManager({
-    selectedFilePaths,
     maxSelectionCount,
+    selectedFilePaths,
     setSelectedFiles: setSelectedFilesStable,
   });
 
@@ -241,16 +241,16 @@ export const useSelectionManager = () => {
 
   return {
     ...core,
-    selectedFilePaths: effectiveSelection,
-    selectedCount,
-    selectedFilesList,
-    setSelectedFilesFromList,
     /** The effective selection set based on current mode */
     effectiveSelection,
-    /** Whether we're in rules mode */
-    isRulesMode: selectionModel.mode === 'rules',
     /** Whether we're in query-backed large selection mode */
     isQueryMode: selectionModel.mode === 'query',
     isQuerySelectionReady,
+    /** Whether we're in rules mode */
+    isRulesMode: selectionModel.mode === 'rules',
+    selectedCount,
+    selectedFilePaths: effectiveSelection,
+    selectedFilesList,
+    setSelectedFilesFromList,
   };
 };

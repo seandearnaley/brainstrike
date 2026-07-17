@@ -63,8 +63,8 @@ test.describe('Workspace Index bootstrap (desktop)', () => {
 
     await expect
       .poll(async () => await readWorkspaceIndexRows(window), {
-        timeout: 15_000,
         message: 'Expected first run to create exactly one protected Workspace Index.',
+        timeout: 15_000,
       })
       .toMatchObject([
         {

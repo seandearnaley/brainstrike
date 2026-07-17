@@ -81,7 +81,7 @@ export const detectEnvironment = () => {
   const isGitHubActions = !!process.env[githubActionsEnv];
   const isCI = !!process.env[ciEnv] || isCodex || isGitHubActions;
 
-  return { isCodex, isGitHubActions, isCI };
+  return { isCI, isCodex, isGitHubActions };
 };
 
 /**
@@ -166,16 +166,16 @@ export const getEnvironmentConfig = (): EnvironmentConfig => {
 
   return {
     ...env,
-    workers: getWorkerCount(env),
+    // Keep multiple workers in CI, but do not run tests from the same file concurrently.
+    // Stateful browser specs share expensive origin-level surfaces like OPFS and app boot.
+    fullyParallel: !env.isCI,
     globalTimeout: getGlobalTimeout(env),
-    retries: getRetryCount(env),
     // Always use headless mode for reliability in all environments
     // This prevents X server/display issues in containerized CI environments
     // Local development can override with --headed flag if needed
     headless: true,
-    // Keep multiple workers in CI, but do not run tests from the same file concurrently.
-    // Stateful browser specs share expensive origin-level surfaces like OPFS and app boot.
-    fullyParallel: !env.isCI,
+    retries: getRetryCount(env),
+    workers: getWorkerCount(env),
   };
 };
 

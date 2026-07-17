@@ -98,3 +98,31 @@
 ## 2026-06-21 - Workspace sync watcher paths avoid split/filter arrays
 **Learning:** `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` synthesizes file nodes for watcher-scoped workspace sync. The previous `path.split('/').filter(Boolean)` name/depth helpers measured 1137.62ms over 100k changed paths x 50 rounds on Node 24, while direct slash scanning measured 386.20ms with identical checksums.
 **Action:** Keep watcher path name/depth extraction on direct `charCodeAt`/`lastIndexOf` scans; do not reintroduce split/filter arrays in this changed-path hot path.
+
+## 2026-06-23 - Expanded-path restoration ancestors avoid slice/join rebuilds
+**Learning:** `packages/file-explorer-ui/src/use-expanded-path-restoration.ts` derives every parent directory for restored selected files. The old `extractPathSegments()` plus `segments.slice(0, index).join('/')` rebuilt prefixes from scratch for every ancestor and measured 1546.27ms over 100k representative paths x 30 on Node 24.16.0; direct slash scanning with incremental prefix append measured 1103.11ms with identical checksums, then improved to 1019.49ms after stopping once the last ancestor was emitted.
+**Action:** Keep restored-selection parent directory derivation on direct scanning, incremental ancestor appends, and early exit after the last parent directory; do not reintroduce per-ancestor segment slicing/joining in restoration hot paths.
+## 2026-07-01 - Workspace sync directory resolution avoids split/filter arrays
+**Learning:** `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` still used `relativePath.split('/').filter(Boolean)` when resolving changed directory handles. This watcher-scoped path can run once per nested changed directory. A segment scanner preserving empty-segment skipping measured 428.44ms -> 327.28ms over 100k representative nested paths x 30 rounds on Node 24.16.0 with identical checksums.
+**Action:** Keep changed-directory handle resolution on `iterRelativePathSegments()` rather than materializing segment arrays.
+## 2026-07-03 - Live grep .git candidate filtering avoids split arrays
+**Learning:** `apps/desktop/src/assistant-server/live-grep.ts` checks every live grep candidate path for an exact `.git` segment before realpath/stat work. The old `relativePath.split('/').some(...)` path allocated a segment array per candidate and measured 627.25ms over 100k representative candidate paths x 60 rounds on Node 24.16.0; a direct segment scanner measured 197.94ms with the same `.git` checksum while preserving `.github` and `.gitignore` as non-matches.
+**Action:** Keep live grep `.git` segment exclusion on direct slash scanning; do not reintroduce split/some in the candidate resolve loop.
+## 2026-07-05 - Web streamed file-handle caching scans root segments
+**Learning:** `packages/file-system/src/adapters/web-adapter.ts` resolves the root id for every cached file handle produced by web directory streaming. The old `path.split('/').find(...)` scanned and allocated the full path for each file; a first-segment scan measured 806.51ms -> 198.82ms over 100k representative cached node paths x 80 rounds on Node 24.16.0 with identical checksum.
+**Action:** Keep web file-handle root-id extraction on an early-exit slash scan; do not reintroduce whole-path split/find in streaming cache paths.
+## 2026-07-09 - Chunk language detection scans final extension
+**Learning:** `packages/file-import/src/embedding-context.ts` detects a file's language during text-splitter chunking decisions. The old `filePath.split('.').pop()` plus per-call language map allocation measured 5299.36ms over 100k representative paths x 40 rounds on Node 24.16.0; `lastIndexOf('.')` plus one suffix slice and a hoisted map measured 235.67ms with identical checksum.
+**Action:** Keep chunk language detection on final-dot scanning and a module-scope language map instead of splitting the full path or rebuilding the map per file.
+
+## 2026-07-11 - Workspace symbol ranking compiles matchers once
+**Learning:** `apps/desktop/src/assistant-server/find-workspace-symbol.ts` ranks every matching line in a workspace-symbol search. Recompiling up to three query-specific regular expressions per matching line measured 267.38ms over 100k representative lines x 40 rounds on Node 24.16.0; compiling the three matchers once per search measured 96.15ms with identical ranking checksums.
+**Action:** Keep workspace-symbol declaration matchers query-scoped and lazily compiled on the first matching line; do not move regular-expression construction back into per-line scoring.
+
+## 2026-07-13 - Grouped thread lists bucket threads once
+**Learning:** `packages/app-shell/src/thread-list-sections.ts` rebuilt grouped thread sections by filtering the complete thread list once per group, making panel preparation O(groups x threads). Across five Node 24.16.0 trials with 100 groups and 10,000 threads x 40 rounds, the old repeated scans took a median 872.63ms while one-pass bucketing took 13.33ms with identical membership checksums.
+**Action:** Keep grouped thread-list construction on one-pass group buckets; do not reintroduce per-group full-list filters.
+
+## 2026-07-15 - Import completion summaries use one result pass
+**Learning:** `packages/db-explorer/src/hooks/use-import-completion.ts` built one completion summary with four full-array filters and two reductions. Over 100,000 representative import results x 100 rounds on Node 24.16.0, repeated passes took a 305.63ms median while one-pass accumulation took 29.37ms with identical count checksums.
+**Action:** Keep import completion outcome and chunk counts in one accumulation pass; do not reintroduce independent filters or reductions for each summary field.

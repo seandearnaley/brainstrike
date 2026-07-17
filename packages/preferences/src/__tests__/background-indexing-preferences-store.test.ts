@@ -107,22 +107,22 @@ describe('background-indexing-preferences-store', () => {
   it('clears managed collection when reset is called', () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'full-root',
       managedCollectionId: 'collection-123',
       mode: 'root-folder-cache',
       paused: true,
-      hasHydrated: true,
     });
 
     useBackgroundIndexingPreferencesStore.getState().reset();
 
     expect(useBackgroundIndexingPreferencesStore.getState()).toMatchObject({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
       paused: false,
-      hasHydrated: true,
     });
   });
 
@@ -134,21 +134,21 @@ describe('background-indexing-preferences-store', () => {
 
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: false,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
       paused: false,
-      hasHydrated: false,
     });
 
     const rehydrateSpy = vi.spyOn(persistApi, 'rehydrate').mockImplementation(async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
+        hasHydrated: true,
         indexingPolicyPreset: 'full-root',
         managedCollectionId: 'collection-1',
         mode: 'root-folder-cache',
         paused: false,
-        hasHydrated: true,
       });
     });
 
@@ -156,9 +156,9 @@ describe('background-indexing-preferences-store', () => {
 
     expect(rehydrateSpy).toHaveBeenCalledOnce();
     expect(state).toMatchObject({
+      hasHydrated: true,
       indexingPolicyPreset: 'full-root',
       managedCollectionId: 'collection-1',
-      hasHydrated: true,
     });
   });
 
@@ -170,11 +170,11 @@ describe('background-indexing-preferences-store', () => {
 
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: false,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
       paused: false,
-      hasHydrated: false,
     });
 
     vi.spyOn(persistApi, 'hasHydrated').mockReturnValue(true);
@@ -194,11 +194,11 @@ describe('background-indexing-preferences-store', () => {
 
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: false,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
       paused: false,
-      hasHydrated: false,
     });
     window.localStorage.setItem(
       'background-indexing-preferences.v1',
@@ -244,11 +244,11 @@ describe('background-indexing-preferences-store', () => {
 
   it('replaces a branded global singleton that lacks the persist API', async () => {
     const staleStore = Object.assign(vi.fn(), {
+      __brainstrike_store_brand__: 1,
       getState: vi.fn(() => ({
         ...useBackgroundIndexingPreferencesStore.getState(),
       })),
       setState: vi.fn(),
-      __brainstrike_store_brand__: 1,
     });
     Reflect.set(
       globalThis as unknown as Record<string, unknown>,

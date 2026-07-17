@@ -1,7 +1,7 @@
 import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 /**
  * Map of enabled models per provider
@@ -71,27 +71,27 @@ const STORE_VERSION = 2;
  * Frozen to prevent accidental mutations
  */
 const DEFAULT_ENABLED_MODELS: EnabledModelsMap = Object.freeze({
-  local: Object.freeze(['jinaai/jina-embeddings-v2-base-code'] as string[]), // Default local model (HuggingFace ID)
-  transformers: Object.freeze(['jinaai/jina-embeddings-v2-base-code'] as string[]), // Alias for local provider
-  openai: Object.freeze([] as string[]), // Requires API key, disabled by default
-  google: Object.freeze([] as string[]), // Requires API key, disabled by default
   cohere: Object.freeze([] as string[]), // Requires API key, disabled by default
-  voyage: Object.freeze([] as string[]), // Requires API key, disabled by default
-  ollama: Object.freeze([] as string[]), // Local runtime, discovered dynamically
+  google: Object.freeze([] as string[]), // Requires API key, disabled by default
   lmstudio: Object.freeze([] as string[]), // Local runtime, discovered dynamically
+  local: Object.freeze(['jinaai/jina-embeddings-v2-base-code'] as string[]), // Default local model (HuggingFace ID)
+  ollama: Object.freeze([] as string[]), // Local runtime, discovered dynamically
+  openai: Object.freeze([] as string[]), // Requires API key, disabled by default
+  transformers: Object.freeze(['jinaai/jina-embeddings-v2-base-code'] as string[]), // Alias for local provider
+  voyage: Object.freeze([] as string[]), // Requires API key, disabled by default
 }) as EnabledModelsMap;
 
 const EMBEDDING_MODEL_MIGRATIONS: Record<EmbeddingProviderType, Record<string, string>> = {
-  local: {},
-  transformers: {},
-  openai: {},
+  cohere: {},
   google: {
     'text-embedding-004': 'gemini-embedding-001',
   },
-  cohere: {},
-  voyage: {},
-  ollama: {},
   lmstudio: {},
+  local: {},
+  ollama: {},
+  openai: {},
+  transformers: {},
+  voyage: {},
 };
 
 function migrateEmbeddingModelId(provider: EmbeddingProviderType, modelId: string): string {
@@ -233,6 +233,19 @@ export const useEmbeddingPreferencesStore = create<Store>()(
   persist(
     (set, get) => ({
       enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
+
+      // Selection helpers removed - selection is per-collection/embedding-set.
+
+      /**
+       * Get enabled models for a provider
+       * Returns a new array to prevent external mutations of store state
+       */
+      getEnabledModels: (provider) => {
+        const { enabledModelsByProvider } = get();
+        const models = enabledModelsByProvider[provider] ?? DEFAULT_ENABLED_MODELS[provider];
+        // Return shallow copy for immutability - prevents external mutations
+        return models ? [...models] : [];
+      },
       preferredRuntime: 'browser',
 
       // Global model selection APIs removed - only model enablement remains
@@ -245,6 +258,8 @@ export const useEmbeddingPreferencesStore = create<Store>()(
 
           return updates ?? state;
         }),
+
+      setPreferredRuntime: (runtime) => set({ preferredRuntime: runtime }),
 
       setProviderModelsEnabled: (provider, models, enabled) =>
         set((state) => {
@@ -272,30 +287,8 @@ export const useEmbeddingPreferencesStore = create<Store>()(
 
           return result;
         }),
-
-      // Selection helpers removed - selection is per-collection/embedding-set.
-
-      /**
-       * Get enabled models for a provider
-       * Returns a new array to prevent external mutations of store state
-       */
-      getEnabledModels: (provider) => {
-        const { enabledModelsByProvider } = get();
-        const models = enabledModelsByProvider[provider] ?? DEFAULT_ENABLED_MODELS[provider];
-        // Return shallow copy for immutability - prevents external mutations
-        return models ? [...models] : [];
-      },
-
-      setPreferredRuntime: (runtime) => set({ preferredRuntime: runtime }),
     }),
     {
-      name: STORE_NAME,
-      version: STORE_VERSION,
-      storage,
-      partialize: (s) => ({
-        enabledModelsByProvider: s.enabledModelsByProvider,
-        preferredRuntime: s.preferredRuntime,
-      }),
       migrate: (persistedState, version) => {
         if (!persistedState) {
           return;
@@ -325,6 +318,13 @@ export const useEmbeddingPreferencesStore = create<Store>()(
           preferredRuntime: base.preferredRuntime ?? 'browser',
         } satisfies Partial<Store>;
       },
+      name: STORE_NAME,
+      partialize: (s) => ({
+        enabledModelsByProvider: s.enabledModelsByProvider,
+        preferredRuntime: s.preferredRuntime,
+      }),
+      storage,
+      version: STORE_VERSION,
     }
   )
 );

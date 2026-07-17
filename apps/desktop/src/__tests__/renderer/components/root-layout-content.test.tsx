@@ -9,50 +9,53 @@ const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
+const sharedRootLayoutCapture = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}));
 
 const createQueueStub = (): QueueAdapter => {
   const result = {
-    type: 'result',
     id: 'stub',
-    vectors: [new Float32Array(0)],
     metadata: {
-      model: 'stub-model',
-      device: 'webgpu',
-      dtype: 'fp16',
       batchSize: 1,
+      device: 'webgpu',
+      dimensions: 0,
+      dtype: 'fp16',
       elapsedMs: 0,
       fallbackApplied: false,
-      dimensions: 0,
+      model: 'stub-model',
     },
+    type: 'result',
+    vectors: [new Float32Array(0)],
   } satisfies QueueResult;
   return {
     add: vi.fn(async () => result),
     addBulk: vi.fn(async () => [result]),
+    cancel: vi.fn(),
+    drain: vi.fn(async () => {}),
+    isPaused: false,
+    isProcessing: false,
     onProgress: vi.fn(() => () => {}),
     pause: vi.fn(),
     resume: vi.fn(),
-    drain: vi.fn(async () => {}),
-    cancel: vi.fn(),
-    isPaused: false,
-    isProcessing: false,
   };
 };
 
 const queueStub = createQueueStub();
 
 vi.mock('../../../renderer/create-embedding-queue', () => ({
-  getEmbeddingQueue: () => queueStub,
   createBrowserEmbeddingQueue: vi.fn(() => queueStub),
+  getEmbeddingQueue: () => queueStub,
 }));
 
 // Mock the file-explorer-hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: vi.fn(() => ({
     storageAdapter: {
+      delete: vi.fn(),
       // Mock storage adapter
       get: vi.fn(),
       set: vi.fn(),
-      delete: vi.fn(),
     },
   })),
 }));
@@ -76,18 +79,14 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
-    PanelLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     ElectronPanelPersistenceAdapter: vi.fn(() => ({})),
+    PanelLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   };
 });
 
 // Mock the app-shell modules directly to avoid pulling the barrel into the test graph.
 vi.mock('@brainstrike/app-shell/navigation', () => ({
   navigationItems: [],
-}));
-
-vi.mock('@brainstrike/app-shell', () => ({
-  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
 }));
 
 // The Git surface is capability-gated. `gitBridgeAvailableMock` lets each test
@@ -115,36 +114,37 @@ vi.mock('../../../renderer/components/terminal-page-content', () => ({
 }));
 
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
-  RootLayoutContent: ({
-    contextExplorerPageContent,
-    gitPageContent,
-    terminalPageContent,
-    navigationItems,
-  }: {
+  RootLayoutContent: (props: {
     contextExplorerPageContent: React.ReactNode;
     gitPageContent?: React.ReactNode;
-    terminalPageContent?: React.ReactNode;
     navigationItems?: Array<{ name: string; path: string }>;
-  }) => (
-    <div data-testid="file-explorer-provider">
-      <div data-testid="app-layout">
-        {/* Surface the nav items + git/terminal pages so capability-gating can
-            be asserted. */}
-        <nav data-testid="nav-items">
-          {(navigationItems ?? []).map((item) => (
-            <span data-testid={`nav-item-${item.path}`} key={item.path}>
-              {item.name}
-            </span>
-          ))}
-        </nav>
-        <main>{contextExplorerPageContent}</main>
-        {gitPageContent ? <aside data-testid="git-page-slot">{gitPageContent}</aside> : null}
-        {terminalPageContent ? (
-          <aside data-testid="terminal-page-slot">{terminalPageContent}</aside>
-        ) : null}
+    promptsPageContent?: React.ReactNode;
+    terminalPageContent?: React.ReactNode;
+  }) => {
+    sharedRootLayoutCapture.props = props as Record<string, unknown>;
+    const { contextExplorerPageContent, gitPageContent, navigationItems, terminalPageContent } =
+      props;
+    return (
+      <div data-testid="file-explorer-provider">
+        <div data-testid="app-layout">
+          {/* Surface the nav items + git/terminal pages so capability-gating can
+              be asserted. */}
+          <nav data-testid="nav-items">
+            {(navigationItems ?? []).map((item) => (
+              <span data-testid={`nav-item-${item.path}`} key={item.path}>
+                {item.name}
+              </span>
+            ))}
+          </nav>
+          <main>{contextExplorerPageContent}</main>
+          {gitPageContent ? <aside data-testid="git-page-slot">{gitPageContent}</aside> : null}
+          {terminalPageContent ? (
+            <aside data-testid="terminal-page-slot">{terminalPageContent}</aside>
+          ) : null}
+        </div>
       </div>
-    </div>
-  ),
+    );
+  },
 }));
 
 // Mock the page components to avoid adapter dependencies
@@ -164,8 +164,8 @@ function MockHomePage() {
   );
 }
 vi.mock('../../../renderer/components/context-explorer-page-content', () => ({
-  default: MockHomePage,
   DesktopContextExplorerPanel: () => <div data-testid="desktop-file-explorer-panel">Panel</div>,
+  default: MockHomePage,
 }));
 
 vi.mock('../../../renderer/components/settings/page-content', () => ({
@@ -189,10 +189,10 @@ vi.mock('@brainstrike/utils/logger', async () => {
   return {
     ...actual,
     createLogger: () => ({
-      info: loggerInfoMock,
       debug: vi.fn(),
-      warn: loggerWarnMock,
       error: vi.fn(),
+      info: loggerInfoMock,
+      warn: loggerWarnMock,
     }),
   };
 });
@@ -201,8 +201,8 @@ vi.mock('@brainstrike/utils/logger', async () => {
 vi.mock('@brainstrike/preferences', () => ({
   useModelRegistryStore: {
     getState: vi.fn(() => ({
-      setDownloadProgress: vi.fn(),
       setDownloading: vi.fn(),
+      setDownloadProgress: vi.fn(),
     })),
   },
 }));
@@ -225,6 +225,7 @@ describe('RootLayoutContent', () => {
     currentDb = null;
     homeMountCount = 0;
     vi.clearAllMocks();
+    sharedRootLayoutCapture.props = null;
     // Default: Git + Terminal bridges unavailable (web-safe). clearAllMocks wiped
     // the impls.
     gitBridgeAvailableMock.mockReturnValue(false);
@@ -256,6 +257,12 @@ describe('RootLayoutContent', () => {
   it('should render home page content by default', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+  });
+
+  it('does not configure the removed full-frame prompts route', () => {
+    render(<RootLayoutContent />);
+    expect(sharedRootLayoutCapture.props).not.toHaveProperty('promptsPageContent');
+    expect(screen.queryByTestId('nav-item-/prompts')).not.toBeInTheDocument();
   });
 
   it('does NOT surface the Git tab when window.git is absent (web-safe gate)', () => {
@@ -303,7 +310,7 @@ describe('RootLayoutContent', () => {
     );
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
 
     rerender(<RootLayoutContent />);
@@ -322,7 +329,7 @@ describe('RootLayoutContent', () => {
     const { rerender } = render(<RootLayoutContent />);
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
 
     rerender(<RootLayoutContent />);
@@ -336,9 +343,9 @@ describe('RootLayoutContent', () => {
     Object.defineProperty(globalThis.performance, 'memory', {
       configurable: true,
       value: {
-        usedJSHeapSize: 1,
-        totalJSHeapSize: 2,
         jsHeapSizeLimit: 3,
+        totalJSHeapSize: 2,
+        usedJSHeapSize: 1,
       },
     });
     const setIntervalSpy = vi.spyOn(window, 'setInterval');
@@ -349,7 +356,7 @@ describe('RootLayoutContent', () => {
     expect(setIntervalSpy).toHaveBeenCalledTimes(2);
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
     (
       globalThis.performance as typeof globalThis.performance & {
@@ -378,14 +385,58 @@ describe('RootLayoutContent', () => {
     expect(clearIntervalSpy).toHaveBeenCalledTimes(2);
   });
 
+  it('stops frame sampling between diagnostic ticks and cancels pending work on unmount', () => {
+    vi.useFakeTimers();
+    let nextFrameId = 0;
+    const scheduledFrames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      nextFrameId += 1;
+      scheduledFrames.set(nextFrameId, callback);
+      return nextFrameId;
+    });
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((frameId) => {
+        scheduledFrames.delete(frameId);
+      });
+
+    const runNextFrame = (timestamp: number) => {
+      const next = scheduledFrames.entries().next().value as
+        | [number, FrameRequestCallback]
+        | undefined;
+      expect(next).toBeDefined();
+      if (!next) {
+        return;
+      }
+      scheduledFrames.delete(next[0]);
+      next[1](timestamp);
+    };
+
+    const { unmount } = render(<RootLayoutContent />);
+
+    runNextFrame(0);
+    runNextFrame(500);
+    runNextFrame(1000);
+    expect(scheduledFrames.size).toBe(0);
+
+    vi.advanceTimersByTime(14_999);
+    expect(scheduledFrames.size).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(scheduledFrames.size).toBe(1);
+
+    unmount();
+    expect(scheduledFrames.size).toBe(0);
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('logs visible renderer frame stalls with the latest database readiness state', () => {
     vi.useFakeTimers();
     Object.defineProperty(globalThis.performance, 'memory', {
       configurable: true,
       value: {
-        usedJSHeapSize: 100,
-        totalJSHeapSize: 200,
         jsHeapSizeLimit: 300,
+        totalJSHeapSize: 200,
+        usedJSHeapSize: 100,
       },
     });
     let rafCallback: FrameRequestCallback | null = null;
@@ -398,7 +449,7 @@ describe('RootLayoutContent', () => {
     const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame');
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
     const { unmount } = render(<RootLayoutContent />);
 

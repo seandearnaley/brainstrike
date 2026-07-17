@@ -4,9 +4,9 @@ import type {
   RuntimeAssistantMemorySettings,
 } from '@brainstrike/assistant-contract/memory-settings';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
+import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 export const ASSISTANT_MEMORY_PREFERENCES_STORE_NAME = 'assistant-memory-preferences.v1' as const;
 
@@ -22,11 +22,11 @@ const MAX_MESSAGE_RANGE = 20;
 // `openai/gpt-5.4-mini` here (background observation is cost-sensitive) rather
 // than the primary chat default `gpt-5.4`.
 const MEMORY_MODEL_TARGET_MIGRATIONS: Record<string, string> = {
-  'openai/gpt-5.2-chat-latest': 'openai/gpt-5.4-mini',
-  'anthropic/claude-sonnet-4-5': 'anthropic/claude-sonnet-4-6',
   'anthropic/claude-opus-4-5': 'anthropic/claude-opus-4-8',
+  'anthropic/claude-sonnet-4-5': 'anthropic/claude-sonnet-4-6',
   'google/gemini-3-flash-preview': 'google/gemini-3.5-flash',
   'google/gemini-3-pro-preview': 'google/gemini-3.1-pro-preview',
+  'openai/gpt-5.2-chat-latest': 'openai/gpt-5.4-mini',
   'openrouter/anthropic/claude-sonnet-4.5': 'openrouter/anthropic/claude-sonnet-4.6',
   'openrouter/google/gemini-3-flash-preview': 'openrouter/google/gemini-3.5-flash',
 };
@@ -124,12 +124,11 @@ function normalizeMemorySettings(
   return {
     observationalMemory: {
       enabled: observational?.enabled ?? defaults.observationalMemory.enabled,
-      modelTarget: migrateMemoryModelTarget(
-        observational?.modelTarget?.trim() || defaults.observationalMemory.modelTarget
-      ),
-      scope: normalizeScope(observational?.scope ?? defaults.observationalMemory.scope),
       messageTokens: clampTokenThreshold(
         observational?.messageTokens ?? defaults.observationalMemory.messageTokens
+      ),
+      modelTarget: migrateMemoryModelTarget(
+        observational?.modelTarget?.trim() || defaults.observationalMemory.modelTarget
       ),
       observationTokens: clampTokenThreshold(
         observational?.observationTokens ?? defaults.observationalMemory.observationTokens
@@ -137,18 +136,19 @@ function normalizeMemorySettings(
       retrievalMode: normalizeRetrievalMode(
         observational?.retrievalMode ?? defaults.observationalMemory.retrievalMode
       ),
+      scope: normalizeScope(observational?.scope ?? defaults.observationalMemory.scope),
     },
     semanticRecall: {
-      enabled: semantic?.enabled ?? defaults.semanticRecall.enabled,
       embeddingModelTarget:
         semantic?.embeddingModelTarget?.trim() || defaults.semanticRecall.embeddingModelTarget,
-      scope: normalizeScope(semantic?.scope ?? defaults.semanticRecall.scope),
-      topK: clampInteger(semantic?.topK ?? defaults.semanticRecall.topK, 1, MAX_SEMANTIC_TOP_K),
+      enabled: semantic?.enabled ?? defaults.semanticRecall.enabled,
       messageRange: clampInteger(
         semantic?.messageRange ?? defaults.semanticRecall.messageRange,
         0,
         MAX_MESSAGE_RANGE
       ),
+      scope: normalizeScope(semantic?.scope ?? defaults.semanticRecall.scope),
+      topK: clampInteger(semantic?.topK ?? defaults.semanticRecall.topK, 1, MAX_SEMANTIC_TOP_K),
     },
   };
 }
@@ -182,6 +182,13 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         set((state) => ({
           observationalMemory: { ...state.observationalMemory, scope },
         })),
+      setObservationalRetrievalMode: (retrievalMode: RuntimeAssistantMemoryRetrievalMode) =>
+        set((state) => ({
+          observationalMemory: {
+            ...state.observationalMemory,
+            retrievalMode: normalizeRetrievalMode(retrievalMode),
+          },
+        })),
       setObservationMessageTokens: (value: number) =>
         set((state) => ({
           observationalMemory: {
@@ -196,22 +203,22 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
             observationTokens: clampTokenThreshold(value),
           },
         })),
-      setObservationalRetrievalMode: (retrievalMode: RuntimeAssistantMemoryRetrievalMode) =>
+      setSemanticRecallEmbeddingModelTarget: (embeddingModelTarget: string | null) =>
         set((state) => ({
-          observationalMemory: {
-            ...state.observationalMemory,
-            retrievalMode: normalizeRetrievalMode(retrievalMode),
+          semanticRecall: {
+            ...state.semanticRecall,
+            embeddingModelTarget: embeddingModelTarget?.trim() || null,
           },
         })),
       setSemanticRecallEnabled: (enabled: boolean) =>
         set((state) => ({
           semanticRecall: { ...state.semanticRecall, enabled },
         })),
-      setSemanticRecallEmbeddingModelTarget: (embeddingModelTarget: string | null) =>
+      setSemanticRecallMessageRange: (value: number) =>
         set((state) => ({
           semanticRecall: {
             ...state.semanticRecall,
-            embeddingModelTarget: embeddingModelTarget?.trim() || null,
+            messageRange: clampInteger(value, 0, MAX_MESSAGE_RANGE),
           },
         })),
       setSemanticRecallScope: (scope: RuntimeAssistantMemoryScope) =>
@@ -225,28 +232,15 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
             topK: clampInteger(value, 1, MAX_SEMANTIC_TOP_K),
           },
         })),
-      setSemanticRecallMessageRange: (value: number) =>
-        set((state) => ({
-          semanticRecall: {
-            ...state.semanticRecall,
-            messageRange: clampInteger(value, 0, MAX_MESSAGE_RANGE),
-          },
-        })),
     }),
     {
-      name: ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
-      version: STORE_VERSION,
-      storage,
-      partialize: (state) => ({
-        observationalMemory: state.observationalMemory,
-        semanticRecall: state.semanticRecall,
-      }),
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return initialMemorySettings;
         }
         return normalizeMemorySettings(persistedState as Partial<RuntimeAssistantMemorySettings>);
       },
+      name: ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           return;
@@ -270,6 +264,12 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         }
         useAssistantMemoryPreferencesStore.setState({ hasHydrated: true });
       },
+      partialize: (state) => ({
+        observationalMemory: state.observationalMemory,
+        semanticRecall: state.semanticRecall,
+      }),
+      storage,
+      version: STORE_VERSION,
     }
   )
 );

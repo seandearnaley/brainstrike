@@ -20,10 +20,10 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 
 describe('ImportProgressBar', () => {
   const baseProgress = {
-    phase: 'importing' as const,
-    total: 10,
     completed: 4,
     errors: [],
+    phase: 'importing' as const,
+    total: 10,
   };
 
   it('renders the spinning indicator with aria-hidden when in progress', () => {
@@ -56,10 +56,10 @@ describe('ImportProgressBar', () => {
     const progress = {
       ...baseProgress,
       chunkingProgress: {
+        chunksCreated: 9,
         currentFile: 'a.ts',
         filesProcessed: 1,
         totalFiles: 4,
-        chunksCreated: 9,
       },
     };
     render(<ImportProgressBar progress={progress} />);

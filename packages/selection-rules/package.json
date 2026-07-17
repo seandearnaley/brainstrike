@@ -4,17 +4,17 @@
   "version": "0.1.0",
   "dependencies": {
     "minimatch": "^10.2.5",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@swc/core": "^1.15.30",
-    "@types/node": "^25.6.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "@swc/core": "^1.15.43",
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

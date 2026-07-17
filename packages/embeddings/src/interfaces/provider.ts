@@ -27,7 +27,7 @@ export interface IEmbeddingProvider {
    * @param input - Text and model ID for embedding generation
    * @returns Result with embedding output or typed error
    */
-  embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput, EmbeddingProviderError>>;
+  embed: (input: EmbeddingInput) => Promise<Result<EmbeddingOutput, EmbeddingProviderError>>;
 
   /**
    * Get unified provider metadata for embedding-set creation and validation (BST-167)
@@ -36,7 +36,7 @@ export interface IEmbeddingProvider {
    * @param modelId - Model identifier to get metadata for
    * @returns Provider metadata or null if model not found/configured
    */
-  getMetadata(modelId: string): ProviderMetadata | null;
+  getMetadata: (modelId: string) => ProviderMetadata | null;
 
   /**
    * Get model metadata from registry
@@ -45,7 +45,7 @@ export interface IEmbeddingProvider {
    * @param modelId - Model identifier
    * @returns Model configuration or null if not found
    */
-  getModelInfo(modelId: string): ModelConfig | null;
+  getModelInfo: (modelId: string) => ModelConfig | null;
 
   /**
    * Check if provider is available and ready to generate embeddings
@@ -54,7 +54,7 @@ export interface IEmbeddingProvider {
    *
    * @returns true if provider is ready or can be initialized
    */
-  isAvailable(): Promise<boolean>;
+  isAvailable: () => Promise<boolean>;
 
   /**
    * Validate embedding dimensions match expected value
@@ -64,10 +64,10 @@ export interface IEmbeddingProvider {
    * @param expectedDimensions - Expected dimension count (typically 768)
    * @returns Result with void on success or dimension_mismatch error
    */
-  validateDimensions(
+  validateDimensions: (
     embedding: number[],
     expectedDimensions: number
-  ): Result<void, EmbeddingProviderError>;
+  ) => Result<void, EmbeddingProviderError>;
 }
 
 /**
@@ -79,12 +79,12 @@ export interface ILocalEmbeddingProvider extends IEmbeddingProvider {
    * Dispose of loaded model and free resources
    * Important for memory management in browser environments
    */
-  dispose(): Promise<void>;
+  dispose: () => Promise<void>;
 
   /**
    * Get current initialization status
    */
-  getStatus(): 'idle' | 'initializing' | 'ready' | 'error';
+  getStatus: () => 'idle' | 'initializing' | 'ready' | 'error';
 
   /**
    * Initialize the local model with progress tracking
@@ -92,7 +92,9 @@ export interface ILocalEmbeddingProvider extends IEmbeddingProvider {
    *
    * @param onProgress - Optional callback for download/initialization progress
    */
-  initialize(onProgress?: (progress: { stage: string; progress?: number }) => void): Promise<void>;
+  initialize: (
+    onProgress?: (progress: { stage: string; progress?: number }) => void
+  ) => Promise<void>;
   readonly provider: 'local';
   /**
    * Provider type discriminator
@@ -108,7 +110,7 @@ export interface IHostedEmbeddingProvider extends IEmbeddingProvider {
   /**
    * Check if API key is configured
    */
-  hasApiKey(): boolean;
+  hasApiKey: () => boolean;
   readonly provider: Exclude<EmbeddingProviderType, LocalProviderType>;
   /**
    * Provider type discriminator
@@ -121,5 +123,5 @@ export interface IHostedEmbeddingProvider extends IEmbeddingProvider {
    *
    * @param apiKey - API key for the provider
    */
-  setApiKey(apiKey: string): void;
+  setApiKey: (apiKey: string) => void;
 }

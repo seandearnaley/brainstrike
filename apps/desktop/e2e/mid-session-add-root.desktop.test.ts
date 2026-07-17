@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
@@ -59,16 +59,32 @@ function makeRootDir(label: string, fileCount: number): string {
   return dir;
 }
 
-// Created at module load so BRAINSTRIKE_E2E_REAL_ROOT_PATH is set BEFORE the
-// electron harness launches the app (it reads process.env at launch time).
-// root #1 stays actively indexing when root #2 is added — the realistic
-// "added a folder while the indexer was busy" condition (real-stack smoke that
-// the fix keeps mid-session adds working end to end).
+// Created in beforeAll (NOT at module load): the env var must be set before the
+// per-test electron harness launches the app (it reads process.env at launch
+// time), but module-load side effects leak process-wide across every test file
+// that shares this Playwright worker — a leaked BRAINSTRIKE_E2E_REAL_ROOT_PATH
+// hijacked other specs' folder picks to this file's temp dir. afterAll removes
+// it again. root #1 stays actively indexing when root #2 is added — the
+// realistic "added a folder while the indexer was busy" condition (real-stack
+// smoke that the fix keeps mid-session adds working end to end).
 const ROOT_ONE_FILE_COUNT = 150;
-const ROOT_ONE_DIR = makeRootDir('root1', ROOT_ONE_FILE_COUNT);
-const ROOT_TWO_DIR = makeRootDir('root2', 3);
-// The "Add Folder" pick returns this real directory instead of an OS dialog.
-process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = ROOT_TWO_DIR;
+let ROOT_ONE_DIR: string;
+let ROOT_TWO_DIR: string;
+
+test.beforeAll(() => {
+  ROOT_ONE_DIR = makeRootDir('root1', ROOT_ONE_FILE_COUNT);
+  ROOT_TWO_DIR = makeRootDir('root2', 3);
+  // The "Add Folder" pick returns this real directory instead of an OS dialog.
+  process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = ROOT_TWO_DIR;
+});
+
+test.afterAll(() => {
+  // biome-ignore lint/performance/noDelete: assigning undefined to process.env coerces to the string "undefined"; delete is the only way to actually unset it.
+  delete process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'];
+  // The mkdtempSync roots would otherwise leak into os.tmpdir() every run.
+  rmSync(ROOT_ONE_DIR, { force: true, recursive: true });
+  rmSync(ROOT_TWO_DIR, { force: true, recursive: true });
+});
 
 const ADD_FOLDER_LABEL = 'Add Folder to Workspace';
 
@@ -176,7 +192,12 @@ test.describe('Mid-session add root indexing', () => {
           'vector-preferences.v1',
           JSON.stringify({
             state: {
-              devicePref: 'webgpu',
+              // CI has no WebGPU (ELECTRON_DISABLE_GPU=1); since #1246 the
+              // embedding host refuses to auto-downgrade and errors on a
+              // webgpu preference it cannot honor, which leaves the indexer's
+              // sync loop 'stopped' so root #1 never imports. Seed wasm like
+              // every other embedding spec.
+              devicePref: 'wasm',
               devicePrefConfigured: true,
               reinitEveryN: 200,
               verboseOrtLogs: false,

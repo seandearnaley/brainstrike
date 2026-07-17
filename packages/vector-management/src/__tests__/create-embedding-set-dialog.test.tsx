@@ -56,32 +56,32 @@ describe('CreateEmbeddingSetDialog', () => {
   const mockOnOpenChange = vi.fn();
   const mockOnSetCreated = vi.fn();
   const mockRepository = {
-    getOrCreateSet: vi.fn(),
     findAll: vi.fn().mockResolvedValue([]),
+    getOrCreateSet: vi.fn(),
   } as unknown as IEmbeddingSetsRepository;
 
   const mockModels: ModelPickerModel[] = [
     {
+      capabilities: {
+        defaultDimension: 1536,
+        type: 'embedding',
+      },
+      description: 'Efficient embedding model',
       id: 'openai::text-embedding-3-small',
       modelId: 'text-embedding-3-small',
-      providerId: 'openai',
       name: 'Text Embedding 3 Small',
-      description: 'Efficient embedding model',
-      capabilities: {
-        type: 'embedding',
-        defaultDimension: 1536,
-      },
+      providerId: 'openai',
     },
     {
+      capabilities: {
+        defaultDimension: 384,
+        type: 'embedding',
+      },
+      description: 'Local embedding model',
       id: 'local::Xenova/all-MiniLM-L6-v2',
       modelId: 'Xenova/all-MiniLM-L6-v2',
-      providerId: 'local',
       name: 'all-MiniLM-L6-v2',
-      description: 'Local embedding model',
-      capabilities: {
-        type: 'embedding',
-        defaultDimension: 384,
-      },
+      providerId: 'local',
     },
   ];
 
@@ -251,12 +251,12 @@ describe('CreateEmbeddingSetDialog', () => {
   it('preserves a name typed before models finish loading', async () => {
     const user = userEvent.setup({ delay: null });
     const createdSet = {
-      id: 'late-model-set-id',
-      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
+      createdAt: '2026-05-02T00:00:00.000Z',
       dimensions: 384,
       distance: 'cosine' as const,
-      createdAt: '2026-05-02T00:00:00.000Z',
+      id: 'late-model-set-id',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
       name: 'Late Typed Collection',
     };
     (mockRepository.getOrCreateSet as Mock).mockResolvedValue(createdSet);
@@ -353,11 +353,11 @@ describe('CreateEmbeddingSetDialog', () => {
   it('auto-generates unique name when existing collection has same name', async () => {
     // Mock repository returns an existing collection with the same name as the first model
     const mockRepositoryWithExisting = {
-      getOrCreateSet: vi.fn(),
       findAll: vi.fn().mockResolvedValue([
         { name: 'text-embedding-3-small' }, // Same as first model's name
         { name: 'Text Embedding 3 Small' }, // Same as first model's display name
       ]),
+      getOrCreateSet: vi.fn(),
     } as unknown as IEmbeddingSetsRepository;
 
     render(
@@ -384,7 +384,6 @@ describe('CreateEmbeddingSetDialog', () => {
   it('auto-generates incremented unique name with multiple collisions', async () => {
     // Mock repository returns multiple existing collections with incrementing names
     const mockRepositoryWithMultiple = {
-      getOrCreateSet: vi.fn(),
       findAll: vi
         .fn()
         .mockResolvedValue([
@@ -393,6 +392,7 @@ describe('CreateEmbeddingSetDialog', () => {
           { name: 'Text Embedding 3 Small (2)' },
           { name: 'Text Embedding 3 Small (3)' },
         ]),
+      getOrCreateSet: vi.fn(),
     } as unknown as IEmbeddingSetsRepository;
 
     render(
@@ -550,8 +550,8 @@ describe('CreateEmbeddingSetDialog', () => {
       resolveFindAll = resolve;
     });
     const slowRepository = {
-      getOrCreateSet: vi.fn(),
       findAll: vi.fn().mockReturnValue(slowFindAll),
+      getOrCreateSet: vi.fn(),
     } as unknown as IEmbeddingSetsRepository;
 
     const user = userEvent.setup({ delay: null });
@@ -593,8 +593,8 @@ describe('CreateEmbeddingSetDialog', () => {
       resolveFindAll = resolve;
     });
     const slowRepository = {
-      getOrCreateSet: vi.fn(),
       findAll: vi.fn().mockReturnValue(slowFindAll),
+      getOrCreateSet: vi.fn(),
     } as unknown as IEmbeddingSetsRepository;
 
     render(
@@ -633,8 +633,8 @@ describe('CreateEmbeddingSetDialog', () => {
       resolveFindAll = resolve;
     });
     const slowRepository = {
-      getOrCreateSet: vi.fn(),
       findAll: vi.fn().mockReturnValue(slowFindAll),
+      getOrCreateSet: vi.fn(),
     } as unknown as IEmbeddingSetsRepository;
 
     const user = userEvent.setup({ delay: null });
@@ -707,21 +707,21 @@ describe('CreateEmbeddingSetDialog', () => {
     // The slot must never render the badge prefix in either case.
     const modelsWithPrice: ModelPickerModel[] = [
       {
+        capabilities: { defaultDimension: 1536, type: 'embedding' },
+        description: 'Efficient embedding model',
         id: 'openai::text-embedding-3-small',
         modelId: 'text-embedding-3-small',
-        providerId: 'openai',
         name: 'Text Embedding 3 Small',
-        description: 'Efficient embedding model',
         pricePer1MTokensInput: 0.02,
-        capabilities: { type: 'embedding', defaultDimension: 1536 },
+        providerId: 'openai',
       },
       {
+        capabilities: { defaultDimension: 384, type: 'embedding' },
+        description: 'Local embedding model',
         id: 'local::Xenova/all-MiniLM-L6-v2',
         modelId: 'Xenova/all-MiniLM-L6-v2',
-        providerId: 'local',
         name: 'all-MiniLM-L6-v2',
-        description: 'Local embedding model',
-        capabilities: { type: 'embedding', defaultDimension: 384 },
+        providerId: 'local',
       },
     ];
 

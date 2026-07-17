@@ -58,7 +58,7 @@ describe('data-stream stall handling', () => {
     async function* aliveThenFinished(): AsyncIterableIterator<StreamChunk> {
       yield { type: 'text-delta', value: 'a' };
       yield { type: 'text-delta', value: 'b' };
-      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } };
+      yield { type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } };
     }
 
     // No timeout wrapper — this source completes normally so there is no stall risk.

@@ -6,11 +6,11 @@ describe('FileRecord model', () => {
     // This test verifies the TypeScript type at compile time
     // and demonstrates proper usage of the FileRecord interface
     const validFileRecord: FileRecord = {
+      createdAt: new Date().toISOString(),
       id: '123e4567-e89b-12d3-a456-426614174000',
       name: 'test-file.txt',
       path: '/path/to/test-file.txt',
       size: 1024,
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
@@ -34,11 +34,11 @@ describe('FileRecord model', () => {
   it('FileRecord dates should be ISO string format', () => {
     const now = new Date();
     const fileRecord: FileRecord = {
+      createdAt: now.toISOString(),
       id: '123e4567-e89b-12d3-a456-426614174000',
       name: 'test.txt',
       path: '/test.txt',
       size: 100,
-      createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
 

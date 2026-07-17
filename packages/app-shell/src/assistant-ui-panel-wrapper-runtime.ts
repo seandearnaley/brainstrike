@@ -2,8 +2,11 @@ import {
   type AnthropicProviderOptions,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
+  getLlmModelDefinition,
+  type HookTrustRequest,
   type LocalProviderOptions,
   type OpenAiProviderOptions,
+  type OpenRouterProviderOptions,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
 } from '@brainstrike/assistant-contract';
@@ -21,6 +24,8 @@ import {
 import {
   getProviderDefaultModel,
   getProviderDefinition,
+  isSupportedProvider,
+  type ModelVisionSupport,
   type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -42,6 +47,7 @@ import {
 import type {
   AssistantProviderSettings,
   AssistantToolMenuItem,
+  ComposerAttachmentsAvailability,
 } from '@brainstrike/ui/assistant-ui-panel';
 import type {
   AssistantThreadRepository,
@@ -59,6 +65,17 @@ export function resolveModelNameFromComposite(
   }
   const parts = composite.split('::');
   return parts.length === 2 ? parts[1] : composite;
+}
+
+export function resolveProviderFromComposite(
+  composite: string | null | undefined
+): SupportedProvider | null {
+  if (!composite) {
+    return null;
+  }
+  const parts = composite.split('::');
+  const candidate = parts.length === 2 ? parts[0] : null;
+  return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
 function createThreadRunId(): string {
@@ -109,7 +126,6 @@ function resolveSemanticRecallDisabledReason(
       ? 'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
       : 'Semantic observation recall requires an OpenAI, Google, or built-in local embedding model. Configure one under Assistant Memory settings.';
   }
-
   return;
 }
 
@@ -179,11 +195,11 @@ export function createAssistantThreadRunPromise(args: {
   return args.assistantThreadRepository
     .createThreadRun({
       id: runId,
-      resourceId: args.memoryResourceId,
-      threadId: args.selectedMemoryThreadId,
-      provider: args.selectedProvider,
       model: args.resolvedModelName,
+      provider: args.selectedProvider,
+      resourceId: args.memoryResourceId,
       runtimeKind: toAssistantThreadRuntimeKind(providerDefinition.runtime),
+      threadId: args.selectedMemoryThreadId,
       ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
       ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
     })
@@ -193,6 +209,7 @@ export function createAssistantThreadRunPromise(args: {
 export function buildAssistantRequestData(args: {
   agentLoopSettings: RuntimeData['agentLoop'] | undefined;
   enabledNativeToolIds: readonly string[];
+  hookTrustRequest?: HookTrustRequest | undefined;
   hostedMemoryBackendAvailable: boolean;
   memoryOptions: RuntimeMemoryOptions;
   memoryResourceId: string | undefined;
@@ -205,6 +222,12 @@ export function buildAssistantRequestData(args: {
    * (passthrough). The caller is responsible for gating this to `enforce:true`.
    */
   permissionPolicyRequest: PermissionToolGateSnapshotInput | undefined;
+  /**
+   * Plan mode (opt-in). Attached ONLY when `true` (presence-means-on, like
+   * `permissionPolicyRequest`); the server constrains the tool map and prepends
+   * the plan-mode instructions. Absent → normal run.
+   */
+  planMode?: boolean;
   providerOptions: Record<string, unknown> | undefined;
   selectedMemoryThreadId: string | undefined;
   selectionData: {
@@ -223,6 +246,24 @@ export function buildAssistantRequestData(args: {
     queueProgress: RuntimeData['workspaceIndexQueueProgress'] | null;
     statusState: RuntimeData['workspaceIndexStatusState'];
   };
+  /**
+   * Opt-in subagent persona availability; only set on the desktop data-stream
+   * transport and only when it diverges from the defaults. A preference, not a
+   * security boundary — it can only reduce the persona set.
+   */
+  /**
+   * Opt-in Agent Skills preference; only set on the desktop data-stream
+   * transport (web has no skills engine). A preference, not a security
+   * boundary — it can only reduce the skill set.
+   */
+  skillsPreference?: RuntimeData['skillsPreference'];
+  subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
+  /**
+   * Opt-in workspace instructions preference; only set on the desktop
+   * data-stream transport (web has no injection path). A preference, not a
+   * security boundary — the server reads it directly.
+   */
+  workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
   workspaceRootPath: string | null;
 }): Record<string, unknown> {
   const data: Record<string, unknown> = {};
@@ -271,10 +312,10 @@ export function buildAssistantRequestData(args: {
   }
   if (args.memoryResourceId && args.selectedMemoryThreadId && args.hostedMemoryBackendAvailable) {
     data['memory'] = {
-      threadId: args.selectedMemoryThreadId,
-      resourceId: args.memoryResourceId,
-      memorySettings: args.memorySettings,
       memoryOptions: args.memoryOptions,
+      memorySettings: args.memorySettings,
+      resourceId: args.memoryResourceId,
+      threadId: args.selectedMemoryThreadId,
     };
   }
   if (args.agentLoopSettings) {
@@ -286,15 +327,51 @@ export function buildAssistantRequestData(args: {
   if (args.providerOptions) {
     data['providerOptions'] = args.providerOptions;
   }
-  // Permission enforcement is OPT-IN: the caller passes a snapshot ONLY when the
-  // user enabled `enforce`, so its mere presence here means "enforce". The
-  // server (`resolveRequestPermissionPolicy`) still re-checks `enforce` and adds
-  // server-owned tool risk classification. When absent, nothing is sent and the
-  // runtime keeps its passthrough default.
-  if (args.permissionPolicyRequest) {
-    data['permissionPolicyRequest'] = args.permissionPolicyRequest;
-  }
+  attachOptInRequestFields(data, args);
   return data;
+}
+
+interface OptInRequestFields {
+  hookTrustRequest?: HookTrustRequest | undefined;
+  permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
+  planMode?: boolean;
+  skillsPreference?: RuntimeData['skillsPreference'];
+  subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
+  workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
+}
+
+/**
+ * Attach the OPT-IN / presence-means-on request fields (all desktop
+ * data-stream-gated by the caller). Extracted so `buildAssistantRequestData`
+ * stays under the cognitive-complexity budget.
+ */
+function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRequestFields): void {
+  // Permission enforcement is OPT-IN: presence means "enforce"; the server
+  // re-checks `enforce` and adds server-owned tool risk classification.
+  if (fields.permissionPolicyRequest) {
+    data['permissionPolicyRequest'] = fields.permissionPolicyRequest;
+  }
+  // Hook-trust attestation: only on the data-stream transport; server re-hashes disk.
+  if (fields.hookTrustRequest) {
+    data['hookTrustRequest'] = fields.hookTrustRequest;
+  }
+  // Plan mode is presence-means-on: only send `true`, never a `false` residue.
+  if (fields.planMode) {
+    data['planMode'] = true;
+  }
+  // Workspace instructions preference: absent => server default (master on).
+  // Subagent persona availability is presence-means-non-default: the builder
+  // returns undefined at the defaults, so nothing rides the wire then.
+  if (fields.subagentPersonasRequest) {
+    data['subagentPersonasRequest'] = fields.subagentPersonasRequest;
+  }
+  if (fields.workspaceInstructionsPreference) {
+    data['workspaceInstructionsPreference'] = fields.workspaceInstructionsPreference;
+  }
+  // Skills preference: absent => server default (master on, nothing disabled).
+  if (fields.skillsPreference) {
+    data['skillsPreference'] = fields.skillsPreference;
+  }
 }
 
 function getAssistantTapestryColor(key: string): string {
@@ -315,16 +392,16 @@ export function buildAssistantTapestryRange(args: {
   startLine: number;
 }): TapestryRange {
   const internalRange = toolLineRangeToTapestryRange({
-    startLine: args.startLine,
     endLine: args.endLine,
+    startLine: args.startLine,
   });
   const rangeKey = `${args.compositeKey}:${args.index}:${args.startLine}:${args.endLine}`;
   return {
-    id: `assistant-${rangeKey}`,
-    startLine: internalRange.startLine,
-    endLine: internalRange.endLine,
-    isActive: args.isActive !== false,
     color: resolveTapestryColorHex(args.color) ?? getAssistantTapestryColor(rangeKey),
+    endLine: internalRange.endLine,
+    id: `assistant-${rangeKey}`,
+    isActive: args.isActive !== false,
+    startLine: internalRange.startLine,
     userModified: true,
   };
 }
@@ -346,7 +423,6 @@ export function toRuntimeWorkspaceContext(
     projectTreeTokenCountLoading: snapshot.projectTreeTokenCountLoading,
     selectedOutputApproxTokens: snapshot.selectedOutputApproxTokens,
     selectedSourceApproxTokens: snapshot.selectedSourceApproxTokens,
-    useTapestryRanges: snapshot.useTapestryRanges,
     ...(snapshot.tokenBudget === null ? {} : { tokenBudget: snapshot.tokenBudget }),
   };
 }
@@ -388,9 +464,9 @@ export function resolveAssistantProviderDisabledReason(args: {
     .getProviderLlmModels(args.selectedProvider)
     .map((model) => model.id);
   const unavailableLocalModelReason = resolveSelectedLocalModelUnavailableReason({
-    selectedProvider: args.selectedProvider,
-    selectedModel: args.currentModel ?? null,
     providerModelIds,
+    selectedModel: args.currentModel ?? null,
+    selectedProvider: args.selectedProvider,
   });
   if (unavailableLocalModelReason) {
     return unavailableLocalModelReason;
@@ -488,18 +564,55 @@ export function toRuntimeProviderModels(
 
   const llmCandidates = runtimeState.models.filter((model) => model.capabilities.llm);
   return llmCandidates.map((model, index) => ({
-    id: model.modelId,
-    label: model.displayName,
-    type: 'llm' as const,
-    default: index === 0,
-    supportsStreaming: true,
     // Conservative floor: user-supplied local models don't declare their context window.
     // This intentionally under-budgets large models (a 128k model gets a 32k budget — safe).
     // For small models (e.g. a 4k-context quantized GGUF) it over-estimates: the agent may
     // compose prompts larger than the model holds. Accepted tradeoff — the local server's
     // own context cap is the real enforcement on that path.
     contextWindow: 32_768,
+    default: index === 0,
+    id: model.modelId,
+    label: model.displayName,
+    supportsStreaming: true,
+    type: 'llm' as const,
+    vision: model.capabilities.vision,
   }));
+}
+
+/**
+ * Composer image-attachment gate. Layered on top of the provider predicate
+ * (every hosted provider is eligible — the desktop assistant server and the
+ * web /api/assistant route share the same image-aware conversion; only the
+ * text-only built-in local provider is excluded): when that gate fails the
+ * affordance is hidden entirely (undefined); when it passes, the SELECTED
+ * MODEL's vision capability decides between 'enabled' and a visibly
+ * 'disabled' button carrying the reason — never a silent hide. 'unknown'
+ * vision (runtime-discovered model without a capability signal) and an
+ * unresolved definition (e.g. runtime catalog still loading) stay
+ * optimistic: a wrong guess surfaces as a visible provider error downstream,
+ * whereas guessing 'unsupported' would silently block a capable model.
+ */
+export function resolveComposerAttachmentsAvailability(args: {
+  readonly providerGateAvailable: boolean;
+  readonly selectedModel:
+    | {
+        readonly id: string;
+        readonly label?: string | undefined;
+        readonly vision: ModelVisionSupport;
+      }
+    | undefined;
+}): ComposerAttachmentsAvailability | undefined {
+  if (!args.providerGateAvailable) {
+    return;
+  }
+  if (args.selectedModel?.vision === 'unsupported') {
+    const modelName = args.selectedModel.label ?? args.selectedModel.id;
+    return {
+      reason: `${modelName} doesn't support image input. Switch to a vision-capable model to attach images.`,
+      state: 'disabled',
+    };
+  }
+  return { state: 'enabled' };
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -687,8 +800,8 @@ export function toLocalRuntimeInputSchema(toolId: string): Record<string, unknow
 
   for (const parameter of displaySchema.parameters) {
     const schema: Record<string, unknown> = {
-      type: parameter.type === 'enum' ? 'string' : parameter.type,
       description: parameter.description,
+      type: parameter.type === 'enum' ? 'string' : parameter.type,
     };
     if (parameter.type === 'enum' && parameter.enumValues) {
       schema['enum'] = parameter.enumValues;
@@ -705,8 +818,8 @@ export function toLocalRuntimeInputSchema(toolId: string): Record<string, unknow
   }
 
   return {
-    type: 'object',
     properties,
+    type: 'object',
     ...(required.length > 0 ? { required } : {}),
   };
 }
@@ -716,13 +829,13 @@ export function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuI
   for (const [serverName, serverTools] of Object.entries(toolsByServer)) {
     for (const tool of serverTools) {
       items.push({
+        category: 'action',
+        description: tool.description ?? `MCP tool: ${tool.id}`,
+        enabled: tool.enabled,
+        group: serverName,
         id: tool.id,
         label: formatToolLabel(tool.id),
-        enabled: tool.enabled,
         source: 'mcp',
-        group: serverName,
-        description: tool.description ?? `MCP tool: ${tool.id}`,
-        category: 'action',
         ...(isPlainRecord(tool.inputSchema) ? { inputSchema: tool.inputSchema } : {}),
         isLocalRuntimeRunnable: true,
       });
@@ -847,14 +960,39 @@ function buildOpenAiOptions(
   ]);
 }
 
+function buildOpenRouterOptions(
+  modelName: string | undefined,
+  settings: AssistantProviderSettings
+): OpenRouterProviderOptions | undefined {
+  const reasoningEffort = settings.reasoningEffort;
+  if (modelName && reasoningEffort) {
+    const model = getLlmModelDefinition('openrouter', modelName);
+    if (!model.reasoning) {
+      throw new Error(
+        `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
+      );
+    }
+    if (!model.reasoning.supportedEfforts.includes(reasoningEffort)) {
+      throw new Error(
+        `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${model.reasoning.supportedEfforts.join(', ')}.`
+      );
+    }
+  }
+  const reasoning = buildOptionalOptions<NonNullable<OpenRouterProviderOptions['reasoning']>>([
+    ['effort', reasoningEffort || undefined],
+    ['summary', settings.reasoningSummary || undefined],
+  ]);
+  return reasoning ? { reasoning } : undefined;
+}
+
 function buildAnthropicOptions(
   settings: AssistantProviderSettings
 ): AnthropicProviderOptions | undefined {
   const thinking =
     typeof settings.anthropicThinkingBudgetTokens === 'number'
       ? {
-          type: 'enabled' as const,
           budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
+          type: 'enabled' as const,
         }
       : undefined;
   return buildOptionalOptions<AnthropicProviderOptions>([
@@ -916,10 +1054,13 @@ export function buildProviderOptions(
   }
 
   switch (providerId) {
-    case 'openai':
-    case 'openrouter': {
+    case 'openai': {
       const openai = buildOpenAiOptions(settings);
       return openai ? { openai } : undefined;
+    }
+    case 'openrouter': {
+      const openrouter = buildOpenRouterOptions(modelName, settings);
+      return openrouter ? { openrouter } : undefined;
     }
     case 'anthropic': {
       const anthropic = buildAnthropicOptions(settings);
@@ -948,6 +1089,29 @@ export function buildProviderOptions(
     default:
       return;
   }
+}
+
+/**
+ * Clear a provider-wide effort override when the user explicitly switches to
+ * an OpenRouter model that rejects it or has no declared effort support. The
+ * model's documented default then remains visible as "Auto" in the settings
+ * control; request construction still throws if incompatible state reaches it
+ * by any other path.
+ */
+export function reconcileProviderSettingsForModel(
+  providerId: SupportedProvider,
+  modelName: string,
+  settings: AssistantProviderSettings | undefined
+): AssistantProviderSettings | undefined {
+  if (!(providerId === 'openrouter' && settings?.reasoningEffort)) {
+    return settings;
+  }
+  const model = getLlmModelDefinition('openrouter', modelName);
+  if (model.reasoning?.supportedEfforts.includes(settings.reasoningEffort)) {
+    return settings;
+  }
+  const { reasoningEffort: _unsupportedReasoningEffort, ...compatibleSettings } = settings;
+  return compatibleSettings;
 }
 
 export function copyProviderSettingsMap(
@@ -1010,10 +1174,10 @@ export type McpAction =
 export function mcpReducer(_state: McpState, action: McpAction): McpState {
   switch (action.type) {
     case 'LOADING':
-      return { tools: [], loading: true };
+      return { loading: true, tools: [] };
     case 'LOADED':
-      return { tools: action.tools, loading: false };
+      return { loading: false, tools: action.tools };
     case 'ERROR':
-      return { tools: [], loading: false };
+      return { loading: false, tools: [] };
   }
 }

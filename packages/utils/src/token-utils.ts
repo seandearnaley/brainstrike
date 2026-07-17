@@ -144,8 +144,8 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   // that change shape over time.
   if (faultState.count > 0) {
     logger.warn('tiktoken per-item encode failures degraded to heuristic in batch', {
-      faultCount: faultState.count,
       batchSize: textCount,
+      faultCount: faultState.count,
       firstError: faultState.firstError,
       lastError: faultState.lastError,
     });

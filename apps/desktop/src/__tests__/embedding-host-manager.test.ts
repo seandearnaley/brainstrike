@@ -51,21 +51,21 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
 
 const { powerSaveBlockerIsStartedMock, powerSaveBlockerStartMock, powerSaveBlockerStopMock } =
   vi.hoisted(() => ({
+    powerSaveBlockerIsStartedMock: vi.fn(() => true),
     powerSaveBlockerStartMock: vi.fn(() => 101),
     powerSaveBlockerStopMock: vi.fn(),
-    powerSaveBlockerIsStartedMock: vi.fn(() => true),
   }));
 
 vi.mock('electron', () => ({
-  BrowserWindow: vi.fn(),
   app: {
     getAppPath: vi.fn(() => '/mock/app'),
     isPackaged: false,
   },
+  BrowserWindow: vi.fn(),
   powerSaveBlocker: {
+    isStarted: powerSaveBlockerIsStartedMock,
     start: powerSaveBlockerStartMock,
     stop: powerSaveBlockerStopMock,
-    isStarted: powerSaveBlockerIsStartedMock,
   },
 }));
 
@@ -78,11 +78,11 @@ vi.mock('../renderer-host-lifecycle', () => ({
 import { EmbeddingHostManager } from '../embedding-host-manager';
 
 type TestableEmbeddingHostManager = EmbeddingHostManager & {
-  syncPowerSaveBlocker(status: {
+  syncPowerSaveBlocker: (status: {
     active: boolean;
     lastError: string | null;
     state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-  }): void;
+  }) => void;
 };
 
 describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
@@ -108,12 +108,12 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   it('keeps the blocker active across short idle gaps while the host remains running', () => {
     const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
 
-    manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
-    manager.syncPowerSaveBlocker({ state: 'running', active: false, lastError: null });
+    manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+    manager.syncPowerSaveBlocker({ active: false, lastError: null, state: 'running' });
 
     vi.advanceTimersByTime(4000);
 
-    manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+    manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
 
     expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(1);
     expect(powerSaveBlockerStopMock).not.toHaveBeenCalled();
@@ -122,8 +122,8 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   it('stops the blocker after sustained idle while the host remains running', () => {
     const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
 
-    manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
-    manager.syncPowerSaveBlocker({ state: 'running', active: false, lastError: null });
+    manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+    manager.syncPowerSaveBlocker({ active: false, lastError: null, state: 'running' });
 
     vi.advanceTimersByTime(5001);
 
@@ -151,9 +151,9 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       powerSaveBlockerIsStartedMock.mockReturnValueOnce(true).mockReturnValueOnce(false);
       const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
 
-      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+      manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
       expect(() =>
-        manager.syncPowerSaveBlocker({ state: 'error', active: false, lastError: 'fatal' })
+        manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' })
       ).not.toThrow();
       expect(warnings.some((message) => message.includes('powerSaveBlocker stop failed'))).toBe(
         true
@@ -161,7 +161,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
 
       // The failed stop must not wedge the manager: the next active phase
       // must be able to start a brand-new blocker.
-      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+      manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
 
       expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(2);
     } finally {
@@ -188,21 +188,21 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       // sleeps); the manager must keep the handle and retry.
       const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
 
-      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
-      manager.syncPowerSaveBlocker({ state: 'error', active: false, lastError: 'fatal' });
+      manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+      manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' });
       expect(warnings.some((message) => message.includes('keeping id to retry'))).toBe(true);
 
       // The kept id means no duplicate blocker can start meanwhile...
-      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+      manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
       expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(1);
 
       // ...and the next stop cycle retries with the SAME id and succeeds.
-      manager.syncPowerSaveBlocker({ state: 'error', active: false, lastError: 'fatal' });
+      manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' });
       expect(powerSaveBlockerStopMock).toHaveBeenCalledTimes(2);
       expect(powerSaveBlockerStopMock).toHaveBeenLastCalledWith(101);
 
       // After the successful retry the id is cleared and a fresh start works.
-      manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+      manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
       expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(2);
     } finally {
       removeLogListener();
@@ -212,8 +212,8 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   it('stops the blocker immediately when the host leaves the running state', () => {
     const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
 
-    manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
-    manager.syncPowerSaveBlocker({ state: 'error', active: false, lastError: 'fatal' });
+    manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+    manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' });
 
     expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(1);
     expect(powerSaveBlockerStopMock).toHaveBeenCalledTimes(1);
@@ -225,8 +225,8 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       disposed: boolean;
     };
 
-    manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
-    manager.syncPowerSaveBlocker({ state: 'running', active: false, lastError: null });
+    manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+    manager.syncPowerSaveBlocker({ active: false, lastError: null, state: 'running' });
     manager.disposed = true;
 
     vi.advanceTimersByTime(5001);
@@ -435,11 +435,11 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     });
 
     manager.acceptStatusReport(91, {
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host-runtime',
-      state: 'stopped',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host-runtime',
+      runtimeKind: 'embedding-host',
+      state: 'stopped',
     });
 
     expect(lifecycleState.setStatus).not.toHaveBeenCalledWith(
@@ -450,11 +450,11 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     );
 
     manager.acceptStatusReport(91, {
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host:next-runtime',
-      state: 'running',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host:next-runtime',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     });
 
     expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
@@ -469,11 +469,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     const manager = new EmbeddingHostManager();
 
     manager.acceptStatusReport(91, {
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host-runtime',
-      state: 'running',
       active: false,
-      lastError: null,
       embeddingRuntime: {
         actualWorkerMetadata: {
           device: 'webgpu',
@@ -483,6 +479,10 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         backendMismatch: false,
         selectedDevicePreference: 'webgpu',
       },
+      lastError: null,
+      runtimeId: 'embedding-host-runtime',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     });
 
     expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
@@ -589,11 +589,11 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       runtimeId: string;
     };
     manager.acceptQueryEmbeddingResponseReport(91, {
-      type: 'result',
       channel: 'query-embedding-result',
+      payload: { embedding: [0.125, 0.75] },
       requestId: request.requestId,
       runtimeId: request.runtimeId,
-      payload: { embedding: [0.125, 0.75] },
+      type: 'result',
     });
 
     await expect(embeddingPromise).resolves.toEqual([0.125, 0.75]);
@@ -651,11 +651,11 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(requests).toHaveLength(8);
     for (const request of requests) {
       manager.acceptQueryEmbeddingResponseReport(91, {
-        type: 'result',
         channel: 'query-embedding-result',
+        payload: { embedding: [0.25, 0.5] },
         requestId: request.requestId,
         runtimeId: request.runtimeId,
-        payload: { embedding: [0.25, 0.5] },
+        type: 'result',
       });
     }
 
@@ -697,11 +697,11 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     );
     for (const request of requests) {
       manager.acceptQueryEmbeddingResponseReport(91, {
-        type: 'result',
         channel: 'query-embedding-result',
+        payload: { embedding: [0.25, 0.5] },
         requestId: request.requestId,
         runtimeId: request.runtimeId,
-        payload: { embedding: [0.25, 0.5] },
+        type: 'result',
       });
     }
     await expect(Promise.all(pending)).resolves.toEqual(
@@ -716,21 +716,21 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     currentLifecycleStatus.state = 'running';
 
     manager.acceptStatusReport(91, {
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host-runtime',
-      state: 'running',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host-runtime',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     });
 
     vi.advanceTimersByTime(4000);
 
     manager.acceptStatusReport(91, {
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host-runtime',
-      state: 'running',
       active: true,
       lastError: null,
+      runtimeId: 'embedding-host-runtime',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     });
 
     vi.advanceTimersByTime(1500);
@@ -751,11 +751,11 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     currentLifecycleStatus.state = 'running';
 
     manager.acceptStatusReport(91, {
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host-runtime',
-      state: 'running',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host-runtime',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     });
 
     vi.advanceTimersByTime(5001);

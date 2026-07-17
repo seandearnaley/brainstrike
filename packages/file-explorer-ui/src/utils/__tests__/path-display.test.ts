@@ -31,56 +31,56 @@ describe('splitFilePath', () => {
   it('splits Unix file path correctly', () => {
     const result = splitFilePath('/Users/me/project/src/components/Button.tsx');
     expect(result).toEqual({
-      fileName: 'Button.tsx',
       dirPath: '/Users/me/project/src/components',
+      fileName: 'Button.tsx',
     });
   });
 
   it('splits Windows file path correctly', () => {
     const result = splitFilePath('C:\\Users\\me\\project\\src\\Button.tsx');
     expect(result).toEqual({
-      fileName: 'Button.tsx',
       dirPath: 'C:/Users/me/project/src',
+      fileName: 'Button.tsx',
     });
   });
 
   it('handles file with no directory', () => {
     const result = splitFilePath('file.txt');
     expect(result).toEqual({
-      fileName: 'file.txt',
       dirPath: '',
+      fileName: 'file.txt',
     });
   });
 
   it('handles trailing slashes', () => {
     const result = splitFilePath('/path/to/file.txt///');
     expect(result).toEqual({
-      fileName: 'file.txt',
       dirPath: '/path/to',
+      fileName: 'file.txt',
     });
   });
 
   it('handles root directory files on Unix', () => {
     const result = splitFilePath('/file.txt');
     expect(result).toEqual({
-      fileName: 'file.txt',
       dirPath: '',
+      fileName: 'file.txt',
     });
   });
 
   it('handles relative paths', () => {
     const result = splitFilePath('src/components/Button.tsx');
     expect(result).toEqual({
-      fileName: 'Button.tsx',
       dirPath: 'src/components',
+      fileName: 'Button.tsx',
     });
   });
 
   it('handles deeply nested paths', () => {
     const result = splitFilePath('a/b/c/d/e/f/g/file.txt');
     expect(result).toEqual({
-      fileName: 'file.txt',
       dirPath: 'a/b/c/d/e/f/g',
+      fileName: 'file.txt',
     });
   });
 });
@@ -162,8 +162,8 @@ describe('formatDirPathForDisplay', () => {
     const result = formatDirPathForDisplay({
       dirPath:
         '/Users/me/project/packages/file-explorer-ui/src/components/very/deeply/nested/folder',
-      rootFolderId: 'project',
       maxDisplayChars: 40,
+      rootFolderId: 'project',
     });
     expect(result.length).toBeLessThanOrEqual(40);
     expect(result).toContain('…');
@@ -172,9 +172,9 @@ describe('formatDirPathForDisplay', () => {
   it('respects headSegments and tailSegments options', () => {
     const result = formatDirPathForDisplay({
       dirPath: '/Users/me/project/packages/file-explorer-ui/src/components/long-folder-name',
-      rootFolderId: 'project',
-      maxDisplayChars: 30,
       headSegments: 1,
+      maxDisplayChars: 30,
+      rootFolderId: 'project',
       tailSegments: 1,
     });
     // Should contain first segment and last segment with ellipsis in between
@@ -210,8 +210,8 @@ describe('formatDirPathForDisplay', () => {
   it('enforces minimum maxDisplayChars of 15', () => {
     const result = formatDirPathForDisplay({
       dirPath: '/Users/me/project/packages/file-explorer-ui/src/components/very/deeply/nested',
-      rootFolderId: 'project',
       maxDisplayChars: 5, // Very small value should be clamped to minimum
+      rootFolderId: 'project',
     });
     // Result should be at least 15 chars or less if the path itself is shorter
     expect(result.length).toBeLessThanOrEqual(15);

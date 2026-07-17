@@ -23,43 +23,43 @@ async function uncheckTreeCheckbox(checkbox: Locator): Promise<void> {
 test.describe('Navigation Panel State Preservation', () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
+      'package.json': null,
+      'README.md': null,
       src: {
+        'App.tsx': null,
         components: {
+          'Footer.tsx': null,
+          forms: {
+            'Checkbox.tsx': null,
+            'Input.tsx': null,
+            'Select.tsx': null,
+          },
+          'Header.tsx': null,
           ui: {
             'Button.tsx': null,
             'Card.tsx': null,
             'Modal.tsx': null,
           },
-          forms: {
-            'Input.tsx': null,
-            'Select.tsx': null,
-            'Checkbox.tsx': null,
-          },
-          'Header.tsx': null,
-          'Footer.tsx': null,
         },
         hooks: {
           'useAuth.ts': null,
           'useTheme.ts': null,
         },
+        'index.ts': null,
         utils: {
           'helpers.ts': null,
           'validators.ts': null,
         },
-        'index.ts': null,
-        'App.tsx': null,
       },
       tests: {
+        integration: {
+          'auth.test.ts': null,
+        },
         unit: {
           'Button.test.tsx': null,
           'Input.test.tsx': null,
         },
-        integration: {
-          'auth.test.ts': null,
-        },
       },
-      'package.json': null,
-      'README.md': null,
       'tsconfig.json': null,
     };
 

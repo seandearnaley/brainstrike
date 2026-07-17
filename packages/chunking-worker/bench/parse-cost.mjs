@@ -21,8 +21,8 @@
  * See: docs/prd-chunking-wasm-parser-2026-05.md §10
  */
 
-import { readFile, readdir, writeFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
@@ -68,7 +68,9 @@ async function* walk(dir) {
   }
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+      if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith('.')) {
+        continue;
+      }
       yield* walk(join(dir, entry.name));
     } else if (entry.isFile()) {
       const ext = entry.name.slice(entry.name.lastIndexOf('.'));
@@ -80,7 +82,9 @@ async function* walk(dir) {
 }
 
 function languageFor(path) {
-  if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript';
+  if (path.endsWith('.ts') || path.endsWith('.tsx')) {
+    return 'typescript';
+  }
   return 'javascript';
 }
 
@@ -95,25 +99,27 @@ function deriveOxcFilename(path) {
 }
 
 function median(values) {
-  if (values.length === 0) return 0;
+  if (values.length === 0) {
+    return 0;
+  }
   const sorted = values.slice().sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 function p99(values) {
-  if (values.length === 0) return 0;
+  if (values.length === 0) {
+    return 0;
+  }
   const sorted = values.slice().sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))];
 }
 
 async function main() {
-  console.log(`Walking ${REPO_ROOT}...`);
   const files = [];
   for await (const path of walk(REPO_ROOT)) {
     files.push(path);
   }
-  console.log(`Found ${files.length} JS/TS source files.`);
 
   // Load both parsers from the chunking-worker's perspective. The .ts
   // source loads under tsx/vitest/Node 22+ with type-stripping; if neither
@@ -175,7 +181,9 @@ async function main() {
     } catch {
       continue;
     }
-    if (size === 0) continue;
+    if (size === 0) {
+      continue;
+    }
     const bucket = bucketFor(size);
     const language = languageFor(path);
     const jsx = jsxFor(path);
@@ -191,7 +199,6 @@ async function main() {
 
     processed += 1;
     if (processed % 500 === 0) {
-      console.log(`  ${processed}/${files.length}...`);
     }
   }
 
@@ -204,9 +211,9 @@ async function main() {
   lines.push('# Chunking parser benchmark — Babel vs oxc');
   lines.push('');
   lines.push(`**Date**: ${new Date().toISOString().slice(0, 10)}`);
-  lines.push(`**Repo**: brainstrike monorepo (this checkout)`);
+  lines.push('**Repo**: brainstrike monorepo (this checkout)');
   lines.push(`**Files parsed**: ${processed} of ${files.length} JS/TS source files`);
-  lines.push(`**Reproducer**: \`node packages/chunking-worker/bench/parse-cost.mjs\``);
+  lines.push('**Reproducer**: `node packages/chunking-worker/bench/parse-cost.mjs`');
   lines.push('');
   lines.push('## Headline');
   lines.push('');
@@ -220,8 +227,12 @@ async function main() {
   lines.push('');
   lines.push('| Parser | Median (ms) | p99 (ms) |');
   lines.push('|---|---|---|');
-  lines.push(`| Babel | ${median(timings.babel.all).toFixed(2)} | ${p99(timings.babel.all).toFixed(2)} |`);
-  lines.push(`| oxc | ${median(timings.oxc.all).toFixed(2)} | ${p99(timings.oxc.all).toFixed(2)} |`);
+  lines.push(
+    `| Babel | ${median(timings.babel.all).toFixed(2)} | ${p99(timings.babel.all).toFixed(2)} |`
+  );
+  lines.push(
+    `| oxc | ${median(timings.oxc.all).toFixed(2)} | ${p99(timings.oxc.all).toFixed(2)} |`
+  );
   lines.push('');
   lines.push('## By file size bucket (median ms)');
   lines.push('');
@@ -250,8 +261,8 @@ async function main() {
   lines.push('  pay more JIT warm-up cost — both biases skew the headline ratio. Alternating');
   lines.push('  cancels them over the corpus. Deterministic (index parity) for reproducibility.');
   lines.push('- **Async vs sync asymmetry**: `babelAdapter.parse` is async (returns a Promise);');
-  lines.push('  `oxc-parser.parseSync` is synchronous. We `await` Babel and don\'t await oxc, so');
-  lines.push('  Babel\'s timing includes one extra microtask per call (~1–10 µs on V8). Negligible');
+  lines.push("  `oxc-parser.parseSync` is synchronous. We `await` Babel and don't await oxc, so");
+  lines.push("  Babel's timing includes one extra microtask per call (~1–10 µs on V8). Negligible");
   lines.push('  against the parse work itself; explicitly noted so reviewers can rule it out.');
   lines.push('- Excludes IPC roundtrip cost (Phase 4 architecture) — measures the underlying ');
   lines.push('  parser engines, not the Electron transport. IPC overhead is a separate concern ');
@@ -259,10 +270,10 @@ async function main() {
   lines.push('- No warm-up runs; first file pays cold-cache cost. With thousands of files this ');
   lines.push('  rounds out, but small samples may show distorted percentiles.');
   lines.push('- Parses use `errorRecovery: true` for both parsers so neither bails out on ');
-  lines.push('  malformed code (the chunking pipeline’s production posture). Note: oxc\'s');
-  lines.push('  errorRecovery semantics differ from Babel\'s — oxc *always* recovers and');
+  lines.push("  malformed code (the chunking pipeline’s production posture). Note: oxc's");
+  lines.push("  errorRecovery semantics differ from Babel's — oxc *always* recovers and");
   lines.push('  reports errors via `result.errors` rather than throwing (P2 #993). The error');
-  lines.push('  counts above are catch-counts, so an oxc soft-failure won\'t register; if the');
+  lines.push("  counts above are catch-counts, so an oxc soft-failure won't register; if the");
   lines.push('  bench reports zero oxc errors but you suspect parse problems, inspect');
   lines.push('  `result.errors` directly on a sample.');
   lines.push('');
@@ -277,18 +288,16 @@ async function main() {
     lines.push('further (Phase 8 monitoring).');
   } else {
     lines.push(`oxc is **${speedup.toFixed(1)}×** faster than Babel — below the PRD §1 target. `);
-    lines.push('Re-evaluate whether the migration is worth the architectural complexity, or whether ');
+    lines.push(
+      'Re-evaluate whether the migration is worth the architectural complexity, or whether '
+    );
     lines.push('a different parser would be a better fit.');
   }
 
   const report = `${lines.join('\n')}\n`;
-
-  console.log('\n' + lines.slice(0, 20).join('\n') + '\n  ...');
   await writeFile(REPORT_PATH, report);
-  console.log(`\nReport written: ${relative(REPO_ROOT, REPORT_PATH)}`);
 }
 
-main().catch((err) => {
-  console.error(err);
+main().catch((_err) => {
   process.exit(1);
 });

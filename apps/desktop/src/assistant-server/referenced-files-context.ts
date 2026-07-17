@@ -117,8 +117,8 @@ export async function buildReferencedFilesContextMessage(
     const root = rootById.get(mention.rootId);
     if (!root) {
       logger.warn('Referenced file root is not an open workspace root', {
-        rootId: mention.rootId,
         path: mention.path,
+        rootId: mention.rootId,
       });
       sections.push(
         `### ${mention.path}\n[Could not read: the file's workspace folder is no longer open.]`
@@ -132,7 +132,7 @@ export async function buildReferencedFilesContextMessage(
       continue;
     }
     try {
-      const file = await readFile({ rootPath: root.path, requestedPath: mention.path });
+      const file = await readFile({ requestedPath: mention.path, rootPath: root.path });
       const { text: body, truncated } = truncateForContext(file.content);
       const suffix = truncated
         ? `\n[Truncated to the first ${MAX_REFERENCED_FILE_CHARS} characters.]`
@@ -145,9 +145,9 @@ export async function buildReferencedFilesContextMessage(
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'unknown error';
       logger.warn('Referenced file could not be read', {
-        rootId: mention.rootId,
-        path: mention.path,
         error: detail,
+        path: mention.path,
+        rootId: mention.rootId,
       });
       sections.push(`### ${mention.path}\n[Could not read: ${detail}]`);
     }
@@ -166,8 +166,8 @@ export async function buildReferencedFilesContextMessage(
 
   return {
     id: `referenced-files-${Date.now()}`,
+    parts: [{ text: sections.join('\n\n'), type: 'text' }],
     role: 'system',
-    parts: [{ type: 'text', text: sections.join('\n\n') }],
   };
 }
 

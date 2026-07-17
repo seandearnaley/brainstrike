@@ -86,5 +86,5 @@ export function useSavePanelState(
     };
   }, [flushPending]);
 
-  return { persist, flush: flushPending };
+  return { flush: flushPending, persist };
 }

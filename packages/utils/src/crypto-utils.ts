@@ -1,9 +1,6 @@
 /**
- * Cross-platform crypto utilities with fallbacks for non-secure contexts
+ * Cross-platform utilities backed by secure runtime crypto APIs.
  */
-import { createLogger } from '@brainstrike/utils/logger';
-
-const logger = createLogger('CryptoUtils');
 
 /**
  * Generate a UUID using secure runtime crypto APIs.
@@ -41,49 +38,22 @@ export function generateUUID(): string {
 }
 
 /**
- * Generate SHA-256 hash with fallback for non-secure contexts
+ * Generate a SHA-256 content hash.
  */
 export async function generateContentHash(content: string): Promise<string> {
-  // Try crypto.subtle if available (HTTPS contexts and modern Node.js)
-  if (crypto?.subtle?.digest) {
-    try {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(content);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-    } catch (error) {
-      // Fall through to fallback if crypto.subtle fails
-      logger.warn('crypto.subtle.digest failed, using fallback hash', { error });
-    }
+  if (!isCryptoSubtleAvailable()) {
+    throw new Error('Content hashing requires crypto.subtle.digest.');
   }
 
-  // Fallback to a simple but deterministic hash function
-  return generateFallbackHash(content);
-}
-
-/**
- * Simple deterministic hash function for content deduplication
- * Not cryptographically secure but sufficient for content comparison
- */
-function generateFallbackHash(content: string): string {
-  let hash = 0;
-
-  // Use a better hash algorithm than the basic one in stableHash
-  for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash &= hash; // Convert to 32bit integer
+  const data = new TextEncoder().encode(content);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  if (hashBuffer.byteLength !== 32) {
+    throw new Error(`SHA-256 returned an invalid ${hashBuffer.byteLength}-byte digest.`);
   }
 
-  // Convert to hex and pad to simulate SHA-256 length (but much shorter)
-  const hex = Math.abs(hash).toString(16).padStart(8, '0');
-
-  // Extend to make it look more like a real hash (for consistency with existing data)
-  // Repeat the pattern to create a longer hash while maintaining determinism
-  const extended = (hex + hex + hex + hex).slice(0, 32);
-
-  return extended;
+  return Array.from(new Uint8Array(hashBuffer), (byte) => byte.toString(16).padStart(2, '0')).join(
+    ''
+  );
 }
 
 /**

@@ -5,8 +5,8 @@ const originalMeasure = globalThis.performance.measure;
 function setMeasureImplementation(impl: typeof globalThis.performance.measure): void {
   Object.defineProperty(globalThis.performance, 'measure', {
     configurable: true,
-    writable: true,
     value: impl,
+    writable: true,
   });
 }
 

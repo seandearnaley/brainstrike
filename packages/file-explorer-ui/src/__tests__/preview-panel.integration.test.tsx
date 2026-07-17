@@ -6,7 +6,6 @@ import { useWorkspaceContextCurationStore } from '../workspace-context-curation-
 
 // Mock the use-preview-panel-state module with realistic implementation
 vi.mock('../preview/use-preview-panel-state', () => ({
-  usePreviewPanelState: vi.fn(),
   formatTokenCount: (tokens: number) => {
     if (tokens < 1000) {
       return tokens.toString();
@@ -16,6 +15,7 @@ vi.mock('../preview/use-preview-panel-state', () => ({
     }
     return `${(tokens / 1_000_000).toFixed(1)}M`;
   },
+  usePreviewPanelState: vi.fn(),
 }));
 
 const mockUsePreviewPanelState = vi.mocked(
@@ -95,30 +95,17 @@ vi.mock('@brainstrike/ui', async () => {
   const sharedUiMock = createUiModuleMock();
 
   return {
-    cn: (...inputs: unknown[]) => inputs.filter(Boolean).join(' '),
     Badge: ({ children, ...props }: MockBadgeProps) => (
       <div data-testid="badge" {...props}>
         {children}
       </div>
     ),
+    BulkActionBar: sharedUiMock.BulkActionBar,
     Button: ({ children, onClick, disabled, ...props }: MockButtonProps) => (
       <button data-testid="button" disabled={disabled} onClick={onClick} {...props}>
         {children}
       </button>
     ),
-    BulkActionBar: sharedUiMock.BulkActionBar,
-    ScrollArea: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
-      <div data-testid="scroll-area" {...props}>
-        {children}
-      </div>
-    ),
-    Input: ({
-      ref,
-      ...props
-    }: {
-      ref?: React.RefObject<HTMLInputElement | null>;
-      [key: string]: unknown;
-    }) => <input data-testid="input" ref={ref} {...props} />,
     Checkbox: ({ checked, onCheckedChange, ...props }: MockCheckboxProps) => (
       <input
         checked={checked}
@@ -128,54 +115,44 @@ vi.mock('@brainstrike/ui', async () => {
         {...props}
       />
     ),
+    cn: (...inputs: unknown[]) => inputs.filter(Boolean).join(' '),
+    DropdownMenu: sharedUiMock.DropdownMenu,
+    DropdownMenuContent: sharedUiMock.DropdownMenuContent,
+    DropdownMenuRadioGroup: sharedUiMock.DropdownMenuRadioGroup,
+    DropdownMenuRadioItem: sharedUiMock.DropdownMenuRadioItem,
+    DropdownMenuTrigger: sharedUiMock.DropdownMenuTrigger,
+    // biome-ignore lint/style/useReactFunctionComponents: ErrorBoundary must be a class component
+    ErrorBoundary: class ErrorBoundary extends React.Component<
+      { children: React.ReactNode },
+      { hasError: boolean }
+    > {
+      constructor(props: { children: React.ReactNode }) {
+        super(props);
+        this.state = { hasError: false };
+      }
+
+      static getDerivedStateFromError() {
+        return { hasError: true };
+      }
+
+      override render() {
+        if (this.state.hasError) {
+          return <div data-testid="error-boundary">Error occurred</div>;
+        }
+        return this.props.children;
+      }
+    },
+    Input: ({
+      ref,
+      ...props
+    }: {
+      ref?: React.RefObject<HTMLInputElement | null>;
+      [key: string]: unknown;
+    }) => <input data-testid="input" ref={ref} {...props} />,
     Label: ({ children, htmlFor, ...props }: MockLabelProps) => (
       <label data-testid="label" htmlFor={htmlFor} {...props}>
         {children}
       </label>
-    ),
-    Switch: ({ checked, disabled, onCheckedChange, ...props }: MockSwitchProps) => (
-      <button
-        aria-checked={checked}
-        data-testid="switch"
-        disabled={disabled}
-        onClick={() => {
-          if (!disabled) {
-            onCheckedChange?.(!checked);
-          }
-        }}
-        role="switch"
-        type="button"
-        {...props}
-      />
-    ),
-    Progress: ({ value, ...props }: MockProgressProps) => (
-      <div data-testid="progress" data-value={value} {...props} />
-    ),
-    TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    TooltipTrigger: ({
-      children,
-      asChild,
-      ...props
-    }: {
-      children: React.ReactNode;
-      asChild?: boolean;
-      [key: string]: unknown;
-    }) => (
-      <div data-testid="tooltip-trigger" {...props}>
-        {children}
-      </div>
-    ),
-    TooltipContent: ({
-      children,
-      ...props
-    }: {
-      children: React.ReactNode;
-      [key: string]: unknown;
-    }) => (
-      <div data-testid="tooltip-content" {...props}>
-        {children}
-      </div>
     ),
     Popover: ({
       children,
@@ -189,19 +166,6 @@ vi.mock('@brainstrike/ui', async () => {
       [key: string]: unknown;
     }) => (
       <div data-open={open} data-testid="popover" {...props}>
-        {children}
-      </div>
-    ),
-    PopoverTrigger: ({
-      children,
-      asChild,
-      ...props
-    }: {
-      children: React.ReactNode;
-      asChild?: boolean;
-      [key: string]: unknown;
-    }) => (
-      <div data-testid="popover-trigger" {...props}>
         {children}
       </div>
     ),
@@ -220,13 +184,28 @@ vi.mock('@brainstrike/ui', async () => {
         {children}
       </div>
     ),
-    DropdownMenu: sharedUiMock.DropdownMenu,
-    DropdownMenuTrigger: sharedUiMock.DropdownMenuTrigger,
-    DropdownMenuContent: sharedUiMock.DropdownMenuContent,
-    DropdownMenuRadioGroup: sharedUiMock.DropdownMenuRadioGroup,
-    DropdownMenuRadioItem: sharedUiMock.DropdownMenuRadioItem,
-    TreeTable: sharedUiMock.TreeTable,
-    useToast: () => ({ toast: () => {} }),
+    PopoverTrigger: ({
+      children,
+      asChild,
+      ...props
+    }: {
+      children: React.ReactNode;
+      asChild?: boolean;
+      [key: string]: unknown;
+    }) => (
+      <div data-testid="popover-trigger" {...props}>
+        {children}
+      </div>
+    ),
+    Progress: ({ value, ...props }: MockProgressProps) => (
+      <div data-testid="progress" data-value={value} {...props} />
+    ),
+    ScrollArea: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+      <div data-testid="scroll-area" {...props}>
+        {children}
+      </div>
+    ),
+    SelectionActionBarOverlay: sharedUiMock.SelectionActionBarOverlay,
     SortableTableHeader: ({
       title,
       onSort,
@@ -289,6 +268,66 @@ vi.mock('@brainstrike/ui', async () => {
         </th>
       );
     },
+    Switch: ({ checked, disabled, onCheckedChange, ...props }: MockSwitchProps) => (
+      <button
+        aria-checked={checked}
+        data-testid="switch"
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) {
+            onCheckedChange?.(!checked);
+          }
+        }}
+        role="switch"
+        type="button"
+        {...props}
+      />
+    ),
+    TableGroupHeader: ({
+      groupLabel,
+      onToggleCollapse,
+      onSelectionChange,
+      isCollapsed,
+      isGroupSelected,
+      isIndeterminate,
+      filesInGroup,
+      groupKey,
+      isFullySelected,
+      isPartiallySelected,
+      ...domProps
+    }: {
+      groupLabel: string;
+      onToggleCollapse: () => void;
+      onSelectionChange: (selected: boolean) => void;
+      isCollapsed?: boolean;
+      isGroupSelected?: boolean;
+      isIndeterminate?: boolean;
+      filesInGroup?: number;
+      groupKey?: string | number;
+      isFullySelected?: boolean;
+      isPartiallySelected?: boolean;
+      [key: string]: unknown;
+    }) => (
+      <tr data-testid="table-group-header" {...domProps}>
+        <td>
+          <input
+            aria-label={`Select all files in group ${groupLabel}`}
+            onChange={(e) => onSelectionChange?.(e.target.checked)}
+            type="checkbox"
+          />
+        </td>
+        <td>
+          <button
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
+            onClick={onToggleCollapse}
+            type="button"
+          >
+            {groupLabel}
+          </button>
+        </td>
+      </tr>
+    ),
     TablePagination: ({
       currentPage,
       totalPages,
@@ -359,51 +398,6 @@ vi.mock('@brainstrike/ui', async () => {
         </button>
       </div>
     ),
-    TableGroupHeader: ({
-      groupLabel,
-      onToggleCollapse,
-      onSelectionChange,
-      isCollapsed,
-      isGroupSelected,
-      isIndeterminate,
-      filesInGroup,
-      groupKey,
-      isFullySelected,
-      isPartiallySelected,
-      ...domProps
-    }: {
-      groupLabel: string;
-      onToggleCollapse: () => void;
-      onSelectionChange: (selected: boolean) => void;
-      isCollapsed?: boolean;
-      isGroupSelected?: boolean;
-      isIndeterminate?: boolean;
-      filesInGroup?: number;
-      groupKey?: string | number;
-      isFullySelected?: boolean;
-      isPartiallySelected?: boolean;
-      [key: string]: unknown;
-    }) => (
-      <tr data-testid="table-group-header" {...domProps}>
-        <td>
-          <input
-            aria-label={`Select all files in group ${groupLabel}`}
-            onChange={(e) => onSelectionChange?.(e.target.checked)}
-            type="checkbox"
-          />
-        </td>
-        <td>
-          <button
-            aria-expanded={!isCollapsed}
-            aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
-            onClick={onToggleCollapse}
-            type="button"
-          >
-            {groupLabel}
-          </button>
-        </td>
-      </tr>
-    ),
     Tabs: ({ children, value, defaultValue, onValueChange, ...props }: TabsProps) => {
       const [internalValue, setInternalValue] = React.useState<string | undefined>(defaultValue);
       const isControlled = value !== undefined;
@@ -419,7 +413,7 @@ vi.mock('@brainstrike/ui', async () => {
       const contextValue: TabsContextValue =
         activeValue === undefined
           ? { onValueChange: handleValueChange }
-          : { value: activeValue, onValueChange: handleValueChange };
+          : { onValueChange: handleValueChange, value: activeValue };
 
       return (
         <TabsContext.Provider value={contextValue}>
@@ -427,6 +421,25 @@ vi.mock('@brainstrike/ui', async () => {
             {children}
           </div>
         </TabsContext.Provider>
+      );
+    },
+    TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
+      const context = React.useContext(TabsContext);
+      const isActive = context?.value === value;
+
+      if (!(isActive || forceMount)) {
+        return null;
+      }
+
+      return (
+        <div
+          data-state={isActive ? 'active' : 'inactive'}
+          hidden={!isActive}
+          role="tabpanel"
+          {...props}
+        >
+          {children}
+        </div>
       );
     },
     TabsList: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
@@ -457,46 +470,34 @@ vi.mock('@brainstrike/ui', async () => {
         </button>
       );
     },
-    TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
-      const context = React.useContext(TabsContext);
-      const isActive = context?.value === value;
-
-      if (!(isActive || forceMount)) {
-        return null;
-      }
-
-      return (
-        <div
-          data-state={isActive ? 'active' : 'inactive'}
-          hidden={!isActive}
-          role="tabpanel"
-          {...props}
-        >
-          {children}
-        </div>
-      );
-    },
-    // biome-ignore lint/style/useReactFunctionComponents: ErrorBoundary must be a class component
-    ErrorBoundary: class ErrorBoundary extends React.Component<
-      { children: React.ReactNode },
-      { hasError: boolean }
-    > {
-      constructor(props: { children: React.ReactNode }) {
-        super(props);
-        this.state = { hasError: false };
-      }
-
-      static getDerivedStateFromError() {
-        return { hasError: true };
-      }
-
-      override render() {
-        if (this.state.hasError) {
-          return <div data-testid="error-boundary">Error occurred</div>;
-        }
-        return this.props.children;
-      }
-    },
+    Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    TooltipContent: ({
+      children,
+      ...props
+    }: {
+      children: React.ReactNode;
+      [key: string]: unknown;
+    }) => (
+      <div data-testid="tooltip-content" {...props}>
+        {children}
+      </div>
+    ),
+    TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    TooltipTrigger: ({
+      children,
+      asChild,
+      ...props
+    }: {
+      children: React.ReactNode;
+      asChild?: boolean;
+      [key: string]: unknown;
+    }) => (
+      <div data-testid="tooltip-trigger" {...props}>
+        {children}
+      </div>
+    ),
+    TreeTable: sharedUiMock.TreeTable,
+    useToast: () => ({ toast: () => {} }),
   };
 });
 
@@ -546,15 +547,15 @@ vi.mock('@brainstrike/hooks', () => {
 
       return {
         currentPage,
-        totalPages,
-        startIndex,
         endIndex,
-        goToPage,
         goToNextPage,
+        goToPage,
         goToPreviousPage,
-        resetToFirstPage,
         isFirstPage: currentPage === 0,
         isLastPage: currentPage >= totalPages - 1 || totalPages <= 1,
+        resetToFirstPage,
+        startIndex,
+        totalPages,
       };
     }),
   };
@@ -562,78 +563,76 @@ vi.mock('@brainstrike/hooks', () => {
 
 // Mock Lucide icons
 vi.mock('lucide-react', () => ({
+  AlertTriangle: () => <div data-testid="alert" />,
   ArrowLeft: () => <div data-testid="arrow-left" />,
+  Check: () => <div data-testid="checkmark" />,
+  CheckCircle2: () => <div data-testid="check-circle" />,
+  CheckSquare: () => <div data-testid="check-square" />,
   ChevronDown: () => <div data-testid="chevron-down" />,
   ChevronRight: () => <div data-testid="chevron-right" />,
+  ChevronsDownUp: () => <div data-testid="chevrons-down-up" />,
+  ChevronsUpDown: () => <div data-testid="chevrons-up-down" />,
   ChevronUp: () => <div data-testid="chevron-up" />,
   Columns3: () => <div data-testid="columns3" />,
   Download: () => <div data-testid="download" />,
+  Files: () => <div data-testid="files" />,
   FileText: () => <div data-testid="file-text" />,
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
   Group: () => <div data-testid="group" />,
-  Loader2: () => <div data-testid="loader" />,
-  CheckCircle2: () => <div data-testid="check-circle" />,
-  AlertTriangle: () => <div data-testid="alert" />,
-  MinusCircle: () => <div data-testid="minus" />,
-  Pencil: () => <div data-testid="pencil" />,
-  Check: () => <div data-testid="checkmark" />,
-  X: () => <div data-testid="x" />,
-  Target: () => <div data-testid="target" />,
-  TreePine: () => <div data-testid="tree-pine" />,
   Layers: () => <div data-testid="layers" />,
-  Files: () => <div data-testid="files" />,
-  CheckSquare: () => <div data-testid="check-square" />,
-  ChevronsDownUp: () => <div data-testid="chevrons-down-up" />,
-  ChevronsUpDown: () => <div data-testid="chevrons-up-down" />,
   LayoutGrid: () => <div data-testid="layout-grid" />,
   ListChecks: () => <div data-testid="list-checks" />,
+  Loader2: () => <div data-testid="loader" />,
+  MinusCircle: () => <div data-testid="minus" />,
+  Pencil: () => <div data-testid="pencil" />,
   RefreshCw: () => <div data-testid="refresh-cw" />,
   RotateCcw: () => <div data-testid="rotate-ccw" />,
   Table: () => <div data-testid="table" />,
+  Target: () => <div data-testid="target" />,
+  TreePine: () => <div data-testid="tree-pine" />,
+  X: () => <div data-testid="x" />,
 }));
 
 describe('PreviewPanel Integration Tests', () => {
   const createMockProps = (fileCount = 100) => ({
-    selectedFiles: new Set(Array.from({ length: fileCount }, (_, i) => `file${i}`)),
-    fileContents: Object.fromEntries(
-      Array.from({ length: fileCount }, (_, i) => [`file${i}`, `content of file ${i}`.repeat(10)])
-    ),
-    loadingFiles: new Set<string>(),
-    onSelectionChange: vi.fn(),
-    fileSizes: Object.fromEntries(
-      Array.from({ length: fileCount }, (_, i) => [`file${i}`, 1024 + i * 100])
-    ),
     decodeFileSelection: vi.fn((key: string) => ({
       folderId: `folder-${Math.floor(Number.parseInt(key.replace('file', ''), 10) / 10)}`,
       path: `path/to/folder${Math.floor(Number.parseInt(key.replace('file', ''), 10) / 10)}/${key}.txt`,
     })),
+    estimateTokenCost: vi.fn((tokens: number) => tokens * 0.001),
+    fileContents: Object.fromEntries(
+      Array.from({ length: fileCount }, (_, i) => [`file${i}`, `content of file ${i}`.repeat(10)])
+    ),
+    fileSizes: Object.fromEntries(
+      Array.from({ length: fileCount }, (_, i) => [`file${i}`, 1024 + i * 100])
+    ),
+    loadingFiles: new Set<string>(),
+    onFileClick: vi.fn(),
+    onSelectionChange: vi.fn(),
+    performUndoableAction: vi.fn(),
+    selectedFiles: new Set(Array.from({ length: fileCount }, (_, i) => `file${i}`)),
     tokenCounting: {
+      countTokens: vi.fn(async (content: string) => content.length),
+      loading: false,
       mode: 'accurate' as const,
       reason: null,
-      loading: false,
-      countTokens: vi.fn(async (content: string) => content.length),
     },
-    estimateTokenCost: vi.fn((tokens: number) => tokens * 0.001),
-    performUndoableAction: vi.fn(),
-    onFileClick: vi.fn(),
   });
 
   const createMockState = (fileCount = 100) => ({
     batchSelectedFiles: new Set<string>(),
+    collapseAllFolders: vi.fn(),
     collapsedFolders: new Set<string>(),
-    totalStats: {
-      totalFiles: fileCount,
-      totalTokens: fileCount * 200, // Realistic token count
-      pendingCount: 0, // BST-153: No files pending by default
-    },
-    handleRemoveFile: vi.fn(),
-    handleBatchRemove: vi.fn(),
-    toggleFileSelection: vi.fn(),
-    toggleFolderCollapse: vi.fn(),
-    handleSelectAll: vi.fn(),
-    handleDeselectAll: vi.fn(),
-    isAllFilesSelected: false,
+    expandAllFolders: vi.fn(),
+    flatListItems: Array.from({ length: fileCount }, (_, i) => ({
+      compositeKey: `file${i}`,
+      folderId: `folder-${Math.floor(i / 10)}`,
+      path: `path/to/folder${Math.floor(i / 10)}/file${i}.txt`,
+      size: 1024 + i * 100,
+      tokens: 200 + i * 5,
+      type: 'file' as const,
+    })),
     formatFileSize: vi.fn((bytes?: number) => {
       if (bytes === undefined) {
         return 'Unknown';
@@ -647,17 +646,19 @@ describe('PreviewPanel Integration Tests', () => {
       }
       return `${size.toFixed(1)} ${units[unitIndex]}`;
     }),
+    handleBatchRemove: vi.fn(),
+    handleDeselectAll: vi.fn(),
+    handleRemoveFile: vi.fn(),
+    handleSelectAll: vi.fn(),
+    isAllFilesSelected: false,
     loadingFiles: new Set<string>(),
-    expandAllFolders: vi.fn(),
-    collapseAllFolders: vi.fn(),
-    flatListItems: Array.from({ length: fileCount }, (_, i) => ({
-      type: 'file' as const,
-      compositeKey: `file${i}`,
-      folderId: `folder-${Math.floor(i / 10)}`,
-      path: `path/to/folder${Math.floor(i / 10)}/file${i}.txt`,
-      size: 1024 + i * 100,
-      tokens: 200 + i * 5,
-    })),
+    toggleFileSelection: vi.fn(),
+    toggleFolderCollapse: vi.fn(),
+    totalStats: {
+      pendingCount: 0, // BST-153: No files pending by default
+      totalFiles: fileCount,
+      totalTokens: fileCount * 200, // Realistic token count
+    },
   });
 
   beforeEach(() => {

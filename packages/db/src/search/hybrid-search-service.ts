@@ -24,12 +24,12 @@ import { createRankedList, type FusedResult, fuseRankedLists, type RRFOptions } 
  */
 export interface HybridSearchRepository {
   /** Full-text keyword search */
-  fullTextSearch(query: string, options: FTSSearchOptions): Promise<FTSSearchResult[]>;
+  fullTextSearch: (query: string, options: FTSSearchOptions) => Promise<FTSSearchResult[]>;
   /** Vector similarity search */
-  searchSimilar(
+  searchSimilar: (
     queryEmbedding: number[],
     options: ChunkSearchOptions
-  ): Promise<ChunkSearchResult[]>;
+  ) => Promise<ChunkSearchResult[]>;
 }
 
 /**
@@ -81,6 +81,8 @@ export interface HybridSearchOptions {
   minSourceCount?: number;
 
   // === RRF Options ===
+  /** Optional multi-root workspace scope (file_records.root_id ∈ rootIds). Empty array matches nothing. */
+  rootIds?: readonly string[];
   /** RRF k constant (default: 60) */
   rrfK?: number;
   /** Optional snapshot ID for selection filtering */
@@ -101,7 +103,7 @@ export interface HybridSearchOptions {
 export interface HybridSearchResult {
   /** The matched chunk */
   chunk: FileChunk;
-  /** FTS rank score (if found by FTS) */
+  /** FTS rank score (if found by FTS): negated BM25, higher = better, unbounded */
   ftsRank?: number;
   /** Headline snippet from FTS (if available) */
   headline?: string;
@@ -209,6 +211,7 @@ export class HybridSearchService {
       fileRecordId,
       chunkType,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       // RRF options
       rrfK = 60,
@@ -222,10 +225,10 @@ export class HybridSearchService {
     // large limits this avoids materializing thousands of full embeddings in the
     // renderer. A caller can opt back in via `includeEmbedding`.
     const vectorSearchOptions: ChunkSearchOptions = {
-      limit: vectorLimit,
-      threshold: vectorThreshold,
       embeddingSetId,
       includeEmbedding,
+      limit: vectorLimit,
+      threshold: vectorThreshold,
     };
     if (fileRecordId !== undefined) {
       vectorSearchOptions.fileRecordId = fileRecordId;
@@ -239,14 +242,17 @@ export class HybridSearchService {
     if (selectionSnapshotId !== undefined) {
       vectorSearchOptions.selectionSnapshotId = selectionSnapshotId;
     }
+    if (rootIds !== undefined) {
+      vectorSearchOptions.rootIds = rootIds;
+    }
 
     const ftsSearchOptions: FTSSearchOptions = {
-      limit: ftsLimit,
-      threshold: ftsThreshold,
-      queryMode: ftsQueryMode,
-      language: ftsLanguage,
       includeEmbedding,
       includeHeadline,
+      language: ftsLanguage,
+      limit: ftsLimit,
+      queryMode: ftsQueryMode,
+      threshold: ftsThreshold,
     };
     if (fileRecordId !== undefined) {
       ftsSearchOptions.fileRecordId = fileRecordId;
@@ -259,6 +265,9 @@ export class HybridSearchService {
     }
     if (selectionSnapshotId !== undefined) {
       ftsSearchOptions.selectionSnapshotId = selectionSnapshotId;
+    }
+    if (rootIds !== undefined) {
+      ftsSearchOptions.rootIds = rootIds;
     }
 
     // Run both searches in parallel
@@ -294,16 +303,16 @@ export class HybridSearchService {
     const totalMs = performance.now() - startTime;
 
     return {
-      results,
       metadata: {
-        vectorResultCount: vectorResults.length,
         ftsResultCount: ftsResults.length,
-        fusedResultCount: fusedResults.length,
-        vectorSearchMs,
         ftsSearchMs,
+        fusedResultCount: fusedResults.length,
         fusionMs,
         totalMs,
+        vectorResultCount: vectorResults.length,
+        vectorSearchMs,
       },
+      results,
     };
   }
 
@@ -384,9 +393,9 @@ export class HybridSearchService {
 
       const result: HybridSearchResult = {
         chunk,
+        position: i + 1,
         rrfScore: fused.rrfScore,
         sourceCount: fused.sourceCount,
-        position: i + 1,
       };
 
       // Add vector similarity if available

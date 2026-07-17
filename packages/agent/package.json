@@ -2,32 +2,32 @@
   "name": "@brainstrike/agent",
   "version": "0.1.0",
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.81",
-    "@ai-sdk/google": "^3.0.80",
-    "@ai-sdk/openai": "^3.0.66",
-    "@ai-sdk/provider": "3.0.10",
+    "@ai-sdk/anthropic": "^4.0.8",
+    "@ai-sdk/google": "^4.0.8",
+    "@ai-sdk/openai": "^4.0.8",
+    "@ai-sdk/provider": "4.0.2",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^4.1.0",
-    "@mastra/core": "^1.37.1",
-    "@mastra/mcp": "^1.8.1",
-    "@mastra/memory": "1.20.0",
-    "@types/json-schema": "^7.0.15",
+    "@huggingface/transformers": "^4.2.0",
+    "@mastra/core": "^1.51.0",
+    "@mastra/mcp": "^1.13.1",
+    "@mastra/memory": "1.22.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "fastest-levenshtein": "^1.0.16",
-    "json-schema": "^0.4.0",
     "minimatch": "^10.2.5",
-    "zod": "^4.3.6"
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.1",
-    "@electric-sql/pglite-pgvector": "0.0.2",
-    "@types/node": "^25.6.0",
-    "rimraf": "^6.1.3",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "@brainstrike/test-utils": "workspace:*",
+    "@electric-sql/pglite": "0.5.4",
+    "@electric-sql/pglite-pgvector": "0.0.5",
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"
@@ -42,6 +42,11 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.mjs",
       "require": "./dist/client.js"
+    },
+    "./mcp-client": {
+      "types": "./dist/mcp-client.d.ts",
+      "import": "./dist/mcp-client.mjs",
+      "require": "./dist/mcp-client.js"
     },
     "./local-llm": {
       "types": "./dist/local-llm.d.ts",
@@ -103,11 +108,12 @@
   "private": true,
   "scripts": {
     "build": "tsup",
-    "clean": "rimraf dist",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --watch",
     "lint": "pnpm -w lint",
-    "test": "vitest run --no-file-parallelism",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test": "vitest run --no-file-parallelism --exclude \"**/*.integration.spec.*\"",
+    "test:integration": "vitest run --config vitest.integration.config.mts --no-file-parallelism",
+    "test:coverage": "vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
   },

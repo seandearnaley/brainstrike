@@ -5,10 +5,10 @@ import type { CollectionBrowserFilters } from '../collection-browser/types';
 
 function makeFilters(overrides: Partial<CollectionBrowserFilters> = {}): CollectionBrowserFilters {
   return {
-    searchQuery: '',
-    nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
     embeddingStatus: 'all',
+    nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
     searchMatchesOnly: false,
+    searchQuery: '',
     ...overrides,
   };
 }
@@ -18,23 +18,23 @@ describe('CollectionBrowser', () => {
     render(
       <CollectionBrowser
         data={{
+          chunks: [
+            {
+              chunkIndex: 0,
+              fileRecordId: 'file-1',
+              hasEmbedding: true,
+              id: 'chunk-1',
+              tokenCount: 42,
+            },
+          ],
           files: [
             {
+              chunksCount: 1,
+              embeddedChunksCount: 1,
               id: 'file-1',
               name: 'indexed.ts',
               path: '/project/indexed.ts',
               size: 512,
-              chunksCount: 1,
-              embeddedChunksCount: 1,
-            },
-          ],
-          chunks: [
-            {
-              id: 'chunk-1',
-              fileRecordId: 'file-1',
-              chunkIndex: 0,
-              tokenCount: 42,
-              hasEmbedding: true,
             },
           ],
         }}
@@ -42,13 +42,13 @@ describe('CollectionBrowser', () => {
     );
 
     const statusHeader = screen.getByRole('columnheader', { name: 'Status' });
-    expect(statusHeader).toHaveStyle({ width: '44px', minWidth: '44px' });
+    expect(statusHeader).toHaveStyle({ minWidth: '44px', width: '44px' });
     expect(screen.getByLabelText('Complete embedding status')).toBeInTheDocument();
     expect(screen.queryByText('Complete')).not.toBeInTheDocument();
   });
 
   it('keeps collection browser wrappers shrinkable in narrow layouts', () => {
-    const { container } = render(<CollectionBrowser data={{ files: [], chunks: [] }} />);
+    const { container } = render(<CollectionBrowser data={{ chunks: [], files: [] }} />);
 
     const root = container.firstElementChild;
     expect(root).toHaveClass('min-w-0');
@@ -57,7 +57,7 @@ describe('CollectionBrowser', () => {
   });
 
   it('renders loading overlay without unmounting the tree region', () => {
-    render(<CollectionBrowser data={{ files: [], chunks: [] }} isLoading={true} />);
+    render(<CollectionBrowser data={{ chunks: [], files: [] }} isLoading={true} />);
     expect(screen.getByTestId('collection-tree-region')).toBeInTheDocument();
     expect(screen.getByTestId('collection-tree-region')).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByText('Loading...')).toBeInTheDocument();
@@ -66,7 +66,7 @@ describe('CollectionBrowser', () => {
   it('shows semantic empty state when a semantic search has been executed', () => {
     render(
       <CollectionBrowser
-        data={{ files: [], chunks: [] }}
+        data={{ chunks: [], files: [] }}
         filters={makeFilters()}
         hasSearched={true}
         searchMode="semantic"
@@ -82,7 +82,7 @@ describe('CollectionBrowser', () => {
   });
 
   it('shows default empty message in quick mode', () => {
-    render(<CollectionBrowser data={{ files: [], chunks: [] }} searchMode="quick" />);
+    render(<CollectionBrowser data={{ chunks: [], files: [] }} searchMode="quick" />);
     expect(
       screen.getByText(/No collections found\. Import files to get started\./i)
     ).toBeInTheDocument();

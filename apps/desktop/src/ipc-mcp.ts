@@ -31,6 +31,33 @@ const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
 export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated;
+export const MCP_CONFIG_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUpdated;
+
+interface McpConfigStatus {
+  error?: string;
+  exists: boolean;
+  loadedAt?: number;
+  path: string;
+  servers?: Array<{ name: string; transport: McpServer['transport'] }>;
+}
+
+function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
+  const status: McpConfigStatus = {
+    exists: config.exists,
+    path: config.path,
+  };
+  if (config.error !== undefined) {
+    status.error = config.error;
+  }
+  if (config.loadedAt !== undefined) {
+    status.loadedAt = config.loadedAt;
+  }
+  const servers = config.servers ?? config.config?.servers;
+  if (servers !== undefined) {
+    status.servers = servers.map(({ name, transport }) => ({ name, transport }));
+  }
+  return status;
+}
 
 function normalizeUrl(url: string | undefined): string {
   return (url ?? '').trim().replace(/\/+$/u, '');
@@ -55,12 +82,13 @@ function isPlaceholderServer(server: McpServer): boolean {
  */
 function handleConfigChange(cfg: LoadedMcpConfig): void {
   last = cfg;
+  notifyMcpConfigUpdated(cfg);
   mcpToolRegistry.clear();
   notifyMcpToolsUpdated();
   if (cfg.error) {
     logger.error('MCP config could not be loaded', {
-      path: cfg.path,
       error: cfg.error,
+      path: cfg.path,
     });
   }
   if (cfg.config) {
@@ -75,10 +103,20 @@ function handleConfigChange(cfg: LoadedMcpConfig): void {
   }
 }
 
+function notifyMcpConfigUpdated(config: LoadedMcpConfig): void {
+  const payload = toMcpConfigStatus(config);
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue;
+    }
+    window.webContents.send(MCP_CONFIG_UPDATED_EVENT, payload);
+  }
+}
+
 function getSerializableTools(): ReturnType<typeof mcpToolRegistry.getAllTools> {
-  return JSON.parse(JSON.stringify(mcpToolRegistry.getAllTools())) as ReturnType<
-    typeof mcpToolRegistry.getAllTools
-  >;
+  // Metadata is plain JSON-shaped data (no functions). structuredClone matches Electron IPC
+  // serialization and isolates the renderer payload from live registry mutations.
+  return structuredClone(mcpToolRegistry.getAllTools());
 }
 
 function notifyMcpToolsUpdated(): void {
@@ -145,7 +183,7 @@ export function registerMcpIpcHandlers(): () => void {
   registry.registerInvoke(
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGet,
-    async (): Promise<LoadedMcpConfig> => {
+    async (): Promise<McpConfigStatus> => {
       last = await loadMcpConfig();
       // Initialize MCP clients if config is valid
       if (last.config) {
@@ -153,7 +191,7 @@ export function registerMcpIpcHandlers(): () => void {
       } else {
         await disposeClients();
       }
-      return last;
+      return toMcpConfigStatus(last);
     }
   );
 
@@ -176,7 +214,7 @@ export function registerMcpIpcHandlers(): () => void {
       // Restart the watcher to watch the new path
       await restartConfigWatcher();
 
-      return { success: true, path: newPath };
+      return { path: newPath, success: true };
     }
   );
 
@@ -204,25 +242,25 @@ export function registerMcpIpcHandlers(): () => void {
 
       if (typeof content !== 'string') {
         return {
-          success: false,
-          path: configPath,
           error: 'MCP config content must be a string',
+          path: configPath,
+          success: false,
         };
       }
       if (content.trim().length === 0) {
         return {
-          success: false,
-          path: configPath,
           error: 'MCP config content cannot be empty',
+          path: configPath,
+          success: false,
         };
       }
 
       const contentBytes = Buffer.byteLength(content, 'utf-8');
       if (contentBytes > MAX_MCP_CONFIG_TEXT_BYTES) {
         return {
-          success: false,
-          path: configPath,
           error: `MCP config exceeds ${MAX_MCP_CONFIG_TEXT_BYTES} bytes`,
+          path: configPath,
+          success: false,
         };
       }
 
@@ -242,11 +280,11 @@ export function registerMcpIpcHandlers(): () => void {
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSelectPath,
     async (): Promise<string | null> => {
       const result = await dialog.showOpenDialog({
-        properties: ['openFile'],
         filters: [
-          { name: 'JSON Config', extensions: ['json'] },
-          { name: 'All Files', extensions: ['*'] },
+          { extensions: ['json'], name: 'JSON Config' },
+          { extensions: ['*'], name: 'All Files' },
         ],
+        properties: ['openFile'],
         title: 'Select MCP Configuration File',
       });
 
@@ -364,7 +402,7 @@ export function registerMcpIpcHandlers(): () => void {
             const message =
               'MCP config already exists. Select the existing file or reset the path before creating a sample.';
             logger.warn('Refusing to overwrite existing MCP config', { path: configPath });
-            return { success: false, path: configPath, error: message };
+            return { error: message, path: configPath, success: false };
           }
           throw error;
         }
@@ -374,11 +412,11 @@ export function registerMcpIpcHandlers(): () => void {
         handleConfigChange(await loadMcpConfig());
         await restartConfigWatcher();
 
-        return { success: true, path: configPath };
+        return { path: configPath, success: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         logger.error('Failed to create sample MCP config', { error });
-        return { success: false, path: configPath, error: message };
+        return { error: message, path: configPath, success: false };
       }
     }
   );
@@ -402,8 +440,8 @@ async function discoverMcpToolsOnStartup(): Promise<void> {
       notifyMcpToolsUpdated();
       if (loaded.exists && loaded.error) {
         logger.error('MCP config invalid, cleared tool registry', {
-          path: loaded.path,
           error: loaded.error,
+          path: loaded.path,
         });
       } else {
         logger.debug('MCP config missing, cleared tool registry');
@@ -464,8 +502,8 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
       );
     } catch (error) {
       logger.warn('MCP server discovery failed; skipping server', {
-        server: server.name,
         error: error instanceof Error ? error.message : String(error),
+        server: server.name,
       });
     }
   }
@@ -491,10 +529,10 @@ async function saveToolPreferencesIfNeeded(): Promise<void> {
     const disabledTools = tools.filter((t) => !t.enabled).map((t) => t.id);
 
     await saveToolPreferences(app.getPath('userData'), {
-      enabledTools,
       disabledTools,
-      version: 1,
+      enabledTools,
       lastUpdated: Date.now(),
+      version: 1,
     });
   } catch (error) {
     logger.error('Failed to save tool preferences', { error });
@@ -522,16 +560,16 @@ async function loadToolPreferencesOnStartup(): Promise<void> {
 
     if (staleCount > 0) {
       logger.warn('Discarded stale MCP tool preference ids', {
-        staleCount,
         registeredCount: registeredIds.size,
+        staleCount,
       });
 
       try {
         await saveToolPreferences(app.getPath('userData'), {
-          enabledTools: validEnabled,
           disabledTools: validDisabled,
-          version: preferences.version,
+          enabledTools: validEnabled,
           lastUpdated: Date.now(),
+          version: preferences.version,
         });
       } catch (saveError) {
         logger.warn('Failed to persist cleaned tool preferences', { error: saveError });

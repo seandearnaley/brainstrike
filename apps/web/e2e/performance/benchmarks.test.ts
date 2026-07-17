@@ -36,14 +36,14 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
       'file2.js': 'function test() {}',
       'README.md': '# Test Project',
       src: {
-        'index.ts': 'export * from "./components";',
         components: {
           'Button.tsx': 'export const Button = () => <button />;',
           'Input.tsx': 'export const Input = () => <input />;',
         },
+        'index.ts': 'export * from "./components";',
         utils: {
-          'helpers.ts': 'export const helper = () => {};',
           'constants.ts': 'export const API_URL = "test";',
+          'helpers.ts': 'export const helper = () => {};',
         },
       },
       tests: {
@@ -83,11 +83,14 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     // 2. Tree Expansion Performance
     await page.evaluate(() => performance.mark('expansion-start'));
 
-    const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
+    const expandButtons = page.getByRole('button', { exact: true, name: 'Expand' });
+    await expect(expandButtons.first()).toBeVisible();
     const expandCount = await expandButtons.count();
 
+    // A clicked button flips to "Collapse" and leaves the locator's match set,
+    // so always click the first remaining collapsed folder.
     for (let i = 0; i < Math.min(3, expandCount); i++) {
-      await expandButtons.nth(i).click();
+      await expandButtons.first().click();
       await page.waitForTimeout(50);
     }
 
@@ -177,12 +180,6 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
       let renderCount = 0;
 
       (window as any).__renderTracker = {
-        renderCount: 0,
-        renderTimes: [],
-        startRender: () => {
-          renderCount++;
-          performance.mark(`render-${renderCount}-start`);
-        },
         endRender: () => {
           performance.mark(`render-${renderCount}-end`);
           performance.measure(
@@ -194,6 +191,12 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
           if (measure) {
             (window as any).__renderTracker.renderTimes.push(measure.duration);
           }
+        },
+        renderCount: 0,
+        renderTimes: [],
+        startRender: () => {
+          renderCount++;
+          performance.mark(`render-${renderCount}-start`);
         },
       };
     });
@@ -212,13 +215,13 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const renderMetrics = await page.evaluate(() => {
       const tracker = (window as any).__renderTracker;
       return {
-        totalRenders: tracker?.renderTimes?.length || 0,
         averageRenderTime:
           tracker?.renderTimes?.length > 0
             ? tracker.renderTimes.reduce((a: number, b: number) => a + b, 0) /
               tracker.renderTimes.length
             : 0,
         maxRenderTime: tracker?.renderTimes?.length > 0 ? Math.max(...tracker.renderTimes) : 0,
+        totalRenders: tracker?.renderTimes?.length || 0,
       };
     });
 

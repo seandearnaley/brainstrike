@@ -5,7 +5,25 @@ import type { Migration } from './migration-runner';
 // that already applied this migration before line-aware retrieval was added.
 // This migration assumes pgvector extension is available and will fail if not
 export const migration004AddChunksTable: Migration = {
-  version: 4,
+  down: `
+		-- Drop indexes
+		DROP INDEX IF EXISTS idx_file_records_chunks_processed;
+		DROP INDEX IF EXISTS idx_file_chunks_embedding;
+		DROP INDEX IF EXISTS idx_file_chunks_chunk_type;
+		DROP INDEX IF EXISTS idx_file_chunks_token_count;
+		DROP INDEX IF EXISTS idx_file_chunks_content_hash;
+		DROP INDEX IF EXISTS idx_file_chunks_chunk_index;
+		DROP INDEX IF EXISTS idx_file_chunks_file_record_id;
+
+		-- Remove columns from file_records
+		ALTER TABLE file_records
+		DROP COLUMN IF EXISTS chunking_strategy,
+		DROP COLUMN IF EXISTS chunks_count,
+		DROP COLUMN IF EXISTS chunks_processed_at;
+
+		-- Drop chunks table
+		DROP TABLE IF EXISTS file_chunks;
+	`,
   name: 'add_chunks_table',
   up: async (db) => {
     await db.exec(`
@@ -55,23 +73,5 @@ export const migration004AddChunksTable: Migration = {
 		WHERE chunks_processed_at IS NOT NULL;
 	`);
   },
-  down: `
-		-- Drop indexes
-		DROP INDEX IF EXISTS idx_file_records_chunks_processed;
-		DROP INDEX IF EXISTS idx_file_chunks_embedding;
-		DROP INDEX IF EXISTS idx_file_chunks_chunk_type;
-		DROP INDEX IF EXISTS idx_file_chunks_token_count;
-		DROP INDEX IF EXISTS idx_file_chunks_content_hash;
-		DROP INDEX IF EXISTS idx_file_chunks_chunk_index;
-		DROP INDEX IF EXISTS idx_file_chunks_file_record_id;
-		
-		-- Remove columns from file_records
-		ALTER TABLE file_records 
-		DROP COLUMN IF EXISTS chunking_strategy,
-		DROP COLUMN IF EXISTS chunks_count,
-		DROP COLUMN IF EXISTS chunks_processed_at;
-		
-		-- Drop chunks table
-		DROP TABLE IF EXISTS file_chunks;
-	`,
+  version: 4,
 };

@@ -1,7 +1,10 @@
 import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui/tree';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
-import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils/background-indexing-policy';
+import type { IFileNode } from '@brainstrike/types';
+import {
+  type BackgroundIndexingPolicyPreset,
+  createBackgroundIndexingEntryPolicy,
+} from '@brainstrike/utils';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { flattenFileNodes } from './workspace-collection-sync-import';
 import type {
@@ -21,6 +24,13 @@ export interface WorkspaceIndexExpectedFileCount {
   policyPreset: BackgroundIndexingPolicyPreset;
   rootPath: string;
   skippedByReason: WorkspaceIndexExpectedFileSkipCounts;
+}
+
+export interface WorkspaceIndexExpectedFileCountWithNodes extends WorkspaceIndexExpectedFileCount {
+  /** Flattened file nodes that passed the entry policy — the coverage audit
+   * uses these to resolve and re-read the actual missing files. Not part of
+   * the serializable debug shape (nodes carry live fs handles). */
+  fileNodes: IFileNode[];
 }
 
 export interface WorkspaceIndexDebugAccessIssue {
@@ -112,7 +122,7 @@ export async function countExpectedWorkspaceIndexFiles({
   includeFiles = true,
   policyPreset,
   rootHandle,
-}: CountExpectedWorkspaceIndexFilesArgs): Promise<WorkspaceIndexExpectedFileCount> {
+}: CountExpectedWorkspaceIndexFilesArgs): Promise<WorkspaceIndexExpectedFileCountWithNodes> {
   const skippedByReason: WorkspaceIndexExpectedFileSkipCounts = {
     defaultIgnore: 0,
     entryPolicy: 0,
@@ -146,6 +156,7 @@ export async function countExpectedWorkspaceIndexFiles({
 
   return {
     expectedFileCount: fileNodes.length,
+    fileNodes,
     includedFiles,
     policyPreset: entryPolicy.preset,
     rootPath: rootHandle.path,
@@ -162,8 +173,8 @@ export async function readWorkspaceIndexDebugRows(
 ): Promise<unknown[]> {
   if (!query) {
     accessIssues.push({
-      source,
       reason: 'database query bridge unavailable',
+      source,
     });
     return [];
   }
@@ -173,8 +184,8 @@ export async function readWorkspaceIndexDebugRows(
     return Array.isArray(result.rows) ? result.rows : [];
   } catch (error) {
     accessIssues.push({
-      source,
       reason: error instanceof Error ? error.message : String(error),
+      source,
     });
     return [];
   }

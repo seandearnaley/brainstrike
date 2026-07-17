@@ -89,17 +89,17 @@ function loadBabelParser(): Promise<BabelParserRuntimeModule> {
  *  - dynamic import / import attributes / top-level await always on
  *  - JSX only when `options.jsx` is true
  *  - TypeScript only when `options.language === 'typescript'`
+ *
+ * Babel 8's `@babel/parser` parses class fields/private syntax, dynamic
+ * import, import attributes, and top-level await unconditionally, so
+ * 'classProperties', 'classPrivateProperties', 'classPrivateMethods',
+ * 'dynamicImport', 'importAttributes', and 'topLevelAwait' were removed from
+ * the `ParserPlugin` type and plugin registry — passing them is now a
+ * `tsc` type error (the syntaxes themselves are unaffected). Only
+ * 'decorators-legacy' remains a real, meaningful opt-in.
  */
 function buildPlugins(options: ParseOptions): ParserPlugin[] {
-  const plugins: ParserPlugin[] = [
-    'classProperties',
-    'classPrivateProperties',
-    'classPrivateMethods',
-    'decorators-legacy',
-    'dynamicImport',
-    'importAttributes',
-    'topLevelAwait',
-  ];
+  const plugins: ParserPlugin[] = ['decorators-legacy'];
   if (options.jsx) {
     plugins.push('jsx');
   }
@@ -112,10 +112,10 @@ function buildPlugins(options: ParseOptions): ParserPlugin[] {
 async function parse(content: string, options: ParseOptions): Promise<AstNode> {
   const { parse: babelParse } = await loadBabelParser();
   const ast = babelParse(content, {
-    sourceType: 'module',
-    plugins: buildPlugins(options),
-    errorRecovery: options.errorRecovery,
     allowReturnOutsideFunction: true,
+    errorRecovery: options.errorRecovery,
+    plugins: buildPlugins(options),
+    sourceType: 'module',
   });
   return ast as unknown as AstNode;
 }

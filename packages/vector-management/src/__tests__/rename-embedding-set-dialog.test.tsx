@@ -30,19 +30,19 @@ describe('RenameEmbeddingSetDialog', () => {
         <Toaster />
         <RenameEmbeddingSetDialog
           embeddingSet={{
-            id: 'set-1',
-            modelKey: 'openai::text-embedding-3-small',
-            modelId: 'text-embedding-3-small',
+            category: 'dev',
+            chunkCount: 240,
+            createdAt: '2024-01-01T00:00:00Z',
+            description: 'Original description',
             dimensions: 1536,
             distance: 'cosine',
-            createdAt: '2024-01-01T00:00:00Z',
-            name: 'Original Name',
-            description: 'Original description',
-            tags: 'code',
-            category: 'dev',
-            fileCount: 12,
-            chunkCount: 240,
             embeddingCount: 180,
+            fileCount: 12,
+            id: 'set-1',
+            modelId: 'text-embedding-3-small',
+            modelKey: 'openai::text-embedding-3-small',
+            name: 'Original Name',
+            tags: 'code',
           }}
           onOpenChange={mockOnOpenChange}
           onSetRenamed={mockOnSetRenamed}
@@ -59,15 +59,15 @@ describe('RenameEmbeddingSetDialog', () => {
     await waitFor(() => {
       expect(dispatchEmbeddingSetUpdated).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 'set-1',
-          reason: 'updated',
           collection: expect.objectContaining({
-            id: 'set-1',
-            name: 'Renamed Collection',
-            fileCount: 12,
             chunkCount: 240,
             embeddingCount: 180,
+            fileCount: 12,
+            id: 'set-1',
+            name: 'Renamed Collection',
           }),
+          id: 'set-1',
+          reason: 'updated',
         })
       );
     });

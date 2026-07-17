@@ -14,6 +14,28 @@ import { isWithinRoot } from './workspace-path';
 const logger = createLogger('AssistantLiveGrep');
 
 /**
+ * `execFile`'s ChildProcessError embeds the full spawned command (including the
+ * grep pattern) in `.message`/`.cmd`, and fs errors embed the real workspace
+ * path in `.message`/`.path` — neither is safe to log verbatim (mirrors
+ * `redactToolErrorForLog` in assistant-tools.ts).
+ */
+function redactErrorForLog(error: unknown): {
+  code?: string | number;
+  name: string;
+  redacted: true;
+} {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return {
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    name: error instanceof Error && error.name.length > 0 ? error.name : typeof error,
+    redacted: true,
+  };
+}
+
+/**
  * ripgrep executable name(s) to look for. On Windows the binary is `rg.exe`; on
  * every other platform it is `rg`. We probe BOTH so a misconfigured PATHEXT or a
  * `.exe` on a POSIX-ish shell still resolves.
@@ -267,8 +289,8 @@ function runRipgrep(args: {
       buildRipgrepArgs(args),
       {
         cwd: args.canonicalRootPath,
-        timeout: RIPGREP_TIMEOUT_MS,
         maxBuffer: RIPGREP_MAX_BUFFER_BYTES,
+        timeout: RIPGREP_TIMEOUT_MS,
         windowsHide: true,
       },
       (error, stdout) => {
@@ -340,6 +362,32 @@ function isRipgrepBeginEvent(value: unknown): value is RipgrepBeginEvent {
   return typeof (data.path as { text?: unknown }).text === 'string';
 }
 
+function hasDotGitSegment(relativePath: string): boolean {
+  // resolveCandidate runs once per live grep candidate; scan in place to avoid
+  // allocating a segment array for every path just to reject `.git`.
+  let segmentStart = 0;
+  while (segmentStart < relativePath.length) {
+    const slashIndex = relativePath.indexOf('/', segmentStart);
+    const segmentEnd = slashIndex === -1 ? relativePath.length : slashIndex;
+    if (
+      segmentEnd - segmentStart === 4 &&
+      relativePath.charCodeAt(segmentStart) === 46 &&
+      relativePath.charCodeAt(segmentStart + 1) === 103 &&
+      relativePath.charCodeAt(segmentStart + 2) === 105 &&
+      relativePath.charCodeAt(segmentStart + 3) === 116
+    ) {
+      return true;
+    }
+    if (slashIndex === -1) {
+      return false;
+    }
+    segmentStart = slashIndex + 1;
+  }
+  return false;
+}
+
+export const hasDotGitSegmentForTests = hasDotGitSegment;
+
 type IndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
 
 /**
@@ -365,7 +413,7 @@ async function resolveCandidate(args: {
     return null;
   }
   // .git is never a useful source root; rg already ignores it, but re-assert.
-  if (args.relativePath.split('/').some((segment) => segment === '.git')) {
+  if (hasDotGitSegment(args.relativePath)) {
     return null;
   }
   const absolute = path.join(args.canonicalRootPath, args.relativePath);
@@ -408,21 +456,21 @@ async function matchCandidate(
     content = await fsPromises.readFile(candidate.absolutePath, 'utf8');
   } catch (error) {
     logger.debug('live grep: unreadable candidate skipped', {
-      path: candidate.relativePath,
       error,
+      path: candidate.relativePath,
     });
     return [];
   }
   return collectGrepMatchesInContent({
     content,
-    matcher,
     contextLines,
+    matcher,
     // The indexed path reports root-relative paths without a leading slash; mirror
     // that so live + indexed matches dedupe on identical (rootId, path, line) keys.
     path: candidate.relativePath,
-    startLine: 1,
     rootId: candidate.rootId,
     rootName: candidate.rootName,
+    startLine: 1,
   });
 }
 
@@ -432,7 +480,6 @@ async function collectJsWalkCandidates(
 ): Promise<{ candidates: LiveCandidate[]; scanLimited: boolean }> {
   const candidates: LiveCandidate[] = [];
   const { scanLimited } = await walkWorkspaceRoot({
-    root,
     includeIgnored: false,
     onFile: ({ relativePath, absolutePath }) => {
       candidates.push({
@@ -442,6 +489,7 @@ async function collectJsWalkCandidates(
         rootName: root.displayName,
       });
     },
+    root,
   });
   return { candidates, scanLimited };
 }
@@ -465,10 +513,10 @@ async function collectRipgrepCandidates(args: {
   filePathAllow: ReadonlySet<string> | null;
 }): Promise<{ candidates: LiveCandidate[]; prefilterTruncated: boolean; capHit: boolean }> {
   const run = await runRipgrep({
-    ripgrepPath: args.ripgrepPath,
     canonicalRootPath: args.canonicalRootPath,
-    prefilterLiteral: args.prefilterLiteral,
     caseSensitive: args.caseSensitive,
+    prefilterLiteral: args.prefilterLiteral,
+    ripgrepPath: args.ripgrepPath,
   });
   const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
   const candidates: LiveCandidate[] = [];
@@ -491,16 +539,16 @@ async function collectRipgrepCandidates(args: {
       break;
     }
     const candidate = await resolveCandidate({
-      relativePath,
       canonicalRootPath: args.canonicalRootPath,
-      root: args.root,
       policy,
+      relativePath,
+      root: args.root,
     });
     if (candidate) {
       candidates.push(candidate);
     }
   }
-  return { candidates, prefilterTruncated: run.truncated, capHit };
+  return { candidates, capHit, prefilterTruncated: run.truncated };
 }
 
 export interface LiveGrepOptions {
@@ -581,7 +629,10 @@ async function gatherRootCandidates(args: {
   try {
     canonicalRootPath = await fsPromises.realpath(root.path);
   } catch (error) {
-    logger.warn('live grep: root is not accessible', { rootId: root.rootId, error });
+    logger.warn('live grep: root is not accessible', {
+      error: redactErrorForLog(error),
+      rootId: root.rootId,
+    });
     return;
   }
   state.anyRootAccessible = true;
@@ -593,14 +644,14 @@ async function gatherRootCandidates(args: {
   if (ripgrepPath !== null && prefilterLiteral !== null && !state.degradedToWalk) {
     try {
       const { candidates, prefilterTruncated, capHit } = await collectRipgrepCandidates({
-        ripgrepPath,
-        root,
         canonicalRootPath,
-        prefilterLiteral,
         caseSensitive,
+        filePathAllow,
         // Remaining global budget so per-root resolve never overshoots the cap.
         maxCandidates: Math.max(0, maxLiveCandidateFiles - state.candidates.length),
-        filePathAllow,
+        prefilterLiteral,
+        ripgrepPath,
+        root,
       });
       state.candidates.push(...candidates);
       state.prefilterTruncated = state.prefilterTruncated || prefilterTruncated;
@@ -611,7 +662,9 @@ async function gatherRootCandidates(args: {
       // every remaining root, and surface the reason (never silent).
       state.degradedToWalk = true;
       state.degradeReason = error instanceof Error ? error.message : String(error);
-      logger.warn('live grep: ripgrep failed; falling back to JS file-walk', { error });
+      logger.warn('live grep: ripgrep failed; falling back to JS file-walk', {
+        error: redactErrorForLog(error),
+      });
     }
   }
 
@@ -625,7 +678,7 @@ export async function runLiveGrep(
   matcher: LineMatcher
 ): Promise<LiveGrepResult> {
   if (options.roots.length === 0) {
-    return { matches: [], engine: 'skipped', truncated: false };
+    return { engine: 'skipped', matches: [], truncated: false };
   }
 
   const filePathAllow =
@@ -641,39 +694,39 @@ export async function runLiveGrep(
   // path's `scanLimited` case). A null literal means rg cannot soundly prefilter
   // a regex, so the live pass takes the bounded JS walk for every root instead.
   const prefilterLiteral = resolveRipgrepPrefilterLiteral({
-    pattern: options.pattern,
     isRegex: options.isRegex,
+    pattern: options.pattern,
   });
   const regexNoLiteralPrefilter = options.isRegex && prefilterLiteral === null;
   // rg actually runs only when it is present AND a safe superset literal exists.
   const rgUsed = rgPresent && !regexNoLiteralPrefilter;
   const state: CandidateGatherState = {
     anyRootAccessible: false,
-    candidates: [],
     candidateCapHit: false,
-    degradeReason: null,
+    candidates: [],
     degradedToWalk: false,
+    degradeReason: null,
     prefilterTruncated: false,
     scanLimited: false,
   };
 
   for (const root of options.roots) {
     await gatherRootCandidates({
-      root,
-      ripgrepPath,
-      prefilterLiteral,
       caseSensitive: options.caseSensitive,
-      state,
       filePathAllow,
+      prefilterLiteral,
+      ripgrepPath,
+      root,
+      state,
     });
   }
 
   if (!state.anyRootAccessible) {
     return {
-      matches: [],
       engine: 'skipped',
-      truncated: false,
+      matches: [],
       note: 'No workspace root was readable on disk for the live pass.',
+      truncated: false,
     };
   }
 
@@ -699,19 +752,19 @@ export async function runLiveGrep(
 
   const truncated = state.prefilterTruncated || state.scanLimited || candidateTruncated;
   const note = buildLiveNote({
-    rgPresent,
-    rgUsed,
-    regexNoLiteralPrefilter,
+    candidateTruncated,
     degradedToWalk: state.degradedToWalk,
     degradeReason: state.degradeReason,
-    scanLimited: state.scanLimited,
-    candidateTruncated,
     prefilterTruncated: state.prefilterTruncated,
+    regexNoLiteralPrefilter,
+    rgPresent,
+    rgUsed,
+    scanLimited: state.scanLimited,
   });
 
   return {
-    matches,
     engine,
+    matches,
     truncated,
     ...(note ? { note } : {}),
   };

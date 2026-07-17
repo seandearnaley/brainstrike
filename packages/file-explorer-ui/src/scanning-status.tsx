@@ -31,7 +31,7 @@ export interface ScanningStatusProps {
   percentage?: number | undefined;
 }
 
-export const ScanningStatus: React.FC<ScanningStatusProps> = React.memo(
+export const ScanningStatus = React.memo(
   ({
     isScanning,
     depthProgress,
@@ -41,7 +41,7 @@ export const ScanningStatus: React.FC<ScanningStatusProps> = React.memo(
     isCancelling = false,
     onCancel,
     className,
-  }) => {
+  }: ScanningStatusProps) => {
     const statusText = useMemo(() => {
       if (isCancelling) {
         return 'Cancelling...';

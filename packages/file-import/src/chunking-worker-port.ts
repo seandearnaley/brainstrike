@@ -87,7 +87,7 @@ export interface ChunkingWorkerPort {
   /**
    * Chunk multiple files in a batch.
    */
-  chunkBatch(
+  chunkBatch: (
     files: Array<{
       fileRecordId: string;
       content: string;
@@ -96,17 +96,17 @@ export interface ChunkingWorkerPort {
     }>,
     options: ChunkingRequestOptions,
     callbacks?: ChunkingBatchCallbacks
-  ): Promise<ChunkResult[]>;
+  ) => Promise<ChunkResult[]>;
   /**
    * Chunk a single file.
    */
-  chunkFile(
+  chunkFile: (
     fileRecordId: string,
     content: string,
     fileName: string,
     filePath: string,
     options: ChunkingRequestOptions
-  ): Promise<ChunkResult>;
+  ) => Promise<ChunkResult>;
   chunkFileById?: (
     fileRecordId: string,
     options: ChunkingHostProxyRequestOptions
@@ -115,12 +115,12 @@ export interface ChunkingWorkerPort {
   /**
    * Check if the worker is ready to receive requests.
    */
-  isReady(): boolean;
+  isReady: () => boolean;
 
   /**
    * Terminate the worker and clean up resources.
    */
-  terminate(): void;
+  terminate: () => void;
   readonly transportKind: 'host-proxy' | 'local-worker';
 }
 
@@ -140,19 +140,19 @@ export function toFileChunkInserts(
   return chunks.map((chunk) => {
     assertPortableChunkSourceRange(chunk);
     const insert: FileChunkInsert = {
-      id: `${fileRecordId}_chunk_${chunk.chunkIndex}`,
-      fileRecordId,
       chunkIndex: chunk.chunkIndex,
+      chunkSize: chunk.chunkSize,
+      chunkType: chunk.chunkType,
       content: chunk.content,
       contentHash: chunk.contentHash,
-      startLine: chunk.startLine,
-      endLine: chunk.endLine,
-      startOffset: chunk.startOffset,
-      endOffset: chunk.endOffset,
-      tokenCount: chunk.tokenCount,
-      chunkType: chunk.chunkType,
-      chunkSize: chunk.chunkSize,
       createdAt: now,
+      endLine: chunk.endLine,
+      endOffset: chunk.endOffset,
+      fileRecordId,
+      id: `${fileRecordId}_chunk_${chunk.chunkIndex}`,
+      startLine: chunk.startLine,
+      startOffset: chunk.startOffset,
+      tokenCount: chunk.tokenCount,
       updatedAt: now,
     };
     // Only set embeddingSetId if provided (exactOptionalPropertyTypes compliance)
@@ -232,10 +232,10 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   const runtime = createWorkerRuntimeClient(worker, {
     createErrorFromEvent: (event) => {
       logger.error('Worker error event', {
-        message: event.message,
+        colno: event.colno,
         filename: event.filename,
         lineno: event.lineno,
-        colno: event.colno,
+        message: event.message,
       });
       const detailSuffix = ` (${event.filename || 'unknown'}:${event.lineno || 0}:${event.colno || 0})`;
       return new Error(
@@ -335,9 +335,9 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
       case 'error': {
         const error = message as ChunkError;
         logger.error('Worker error', {
-          id: error.id,
-          fileRecordId: error.fileRecordId,
           error: error.error,
+          fileRecordId: error.fileRecordId,
+          id: error.id,
         });
 
         const tokenizerTerminalError = isTerminalTokenizerError(error.error);
@@ -423,37 +423,6 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   let requestIdCounter = 0;
 
   return {
-    transportKind: 'local-worker',
-    chunkFile(
-      fileRecordId: string,
-      content: string,
-      fileName: string,
-      filePath: string,
-      options: ChunkingRequestOptions
-    ): Promise<ChunkResult> {
-      const failure = runtime.getFailure();
-      if (failure) {
-        return Promise.reject(failure);
-      }
-      return new Promise((resolve, reject) => {
-        const id = `chunk-${++requestIdCounter}`;
-
-        pendingRequests.register(id, { resolve, reject });
-
-        const request: ChunkRequest = {
-          type: 'chunk',
-          id,
-          fileRecordId,
-          content,
-          fileName,
-          filePath,
-          options,
-        };
-
-        transport.postMessage(request);
-      });
-    },
-
     chunkBatch(
       files: Array<{
         fileRecordId: string;
@@ -476,20 +445,49 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
         batchResults.clear();
 
         const requests = files.map((file) => ({
-          id: `chunk-${++requestIdCounter}`,
-          fileRecordId: file.fileRecordId,
           content: file.content,
           fileName: file.fileName,
           filePath: file.filePath,
+          fileRecordId: file.fileRecordId,
+          id: `chunk-${++requestIdCounter}`,
           options,
         }));
 
         const batchRequest: ChunkBatchRequest = {
-          type: 'chunk-batch',
           requests,
+          type: 'chunk-batch',
         };
 
         transport.postMessage(batchRequest);
+      });
+    },
+    chunkFile(
+      fileRecordId: string,
+      content: string,
+      fileName: string,
+      filePath: string,
+      options: ChunkingRequestOptions
+    ): Promise<ChunkResult> {
+      const failure = runtime.getFailure();
+      if (failure) {
+        return Promise.reject(failure);
+      }
+      return new Promise((resolve, reject) => {
+        const id = `chunk-${++requestIdCounter}`;
+
+        pendingRequests.register(id, { reject, resolve });
+
+        const request: ChunkRequest = {
+          content,
+          fileName,
+          filePath,
+          fileRecordId,
+          id,
+          options,
+          type: 'chunk',
+        };
+
+        transport.postMessage(request);
       });
     },
 
@@ -505,5 +503,6 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
       runtime.resetReady();
       runtime.clearFailure();
     },
+    transportKind: 'local-worker',
   };
 }

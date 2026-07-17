@@ -137,10 +137,10 @@ describe('ConcurrentLoadingError', () => {
     it('should be serializable', () => {
       const error = new PartialRefreshError('Test', 5, 3);
       const serialized = JSON.stringify({
-        name: error.name,
-        message: error.message,
-        successCount: error.successCount,
         failCount: error.failCount,
+        message: error.message,
+        name: error.name,
+        successCount: error.successCount,
       });
       const parsed = JSON.parse(serialized) as Record<string, unknown>;
       expect(parsed['successCount']).toBe(5);
@@ -196,10 +196,10 @@ describe('ConcurrentLoadingError', () => {
 
     it('should allow message based on error code', () => {
       const messages = {
-        TOO_LARGE: 'File exceeds maximum size',
         BINARY: 'File contains binary data',
-        LOADING_ERROR: 'Failed to load file',
         INVALID_FILE: 'File is invalid or corrupted',
+        LOADING_ERROR: 'Failed to load file',
+        TOO_LARGE: 'File exceeds maximum size',
       };
       Object.entries(messages).forEach(([code, message]) => {
         const error = new FileContentError(
@@ -214,10 +214,10 @@ describe('ConcurrentLoadingError', () => {
     it('should be serializable', () => {
       const error = new FileContentError('Too large', '/big/file.txt', 'TOO_LARGE');
       const serialized = JSON.stringify({
-        name: error.name,
-        message: error.message,
-        path: error.path,
         code: error.code,
+        message: error.message,
+        name: error.name,
+        path: error.path,
       });
       const parsed = JSON.parse(serialized) as Record<string, unknown>;
       expect(parsed['path']).toBe('/big/file.txt');
@@ -280,9 +280,9 @@ describe('ConcurrentLoadingError', () => {
       const paths = ['/path/one', '/path/two'];
       const error = new ConcurrentLoadingError('Test', paths);
       const serialized = JSON.stringify({
-        name: error.name,
-        message: error.message,
         failedPaths: error.failedPaths,
+        message: error.message,
+        name: error.name,
       });
       const parsed = JSON.parse(serialized) as Record<string, unknown>;
       expect(Array.isArray(parsed['failedPaths'])).toBe(true);

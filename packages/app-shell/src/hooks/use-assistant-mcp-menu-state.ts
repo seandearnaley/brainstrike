@@ -26,7 +26,7 @@ export function useAssistantMcpMenuState({
   onOpenToolSettings,
   setNativeToolEnabled,
 }: UseAssistantMcpMenuStateArgs): UseAssistantMcpMenuStateResult {
-  const [mcpState, dispatchMcp] = useReducer(mcpReducer, { tools: [], loading: false });
+  const [mcpState, dispatchMcp] = useReducer(mcpReducer, { loading: false, tools: [] });
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -44,14 +44,14 @@ export function useAssistantMcpMenuState({
 
   const loadMcpTools = useCallback(async () => {
     if (typeof window === 'undefined' || !window.mcp?.listTools) {
-      dispatchMcpIfMounted({ type: 'LOADED', tools: [] });
+      dispatchMcpIfMounted({ tools: [], type: 'LOADED' });
       return;
     }
 
     dispatchMcpIfMounted({ type: 'LOADING' });
     try {
       const toolsByServer = (await window.mcp.listTools()) as McpToolMap;
-      dispatchMcpIfMounted({ type: 'LOADED', tools: buildMcpMenuItems(toolsByServer) });
+      dispatchMcpIfMounted({ tools: buildMcpMenuItems(toolsByServer), type: 'LOADED' });
     } catch {
       dispatchMcpIfMounted({ type: 'ERROR' });
     }
@@ -67,7 +67,7 @@ export function useAssistantMcpMenuState({
     }
 
     return window.mcp.onToolsUpdated((toolsByServer: McpToolMap) => {
-      dispatchMcpIfMounted({ type: 'LOADED', tools: buildMcpMenuItems(toolsByServer) });
+      dispatchMcpIfMounted({ tools: buildMcpMenuItems(toolsByServer), type: 'LOADED' });
     });
   }, [dispatchMcpIfMounted]);
 
@@ -116,10 +116,10 @@ export function useAssistantMcpMenuState({
       : undefined;
 
     return {
-      items: toolMenuItems,
       isLoading: mcpState.loading,
-      onToggleTool: handleToggleTool,
+      items: toolMenuItems,
       onOpenSettings: onOpenToolSettings,
+      onToggleTool: handleToggleTool,
       ...(summary ? { summary } : {}),
       ...(canRefreshMcp ? { onRefresh: loadMcpTools } : {}),
     };

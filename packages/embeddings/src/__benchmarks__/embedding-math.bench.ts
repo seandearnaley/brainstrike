@@ -25,10 +25,10 @@ function generateEmbedding(size: number): number[] {
 
 // Embedding sizes based on common models
 const EMBEDDING_SIZES = {
-  'sentence-bert-384': 384,
   'bert-768': 768,
   'openai-1536': 1536,
   'openai-3072': 3072,
+  'sentence-bert-384': 384,
 };
 
 describe('Cosine Similarity', () => {

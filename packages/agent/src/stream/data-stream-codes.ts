@@ -1,16 +1,16 @@
 export const DataStreamCode = {
-  textDelta: '0',
+  auiDataPart: 'aui-data',
   data: '2',
   error: '3',
-  reasoningDelta: 'g',
-  auiDataPart: 'aui-data',
-  toolCall: '9',
-  toolCallResult: 'a',
-  startToolCall: 'b',
-  toolCallArgsTextDelta: 'c',
   finishMessage: 'd',
   finishStep: 'e',
+  reasoningDelta: 'g',
   startStep: 'f',
+  startToolCall: 'b',
+  textDelta: '0',
+  toolCall: '9',
+  toolCallArgsTextDelta: 'c',
+  toolCallResult: 'a',
 } as const;
 export type DataStreamCode = (typeof DataStreamCode)[keyof typeof DataStreamCode];
 

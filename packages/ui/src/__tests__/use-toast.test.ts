@@ -26,16 +26,16 @@ describe('useToast', () => {
 
     act(() => {
       result.current.toast({
-        title: 'Test Toast',
         description: 'This is a test toast',
+        title: 'Test Toast',
       });
     });
 
     expect(result.current.toasts).toHaveLength(1);
     expect(result.current.toasts[0]).toMatchObject({
-      title: 'Test Toast',
       description: 'This is a test toast',
       open: true,
+      title: 'Test Toast',
     });
   });
 
@@ -151,8 +151,8 @@ describe('useToast', () => {
     let toastId: string;
     act(() => {
       const { id } = result.current.toast({
-        title: 'Timed Toast',
         duration: 4000,
+        title: 'Timed Toast',
       });
       toastId = id;
     });

@@ -40,13 +40,13 @@ describe('file-node factory helpers', () => {
 
   it('converts a simple object structure into a file tree', () => {
     const structure = {
+      'README.md': null,
       src: {
         'index.ts': null,
         utils: {
           'helper.ts': null,
         },
       },
-      'README.md': null,
     } as const;
 
     const nodes = createFileTreeFromStructure(structure);

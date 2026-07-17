@@ -7,7 +7,6 @@ import {
 import type { GrepMatch, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher, FileChunkRepository, GrepSearchService } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { PGlite } from '@electric-sql/pglite';
 import { getDatabase } from '../db-main';
 import { type LiveGrepResult, runLiveGrep } from './live-grep';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
@@ -28,6 +27,31 @@ export type GrepMatchSource = 'index' | 'live' | 'both';
 /** A grep match labelled with the engine(s) that produced it. */
 export type LabeledGrepMatch = GrepMatch & { source: GrepMatchSource };
 
+/**
+ * The match shape returned to the MODEL. The chunk-locator fields
+ * (`chunkId`/`chunkStartLine`/`chunkEndLine`) are inherited from the indexed
+ * `GrepMatch` for internal merge/dedup, but the model never uses them — they are
+ * stripped here so each match costs fewer tokens in the tool result.
+ */
+export type ModelFacingGrepMatch = Omit<
+  LabeledGrepMatch,
+  'chunkId' | 'chunkStartLine' | 'chunkEndLine'
+>;
+
+/** Drop the internal chunk-locator fields, keeping only model-facing data. */
+function toModelFacingMatch(match: LabeledGrepMatch): ModelFacingGrepMatch {
+  return {
+    after: match.after,
+    before: match.before,
+    line: match.line,
+    lineText: match.lineText,
+    path: match.path,
+    source: match.source,
+    ...(match.rootId === undefined ? {} : { rootId: match.rootId }),
+    ...(match.rootName === undefined ? {} : { rootName: match.rootName }),
+  };
+}
+
 const DEFAULT_CONTENT_MATCHES = 50;
 /**
  * Internal match cap for 'files' mode aggregation. The service caps the
@@ -35,6 +59,7 @@ const DEFAULT_CONTENT_MATCHES = 50;
  * counting, not the file scan itself.
  */
 const FILES_MODE_INTERNAL_MATCH_CAP = 2000;
+const REDACTED_GREP_PATTERN_LOG_VALUE = { redacted: true } as const;
 
 export interface GrepFileSummary {
   /** Line number of the first match in this file. */
@@ -80,7 +105,7 @@ export interface GrepFilesToolResult extends GrepToolResultBase {
 }
 
 export interface GrepContentToolResult extends GrepToolResultBase {
-  matches: LabeledGrepMatch[];
+  matches: ModelFacingGrepMatch[];
   outputMode: 'content';
   /** Chunks that matched but lack startLine metadata (cannot report path:line). */
   skippedMissingLineMetadata: number;
@@ -186,14 +211,14 @@ function mergeGrepMatches(
   const totalMatches = indexResult.totalMatches + liveOnlyAdded;
 
   return {
+    candidatesTruncated: indexResult.candidatesTruncated,
+    liveEngine: liveResult.engine,
     matches,
+    scanLimited: indexResult.scanLimited,
+    skippedMissingLineMetadata: indexResult.skippedMissingLineMetadata,
     totalMatches,
     // Truncated when EITHER pass was truncated (the index cap, or the live caps).
     truncated: indexResult.truncated || liveResult.truncated,
-    candidatesTruncated: indexResult.candidatesTruncated,
-    scanLimited: indexResult.scanLimited,
-    skippedMissingLineMetadata: indexResult.skippedMissingLineMetadata,
-    liveEngine: liveResult.engine,
     ...(liveResult.note ? { liveNote: liveResult.note } : {}),
   };
 }
@@ -216,9 +241,9 @@ function aggregateFileSummaries(matches: readonly LabeledGrepMatch[]): GrepFileS
       existing.source = mergeSource(existing.source, match.source);
     } else {
       byKey.set(key, {
-        path: match.path,
-        matchCount: 1,
         firstLine: match.line,
+        matchCount: 1,
+        path: match.path,
         source: match.source,
         ...(match.rootId === undefined ? {} : { rootId: match.rootId }),
         ...(match.rootName === undefined ? {} : { rootName: match.rootName }),
@@ -254,15 +279,15 @@ function buildFilesResult(mergedResult: MergedGrepResult, offset: number): GrepF
           'filePaths set to the most relevant paths to see the matching lines.'
         : undefined;
     return {
-      outputMode: 'files',
+      candidatesTruncated: mergedResult.candidatesTruncated,
       files,
+      liveEngine: mergedResult.liveEngine,
+      offset,
+      outputMode: 'files',
+      scanLimited: mergedResult.scanLimited,
       totalFiles: allFiles.length,
       totalMatches: mergedResult.totalMatches,
-      offset,
       truncated,
-      candidatesTruncated: mergedResult.candidatesTruncated,
-      scanLimited: mergedResult.scanLimited,
-      liveEngine: mergedResult.liveEngine,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
       ...(hint ? { hint } : {}),
     };
@@ -312,7 +337,12 @@ function buildContentResult(
   requestedMatches: number,
   serviceCap: number
 ): GrepContentToolResult {
-  const pagedMatches = mergedResult.matches.slice(offset, offset + requestedMatches);
+  // Strip the internal chunk-locator fields BEFORE budget-fitting so the token
+  // budget reflects the trimmed model-facing shape (and never spends budget on
+  // fields the model never reads).
+  const pagedMatches = mergedResult.matches
+    .slice(offset, offset + requestedMatches)
+    .map(toModelFacingMatch);
 
   const { result } = fitItemsToCharBudget(pagedMatches, (matches): GrepContentToolResult => {
     const truncated = offset + matches.length < mergedResult.totalMatches;
@@ -324,15 +354,15 @@ function buildContentResult(
       serviceCap
     );
     return {
-      outputMode: 'content',
-      matches,
-      totalMatches: mergedResult.totalMatches,
-      offset,
-      truncated,
       candidatesTruncated: mergedResult.candidatesTruncated,
+      liveEngine: mergedResult.liveEngine,
+      matches,
+      offset,
+      outputMode: 'content',
       scanLimited: mergedResult.scanLimited,
       skippedMissingLineMetadata: mergedResult.skippedMissingLineMetadata,
-      liveEngine: mergedResult.liveEngine,
+      totalMatches: mergedResult.totalMatches,
+      truncated,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
       ...(hint ? { hint } : {}),
     };
@@ -358,10 +388,10 @@ async function runLiveGrepSafely(args: {
   try {
     return await runLiveGrep(
       {
-        pattern: args.pattern,
-        isRegex: args.isRegex,
         caseSensitive: args.caseSensitive,
         contextLines: args.contextLines,
+        isRegex: args.isRegex,
+        pattern: args.pattern,
         roots: args.roots,
         ...(args.filePaths === undefined ? {} : { filePaths: args.filePaths }),
       },
@@ -370,10 +400,10 @@ async function runLiveGrepSafely(args: {
   } catch (error) {
     logger.error('live grep pass threw unexpectedly; returning index-only results', { error });
     return {
-      matches: [],
       engine: 'skipped',
-      truncated: false,
+      matches: [],
       note: 'The live (on-disk) pass could not run this call, so results reflect the index only (which may be stale after recent edits).',
+      truncated: false,
     };
   }
 }
@@ -422,7 +452,7 @@ export async function runGrepSearch(
   input: GrepSearchInput,
   runtimeData: RuntimeData | undefined
 ): Promise<GrepToolResult> {
-  const db = (await getDatabase()) as unknown as PGlite;
+  const db = await getDatabase();
   const repository = new FileChunkRepository(db);
   const service = new GrepSearchService(repository);
 
@@ -461,19 +491,19 @@ export async function runGrepSearch(
 
   try {
     const serviceResult = await runIndexSearch({
-      service,
-      input,
       contextLines,
-      serviceMaxResults,
       embeddingSetId,
+      input,
       rootId,
+      service,
+      serviceMaxResults,
     });
 
     const liveResult = await runLiveGrepSafely({
-      pattern: input.pattern,
-      isRegex,
       caseSensitive,
       contextLines,
+      isRegex,
+      pattern: input.pattern,
       roots: liveRoots,
       ...(input.filePaths === undefined ? {} : { filePaths: input.filePaths }),
       matcher: liveMatcher,
@@ -485,7 +515,7 @@ export async function runGrepSearch(
       ? buildFilesResult(merged, offset)
       : buildContentResult(merged, offset, requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP);
   } catch (error) {
-    logger.error('grepSearch failed', { error, pattern: input.pattern.slice(0, 100) });
+    logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });
     const message = error instanceof Error ? error.message : String(error);
     // Rethrow only known-safe service validation messages; everything else
     // (raw PGlite/SQL errors) maps to a generic message so internal details

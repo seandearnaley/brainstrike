@@ -1,14 +1,9 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
-  format: ['esm', 'cjs'],
-  dts: false, // Disable tsup dts generation, use tsc instead
-  outDir: 'dist',
   clean: false, // Don't clean - tsc already generated .d.ts files
-  target: 'es2020',
-  splitting: false,
-  sourcemap: false,
+  dts: false, // Disable tsup dts generation, use tsc instead
+  entry: ['src/index.ts'],
   external: [
     'react',
     'react-dom',
@@ -21,5 +16,10 @@ export default defineConfig({
     '@brainstrike/ui',
     '@brainstrike/utils',
   ],
+  format: ['esm', 'cjs'],
+  outDir: 'dist',
+  sourcemap: false,
+  splitting: false,
+  target: 'es2020',
   tsconfig: './tsconfig.json',
 });

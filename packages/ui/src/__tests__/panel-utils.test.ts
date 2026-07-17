@@ -46,10 +46,10 @@ describe('panel-utils', () => {
 
   describe('statesEqual', () => {
     const baseState: PanelPersistenceState = {
-      sizes: [25, 50, 25],
       showConsole: true,
       showLeftPanel: true,
       showRightPanel: true,
+      sizes: [25, 50, 25],
     };
 
     it('returns true for identical states', () => {

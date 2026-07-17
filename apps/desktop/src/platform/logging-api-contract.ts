@@ -125,10 +125,10 @@ export function assertBufferedLogRecord(payload: unknown): LogRecord {
   }
 
   return {
-    level,
-    timestamp: candidate['timestamp'],
     args: [...candidate['args']],
     bindings: { ...(candidate['bindings'] as Record<string, unknown>) },
+    level,
+    timestamp: candidate['timestamp'],
     ...(typeof candidate['message'] === 'string' ? { message: candidate['message'] } : {}),
     ...(typeof candidate['scope'] === 'string' ? { scope: candidate['scope'] } : {}),
   } satisfies LogRecord;

@@ -18,20 +18,20 @@ const {
   mockLogger,
 } = vi.hoisted(() => ({
   mockBulkImport: vi.fn(),
-  mockReadFile: vi.fn(),
-  mockGetFileHandle: vi.fn(),
   mockDecodeFileSelection: vi.fn(),
   mockFindNodeByPath: vi.fn(),
   mockGetFileExtension: vi.fn(),
+  mockGetFileHandle: vi.fn(),
   mockIsBinaryExtension: vi.fn(),
-  mockIsTextExtension: vi.fn(),
   mockIsTextContent: vi.fn(),
+  mockIsTextExtension: vi.fn(),
   mockLogger: {
+    debug: vi.fn(),
+    error: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
   },
+  mockReadFile: vi.fn(),
 }));
 
 vi.mock('@brainstrike/db', () => ({
@@ -44,16 +44,16 @@ vi.mock('@brainstrike/db', () => ({
     bulkImport: mockBulkImport,
   }),
   usePGliteDatabase: () => null,
-  usePGliteLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
+  usePGliteLiveQuery: () => ({ error: null, loading: false, refresh: vi.fn(), rows: [] }),
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     fileSystemAdapter: {
-      readFile: mockReadFile,
       getHandleCache: () => ({
         getFileHandle: mockGetFileHandle,
       }),
+      readFile: mockReadFile,
     },
   }),
 }));
@@ -65,8 +65,8 @@ vi.mock('@brainstrike/utils/selection-utils', () => ({
 vi.mock('@brainstrike/utils/file-content', () => ({
   fileContent: {
     isBinaryExtension: mockIsBinaryExtension,
-    isTextExtension: mockIsTextExtension,
     isTextContent: mockIsTextContent,
+    isTextExtension: mockIsTextExtension,
   },
 }));
 
@@ -84,7 +84,7 @@ vi.mock('@brainstrike/utils/logger', () => ({
 describe('useFileImportService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockBulkImport.mockResolvedValue([{ id: '1', imported: true, existed: false }]);
+    mockBulkImport.mockResolvedValue([{ existed: false, id: '1', imported: true }]);
     mockGetFileHandle.mockReset();
     mockGetFileHandle.mockResolvedValue(null);
     mockDecodeFileSelection.mockReturnValue({
@@ -109,9 +109,9 @@ describe('useFileImportService', () => {
 
     it('should accept options parameter', () => {
       const options = {
-        onProgress: vi.fn(),
         onComplete: vi.fn(),
         onError: vi.fn(),
+        onProgress: vi.fn(),
       };
 
       const { result } = renderHook(() => useFileImportService(options));
@@ -162,9 +162,9 @@ describe('useFileImportService', () => {
       expect(mockBulkImport).toHaveBeenCalledWith(
         [
           expect.objectContaining({
-            path: '/test/path',
-            name: 'path',
             content: 'test file content',
+            name: 'path',
+            path: '/test/path',
             size: 17,
           }),
         ],
@@ -237,8 +237,8 @@ describe('useFileImportService', () => {
             onBatchProgress(50, requests.length, 'batch-1-complete');
             return requests.map((request, index) =>
               index === 0
-                ? { id: `failed-${request.name}`, imported: false, existed: false, error: 'failed' }
-                : { id: `${request.name}`, imported: true, existed: false }
+                ? { error: 'failed', existed: false, id: `failed-${request.name}`, imported: false }
+                : { existed: false, id: `${request.name}`, imported: true }
             );
           }
         )
@@ -256,9 +256,9 @@ describe('useFileImportService', () => {
             onBatchProgress(24, requests.length, 'batch-2-incomplete');
             onBatchProgress(25, requests.length, 'batch-2-complete');
             return requests.map((request) => ({
+              existed: false,
               id: `${request.name}`,
               imported: true,
-              existed: false,
             }));
           }
         );
@@ -317,14 +317,14 @@ describe('useFileImportService', () => {
   describe('File tree import', () => {
     it('should import files from file tree when no cached content', async () => {
       const mockFileNode: IFileNode = {
+        depth: 0,
+        handle: { platform: 'web' } as unknown as FileSystemFileHandle,
         name: 'test.txt',
         path: '/test/path',
-        type: 'file',
-        size: 100,
-        depth: 0,
-        selectionState: 'unchecked',
         rootFolderId: 'test-folder',
-        handle: { platform: 'web' } as unknown as FileSystemFileHandle,
+        selectionState: 'unchecked',
+        size: 100,
+        type: 'file',
       };
 
       mockFindNodeByPath.mockReturnValue(mockFileNode);
@@ -340,9 +340,9 @@ describe('useFileImportService', () => {
       expect(mockBulkImport).toHaveBeenCalledWith(
         [
           expect.objectContaining({
-            path: '/test/path',
-            name: 'test.txt',
             content: 'file content from disk',
+            name: 'test.txt',
+            path: '/test/path',
             size: 100,
           }),
         ],
@@ -352,14 +352,14 @@ describe('useFileImportService', () => {
 
     it('should handle file read errors', async () => {
       const mockFileNode: IFileNode = {
+        depth: 0,
+        handle: { platform: 'web' } as unknown as FileSystemFileHandle,
         name: 'test.txt',
         path: '/test/path',
-        type: 'file',
-        size: 100,
-        depth: 0,
-        selectionState: 'unchecked',
         rootFolderId: 'test-folder',
-        handle: { platform: 'web' } as unknown as FileSystemFileHandle,
+        selectionState: 'unchecked',
+        size: 100,
+        type: 'file',
       };
 
       mockFindNodeByPath.mockReturnValue(mockFileNode);
@@ -373,12 +373,12 @@ describe('useFileImportService', () => {
 
       expect(result.current.progress?.errors).toEqual([
         {
-          file: '/test/path',
           error: 'Failed to read file: File read error',
+          file: '/test/path',
         },
         {
-          file: 'Import Process',
           error: 'No valid files to import',
+          file: 'Import Process',
         },
       ]);
     });
@@ -386,8 +386,6 @@ describe('useFileImportService', () => {
     it('imports selected files through the adapter when the lazy tree has not materialized them', async () => {
       mockFindNodeByPath.mockReturnValue(null);
       const fileHandle = {
-        kind: 'file',
-        name: 'path',
         getFile: vi.fn().mockResolvedValue({
           name: 'path',
           size: 'file content from cached handle'.length,
@@ -395,6 +393,8 @@ describe('useFileImportService', () => {
             return 'file content from cached handle';
           },
         } as unknown as File),
+        kind: 'file',
+        name: 'path',
       } as unknown as FileSystemFileHandle;
       mockGetFileHandle.mockResolvedValue(fileHandle);
       mockReadFile.mockResolvedValue('file content from cached handle');
@@ -409,9 +409,9 @@ describe('useFileImportService', () => {
       expect(mockBulkImport).toHaveBeenCalledWith(
         [
           expect.objectContaining({
-            path: '/test/path',
-            name: 'path',
             content: 'file content from cached handle',
+            name: 'path',
+            path: '/test/path',
             size: 'file content from cached handle'.length,
           }),
         ],

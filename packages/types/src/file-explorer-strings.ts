@@ -1,75 +1,24 @@
 export const FileExplorerStrings = {
-  // Component Titles
-  title: 'Context Explorer',
-
   // Button Labels
   // Multi-root: a single consolidated action. The workspace can hold many roots,
   // so the toolbar always offers "Add Folder to Workspace" (no Select Root / Add
   // Folder split, no per-root focus implied).
   addFolderToWorkspace: 'Add Folder to Workspace',
-  refresh: 'Refresh',
-
-  // Toast Messages
-  success: {
-    title: 'Success',
-    refreshSuccess: 'File tree refreshed successfully.',
-    rootDirectorySelected: 'Folder added to the workspace.',
-    contextCopied: 'The context has been copied to your clipboard.',
-    contextDownloaded: 'The context has been downloaded.',
-    // Deprecated report-named keys intentionally reuse context wording for UX consistency during migration.
-    /** @deprecated Use `contextCopied`. */
-    reportCopied: 'The context has been copied to your clipboard.',
-    /** @deprecated Use `contextDownloaded`. */
-    reportDownloaded: 'The context has been downloaded.',
-  },
 
   error: {
-    title: 'Error',
     browserCompatibility: 'Browser Compatibility Error',
+    contextCopyFailed: 'Failed to generate or copy context',
+    contextGenerationFailed: 'Failed to generate context',
+    fileLoadFailed: 'Failed to load file',
     noRootDirectory: 'No folder selected.',
     refreshFailed: 'Failed to refresh file tree',
-    rootDirectoryFailed: 'Failed to add folder',
-    contextGenerationFailed: 'Failed to generate context',
-    contextCopyFailed: 'Failed to generate or copy context',
-    /** @deprecated Use `contextGenerationFailed`. */
-    reportGenerationFailed: 'Failed to generate context',
     /** @deprecated Use `contextCopyFailed`. */
     reportCopyFailed: 'Failed to generate or copy context',
-    fileLoadFailed: 'Failed to load file',
+    /** @deprecated Use `contextGenerationFailed`. */
+    reportGenerationFailed: 'Failed to generate context',
+    rootDirectoryFailed: 'Failed to add folder',
     selectionLimitExceeded: 'Cannot select more files. Maximum selection limit reached.',
-  },
-
-  loading: {
-    title: 'Please Wait',
-    rootDirectory: 'Loading folder...',
-    selectingRoot: 'Adding folder...',
-    generatingContext: 'Generating Context...',
-    /** @deprecated Use `generatingContext`. */
-    generatingReport: 'Generating Context...',
-    refreshing: 'Refreshing file tree...',
-  },
-
-  prompts: {
-    chooseDirectory: 'Please choose a folder from the file picker',
-    waitForContext: 'Please wait while we prepare your context',
-    /** @deprecated Use `waitForContext`. */
-    waitForReport: 'Please wait while we prepare your context',
-    waitForLoading: 'Please wait while we load the file tree',
-    /** @deprecated Use `waitForContext`. */
-    reportGenerating: 'Context is currently being generated...',
-  },
-
-  inlineFixture: {
-    settingLabel: 'Enable Inline Fixture',
-    settingDescription:
-      'Loads a scripted mock project so you can test without accessing the local filesystem.',
-    enableSuccess: 'Inline fixture enabled.',
-    disableSuccess: 'Inline fixture disabled.',
-    enableError: 'Unable to enable the inline fixture.',
-    disableError: 'Unable to disable the inline fixture.',
-    noAccessFallbackTitle: 'Demo Mode Enabled',
-    noAccessFallbackDescription:
-      'Local directory picker is not available in this browser. Using built-in mock project instead.',
+    title: 'Error',
   },
 
   // File Names
@@ -79,18 +28,68 @@ export const FileExplorerStrings = {
     report: 'context.txt',
   },
 
+  inlineFixture: {
+    disableError: 'Unable to disable the inline fixture.',
+    disableSuccess: 'Inline fixture disabled.',
+    enableError: 'Unable to enable the inline fixture.',
+    enableSuccess: 'Inline fixture enabled.',
+    noAccessFallbackDescription:
+      'Local directory picker is not available in this browser. Using built-in mock project instead.',
+    noAccessFallbackTitle: 'Demo Mode Enabled',
+    settingDescription:
+      'Loads a scripted mock project so you can test without accessing the local filesystem.',
+    settingLabel: 'Enable Inline Fixture',
+  },
+
+  loading: {
+    generatingContext: 'Generating Context...',
+    /** @deprecated Use `generatingContext`. */
+    generatingReport: 'Generating Context...',
+    refreshing: 'Refreshing file tree...',
+    rootDirectory: 'Loading folder...',
+    selectingRoot: 'Adding folder...',
+    title: 'Please Wait',
+  },
+
+  prompts: {
+    chooseDirectory: 'Please choose a folder from the file picker',
+    /** @deprecated Use `waitForContext`. */
+    reportGenerating: 'Context is currently being generated...',
+    waitForContext: 'Please wait while we prepare your context',
+    waitForLoading: 'Please wait while we load the file tree',
+    /** @deprecated Use `waitForContext`. */
+    waitForReport: 'Please wait while we prepare your context',
+  },
+  refresh: 'Refresh',
+
   // Status Messages
   status: {
+    activeFilters: 'Active Filters:',
+    currentDirectory: 'Current Directory:',
+    excludeFilters: 'Exclude:',
+    includeFilters: 'Include:',
     noFilesFound: 'No matching files found',
     noFilesWithFilters: 'No files match the current filters',
     noRootSelected: 'Add a folder to your workspace to begin',
-    currentDirectory: 'Current Directory:',
-    activeFilters: 'Active Filters:',
-    includeFilters: 'Include:',
-    excludeFilters: 'Exclude:',
-    regexMode: 'Regex Mode:',
-    on: 'On',
     off: 'Off',
+    on: 'On',
     quickFilter: 'Quick Filter:',
+    regexMode: 'Regex Mode:',
   },
+
+  // Toast Messages
+  success: {
+    contextCopied: 'The context has been copied to your clipboard.',
+    contextDownloaded: 'The context has been downloaded.',
+    refreshSuccess: 'File tree refreshed successfully.',
+    // Deprecated report-named keys intentionally reuse context wording for UX consistency during migration.
+    /** @deprecated Use `contextCopied`. */
+    reportCopied: 'The context has been copied to your clipboard.',
+    /** @deprecated Use `contextDownloaded`. */
+    reportDownloaded: 'The context has been downloaded.',
+    rootDirectorySelected: 'Folder added to the workspace.',
+    title: 'Success',
+  },
+  // Component Titles
+  title: 'Context Explorer',
 } as const;

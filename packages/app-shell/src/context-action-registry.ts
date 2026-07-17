@@ -11,6 +11,7 @@ import {
 import { collectionActions } from '@brainstrike/db-explorer/context-actions';
 import { fileEntryActions } from '@brainstrike/file-explorer-ui/context-actions';
 import { createLogger } from '@brainstrike/utils';
+import { assistantThreadActions } from './assistant-thread-context-actions';
 
 const logger = createLogger('ContextActionRegistry');
 
@@ -63,11 +64,11 @@ export function buildAppActionRegistryParts(): AppActionRegistryParts {
     services.platformFs = {
       openPath: async (absolutePath) => {
         const result = await platformBridge.openPath(absolutePath);
-        return result.ok ? { ok: true } : { ok: false, error: result.error ?? 'Open failed' };
+        return result.ok ? { ok: true } : { error: result.error ?? 'Open failed', ok: false };
       },
       showItemInFolder: async (absolutePath) => {
         const result = await platformBridge.showItemInFolder(absolutePath);
-        return result.ok ? { ok: true } : { ok: false, error: result.error ?? 'Reveal failed' };
+        return result.ok ? { ok: true } : { error: result.error ?? 'Reveal failed', ok: false };
       },
     };
     capabilities.add('fs.reveal');
@@ -75,7 +76,7 @@ export function buildAppActionRegistryParts(): AppActionRegistryParts {
   }
 
   return {
-    actions: [...fileEntryActions, ...collectionActions],
+    actions: [...fileEntryActions, ...collectionActions, ...assistantThreadActions],
     capabilities,
     services,
   };

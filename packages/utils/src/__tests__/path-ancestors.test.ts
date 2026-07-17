@@ -84,8 +84,8 @@ describe('getAncestorDirectoryPaths', () => {
     ]);
 
     accumulateAncestorDirectoryCounts(['/src/nested/b.ts'], {
-      counts,
       cache: new Map<string, readonly string[]>(),
+      counts,
       delta: -1,
       includeRoot: true,
     });

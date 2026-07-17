@@ -89,22 +89,22 @@ export const DEFAULT_CODE_LANGUAGE_PATTERNS: ReadonlyArray<{
   readonly language: SharedCodeLanguage;
   readonly pattern: RegExp;
 }> = [
-  { pattern: /\.vue$/i, language: 'javascript' },
-  { pattern: /\.svelte$/i, language: 'javascript' },
-  { pattern: /\.(ts|tsx|mts|cts)$/i, language: 'typescript' },
-  { pattern: /\.(js|jsx|mjs|cjs)$/i, language: 'javascript' },
-  { pattern: /\.mm$/i, language: 'cpp' },
-  { pattern: /\.m$/i, language: 'cpp' },
-  { pattern: /\.py$/i, language: 'python' },
-  { pattern: /\.rs$/i, language: 'rust' },
-  { pattern: /\.go$/i, language: 'go' },
-  { pattern: /\.(java|class)$/i, language: 'java' },
-  { pattern: /\.cs$/i, language: 'csharp' },
-  { pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/i, language: 'cpp' },
-  { pattern: /\.rb$/i, language: 'ruby' },
-  { pattern: /\.php$/i, language: 'php' },
-  { pattern: /\.swift$/i, language: 'swift' },
-  { pattern: /\.(kt|kts)$/i, language: 'kotlin' },
+  { language: 'javascript', pattern: /\.vue$/i },
+  { language: 'javascript', pattern: /\.svelte$/i },
+  { language: 'typescript', pattern: /\.(ts|tsx|mts|cts)$/i },
+  { language: 'javascript', pattern: /\.(js|jsx|mjs|cjs)$/i },
+  { language: 'cpp', pattern: /\.mm$/i },
+  { language: 'cpp', pattern: /\.m$/i },
+  { language: 'python', pattern: /\.py$/i },
+  { language: 'rust', pattern: /\.rs$/i },
+  { language: 'go', pattern: /\.go$/i },
+  { language: 'java', pattern: /\.(java|class)$/i },
+  { language: 'csharp', pattern: /\.cs$/i },
+  { language: 'cpp', pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/i },
+  { language: 'ruby', pattern: /\.rb$/i },
+  { language: 'php', pattern: /\.php$/i },
+  { language: 'swift', pattern: /\.swift$/i },
+  { language: 'kotlin', pattern: /\.(kt|kts)$/i },
 ] as const;
 
 export const DEFAULT_LARGE_STRUCTURED_PATTERNS = [
@@ -187,8 +187,8 @@ export function shouldSkipChunking(
   for (const pattern of skipPatterns) {
     if (pattern.test(fileName)) {
       return {
-        skip: true,
         reason: `Lock file or dependency manifest: ${fileName}`,
+        skip: true,
       };
     }
   }
@@ -196,20 +196,20 @@ export function shouldSkipChunking(
   // Zero-byte files are valid repository inputs. They should be skipped explicitly
   // rather than flowing into token sizing where an empty sample has no valid token count.
   if (content.length === 0) {
-    return { skip: true, reason: 'Empty file content' };
+    return { reason: 'Empty file content', skip: true };
   }
 
   const probeWindow = content.slice(0, BINARY_DETECTION_PROBE_BYTES);
   if (probeWindow.includes('\u0000')) {
-    return { skip: true, reason: 'Binary content detected (NUL bytes present)' };
+    return { reason: 'Binary content detected (NUL bytes present)', skip: true };
   }
 
   if (!options.allowLargeFiles && content.length > maxChunkableSize) {
     return {
-      skip: true,
       reason: `File too large: ${Math.round(content.length / 1024)}KB (max: ${Math.round(
         maxChunkableSize / 1024
       )}KB)`,
+      skip: true,
     };
   }
 
@@ -219,8 +219,8 @@ export function shouldSkipChunking(
     uniqueLines / totalLines < REPETITIVE_CONTENT_UNIQUE_RATIO
   ) {
     return {
-      skip: true,
       reason: 'Highly repetitive content (likely generated file)',
+      skip: true,
     };
   }
 
@@ -436,7 +436,7 @@ function collectTopLevelFunctionRanges(
     Number.isFinite(node.start) &&
     Number.isFinite(node.end)
   ) {
-    ranges.push({ start: Number(node.start), end: Number(node.end) });
+    ranges.push({ end: Number(node.end), start: Number(node.start) });
   }
 
   ancestors.push(node);
@@ -510,8 +510,8 @@ export async function splitCodeByFunctionRanges(
   const pieces: string[] = [];
   let cursor = 0;
   const recursiveChunker = new RecursiveTextSplitter({
-    chunkSize: options.maxChars,
     chunkOverlap: options.overlapChars,
+    chunkSize: options.maxChars,
     separators: options.separators,
   });
 
@@ -608,8 +608,8 @@ function captureFence(
   }
 
   return {
+    block: { meta: { isFence: true }, text: buffer.join('\n') },
     consumed: index,
-    block: { text: buffer.join('\n'), meta: { isFence: true } },
   };
 }
 
@@ -621,7 +621,7 @@ function captureHeading(lines: readonly (string | undefined)[], start: number) {
   }
   return {
     consumed: start + 1,
-    heading: { text: raw, meta: { heading: match[2] ?? '' } },
+    heading: { meta: { heading: match[2] ?? '' }, text: raw },
   } as const;
 }
 
@@ -651,7 +651,7 @@ function captureParagraph(lines: readonly (string | undefined)[], start: number)
 
   return {
     consumed: index,
-    paragraph: { text: buffer.join('\n'), meta: {} as const },
+    paragraph: { meta: {} as const, text: buffer.join('\n') },
   } as const;
 }
 

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   BINARY_FILE_EXTENSIONS,
-  EXPAND_COLLAPSE_TEST_ID,
   IGNORED_PATHS,
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,
@@ -313,33 +312,6 @@ describe('file-explorer-constants', () => {
 
     it('should allow reasonable selection sizes', () => {
       expect(MAX_SELECTION_COUNT).toBeGreaterThan(10);
-    });
-  });
-
-  describe('EXPAND_COLLAPSE_TEST_ID', () => {
-    it('should be defined as a string', () => {
-      expect(typeof EXPAND_COLLAPSE_TEST_ID).toBe('string');
-    });
-
-    it('should be "expand-collapse-button"', () => {
-      expect(EXPAND_COLLAPSE_TEST_ID).toBe('expand-collapse-button');
-    });
-
-    it('should not be empty', () => {
-      expect(EXPAND_COLLAPSE_TEST_ID.trim()).not.toBe('');
-    });
-
-    it('should be lowercase with hyphens', () => {
-      expect(EXPAND_COLLAPSE_TEST_ID).toMatch(/^[a-z-]+$/);
-    });
-
-    it('should not contain spaces', () => {
-      expect(EXPAND_COLLAPSE_TEST_ID).not.toContain(' ');
-    });
-
-    it('should be a valid HTML id', () => {
-      // HTML ids should not start with a digit
-      expect(/^[a-zA-Z]/.test(EXPAND_COLLAPSE_TEST_ID)).toBe(true);
     });
   });
 

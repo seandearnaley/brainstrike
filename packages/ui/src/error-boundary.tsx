@@ -26,14 +26,14 @@ export interface ErrorBoundaryState {
  */
 class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public override state: ErrorBoundaryState = {
-    hasError: false,
+    detailsVisible: false,
     error: null,
     errorInfo: null,
-    detailsVisible: false,
+    hasError: false,
   };
 
   public static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
-    return { hasError: true, error };
+    return { error, hasError: true };
   }
 
   public override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -51,10 +51,10 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   protected handleReset = () => {
     this.setState({
-      hasError: false,
+      detailsVisible: false,
       error: null,
       errorInfo: null,
-      detailsVisible: false,
+      hasError: false,
     });
     this.props.onReset?.();
   };

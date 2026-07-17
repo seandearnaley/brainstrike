@@ -23,8 +23,8 @@ export function toolLineRangeToTapestryRange(range: ToolLineRange): TapestryLine
 
   const startLine = range.startLine - 1;
   return {
-    startLine,
     endLine: range.endLine,
+    startLine,
   };
 }
 
@@ -35,7 +35,7 @@ export function tapestryLineRangeToToolRange(range: TapestryLineRange): ToolLine
   }
 
   return {
-    startLine: range.startLine + 1,
     endLine: range.endLine,
+    startLine: range.startLine + 1,
   };
 }

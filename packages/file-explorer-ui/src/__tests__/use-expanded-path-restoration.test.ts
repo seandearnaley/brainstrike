@@ -2,6 +2,7 @@ import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  __getAllAncestorDirectories,
   __resetRestorationLock,
   useExpandedPathRestoration,
   useExpandSelectedFileParentDirectories,
@@ -9,14 +10,14 @@ import {
 
 function createDirectoryNode(path: string): IFileNode {
   return {
-    path,
-    name: path.split('/').pop() ?? path,
-    type: 'directory',
     children: [],
     depth: path.split('/').filter(Boolean).length,
     handle: {} as IFileNode['handle'],
+    name: path.split('/').pop() ?? path,
+    path,
     rootFolderId: '/workspace',
     selectionState: 'unchecked',
+    type: 'directory',
   } satisfies IFileNode;
 }
 
@@ -111,6 +112,27 @@ describe('useExpandedPathRestoration', () => {
 });
 
 describe('useExpandSelectedFileParentDirectories', () => {
+  it('derives parent directory chains without materializing segment joins per ancestor', () => {
+    const joinSpy = vi.spyOn(Array.prototype, 'join');
+
+    const absoluteAncestors = __getAllAncestorDirectories('/workspace/src/components/Button.tsx');
+    const repeatedSeparatorAncestors = __getAllAncestorDirectories('src//components/Button.tsx');
+    const fileOnlyAncestors = __getAllAncestorDirectories('Button.tsx');
+    const rootAncestors = __getAllAncestorDirectories('/');
+
+    expect(joinSpy).not.toHaveBeenCalled();
+    joinSpy.mockRestore();
+
+    expect(absoluteAncestors).toEqual([
+      '/workspace',
+      '/workspace/src',
+      '/workspace/src/components',
+    ]);
+    expect(repeatedSeparatorAncestors).toEqual(['src', 'src/components']);
+    expect(fileOnlyAncestors).toEqual([]);
+    expect(rootAncestors).toEqual([]);
+  });
+
   it('expands parent directories for selected files after restoration settles', async () => {
     const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
     const setExpandedPaths = vi.fn();
@@ -133,12 +155,12 @@ describe('useExpandSelectedFileParentDirectories', () => {
           setExpandedPaths,
           store,
         }),
-      { initialProps: { selectionVersion: 1, isRestorationSettled: false } }
+      { initialProps: { isRestorationSettled: false, selectionVersion: 1 } }
     );
 
     expect(loadSpecificPaths).not.toHaveBeenCalled();
 
-    rerender({ selectionVersion: 1, isRestorationSettled: true });
+    rerender({ isRestorationSettled: true, selectionVersion: 1 });
 
     await waitFor(() => {
       expect(loadSpecificPaths).toHaveBeenCalledWith(['src', 'src/components']);
@@ -203,18 +225,18 @@ describe('useExpandSelectedFileParentDirectories', () => {
             materializedPaths: null,
             mode: 'query',
             queryDescriptor: {
-              kind: 'recursive-select-all',
-              folderId: '/workspace',
-              rootPath: null,
               coveredDirectoryPaths: ['src', 'src/generated'],
-              includeFilters: [],
-              excludeFilters: [],
-              includedPaths: [],
               excludedPaths: [],
+              excludeFilters: [],
+              folderId: '/workspace',
+              includedPaths: [],
+              includeFilters: [],
+              kind: 'recursive-select-all',
               manifestFingerprint: 'query-fingerprint',
               manifestSnapshotId: 'snapshot-1',
-              useRegex: false,
+              rootPath: null,
               totalSelectedCount: 2,
+              useRegex: false,
             },
             ruleSetJson: null,
           },

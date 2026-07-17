@@ -6,7 +6,7 @@ import { ensureRightPanelVisible } from './utils/layout-helpers';
 
 async function ensureDatabasePanelVisible(page: Page): Promise<void> {
   await ensureRightPanelVisible(page);
-  const databaseTab = page.getByRole('tab', { name: /database/i });
+  const databaseTab = page.getByRole('tab', { name: /collections/i });
   await expect(databaseTab).toBeVisible({ timeout: 15_000 });
   await databaseTab.click();
   await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
@@ -29,6 +29,7 @@ async function createCollection(page: Page, collectionName: string): Promise<voi
   ).toBeVisible({
     timeout: 30_000,
   });
+  await expect(collectionList.getByRole('option', { name: /Workspace Index/i })).toHaveCount(0);
 }
 
 async function openSearchIndexingSettings(page: Page): Promise<void> {
@@ -87,9 +88,9 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
 
     const settingsSection = page.getByTestId('settings-category-search-indexing');
     await expect(page.getByRole('switch', { name: 'Workspace Index' })).toBeChecked();
-    await expect(settingsSection.getByText('Disabled')).toBeVisible({ timeout: 15_000 });
+    await expect(settingsSection.getByText('Waiting for restore')).toBeVisible({ timeout: 15_000 });
     await expect(settingsSection.getByText('None selected')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('indexing-status-item')).toContainText('Idle');
+    await expect(page.getByTestId('indexing-status-item')).toContainText('Workspace Index');
   });
 
   test('disables manual DB import when the collection is marked as managed', async ({ page }) => {

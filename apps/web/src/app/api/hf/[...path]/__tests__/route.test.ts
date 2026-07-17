@@ -32,16 +32,16 @@ describe('hf proxy route', () => {
 
     fetchMock.mockResolvedValue(
       new Response(upstreamBody, {
-        status: 206,
-        statusText: 'Partial Content',
         headers: {
           'accept-ranges': 'bytes',
-          'content-type': 'application/octet-stream',
-          'content-length': '2',
           'cache-control': 'public, max-age=60',
+          'content-length': '2',
           'content-range': 'bytes 0-1/2',
+          'content-type': 'application/octet-stream',
           etag: '"abc"',
         },
+        status: 206,
+        statusText: 'Partial Content',
       })
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -139,8 +139,14 @@ describe('hf proxy route', () => {
     expect(response.status).toBe(403);
   });
 
-  it('marks transient upstream errors as non-cacheable when no cache header is present', async () => {
-    fetchMock.mockResolvedValue(new Response('busy', { status: 503, statusText: 'Busy' }));
+  it('marks transient upstream errors as non-cacheable', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('busy', {
+        headers: { 'cache-control': 'public, max-age=31536000, immutable' },
+        status: 503,
+        statusText: 'Busy',
+      })
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await GET(
@@ -207,14 +213,14 @@ describe('hf proxy route', () => {
     expect((options as { signal: AbortSignal }).signal.aborted).toBe(true);
   });
 
-  it('supports HEAD requests for metadata probes', async () => {
+  it('supports HEAD not-modified metadata probes', async () => {
     fetchMock.mockResolvedValue(
       new Response(null, {
-        status: 200,
         headers: {
-          'content-length': '123',
+          'cache-control': 'public, max-age=60',
           etag: '"head-etag"',
         },
+        status: 304,
       })
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -239,8 +245,8 @@ describe('hf proxy route', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, options] = fetchMock.mock.calls[0] ?? [];
     expect(options).toMatchObject({ method: 'HEAD' });
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-length')).toBe('123');
+    expect(response.status).toBe(304);
+    expect(response.headers.get('cache-control')).toBe('public, max-age=60');
     expect(response.headers.get('etag')).toBe('"head-etag"');
     expect(await response.text()).toBe('');
   });

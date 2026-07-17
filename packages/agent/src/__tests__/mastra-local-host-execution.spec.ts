@@ -12,7 +12,7 @@
  * scripted fake — exactly the seam the desktop main process implements over
  * IPC.
  *
- * This is the LIVE validation required by AGENTS.md for the local→Mastra
+ * This is the LIVE validation required by docs/agents/local-inference.md for the local→Mastra
  * path: if the proxy model, the conversion layer, or the provider seam breaks
  * tool calling, this fails while mocked suites stay green.
  */
@@ -28,7 +28,7 @@ import type {
 import type { LocalLlmGenerationResult } from '../providers/local/types';
 import type { StreamChunk } from '../types';
 
-const USAGE = { promptTokens: 8, completionTokens: 4, totalTokens: 12 } as const;
+const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
 
 /**
  * Scripted host client: first generation returns a tool call; once the prompt
@@ -41,8 +41,6 @@ function createScriptedHostClient(): LocalLlmHostClient & {
 } {
   const requests: LocalLlmHostGenerateRequest[] = [];
   return {
-    requests,
-    warmup: vi.fn().mockResolvedValue(undefined),
     generate: (
       request: LocalLlmHostGenerateRequest,
       options: LocalLlmHostRequestOptions = {}
@@ -56,25 +54,27 @@ function createScriptedHostClient(): LocalLlmHostClient & {
         options.onProgress?.({ kind: 'text', text: 'It is ' });
         options.onProgress?.({ kind: 'text', text: 'It is 21C in' });
         return Promise.resolve({
-          text: 'It is 21C in Paris.',
           finishReason: 'stop',
+          text: 'It is 21C in Paris.',
           usage: USAGE,
         });
       }
 
       return Promise.resolve({
-        text: '',
         finishReason: 'tool_calls',
+        text: '',
         toolCalls: [
           {
+            function: { arguments: '{"city":"Paris"}', name: 'get_weather' },
             id: 'call-local-1',
             type: 'function',
-            function: { name: 'get_weather', arguments: '{"city":"Paris"}' },
           },
         ],
         usage: USAGE,
       });
     },
+    requests,
+    warmup: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -84,22 +84,22 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
       Promise.resolve({ city: inputData.city, temperatureC: 21 })
     );
     const weatherTool = createTool({
-      id: 'get_weather',
       description: 'Get the current weather for a city.',
+      execute: executeSpy,
+      id: 'get_weather',
       inputSchema: z.object({ city: z.string() }),
       outputSchema: z.object({ city: z.string(), temperatureC: z.number() }),
-      execute: executeSpy,
     });
 
     const hostClient = createScriptedHostClient();
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'weather in Paris?' }] }],
+      [{ id: 'u1', parts: [{ text: 'weather in Paris?', type: 'text' }], role: 'user' }],
       {
         runtime: {
-          provider: 'local',
-          model: 'onnx-community/gemma-4-E2B-it-ONNX',
           localLlmHostClient: hostClient,
+          model: 'onnx-community/gemma-4-E2B-it-ONNX',
+          provider: 'local',
           providerOptions: { local: { thinking: { enabled: false } } },
         },
         tools: { get_weather: weatherTool },
@@ -158,8 +158,8 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
       (message) => message.role === 'assistant' && message.toolCalls !== undefined
     );
     expect(assistantWithToolCall?.toolCalls?.[0]).toMatchObject({
-      id: 'call-local-1',
       function: { name: 'get_weather' },
+      id: 'call-local-1',
     });
     const toolMessage = secondRequest?.messages.find((message) => message.role === 'tool');
     expect(toolMessage?.toolResponses?.[0]?.name).toBe('get_weather');
@@ -173,12 +173,12 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
     const hostClient = createScriptedHostClient();
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u2', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+      [{ id: 'u2', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
       {
         runtime: {
-          provider: 'local',
-          model: 'onnx-community/gemma-4-E2B-it-ONNX',
           localLlmHostClient: hostClient,
+          model: 'onnx-community/gemma-4-E2B-it-ONNX',
+          provider: 'local',
         },
       }
     );

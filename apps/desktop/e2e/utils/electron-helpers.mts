@@ -35,7 +35,7 @@ const intentionallyClosingApps = new WeakSet<ElectronApplication>();
 const electronOutputBuffers = new WeakMap<ElectronApplication, ElectronOutputBuffer>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 const electronAppCloseTimeoutMs = 10_000;
-const electronWindowCloseTimeoutMs = 5_000;
+const electronWindowCloseTimeoutMs = 5000;
 const ignoredElectronOutputPatterns = [
   'Electron Security Warning (Insecure Content-Security-Policy)',
   'This renderer process has either no Content Security',
@@ -318,7 +318,7 @@ async function killLingeringElectronProcesses(userDataDir?: string): Promise<voi
     // Give OS time to release resources
     await new Promise((resolve) => setTimeout(resolve, 500));
     verboseLog('✅ Cleaned up lingering processes');
-  } catch (_error) {
+  } catch {
     // Ignore errors - processes might not exist
     verboseLog('⚠️ No lingering processes to clean up');
   }
@@ -379,10 +379,10 @@ function createLaunchOptions(
   const isLinuxCI = process.platform === 'linux' && process.env['CI'];
   const needsDisplayFallback = isLinuxCI && !currentDisplay;
   verboseLog('[DEBUG][HYP-C] DISPLAY resolution:', {
-    platform: process.platform,
-    isCI: Boolean(process.env['CI']),
     currentDisplay: currentDisplay ?? '<not set>',
+    isCI: Boolean(process.env['CI']),
     needsDisplayFallback,
+    platform: process.platform,
     willUseFallback: needsDisplayFallback ? ':99' : 'N/A',
   });
   // #endregion
@@ -433,11 +433,11 @@ function createLaunchOptions(
             NODE_ENV: 'test',
           }
         : {}),
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      ELECTRON_ENABLE_STACK_DUMPING: 'false',
       // Prevent V8 inspector issues that cause "Waiting for debugger to disconnect" hangs
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       NODE_OPTIONS: '', // Clear any inherited NODE_OPTIONS that might enable --inspect
-      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-      ELECTRON_ENABLE_STACK_DUMPING: 'false',
       ...(shouldDisableGpuForE2e
         ? {
             // Disable GPU acceleration in CI where Chromium GPU startup is unstable.
@@ -526,9 +526,9 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
   try {
     const versionOutput = execSync(`"${electronBinaryPath}" --version 2>&1`, {
       encoding: 'utf8',
-      timeout: 10_000,
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       env: { ...process.env, DISPLAY: displayEnv ?? process.env['DISPLAY'] },
+      timeout: 10_000,
     });
     verboseLog('[DEBUG][HYP-F] Electron version check:', versionOutput.trim());
   } catch (versionErr) {
@@ -647,9 +647,9 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     console.error('❌ Failed to launch Electron app:', error);
     // #region agent log - Additional error context
     verboseError('[DEBUG] Launch error details:', {
-      name: error instanceof Error ? error.name : 'unknown',
-      message: error instanceof Error ? error.message : String(error),
       elapsed: Date.now() - launchStartTime,
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : 'unknown',
     });
     // #endregion
     throw new Error(`Failed to launch Electron app: ${error}`);
@@ -860,7 +860,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('Timed out waiting for app readiness in Codex environment');
     }
 
-    await page.waitForFunction(readinessCheck, { timeout: appReadyTimeoutMs, polling: 100 });
+    await page.waitForFunction(readinessCheck, { polling: 100, timeout: appReadyTimeoutMs });
     verboseLog('✅ App is ready and responsive');
   } catch (error) {
     console.error('❌ Error waiting for app to be ready:', error);
@@ -882,8 +882,8 @@ export async function waitForAppReady(page: Page): Promise<void> {
             Reflect.get(window as unknown as Record<string, unknown>, '__BRAINSTRIKE_READY__')
           ),
           hasRoot: Boolean(root),
-          rootIsConnected: Boolean(root?.isConnected),
           rootChildCount: root?.childElementCount ?? 0,
+          rootIsConnected: Boolean(root?.isConnected),
           visibilityState: document.visibilityState,
         };
       })
@@ -991,11 +991,11 @@ export async function setupDialogMocking(app: ElectronApplication): Promise<void
       if (verboseLogging) {
         console.log('🔸 Mocked showMessageBox called with options:', options);
       }
-      return { response: 0, checkboxChecked: false };
+      return { checkboxChecked: false, response: 0 };
     };
     dialog.showErrorBox = (title, content) => {
       if (verboseLogging) {
-        console.log('🔸 Mocked showErrorBox called:', { title, content });
+        console.log('🔸 Mocked showErrorBox called:', { content, title });
       }
     };
     if (dialog.showCertificateTrustDialog) {
@@ -1027,11 +1027,11 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
         }
         return {
           id: 'mock-directory-handle',
+          kind: 'directory',
           name: 'mock-test-directory',
           path: '/mock/test/directory',
-          type: 'directory',
-          kind: 'directory',
           platform: 'electron',
+          type: 'directory',
         };
       };
       // @ts-expect-error - runtime mock only
@@ -1091,7 +1091,7 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
         if (verboseLogging) {
           console.log('🔸 Mocked showDirectoryPicker called');
         }
-        return { name: 'mock-directory', kind: 'directory' };
+        return { kind: 'directory', name: 'mock-directory' };
       };
     }
   }, isVerboseE2eLoggingEnabled);

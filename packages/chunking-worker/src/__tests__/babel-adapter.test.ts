@@ -51,8 +51,8 @@ describe('babelAdapter', () => {
       await expect(
         babelAdapter.parse(content, {
           ...baseOptions,
-          language: 'javascript',
           errorRecovery: false,
+          language: 'javascript',
         })
       ).rejects.toThrow();
     });
@@ -71,7 +71,7 @@ describe('babelAdapter', () => {
       const content = 'const el = <div>hi</div>';
 
       await expect(
-        babelAdapter.parse(content, { ...baseOptions, jsx: false, errorRecovery: false })
+        babelAdapter.parse(content, { ...baseOptions, errorRecovery: false, jsx: false })
       ).rejects.toThrow();
     });
   });

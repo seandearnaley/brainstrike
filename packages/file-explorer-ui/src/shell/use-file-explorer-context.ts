@@ -16,7 +16,11 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import { useOptionalFileTreeContext } from '../tree/file-tree-provider';
-import { type LoadingProgressState, useFileTree } from '../tree/use-file-tree-context';
+import {
+  type FileTreeRefreshResult,
+  type LoadingProgressState,
+  useFileTree,
+} from '../tree/use-file-tree-context';
 import {
   type RestorationProgress,
   useExpandedPathRestoration,
@@ -115,7 +119,7 @@ interface UseFileExplorerReturn {
   loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
   /** Refresh a specific directory */
   refreshDirectory: (path: string) => Promise<void>;
-  refreshFileExplorer: () => Promise<void>;
+  refreshFileExplorer: () => Promise<FileTreeRefreshResult>;
   /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
   registerRestoredHandles: (handles: readonly DirectoryHandle[]) => Promise<void>;
   /**
@@ -337,11 +341,11 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     [selectRootDirectory]
   );
 
-  const refreshFileExplorer = useCallback(async () => {
+  const refreshFileExplorer = useCallback(() => {
     if (!rootDirectoryHandle) {
-      throw new Error('No root directory selected');
+      return Promise.reject(new Error('No root directory selected'));
     }
-    await refreshTree();
+    return refreshTree();
   }, [rootDirectoryHandle, refreshTree]);
 
   // Wrapper for external filter application (maintains API compatibility)
@@ -488,8 +492,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
       const currentHasStaleExpansion = currentStoreState.expandedDirectoryPaths.size > 0;
 
       logger.info('Clearing stale file explorer state - no root directory handle', {
-        staleSelectedFiles: currentStoreState.selectedFilePaths.size,
         staleExpandedPaths: currentStoreState.expandedDirectoryPaths.size,
+        staleSelectedFiles: currentStoreState.selectedFilePaths.size,
       });
 
       if (currentHasStaleSelection) {
@@ -532,58 +536,58 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     sharedTreeContext?.restorationProgress ?? localRestorationState.restorationProgress;
 
   return {
-    fileTree: filteredTree,
-    unfilteredFileTree: fileTree,
-    handleRootDirectorySelect,
-    isLoading: isTreeLoading,
-    error: displayError,
-    fileContents,
-    loadingFiles: contentLoadingFiles,
-    applyFileFilters: wrappedApplyFileFilters,
-    filterError: localFilterError,
-    rootDirectoryHandle,
-    isFileSystemAccessSupported,
-    loadFileContent,
-    loadMultipleFileContents: handleFileContentLoading,
-    refreshFileExplorer,
-    isInitialLoad,
-    clearFileContents: storeClearFileContents,
-    loadingProgress,
-    cancellable,
-    cancelOperation,
-    isCancelling,
-    clearRootDirectory,
-    setRootDirectoryHandle,
-    loadingPaths,
-    loadChildren,
-    cancelChildLoading,
-    refreshDirectory,
-    expandAllProgressively,
-    cancelExpandAll,
-    isExpandingAll,
-    expandAllProgress,
-    isRestoringExpandedPaths,
-    restorationProgress,
-    setAccessLoading,
-    canLoadWithoutTree,
-    selectFolderRecursively,
-    cancelRecursiveSelect,
-    isLoadingForSelection,
-    loadingPathForSelection,
-    selectAllRecursively,
-    cancelSelectAll,
-    isLoadingForSelectAll,
-    /** All active root handles (multi-root, Phase 4+). */
-    rootDirectoryHandles,
     /** Add an additional root directory (multi-root, Phase 4+). */
     addRootDirectory,
+    applyFileFilters: wrappedApplyFileFilters,
+    cancelChildLoading,
+    cancelExpandAll,
+    cancellable,
+    cancelOperation,
+    cancelRecursiveSelect,
+    cancelSelectAll,
+    canLoadWithoutTree,
+    clearFileContents: storeClearFileContents,
+    clearRootDirectory,
+    error: displayError,
+    expandAllProgress,
+    expandAllProgressively,
+    fileContents,
+    fileTree: filteredTree,
+    filterError: localFilterError,
+    handleRootDirectorySelect,
+    isCancelling,
+    isExpandingAll,
+    isFileSystemAccessSupported,
+    isInitialLoad,
+    isLoading: isTreeLoading,
+    isLoadingForSelectAll,
+    isLoadingForSelection,
+    isRestoringExpandedPaths,
+    loadChildren,
+    loadFileContent,
+    loadingFiles: contentLoadingFiles,
+    loadingPathForSelection,
+    loadingPaths,
+    loadingProgress,
+    loadMultipleFileContents: handleFileContentLoading,
+    refreshDirectory,
+    refreshFileExplorer,
     /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
     registerRestoredHandles,
     /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
     removeRootDirectory,
-    /** Switch focused root to the given path (multi-root, Phase 4+). */
-    setFocusedRoot,
+    restorationProgress,
+    rootDirectoryHandle,
+    /** All active root handles (multi-root, Phase 4+). */
+    rootDirectoryHandles,
     /** Maps handle.path → RootId UUID (storage v5). */
     rootIdByPath,
+    selectAllRecursively,
+    selectFolderRecursively,
+    setAccessLoading,
+    /** Switch focused root to the given path (multi-root, Phase 4+). */
+    setFocusedRoot,
+    setRootDirectoryHandle,
+    unfilteredFileTree: fileTree,
   };
 }

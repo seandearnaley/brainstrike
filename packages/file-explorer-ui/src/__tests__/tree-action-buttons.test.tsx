@@ -8,6 +8,17 @@ const renderWithTooltips = (ui: ReactElement) =>
   render(ui, { wrapper: ({ children }) => <TooltipProvider>{children}</TooltipProvider> });
 
 describe('TreeActionButtons', () => {
+  it('hides expand/collapse (but never refresh) below the narrow toolbar breakpoint', () => {
+    renderWithTooltips(<TreeActionButtons {...defaultProps} />);
+
+    // The Explorer panel's documented minimum width (~180px) cannot fit the
+    // whole right cluster; expand/collapse yield first, refresh stays.
+    const narrowHidden = '@max-[240px]/explorer-toolbar:hidden';
+    expect(screen.getByTestId('expand-all-button-small')).toHaveClass(narrowHidden);
+    expect(screen.getByTestId('collapse-all-button-small')).toHaveClass(narrowHidden);
+    expect(screen.getByTestId('refresh-button-small')).not.toHaveClass(narrowHidden);
+  });
+
   const defaultProps = {
     isExpandingAll: false,
     isLoading: false,
@@ -39,9 +50,9 @@ describe('TreeActionButtons', () => {
 
   describe('inline scanning indicator', () => {
     const scanning = (overrides = {}) => ({
-      isScanning: true,
       cancellable: true,
       isCancelling: false,
+      isScanning: true,
       onCancel: vi.fn(),
       ...overrides,
     });

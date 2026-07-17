@@ -5,6 +5,7 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { getRegisteredEmbeddingQueueFactory } from './runtime-config';
 import type {
   EmbeddingConfig,
+  EmbeddingExecutionOptions,
   EmbeddingProgress,
   EmbeddingResult,
   EmbeddingStreamBatch,
@@ -268,38 +269,46 @@ export class TransformersBackend {
     }
 
     onProgress?.({
-      stage: 'processing',
-      progress: 10,
       message: 'Preparing embedding runtime...',
+      progress: 10,
+      stage: 'processing',
     });
     this._queue = await getBrowserQueue();
     this._useWorkerQueue = true;
     this._isInitialized = true;
     onProgress?.({
-      stage: 'ready',
-      progress: 100,
       message: 'Model ready!',
+      progress: 100,
+      stage: 'ready',
     });
   }
 
   /**
    * Generate embedding for a given text
    */
-  async generateEmbedding(text: string, modelId: string): Promise<EmbeddingResult> {
+  async generateEmbedding(
+    text: string,
+    modelId: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
     if (!this._isInitialized) {
       throw new Error('Backend not initialized. Call initialize() first.');
     }
-    return this.tryGenerateWithQueue(text, modelId);
+    return this.tryGenerateWithQueue(text, modelId, options);
   }
 
   /**
    * Generate embeddings for multiple texts
    */
-  async generateEmbeddings(texts: string[], modelId: string): Promise<EmbeddingResult[]> {
+  async generateEmbeddings(
+    texts: string[],
+    modelId: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult[]> {
     if (!this._isInitialized) {
       throw new Error('Backend not initialized. Call initialize() first.');
     }
-    return this.tryGenerateBatchWithQueue(texts, modelId);
+    return this.tryGenerateBatchWithQueue(texts, modelId, options);
   }
 
   async generateEmbeddingsStream(
@@ -324,15 +333,15 @@ export class TransformersBackend {
             const results = event.vectors.map((vector) => {
               const embedding = Array.from(vector) as number[];
               return {
-                embedding,
                 dimensions: embedding.length,
+                embedding,
                 model: modelId,
               };
             });
             await onBatch({
-              startIndex: event.startIndex,
               endIndex: event.endIndex,
               results,
+              startIndex: event.startIndex,
             });
           },
         }
@@ -346,16 +355,20 @@ export class TransformersBackend {
       };
     } catch (error) {
       logger.debug('Embedding worker streaming failed', {
-        modelId,
-        error,
         batchSize: texts.length,
+        error,
+        modelId,
       });
       throw error;
     }
   }
 
-  private async tryGenerateWithQueue(text: string, modelId: string): Promise<EmbeddingResult> {
-    const batch = await this.tryGenerateBatchWithQueue([text], modelId);
+  private async tryGenerateWithQueue(
+    text: string,
+    modelId: string,
+    options?: EmbeddingExecutionOptions
+  ): Promise<EmbeddingResult> {
+    const batch = await this.tryGenerateBatchWithQueue([text], modelId, options);
     const first = batch[0];
     if (!first) {
       throw new Error('Embedding worker returned no vector');
@@ -365,14 +378,22 @@ export class TransformersBackend {
 
   private async tryGenerateBatchWithQueue(
     texts: string[],
-    modelId: string
+    modelId: string,
+    options?: EmbeddingExecutionOptions
   ): Promise<EmbeddingResult[]> {
     if (!this._useWorkerQueue) {
       throw new Error('Embedding worker queue required; inline pipeline disabled.');
     }
     try {
+      const signal = options?.signal;
+      signal?.throwIfAborted();
       const queue = await this.ensureQueue();
-      const response = await queue.add(this.createWorkerRequest(texts, modelId));
+      signal?.throwIfAborted();
+      const response = await queue.add(
+        this.createWorkerRequest(texts, modelId),
+        signal ? { signal } : undefined
+      );
+      signal?.throwIfAborted();
 
       if (!response.vectors || response.vectors.length === 0) {
         // If input was empty, return empty
@@ -387,8 +408,8 @@ export class TransformersBackend {
       return response.vectors.map((vector) => {
         const embedding = Array.from(vector) as number[];
         return {
-          embedding,
           dimensions: response.metadata.dimensions ?? embedding.length,
+          embedding,
           model: modelId,
           runtime: {
             device: response.metadata.device,
@@ -399,9 +420,9 @@ export class TransformersBackend {
       });
     } catch (error) {
       logger.error('Embedding worker queue failed', {
-        modelId,
-        error,
         batchSize: texts.length,
+        error,
+        modelId,
       });
       throw error;
     }
@@ -438,16 +459,16 @@ export class TransformersBackend {
   private createWorkerRequest(texts: string[], modelId: string, streamBatchSize?: number) {
     const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
     return {
-      kind: 'embed' as const,
-      type: 'embed' as const,
       id: this.createTaskId(),
+      kind: 'embed' as const,
       model: modelId,
       texts,
+      type: 'embed' as const,
       ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
-      targetDimension,
       deviceHint: this.resolveDeviceHint(),
       dtype: this.resolveQueueDType(),
       maxBatchSize: this.resolveWorkerMaxBatchSize(texts.length, streamBatchSize),
+      targetDimension,
     };
   }
 

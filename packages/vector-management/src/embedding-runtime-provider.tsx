@@ -49,9 +49,9 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
       return null;
     }
     return createVectorQueueService({
+      chunkRepository: coverageRepository,
       db,
       jobQueue: new JobQueue(db),
-      chunkRepository: coverageRepository,
     });
   }, [coverageRepository, db]);
 

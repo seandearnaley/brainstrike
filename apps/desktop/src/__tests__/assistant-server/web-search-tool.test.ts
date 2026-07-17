@@ -20,9 +20,9 @@ const SECRET_TAVILY_KEY = 'tvly-SECRET-should-never-leak';
 
 function okJsonResponse(body: unknown): Response {
   return {
+    json: () => Promise.resolve(body),
     ok: true,
     status: 200,
-    json: () => Promise.resolve(body),
   } as unknown as Response;
 }
 
@@ -46,8 +46,8 @@ describe('runWebSearch (desktop webSearch tool)', () => {
   it('returns a NON-FATAL unavailable result when no Tavily key is configured (no network)', async () => {
     const fetchImpl = vi.fn();
     const deps: WebSearchToolDependencies = {
-      resolveApiKey: () => Promise.resolve(undefined),
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      resolveApiKey: () => Promise.resolve(undefined),
     };
 
     const result = await runWebSearch(baseInput, deps);
@@ -66,8 +66,8 @@ describe('runWebSearch (desktop webSearch tool)', () => {
     try {
       const fetchImpl = vi.fn();
       const deps: WebSearchToolDependencies = {
-        resolveApiKey: () => Promise.resolve(undefined),
         fetchImpl: fetchImpl as unknown as typeof fetch,
+        resolveApiKey: () => Promise.resolve(undefined),
       };
 
       const result = await runWebSearch({ query: privateQuery }, deps);
@@ -87,8 +87,8 @@ describe('runWebSearch (desktop webSearch tool)', () => {
     const fetchImpl = vi.fn();
     const resolveApiKey = vi.fn(() => Promise.resolve(SECRET_TAVILY_KEY));
     const deps: WebSearchToolDependencies = {
-      resolveApiKey,
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      resolveApiKey,
     };
 
     // The schema `.min(2)` passes on the raw "   " (length 3), but it trims to "".
@@ -109,14 +109,14 @@ describe('runWebSearch (desktop webSearch tool)', () => {
       expect(headers?.authorization).toBe(`Bearer ${SECRET_TAVILY_KEY}`);
       return Promise.resolve(
         okJsonResponse(
-          tavilyBody([{ title: 'MDN', url: 'https://mdn.example/ac', content: 'AbortController' }])
+          tavilyBody([{ content: 'AbortController', title: 'MDN', url: 'https://mdn.example/ac' }])
         )
       );
     });
     const resolveApiKey = vi.fn(() => Promise.resolve(SECRET_TAVILY_KEY));
     const deps: WebSearchToolDependencies = {
-      resolveApiKey,
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      resolveApiKey,
     };
 
     const result = await runWebSearch(baseInput, deps);
@@ -135,11 +135,11 @@ describe('runWebSearch (desktop webSearch tool)', () => {
     const removeListener = addLogListener((record) => records.push(record), LogLevel.ERROR);
     try {
       const fetchImpl = vi.fn(() =>
-        Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) } as Response)
+        Promise.resolve({ json: () => Promise.resolve({}), ok: false, status: 401 } as Response)
       );
       const deps: WebSearchToolDependencies = {
-        resolveApiKey: () => Promise.resolve(SECRET_TAVILY_KEY),
         fetchImpl: fetchImpl as unknown as typeof fetch,
+        resolveApiKey: () => Promise.resolve(SECRET_TAVILY_KEY),
       };
 
       const result = await runWebSearch(baseInput, deps);
@@ -156,9 +156,58 @@ describe('runWebSearch (desktop webSearch tool)', () => {
     }
   });
 
-  it('returns a NON-FATAL timeout result when the fetch aborts (no hang, run continues)', async () => {
-    // Simulate the AbortController firing: reject with an AbortError, mirroring
-    // what fetch throws when the signal aborts.
+  it('returns a NON-FATAL timeout result when AbortSignal.timeout fires (TimeoutError)', async () => {
+    // AbortSignal.timeout aborts with a TimeoutError DOMException (MDN). Mirror
+    // that shape: when the passed signal aborts, reject with TimeoutError so we
+    // prove the tool maps timeout aborts to the non-fatal timed-out message.
+    const fetchImpl = vi.fn(
+      (_: unknown, init?: { signal?: AbortSignal }) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          expect(signal).toBeDefined();
+          const rejectWithTimeout = (): void => {
+            // Prefer the signal's abort reason when present (TimeoutError from
+            // AbortSignal.timeout); fall back to a TimeoutError-shaped Error for
+            // hermetic mocks that abort without a DOMException reason.
+            const reason = signal?.reason;
+            if (reason instanceof Error) {
+              reject(reason);
+              return;
+            }
+            const timeoutError = new Error('The operation was aborted due to timeout');
+            timeoutError.name = 'TimeoutError';
+            reject(timeoutError);
+          };
+          if (signal?.aborted) {
+            rejectWithTimeout();
+            return;
+          }
+          signal?.addEventListener('abort', rejectWithTimeout, { once: true });
+        })
+    );
+    const deps: WebSearchToolDependencies = {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      resolveApiKey: () => Promise.resolve(SECRET_TAVILY_KEY),
+      timeoutMs: 10,
+    };
+
+    const result = await runWebSearch(baseInput, deps);
+
+    expect(result.available).toBe(true);
+    expect(result.error).toContain('timed out');
+    expect(result.error).toContain('10ms');
+    expect(result.results).toEqual([]);
+    // Prove the fetch received a real AbortSignal.timeout signal: after abort,
+    // reason is a TimeoutError (not a hand-rolled AbortController AbortError).
+    const passedSignal = (fetchImpl.mock.calls[0]?.[1] as { signal?: AbortSignal } | undefined)
+      ?.signal;
+    expect(passedSignal?.aborted).toBe(true);
+    expect((passedSignal?.reason as { name?: string } | undefined)?.name).toBe('TimeoutError');
+  });
+
+  it('returns a NON-FATAL timeout result when fetch rejects with AbortError (legacy abort shape)', async () => {
+    // Some runtimes still surface abort as AbortError; keep mapping that to the
+    // same timed-out message so behavior stays stable across Node/browser.
     const fetchImpl = vi.fn(
       (_: unknown, init?: { signal?: AbortSignal }) =>
         new Promise<Response>((_resolve, reject) => {
@@ -170,8 +219,8 @@ describe('runWebSearch (desktop webSearch tool)', () => {
         })
     );
     const deps: WebSearchToolDependencies = {
-      resolveApiKey: () => Promise.resolve(SECRET_TAVILY_KEY),
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      resolveApiKey: () => Promise.resolve(SECRET_TAVILY_KEY),
       timeoutMs: 10,
     };
 
@@ -188,17 +237,17 @@ describe('runWebSearch (desktop webSearch tool)', () => {
     // long title is the reliable way to overflow the ~11000-char budget with the
     // 10-result maxResults cap.
     const many = Array.from({ length: 10 }, (_, i) => ({
+      content: 'C'.repeat(5000),
       title: `Result ${i} ${'T'.repeat(2000)}`,
       url: `https://example.com/result-${i}`,
-      content: 'C'.repeat(5000),
     }));
     const fetchImpl = vi.fn(() => Promise.resolve(okJsonResponse(tavilyBody(many))));
     const deps: WebSearchToolDependencies = {
-      resolveApiKey: () => Promise.resolve(SECRET_TAVILY_KEY),
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      resolveApiKey: () => Promise.resolve(SECRET_TAVILY_KEY),
     };
 
-    const result = await runWebSearch({ query: 'big', maxResults: 10 }, deps);
+    const result = await runWebSearch({ maxResults: 10, query: 'big' }, deps);
 
     expect(result.available).toBe(true);
     expect(result.truncated).toBe(true);

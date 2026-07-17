@@ -20,7 +20,7 @@ interface ResponseJsonDiagnostic {
 
 test(
   'diagnose boot-time JSON parsing failures',
-  { tag: ['@smoke', '@web-smoke'] },
+  { tag: '@web-smoke' },
   async ({ page }, testInfo) => {
     const consoleErrors: string[] = [];
 
@@ -69,13 +69,13 @@ test(
         } catch (error) {
           const input = typeof text === 'string' ? text : String(text);
           const diagnostics: JsonParseDiagnostic = {
-            message: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? (error.stack ?? null) : null,
             inputLength: typeof input === 'string' ? input.length : null,
             inputPreview: typeof input === 'string' ? input.slice(0, 500) : String(input),
             lastStorageKey,
             lastStorageValueLength,
             lastStorageValuePreview,
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? (error.stack ?? null) : null,
           };
 
           const globalRef = window as unknown as Record<string, unknown>;
@@ -104,10 +104,10 @@ test(
           }
 
           const diagnostics: ResponseJsonDiagnostic = {
-            message: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? (error.stack ?? null) : null,
             bodyLength,
             bodyPreview,
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? (error.stack ?? null) : null,
             url: this.url ?? null,
           };
 

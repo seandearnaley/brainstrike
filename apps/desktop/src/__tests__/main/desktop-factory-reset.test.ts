@@ -22,9 +22,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const mod = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...mod,
+    default: { ...mod.default, rename: fsMocks.rename, rm: fsMocks.rm },
     rename: fsMocks.rename,
     rm: fsMocks.rm,
-    default: { ...mod.default, rename: fsMocks.rename, rm: fsMocks.rm },
   };
 });
 

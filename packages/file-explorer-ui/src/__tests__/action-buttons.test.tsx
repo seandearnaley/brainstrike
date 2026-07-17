@@ -11,12 +11,12 @@ const TEST_FOLDER_ID = 'test-folder';
 
 function getProps(overrides: Partial<ActionButtonsProps> = {}): ActionButtonsProps {
   return {
-    displayedFiles: new Set(['file1.txt', 'file2.txt', 'file3.txt']),
-    selectedFilePaths: new Set<string>(),
-    maxSelectionCount: DEFAULT_MAX_SELECTION,
     currentFolderId: TEST_FOLDER_ID,
-    setSelectedFiles: vi.fn(),
+    displayedFiles: new Set(['file1.txt', 'file2.txt', 'file3.txt']),
     encodeFileSelection: (folderId, path) => `${folderId}:${path}`,
+    maxSelectionCount: DEFAULT_MAX_SELECTION,
+    selectedFilePaths: new Set<string>(),
+    setSelectedFiles: vi.fn(),
     ...overrides,
   };
 }
@@ -24,25 +24,25 @@ function getProps(overrides: Partial<ActionButtonsProps> = {}): ActionButtonsPro
 function createFullyLoadedTree(): IFileNode[] {
   return [
     {
-      name: 'src',
-      path: '/src',
-      type: 'directory',
-      depth: 0,
-      handle: {} as FileSystemDirectoryHandle,
-      selectionState: 'unchecked' as const,
-      rootFolderId: TEST_FOLDER_ID,
-      loadState: 'loaded' as const,
       children: [
         {
-          name: 'a.ts',
-          path: '/src/a.ts',
-          type: 'file',
           depth: 1,
           handle: {} as FileSystemFileHandle,
-          selectionState: 'unchecked' as const,
+          name: 'a.ts',
+          path: '/src/a.ts',
           rootFolderId: TEST_FOLDER_ID,
+          selectionState: 'unchecked' as const,
+          type: 'file',
         },
       ],
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      loadState: 'loaded' as const,
+      name: 'src',
+      path: '/src',
+      rootFolderId: TEST_FOLDER_ID,
+      selectionState: 'unchecked' as const,
+      type: 'directory',
     },
   ];
 }
@@ -108,7 +108,10 @@ describe('ActionButtons', () => {
     it('should show "Select All" when files are within max limit', () => {
       const props = getProps({ displayedFiles: new Set(['file1.txt', 'file2.txt']) });
       render(<ActionButtons {...props} />);
-      expect(screen.getByRole('button', { name: 'Select All' })).toBeInTheDocument();
+      const button = screen.getByRole('button', { name: 'Select All' });
+      expect(button).toBeInTheDocument();
+      expect(button).toHaveAttribute('data-size', 'icon-xs');
+      expect(button).toHaveClass('size-6', '@[96px]:size-7', '@[128px]:size-8', '@[180px]:w-auto');
     });
 
     it('should show "Select All" even when files exceed limit (recursive selection handles limits)', () => {
@@ -178,9 +181,9 @@ describe('ActionButtons', () => {
   describe('Button Functionality', () => {
     it('always routes select-all through the canonical recursive selection path', async () => {
       const selectAllRecursively = vi.fn(async () => ({
-        success: true,
         filePaths: ['/src/a.ts', '/README.md'],
         limitReached: false,
+        success: true,
       }));
       const props = getProps({
         addMultipleSelectedFiles: vi.fn(),
@@ -206,9 +209,9 @@ describe('ActionButtons', () => {
     it('leaves query-mode decisions to the recursive selection hook instead of the button', async () => {
       const visibleFilePaths = Array.from({ length: 600 }, (_, index) => `/src/file-${index}.ts`);
       const selectAllRecursively = vi.fn(async () => ({
-        success: true,
         filePaths: visibleFilePaths,
         limitReached: false,
+        success: true,
       }));
       const props = getProps({
         addMultipleSelectedFiles: vi.fn(),
@@ -320,10 +323,10 @@ describe('ActionButtons', () => {
 
     it('invokes recursive Select All when available and reaches the selection limit', async () => {
       const selectAllRecursively = vi.fn().mockResolvedValue({
-        success: true,
         filePaths: ['/src/a.ts'],
-        totalAvailable: 2,
         limitReached: true,
+        success: true,
+        totalAvailable: 2,
       });
       const props = getProps({
         addMultipleSelectedFiles: vi.fn(),

@@ -32,8 +32,8 @@ export function FolderSelectionDialog({
 }: FolderSelectionDialogProps) {
   const { selectedFilePaths, maxSelectionCount } = useFileExplorerStoreSelector(
     (s) => ({
-      selectedFilePaths: s.selectedFilePaths,
       maxSelectionCount: s.maxSelectionCount,
+      selectedFilePaths: s.selectedFilePaths,
     }),
     shallow
   );

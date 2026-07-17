@@ -44,9 +44,9 @@ function createMockDb(): MockDb {
   });
 
   return {
-    query,
-    exec: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
+    exec: vi.fn(async () => undefined),
+    query,
     transaction,
   };
 }
@@ -161,6 +161,76 @@ describe('DbProvider factoryReset', () => {
     expect(result.current.reset).toBeNull();
   });
 
+  it('propagates a real prompt_items delete failure while keeping direct reset retryable', async () => {
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.reset).not.toBeNull();
+    });
+
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+    const query: QueryMock = vi.fn(async (sql: string) => {
+      if (sql === 'DELETE FROM prompt_items') {
+        throw new Error('prompt reset storage failure');
+      }
+      return { rows: [] };
+    });
+    initialDb.transaction.mockImplementation(
+      async (callback: TransactionCallback) => await callback({ query })
+    );
+
+    await act(async () => {
+      await expect(result.current.reset?.()).rejects.toThrow('prompt reset storage failure');
+    });
+    expect(initialDb.exec).not.toHaveBeenCalledWith('VACUUM');
+    expect(initialDb.close).not.toHaveBeenCalled();
+    expect(result.current.repo).not.toBeNull();
+    expect(result.current.reset).not.toBeNull();
+  });
+
+  it('tolerates a missing prompt_items table during direct factory reset for older schemas', async () => {
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.reset).not.toBeNull();
+    });
+
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+    const query: QueryMock = vi.fn(async (sql: string) => {
+      if (sql === 'DELETE FROM prompt_items') {
+        throw new Error('table "prompt_items" does not exist');
+      }
+      return { rows: [] };
+    });
+    initialDb.transaction.mockImplementation(
+      async (callback: TransactionCallback) => await callback({ query })
+    );
+
+    await act(async () => {
+      await expect(result.current.reset?.()).resolves.toBeUndefined();
+    });
+    expect(query).toHaveBeenCalledWith('DELETE FROM prompt_items');
+    expect(initialDb.close).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces desktop hard reset failure instead of falling back to direct PGlite', async () => {
     installElectronDbBridge({
       clearAll: vi.fn(async () => ({ success: true })),
@@ -173,7 +243,7 @@ describe('DbProvider factoryReset', () => {
         }
         return { rows: [] };
       }),
-      resetLocal: vi.fn(async () => ({ success: false, message: 'disk reset failed' })),
+      resetLocal: vi.fn(async () => ({ message: 'disk reset failed', success: false })),
       test: vi.fn(async () => ({ message: 'ok', success: true })),
     });
 

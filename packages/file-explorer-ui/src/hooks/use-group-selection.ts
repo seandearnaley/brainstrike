@@ -100,14 +100,14 @@ export function useGroupSelection<T>({
   );
 
   return {
-    handleGroupSelectAll,
+    deselectAll,
     handleGroupDeselectAll,
+    handleGroupSelectAll,
+    isAllSelected,
     isGroupFullySelected,
     isGroupPartiallySelected,
-    toggleItemSelection,
     selectAll,
     selectAllOnPage,
-    deselectAll,
-    isAllSelected,
+    toggleItemSelection,
   };
 }

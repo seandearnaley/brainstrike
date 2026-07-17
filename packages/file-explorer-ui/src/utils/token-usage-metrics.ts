@@ -40,15 +40,15 @@ export function getTokenUsageMetrics(args: TokenUsageMetricsInput): TokenUsageMe
     : `${remainingTokens.toLocaleString()} remaining`;
 
   return {
+    activeRangeFilesCount: args.activeRangeFilesCount,
     budget,
-    sourceSelectedTokens: args.sourceSelectedTokens,
     includedTreeTokens,
     isOverBudget,
     rangeAdjustedFilesCount: args.rangeAdjustedFilesCount,
-    activeRangeFilesCount: args.activeRangeFilesCount,
     remainingLabel,
     selectedPercent,
     selectedTokens: args.selectedTokens,
+    sourceSelectedTokens: args.sourceSelectedTokens,
     treeLabel,
     treePercent,
     usedPercent,

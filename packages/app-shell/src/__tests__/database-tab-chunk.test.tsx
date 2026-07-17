@@ -28,10 +28,10 @@ describe('DatabaseTab (chunk)', () => {
     const mockQueue = {
       add: vi.fn(),
       addBulk: vi.fn(),
+      drain: vi.fn(),
       onProgress: vi.fn(),
       pause: vi.fn(),
       resume: vi.fn(),
-      drain: vi.fn(),
     } as unknown as QueueAdapter;
 
     render(<DatabaseTab embeddingQueue={mockQueue} />);

@@ -6,7 +6,6 @@
     "allowImportingTsExtensions": true,
     "emitDeclarationOnly": true,
     "outDir": "dist",
-    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./src/*"

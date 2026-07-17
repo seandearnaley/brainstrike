@@ -232,8 +232,8 @@ describe('database IPC handlers', () => {
       order.length = 0;
 
       const background = handler?.({} as unknown, 'SELECT background', [], {
-        priority: 'background',
         label: 'background claim',
+        priority: 'background',
       });
       await Promise.resolve();
       expect(order).toEqual([]);
@@ -317,24 +317,24 @@ describe('database IPC handlers', () => {
   it('db:managed-cache:apply-batch validates payload and delegates to the DB host', async () => {
     const handler = handlers.get('db:managed-cache:apply-batch');
     const payload = {
-      embeddingSetId: 'set-1',
       changes: [
         {
           mode: 'replace',
           record: {
+            content: 'export const value = 2;',
+            contentHash: 'hash-2',
             id: 'file-1',
             name: 'index.ts',
             path: 'src/index.ts',
+            processedAt: '2026-04-15T00:00:00.000Z',
             size: 10,
             sourceRootPath: '/workspace/root',
-            updatedAt: '2026-04-15T00:00:00.000Z',
-            processedAt: '2026-04-15T00:00:00.000Z',
-            content: 'export const value = 2;',
-            contentHash: 'hash-2',
             tokenCount: 5,
+            updatedAt: '2026-04-15T00:00:00.000Z',
           },
         },
       ],
+      embeddingSetId: 'set-1',
     };
 
     await handler?.({} as unknown, payload);
@@ -360,14 +360,14 @@ describe('database IPC handlers', () => {
         order.push('query');
         return { rows: [] };
       });
-      const payload = { embeddingSetId: 'set-1', changes: [] };
+      const payload = { changes: [], embeddingSetId: 'set-1' };
 
       await queryHandler?.({} as unknown, 'SELECT warmup', []);
       order.length = 0;
 
       const background = batchHandler?.({} as unknown, payload, {
-        priority: 'background',
         label: 'managed cache batch',
+        priority: 'background',
       });
       await Promise.resolve();
       expect(order).toEqual([]);
@@ -393,8 +393,8 @@ describe('database IPC handlers', () => {
 
     await expect(
       handler?.({} as unknown, {
-        embeddingSetId: '',
         changes: 'invalid',
+        embeddingSetId: '',
       })
     ).rejects.toThrow();
 
@@ -408,8 +408,8 @@ describe('database IPC handlers', () => {
   it('db:managed-cache:apply-batch accepts empty change arrays as a no-op payload', async () => {
     const handler = handlers.get('db:managed-cache:apply-batch');
     const payload = {
-      embeddingSetId: 'set-1',
       changes: [],
+      embeddingSetId: 'set-1',
     };
 
     await handler?.({} as unknown, payload);
@@ -426,13 +426,13 @@ describe('database IPC handlers', () => {
       targets: [
         {
           mode: 'exact',
-          rootId: 'root-1',
           relativePath: 'src/index.ts',
+          rootId: 'root-1',
         },
         {
           mode: 'prefix',
-          rootId: 'root-2',
           relativePathPrefix: 'src/generated',
+          rootId: 'root-2',
         },
       ],
     };
@@ -471,8 +471,8 @@ describe('database IPC handlers', () => {
       order.length = 0;
 
       const background = invalidationHandler?.({} as unknown, payload, {
-        priority: 'background',
         label: 'managed cache invalidation',
+        priority: 'background',
       });
       await Promise.resolve();
       expect(order).toEqual([]);
@@ -518,31 +518,31 @@ describe('database IPC handlers', () => {
     let listener: ((results: unknown) => void) | null = null;
     const liveHandle = {
       initialResults: { rows: [{ id: 1 }] },
+      refresh: vi.fn(),
       subscribe: vi.fn((cb: (results: unknown) => void) => {
         listener = cb;
       }),
       unsubscribe: vi.fn(),
-      refresh: vi.fn(),
     };
     mockDb.live.query.mockResolvedValue(liveHandle);
 
     const sender = {
       id: 22,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn((_event: string, _cb: () => void) => {}),
+      send: vi.fn(),
     };
 
-    const result = (await handler({ sender } as unknown, { query: 'select 1', params: [1] })) as {
+    const result = (await handler({ sender } as unknown, { params: [1], query: 'select 1' })) as {
       id: number;
       initialResults: unknown;
     };
 
     expect(mockDb.live.query).toHaveBeenCalledWith({
-      query: 'select 1',
-      params: [1],
-      offset: undefined,
       limit: undefined,
+      offset: undefined,
+      params: [1],
+      query: 'select 1',
     });
     expect(result.initialResults).toEqual({ rows: [{ id: 1 }] });
 
@@ -570,25 +570,25 @@ describe('database IPC handlers', () => {
 
     const liveHandle = {
       initialResults: { rows: [] },
+      refresh: vi.fn(),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
-      refresh: vi.fn(),
     };
     mockDb.live.query.mockResolvedValue(liveHandle);
 
     await handler(
-      { sender: { id: 23, isDestroyed: () => false, send: vi.fn(), once: vi.fn() } } as unknown,
+      { sender: { id: 23, isDestroyed: () => false, once: vi.fn(), send: vi.fn() } } as unknown,
       {
-        query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
         params: ['needle'],
+        query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
       }
     );
 
     expect(mockDb.live.query).toHaveBeenCalledWith({
-      query: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
-      params: ['needle'],
-      offset: undefined,
       limit: undefined,
+      offset: undefined,
+      params: ['needle'],
+      query: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
     });
   });
 
@@ -600,23 +600,23 @@ describe('database IPC handlers', () => {
 
     const firstHandle = {
       initialResults: { rows: [] },
+      refresh: vi.fn(),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
-      refresh: vi.fn(),
     };
     const secondHandle = {
       initialResults: { rows: [] },
+      refresh: vi.fn(),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
-      refresh: vi.fn(),
     };
     mockDb.live.query.mockResolvedValueOnce(firstHandle).mockResolvedValueOnce(secondHandle);
 
     const sender = {
       id: 101,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     await handler({ sender } as unknown, { query: 'select 1' });
@@ -634,23 +634,23 @@ describe('database IPC handlers', () => {
 
     const liveHandle = {
       initialResults: { rows: [] },
+      refresh: vi.fn(),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
-      refresh: vi.fn(),
     };
     mockDb.live.incrementalQuery.mockResolvedValue(liveHandle);
 
     await handler(
-      { sender: { id: 1, isDestroyed: () => false, send: vi.fn(), once: vi.fn() } } as unknown,
-      { query: 'select *', key: 'id', mode: 'incremental', offset: 2, limit: 5 }
+      { sender: { id: 1, isDestroyed: () => false, once: vi.fn(), send: vi.fn() } } as unknown,
+      { key: 'id', limit: 5, mode: 'incremental', offset: 2, query: 'select *' }
     );
 
     expect(mockDb.live.incrementalQuery).toHaveBeenCalledWith({
-      query: 'select *',
-      params: null,
       key: 'id',
-      offset: 2,
       limit: 5,
+      offset: 2,
+      params: null,
+      query: 'select *',
     });
   });
 
@@ -662,8 +662,8 @@ describe('database IPC handlers', () => {
 
     await expect(
       handler(
-        { sender: { id: 1, isDestroyed: () => false, send: vi.fn(), once: vi.fn() } } as unknown,
-        { query: 'select *', mode: 'incremental' }
+        { sender: { id: 1, isDestroyed: () => false, once: vi.fn(), send: vi.fn() } } as unknown,
+        { mode: 'incremental', query: 'select *' }
       )
     ).rejects.toThrow('Live incremental queries require a key column');
   });
@@ -673,7 +673,7 @@ describe('database IPC handlers', () => {
 
     const result = await handler?.({} as unknown, { id: 999 });
 
-    expect(result).toEqual({ success: false, message: 'Subscription not found' });
+    expect(result).toEqual({ message: 'Subscription not found', success: false });
   });
 
   it('db:live-query:refresh handles corruption errors', async () => {
@@ -685,17 +685,17 @@ describe('database IPC handlers', () => {
 
     const liveHandle = {
       initialResults: { rows: [] },
+      refresh: vi.fn(),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
-      refresh: vi.fn(),
     };
     mockDb.live.query.mockResolvedValue(liveHandle);
 
     const sender = {
       id: 77,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn((_event: string, _cb: () => void) => {}),
+      send: vi.fn(),
     };
 
     const result = (await startHandler({ sender } as unknown, { query: 'select 1' })) as {
@@ -710,9 +710,9 @@ describe('database IPC handlers', () => {
 
     expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:live-query:refresh');
     expect(refreshResult).toEqual({
-      success: false,
-      message: 'Database was corrupted and has been reset. Please reload the application.',
       corrupted: true,
+      message: 'Database was corrupted and has been reset. Please reload the application.',
+      success: false,
     });
   });
 
@@ -725,17 +725,17 @@ describe('database IPC handlers', () => {
 
     const liveHandle = {
       initialResults: { rows: [] },
+      refresh: vi.fn(),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
-      refresh: vi.fn(),
     };
     mockDb.live.query.mockResolvedValue(liveHandle);
 
     const sender = {
       id: 55,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn((_event: string, _cb: () => void) => {}),
+      send: vi.fn(),
     };
 
     const result = (await startHandler({ sender } as unknown, { query: 'select 1' })) as {
@@ -748,8 +748,8 @@ describe('database IPC handlers', () => {
     const refreshResult = await refreshHandler({} as unknown, { id: result.id, offset: 1 });
 
     expect(refreshResult).toEqual({
-      success: false,
       message: 'refresh failed',
+      success: false,
     });
   });
 
@@ -806,8 +806,8 @@ describe('database IPC handlers', () => {
 
     resetDesktopApplicationDataMock.mockRejectedValueOnce(new Error('fail reset'));
     await expect(handler({} as unknown)).resolves.toEqual({
-      success: false,
       message: 'fail reset',
+      success: false,
     });
   });
 
@@ -841,21 +841,21 @@ describe('database IPC handlers', () => {
     expect(getDbHostManagerMock).toHaveBeenCalledTimes(1);
     expect(getDatabaseDiagnosticsMock).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      databaseProfile: 'test',
-      dataDir: '/mock/documents/BrainStrike-dev/profiles/test/pgdata',
       appDataDir: '/mock/documents/BrainStrike-dev/profiles/test',
-      nodeEnv: 'test',
-      initializationAttemptCount: 1,
-      initializationInFlight: false,
-      hasDatabaseHandle: true,
       databaseLockHeld: true,
       databaseLockPath: '/mock/documents/BrainStrike-dev/profiles/test/.db-process.lock',
+      databaseProfile: 'test',
+      dataDir: '/mock/documents/BrainStrike-dev/profiles/test/pgdata',
+      hasDatabaseHandle: true,
+      initializationAttemptCount: 1,
+      initializationInFlight: false,
+      lastInitializationFailure: null,
       lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
       lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
-      lastInitializationFailure: null,
-      runtimeCorruptionRecoveryCount: 0,
       lastRuntimeCorruptionAt: null,
       lastRuntimeCorruptionContext: null,
+      nodeEnv: 'test',
+      runtimeCorruptionRecoveryCount: 0,
     });
   });
 
@@ -868,9 +868,9 @@ describe('database IPC handlers', () => {
 
     expect(mockDb.query).toHaveBeenCalledWith('SELECT 1');
     expect(result).toEqual({
-      success: true,
-      message: 'Database connection successful',
       dbLocation: 'DB Host',
+      message: 'Database connection successful',
+      success: true,
     });
   });
 
@@ -881,9 +881,9 @@ describe('database IPC handlers', () => {
     const result = await handler?.({} as unknown);
 
     expect(result).toEqual({
-      success: false,
-      message: 'Database connection failed: oops',
       dbLocation: 'DB Host',
+      message: 'Database connection failed: oops',
+      success: false,
     });
   });
 
@@ -894,10 +894,10 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown);
 
       expect(result).toEqual({
-        success: false,
-        message: 'Unauthorized: Invalid or missing confirmation token',
-        deletedFiles: 0,
         deletedChunks: 0,
+        deletedFiles: 0,
+        message: 'Unauthorized: Invalid or missing confirmation token',
+        success: false,
       });
       expect(getDatabaseMock).not.toHaveBeenCalled();
     });
@@ -908,10 +908,10 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown, 'invalid_token');
 
       expect(result).toEqual({
-        success: false,
-        message: 'Unauthorized: Invalid or missing confirmation token',
-        deletedFiles: 0,
         deletedChunks: 0,
+        deletedFiles: 0,
+        message: 'Unauthorized: Invalid or missing confirmation token',
+        success: false,
       });
       expect(getDatabaseMock).not.toHaveBeenCalled();
     });
@@ -938,13 +938,15 @@ describe('database IPC handlers', () => {
       expect(getDatabaseMock).toHaveBeenCalled();
       expect(mockDb.transaction).toHaveBeenCalled();
       expect(result).toEqual({
-        success: true,
-        message: 'Database cleared successfully',
-        deletedFiles: 3,
         deletedChunks: 5,
+        deletedFiles: 3,
+        message: 'Database cleared successfully',
+        success: true,
       });
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM collection_indexing_stats');
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM embedding_sets');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_message_parents');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM prompt_items');
       // Factory-reset contract: stale roots must not survive a clear and
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
@@ -958,10 +960,10 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
-        success: false,
-        message: 'Database clear failed: Database connection failed',
-        deletedFiles: 0,
         deletedChunks: 0,
+        deletedFiles: 0,
+        message: 'Database clear failed: Database connection failed',
+        success: false,
       });
     });
 
@@ -978,10 +980,10 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
-        success: false,
-        message: 'Database clear failed: Query failed',
-        deletedFiles: 0,
         deletedChunks: 0,
+        deletedFiles: 0,
+        message: 'Database clear failed: Query failed',
+        success: false,
       });
     });
 
@@ -1010,10 +1012,10 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
-        success: true,
-        message: 'Database cleared successfully',
-        deletedFiles: 0,
         deletedChunks: 0,
+        deletedFiles: 0,
+        message: 'Database cleared successfully',
+        success: true,
       });
       expect(loggerWarn).not.toHaveBeenCalled();
     });
@@ -1039,10 +1041,10 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
-        success: true,
-        message: 'Database cleared successfully',
-        deletedFiles: 0,
         deletedChunks: 0,
+        deletedFiles: 0,
+        message: 'Database cleared successfully',
+        success: true,
       });
       expect(loggerWarn).toHaveBeenCalledWith('Failed to clear selection snapshots', {
         error: expect.any(Error),
@@ -1066,6 +1068,7 @@ describe('database IPC handlers', () => {
             .mockResolvedValueOnce(undefined) // DELETE snapshot files
             .mockResolvedValueOnce(undefined) // DELETE snapshot headers
             .mockResolvedValueOnce(undefined) // DELETE files
+            .mockResolvedValueOnce(undefined) // DELETE roots
             .mockRejectedValueOnce(missingRelation) // DELETE collection_indexing_stats
             .mockResolvedValueOnce(undefined) // DELETE embedding_sets
             .mockResolvedValueOnce(undefined), // DELETE job_queue
@@ -1076,12 +1079,51 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
-        success: true,
-        message: 'Database cleared successfully',
-        deletedFiles: 0,
         deletedChunks: 0,
+        deletedFiles: 0,
+        message: 'Database cleared successfully',
+        success: true,
       });
       expect(loggerWarn).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when optional table cleanup reports an unrelated undefined relation', async () => {
+      const handler = handlers.get('db:clearAll');
+      const unrelatedMissingRelation = Object.assign(
+        new Error('relation "prompt_item_audit_log" does not exist while deleting prompt_items'),
+        { code: '42P01' }
+      );
+      let transactionCommitted = false;
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const query = vi.fn(async (sql: string) => {
+          if (sql.startsWith('SELECT COUNT(*)')) {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql === 'DELETE FROM prompt_items') {
+            throw unrelatedMissingRelation;
+          }
+          return { rows: [] };
+        });
+        const result = await callback({ query });
+        transactionCommitted = true;
+        return result;
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(transactionCommitted).toBe(false);
+      expect(result).toEqual({
+        deletedChunks: 0,
+        deletedFiles: 0,
+        message:
+          'Database clear failed: relation "prompt_item_audit_log" does not exist while deleting prompt_items',
+        success: false,
+      });
+      expect(loggerWarn).toHaveBeenCalledWith('Failed to clear optional database table', {
+        error: unrelatedMissingRelation,
+        tableName: 'prompt_items',
+      });
     });
 
     it('fails the clear when optional indexing table cleanup hits an unexpected error', async () => {
@@ -1105,10 +1147,10 @@ describe('database IPC handlers', () => {
       const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
-        success: false,
-        message: 'Database clear failed: stats cleanup failed',
-        deletedFiles: 0,
         deletedChunks: 0,
+        deletedFiles: 0,
+        message: 'Database clear failed: stats cleanup failed',
+        success: false,
       });
     });
   });
@@ -1128,8 +1170,8 @@ describe('database IPC handlers', () => {
       return {
         id,
         isDestroyed: vi.fn(() => false),
-        send: vi.fn(),
         once: vi.fn(),
+        send: vi.fn(),
       };
     }
 
@@ -1142,18 +1184,18 @@ describe('database IPC handlers', () => {
       let listener: ((results: unknown) => void) | null = null;
       const liveHandle = {
         initialResults: { rows: [] },
+        refresh: vi.fn(),
         subscribe: vi.fn((cb: (results: unknown) => void) => {
           listener = cb;
         }),
         unsubscribe: vi.fn(),
-        refresh: vi.fn(),
       };
       mockDb.live.query.mockResolvedValue(liveHandle);
 
       const result = (await handler({ sender } as unknown, {
         query: 'SELECT 1',
       })) as { id: number };
-      return { result, listener: listener!, sender, liveHandle };
+      return { listener: listener!, liveHandle, result, sender };
     }
 
     it('keeps live-query subscriptions attached across background and foreground transitions', async () => {
@@ -1323,9 +1365,9 @@ describe('database IPC handlers', () => {
         results: { rows: [{ id: 789 }] },
       });
       expect(loggerWarn).toHaveBeenCalledWith('Failed to deliver live query update to renderer', {
+        error: expect.any(Error),
         subscriptionId: failingSubscription.result.id,
         webContentsId: failingSender.id,
-        error: expect.any(Error),
       });
 
       healthySubscription.sender.send.mockClear();
@@ -1347,15 +1389,15 @@ describe('database IPC handlers', () => {
 
       const firstLiveHandle = {
         initialResults: { rows: [] },
+        refresh: vi.fn(),
         subscribe: vi.fn(),
         unsubscribe: vi.fn(),
-        refresh: vi.fn(),
       };
       const secondLiveHandle = {
         initialResults: { rows: [] },
+        refresh: vi.fn(),
         subscribe: vi.fn(),
         unsubscribe: vi.fn(),
-        refresh: vi.fn(),
       };
       mockDb.live.query
         .mockResolvedValueOnce(firstLiveHandle)
@@ -1364,13 +1406,13 @@ describe('database IPC handlers', () => {
       const sender = {
         id: 51,
         isDestroyed: vi.fn(() => false),
+        once: vi.fn(),
         send: vi
           .fn()
           .mockImplementationOnce(() => {
             throw new Error('Render frame was disposed before WebFrameMain could be accessed');
           })
           .mockImplementation(() => undefined),
-        once: vi.fn(),
       };
       const getAllWindowsMock = vi.mocked(browserWindowMock.getAllWindows);
       getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);

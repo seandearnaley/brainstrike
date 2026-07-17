@@ -24,9 +24,9 @@ describe('EmbeddingProviderFactory', () => {
   describe('local provider creation', () => {
     it('creates a local provider instance', async () => {
       const config: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -42,10 +42,10 @@ describe('EmbeddingProviderFactory', () => {
 
     it('creates provider with quantization config', async () => {
       const config: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
         quantization: 'q8',
+        runtime: 'browser',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -58,9 +58,9 @@ describe('EmbeddingProviderFactory', () => {
 
     it('returns cached instance for same config', async () => {
       const config: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const result1 = await EmbeddingProviderFactory.createProvider(config);
@@ -77,15 +77,15 @@ describe('EmbeddingProviderFactory', () => {
 
     it('creates different instances for different models', async () => {
       const config1: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const config2: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'Xenova/bge-base-en-v1.5',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const result1 = await EmbeddingProviderFactory.createProvider(config1);
@@ -114,10 +114,10 @@ describe('EmbeddingProviderFactory', () => {
 
     it('returns missing_api_key when no credentials are configured', async () => {
       const config: EmbeddingProviderConfig = {
-        runtime: 'hosted',
-        provider: 'openai',
-        modelId: 'text-embedding-3-small',
         dimensions: DEFAULT_EMBEDDING_DIMENSION,
+        modelId: 'text-embedding-3-small',
+        provider: 'openai',
+        runtime: 'hosted',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -125,8 +125,8 @@ describe('EmbeddingProviderFactory', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toEqual({
-          type: 'missing_api_key',
           provider: 'openai',
+          type: 'missing_api_key',
         });
       }
     });
@@ -134,20 +134,20 @@ describe('EmbeddingProviderFactory', () => {
     it('creates an Ollama provider without requiring API keys', async () => {
       const mockEmbedding = new Array(768).fill(0.1);
       const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
         headers: new Headers(),
         json: async () => ({
           data: [{ embedding: mockEmbedding }],
         }),
+        ok: true,
+        status: 200,
       });
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       const config: EmbeddingProviderConfig = {
-        runtime: 'hosted',
-        provider: 'ollama',
-        modelId: 'nomic-embed-text',
         dimensions: 768,
+        modelId: 'nomic-embed-text',
+        provider: 'ollama',
+        runtime: 'hosted',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -155,8 +155,8 @@ describe('EmbeddingProviderFactory', () => {
 
       if (result.ok) {
         const embedResult = await result.value.embed({
-          text: 'hello local runtime',
           modelId: 'nomic-embed-text',
+          text: 'hello local runtime',
         });
 
         expect(embedResult.ok).toBe(true);
@@ -181,20 +181,20 @@ describe('EmbeddingProviderFactory', () => {
     it('creates an LM Studio provider without requiring API keys', async () => {
       const mockEmbedding = new Array(1024).fill(0.2);
       const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
         headers: new Headers(),
         json: async () => ({
           data: [{ embedding: mockEmbedding }],
         }),
+        ok: true,
+        status: 200,
       });
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       const config: EmbeddingProviderConfig = {
-        runtime: 'hosted',
-        provider: 'lmstudio',
-        modelId: 'text-embedding-nomic-embed-text-v1.5',
         dimensions: 1024,
+        modelId: 'text-embedding-nomic-embed-text-v1.5',
+        provider: 'lmstudio',
+        runtime: 'hosted',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -202,8 +202,8 @@ describe('EmbeddingProviderFactory', () => {
 
       if (result.ok) {
         const embedResult = await result.value.embed({
-          text: 'lmstudio local runtime',
           modelId: 'text-embedding-nomic-embed-text-v1.5',
+          text: 'lmstudio local runtime',
         });
 
         expect(embedResult.ok).toBe(true);
@@ -228,21 +228,21 @@ describe('EmbeddingProviderFactory', () => {
 
       const mockEmbedding = new Array(DEFAULT_EMBEDDING_DIMENSION).fill(0.1);
       const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
         headers: new Headers(),
         json: async () => ({
           data: [{ embedding: mockEmbedding }],
           usage: { prompt_tokens: 12 },
         }),
+        ok: true,
+        status: 200,
       });
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       const config: EmbeddingProviderConfig = {
-        runtime: 'hosted',
-        provider: 'openai',
-        modelId: 'text-embedding-3-small',
         dimensions: DEFAULT_EMBEDDING_DIMENSION,
+        modelId: 'text-embedding-3-small',
+        provider: 'openai',
+        runtime: 'hosted',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -250,8 +250,8 @@ describe('EmbeddingProviderFactory', () => {
 
       if (result.ok) {
         const embedResult = await result.value.embed({
-          text: 'Hello world',
           modelId: 'text-embedding-3-small',
+          text: 'Hello world',
         });
 
         expect(embedResult.ok).toBe(true);
@@ -280,21 +280,21 @@ describe('EmbeddingProviderFactory', () => {
       const targetDimensions = 768;
       const mockEmbedding = new Array(targetDimensions).fill(0.05);
       const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
         headers: new Headers(),
         json: async () => ({
           embedding: { values: mockEmbedding },
           usageMetadata: { totalTokenCount: 8 },
         }),
+        ok: true,
+        status: 200,
       });
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       const config: EmbeddingProviderConfig = {
-        runtime: 'hosted',
-        provider: 'google',
         modelId: 'gemini-embedding-001',
         outputDimensionality: targetDimensions,
+        provider: 'google',
+        runtime: 'hosted',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -302,8 +302,8 @@ describe('EmbeddingProviderFactory', () => {
 
       if (result.ok) {
         const embedResult = await result.value.embed({
-          text: 'Document passage',
           modelId: 'gemini-embedding-001',
+          text: 'Document passage',
         });
 
         expect(embedResult.ok).toBe(true);
@@ -333,21 +333,21 @@ describe('EmbeddingProviderFactory', () => {
 
       const mockEmbedding = new Array(1024).fill(0.1);
       const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
         headers: new Headers(),
         json: async () => ({
           embeddings: { float: [mockEmbedding] },
           texts: ['test'],
         }),
+        ok: true,
+        status: 200,
       });
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       const config: EmbeddingProviderConfig = {
-        runtime: 'hosted',
-        provider: 'cohere',
-        modelId: 'embed-english-v3.0',
         inputType: 'search_document',
+        modelId: 'embed-english-v3.0',
+        provider: 'cohere',
+        runtime: 'hosted',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -355,8 +355,8 @@ describe('EmbeddingProviderFactory', () => {
 
       if (result.ok) {
         const embedResult = await result.value.embed({
-          text: 'test text',
           modelId: 'embed-english-v3.0',
+          text: 'test text',
         });
 
         expect(embedResult.ok).toBe(true);
@@ -375,22 +375,22 @@ describe('EmbeddingProviderFactory', () => {
 
       const mockEmbedding = new Array(1024).fill(0.1);
       const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
         headers: new Headers(),
         json: async () => ({
           data: [{ embedding: mockEmbedding, index: 0 }],
           model: 'voyage-3',
           usage: { total_tokens: 5 },
         }),
+        ok: true,
+        status: 200,
       });
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       const config: EmbeddingProviderConfig = {
-        runtime: 'hosted',
-        provider: 'voyage',
-        modelId: 'voyage-3',
         inputType: 'document',
+        modelId: 'voyage-3',
+        provider: 'voyage',
+        runtime: 'hosted',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -398,8 +398,8 @@ describe('EmbeddingProviderFactory', () => {
 
       if (result.ok) {
         const embedResult = await result.value.embed({
-          text: 'test text',
           modelId: 'voyage-3',
+          text: 'test text',
         });
 
         expect(embedResult.ok).toBe(true);
@@ -417,9 +417,9 @@ describe('EmbeddingProviderFactory', () => {
   describe('cache management', () => {
     it('getCachedProvider returns cached instance', async () => {
       const config: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const createResult = await EmbeddingProviderFactory.createProvider(config);
@@ -445,9 +445,9 @@ describe('EmbeddingProviderFactory', () => {
 
     it('removeProvider removes from cache', async () => {
       const config: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       await EmbeddingProviderFactory.createProvider(config);
@@ -478,15 +478,15 @@ describe('EmbeddingProviderFactory', () => {
 
     it('clearCache removes all providers', async () => {
       const config1: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const config2: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'Xenova/bge-base-en-v1.5',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       await EmbeddingProviderFactory.createProvider(config1);
@@ -504,15 +504,15 @@ describe('EmbeddingProviderFactory', () => {
 
     it('getCacheStats returns correct statistics', async () => {
       const config1: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const config2: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'Xenova/bge-base-en-v1.5',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       await EmbeddingProviderFactory.createProvider(config1);
@@ -524,24 +524,24 @@ describe('EmbeddingProviderFactory', () => {
       expect(stats.providers).toHaveLength(2);
       expect(stats.providers).toEqual(
         expect.arrayContaining([
-          { provider: 'local', modelId: 'jinaai/jina-embeddings-v2-base-code', variant: 'default' },
-          { provider: 'local', modelId: 'Xenova/bge-base-en-v1.5', variant: 'default' },
+          { modelId: 'jinaai/jina-embeddings-v2-base-code', provider: 'local', variant: 'default' },
+          { modelId: 'Xenova/bge-base-en-v1.5', provider: 'local', variant: 'default' },
         ])
       );
     });
 
     it('creates different instances for different quantization settings', async () => {
       const config1: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const config2: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
         quantization: 'q8',
+        runtime: 'browser',
       };
 
       const result1 = await EmbeddingProviderFactory.createProvider(config1);
@@ -575,8 +575,8 @@ describe('EmbeddingProviderFactory', () => {
       expect(stats.size).toBe(2);
       expect(stats.providers).toEqual(
         expect.arrayContaining([
-          { provider: 'local', modelId: 'jinaai/jina-embeddings-v2-base-code', variant: 'default' },
-          { provider: 'local', modelId: 'jinaai/jina-embeddings-v2-base-code', variant: 'q8' },
+          { modelId: 'jinaai/jina-embeddings-v2-base-code', provider: 'local', variant: 'default' },
+          { modelId: 'jinaai/jina-embeddings-v2-base-code', provider: 'local', variant: 'q8' },
         ])
       );
     });
@@ -585,9 +585,9 @@ describe('EmbeddingProviderFactory', () => {
   describe('provider interface conformance', () => {
     it('created provider implements IEmbeddingProvider', async () => {
       const config: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -606,9 +606,9 @@ describe('EmbeddingProviderFactory', () => {
 
     it('local provider implements ILocalEmbeddingProvider', async () => {
       const config: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -634,9 +634,9 @@ describe('EmbeddingProviderFactory', () => {
       // Factory doesn't validate model IDs upfront - providers are created successfully
       // and errors only occur during initialization/usage
       const config: EmbeddingProviderConfig = {
-        runtime: 'browser',
-        provider: 'local',
         modelId: 'potentially-invalid-model',
+        provider: 'local',
+        runtime: 'browser',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);

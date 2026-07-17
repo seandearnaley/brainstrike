@@ -24,41 +24,41 @@ interface MockEnqueueJob {
 
 function createMockEnqueuedJobs(jobs: MockEnqueueJob[]): Job[] {
   return jobs.map((job, index) => ({
-    id: `job-${index}`,
-    queue: 'embeddings',
-    jobType: 'embed_chunk',
-    payload: job.payload,
-    state: 'queued',
-    runAt: new Date(0).toISOString(),
     attempts: 0,
-    max_attempts: 5,
     backoff_ms: 0,
-    lease_token: null,
-    leasedUntil: null,
-    worker_id: null,
+    created_at: new Date(0).toISOString(),
     dedupe_key: job.dedupeKey ?? null,
     error: null,
-    created_at: new Date(0).toISOString(),
+    id: `job-${index}`,
+    jobType: 'embed_chunk',
+    lease_token: null,
+    leasedUntil: null,
+    max_attempts: 5,
+    payload: job.payload,
+    queue: 'embeddings',
+    runAt: new Date(0).toISOString(),
+    state: 'queued',
     updated_at: new Date(0).toISOString(),
+    worker_id: null,
   }));
 }
 
 function createMinimalDependencies(db: VectorQueueDatabase): VectorQueueServiceDependencies {
   return {
+    chunkRepository: {
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({
+        chunksWithEmbeddingsForSet: 0,
+        totalChunks: 0,
+      })),
+    },
     db,
     jobQueue: {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => []),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
-    },
-    chunkRepository: {
-      getCoverageForSet: vi.fn(async () => ({
-        totalChunks: 0,
-        chunksWithEmbeddingsForSet: 0,
-      })),
-      clearEmbeddingsForSet: vi.fn(async () => 0),
+      requeueFailed: vi.fn(),
     },
   };
 }
@@ -71,13 +71,20 @@ describe('vector-queue-service', () => {
 
   it('refresh aggregates queue metrics and latency', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 1, running: 2, failed: 3, succeeded: 4 },
+        {
+          failed: 3,
+          queue: 'embeddings',
+          queued: 1,
+          running: 2,
+          succeeded: 4,
+          succeededLifetime: 4,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const now = Date.now();
@@ -108,17 +115,17 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({
-        totalChunks: 12,
-        chunksWithEmbeddingsForSet: 7,
-      })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({
+        chunksWithEmbeddingsForSet: 7,
+        totalChunks: 12,
+      })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const snapshot = await service.refresh('set-1');
@@ -126,7 +133,7 @@ describe('vector-queue-service', () => {
     expect(jobQueue.getQueueStats).toHaveBeenCalledWith('embeddings');
     expect(chunkRepository.getCoverageForSet).toHaveBeenCalledWith('set-1');
     expect(snapshot.coverage).toEqual({ total: 12, withSet: 7 });
-    expect(snapshot.queueCounts).toEqual({ queued: 1, running: 2, failed: 3, succeeded: 4 });
+    expect(snapshot.queueCounts).toEqual({ failed: 3, queued: 1, running: 2, succeeded: 4 });
     expect(snapshot.throughput).toBe(3);
     expect(snapshot.lastError).toBe('failure');
     expect(snapshot.latency.p50Ms).toBeGreaterThan(0);
@@ -134,13 +141,20 @@ describe('vector-queue-service', () => {
 
   it('backfill enqueues chunks with dedupe keys', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 2, running: 1, failed: 0, succeeded: 5 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 2,
+          running: 1,
+          succeeded: 5,
+          succeededLifetime: 5,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const queries: Array<{ sql: string; params?: unknown[] }> = [];
@@ -149,15 +163,15 @@ describe('vector-queue-service', () => {
         if (typeof params === 'undefined') {
           queries.push({ sql });
         } else {
-          queries.push({ sql, params });
+          queries.push({ params, sql });
         }
         if (sql.includes('FROM embedding_sets')) {
           return {
             rows: [
               {
-                modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
-                modelId: 'jinaai/jina-embeddings-v2-base-code',
                 dimensions: 768,
+                modelId: 'jinaai/jina-embeddings-v2-base-code',
+                modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
               },
             ],
           } as { rows: unknown[] };
@@ -168,14 +182,14 @@ describe('vector-queue-service', () => {
         if (sql.includes('ORDER BY c.id::text ASC')) {
           return {
             rows: [
-              { id: '1', fileRecordId: '10', contentHash: 'aa' },
-              { id: '2', fileRecordId: '11', contentHash: 'bb' },
+              { contentHash: 'aa', fileRecordId: '10', id: '1' },
+              { contentHash: 'bb', fileRecordId: '11', id: '2' },
             ],
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 2 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 2 }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -183,14 +197,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const progressUpdates: Array<{ done: number; total: number }> = [];
@@ -220,8 +234,8 @@ describe('vector-queue-service', () => {
     const payloads = enqueuedJobs?.map((job) => job.payload as Record<string, unknown>) ?? [];
     for (const payload of payloads) {
       expect(payload).toMatchObject({
-        modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
         expectedDimension: 768,
+        modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
       });
     }
     expect(enqueuedJobs?.map((job) => job.dedupeKey)).toEqual(['1:set-1:aa', '2:set-1:bb']);
@@ -229,7 +243,7 @@ describe('vector-queue-service', () => {
       { done: 0, total: 2 },
       { done: 2, total: 2 },
     ]);
-    expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
+    expect(counts).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 2 });
   });
 
   it('loads candidate diagnostics when backfill has no eligible chunks', async () => {
@@ -240,13 +254,20 @@ describe('vector-queue-service', () => {
       }
     });
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const queries: string[] = [];
@@ -257,9 +278,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
               },
             ],
           } as { rows: unknown[] };
@@ -271,19 +292,19 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                fileCount: 1,
                 chunkCount: 0,
-                pendingChunkCount: 0,
                 embeddedChunkCount: 0,
-                queuedOrRunningJobs: 0,
                 failedJobs: 0,
+                fileCount: 1,
+                pendingChunkCount: 0,
+                queuedOrRunningJobs: 0,
               },
             ],
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 0 }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -291,14 +312,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     try {
@@ -329,13 +350,20 @@ describe('vector-queue-service', () => {
 
   it('recovers active-set failed and unclaimable queued jobs before waiting for drain', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 13 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 13,
+          succeededLifetime: 13,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(async () => 13),
       repairUnclaimableQueued: vi.fn(async () => 13),
+      requeueFailed: vi.fn(async () => 13),
     };
 
     const db: VectorQueueDatabase = {
@@ -344,9 +372,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
               },
             ],
           } as { rows: unknown[] };
@@ -358,19 +386,19 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                fileCount: 8,
                 chunkCount: 13,
-                pendingChunkCount: 13,
                 embeddedChunkCount: 0,
-                queuedOrRunningJobs: 13,
                 failedJobs: 13,
+                fileCount: 8,
+                pendingChunkCount: 13,
+                queuedOrRunningJobs: 13,
               },
             ],
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 13 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 13 }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -378,20 +406,20 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     await expect(service.backfill('set-1', { onProgress: vi.fn() })).resolves.toEqual({
+      failed: 0,
       queued: 0,
       running: 0,
-      failed: 0,
       succeeded: 13,
     });
 
@@ -406,22 +434,29 @@ describe('vector-queue-service', () => {
 
   it('retryFailed also repairs queued jobs that cannot be claimed', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 13, running: 0, failed: 13, succeeded: 0 },
+        {
+          failed: 13,
+          queue: 'embeddings',
+          queued: 13,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(async () => 13),
       repairUnclaimableQueued: vi.fn(async () => 13),
+      requeueFailed: vi.fn(async () => 13),
     };
     const db: VectorQueueDatabase = {
       query: vi.fn(async () => ({ rows: [] })) as VectorQueueDatabase['query'],
     };
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
-    const service = createVectorQueueService({ db, jobQueue, chunkRepository });
+    const service = createVectorQueueService({ chunkRepository, db, jobQueue });
 
     await service.retryFailed(100);
 
@@ -431,24 +466,46 @@ describe('vector-queue-service', () => {
 
   it('backfill splits large enqueue work into cooperative batches', async () => {
     const queueStatsSequence = [
-      { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 32, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
-      { queue: 'embeddings', queued: 24, running: 8, failed: 0, succeeded: 0 },
+      { failed: 0, queue: 'embeddings', queued: 0, running: 0, succeeded: 0, succeededLifetime: 0 },
+      {
+        failed: 0,
+        queue: 'embeddings',
+        queued: 32,
+        running: 0,
+        succeeded: 0,
+        succeededLifetime: 0,
+      },
+      {
+        failed: 0,
+        queue: 'embeddings',
+        queued: 64,
+        running: 0,
+        succeeded: 0,
+        succeededLifetime: 0,
+      },
+      {
+        failed: 0,
+        queue: 'embeddings',
+        queued: 24,
+        running: 8,
+        succeeded: 0,
+        succeededLifetime: 0,
+      },
     ];
     const finalQueueStats = {
+      failed: 0,
       queue: 'embeddings',
       queued: 56,
       running: 8,
-      failed: 0,
       succeeded: 0,
+      succeededLifetime: 0,
     };
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [queueStatsSequence.shift() ?? finalQueueStats]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const db: VectorQueueDatabase = {
@@ -457,9 +514,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
-                modelId: 'jinaai/jina-embeddings-v2-base-code',
                 dimensions: 768,
+                modelId: 'jinaai/jina-embeddings-v2-base-code',
+                modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
               },
             ],
           } as { rows: unknown[] };
@@ -475,16 +532,16 @@ describe('vector-queue-service', () => {
             rows: Array.from({ length: Math.max(0, Math.min(limit, 96 - start)) }, (_, index) => {
               const id = start + index + 1;
               return {
-                id: `${id}`,
-                fileRecordId: `${id + 1000}`,
                 contentHash: `hash-${id}`,
+                fileRecordId: `${id + 1000}`,
+                id: `${id}`,
               };
             }),
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 96 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 96 }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -492,14 +549,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const progressUpdates: Array<{ done: number; total: number }> = [];
@@ -523,13 +580,20 @@ describe('vector-queue-service', () => {
 
   it('backfill throws when the embedding set drains with failed jobs', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 1, running: 0, failed: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 1,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     let setQueueCountCalls = 0;
@@ -539,9 +603,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
               },
             ],
           } as { rows: unknown[] };
@@ -551,7 +615,7 @@ describe('vector-queue-service', () => {
         }
         if (sql.includes('ORDER BY c.id::text ASC')) {
           return {
-            rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
+            rows: [{ contentHash: 'hash-1', fileRecordId: '10', id: '1' }],
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
@@ -559,8 +623,8 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               setQueueCountCalls === 1
-                ? { queued: 0, running: 0, failed: 0, succeeded: 0 }
-                : { queued: 0, running: 0, failed: 1, succeeded: 0 },
+                ? { failed: 0, queued: 0, running: 0, succeeded: 0 }
+                : { failed: 1, queued: 0, running: 0, succeeded: 0 },
             ],
           } as { rows: unknown[] };
         }
@@ -569,14 +633,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     await expect(service.backfill('set-1', { onProgress: vi.fn() })).rejects.toThrow(
@@ -586,13 +650,20 @@ describe('vector-queue-service', () => {
 
   it('does not fail a new backfill because of historical failed jobs for the same set', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 1, running: 0, failed: 1, succeeded: 0 },
+        {
+          failed: 1,
+          queue: 'embeddings',
+          queued: 1,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const db: VectorQueueDatabase = {
@@ -601,9 +672,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
               },
             ],
           } as { rows: unknown[] };
@@ -613,12 +684,12 @@ describe('vector-queue-service', () => {
         }
         if (sql.includes('ORDER BY c.id::text ASC')) {
           return {
-            rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
+            rows: [{ contentHash: 'hash-1', fileRecordId: '10', id: '1' }],
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 1, succeeded: 1 }],
+            rows: [{ failed: 1, queued: 0, running: 0, succeeded: 1 }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -626,20 +697,20 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     await expect(service.backfill('set-1', { onProgress: vi.fn() })).resolves.toEqual({
+      failed: 1,
       queued: 0,
       running: 0,
-      failed: 1,
       succeeded: 1,
     });
   });
@@ -647,13 +718,20 @@ describe('vector-queue-service', () => {
   it('backfill fails fast when queue capacity never becomes available', async () => {
     vi.useFakeTimers();
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 64,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const db: VectorQueueDatabase = {
@@ -662,9 +740,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
               },
             ],
           } as { rows: unknown[] };
@@ -677,14 +755,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const backfillPromise = service.backfill('set-1', { onProgress: vi.fn() });
@@ -701,13 +779,20 @@ describe('vector-queue-service', () => {
   it('honors a configured queue capacity timeout', async () => {
     vi.useFakeTimers();
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 64,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const db: VectorQueueDatabase = {
@@ -716,9 +801,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
               },
             ],
           } as { rows: unknown[] };
@@ -731,14 +816,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const backfillPromise = service.backfill('set-1', {
@@ -759,13 +844,20 @@ describe('vector-queue-service', () => {
     vi.useFakeTimers();
     const abortController = new AbortController();
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 64,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const db: VectorQueueDatabase = {
@@ -774,9 +866,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
               },
             ],
           } as { rows: unknown[] };
@@ -789,14 +881,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const backfillPromise = service.backfill('set-1', {
@@ -813,13 +905,20 @@ describe('vector-queue-service', () => {
   it('backfill fails fast when the embedding set never drains', async () => {
     vi.useFakeTimers();
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const db: VectorQueueDatabase = {
@@ -828,9 +927,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
               },
             ],
           } as { rows: unknown[] };
@@ -840,12 +939,12 @@ describe('vector-queue-service', () => {
         }
         if (sql.includes('ORDER BY c.id::text ASC')) {
           return {
-            rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
+            rows: [{ contentHash: 'hash-1', fileRecordId: '10', id: '1' }],
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
           return {
-            rows: [{ queued: 0, running: 1, failed: 0, succeeded: 0 }],
+            rows: [{ failed: 0, queued: 0, running: 1, succeeded: 0 }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -853,14 +952,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const backfillPromise = service.backfill('set-1', { onProgress: vi.fn() });
@@ -878,13 +977,20 @@ describe('vector-queue-service', () => {
     vi.useFakeTimers();
     const abortController = new AbortController();
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const db: VectorQueueDatabase = {
@@ -893,9 +999,9 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
               },
             ],
           } as { rows: unknown[] };
@@ -905,12 +1011,12 @@ describe('vector-queue-service', () => {
         }
         if (sql.includes('ORDER BY c.id::text ASC')) {
           return {
-            rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
+            rows: [{ contentHash: 'hash-1', fileRecordId: '10', id: '1' }],
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
           return {
-            rows: [{ queued: 0, running: 1, failed: 0, succeeded: 0 }],
+            rows: [{ failed: 0, queued: 0, running: 1, succeeded: 0 }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -918,14 +1024,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0),
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const backfillPromise = service.backfill('set-1', {
@@ -941,20 +1047,27 @@ describe('vector-queue-service', () => {
 
   it('reembedSet clears embeddings then triggers backfill', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 3, running: 0, failed: 0, succeeded: 10 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 3,
+          running: 0,
+          succeeded: 10,
+          succeededLifetime: 10,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const db: VectorQueueDatabase = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'openai::text-embedding-3-small', modelId: null, dimensions: 1536 }],
+            rows: [{ dimensions: 1536, modelId: null, modelKey: 'openai::text-embedding-3-small' }],
           } as { rows: unknown[] };
         }
         if (sql.includes('COUNT(*)::int AS count')) {
@@ -964,15 +1077,15 @@ describe('vector-queue-service', () => {
           // Return 3 chunks that need re-embedding
           return {
             rows: [
-              { id: '1', fileRecordId: '10', contentHash: 'hash1' },
-              { id: '2', fileRecordId: '11', contentHash: 'hash2' },
-              { id: '3', fileRecordId: '12', contentHash: 'hash3' },
+              { contentHash: 'hash1', fileRecordId: '10', id: '1' },
+              { contentHash: 'hash2', fileRecordId: '11', id: '2' },
+              { contentHash: 'hash3', fileRecordId: '12', id: '3' },
             ],
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 3 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 3 }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -980,14 +1093,14 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 5, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 5), // Cleared 5 embeddings
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 5 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const progressUpdates: Array<{ done: number; total: number }> = [];
@@ -1001,7 +1114,7 @@ describe('vector-queue-service', () => {
 
     // Verify result structure
     expect(result.clearedCount).toBe(5);
-    expect(result.queueCounts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 3 });
+    expect(result.queueCounts).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 3 });
 
     // Verify progress callbacks were invoked during backfill
     expect(progressUpdates).toEqual([
@@ -1012,25 +1125,32 @@ describe('vector-queue-service', () => {
 
   it('reembedSet returns zero cleared when no embeddings exist', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      clear: vi.fn(),
       enqueueBatch: vi.fn(async () => []),
       getQueueStats: vi.fn(async () => [
-        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+        {
+          failed: 0,
+          queue: 'embeddings',
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          succeededLifetime: 0,
+        },
       ]),
-      clear: vi.fn(),
-      requeueFailed: vi.fn(),
       repairUnclaimableQueued: vi.fn(),
+      requeueFailed: vi.fn(),
     };
 
     const db: VectorQueueDatabase = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::test-model', modelId: 'test-model', dimensions: 384 }],
+            rows: [{ dimensions: 384, modelId: 'test-model', modelKey: 'local::test-model' }],
           } as { rows: unknown[] };
         }
         if (sql.includes('embedding_set_id = $2')) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
+            rows: [{ failed: 0, queued: 0, running: 0, succeeded: 0 }],
           } as { rows: unknown[] };
         }
         // No chunks to backfill
@@ -1039,21 +1159,21 @@ describe('vector-queue-service', () => {
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
-      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
       clearEmbeddingsForSet: vi.fn(async () => 0), // Nothing to clear
+      getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 })),
     };
 
     const service = createVectorQueueService({
+      chunkRepository,
       db,
       jobQueue,
-      chunkRepository,
     });
 
     const result = await service.reembedSet('empty-set', vi.fn());
 
     expect(chunkRepository.clearEmbeddingsForSet).toHaveBeenCalledWith('empty-set');
     expect(result.clearedCount).toBe(0);
-    expect(result.queueCounts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 0 });
+    expect(result.queueCounts).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 0 });
   });
 
   it('validates API keys through canonical embedding set metadata', async () => {
@@ -1062,7 +1182,7 @@ describe('vector-queue-service', () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'openai::text-embedding-3-small', dimensions: '1536' }],
+            rows: [{ dimensions: '1536', modelKey: 'openai::text-embedding-3-small' }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -1078,15 +1198,15 @@ describe('vector-queue-service', () => {
   it('returns unavailable API key validation details from the provider check', async () => {
     vi.mocked(checkApiKeyAvailability).mockResolvedValue({
       available: false,
+      message: 'OpenAI key is missing',
       provider: 'openai',
       reason: 'missing-provider-key',
-      message: 'OpenAI key is missing',
     });
     const db: VectorQueueDatabase = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'openai::text-embedding-3-small', dimensions: 1536 }],
+            rows: [{ dimensions: 1536, modelKey: 'openai::text-embedding-3-small' }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -1095,27 +1215,27 @@ describe('vector-queue-service', () => {
     const service = createVectorQueueService(createMinimalDependencies(db));
 
     await expect(service.validateApiKeyForSet('set-1')).resolves.toEqual({
-      valid: false,
-      reason: 'missing-provider-key',
       message: 'OpenAI key is missing',
+      reason: 'missing-provider-key',
+      valid: false,
     });
   });
 
   it.each([
     {
+      message: 'Embedding set set-1 not found',
       name: 'missing row',
       rows: [],
-      message: 'Embedding set set-1 not found',
     },
     {
-      name: 'missing model key',
-      rows: [{ modelKey: '   ', dimensions: 384 }],
       message: 'Embedding set set-1 is missing model_key metadata',
+      name: 'missing model key',
+      rows: [{ dimensions: 384, modelKey: '   ' }],
     },
     {
-      name: 'invalid dimensions',
-      rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 0 }],
       message: 'Embedding set set-1 is missing dimension metadata',
+      name: 'invalid dimensions',
+      rows: [{ dimensions: 0, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }],
     },
   ])('reports validation errors for $name metadata', async ({ rows, message }) => {
     const db: VectorQueueDatabase = {
@@ -1129,9 +1249,9 @@ describe('vector-queue-service', () => {
     const service = createVectorQueueService(createMinimalDependencies(db));
 
     await expect(service.validateApiKeyForSet('set-1')).resolves.toEqual({
-      valid: false,
-      reason: 'validation-error',
       message,
+      reason: 'validation-error',
+      valid: false,
     });
     expect(checkApiKeyAvailability).not.toHaveBeenCalled();
   });

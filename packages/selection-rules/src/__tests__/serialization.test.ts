@@ -15,30 +15,31 @@ import {
 
 describe('serialization', () => {
   const sampleRule: ExplicitRule = {
-    id: 'rule-1',
-    type: 'explicit',
-    paths: ['src/index.ts', 'src/utils.ts'],
     createdAt: '2026-01-02T00:00:00.000Z',
-    label: 'Main files',
     enabled: true,
+    id: 'rule-1',
+    label: 'Main files',
+    paths: ['src/index.ts', 'src/utils.ts'],
+    type: 'explicit',
   };
 
   const sampleRuleSet: SelectionRuleSet = {
-    version: 1,
     folderId: 'folder-123',
-    rules: [sampleRule],
     metadata: {
       createdAt: '2026-01-02T00:00:00.000Z',
-      updatedAt: '2026-01-02T00:00:00.000Z',
       description: 'Test rule set',
+      updatedAt: '2026-01-02T00:00:00.000Z',
     },
+    rules: [sampleRule],
+    version: 1,
   };
 
   const sampleMaterializedSelection: MaterializedSelection = {
-    paths: new Set(['src/index.ts', 'src/utils.ts', 'src/helpers.ts']),
     appliedRules: ['rule-1', 'rule-2'],
     capped: false,
+    materializedAt: '2026-01-02T12:00:00.000Z',
     originalCount: 3,
+    paths: new Set(['src/index.ts', 'src/utils.ts', 'src/helpers.ts']),
     warnings: [
       {
         code: 'pattern-no-match',
@@ -46,7 +47,6 @@ describe('serialization', () => {
         ruleId: 'rule-3',
       },
     ],
-    materializedAt: '2026-01-02T12:00:00.000Z',
   };
 
   describe('serializeRuleSet / deserializeRuleSet', () => {
@@ -158,12 +158,12 @@ describe('serialization', () => {
     // Type guard validation tests - each tests a specific condition
     it('should throw when paths array contains non-strings', () => {
       const invalidJson = JSON.stringify({
-        paths: ['valid.ts', 123, 'another.ts'], // 123 is not a string
         appliedRules: [],
         capped: false,
-        originalCount: 0,
-        warnings: [],
         materializedAt: '2026-01-02T00:00:00.000Z',
+        originalCount: 0,
+        paths: ['valid.ts', 123, 'another.ts'], // 123 is not a string
+        warnings: [],
       });
       expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
         'Invalid materialized selection'
@@ -172,12 +172,12 @@ describe('serialization', () => {
 
     it('should throw when appliedRules is not an array', () => {
       const invalidJson = JSON.stringify({
-        paths: [],
         appliedRules: 'not-an-array',
         capped: false,
-        originalCount: 0,
-        warnings: [],
         materializedAt: '2026-01-02T00:00:00.000Z',
+        originalCount: 0,
+        paths: [],
+        warnings: [],
       });
       expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
         'Invalid materialized selection'
@@ -186,12 +186,12 @@ describe('serialization', () => {
 
     it('should throw when capped is not a boolean', () => {
       const invalidJson = JSON.stringify({
-        paths: [],
         appliedRules: [],
         capped: 'false', // string instead of boolean
-        originalCount: 0,
-        warnings: [],
         materializedAt: '2026-01-02T00:00:00.000Z',
+        originalCount: 0,
+        paths: [],
+        warnings: [],
       });
       expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
         'Invalid materialized selection'
@@ -200,12 +200,12 @@ describe('serialization', () => {
 
     it('should throw when originalCount is not a number', () => {
       const invalidJson = JSON.stringify({
-        paths: [],
         appliedRules: [],
         capped: false,
-        originalCount: '0', // string instead of number
-        warnings: [],
         materializedAt: '2026-01-02T00:00:00.000Z',
+        originalCount: '0', // string instead of number
+        paths: [],
+        warnings: [],
       });
       expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
         'Invalid materialized selection'
@@ -214,12 +214,12 @@ describe('serialization', () => {
 
     it('should throw when warnings is not an array', () => {
       const invalidJson = JSON.stringify({
-        paths: [],
         appliedRules: [],
         capped: false,
-        originalCount: 0,
-        warnings: {}, // object instead of array
         materializedAt: '2026-01-02T00:00:00.000Z',
+        originalCount: 0,
+        paths: [],
+        warnings: {}, // object instead of array
       });
       expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
         'Invalid materialized selection'
@@ -228,12 +228,12 @@ describe('serialization', () => {
 
     it('should throw when materializedAt is not a string', () => {
       const invalidJson = JSON.stringify({
-        paths: [],
         appliedRules: [],
         capped: false,
-        originalCount: 0,
-        warnings: [],
         materializedAt: 12_345, // number instead of string
+        originalCount: 0,
+        paths: [],
+        warnings: [],
       });
       expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
         'Invalid materialized selection'
@@ -244,9 +244,9 @@ describe('serialization', () => {
       const invalidJson = JSON.stringify({
         appliedRules: [],
         capped: false,
+        materializedAt: '2026-01-02T00:00:00.000Z',
         originalCount: 0,
         warnings: [],
-        materializedAt: '2026-01-02T00:00:00.000Z',
       });
       expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
         'Invalid materialized selection'
@@ -330,57 +330,57 @@ describe('serialization', () => {
 
       it('should preserve all rule types through round-trip', () => {
         const complexRuleSet: SelectionRuleSet = {
-          version: 1,
           folderId: 'complex-folder',
-          rules: [
-            {
-              id: 'r1',
-              type: 'explicit',
-              paths: ['a.ts', 'b.ts'],
-              mode: 'include',
-              createdAt: '2026-01-02T00:00:00.000Z',
-            },
-            {
-              id: 'r2',
-              type: 'glob-include',
-              patterns: ['**/*.ts', '**/*.tsx'],
-              basePath: 'src',
-              createdAt: '2026-01-02T00:00:00.000Z',
-            },
-            {
-              id: 'r3',
-              type: 'glob-exclude',
-              patterns: ['**/*.test.ts'],
-              createdAt: '2026-01-02T00:00:00.000Z',
-            },
-            {
-              id: 'r4',
-              type: 'root-include',
-              roots: ['src', 'lib'],
-              maxDepth: 3,
-              createdAt: '2026-01-02T00:00:00.000Z',
-            },
-            {
-              id: 'r5',
-              type: 'root-exclude',
-              roots: ['node_modules'],
-              createdAt: '2026-01-02T00:00:00.000Z',
-            },
-            {
-              id: 'r6',
-              type: 'cap',
-              maxCount: 100,
-              strategy: 'priority',
-              seed: 42,
-              createdAt: '2026-01-02T00:00:00.000Z',
-            },
-          ],
           metadata: {
             createdAt: '2026-01-02T00:00:00.000Z',
-            updatedAt: '2026-01-02T00:00:00.000Z',
-            migratedFrom: 'explicit-set',
             description: 'Complex test',
+            migratedFrom: 'explicit-set',
+            updatedAt: '2026-01-02T00:00:00.000Z',
           },
+          rules: [
+            {
+              createdAt: '2026-01-02T00:00:00.000Z',
+              id: 'r1',
+              mode: 'include',
+              paths: ['a.ts', 'b.ts'],
+              type: 'explicit',
+            },
+            {
+              basePath: 'src',
+              createdAt: '2026-01-02T00:00:00.000Z',
+              id: 'r2',
+              patterns: ['**/*.ts', '**/*.tsx'],
+              type: 'glob-include',
+            },
+            {
+              createdAt: '2026-01-02T00:00:00.000Z',
+              id: 'r3',
+              patterns: ['**/*.test.ts'],
+              type: 'glob-exclude',
+            },
+            {
+              createdAt: '2026-01-02T00:00:00.000Z',
+              id: 'r4',
+              maxDepth: 3,
+              roots: ['src', 'lib'],
+              type: 'root-include',
+            },
+            {
+              createdAt: '2026-01-02T00:00:00.000Z',
+              id: 'r5',
+              roots: ['node_modules'],
+              type: 'root-exclude',
+            },
+            {
+              createdAt: '2026-01-02T00:00:00.000Z',
+              id: 'r6',
+              maxCount: 100,
+              seed: 42,
+              strategy: 'priority',
+              type: 'cap',
+            },
+          ],
+          version: 1,
         };
 
         const clone = cloneRuleSetThroughSerialization(complexRuleSet);
@@ -410,15 +410,15 @@ describe('serialization', () => {
 
       it('should preserve warning details', () => {
         const selectionWithWarnings: MaterializedSelection = {
-          paths: new Set(['file.ts']),
           appliedRules: ['r1'],
           capped: true,
+          materializedAt: '2026-01-02T00:00:00.000Z',
           originalCount: 150,
+          paths: new Set(['file.ts']),
           warnings: [
             { code: 'cap-applied', message: 'Cap reduced 150 to 100', ruleId: 'cap-1' },
             { code: 'root-not-found', message: 'Root /missing not found' },
           ],
-          materializedAt: '2026-01-02T00:00:00.000Z',
         };
 
         const clone = cloneMaterializedSelectionThroughSerialization(selectionWithWarnings);
@@ -468,20 +468,20 @@ describe('serialization', () => {
   describe('Edge cases', () => {
     it('should handle rule set with unicode in paths', () => {
       const unicodeRuleSet: SelectionRuleSet = {
-        version: 1,
         folderId: 'folder-café',
-        rules: [
-          {
-            id: 'r1',
-            type: 'explicit',
-            paths: ['日本語/ファイル.ts', 'émoji/🎉.js'],
-            createdAt: '2026-01-02T00:00:00.000Z',
-          },
-        ],
         metadata: {
           createdAt: '2026-01-02T00:00:00.000Z',
           updatedAt: '2026-01-02T00:00:00.000Z',
         },
+        rules: [
+          {
+            createdAt: '2026-01-02T00:00:00.000Z',
+            id: 'r1',
+            paths: ['日本語/ファイル.ts', 'émoji/🎉.js'],
+            type: 'explicit',
+          },
+        ],
+        version: 1,
       };
 
       const json = serializeRuleSet(unicodeRuleSet);
@@ -496,12 +496,12 @@ describe('serialization', () => {
 
     it('should handle materialized selection with empty paths', () => {
       const emptyPaths: MaterializedSelection = {
-        paths: new Set(),
         appliedRules: [],
         capped: false,
-        originalCount: 0,
-        warnings: [],
         materializedAt: '2026-01-02T00:00:00.000Z',
+        originalCount: 0,
+        paths: new Set(),
+        warnings: [],
       };
 
       const json = serializeMaterializedSelection(emptyPaths);
@@ -513,20 +513,20 @@ describe('serialization', () => {
     it('should handle rule set with very long paths', () => {
       const longPath = `${'a/'.repeat(100)}file.ts`;
       const ruleSet: SelectionRuleSet = {
-        version: 1,
         folderId: 'folder',
-        rules: [
-          {
-            id: 'r1',
-            type: 'explicit',
-            paths: [longPath],
-            createdAt: '2026-01-02T00:00:00.000Z',
-          },
-        ],
         metadata: {
           createdAt: '2026-01-02T00:00:00.000Z',
           updatedAt: '2026-01-02T00:00:00.000Z',
         },
+        rules: [
+          {
+            createdAt: '2026-01-02T00:00:00.000Z',
+            id: 'r1',
+            paths: [longPath],
+            type: 'explicit',
+          },
+        ],
+        version: 1,
       };
 
       const clone = cloneRuleSetThroughSerialization(ruleSet);

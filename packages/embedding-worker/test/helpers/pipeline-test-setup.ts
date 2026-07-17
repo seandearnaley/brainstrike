@@ -11,13 +11,13 @@ export const registeredHandlers: {
 } = {};
 
 vi.mock('workerpool', () => ({
+  Transfer: transferMock,
   worker: (handlers: {
     runEmbedding: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
   }) => {
     registeredHandlers.runEmbedding = handlers.runEmbedding;
   },
   workerEmit: workerEmitMock,
-  Transfer: transferMock,
 }));
 
 vi.mock('@huggingface/transformers', () => ({
@@ -63,9 +63,9 @@ export async function installMockOrtWebGpuDevice(): Promise<void> {
     onnx: {
       webgpu: {
         device: {
+          createCommandEncoder: () => ({ finish: () => ({}) }),
           lost: new Promise(() => {}),
           queue: { submit: vi.fn() },
-          createCommandEncoder: () => ({ finish: () => ({}) }),
         },
       },
     },
@@ -75,8 +75,8 @@ export async function installMockOrtWebGpuDevice(): Promise<void> {
 export function makeExtractor(id: string) {
   const disposeMock = vi.fn();
   const extractor = Object.assign(async () => new Float32Array([1, 0, 0]), {
-    dispose: disposeMock,
     _id: id,
+    dispose: disposeMock,
   });
-  return { extractor, disposeMock };
+  return { disposeMock, extractor };
 }

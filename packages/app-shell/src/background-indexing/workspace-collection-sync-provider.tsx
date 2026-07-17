@@ -31,13 +31,13 @@ import {
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { DirectoryHandle, FileSystemChange } from '@brainstrike/types';
 import {
+  type BackgroundIndexingPolicyPreset,
   getBackgroundWorkArbiterSnapshot,
   getBackgroundWorkPauseReasonLabels,
   registerBackgroundWorkPauseHandler,
   setBackgroundWorkManualPause,
   subscribeToBackgroundWorkArbiter,
 } from '@brainstrike/utils';
-import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,
@@ -72,6 +72,14 @@ import {
   WorkspaceIndexBlockedError,
 } from './workspace-index-blocked-error';
 import { bootstrapWorkspaceIndexCollection } from './workspace-index-bootstrap-service';
+import {
+  buildWorkspaceCoverageExpectedFiles,
+  classifyMissingCoverageFiles,
+  readIndexedRelativePathsByRoot,
+  resolveMissingCoverageFiles,
+  type WorkspaceCoverageExpectedFile,
+  type WorkspaceCoverageGapClassification,
+} from './workspace-index-coverage-audit';
 import { runWorkspaceIndexStageBenchmark } from './workspace-index-debug-benchmark';
 import {
   countExpectedWorkspaceIndexFiles,
@@ -175,34 +183,38 @@ function createClearedProgressPatch(): Pick<
   return {
     backfillRequestId: null,
     blockedReason: null,
-    currentFilePath: null,
-    scanSummary: null,
-    importProgress: null,
     chunkingProgress: null,
+    currentFilePath: null,
     embeddingProgress: null,
-    queueProgress: null,
-    queuedFiles: 0,
-    processedFiles: 0,
+    importProgress: null,
     lastError: null,
     pauseReasons: [],
+    processedFiles: 0,
+    queuedFiles: 0,
+    queueProgress: null,
+    scanSummary: null,
   };
 }
 
 interface WorkspaceCoverageAuditTarget {
   readonly dbRootId: string;
   readonly expectedFileCount: number;
+  readonly expectedFiles: readonly WorkspaceCoverageExpectedFile[];
   readonly rootPath: string;
 }
 
 type WorkspaceCoverageAuditOutcome =
   | {
       readonly kind: 'complete';
+      readonly unindexableFileCount: number;
     }
   | {
       readonly kind: 'incomplete';
+      readonly gapsByRoot: ReadonlyMap<string, WorkspaceCoverageGapClassification>;
       readonly indexedCounts: ReadonlyMap<string, number>;
       readonly message: string;
       readonly missingTargets: readonly WorkspaceCoverageAuditTarget[];
+      readonly unindexableFileCount: number;
     }
   | {
       readonly kind: 'unresolved-root';
@@ -289,7 +301,33 @@ async function readIndexedFileCountsByRoot(args: {
   return counts;
 }
 
+const COVERAGE_MESSAGE_MISSING_PATH_SAMPLE_LIMIT = 3;
+
+function describeCoverageGapForMessage(
+  gap: WorkspaceCoverageGapClassification | undefined
+): string {
+  if (!gap) {
+    return '';
+  }
+  const parts: string[] = [];
+  if (gap.genuinelyMissing.length > 0) {
+    const sample = gap.genuinelyMissing.slice(0, COVERAGE_MESSAGE_MISSING_PATH_SAMPLE_LIMIT);
+    const remainder = gap.genuinelyMissing.length - sample.length;
+    parts.push(
+      `missing files include: ${sample.join(', ')}${remainder > 0 ? ` (+${remainder} more)` : ''}`
+    );
+  }
+  if (gap.unclassifiedCount > 0) {
+    parts.push(`${gap.unclassifiedCount} additional missing files were not classified`);
+  }
+  if (gap.contentExcluded.length > 0) {
+    parts.push(`${gap.contentExcluded.length} files are unindexable by content policy`);
+  }
+  return parts.length > 0 ? `; ${parts.join('; ')}` : '';
+}
+
 function buildCoverageAuditMessage(args: {
+  gapsByRoot: ReadonlyMap<string, WorkspaceCoverageGapClassification>;
   missingTargets: readonly WorkspaceCoverageAuditTarget[];
   indexedCounts: ReadonlyMap<string, number>;
 }): string {
@@ -298,7 +336,8 @@ function buildCoverageAuditMessage(args: {
     .slice(0, 3)
     .map((target) => {
       const indexedFileCount = args.indexedCounts.get(target.dbRootId) ?? 0;
-      return `${target.rootPath} (${indexedFileCount}/${target.expectedFileCount} files indexed)`;
+      const gapSummary = describeCoverageGapForMessage(args.gapsByRoot.get(target.dbRootId));
+      return `${target.rootPath} (${indexedFileCount}/${target.expectedFileCount} files indexed${gapSummary})`;
     })
     .join('; ');
   const extraCount =
@@ -330,20 +369,38 @@ function createCoverageAuditKey(args: {
   return `${args.collectionId}:${args.policyPreset}:${rootsKey}`;
 }
 
+function createCoverageRecoveryAttemptKey(args: {
+  auditKey: string;
+  outcome: WorkspaceCoverageIncompleteOutcome;
+}): string {
+  const mismatchKey = args.outcome.missingTargets
+    .map((target) => {
+      const indexedFileCount = args.outcome.indexedCounts.get(target.dbRootId) ?? 0;
+      return `${target.dbRootId}:${target.rootPath}:${indexedFileCount}/${target.expectedFileCount}`;
+    })
+    .sort()
+    .join('|');
+  return `${args.auditKey}:${mismatchKey}`;
+}
+
 function createCoverageStatusPatch(args: {
   activeRootPath: string | null;
   collectionId: string;
   lastError: string | null;
   state: 'error' | 'idle' | 'waiting';
+  unindexableFileCount?: number;
 }): WorkspaceCollectionSyncStatusPatch {
   return {
-    state: args.state,
-    managedCollectionId: args.collectionId,
     activeRootPath: args.activeRootPath,
     currentFilePath: null,
-    queuedFiles: 0,
     lastError: args.lastError,
+    managedCollectionId: args.collectionId,
     pauseReasons: [],
+    queuedFiles: 0,
+    state: args.state,
+    ...(args.unindexableFileCount === undefined
+      ? {}
+      : { unindexableFileCount: args.unindexableFileCount }),
   };
 }
 
@@ -371,9 +428,17 @@ async function buildCoverageAuditTargets(args: {
         policyPreset: args.policyPreset,
         rootHandle: handle,
       });
+      // Deduped by normalized relative path: file_records rows are keyed by
+      // (rootId, relativePath), so the DB can never hold more rows than the
+      // deduped expected set — a raw node count would over-count.
+      const expectedFiles = buildWorkspaceCoverageExpectedFiles({
+        fileNodes: expected.fileNodes,
+        rootPath: handle.path,
+      });
       return {
         dbRootId,
-        expectedFileCount: expected.expectedFileCount,
+        expectedFileCount: expectedFiles.length,
+        expectedFiles,
         rootPath: handle.path,
       };
     })
@@ -415,26 +480,89 @@ async function runWorkspaceCoverageAudit(args: {
   if (!args.isCurrent()) {
     return null;
   }
-  const indexedCounts = await readIndexedFileCountsByRoot({
+  // Compare SETS of relative paths, not counts: the DB is the source of truth
+  // for what was indexed, and the on-disk walk for what should be. The set
+  // difference names the actual missing files, which the content gate below
+  // then classifies — a count comparison cannot distinguish "pipeline missed a
+  // file" from "this file is legitimately unindexable".
+  const indexedPathsByRoot = await readIndexedRelativePathsByRoot({
     collectionId: args.collectionId,
     db: args.db,
     rootIds: targets.map((target) => target.dbRootId),
   });
-  if (args.isCurrent()) {
-    const missingTargets = targets.filter(
-      (target) => (indexedCounts.get(target.dbRootId) ?? 0) < target.expectedFileCount
-    );
-    if (missingTargets.length === 0) {
-      return { kind: 'complete' };
-    }
-    return {
-      kind: 'incomplete',
-      indexedCounts,
-      message: buildCoverageAuditMessage({ indexedCounts, missingTargets }),
-      missingTargets,
-    };
+  if (!args.isCurrent()) {
+    return null;
   }
-  return null;
+
+  const indexedCounts = new Map<string, number>();
+  const gapsByRoot = new Map<string, WorkspaceCoverageGapClassification>();
+  const missingTargets: WorkspaceCoverageAuditTarget[] = [];
+  const coveredContentExclusions: Array<{
+    contentExcluded: WorkspaceCoverageGapClassification['contentExcluded'];
+    rootPath: string;
+  }> = [];
+  // Roots are classified SEQUENTIALLY on purpose: each classification reads
+  // missing files from disk with its own bounded concurrency, and this audit
+  // runs as background QoS work — fanning out across roots would multiply IO
+  // against foreground work for no user-visible gain.
+  for (const target of targets) {
+    const indexedRelativePaths = indexedPathsByRoot.get(target.dbRootId) ?? new Set<string>();
+    const missingFiles = resolveMissingCoverageFiles({
+      expectedFiles: target.expectedFiles,
+      indexedRelativePaths,
+    });
+    indexedCounts.set(target.dbRootId, target.expectedFiles.length - missingFiles.length);
+    if (missingFiles.length === 0) {
+      continue;
+    }
+    // Re-apply the import pipeline's content gate to the missing files: a file
+    // the gate refuses (null bytes, binary content, unreadable, too large) can
+    // never be indexed and therefore counts as covered, not missing.
+    const gap = await classifyMissingCoverageFiles({
+      fileSystemAdapter: args.fileSystemAdapter,
+      missingFiles,
+      rootPath: target.rootPath,
+    });
+    if (!args.isCurrent()) {
+      return null;
+    }
+    if (gap.genuinelyMissing.length === 0 && gap.unclassifiedCount === 0) {
+      coveredContentExclusions.push({
+        contentExcluded: gap.contentExcluded,
+        rootPath: target.rootPath,
+      });
+      continue;
+    }
+    gapsByRoot.set(target.dbRootId, gap);
+    missingTargets.push(target);
+  }
+
+  if (coveredContentExclusions.length > 0) {
+    logger.info(
+      'Workspace Index idle coverage audit: unindexable files excluded from coverage by content policy',
+      {
+        collectionId: args.collectionId,
+        roots: coveredContentExclusions.map((entry) => ({
+          contentExcluded: entry.contentExcluded,
+          rootPath: entry.rootPath,
+        })),
+      }
+    );
+  }
+  const unindexableFileCount =
+    coveredContentExclusions.reduce((sum, entry) => sum + entry.contentExcluded.length, 0) +
+    [...gapsByRoot.values()].reduce((sum, gap) => sum + gap.contentExcluded.length, 0);
+  if (missingTargets.length === 0) {
+    return { kind: 'complete', unindexableFileCount };
+  }
+  return {
+    gapsByRoot,
+    indexedCounts,
+    kind: 'incomplete',
+    message: buildCoverageAuditMessage({ gapsByRoot, indexedCounts, missingTargets }),
+    missingTargets,
+    unindexableFileCount,
+  };
 }
 
 function applyWorkspaceCoverageAuditOutcome(args: {
@@ -444,7 +572,7 @@ function applyWorkspaceCoverageAuditOutcome(args: {
   markAuditVerified: (auditKey: string) => void;
   outcome: WorkspaceCoverageAuditOutcome;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-}): boolean {
+}): string | null {
   if (args.outcome.kind === 'complete') {
     args.markAuditVerified(args.auditKey);
     args.setStatus(
@@ -453,9 +581,10 @@ function applyWorkspaceCoverageAuditOutcome(args: {
         collectionId: args.collectionId,
         lastError: null,
         state: 'idle',
+        unindexableFileCount: args.outcome.unindexableFileCount,
       })
     );
-    return false;
+    return null;
   }
   if (args.outcome.kind === 'unresolved-root') {
     logger.warn(args.outcome.message, { rootPath: args.outcome.rootPath });
@@ -467,14 +596,14 @@ function applyWorkspaceCoverageAuditOutcome(args: {
         state: 'waiting',
       })
     );
-    return false;
+    return null;
   }
   applyWorkspaceCoverageIncompleteOutcome({
     collectionId: args.collectionId,
     outcome: args.outcome,
     setStatus: args.setStatus,
   });
-  return true;
+  return createCoverageRecoveryAttemptKey({ auditKey: args.auditKey, outcome: args.outcome });
 }
 
 function applyWorkspaceCoverageIncompleteOutcome(args: {
@@ -484,11 +613,17 @@ function applyWorkspaceCoverageIncompleteOutcome(args: {
 }): void {
   logger.warn('Workspace Index idle coverage audit found incomplete roots', {
     collectionId: args.collectionId,
-    missingRoots: args.outcome.missingTargets.map((target) => ({
-      expectedFileCount: target.expectedFileCount,
-      indexedFileCount: args.outcome.indexedCounts.get(target.dbRootId) ?? 0,
-      rootPath: target.rootPath,
-    })),
+    missingRoots: args.outcome.missingTargets.map((target) => {
+      const gap = args.outcome.gapsByRoot.get(target.dbRootId);
+      return {
+        contentExcluded: gap?.contentExcluded ?? [],
+        expectedFileCount: target.expectedFileCount,
+        genuinelyMissing: gap?.genuinelyMissing ?? [],
+        indexedFileCount: args.outcome.indexedCounts.get(target.dbRootId) ?? 0,
+        rootPath: target.rootPath,
+        unclassifiedCount: gap?.unclassifiedCount ?? 0,
+      };
+    }),
   });
   args.setStatus(
     createCoverageStatusPatch({
@@ -496,6 +631,7 @@ function applyWorkspaceCoverageIncompleteOutcome(args: {
       collectionId: args.collectionId,
       lastError: args.outcome.message,
       state: 'waiting',
+      unindexableFileCount: args.outcome.unindexableFileCount,
     })
   );
 }
@@ -514,7 +650,7 @@ function startWorkspaceCoverageAudit(args: {
   resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
   rootIdByPath: ReadonlyMap<string, string>;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-}): Promise<boolean> {
+}): Promise<string | null> {
   return runWorkspaceCoverageAudit({
     collectionId: args.collectionId,
     db: args.db,
@@ -527,7 +663,7 @@ function startWorkspaceCoverageAudit(args: {
   })
     .then((outcome) => {
       if (!outcome) {
-        return false;
+        return null;
       }
       return applyWorkspaceCoverageAuditOutcome({
         activeRootPath: args.activeRootPath,
@@ -540,7 +676,7 @@ function startWorkspaceCoverageAudit(args: {
     })
     .catch((error: unknown) => {
       if (!args.isCurrent()) {
-        return false;
+        return null;
       }
       const message = `Workspace Index coverage audit failed: ${
         error instanceof Error ? error.message : String(error)
@@ -554,7 +690,7 @@ function startWorkspaceCoverageAudit(args: {
           state: 'error',
         })
       );
-      return false;
+      return null;
     })
     .finally(() => {
       args.clearInFlightAudit(args.auditKey);
@@ -595,15 +731,15 @@ function mergeTriggerSyncScopes(
   const rootsById = new Map<string, { changes: FileSystemChange[]; rootId: string }>();
   for (const root of current.roots) {
     rootsById.set(root.rootId, {
-      rootId: root.rootId,
       changes: [...root.changes],
+      rootId: root.rootId,
     });
   }
   for (const root of incoming.roots) {
     const existing = rootsById.get(root.rootId);
     rootsById.set(root.rootId, {
-      rootId: root.rootId,
       changes: [...(existing?.changes ?? []), ...root.changes],
+      rootId: root.rootId,
     });
   }
   return {
@@ -743,10 +879,10 @@ function createBackgroundRepositoryDb(db: DbHandle): {
     insertChunksAndEnqueueEmbeddingJobs?: DbHandle['insertChunksAndEnqueueEmbeddingJobs'];
     query: DbHandle['query'];
   } = {
-    query: db.query,
     exec: async (sql: string) => {
       await db.exec?.(sql);
     },
+    query: db.query,
   };
   if (db.insertChunksAndEnqueueEmbeddingJobs) {
     handle.insertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs.bind(db);
@@ -820,8 +956,8 @@ function parseRefreshSyncScope(event: Event): TriggerSyncScope {
   return {
     mode: 'paths',
     roots: event.detail.roots.map((root) => ({
-      rootId: root.rootId,
       changes: root.changes,
+      rootId: root.rootId,
     })),
   };
 }
@@ -839,7 +975,7 @@ function buildPathSyncTargets(args: {
     }
     targetByRootId.set(rootId, {
       handle,
-      scope: { mode: 'paths', changes: [] },
+      scope: { changes: [], mode: 'paths' },
     });
   }
   for (const root of args.scope.roots) {
@@ -851,8 +987,8 @@ function buildPathSyncTargets(args: {
     targetByRootId.set(root.rootId, {
       handle: target.handle,
       scope: {
-        mode: 'paths',
         changes: [...existingChanges, ...root.changes],
+        mode: 'paths',
       },
     });
   }
@@ -1237,10 +1373,10 @@ export function WorkspaceCollectionSyncProvider({
       logger.error(`Workspace collection sync ${operation} failed`, { error });
       if (isWorkspaceIndexBlockedError(error)) {
         setSyncStatus({
-          state: 'blocked',
+          activeRootPath: rootDirectoryHandle?.path ?? null,
           managedCollectionId,
           managedCollectionName: null,
-          activeRootPath: rootDirectoryHandle?.path ?? null,
+          state: 'blocked',
           ...createClearedProgressPatch(),
           blockedReason: error.blockedReason,
           lastError: error.message,
@@ -1248,15 +1384,15 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
       setSyncStatus({
-        state: 'error',
+        activeRootPath: rootDirectoryHandle?.path ?? null,
         blockedReason: null,
+        currentFilePath: null,
+        lastError: error instanceof Error ? error.message : String(error),
         managedCollectionId,
         managedCollectionName: null,
-        activeRootPath: rootDirectoryHandle?.path ?? null,
-        currentFilePath: null,
-        queuedFiles: 0,
         processedFiles: 0,
-        lastError: error instanceof Error ? error.message : String(error),
+        queuedFiles: 0,
+        state: 'error',
       });
     },
     [managedCollectionId, rootDirectoryHandle?.path, setSyncStatus]
@@ -1455,17 +1591,6 @@ export function WorkspaceCollectionSyncProvider({
         }
         await applyManagedCacheBatchLocally(backgroundDb, args);
       },
-      invalidateManagedCacheEntriesByIdentity: async (args) => {
-        const electronInvalidateManagedCacheEntries =
-          window.electronAPI?.db?.invalidateManagedCacheEntriesByIdentity;
-        if (electronInvalidateManagedCacheEntries) {
-          return await electronInvalidateManagedCacheEntries(
-            args,
-            BACKGROUND_DATABASE_WORK_OPTIONS
-          );
-        }
-        return await invalidateManagedCacheEntriesByIdentityLocally(backgroundDb, args);
-      },
       cancelBackfill: async (embeddingSetId) => {
         recordSyncDependencyStage('cancelBackfill:start', { embeddingSetId });
         try {
@@ -1486,8 +1611,8 @@ export function WorkspaceCollectionSyncProvider({
         await runtimeController.enqueueBackfill(embeddingSetId, options),
       ensureChunkingWorker,
       ensureEmbeddingRuntimeStarted,
-      fileSystemAdapter,
       fileRecordRepository: backgroundRepositories.fileRecordRepository,
+      fileSystemAdapter,
       getBackfillsInFlight: async () => {
         recordSyncDependencyStage('getBackfillsInFlight:start');
         try {
@@ -1502,6 +1627,17 @@ export function WorkspaceCollectionSyncProvider({
           });
           throw error;
         }
+      },
+      invalidateManagedCacheEntriesByIdentity: async (args) => {
+        const electronInvalidateManagedCacheEntries =
+          window.electronAPI?.db?.invalidateManagedCacheEntriesByIdentity;
+        if (electronInvalidateManagedCacheEntries) {
+          return await electronInvalidateManagedCacheEntries(
+            args,
+            BACKGROUND_DATABASE_WORK_OPTIONS
+          );
+        }
+        return await invalidateManagedCacheEntriesByIdentityLocally(backgroundDb, args);
       },
       log: logger,
       onDebugStage: (stage, details) => {
@@ -1581,33 +1717,33 @@ export function WorkspaceCollectionSyncProvider({
         const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
         if (latestBackgroundWorkSnapshot.backgroundIndexingPaused) {
           setSyncStatus({
-            state: 'paused',
-            managedCollectionId: collection.id,
-            managedCollectionName: collection.name ?? null,
             activeRootPath: rootDirectoryHandle?.path ?? null,
             currentFilePath: null,
-            queuedFiles: 0,
-            processedFiles: 0,
             lastError: null,
+            managedCollectionId: collection.id,
+            managedCollectionName: collection.name ?? null,
             pauseReasons: [
               ...(latestBackgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
               ...getBackgroundWorkPauseReasonLabels(
                 latestBackgroundWorkSnapshot.automaticPauseReasons
               ),
             ],
+            processedFiles: 0,
+            queuedFiles: 0,
+            state: 'paused',
           });
           return;
         }
         setSyncStatus({
-          state: 'waiting',
-          managedCollectionId: collection.id,
-          managedCollectionName: collection.name ?? null,
           activeRootPath: rootDirectoryHandle?.path ?? null,
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 0,
           lastError: null,
+          managedCollectionId: collection.id,
+          managedCollectionName: collection.name ?? null,
           pauseReasons: [],
+          processedFiles: 0,
+          queuedFiles: 0,
+          state: 'waiting',
         });
       })
       .catch((error) => {
@@ -1636,14 +1772,14 @@ export function WorkspaceCollectionSyncProvider({
       if (!service) {
         if (enabled) {
           setSyncStatus({
-            state: 'waiting',
-            managedCollectionId,
-            managedCollectionName: null,
             activeRootPath: rootDirectoryHandle?.path ?? null,
             currentFilePath: null,
-            queuedFiles: 0,
-            processedFiles: 0,
             lastError: null,
+            managedCollectionId,
+            managedCollectionName: null,
+            processedFiles: 0,
+            queuedFiles: 0,
+            state: 'waiting',
           });
         } else {
           resetSyncStatus();
@@ -1670,18 +1806,18 @@ export function WorkspaceCollectionSyncProvider({
           reportAsyncError('cancel', error);
         });
         setSyncStatus({
-          state: 'paused',
-          managedCollectionId,
-          managedCollectionName: null,
           activeRootPath: rootDirectoryHandle?.path ?? null,
           currentFilePath: null,
           lastError: null,
+          managedCollectionId,
+          managedCollectionName: null,
           pauseReasons: [
             ...(latestBackgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
             ...getBackgroundWorkPauseReasonLabels(
               latestBackgroundWorkSnapshot.automaticPauseReasons
             ),
           ],
+          state: 'paused',
         });
         return;
       }
@@ -1716,14 +1852,14 @@ export function WorkspaceCollectionSyncProvider({
         pendingSyncScopeRef.current = null;
         void service.cancel();
         setSyncStatus({
-          state: 'waiting',
-          managedCollectionId,
-          managedCollectionName: null,
           activeRootPath: rootDirectoryHandle.path,
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 0,
           lastError: null,
+          managedCollectionId,
+          managedCollectionName: null,
+          processedFiles: 0,
+          queuedFiles: 0,
+          state: 'waiting',
         });
         return;
       }
@@ -1738,14 +1874,14 @@ export function WorkspaceCollectionSyncProvider({
         pendingSyncScopeRef.current = null;
         void service.cancel();
         setSyncStatus({
-          state: 'waiting',
-          managedCollectionId,
-          managedCollectionName: null,
           activeRootPath: rootDirectoryHandle.path,
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 0,
           lastError: null,
+          managedCollectionId,
+          managedCollectionName: null,
+          processedFiles: 0,
+          queuedFiles: 0,
+          state: 'waiting',
         });
         return;
       }
@@ -1884,7 +2020,7 @@ export function WorkspaceCollectionSyncProvider({
               rootDirectoryHandle: target.handle,
               scope:
                 target.scope.mode === 'paths'
-                  ? { mode: 'paths', changes: target.scope.changes ?? [] }
+                  ? { changes: target.scope.changes ?? [], mode: 'paths' }
                   : { mode: 'full' },
             })
             .catch((error) => {
@@ -1996,6 +2132,7 @@ export function WorkspaceCollectionSyncProvider({
     let disposed = false;
     let activeAuditToken: symbol | null = null;
     let inFlightAuditKey: string | null = null;
+    let recoveryAttemptedAuditKey: string | null = null;
     let verifiedAuditKey: string | null = null;
 
     const maybeAuditIdleCoverage = (
@@ -2057,14 +2194,22 @@ export function WorkspaceCollectionSyncProvider({
         markAuditVerified: (verifiedKey) => {
           if (!disposed) {
             verifiedAuditKey = verifiedKey;
+            recoveryAttemptedAuditKey = null;
           }
         },
         policyPreset: indexingPolicyPreset,
         resolveDbRootId,
         rootIdByPath,
         setStatus: setSyncStatus,
-      }).then((requiresRecoverySync) => {
-        if (!disposed && requiresRecoverySync) {
+      }).then((recoveryAttemptKey) => {
+        if (!disposed && recoveryAttemptKey) {
+          if (recoveryAttemptedAuditKey === recoveryAttemptKey) {
+            return;
+          }
+          // One automatic recovery is allowed for each observed incomplete
+          // outcome. If that sync is interrupted, identical mismatches remain
+          // suppressed, but changed indexed/expected counts produce a new key.
+          recoveryAttemptedAuditKey = recoveryAttemptKey;
           triggerSyncFromEvent({ mode: 'full' });
         }
       });
@@ -2108,7 +2253,7 @@ export function WorkspaceCollectionSyncProvider({
         : rootDirectoryHandle
           ? [rootDirectoryHandle]
           : [];
-    return await Promise.all(
+    const results = await Promise.all(
       handles.map((handle) =>
         countExpectedWorkspaceIndexFiles({
           fileSystemAdapter,
@@ -2117,6 +2262,9 @@ export function WorkspaceCollectionSyncProvider({
         })
       )
     );
+    // The debug surface serializes into snapshots; raw file nodes carry live
+    // fs handles and would bloat/break that, so expose paths only.
+    return results.map(({ fileNodes: _fileNodes, ...serializable }) => serializable);
   }, [fileSystemAdapter, indexingPolicyPreset, rootDirectoryHandle, rootDirectoryHandles]);
 
   const readDebugHostStatus = useCallback(async (bridgeName: 'chunkingHost' | 'embeddingHost') => {
@@ -2321,10 +2469,10 @@ export function WorkspaceCollectionSyncProvider({
       backgroundEffectiveHasHydrated: hasHydrated,
       backgroundPersistHasHydrated: readBackgroundIndexingPreferencesPersistHydrated(),
       backgroundPreferences: useBackgroundIndexingPreferencesStore.getState(),
+      chunkedRecordsByRoot,
       chunkingHostStatus,
       chunkStatsByRoot,
       chunkStatsByRootAndSet,
-      chunkedRecordsByRoot,
       databaseScheduler,
       embeddingHostStatus: {
         ...((embeddingHostStatus && typeof embeddingHostStatus === 'object'
@@ -2361,8 +2509,8 @@ export function WorkspaceCollectionSyncProvider({
         })),
         serviceAvailable: Boolean(service),
       },
-      syncTargets,
       syncStatus: useWorkspaceCollectionSyncStatusStore.getState(),
+      syncTargets,
     };
   }, [
     backgroundDb,
@@ -2600,9 +2748,9 @@ export function WorkspaceCollectionSyncProvider({
         applyManagedCacheBatch,
         chunkingHost,
         db: backgroundDb,
-        embeddingHost,
         electronRunTransaction,
         electronTransactionOptions: BACKGROUND_DATABASE_WORK_OPTIONS,
+        embeddingHost,
         request,
       });
     },

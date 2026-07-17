@@ -1,4 +1,14 @@
-// packages/embeddings/src/worker/__tests__/foreground-embedding-gate.spec.ts
+// packages/embeddings/src/worker/__tests__/foreground-embedding-gate.test.ts
+//
+// PURE (cacheable `test`) lane. This suite exercises an in-memory ref-counting
+// gate with FAKE timers (vi.useFakeTimers / advanceTimersByTimeAsync for the
+// reopen debounce) and injected `isActive` callbacks — a mocked-harness
+// watchdog. Per the root turbo.jsonc boundary, "watchdog timeouts and polling
+// budgets over fully MOCKED subsystems do not qualify" as env-sensitive: their
+// only nondeterminism is a false red under load, which caching a green cannot
+// cause, and any product change re-hashes the entry. No real PGlite/WASM, no
+// network, no native binary — so it stays in the cacheable pure lane, NOT the
+// uncached integration lane.
 import { describe, expect, it, vi } from 'vitest';
 import {
   createForegroundEmbeddingGate,
@@ -65,12 +75,12 @@ describe('createForegroundEmbeddingGate', () => {
 
 describe('waitForWorkerIdle', () => {
   it('resolves drained=true as soon as isActive is false', async () => {
-    const res = await waitForWorkerIdle({ isActive: () => false, timeoutMs: 100, pollMs: 5 });
+    const res = await waitForWorkerIdle({ isActive: () => false, pollMs: 5, timeoutMs: 100 });
     expect(res.drained).toBe(true);
   });
 
   it('resolves drained=false on timeout when isActive stays true', async () => {
-    const res = await waitForWorkerIdle({ isActive: () => true, timeoutMs: 30, pollMs: 5 });
+    const res = await waitForWorkerIdle({ isActive: () => true, pollMs: 5, timeoutMs: 30 });
     expect(res.drained).toBe(false);
   });
 
@@ -79,7 +89,7 @@ describe('waitForWorkerIdle', () => {
     setTimeout(() => {
       active = false;
     }, 15);
-    const res = await waitForWorkerIdle({ isActive: () => active, timeoutMs: 200, pollMs: 5 });
+    const res = await waitForWorkerIdle({ isActive: () => active, pollMs: 5, timeoutMs: 200 });
     expect(res.drained).toBe(true);
   });
 });
@@ -93,14 +103,14 @@ describe('runCoordinatedQueryEmbedding', () => {
       active = false;
     }, 10);
     const result = await runCoordinatedQueryEmbedding({
-      gate,
-      isWorkerActive: () => active,
       drainTimeoutMs: 200,
-      pollMs: 2,
+      gate,
       generate: async () => {
         order.push(`generate(active=${active})`);
         return 42;
       },
+      isWorkerActive: () => active,
+      pollMs: 2,
     });
     expect(result).toBe(42);
     expect(order).toEqual(['generate(active=false)']); // generated only after drain
@@ -110,12 +120,12 @@ describe('runCoordinatedQueryEmbedding', () => {
     const gate = createForegroundEmbeddingGate({ reopenDelayMs: 1 });
     await expect(
       runCoordinatedQueryEmbedding({
-        gate,
-        isWorkerActive: () => false,
         drainTimeoutMs: 50,
+        gate,
         generate: async () => {
           throw new Error('boom');
         },
+        isWorkerActive: () => false,
       })
     ).rejects.toThrow('boom');
     await new Promise((r) => setTimeout(r, 5));
@@ -126,12 +136,12 @@ describe('runCoordinatedQueryEmbedding', () => {
     const gate = createForegroundEmbeddingGate({ reopenDelayMs: 1 });
     const onDrainTimeout = vi.fn();
     const result = await runCoordinatedQueryEmbedding({
-      gate,
-      isWorkerActive: () => true, // never drains
       drainTimeoutMs: 20,
-      pollMs: 5,
-      onDrainTimeout,
+      gate,
       generate: async () => 7,
+      isWorkerActive: () => true, // never drains
+      onDrainTimeout,
+      pollMs: 5,
     });
     expect(result).toBe(7);
     expect(onDrainTimeout).toHaveBeenCalledTimes(1);

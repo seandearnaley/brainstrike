@@ -66,7 +66,7 @@ const disposalState: {
   requested: boolean;
   inProgress: boolean;
   promise: Promise<void> | null;
-} = { requested: false, inProgress: false, promise: null };
+} = { inProgress: false, promise: null, requested: false };
 
 /**
  * Get or create the LocalLlmBackend singleton.
@@ -157,7 +157,7 @@ export interface LocalRuntimeAdapterOptions {
    * reported — its prompt reflects the accumulated context including tool
    * results, consistent with the one-turn-lag meter semantics.
    */
-  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
+  onUsage?: (usage: { billedCostUsd?: number; inputTokens: number; outputTokens: number }) => void;
   prepareRuntimeData?: () => Promise<Record<string, unknown> | undefined>;
   runtimeData?: Record<string, unknown>;
   thinkingEnabled?: boolean;
@@ -199,8 +199,8 @@ async function executeToolCalls(
         };
 
     toolMessages.push({
-      role: 'tool',
       content: '',
+      role: 'tool',
       toolCallId: toolCall.id,
       toolResponses: [
         {
@@ -211,8 +211,8 @@ async function executeToolCalls(
     });
     toolParts.push(
       createToolCallPart(toolCall, {
-        result: execution.success ? execution.result : execution.error,
         isError: !execution.success,
+        result: execution.success ? execution.result : execution.error,
       })
     );
   }
@@ -343,9 +343,9 @@ async function ensureDesktopModelWarmed(
     const warmupRequestId = crypto.randomUUID();
     desktopWarmupRequestIds.set(modelId, warmupRequestId);
     onLoadingProgress?.({
-      stage: 'loading',
-      progress: 0,
       message: 'Starting local model host...',
+      progress: 0,
+      stage: 'loading',
     });
     const unsubscribeWarmupProgress = llmHost.onProgress?.((progress: unknown) => {
       handleDesktopProgressEvent(
@@ -495,8 +495,8 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
 
         const generationOptions: LocalLlmGenerationOptions = {
           maxNewTokens: 1024,
-          temperature: 0.7,
           signal: abortSignal,
+          temperature: 0.7,
           thinking: {
             enabled: thinkingEnabled ?? true,
           },
@@ -616,10 +616,10 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             abortSignal.addEventListener('abort', handleAbort, { once: true });
             try {
               const generatePromise = llmHost.generate({
-                requestId,
-                modelId,
                 messages: conversationMessages,
+                modelId,
                 options: createDesktopGenerationOptions(generationOptions),
+                requestId,
               });
               while (true) {
                 const settled = await Promise.race([
@@ -656,6 +656,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             const generatePromise = backend.generate(conversationMessages, {
               ...generationOptions,
               stream: {
+                onReasoningSnapshot: updateReasoningSnapshot,
                 onStageChange: (
                   stage: NonNullable<LocalLlmStreamHandlers['onStageChange']> extends (
                     value: infer T
@@ -664,12 +665,11 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
                     : never
                 ) => {
                   onLoadingProgress?.({
-                    stage: 'generating',
-                    progress: 0,
                     message: createGeneratingMessage(stage),
+                    progress: 0,
+                    stage: 'generating',
                   });
                 },
-                onReasoningSnapshot: updateReasoningSnapshot,
                 onTextSnapshot: updateTextSnapshot,
               },
             });
@@ -721,9 +721,9 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             });
             appendRunEvent('run.finished', 'completed', 'Local assistant run completed');
             onLoadingProgress?.({
-              stage: 'ready',
-              progress: 100,
               message: createReadyMessage(),
+              progress: 100,
+              stage: 'ready',
             });
             if (result.usage) {
               onUsage?.({
@@ -754,9 +754,9 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           }
 
           onLoadingProgress?.({
-            stage: 'generating',
-            progress: 0,
             message: 'Running tool...',
+            progress: 0,
+            stage: 'generating',
           });
           appendRunEvent('tool.started', 'running', 'Local tool call started', {
             count: result.toolCalls.length,
@@ -781,8 +781,8 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           };
 
           conversationMessages.push({
-            role: 'assistant',
             content: result.text,
+            role: 'assistant',
             toolCalls: result.toolCalls,
           });
           conversationMessages.push(...executedTools.messages);
@@ -796,9 +796,9 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
         if (error instanceof DOMException && error.name === 'AbortError') {
           appendRunEvent('run.cancelled', 'cancelled', 'Local assistant run cancelled');
           onLoadingProgress?.({
-            stage: 'ready',
-            progress: 100,
             message: 'Generation stopped.',
+            progress: 100,
+            stage: 'ready',
           });
           await completeRuntimeData?.(preparedRuntimeData, 'cancelled', errorMessage);
           yield {

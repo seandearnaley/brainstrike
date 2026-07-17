@@ -5,6 +5,7 @@
  * to keep the main component focused on layout and virtualization.
  */
 
+import { useEventCallback } from '@brainstrike/hooks';
 import * as React from 'react';
 import type { FlattenedRow, SortState, TreeNode, UseTreeKeyboardResult } from './types';
 
@@ -25,6 +26,7 @@ interface UseTreeTableHandlersOptions<T> {
   rowVirtualizer: { measureElement: (el: HTMLTableRowElement | null) => void };
   selectedId: string | null;
   selectionMode: 'single' | 'multi' | 'none';
+  selectOnRowClick: boolean;
   sortState?: SortState | undefined;
 }
 
@@ -42,6 +44,7 @@ export function useTreeTableHandlers<T>({
   rowIndexById,
   nodeById,
   keyboard,
+  selectOnRowClick,
   selectionMode,
   selectedId,
   multiSelectedIds,
@@ -75,7 +78,7 @@ export function useTreeTableHandlers<T>({
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
       const anchor = keyboard.state.focusedId ?? selectedId ?? fallbackMultiSelectAnchor;
-      if (anchor == null) {
+      if (anchor === null || anchor === undefined) {
         return;
       }
 
@@ -119,56 +122,43 @@ export function useTreeTableHandlers<T>({
     [multiSelectedIds, onMultiSelectChange]
   );
 
-  const handleRowClick = React.useCallback(
-    (nodeId: string, event: React.MouseEvent) => {
-      keyboard.actions.setFocus(nodeId);
+  // Row-facing handlers are identity-stable (useEventCallback) so the
+  // React.memo on TreeTableRow actually bails out: with plain useCallback,
+  // selection/focus changes minted fresh handlers and re-rendered every
+  // visible row (see tree-table-render-stability.test.tsx).
+  const handleRowClick = useEventCallback((nodeId: string, event: React.MouseEvent) => {
+    keyboard.actions.setFocus(nodeId);
 
-      if (selectionMode === 'none') {
-        return;
-      }
-      if (selectionMode === 'single') {
-        onSelect?.(nodeId);
-        return;
-      }
+    if (!selectOnRowClick || selectionMode === 'none') {
+      return;
+    }
+    if (selectionMode === 'single') {
+      onSelect?.(nodeId);
+      return;
+    }
 
-      if (event.shiftKey && multiSelectedIds.size > 0) {
-        handleRangeSelect(nodeId);
-      } else if (event.ctrlKey || event.metaKey) {
-        handleToggleSelect(nodeId);
-      } else {
-        onMultiSelectChange?.(new Set([nodeId]));
-      }
-    },
-    [
-      selectionMode,
-      onSelect,
-      multiSelectedIds,
-      onMultiSelectChange,
-      keyboard.actions,
-      handleRangeSelect,
-      handleToggleSelect,
-    ]
-  );
+    if (event.shiftKey && multiSelectedIds.size > 0) {
+      handleRangeSelect(nodeId);
+    } else if (event.ctrlKey || event.metaKey) {
+      handleToggleSelect(nodeId);
+    } else {
+      onMultiSelectChange?.(new Set([nodeId]));
+    }
+  });
 
-  const handleRowDoubleClick = React.useCallback(
-    (nodeId: string) => {
-      const node = nodeById.get(nodeId);
-      if (node) {
-        onRowDoubleClick?.(nodeId, node);
-      }
-    },
-    [nodeById, onRowDoubleClick]
-  );
+  const handleRowDoubleClick = useEventCallback((nodeId: string) => {
+    const node = nodeById.get(nodeId);
+    if (node) {
+      onRowDoubleClick?.(nodeId, node);
+    }
+  });
 
-  const handleRowContextMenu = React.useCallback(
-    (nodeId: string, event: React.MouseEvent) => {
-      const node = nodeById.get(nodeId);
-      if (node) {
-        onRowContextMenu?.(nodeId, node, event);
-      }
-    },
-    [nodeById, onRowContextMenu]
-  );
+  const handleRowContextMenu = useEventCallback((nodeId: string, event: React.MouseEvent) => {
+    const node = nodeById.get(nodeId);
+    if (node) {
+      onRowContextMenu?.(nodeId, node, event);
+    }
+  });
 
   const handleSortClick = React.useCallback(
     (columnId: string) => {
@@ -210,11 +200,11 @@ export function useTreeTableHandlers<T>({
   );
 
   return {
-    handleRowClick,
-    handleRowDoubleClick,
-    handleRowContextMenu,
-    handleSortClick,
     getRowClassName,
+    handleRowClick,
+    handleRowContextMenu,
+    handleRowDoubleClick,
+    handleSortClick,
     measureRow,
   };
 }

@@ -170,17 +170,17 @@ export function evaluateTestCase(
   const allFound = foundPaths.size >= totalExpected;
 
   return {
-    testCaseId: testCase.id,
-    query: testCase.query,
-    precisionAtK,
-    recallAtK,
-    mrr,
-    retrievedCount: results.length,
-    relevantFound,
-    totalExpected,
     allFound,
     executionTimeMs,
+    mrr,
+    precisionAtK,
+    query: testCase.query,
+    recallAtK,
+    relevantFound,
+    retrievedCount: results.length,
     retrievedResults: results,
+    testCaseId: testCase.id,
+    totalExpected,
   };
 }
 
@@ -196,14 +196,14 @@ export function aggregateMetrics(
 
   if (n === 0) {
     return {
+      avgExecutionTimeMs: 0,
+      failedEvaluations: testCaseResults.length,
+      meanMrr: 0,
       meanPrecisionAtK: Object.fromEntries(kValues.map((k) => [k, 0])),
       meanRecallAtK: Object.fromEntries(kValues.map((k) => [k, 0])),
-      meanMrr: 0,
       perfectRecallRate: 0,
-      totalTestCases: testCaseResults.length,
       successfulEvaluations: 0,
-      failedEvaluations: testCaseResults.length,
-      avgExecutionTimeMs: 0,
+      totalTestCases: testCaseResults.length,
     };
   }
 
@@ -232,13 +232,13 @@ export function aggregateMetrics(
   const avgExecutionTimeMs = successfulResults.reduce((acc, r) => acc + r.executionTimeMs, 0) / n;
 
   return {
+    avgExecutionTimeMs,
+    failedEvaluations: testCaseResults.length - n,
+    meanMrr,
     meanPrecisionAtK,
     meanRecallAtK,
-    meanMrr,
     perfectRecallRate,
-    totalTestCases: testCaseResults.length,
     successfulEvaluations: n,
-    failedEvaluations: testCaseResults.length - n,
-    avgExecutionTimeMs,
+    totalTestCases: testCaseResults.length,
   };
 }

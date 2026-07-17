@@ -8,8 +8,8 @@ describe('OpenAIEmbeddingProvider', () => {
   describe('getMetadata (BST-167)', () => {
     it('should return unified provider metadata for text-embedding-3-small', () => {
       const provider = new OpenAIEmbeddingProvider({
-        modelId: 'text-embedding-3-small',
         apiKey: 'test-api-key',
+        modelId: 'text-embedding-3-small',
         targetDimensions: 1536,
       });
 
@@ -24,8 +24,8 @@ describe('OpenAIEmbeddingProvider', () => {
 
     it('should return configured targetDimensions in metadata', () => {
       const provider = new OpenAIEmbeddingProvider({
-        modelId: 'text-embedding-3-small',
         apiKey: 'test-api-key',
+        modelId: 'text-embedding-3-small',
         targetDimensions: 512,
       });
 
@@ -36,8 +36,8 @@ describe('OpenAIEmbeddingProvider', () => {
 
     it('should return metadata for text-embedding-3-large', () => {
       const provider = new OpenAIEmbeddingProvider({
-        modelId: 'text-embedding-3-large',
         apiKey: 'test-api-key',
+        modelId: 'text-embedding-3-large',
         targetDimensions: 3072,
       });
 
@@ -50,8 +50,8 @@ describe('OpenAIEmbeddingProvider', () => {
 
     it('should return null for unknown model', () => {
       const provider = new OpenAIEmbeddingProvider({
-        modelId: 'text-embedding-3-small',
         apiKey: 'test-api-key',
+        modelId: 'text-embedding-3-small',
         targetDimensions: 1536,
       });
 
@@ -76,21 +76,21 @@ describe('OpenAIEmbeddingProvider', () => {
     });
 
     const provider = new OpenAIEmbeddingProvider({
-      provider: 'ollama',
-      modelId: 'nomic-embed-text',
-      targetDimensions: 4,
-      fetch: mockFetch as typeof fetch,
       endpoint: 'http://127.0.0.1:11434/v1/embeddings',
-      requiresApiKey: false,
+      fetch: mockFetch as typeof fetch,
       includeDimensions: false,
+      modelId: 'nomic-embed-text',
+      provider: 'ollama',
+      requiresApiKey: false,
+      targetDimensions: 4,
     });
 
     expect(await provider.isAvailable()).toBe(true);
     expect(provider.hasApiKey()).toBe(true);
 
     const result = await provider.embed({
-      text: 'hello runtime',
       modelId: 'nomic-embed-text',
+      text: 'hello runtime',
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -121,15 +121,17 @@ describe('OpenAIEmbeddingProvider', () => {
     const mockFetch = createMockFetch(mockResponse);
 
     const provider = new OpenAIEmbeddingProvider({
-      modelId: 'text-embedding-3-small',
       apiKey: 'test-api-key',
       fetch: mockFetch as typeof fetch,
+      modelId: 'text-embedding-3-small',
       targetDimensions: 3,
     });
 
+    const signal = new AbortController().signal;
     const input: EmbeddingInput = {
-      text: 'hello world',
       modelId: 'text-embedding-3-small',
+      signal,
+      text: 'hello world',
     };
 
     const result = await provider.embed(input);
@@ -138,5 +140,12 @@ describe('OpenAIEmbeddingProvider', () => {
       expect(result.value.usage?.inputTokens).toBe(12);
       expect(result.value.usage?.totalTokens).toBe(20);
     }
+    const call = mockFetch.mock.calls.at(0) as unknown as
+      | [RequestInfo | URL, RequestInit | undefined]
+      | undefined;
+    if (!call) {
+      throw new Error('Expected OpenAI fetch to be called.');
+    }
+    expect(call[1]?.signal).toBe(signal);
   });
 });

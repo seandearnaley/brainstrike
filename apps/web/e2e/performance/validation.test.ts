@@ -7,11 +7,11 @@ test.describe('Performance Validation - Simple Tests', () => {
   test('validate shallow comparison fix works', async ({ page }) => {
     // Simple test tree
     const tree: FileTree = {
-      'test1.js': 'console.log("test1");',
-      'test2.js': 'console.log("test2");',
       folder: {
         'nested.js': 'console.log("nested");',
       },
+      'test1.js': 'console.log("test1");',
+      'test2.js': 'console.log("test2");',
     };
 
     await mockBrowserApis(page, 'validation-test', tree);
@@ -26,8 +26,8 @@ test.describe('Performance Validation - Simple Tests', () => {
       // Simple render tracking
       (window as any).__renderCounter = {
         count: 0,
-        increment: () => (window as any).__renderCounter.count++,
         getCount: () => (window as any).__renderCounter.count,
+        increment: () => (window as any).__renderCounter.count++,
         reset: () => ((window as any).__renderCounter.count = 0),
       };
     });
@@ -88,8 +88,8 @@ test.describe('Performance Validation - Simple Tests', () => {
   test('validate file size limits work', async ({ page }) => {
     // Create a mock large file to test size validation
     const tree: FileTree = {
-      'small-file.txt': 'Small content',
       'normal-file.js': 'console.log("normal");',
+      'small-file.txt': 'Small content',
     };
 
     await mockBrowserApis(page, 'size-test', tree);
@@ -100,11 +100,11 @@ test.describe('Performance Validation - Simple Tests', () => {
       if (url.includes('large-file')) {
         // Simulate what our size validation should catch
         await route.fulfill({
-          status: 400,
           body: JSON.stringify({
             error: 'File too large: 2MB (max: 1MB)',
           }),
           headers: { 'content-type': 'application/json' },
+          status: 400,
         });
       } else {
         route.continue();

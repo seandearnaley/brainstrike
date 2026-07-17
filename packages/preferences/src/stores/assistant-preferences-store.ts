@@ -34,6 +34,7 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../settings-test-runtime-access';
+import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -59,6 +60,12 @@ type ProviderSettingsMap = Record<SupportedProvider, AssistantProviderSettings>;
 interface AssistantPreferencesData {
   enabledModelsByProvider: EnabledModelsMap;
   modelsByProvider: Partial<Record<SupportedProvider, string>>;
+  /**
+   * Plan mode: when enabled, the assistant investigates read-only and proposes a
+   * plan for approval before any changes. Persisted so it survives reload; sent
+   * to the server only when `true` (presence-means-on).
+   */
+  planModeEnabled: boolean;
   providerSettings: ProviderSettingsMap;
   selectedModel: string | null; // Composite key: "provider::model"
 }
@@ -93,6 +100,7 @@ interface AssistantPreferencesActions {
   getSelectedProvider: () => SupportedProvider | null;
   setModel: (compositeKey: string) => void;
   setModelEnabled: (provider: SupportedProvider, model: string, enabled: boolean) => void;
+  setPlanModeEnabled: (enabled: boolean) => void;
   setProviderModelsEnabled: (
     provider: SupportedProvider,
     models: readonly string[],
@@ -102,22 +110,24 @@ interface AssistantPreferencesActions {
     provider: SupportedProvider,
     updates: AssistantProviderSettingsUpdate
   ) => void;
+  togglePlanMode: () => void;
 }
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
 export { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name';
-export const ASSISTANT_PREFERENCES_STORE_VERSION = 6;
+export { ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
+
 const STORE_NAME = 'assistant-preferences.v1';
-const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
+const STORE_VERSION = LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION;
 
 const SUPPORTED_PROVIDERS = listProviders().map(
   (provider: ProviderDefinition) => provider.id
 ) as SupportedProvider[];
 const SUPPORTED_PROVIDER_SET = new Set<SupportedProvider>(SUPPORTED_PROVIDERS);
 const LOCAL_RUNTIME_PROVIDER_BY_RUNTIME: Record<LocalRuntimeId, SupportedProvider> = {
-  ollama: 'ollama',
   lmstudio: 'lmstudio',
+  ollama: 'ollama',
 };
 const LOCAL_RUNTIME_PROVIDERS = new Set<SupportedProvider>(
   Object.values(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME)
@@ -363,9 +373,9 @@ function parseCompositeModelKey(value: string | null | undefined): ParsedComposi
   }
 
   return {
-    provider,
-    model,
     compositeKey: `${provider}${MODEL_KEY_DELIMITER}${model}`,
+    model,
+    provider,
   };
 }
 
@@ -374,62 +384,62 @@ function cloneModelList(models: readonly string[] | undefined): string[] {
 }
 
 const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
-  openai: {
-    'gpt-4o': 'gpt-5.4',
-    'gpt-4o-mini': 'gpt-5.4-mini',
-    'gpt-4-turbo': 'gpt-5.4',
-    'gpt-3.5-turbo': 'gpt-5.4-mini',
-    // gpt-5.2-chat-latest dropped (docs: not recommended for API use).
-    'gpt-5.2-chat-latest': 'gpt-5.4',
-  },
   anthropic: {
+    'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
     'claude-3-5-haiku-latest': 'claude-haiku-4-5',
     'claude-3-5-sonnet-latest': 'claude-sonnet-4-6',
     'claude-3-opus-latest': 'claude-opus-4-8',
-    'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
-    'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
     'claude-opus-4-1-20250805': 'claude-opus-4-8',
-    'claude-sonnet-4-5-20250929': 'claude-sonnet-4-6',
+    'claude-opus-4-5': 'claude-opus-4-8',
     'claude-opus-4-5-20251101': 'claude-opus-4-8',
     // Superseded 4-5 generation aliases.
     'claude-sonnet-4-5': 'claude-sonnet-4-6',
-    'claude-opus-4-5': 'claude-opus-4-8',
+    'claude-sonnet-4-5-20250929': 'claude-sonnet-4-6',
+    'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
   },
+  cohere: {},
   google: {
+    'gemini-1.5-pro': 'gemini-2.5-pro',
     // gemini-2.5-flash / gemini-2.5-pro are now first-class models — do not
     // remap them away.
     'gemini-2.0-pro': 'gemini-2.5-pro',
-    'gemini-1.5-pro': 'gemini-2.5-pro',
     'gemini-3-flash-preview': 'gemini-3.5-flash',
     'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
   },
+  lmstudio: {},
+  local: {
+    'LiquidAI/LFM2.5-1.2B-Instruct-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
+    'onnx-community/functiongemma-270m-it-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
+    'onnx-community/Qwen3-0.6B-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
+  },
+  ollama: {},
+  openai: {
+    'gpt-3.5-turbo': 'gpt-5.4-mini',
+    'gpt-4-turbo': 'gpt-5.4',
+    'gpt-4o': 'gpt-5.4',
+    'gpt-4o-mini': 'gpt-5.4-mini',
+    // gpt-5.2-chat-latest dropped (docs: not recommended for API use).
+    'gpt-5.2-chat-latest': 'gpt-5.4',
+  },
   openrouter: {
-    'openai/gpt-4o': 'openai/gpt-5.4',
-    'openai/gpt-4o-mini': 'openai/gpt-5.4-mini',
-    'openai/gpt-4-turbo': 'openai/gpt-5.4',
-    'openai/gpt-3.5-turbo': 'openai/gpt-5.4-mini',
     'anthropic/claude-3.5-sonnet': 'anthropic/claude-sonnet-4.6',
-    'anthropic/claude-sonnet-4.5': 'anthropic/claude-sonnet-4.6',
     'anthropic/claude-opus-4.5': 'anthropic/claude-opus-4.8',
-    'google/gemini-3-flash-preview': 'google/gemini-3.5-flash',
-    'google/gemini-3-pro-preview': 'google/gemini-3.1-pro-preview',
+    'anthropic/claude-sonnet-4.5': 'anthropic/claude-sonnet-4.6',
+    'google/gemini-1.5-pro': 'google/gemini-2.5-flash',
+    'google/gemini-2.0-pro': 'google/gemini-2.5-flash',
     // Legacy Google Pro IDs map to Flash here (not Pro like the direct-provider
     // map) because google/gemini-2.5-pro is not in the OpenRouter catalog —
     // including google/gemini-2.5-pro itself (a stale FROM key for users who
     // skipped the v5 migration).
     'google/gemini-2.5-pro': 'google/gemini-2.5-flash',
-    'google/gemini-2.0-pro': 'google/gemini-2.5-flash',
-    'google/gemini-1.5-pro': 'google/gemini-2.5-flash',
+    'google/gemini-3-flash-preview': 'google/gemini-3.5-flash',
+    'google/gemini-3-pro-preview': 'google/gemini-3.1-pro-preview',
+    'openai/gpt-3.5-turbo': 'openai/gpt-5.4-mini',
+    'openai/gpt-4-turbo': 'openai/gpt-5.4',
+    'openai/gpt-4o': 'openai/gpt-5.4',
+    'openai/gpt-4o-mini': 'openai/gpt-5.4-mini',
   },
-  local: {
-    'LiquidAI/LFM2.5-1.2B-Instruct-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
-    'onnx-community/Qwen3-0.6B-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
-    'onnx-community/functiongemma-270m-it-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
-  },
-  cohere: {},
   voyage: {},
-  ollama: {},
-  lmstudio: {},
 };
 
 function migrateModelId(provider: SupportedProvider, modelId: string): string {
@@ -568,11 +578,11 @@ async function resolveLocalRuntimeApiToken(
     return trimmed.length > 0 ? trimmed : undefined;
   } catch (error) {
     logger.warn('Failed to read stored local runtime token', {
-      providerId,
       error: error instanceof Error ? error.message : String(error),
+      providerId,
     });
-    return;
   }
+  return;
 }
 
 async function buildLocalRuntimeEndpointConfig(
@@ -921,8 +931,8 @@ function processModelUpdate(
 ): AccumulatedState {
   const snapshot = {
     ...state,
-    modelsByProvider: accumulated.modelsByProvider,
     enabledModelsByProvider: accumulated.enabledModelsByProvider,
+    modelsByProvider: accumulated.modelsByProvider,
     selectedModel: accumulated.selectedModel,
   } as Store;
 
@@ -935,98 +945,24 @@ function processModelUpdate(
   }
 
   return {
-    modelsByProvider: updates.modelsByProvider
-      ? { ...accumulated.modelsByProvider, ...updates.modelsByProvider }
-      : accumulated.modelsByProvider,
     enabledModelsByProvider: updates.enabledModelsByProvider
       ? { ...accumulated.enabledModelsByProvider, ...updates.enabledModelsByProvider }
       : accumulated.enabledModelsByProvider,
+    hasChanges: true,
+    modelsByProvider: updates.modelsByProvider
+      ? { ...accumulated.modelsByProvider, ...updates.modelsByProvider }
+      : accumulated.modelsByProvider,
     selectedModel: Object.hasOwn(updates, 'selectedModel')
       ? (updates.selectedModel ?? null)
       : accumulated.selectedModel,
-    hasChanges: true,
   };
 }
 
 export const useAssistantPreferencesStore = create<Store>()(
   persist(
     (set, get) => ({
-      selectedModel: null,
-      modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
-      enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
-      providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
-
-      setModel: (compositeKey) =>
-        set((state) => {
-          const parsed = parseCompositeModelKey(compositeKey);
-          if (!parsed) {
-            return state;
-          }
-
-          // Single atomic update: selectedModel composite key + remember preference
-          // The UI layer validates model enabled state against the database before calling setModel
-          return {
-            selectedModel: parsed.compositeKey,
-            modelsByProvider: { ...state.modelsByProvider, [parsed.provider]: parsed.model },
-          };
-        }),
-
       clearModel: () => set({ selectedModel: null }),
-
-      setModelEnabled: (provider, model, enabled) =>
-        set((state) => {
-          const updates = enabled
-            ? enableModelForProvider(state, provider, model)
-            : disableModelForProvider(state, provider, model);
-
-          return updates ?? state;
-        }),
-
-      setProviderModelsEnabled: (provider, models, enabled) =>
-        set((state) => {
-          if (!models.length) {
-            return state;
-          }
-
-          const initial: AccumulatedState = {
-            modelsByProvider: state.modelsByProvider,
-            enabledModelsByProvider: state.enabledModelsByProvider,
-            selectedModel: state.selectedModel,
-            hasChanges: false,
-          };
-
-          const accumulated = models.reduce(
-            (acc, model) => processModelUpdate(acc, state, provider, model, enabled),
-            initial
-          );
-
-          if (!accumulated.hasChanges) {
-            return state;
-          }
-
-          const result: Partial<Store> = {
-            modelsByProvider: accumulated.modelsByProvider,
-            enabledModelsByProvider: accumulated.enabledModelsByProvider,
-          };
-
-          if (accumulated.selectedModel !== state.selectedModel) {
-            result.selectedModel = accumulated.selectedModel;
-          }
-
-          return result;
-        }),
-
-      getSelectedModel: () => get().selectedModel,
-
-      getSelectedProvider: () => {
-        const parsed = parseCompositeModelKey(get().selectedModel);
-        return parsed?.provider ?? null;
-      },
-
-      getEnabledModels: (provider) => {
-        const { enabledModelsByProvider } = get();
-        return [...(enabledModelsByProvider[provider] ?? DEFAULT_ENABLED_MODELS[provider] ?? [])];
-      },
+      enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
 
       getAvailableProviders: async () => {
         const providersTestOverride = getAssistantConfiguredProvidersTestOverride();
@@ -1052,59 +988,9 @@ export const useAssistantPreferencesStore = create<Store>()(
         return orderProvidersByRegistry(combined);
       },
 
-      getLocalRuntimeStatuses: async (options) => {
-        const { providerSettings } = get();
-        const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
-
-        const entries = await Promise.all(
-          runtimeIds.map(async (runtimeId) => {
-            const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-            const settings = providerSettings[providerId];
-            // Respect the tri-state: `off` surfaces a synthetic "unavailable"
-            // status without probing, so the UI does not keep the server warm
-            // for a runtime the user explicitly disabled.
-            if (resolveLocalRuntimeActivation(settings) === 'off') {
-              const offStatus: LocalRuntimeAvailabilityState = {
-                state: 'unavailable',
-                checkedAt: Date.now(),
-                message: 'Disabled by settings',
-              };
-              return [runtimeId, offStatus] as const;
-            }
-            const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
-            const status = await probeRuntimeViaBridgeOrService(runtimeId, {
-              ...(options?.diagnosticLogLevel
-                ? { diagnosticLogLevel: options.diagnosticLogLevel }
-                : {}),
-              ...(options?.force ? { force: true } : {}),
-              ...(endpoint ? { endpoint } : {}),
-            });
-            return [runtimeId, status] as const;
-          })
-        );
-
-        return Object.fromEntries(entries) as Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
-      },
-
-      getLocalRuntimeStatus: async (runtimeId, options) => {
-        const { providerSettings } = get();
-        const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-        const settings = providerSettings[providerId];
-        if (resolveLocalRuntimeActivation(settings) === 'off') {
-          return {
-            state: 'unavailable',
-            checkedAt: Date.now(),
-            message: 'Disabled by settings',
-          };
-        }
-        const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
-        return probeRuntimeViaBridgeOrService(runtimeId, {
-          ...(options?.diagnosticLogLevel
-            ? { diagnosticLogLevel: options.diagnosticLogLevel }
-            : {}),
-          ...(options?.force ? { force: true } : {}),
-          ...(endpoint ? { endpoint } : {}),
-        });
+      getEnabledModels: (provider) => {
+        const { enabledModelsByProvider } = get();
+        return [...(enabledModelsByProvider[provider] ?? DEFAULT_ENABLED_MODELS[provider] ?? [])];
       },
 
       getLocalRuntimeModels: async (options) => {
@@ -1120,15 +1006,15 @@ export const useAssistantPreferencesStore = create<Store>()(
             // model catalog (e.g., when a sibling runtime is reachable).
             if (resolveLocalRuntimeActivation(settings) === 'off') {
               const offState: LocalRuntimeModelCatalogState = {
-                state: 'failed',
-                runtime: runtimeId,
-                checkedAt: Date.now(),
                 availability: {
-                  state: 'unavailable',
                   checkedAt: Date.now(),
                   message: 'Disabled by settings',
+                  state: 'unavailable',
                 },
+                checkedAt: Date.now(),
                 message: 'Disabled by settings',
+                runtime: runtimeId,
+                state: 'failed',
               };
               return [runtimeId, offState] as const;
             }
@@ -1151,6 +1037,135 @@ export const useAssistantPreferencesStore = create<Store>()(
         return Object.fromEntries(entries) as Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
       },
 
+      getLocalRuntimeStatus: async (runtimeId, options) => {
+        const { providerSettings } = get();
+        const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
+        const settings = providerSettings[providerId];
+        if (resolveLocalRuntimeActivation(settings) === 'off') {
+          return {
+            checkedAt: Date.now(),
+            message: 'Disabled by settings',
+            state: 'unavailable',
+          };
+        }
+        const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
+        return probeRuntimeViaBridgeOrService(runtimeId, {
+          ...(options?.diagnosticLogLevel
+            ? { diagnosticLogLevel: options.diagnosticLogLevel }
+            : {}),
+          ...(options?.force ? { force: true } : {}),
+          ...(endpoint ? { endpoint } : {}),
+        });
+      },
+
+      getLocalRuntimeStatuses: async (options) => {
+        const { providerSettings } = get();
+        const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
+
+        const entries = await Promise.all(
+          runtimeIds.map(async (runtimeId) => {
+            const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
+            const settings = providerSettings[providerId];
+            // Respect the tri-state: `off` surfaces a synthetic "unavailable"
+            // status without probing, so the UI does not keep the server warm
+            // for a runtime the user explicitly disabled.
+            if (resolveLocalRuntimeActivation(settings) === 'off') {
+              const offStatus: LocalRuntimeAvailabilityState = {
+                checkedAt: Date.now(),
+                message: 'Disabled by settings',
+                state: 'unavailable',
+              };
+              return [runtimeId, offStatus] as const;
+            }
+            const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
+            const status = await probeRuntimeViaBridgeOrService(runtimeId, {
+              ...(options?.diagnosticLogLevel
+                ? { diagnosticLogLevel: options.diagnosticLogLevel }
+                : {}),
+              ...(options?.force ? { force: true } : {}),
+              ...(endpoint ? { endpoint } : {}),
+            });
+            return [runtimeId, status] as const;
+          })
+        );
+
+        return Object.fromEntries(entries) as Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
+      },
+
+      getProviderSettings: (provider) =>
+        get().providerSettings[provider] ?? DEFAULT_PROVIDER_SETTINGS[provider],
+
+      getSelectedModel: () => get().selectedModel,
+
+      getSelectedProvider: () => {
+        const parsed = parseCompositeModelKey(get().selectedModel);
+        return parsed?.provider ?? null;
+      },
+      modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
+      planModeEnabled: false,
+      providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
+      selectedModel: null,
+
+      setModel: (compositeKey) =>
+        set((state) => {
+          const parsed = parseCompositeModelKey(compositeKey);
+          if (!parsed) {
+            return state;
+          }
+
+          // Single atomic update: selectedModel composite key + remember preference
+          // The UI layer validates model enabled state against the database before calling setModel
+          return {
+            modelsByProvider: { ...state.modelsByProvider, [parsed.provider]: parsed.model },
+            selectedModel: parsed.compositeKey,
+          };
+        }),
+
+      setModelEnabled: (provider, model, enabled) =>
+        set((state) => {
+          const updates = enabled
+            ? enableModelForProvider(state, provider, model)
+            : disableModelForProvider(state, provider, model);
+
+          return updates ?? state;
+        }),
+
+      setPlanModeEnabled: (enabled) => set({ planModeEnabled: enabled }),
+
+      setProviderModelsEnabled: (provider, models, enabled) =>
+        set((state) => {
+          if (!models.length) {
+            return state;
+          }
+
+          const initial: AccumulatedState = {
+            enabledModelsByProvider: state.enabledModelsByProvider,
+            hasChanges: false,
+            modelsByProvider: state.modelsByProvider,
+            selectedModel: state.selectedModel,
+          };
+
+          const accumulated = models.reduce(
+            (acc, model) => processModelUpdate(acc, state, provider, model, enabled),
+            initial
+          );
+
+          if (!accumulated.hasChanges) {
+            return state;
+          }
+
+          const result: Partial<Store> = {
+            enabledModelsByProvider: accumulated.enabledModelsByProvider,
+            modelsByProvider: accumulated.modelsByProvider,
+          };
+
+          if (accumulated.selectedModel !== state.selectedModel) {
+            result.selectedModel = accumulated.selectedModel;
+          }
+
+          return result;
+        }),
+
       setProviderSettings: (provider, updates) =>
         set((state) => {
           const current = state.providerSettings[provider] ?? DEFAULT_PROVIDER_SETTINGS[provider];
@@ -1162,19 +1177,9 @@ export const useAssistantPreferencesStore = create<Store>()(
           };
         }),
 
-      getProviderSettings: (provider) =>
-        get().providerSettings[provider] ?? DEFAULT_PROVIDER_SETTINGS[provider],
+      togglePlanMode: () => set((state) => ({ planModeEnabled: !state.planModeEnabled })),
     }),
     {
-      name: STORE_NAME,
-      version: STORE_VERSION,
-      storage,
-      partialize: (s) => ({
-        selectedModel: s.selectedModel,
-        modelsByProvider: s.modelsByProvider,
-        enabledModelsByProvider: s.enabledModelsByProvider,
-        providerSettings: s.providerSettings,
-      }),
       migrate: (persistedState, version) => {
         if (!persistedState) {
           return;
@@ -1195,25 +1200,36 @@ export const useAssistantPreferencesStore = create<Store>()(
         const selectedModel = buildMigratedSelectedModel(base, migratedEnabled);
 
         return {
-          selectedModel,
-          modelsByProvider: migratedModelsByProvider,
           enabledModelsByProvider: migratedEnabled,
+          modelsByProvider: migratedModelsByProvider,
           providerSettings: {
             ...DEFAULT_PROVIDER_SETTINGS,
             ...('providerSettings' in base ? (base.providerSettings as ProviderSettingsMap) : {}),
           },
+          selectedModel,
         } satisfies Partial<Store>;
       },
+      name: STORE_NAME,
+      partialize: (s) => ({
+        enabledModelsByProvider: s.enabledModelsByProvider,
+        modelsByProvider: s.modelsByProvider,
+        planModeEnabled: s.planModeEnabled,
+        providerSettings: s.providerSettings,
+        selectedModel: s.selectedModel,
+      }),
+      storage,
+      version: STORE_VERSION,
     }
   )
 );
 
 function resetStoreState() {
   useAssistantPreferencesStore.setState({
-    selectedModel: null,
-    modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
     enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
+    modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
+    planModeEnabled: false,
     providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
+    selectedModel: null,
   });
 }
 

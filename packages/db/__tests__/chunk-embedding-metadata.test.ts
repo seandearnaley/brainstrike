@@ -31,11 +31,11 @@ describe('Chunk embedding metadata', () => {
     // seed a file record
     const now = new Date().toISOString();
     await fileRepo.create({
+      createdAt: now,
       id: 'fileA',
       name: 'a.txt',
       path: '/a.txt',
       size: 1,
-      createdAt: now,
       updatedAt: now,
     });
   });
@@ -47,29 +47,29 @@ describe('Chunk embedding metadata', () => {
   it('stores embedding_set_id and embedding_hash when embedding updated', async () => {
     const now = new Date().toISOString();
     const chunk: FileChunkInsert = {
-      id: 'c1',
-      fileRecordId: 'fileA',
       chunkIndex: 0,
+      chunkSize: 10,
+      chunkType: 'text',
       content: 'x',
       contentHash: 'hash-x',
-      tokenCount: 1,
-      chunkType: 'text',
-      chunkSize: 10,
       createdAt: now,
+      fileRecordId: 'fileA',
+      id: 'c1',
+      tokenCount: 1,
       updatedAt: now,
     };
     await chunkRepo.insert(chunk);
 
     const set = await setRepo.getOrCreateSet('bge-m3', 'Xenova/bge-m3', 768, 'cosine');
     const update: FileChunkUpdate = {
-      id: 'c1',
       embedding: makeVector(768, [
         [0, 0.1],
         [1, 0.2],
         [2, 0.3],
       ]),
-      embeddingSetId: set.id,
       embeddingHash: 'ehash-1',
+      embeddingSetId: set.id,
+      id: 'c1',
       updatedAt: new Date().toISOString(),
     };
 
@@ -85,35 +85,35 @@ describe('Chunk embedding metadata', () => {
     const setB = await setRepo.getOrCreateSet('setB', 'model-setB', 768, 'cosine');
     const chunks: FileChunkInsert[] = [
       {
-        id: 'c1',
-        fileRecordId: 'fileA',
         chunkIndex: 0,
+        chunkSize: 10,
+        chunkType: 'text',
         content: 'x',
         contentHash: 'h1',
-        tokenCount: 1,
-        chunkType: 'text',
-        chunkSize: 10,
+        createdAt: now,
         embedding: makeVector(768, [[0, 0.1]]),
+        embeddingHash: 'eh1',
         embeddingSetId: setA.id,
         embeddingUpdatedAt: now,
-        embeddingHash: 'eh1',
-        createdAt: now,
+        fileRecordId: 'fileA',
+        id: 'c1',
+        tokenCount: 1,
         updatedAt: now,
       },
       {
-        id: 'c2',
-        fileRecordId: 'fileA',
         chunkIndex: 1,
+        chunkSize: 10,
+        chunkType: 'text',
         content: 'y',
         contentHash: 'h2',
-        tokenCount: 1,
-        chunkType: 'text',
-        chunkSize: 10,
+        createdAt: now,
         embedding: makeVector(768, [[1, 0.1]]),
+        embeddingHash: 'eh2',
         embeddingSetId: setB.id,
         embeddingUpdatedAt: now,
-        embeddingHash: 'eh2',
-        createdAt: now,
+        fileRecordId: 'fileA',
+        id: 'c2',
+        tokenCount: 1,
         updatedAt: now,
       },
     ];
@@ -122,17 +122,17 @@ describe('Chunk embedding metadata', () => {
     const query = makeVector(768, [[0, 0.1]]);
 
     const resultsAll = await chunkRepo.searchSimilar(query, {
+      embeddingSetId: setA.id,
       limit: 10,
       threshold: 0.6,
-      embeddingSetId: setA.id,
     });
     expect(resultsAll.length).toBe(1);
     expect(resultsAll[0].chunk.id).toBe('c1');
 
     const resultsSetB = await chunkRepo.searchSimilar(query, {
+      embeddingSetId: setB.id,
       limit: 10,
       threshold: 0.6,
-      embeddingSetId: setB.id,
     });
     expect(resultsSetB.length).toBe(0);
   });

@@ -39,9 +39,9 @@ describe('vector-status helpers', () => {
 describe('getBackfillDisabledState', () => {
   const baseParams = {
     activeId: 'set-1',
-    hasDb: true,
     backfilling: false,
     coverage: { total: 148, withSet: 0 }, // 148 chunks, 0 embedded
+    hasDb: true,
     queueCounts: { queued: 0, running: 0 },
   };
 

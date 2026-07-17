@@ -1,12 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EmbeddingConfig, EmbeddingProgress, ModelConfig } from '../types';
+import type {
+  EmbeddingConfig,
+  EmbeddingExecutionOptions,
+  EmbeddingProgress,
+  ModelConfig,
+} from '../types';
 
 const setTargetDimensionsMock = vi.fn<(dim: number | null) => void>();
 const generateEmbeddingMock =
   vi.fn<
     (
       text: string,
-      modelId: string
+      modelId: string,
+      options?: EmbeddingExecutionOptions
     ) => Promise<{ embedding: number[]; model: string; dimensions: number }>
   >();
 const initializeMock =
@@ -30,8 +36,8 @@ vi.mock('../transformers-backend', () => ({
     isInitialized() {
       return backendInitialized;
     }
-    async generateEmbedding(text: string, modelId: string) {
-      return generateEmbeddingMock(text, modelId);
+    async generateEmbedding(text: string, modelId: string, options?: EmbeddingExecutionOptions) {
+      return generateEmbeddingMock(text, modelId, options);
     }
     getSelectedDevice() {
       return 'webgpu';
@@ -44,36 +50,36 @@ vi.mock('../transformers-backend', () => ({
 
 // Test model configurations
 const BGE_BASE_MODEL: ModelConfig = {
+  description: 'test model',
+  dimensions: 768,
   id: 'Xenova/bge-base-en-v1.5',
   name: 'BGE Base',
-  dimensions: 768,
-  quantized: false,
-  description: 'test model',
-  tags: ['test'],
   origin: 'hf',
+  quantized: false,
   size: 'small',
+  tags: ['test'],
 };
 
 const BGE_M3_MODEL: ModelConfig = {
+  description: 'test model',
+  dimensions: 1024,
   id: 'Xenova/bge-m3',
   name: 'BGE M3',
-  dimensions: 1024,
-  quantized: false,
-  description: 'test model',
-  tags: ['test'],
   origin: 'hf',
+  quantized: false,
   size: 'large',
+  tags: ['test'],
 };
 
 const JINA_CODE_MODEL: ModelConfig = {
+  description: 'test model',
+  dimensions: 768,
   id: 'jinaai/jina-embeddings-v2-base-code',
   name: 'Jina Code',
-  dimensions: 768,
-  quantized: false,
-  description: 'test model',
-  tags: ['code'],
   origin: 'hf',
+  quantized: false,
   size: 'medium',
+  tags: ['code'],
 };
 
 describe('SimpleEmbeddingService lifecycle', () => {
@@ -86,9 +92,9 @@ describe('SimpleEmbeddingService lifecycle', () => {
       backendInitialized = true;
     });
     generateEmbeddingMock.mockResolvedValue({
+      dimensions: 2,
       embedding: [0.1, 0.2],
       model: 'bge-m3',
-      dimensions: 2,
     });
   });
 
@@ -117,7 +123,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
           res();
         };
       });
-      return { resolve: resolve!, promise };
+      return { promise, resolve: resolve! };
     })();
 
     initializeMock.mockImplementationOnce(() => deferred.promise);
@@ -184,6 +190,19 @@ describe('SimpleEmbeddingService lifecycle', () => {
     expect(prompt.startsWith('query: ')).toBe(false);
     expect(modelId).toBeDefined();
     expect(result.embedding).toHaveLength(2);
+  });
+
+  it('passes query execution options to the backend', async () => {
+    const svcModule = await import('../bge-m3-service');
+    const svc = new svcModule.SimpleEmbeddingService();
+    const controller = new AbortController();
+
+    await svc.initializeWithModel(BGE_M3_MODEL);
+    await svc.generateQueryEmbedding('cancelable query', { signal: controller.signal });
+
+    expect(generateEmbeddingMock).toHaveBeenLastCalledWith('cancelable query', BGE_M3_MODEL.id, {
+      signal: controller.signal,
+    });
   });
 
   it('applies Jina code retrieval prompt for document embeddings', async () => {

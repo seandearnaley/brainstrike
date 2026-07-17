@@ -5,13 +5,13 @@
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
+    "emitDeclarationOnly": true,
     "outDir": "./dist",
     "rootDir": "src",
     "types": [
       "node"
     ],
     "strictNullChecks": true,
-    "baseUrl": ".",
     "paths": {
       "@brainstrike/utils/token-counting-heuristics": [
         "../utils/dist/token-counting-heuristics.d.ts"

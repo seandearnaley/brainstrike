@@ -14,10 +14,10 @@ describe('JobQueue Batch Operations', () => {
 
   it('completes multiple jobs atomically', async () => {
     const queue = new JobQueue(db);
-    const job1 = await queue.enqueue({ queue: 'q1', jobType: 'embed_chunk', payload: {} });
-    const job2 = await queue.enqueue({ queue: 'q1', jobType: 'embed_chunk', payload: {} });
+    const job1 = await queue.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'q1' });
+    const job2 = await queue.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'q1' });
 
-    const claimed = await queue.claimMany({ queue: 'q1', leaseMs: 5000, limit: 2 });
+    const claimed = await queue.claimMany({ leaseMs: 5000, limit: 2, queue: 'q1' });
     expect(claimed).toHaveLength(2);
 
     const completionParams = claimed.map((j) => ({
@@ -39,8 +39,8 @@ describe('JobQueue Batch Operations', () => {
 
   it('only completes jobs with valid leases', async () => {
     const queue = new JobQueue(db);
-    const job1 = await queue.enqueue({ queue: 'q1', jobType: 'embed_chunk', payload: {} });
-    const claimed = await queue.claim({ queue: 'q1', leaseMs: 5000 });
+    const job1 = await queue.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'q1' });
+    const claimed = await queue.claim({ leaseMs: 5000, queue: 'q1' });
     expect(claimed).not.toBeNull();
 
     const result = await queue.completeBatch([
@@ -87,11 +87,11 @@ describe('JobQueue Batch Operations', () => {
     );
 
     await queue.enqueue({
-      queue: 'embeddings',
       jobType: 'embed_chunk',
       payload: { chunkId, embeddingSetId },
+      queue: 'embeddings',
     });
-    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+    const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
     expect(claimed).not.toBeNull();
 
     const completed = await queue.completeEmbeddingChunkBatch([
@@ -127,14 +127,76 @@ describe('JobQueue Batch Operations', () => {
       claimed!.id,
     ]);
     expect(job.rows[0]?.state).toBe('running');
+
+    // The stale completion wrote nothing, so the lifetime metric must be
+    // untouched: an empty completed set yields no GROUP BY rows to upsert.
+    const metrics = await queue.getQueueStats('embeddings');
+    expect(metrics[0]?.succeededLifetime ?? 0).toBe(0);
+  });
+
+  it('increments the durable lifetime succeeded count on embedding completion', async () => {
+    const queue = new JobQueue(db);
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-lifetime-completion';
+    const fileId = 'file-lifetime-completion';
+    const chunkId = 'chunk-lifetime-completion';
+    const embedding = Array.from({ length: 768 }, (_, index) => index / 1000);
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, 'local::test-model', 'test-model', 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+      [
+        fileId,
+        'lifetime-completion.ts',
+        '/lifetime-completion.ts',
+        100,
+        'content',
+        'lifetime-completion-hash',
+        10,
+        embeddingSetId,
+        now,
+      ]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+       VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
+      [chunkId, fileId, 'content', 'lifetime-completion-hash', 10, now]
+    );
+
+    await queue.enqueue({
+      jobType: 'embed_chunk',
+      payload: { chunkId, embeddingSetId },
+      queue: 'embeddings',
+    });
+    const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
+
+    const completed = await queue.completeEmbeddingChunkBatch([
+      {
+        chunkId,
+        embedding,
+        embeddingHash: 'lifetime-completion-embedding-hash',
+        embeddingSetId,
+        id: claimed!.id,
+        leaseToken: claimed!.lease_token!,
+      },
+    ]);
+    expect(completed).toHaveLength(1);
+
+    const metrics = await queue.getQueueStats('embeddings');
+    expect(metrics[0].succeededLifetime).toBe(1);
   });
 
   describe('enqueueBatch', () => {
     it('enqueues multiple jobs', async () => {
       const queue = new JobQueue(db);
       const jobs = await queue.enqueueBatch([
-        { queue: 'q1', jobType: 'embed_chunk', payload: { i: 1 } },
-        { queue: 'q1', jobType: 'embed_chunk', payload: { i: 2 } },
+        { jobType: 'embed_chunk', payload: { i: 1 }, queue: 'q1' },
+        { jobType: 'embed_chunk', payload: { i: 2 }, queue: 'q1' },
       ]);
       expect(jobs).toHaveLength(2);
       expect(jobs[0].state).toBe('queued');
@@ -147,8 +209,8 @@ describe('JobQueue Batch Operations', () => {
     it('persists chunk_id for batch-enqueued embedding jobs', async () => {
       const queue = new JobQueue(db);
       const jobs = await queue.enqueueBatch([
-        { queue: 'q1', jobType: 'embed_chunk', payload: { chunkId: 'batch-chunk-1' } },
-        { queue: 'q1', jobType: 'embed_chunk', payload: { chunkId: 'batch-chunk-2' } },
+        { jobType: 'embed_chunk', payload: { chunkId: 'batch-chunk-1' }, queue: 'q1' },
+        { jobType: 'embed_chunk', payload: { chunkId: 'batch-chunk-2' }, queue: 'q1' },
       ]);
 
       const result = await db.query<{ chunk_id: string | null }>(
@@ -162,14 +224,14 @@ describe('JobQueue Batch Operations', () => {
       const queue = new JobQueue(db);
       const jobs = await queue.enqueueBatch([
         {
-          queue: 'q1',
           jobType: 'embed_chunk',
           payload: { chunkId: 'chunk-1', embeddingSetId: 'set-1' },
+          queue: 'q1',
         },
         {
-          queue: 'q1',
           jobType: 'embed_chunk',
           payload: { chunkId: 'chunk-2', embeddingSetId: 'set-2' },
+          queue: 'q1',
         },
       ]);
 
@@ -187,17 +249,17 @@ describe('JobQueue Batch Operations', () => {
 
       const jobs = await queue.enqueueBatch([
         {
-          queue: 'q1',
+          dedupeKey: 'k1',
           jobType: 'embed_chunk',
           payload: { i: 1 },
-          dedupeKey: 'k1',
+          queue: 'q1',
           runAt: runAt1,
         },
         {
-          queue: 'q1',
+          dedupeKey: 'k1',
           jobType: 'embed_chunk',
           payload: { i: 2 },
-          dedupeKey: 'k1',
+          queue: 'q1',
           runAt: runAt2,
         },
       ]);
@@ -212,19 +274,19 @@ describe('JobQueue Batch Operations', () => {
     it('updates existing job if deduplicated', async () => {
       const queue = new JobQueue(db);
       const job1 = await queue.enqueue({
-        queue: 'q1',
+        dedupeKey: 'k1',
         jobType: 'embed_chunk',
         payload: {},
-        dedupeKey: 'k1',
+        queue: 'q1',
       });
 
       const newRunAt = new Date(Date.now() - 1000).toISOString(); // Earlier
       const jobs = await queue.enqueueBatch([
         {
-          queue: 'q1',
+          dedupeKey: 'k1',
           jobType: 'embed_chunk',
           payload: { updated: true },
-          dedupeKey: 'k1',
+          queue: 'q1',
           runAt: newRunAt,
         },
       ]);
@@ -242,19 +304,19 @@ describe('JobQueue Batch Operations', () => {
       (queue as unknown as { idType: 'uuid' | 'text' | null }).idType = 'uuid';
 
       const existing = await queue.enqueue({
-        queue: 'q1',
+        dedupeKey: 'uuid-branch-dedupe',
         jobType: 'embed_chunk',
         payload: { before: true },
-        dedupeKey: 'uuid-branch-dedupe',
+        queue: 'q1',
       });
 
       const earlierRunAt = new Date(Date.now() - 1000).toISOString();
       const jobs = await queue.enqueueBatch([
         {
-          queue: 'q1',
+          dedupeKey: 'uuid-branch-dedupe',
           jobType: 'embed_chunk',
           payload: { after: true },
-          dedupeKey: 'uuid-branch-dedupe',
+          queue: 'q1',
           runAt: earlierRunAt,
         },
       ]);
@@ -270,15 +332,15 @@ describe('JobQueue Batch Operations', () => {
     it('handles mixed new and existing jobs', async () => {
       const queue = new JobQueue(db);
       const existing = await queue.enqueue({
-        queue: 'q1',
+        dedupeKey: 'existing',
         jobType: 'embed_chunk',
         payload: {},
-        dedupeKey: 'existing',
+        queue: 'q1',
       });
 
       const jobs = await queue.enqueueBatch([
-        { queue: 'q1', jobType: 'embed_chunk', payload: { i: 1 }, dedupeKey: 'existing' },
-        { queue: 'q1', jobType: 'embed_chunk', payload: { i: 2 }, dedupeKey: 'new' },
+        { dedupeKey: 'existing', jobType: 'embed_chunk', payload: { i: 1 }, queue: 'q1' },
+        { dedupeKey: 'new', jobType: 'embed_chunk', payload: { i: 2 }, queue: 'q1' },
       ]);
 
       expect(jobs).toHaveLength(2);
@@ -292,25 +354,25 @@ describe('JobQueue Batch Operations', () => {
     it('does not update payload on deduplication', async () => {
       const queue = new JobQueue(db);
       const job1 = await queue.enqueue({
-        queue: 'q1',
+        dedupeKey: 'k1',
         jobType: 'embed_chunk',
         payload: { v: 1 },
-        dedupeKey: 'k1',
+        queue: 'q1',
       });
 
       const jobs = await queue.enqueueBatch([
         {
-          queue: 'q1',
+          dedupeKey: 'k1',
           jobType: 'embed_chunk',
           payload: { v: 2 },
-          dedupeKey: 'k1',
+          queue: 'q1',
         },
       ]);
 
       expect(jobs).toHaveLength(1);
       expect(jobs[0].id).toBe(job1.id);
 
-      const fetched = await queue.claim({ queue: 'q1', leaseMs: 1000 });
+      const fetched = await queue.claim({ leaseMs: 1000, queue: 'q1' });
       expect(fetched).not.toBeNull();
       // Payload should remain { v: 1 } as per dedupe logic (only runAt/updatedAt updated)
       expect(fetched?.payload).toEqual({ v: 1 });
@@ -319,8 +381,8 @@ describe('JobQueue Batch Operations', () => {
     it('handles multiple queues in one batch', async () => {
       const queue = new JobQueue(db);
       const jobs = await queue.enqueueBatch([
-        { queue: 'q1', jobType: 'embed_chunk', payload: { i: 1 } },
-        { queue: 'q2', jobType: 'embed_chunk', payload: { i: 2 } },
+        { jobType: 'embed_chunk', payload: { i: 1 }, queue: 'q1' },
+        { jobType: 'embed_chunk', payload: { i: 2 }, queue: 'q2' },
       ]);
 
       expect(jobs).toHaveLength(2);
@@ -340,9 +402,9 @@ describe('JobQueue Batch Operations', () => {
     it('rejects batches larger than the supported maximum', async () => {
       const queue = new JobQueue(db);
       const oversizeBatch = Array.from({ length: 9001 }, (_, index) => ({
-        queue: 'q1',
         jobType: 'embed_chunk',
         payload: { index },
+        queue: 'q1',
       }));
 
       await expect(queue.enqueueBatch(oversizeBatch)).rejects.toThrow(
@@ -354,15 +416,15 @@ describe('JobQueue Batch Operations', () => {
   describe('failBatch', () => {
     it('fails all jobs as terminal', async () => {
       const queue = new JobQueue(db);
-      await queue.enqueue({ queue: 'q1', jobType: 'embed_chunk', payload: {} });
-      await queue.enqueue({ queue: 'q1', jobType: 'embed_chunk', payload: {} });
+      await queue.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'q1' });
+      await queue.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'q1' });
 
-      const claimed = await queue.claimMany({ queue: 'q1', leaseMs: 5000, limit: 2 });
+      const claimed = await queue.claimMany({ leaseMs: 5000, limit: 2, queue: 'q1' });
       expect(claimed).toHaveLength(2);
 
       const result = await queue.failBatch({
-        jobs: claimed.map((j) => ({ id: j.id, leaseToken: j.lease_token as string })),
         error: 'terminal error',
+        jobs: claimed.map((j) => ({ id: j.id, leaseToken: j.lease_token as string })),
         terminal: true,
       });
 
@@ -374,19 +436,19 @@ describe('JobQueue Batch Operations', () => {
     it('retries jobs that have attempts remaining', async () => {
       const queue = new JobQueue(db);
       await queue.enqueue({
-        queue: 'q1',
         jobType: 'embed_chunk',
-        payload: {},
         maxAttempts: 5,
+        payload: {},
+        queue: 'q1',
       });
 
-      const claimed = await queue.claim({ queue: 'q1', leaseMs: 5000 });
+      const claimed = await queue.claim({ leaseMs: 5000, queue: 'q1' });
       expect(claimed).not.toBeNull();
       // After claim, attempts = 1, max_attempts = 5 → retryable
 
       const result = await queue.failBatch({
-        jobs: [{ id: claimed!.id, leaseToken: claimed!.lease_token as string }],
         error: 'transient error',
+        jobs: [{ id: claimed!.id, leaseToken: claimed!.lease_token as string }],
       });
 
       expect(result).toHaveLength(1);
@@ -401,25 +463,25 @@ describe('JobQueue Batch Operations', () => {
 
       // Job with maxAttempts=1 will be exhausted after first claim
       await queue.enqueue({
-        queue: 'q1',
         jobType: 'embed_chunk',
-        payload: { type: 'exhausted' },
         maxAttempts: 1,
+        payload: { type: 'exhausted' },
+        queue: 'q1',
       });
       // Job with maxAttempts=5 will be retryable
       await queue.enqueue({
-        queue: 'q1',
         jobType: 'embed_chunk',
-        payload: { type: 'retryable' },
         maxAttempts: 5,
+        payload: { type: 'retryable' },
+        queue: 'q1',
       });
 
-      const claimed = await queue.claimMany({ queue: 'q1', leaseMs: 5000, limit: 2 });
+      const claimed = await queue.claimMany({ leaseMs: 5000, limit: 2, queue: 'q1' });
       expect(claimed).toHaveLength(2);
 
       const result = await queue.failBatch({
-        jobs: claimed.map((j) => ({ id: j.id, leaseToken: j.lease_token as string })),
         error: 'batch error',
+        jobs: claimed.map((j) => ({ id: j.id, leaseToken: j.lease_token as string })),
       });
 
       expect(result).toHaveLength(2);
@@ -433,17 +495,17 @@ describe('JobQueue Batch Operations', () => {
 
     it('silently ignores invalid lease tokens', async () => {
       const queue = new JobQueue(db);
-      await queue.enqueue({ queue: 'q1', jobType: 'embed_chunk', payload: {} });
+      await queue.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'q1' });
 
-      const claimed = await queue.claim({ queue: 'q1', leaseMs: 5000 });
+      const claimed = await queue.claim({ leaseMs: 5000, queue: 'q1' });
       expect(claimed).not.toBeNull();
 
       const result = await queue.failBatch({
+        error: 'some error',
         jobs: [
           { id: claimed!.id, leaseToken: claimed!.lease_token as string },
           { id: 'fake-id', leaseToken: 'fake-token' },
         ],
-        error: 'some error',
         terminal: true,
       });
 
@@ -454,8 +516,8 @@ describe('JobQueue Batch Operations', () => {
     it('returns empty array for empty batch', async () => {
       const queue = new JobQueue(db);
       const result = await queue.failBatch({
-        jobs: [],
         error: 'unused',
+        jobs: [],
       });
       expect(result).toEqual([]);
     });
@@ -463,20 +525,20 @@ describe('JobQueue Batch Operations', () => {
     it('uses explicit backoffMs instead of retryPolicy', async () => {
       const queue = new JobQueue(db);
       await queue.enqueue({
-        queue: 'q1',
         jobType: 'embed_chunk',
-        payload: {},
         maxAttempts: 5,
+        payload: {},
+        queue: 'q1',
       });
 
-      const claimed = await queue.claim({ queue: 'q1', leaseMs: 5000 });
+      const claimed = await queue.claim({ leaseMs: 5000, queue: 'q1' });
       expect(claimed).not.toBeNull();
 
       const beforeFail = Date.now();
       const result = await queue.failBatch({
-        jobs: [{ id: claimed!.id, leaseToken: claimed!.lease_token as string }],
-        error: 'rate limited',
         backoffMs: 30_000,
+        error: 'rate limited',
+        jobs: [{ id: claimed!.id, leaseToken: claimed!.lease_token as string }],
       });
 
       expect(result).toHaveLength(1);
@@ -493,10 +555,10 @@ describe('JobQueue Batch Operations', () => {
       // Enqueue 3 jobs with enough max_attempts for multiple rounds
       for (let i = 0; i < 3; i++) {
         await queue.enqueue({
-          queue: 'q1',
           jobType: 'embed_chunk',
-          payload: { i },
           maxAttempts: 10,
+          payload: { i },
+          queue: 'q1',
         });
       }
 
@@ -506,30 +568,30 @@ describe('JobQueue Batch Operations', () => {
       const futureNow = new Date(Date.now() + 10 * 60 * 1000).toISOString();
       for (let round = 0; round < 2; round++) {
         const batch = await queue.claimMany({
-          queue: 'q1',
           leaseMs: 5000,
           limit: 3,
           now: futureNow,
+          queue: 'q1',
         });
         await Promise.all(
           batch.map((j) =>
-            queue.fail({ id: j.id, leaseToken: j.lease_token as string, error: 'bump' })
+            queue.fail({ error: 'bump', id: j.id, leaseToken: j.lease_token as string })
           )
         );
       }
 
       // Now attempts=3 for all jobs; claim and failBatch
       const claimed = await queue.claimMany({
-        queue: 'q1',
         leaseMs: 5000,
         limit: 3,
         now: futureNow,
+        queue: 'q1',
       });
       expect(claimed).toHaveLength(3);
 
       const result = await queue.failBatch({
-        jobs: claimed.map((j) => ({ id: j.id, leaseToken: j.lease_token as string })),
         error: 'transient',
+        jobs: claimed.map((j) => ({ id: j.id, leaseToken: j.lease_token as string })),
       });
 
       expect(result).toHaveLength(3);

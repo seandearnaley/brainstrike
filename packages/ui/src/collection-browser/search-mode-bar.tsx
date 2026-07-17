@@ -84,13 +84,6 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     [disabled, isSearching, semanticQuery, onSemanticSearch]
   );
 
-  const handleToggleExpanded = React.useCallback(() => {
-    if (disabled) {
-      return;
-    }
-    onSearchExpandedChange(!isSearchExpanded);
-  }, [disabled, isSearchExpanded, onSearchExpandedChange]);
-
   const panelRef = React.useRef<HTMLElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
 
@@ -98,6 +91,61 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   const reactId = React.useId();
   const triggerId = `hybrid-search-trigger-${reactId}`;
   const panelId = `hybrid-search-panel-${reactId}`;
+
+  // Controllable open-state: when the consumer supplies `advancedOptionsOpen`
+  // we mirror it; otherwise we own the state internally. Either way the Popover
+  // below is ALWAYS controlled, so the collapse guard works even when a
+  // consumer mounts the cog without wiring the open-control props (Radix's own
+  // uncontrolled fallback would otherwise leave portaled content floating over
+  // the hidden trigger).
+  const isPopoverControlled = advancedOptionsOpen !== undefined;
+  const [internalOptionsOpen, setInternalOptionsOpen] = React.useState(false);
+  const optionsOpen = isPopoverControlled ? advancedOptionsOpen : internalOptionsOpen;
+  const setOptionsOpen = React.useCallback(
+    (open: boolean) => {
+      if (!isPopoverControlled) {
+        setInternalOptionsOpen(open);
+      }
+      onAdvancedOptionsOpenChange?.(open);
+    },
+    [isPopoverControlled, onAdvancedOptionsOpenChange]
+  );
+
+  // Close the portaled cog popover on the same event path that collapses the
+  // panel (react.dev: handle user events in event handlers, not Effects).
+  // Also gate the Popover `open` prop so a parent-driven collapse cannot leave
+  // floating content over a hidden trigger even if open state lags one frame.
+  const collapseSearchPanel = React.useCallback(() => {
+    if (optionsOpen) {
+      setOptionsOpen(false);
+    }
+    onSearchExpandedChange(false);
+  }, [optionsOpen, setOptionsOpen, onSearchExpandedChange]);
+
+  const popoverOpen = isSearchExpanded && optionsOpen;
+
+  // Parent-driven collapse (isSearchExpanded flipped without our collapse
+  // handler) must still clear stored open state — otherwise the cog reopens
+  // automatically on the next expand. The popoverOpen AND-gate only masks UI.
+  const wasSearchExpandedRef = React.useRef(isSearchExpanded);
+  React.useEffect(() => {
+    const wasExpanded = wasSearchExpandedRef.current;
+    wasSearchExpandedRef.current = isSearchExpanded;
+    if (wasExpanded && !isSearchExpanded && optionsOpen) {
+      setOptionsOpen(false);
+    }
+  }, [isSearchExpanded, optionsOpen, setOptionsOpen]);
+
+  const handleToggleExpanded = React.useCallback(() => {
+    if (disabled) {
+      return;
+    }
+    if (isSearchExpanded) {
+      collapseSearchPanel();
+      return;
+    }
+    onSearchExpandedChange(true);
+  }, [disabled, isSearchExpanded, collapseSearchPanel, onSearchExpandedChange]);
 
   // Escape collapses the panel and restores focus to the trigger. The query
   // input preventDefaults its own Escape (blur first) so defaultPrevented is
@@ -119,42 +167,14 @@ export const SearchModeBar = React.memo(function SearchModeBar({
         return;
       }
       event.preventDefault();
-      onSearchExpandedChange(false);
+      collapseSearchPanel();
       triggerRef.current?.focus();
     };
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => {
       document.removeEventListener('keydown', onDocumentKeyDown);
     };
-  }, [isSearchExpanded, onSearchExpandedChange]);
-
-  // Controllable open-state: when the consumer supplies `advancedOptionsOpen`
-  // we mirror it; otherwise we own the state internally. Either way the Popover
-  // below is ALWAYS controlled, so the collapse guard works even when a
-  // consumer mounts the cog without wiring the open-control props (Radix's own
-  // uncontrolled fallback would otherwise leave portaled content floating over
-  // the hidden trigger).
-  const isPopoverControlled = advancedOptionsOpen !== undefined;
-  const [internalOptionsOpen, setInternalOptionsOpen] = React.useState(false);
-  const optionsOpen = isPopoverControlled ? advancedOptionsOpen : internalOptionsOpen;
-  const setOptionsOpen = React.useCallback(
-    (open: boolean) => {
-      if (!isPopoverControlled) {
-        setInternalOptionsOpen(open);
-      }
-      onAdvancedOptionsOpenChange?.(open);
-    },
-    [isPopoverControlled, onAdvancedOptionsOpenChange]
-  );
-
-  // The cog Popover portals its content to document.body, so collapsing the
-  // panel while it is open would leave the floating options lingering over a
-  // hidden trigger. Close it whenever the panel collapses.
-  React.useEffect(() => {
-    if (!isSearchExpanded && optionsOpen) {
-      setOptionsOpen(false);
-    }
-  }, [isSearchExpanded, optionsOpen, setOptionsOpen]);
+  }, [isSearchExpanded, collapseSearchPanel]);
 
   const resultLabel =
     hasSearched && resultCount !== undefined
@@ -235,8 +255,8 @@ export const SearchModeBar = React.memo(function SearchModeBar({
                 </Button>
               )}
             </div>
-            {advancedOptions != null && (
-              <Popover onOpenChange={setOptionsOpen} open={optionsOpen}>
+            {advancedOptions !== undefined && advancedOptions !== null && (
+              <Popover onOpenChange={setOptionsOpen} open={popoverOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     aria-label="Search options"

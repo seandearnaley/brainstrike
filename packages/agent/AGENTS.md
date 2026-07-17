@@ -93,10 +93,12 @@ should be configured to respect the project `.editorconfig` and prettier rules.
 `createMastraAgentRuntime(options)` is the primary entry point. It accepts  
 instructions, model configuration and optional runtime settings (`apiKey`,  
 `mcpConfig`, tool overrides, etc.) and returns an object containing a Mastra  
-agent and optional MCP client. Under the hood it resolves the OpenAI API key  
-using the provided runtime or environment variables; if no key is found, it  
-throws a `mastra_agent_missing_api_key` error. The runtime merges local tools  
-with any tools discovered via MCP, sanitises tool identifiers to avoid  
+agent and optional MCP client. Hosted providers resolve their configured key
+through the runtime/key resolver. Ollama and LM Studio are keyless by default
+and resolve to Mastra's first-class OpenAI-compatible model config (`id`,
+`/v1` base `url`, and an explicit dummy `apiKey` when auth is disabled); do
+not construct them with the OpenAI-specific SDK. The runtime merges local
+tools with any tools discovered via MCP, sanitises tool identifiers to avoid
 collisions, and exposes a disposable `agent` ready to stream responses.
 
 When adding new configuration fields, make sure they are serialisable; runtime  
@@ -173,13 +175,49 @@ Errors:
 ### Remote tools via MCP
 
 The Model‑Context Protocol allows tool providers to be run as separate  
-processes (either via `stdio` or `sse` transport) and discovered at runtime.  
-You can configure remote servers in an `mcp.config.json` adjacent to where  
-`createMastraAgentRuntime` is invoked. Each server entry requires a unique  
-`name` and either a `command` for `stdio` transports or a `url` for `sse`  
-transports. When the agent starts, it attempts to discover tools from all  
+processes or remote HTTP services and discovered at runtime. You can configure
+servers in an `mcp.config.json` adjacent to where `createMastraAgentRuntime` is
+invoked. Every server requires a unique `name` and one explicit transport:
+`stdio`, `streamable-http`, or legacy `sse`. The transport is never inferred
+from the URL and there is no automatic HTTP-to-SSE fallback.
+
+Use Streamable HTTP for new remote servers:
+
+```json
+{
+  "servers": [
+    {
+      "transport": "streamable-http",
+      "name": "remote-api",
+      "url": "https://your-host.example.com/mcp"
+    }
+  ]
+}
+```
+
+Use `transport: "sse"` only for a server that explicitly implements the legacy
+HTTP+SSE transport, typically at an `/sse` endpoint. `stdio` entries require
+`command`; both HTTP variants require `url` and accept the same optional
+`headers`. When the agent starts, it attempts to discover tools from all
 configured servers with a default timeout of 5 seconds. If discovery times  
 out, the agent logs a warning and continues with local tools only.
+
+The protocol-faithful remote client is exported from the dedicated
+`@brainstrike/agent/mcp-client` entrypoint. It uses the official MCP SDK and
+constructs only the configured HTTP transport; it never probes, rewrites paths,
+or falls back. Remote URLs must be HTTP(S), must not contain credentials, and
+configured headers that conflict with protocol-required values fail loudly.
+Connections are lazy and concurrency-safe. A failed initial connection can be
+retried with a fresh transport, while `close()` is terminal and idempotent. For
+a stateful Streamable HTTP connection, close attempts session termination before
+locally closing and still completes local cleanup if termination fails.
+
+`createMastraAgentRuntime` partitions the configured servers before discovery:
+Mastra's MCP client receives only `stdio`; each HTTP entry uses the explicit SDK
+client above. Their toolsets then rejoin the unchanged namespace/sanitize,
+output-bound, guard, hook, and permission pipeline. HTTP tool progress is emitted
+as a transient custom stream part; a progress-writer failure is logged but never
+overrides the remote tool's primary result or error.
 
 Tips for MCP integration:
 

@@ -4,21 +4,21 @@ import { TokenSummaryBar } from '../indexing/token-summary-bar';
 import type { TokenCountingState } from '../indexing/use-token-counting';
 
 const defaultTokenCounting: TokenCountingState = {
-  mode: 'heuristic',
-  loading: false,
-  reason: null,
   countTokens: async () => 0,
+  loading: false,
+  mode: 'heuristic',
+  reason: null,
 };
 
 describe('TokenSummaryBar', () => {
   const defaultProps = {
-    totalFiles: 10,
-    selectedTokens: 5000,
-    treeTokens: 1000,
-    includeTree: true,
     budget: 100_000,
+    includeTree: true,
     isOverBudget: false,
+    selectedTokens: 5000,
     tokenCounting: defaultTokenCounting,
+    totalFiles: 10,
+    treeTokens: 1000,
   };
 
   describe('BST-153: estimating state', () => {
@@ -30,10 +30,10 @@ describe('TokenSummaryBar', () => {
       expect(screen.queryByText('Unavailable')).not.toBeInTheDocument();
     });
 
-    it('shows "selected" when no files are pending', () => {
+    it('shows "output" when no files are pending', () => {
       render(<TokenSummaryBar {...defaultProps} selectedTokensPendingCount={0} />);
 
-      expect(screen.getByText(/5,000 selected/)).toBeInTheDocument();
+      expect(screen.getByText(/5,000 output/)).toBeInTheDocument();
     });
 
     it('shows "estimating..." when files are pending', () => {
@@ -53,11 +53,11 @@ describe('TokenSummaryBar', () => {
     it('defaults to not estimating when prop is omitted', () => {
       render(<TokenSummaryBar {...defaultProps} />);
 
-      expect(screen.getByText(/5,000 selected/)).toBeInTheDocument();
+      expect(screen.getByText(/5,000 output/)).toBeInTheDocument();
       expect(screen.queryByText(/estimating/)).not.toBeInTheDocument();
     });
 
-    it('shows output/source breakdown when tapestry range mode is enabled', () => {
+    it('always shows the source token breakdown alongside output tokens (single presentation, no toggle)', () => {
       render(
         <TokenSummaryBar
           {...defaultProps}
@@ -65,7 +65,6 @@ describe('TokenSummaryBar', () => {
           rangeAdjustedFilesCount={3}
           selectedTokens={3200}
           sourceSelectedTokens={5000}
-          useTapestryRanges
         />
       );
 

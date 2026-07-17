@@ -21,18 +21,18 @@ const logger = createLogger('PerfTiming');
  * Operations exceeding these thresholds will log warnings.
  */
 export const PERF_BUDGETS = {
-  /** Budget for directory expand operation */
-  expandDirectory: 100,
   /** Budget for directory collapse operation */
   collapseDirectory: 50,
-  /** Budget for single directory listing (I/O) */
-  listDirectory: 200,
-  /** Budget for tree flattening (CPU-bound) */
-  flattenTree: 50,
-  /** Budget for materialization of selection rules */
-  materializeRules: 100,
   /** Budget for expand-all batch processing */
   expandBatch: 500,
+  /** Budget for directory expand operation */
+  expandDirectory: 100,
+  /** Budget for tree flattening (CPU-bound) */
+  flattenTree: 50,
+  /** Budget for single directory listing (I/O) */
+  listDirectory: 200,
+  /** Budget for materialization of selection rules */
+  materializeRules: 100,
   /** Budget for tree snapshot creation */
   treeSnapshot: 100,
 } as const;
@@ -108,18 +108,18 @@ export async function timeOperation<T>(
 
     if (exceededBudget) {
       logger.warn(`Operation "${name}" exceeded budget`, {
-        durationMs: Math.round(durationMs),
         budgetMs: budget,
+        durationMs: Math.round(durationMs),
         exceededBy: Math.round(durationMs - budget),
       });
     } else {
       logger.debug(`Operation "${name}" completed`, {
-        durationMs: Math.round(durationMs),
         budgetMs: budget,
+        durationMs: Math.round(durationMs),
       });
     }
 
-    return { result, durationMs, exceededBudget };
+    return { durationMs, exceededBudget, result };
   } catch (error) {
     const durationMs = performance.now() - start;
 
@@ -181,13 +181,13 @@ export function timeOperationSync<T>(
 
     if (exceededBudget) {
       logger.warn(`Operation "${name}" exceeded budget`, {
-        durationMs: Math.round(durationMs),
         budgetMs: budget,
+        durationMs: Math.round(durationMs),
         exceededBy: Math.round(durationMs - budget),
       });
     }
 
-    return { result, durationMs, exceededBudget };
+    return { durationMs, exceededBudget, result };
   } catch (error) {
     const durationMs = performance.now() - start;
 
@@ -235,8 +235,8 @@ export function checkBudget(name: string, durationMs: number, budgetKey: PerfBud
 
   if (exceeded) {
     logger.warn(`Operation "${name}" exceeded budget`, {
-      durationMs: Math.round(durationMs),
       budgetMs: budget,
+      durationMs: Math.round(durationMs),
       exceededBy: Math.round(durationMs - budget),
     });
   }
@@ -291,24 +291,24 @@ export class TimingCollector {
   getStats(): TimingStats {
     if (this.samples.length === 0) {
       return {
-        count: 0,
-        totalMs: 0,
-        minMs: 0,
-        maxMs: 0,
         avgMs: 0,
+        count: 0,
         exceededCount: 0,
+        maxMs: 0,
+        minMs: 0,
+        totalMs: 0,
       };
     }
 
     const totalMs = this.samples.reduce((sum, s) => sum + s, 0);
 
     return {
-      count: this.samples.length,
-      totalMs,
-      minMs: Math.min(...this.samples),
-      maxMs: Math.max(...this.samples),
       avgMs: totalMs / this.samples.length,
+      count: this.samples.length,
       exceededCount: this.exceededCount,
+      maxMs: Math.max(...this.samples),
+      minMs: Math.min(...this.samples),
+      totalMs,
     };
   }
 
@@ -325,13 +325,13 @@ export class TimingCollector {
     const logFn = stats.exceededCount > 0 ? logger.warn : logger.info;
 
     logFn.call(logger, `Timing summary for "${this.name}"`, {
-      count: stats.count,
       avgMs: Math.round(stats.avgMs),
-      minMs: Math.round(stats.minMs),
-      maxMs: Math.round(stats.maxMs),
       budgetMs: budget,
+      count: stats.count,
       exceededCount: stats.exceededCount,
       exceededPct: Math.round((stats.exceededCount / stats.count) * 100),
+      maxMs: Math.round(stats.maxMs),
+      minMs: Math.round(stats.minMs),
     });
   }
 

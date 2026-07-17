@@ -16,8 +16,8 @@ describe('CohereEmbeddingProvider', () => {
   describe('initialization', () => {
     it('should initialize with required parameters', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       expect(provider.runtime).toBe('hosted');
@@ -27,9 +27,9 @@ describe('CohereEmbeddingProvider', () => {
 
     it('should initialize with optional inputType', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         inputType: 'search_query',
+        modelId: mockModelId,
       });
 
       expect(provider.hasApiKey()).toBe(true);
@@ -37,8 +37,8 @@ describe('CohereEmbeddingProvider', () => {
 
     it('should handle empty API key', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: '',
+        modelId: mockModelId,
       });
 
       expect(provider.hasApiKey()).toBe(false);
@@ -46,8 +46,8 @@ describe('CohereEmbeddingProvider', () => {
 
     it('should trim and normalize API key', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: '  test-key  ',
+        modelId: mockModelId,
       });
 
       expect(provider.hasApiKey()).toBe(true);
@@ -57,8 +57,8 @@ describe('CohereEmbeddingProvider', () => {
   describe('isAvailable', () => {
     it('should return true when API key is present', async () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const available = await provider.isAvailable();
@@ -89,8 +89,8 @@ describe('CohereEmbeddingProvider', () => {
 
     it('should handle empty string', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       provider.setApiKey('');
@@ -101,8 +101,8 @@ describe('CohereEmbeddingProvider', () => {
   describe('getModelInfo', () => {
     it('should return model info for known model', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const info = provider.getModelInfo('embed-english-v3.0');
@@ -113,8 +113,8 @@ describe('CohereEmbeddingProvider', () => {
 
     it('should return null for unknown model', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const info = provider.getModelInfo('unknown-model');
@@ -125,8 +125,8 @@ describe('CohereEmbeddingProvider', () => {
   describe('getMetadata (BST-167)', () => {
     it('should return unified provider metadata for known model', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const metadata = provider.getMetadata('embed-english-v3.0');
@@ -140,8 +140,8 @@ describe('CohereEmbeddingProvider', () => {
 
     it('should return metadata for multilingual model', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: 'embed-multilingual-v3.0',
         apiKey: mockApiKey,
+        modelId: 'embed-multilingual-v3.0',
       });
 
       const metadata = provider.getMetadata('embed-multilingual-v3.0');
@@ -154,8 +154,8 @@ describe('CohereEmbeddingProvider', () => {
 
     it('should return null for unknown model', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const metadata = provider.getMetadata('unknown-model');
@@ -171,19 +171,21 @@ describe('CohereEmbeddingProvider', () => {
           embeddings: { float: [mockEmbedding] },
           texts: ['test text'],
         }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
+        { headers: { 'Content-Type': 'application/json' }, status: 200 }
       );
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
+      const signal = new AbortController().signal;
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        signal,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -200,11 +202,12 @@ describe('CohereEmbeddingProvider', () => {
       expect(mockFetch).toHaveBeenCalledWith(
         'https://api.cohere.com/v2/embed',
         expect.objectContaining({
-          method: 'POST',
           headers: expect.objectContaining({
-            'Content-Type': 'application/json',
             Authorization: `Bearer ${mockApiKey}`,
+            'Content-Type': 'application/json',
           }),
+          method: 'POST',
+          signal,
         })
       );
     });
@@ -215,8 +218,8 @@ describe('CohereEmbeddingProvider', () => {
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -230,14 +233,14 @@ describe('CohereEmbeddingProvider', () => {
     it('should return error when fetch fails', async () => {
       const mockFetch = vi.fn(() => Promise.reject(new Error('Fetch not available')));
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -252,21 +255,21 @@ describe('CohereEmbeddingProvider', () => {
       const mockResponse = new Response(
         JSON.stringify({ error: { message: 'Rate limit exceeded' } }),
         {
-          status: 429,
           headers: { 'Retry-After': '60' },
+          status: 429,
         }
       );
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -285,14 +288,14 @@ describe('CohereEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: 'invalid-key',
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -308,14 +311,14 @@ describe('CohereEmbeddingProvider', () => {
     it('should handle network error', async () => {
       const mockFetch = vi.fn(() => Promise.reject(new Error('Network failure')));
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -332,14 +335,14 @@ describe('CohereEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -361,14 +364,14 @@ describe('CohereEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -392,15 +395,15 @@ describe('CohereEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
-        inputType: 'search_query',
         fetch: mockFetch as typeof fetch,
+        inputType: 'search_query',
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       await provider.embed(input);
@@ -432,15 +435,15 @@ describe('CohereEmbeddingProvider', () => {
 
         const mockFetch = createMockFetch(mockResponse);
         const provider = new CohereEmbeddingProvider({
-          modelId: mockModelId,
           apiKey: mockApiKey,
-          inputType,
           fetch: mockFetch as typeof fetch,
+          inputType,
+          modelId: mockModelId,
         });
 
         const input: EmbeddingInput = {
-          text: 'test text',
           modelId: mockModelId,
+          text: 'test text',
         };
 
         const result = await provider.embed(input);
@@ -460,15 +463,15 @@ describe('CohereEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         endpoint: customEndpoint,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       await provider.embed(input);
@@ -483,8 +486,8 @@ describe('CohereEmbeddingProvider', () => {
   describe('validateDimensions', () => {
     it('should validate correct dimensions', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const embedding = new Array(1024).fill(0);
@@ -495,8 +498,8 @@ describe('CohereEmbeddingProvider', () => {
 
     it('should detect dimension mismatch', () => {
       const provider = new CohereEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const embedding = new Array(512).fill(0);

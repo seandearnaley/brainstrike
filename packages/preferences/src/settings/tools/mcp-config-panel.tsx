@@ -46,13 +46,13 @@ type McpPanelAction =
   | { type: 'SET_SAVED_VALUE'; value: string };
 
 const initialState: McpPanelState = {
-  pathDraft: '',
   editorValue: '',
-  savedValue: '',
-  loading: false,
-  statusMessage: null,
   errorMessage: null,
+  loading: false,
+  pathDraft: '',
+  savedValue: '',
   showReloadConfirm: false,
+  statusMessage: null,
 };
 
 function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanelState {
@@ -64,20 +64,20 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
     case 'START_LOADING':
       return {
         ...state,
+        errorMessage: null,
         loading: true,
         showReloadConfirm: false,
-        errorMessage: null,
         statusMessage: null,
       };
     case 'DOCUMENT_LOADED':
       return {
         ...state,
-        loading: false,
-        showReloadConfirm: false,
-        pathDraft: action.path,
         editorValue: action.content,
-        savedValue: action.content,
         errorMessage: null,
+        loading: false,
+        pathDraft: action.path,
+        savedValue: action.content,
+        showReloadConfirm: false,
         statusMessage: action.created
           ? 'Created a new MCP config template with commented examples.'
           : null,
@@ -85,9 +85,9 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
     case 'LOAD_ERROR':
       return {
         ...state,
+        errorMessage: action.error,
         loading: false,
         showReloadConfirm: false,
-        errorMessage: action.error,
         statusMessage: null,
       };
     case 'LOAD_DONE':
@@ -155,17 +155,17 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       loadError = error instanceof Error ? error.message : 'Failed to load MCP config';
     }
     if (loadError !== null) {
-      dispatch({ type: 'LOAD_ERROR', error: loadError });
+      dispatch({ error: loadError, type: 'LOAD_ERROR' });
       return;
     }
     if (doc === null) {
       dispatch({ type: 'LOAD_DONE' });
     } else {
       dispatch({
-        type: 'DOCUMENT_LOADED',
-        path: doc.path,
         content: doc.content,
         created: doc.created,
+        path: doc.path,
+        type: 'DOCUMENT_LOADED',
       });
     }
   }, []);
@@ -191,8 +191,8 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     const resolvedPath = nextPath.length > 0 ? nextPath : null;
     if (nextPath.length > 0 && !isAbsoluteFilePath(nextPath)) {
       dispatch({
-        type: 'SET_ERROR',
         message: 'Please provide an absolute path to the MCP config file.',
+        type: 'SET_ERROR',
       });
       return;
     }
@@ -200,11 +200,11 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     try {
       await operations.setMcpConfigPath(resolvedPath);
       await Promise.all([onConfigChanged(), loadDocument()]);
-      dispatch({ type: 'SET_STATUS', message: 'MCP config path updated.' });
+      dispatch({ message: 'MCP config path updated.', type: 'SET_STATUS' });
     } catch (error) {
       dispatch({
-        type: 'SET_ERROR',
         message: error instanceof Error ? error.message : 'Failed to update MCP config path',
+        type: 'SET_ERROR',
       });
     }
   }, [loadDocument, onConfigChanged, operations, pathDraft]);
@@ -220,8 +220,8 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       await Promise.all([onConfigChanged(), loadDocument()]);
     } catch (error) {
       dispatch({
-        type: 'SET_ERROR',
         message: error instanceof Error ? error.message : 'Failed to open MCP config picker',
+        type: 'SET_ERROR',
       });
     }
   }, [loadDocument, onConfigChanged, operations]);
@@ -235,11 +235,11 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       dispatch({ type: 'CLEAR_MESSAGES' });
       await operations.resetMcpConfig();
       await Promise.all([onConfigChanged(), loadDocument()]);
-      dispatch({ type: 'SET_STATUS', message: 'MCP config path reset to default.' });
+      dispatch({ message: 'MCP config path reset to default.', type: 'SET_STATUS' });
     } catch (error) {
       dispatch({
-        type: 'SET_ERROR',
         message: error instanceof Error ? error.message : 'Failed to reset MCP config path',
+        type: 'SET_ERROR',
       });
     }
   }, [loadDocument, onConfigChanged, operations]);
@@ -253,15 +253,15 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       dispatch({ type: 'CLEAR_MESSAGES' });
       const result = await operations.writeMcpConfigText(editorValue);
       if (!result.success) {
-        dispatch({ type: 'SET_ERROR', message: result.error });
+        dispatch({ message: result.error, type: 'SET_ERROR' });
         return;
       }
       dispatch({ type: 'SAVE_SUCCESS' });
       await onConfigChanged();
     } catch (error) {
       dispatch({
-        type: 'SET_ERROR',
         message: error instanceof Error ? error.message : 'Failed to save MCP config',
+        type: 'SET_ERROR',
       });
     }
   }, [editorValue, onConfigChanged, operations]);
@@ -538,8 +538,9 @@ function McpHelpCard() {
       <CardContent className="space-y-2 p-4">
         <div className="font-medium text-sm">Help</div>
         <div className="text-muted-foreground text-xs">
-          Use `stdio` for local commands and `sse` for remote endpoints. Comments are supported in
-          this file. Keep placeholder values replaced before enabling servers.
+          Use `streamable-http` for new remote endpoints, `stdio` for local commands, and `sse` only
+          for legacy HTTP+SSE servers. Comments are supported in this file. Keep placeholder values
+          replaced before enabling servers.
         </div>
         <pre className="overflow-x-auto rounded-md border bg-muted/30 p-3 text-[11px]">
           {`// stdio example
@@ -550,10 +551,17 @@ function McpHelpCard() {
   "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
 }
 
-// sse example
+// Streamable HTTP example (recommended)
+{
+  "transport": "streamable-http",
+  "name": "remote-api",
+  "url": "https://your-host.example.com/mcp"
+}
+
+// Legacy SSE example
 {
   "transport": "sse",
-  "name": "remote-api",
+  "name": "legacy-remote-api",
   "url": "https://your-host.example.com/mcp/sse"
 }`}
         </pre>

@@ -82,7 +82,7 @@ async function run(cmd) {
   return new Promise((resolve, reject) => {
     const started = performance.now();
     banner(`Starting ${cmd}`);
-    const child = spawn(cmd, { stdio: 'inherit', shell: true });
+    const child = spawn(cmd, { shell: true, stdio: 'inherit' });
     child.on('exit', (code) => {
       const ms = Math.round(performance.now() - started);
       const label = stepLabel(cmd);

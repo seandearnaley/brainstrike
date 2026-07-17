@@ -67,10 +67,10 @@ export interface FailureDiagnostics {
  * Type-safe console message type mapping
  */
 const CONSOLE_TYPE_MAP: Record<string, ConsoleLogEntry['type']> = {
-  error: 'error',
-  warning: 'warning',
-  info: 'info',
   debug: 'debug',
+  error: 'error',
+  info: 'info',
+  warning: 'warning',
 };
 
 /**
@@ -110,10 +110,10 @@ export class FailureArtifactCollector {
       const type = CONSOLE_TYPE_MAP[msgType] ?? 'log';
 
       this.consoleLogs.push({
-        type,
+        location: msg.location()?.url,
         text: msg.text(),
         timestamp: Date.now(),
-        location: msg.location()?.url,
+        type,
       });
     };
     this.page.on('console', this.consoleListener);
@@ -121,9 +121,9 @@ export class FailureArtifactCollector {
     // Define page error listener
     this.pageErrorListener = (error) => {
       this.consoleLogs.push({
-        type: 'error',
         text: `Page Error: ${error.message}`,
         timestamp: Date.now(),
+        type: 'error',
       });
     };
     this.page.on('pageerror', this.pageErrorListener);
@@ -132,11 +132,11 @@ export class FailureArtifactCollector {
     // This fixes the race condition where async handlers complete after test ends
     this.requestFinishedListener = (request) => {
       const entry: NetworkRequestEntry = {
-        url: request.url(),
+        failed: false,
         method: request.method(),
         status: null, // Will be updated asynchronously
         timing: request.timing().responseEnd,
-        failed: false,
+        url: request.url(),
       };
       this.networkRequests.push(entry);
 
@@ -156,12 +156,12 @@ export class FailureArtifactCollector {
     // Define request failed listener
     this.requestFailedListener = (request) => {
       this.networkRequests.push({
-        url: request.url(),
+        failed: true,
+        failureReason: request.failure()?.errorText,
         method: request.method(),
         status: null,
         timing: null,
-        failed: true,
-        failureReason: request.failure()?.errorText,
+        url: request.url(),
       });
     };
     this.page.on('requestfailed', this.requestFailedListener);
@@ -255,11 +255,11 @@ export class FailureArtifactCollector {
       ]);
 
       return {
-        url,
-        title,
-        viewportSize,
         localStorage,
         timestamp: Date.now(),
+        title,
+        url,
+        viewportSize,
       };
     } catch (error) {
       // biome-ignore lint/suspicious/noConsole: Intentional for E2E diagnostic logging
@@ -297,17 +297,17 @@ export class FailureArtifactCollector {
     const error = testInfo.error;
 
     return {
-      testName: testInfo.title,
-      testFile: testInfo.file,
-      timestamp: new Date().toISOString(),
-      duration: testInfo.duration,
-      retryCount: testInfo.retry,
-      error: error?.message,
-      stack: error?.stack,
-      consoleLogs: this.getConsoleLogs(),
-      networkRequests: this.getNetworkRequests(),
       appState,
+      consoleLogs: this.getConsoleLogs(),
       domSnapshot,
+      duration: testInfo.duration,
+      error: error?.message,
+      networkRequests: this.getNetworkRequests(),
+      retryCount: testInfo.retry,
+      stack: error?.stack,
+      testFile: testInfo.file,
+      testName: testInfo.title,
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -410,14 +410,14 @@ export function aggregateTestMetrics(diagnosticsList: FailureDiagnostics[]): Tes
   const commonErrors = [...errorCounts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
-    .map(([message, count]) => ({ message, count }));
+    .map(([message, count]) => ({ count, message }));
 
   return {
-    totalConsoleErrors: consoleErrors.length,
-    totalFailedRequests: failedRequests.length,
     averageTestDuration:
       diagnosticsList.reduce((sum, d) => sum + d.duration, 0) / diagnosticsList.length || 0,
-    flakyTests: [...new Set(flakyTests)],
     commonErrors,
+    flakyTests: [...new Set(flakyTests)],
+    totalConsoleErrors: consoleErrors.length,
+    totalFailedRequests: failedRequests.length,
   };
 }

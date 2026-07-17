@@ -27,8 +27,8 @@ export function toContextPackerChunk(
   const tokenCount = tokenCountLookup?.(result.content);
 
   const chunk: ContextPackerChunk = {
-    id: result.chunkId,
     content: result.content,
+    id: result.chunkId,
     score: result.similarity,
   };
 

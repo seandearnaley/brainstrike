@@ -30,9 +30,9 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
   const { fileName } = splitFilePath(item.path);
   const displayDirPath = formatFilePathSubtitle({
     filePath: item.path,
+    rootDisplayName: item.rootDisplayName,
     rootFolderId: item.rootFolderId,
     rootPath: item.rootPath,
-    rootDisplayName: item.rootDisplayName,
   });
   // Storage v5: rootFolderId is a RootId UUID — show the descriptor's
   // displayName (path-derived fallback only serves legacy path ids).

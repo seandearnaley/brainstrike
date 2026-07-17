@@ -16,8 +16,8 @@ describe('VoyageEmbeddingProvider', () => {
   describe('initialization', () => {
     it('should initialize with required parameters', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       expect(provider.runtime).toBe('hosted');
@@ -27,9 +27,9 @@ describe('VoyageEmbeddingProvider', () => {
 
     it('should initialize with optional inputType', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         inputType: 'query',
+        modelId: mockModelId,
       });
 
       expect(provider.hasApiKey()).toBe(true);
@@ -37,8 +37,8 @@ describe('VoyageEmbeddingProvider', () => {
 
     it('should handle empty API key', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: '',
+        modelId: mockModelId,
       });
 
       expect(provider.hasApiKey()).toBe(false);
@@ -46,8 +46,8 @@ describe('VoyageEmbeddingProvider', () => {
 
     it('should trim and normalize API key', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: '  test-key  ',
+        modelId: mockModelId,
       });
 
       expect(provider.hasApiKey()).toBe(true);
@@ -57,8 +57,8 @@ describe('VoyageEmbeddingProvider', () => {
   describe('isAvailable', () => {
     it('should return true when API key is present', async () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const available = await provider.isAvailable();
@@ -89,8 +89,8 @@ describe('VoyageEmbeddingProvider', () => {
 
     it('should handle empty string', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       provider.setApiKey('');
@@ -101,8 +101,8 @@ describe('VoyageEmbeddingProvider', () => {
   describe('getModelInfo', () => {
     it('should return model info for known model', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const info = provider.getModelInfo('voyage-3');
@@ -113,8 +113,8 @@ describe('VoyageEmbeddingProvider', () => {
 
     it('should return model info for voyage-3-lite', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: 'voyage-3-lite',
         apiKey: mockApiKey,
+        modelId: 'voyage-3-lite',
       });
 
       const info = provider.getModelInfo('voyage-3-lite');
@@ -125,8 +125,8 @@ describe('VoyageEmbeddingProvider', () => {
 
     it('should return null for unknown model', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const info = provider.getModelInfo('unknown-model');
@@ -137,8 +137,8 @@ describe('VoyageEmbeddingProvider', () => {
   describe('getMetadata (BST-167)', () => {
     it('should return unified provider metadata for voyage-3', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const metadata = provider.getMetadata('voyage-3');
@@ -152,8 +152,8 @@ describe('VoyageEmbeddingProvider', () => {
 
     it('should return metadata for voyage-3-lite with correct dimensions', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: 'voyage-3-lite',
         apiKey: mockApiKey,
+        modelId: 'voyage-3-lite',
       });
 
       const metadata = provider.getMetadata('voyage-3-lite');
@@ -166,8 +166,8 @@ describe('VoyageEmbeddingProvider', () => {
 
     it('should return null for unknown model', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const metadata = provider.getMetadata('unknown-model');
@@ -184,19 +184,21 @@ describe('VoyageEmbeddingProvider', () => {
           model: mockModelId,
           usage: { total_tokens: 10 },
         }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
+        { headers: { 'Content-Type': 'application/json' }, status: 200 }
       );
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
+      const signal = new AbortController().signal;
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        signal,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -213,11 +215,12 @@ describe('VoyageEmbeddingProvider', () => {
       expect(mockFetch).toHaveBeenCalledWith(
         'https://api.voyageai.com/v1/embeddings',
         expect.objectContaining({
-          method: 'POST',
           headers: expect.objectContaining({
-            'Content-Type': 'application/json',
             Authorization: `Bearer ${mockApiKey}`,
+            'Content-Type': 'application/json',
           }),
+          method: 'POST',
+          signal,
         })
       );
     });
@@ -228,8 +231,8 @@ describe('VoyageEmbeddingProvider', () => {
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -244,14 +247,14 @@ describe('VoyageEmbeddingProvider', () => {
       // Create a provider that will use globalThis.fetch which exists but will fail
       const mockFetch = vi.fn(() => Promise.reject(new Error('Fetch not available')));
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -266,21 +269,21 @@ describe('VoyageEmbeddingProvider', () => {
       const mockResponse = new Response(
         JSON.stringify({ error: { message: 'Rate limit exceeded' } }),
         {
-          status: 429,
           headers: { 'Retry-After': '60' },
+          status: 429,
         }
       );
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -297,21 +300,21 @@ describe('VoyageEmbeddingProvider', () => {
       const mockResponse = new Response(
         JSON.stringify({ error: { message: 'Rate limit exceeded' } }),
         {
-          status: 429,
           headers: { 'Retry-After': futureDate },
+          status: 429,
         }
       );
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -333,14 +336,14 @@ describe('VoyageEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -359,14 +362,14 @@ describe('VoyageEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: 'invalid-key',
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -386,14 +389,14 @@ describe('VoyageEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -407,14 +410,14 @@ describe('VoyageEmbeddingProvider', () => {
     it('should handle network error', async () => {
       const mockFetch = vi.fn(() => Promise.reject(new Error('Network failure')));
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -431,14 +434,14 @@ describe('VoyageEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -460,14 +463,14 @@ describe('VoyageEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       const result = await provider.embed(input);
@@ -490,15 +493,15 @@ describe('VoyageEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
-        inputType: 'query',
         fetch: mockFetch as typeof fetch,
+        inputType: 'query',
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       await provider.embed(input);
@@ -522,14 +525,14 @@ describe('VoyageEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       await provider.embed(input);
@@ -556,15 +559,15 @@ describe('VoyageEmbeddingProvider', () => {
 
         const mockFetch = createMockFetch(mockResponse);
         const provider = new VoyageEmbeddingProvider({
-          modelId: mockModelId,
           apiKey: mockApiKey,
-          inputType,
           fetch: mockFetch as typeof fetch,
+          inputType,
+          modelId: mockModelId,
         });
 
         const input: EmbeddingInput = {
-          text: 'test text',
           modelId: mockModelId,
+          text: 'test text',
         };
 
         const result = await provider.embed(input);
@@ -584,15 +587,15 @@ describe('VoyageEmbeddingProvider', () => {
 
       const mockFetch = createMockFetch(mockResponse);
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
         endpoint: customEndpoint,
         fetch: mockFetch as typeof fetch,
+        modelId: mockModelId,
       });
 
       const input: EmbeddingInput = {
-        text: 'test text',
         modelId: mockModelId,
+        text: 'test text',
       };
 
       await provider.embed(input);
@@ -607,8 +610,8 @@ describe('VoyageEmbeddingProvider', () => {
   describe('validateDimensions', () => {
     it('should validate correct dimensions', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const embedding = new Array(1024).fill(0);
@@ -619,8 +622,8 @@ describe('VoyageEmbeddingProvider', () => {
 
     it('should detect dimension mismatch', () => {
       const provider = new VoyageEmbeddingProvider({
-        modelId: mockModelId,
         apiKey: mockApiKey,
+        modelId: mockModelId,
       });
 
       const embedding = new Array(512).fill(0);

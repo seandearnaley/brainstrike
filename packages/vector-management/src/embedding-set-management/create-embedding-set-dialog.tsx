@@ -64,9 +64,9 @@ function resolveSelectedEmbeddingModel(
     return null;
   }
   return {
-    modelKey: selectedModelInfo.id,
-    modelId,
     dimensions: selectedModelInfo.capabilities.defaultDimension ?? 1536,
+    modelId,
+    modelKey: selectedModelInfo.id,
   };
 }
 
@@ -119,10 +119,10 @@ interface CreateEmbeddingSetFormData {
 function readSubmittedFormData(form: HTMLFormElement): CreateEmbeddingSetFormData {
   const submitted = new FormData(form);
   return {
-    name: String(submitted.get('name') ?? ''),
-    description: String(submitted.get('description') ?? ''),
-    tags: String(submitted.get('tags') ?? ''),
     category: String(submitted.get('category') ?? ''),
+    description: String(submitted.get('description') ?? ''),
+    name: String(submitted.get('name') ?? ''),
+    tags: String(submitted.get('tags') ?? ''),
   };
 }
 
@@ -172,8 +172,8 @@ type FormAction =
 
 const INITIAL_FORM_STATE: FormState = {
   creating: false,
-  formData: { name: '', description: '', tags: '', category: '', selectedModel: '' },
   existingNames: new Set(),
+  formData: { category: '', description: '', name: '', selectedModel: '', tags: '' },
   hasInitialized: false,
   nameDirty: false,
 };
@@ -197,8 +197,8 @@ function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         formData: {
           ...state.formData,
-          selectedModel: action.modelId,
           name: action.autoName ?? state.formData.name,
+          selectedModel: action.modelId,
         },
       };
     case 'refine_existing_names': {
@@ -229,8 +229,8 @@ function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         formData: {
           ...state.formData,
-          selectedModel: action.modelId,
           name: hasUserProvidedName ? state.formData.name : action.name,
+          selectedModel: action.modelId,
         },
         hasInitialized: true,
       };
@@ -278,9 +278,9 @@ export function CreateEmbeddingSetDialog({
       return;
     }
     dispatch({
-      type: 'init_with_model',
       modelId: firstModel.id,
       name: firstModel.name,
+      type: 'init_with_model',
     });
   }, [open, hasModelOptions, models, hasInitialized]);
 
@@ -311,10 +311,10 @@ export function CreateEmbeddingSetDialog({
       // time to decide whether the user has typed or switched models since
       // this query started, and skips the refinement if so.
       dispatch({
-        type: 'refine_existing_names',
-        names: collectionNames,
         baseModelId: firstModel?.id ?? null,
         baseName: firstModel?.name ?? null,
+        names: collectionNames,
+        type: 'refine_existing_names',
       });
     })();
     return () => {
@@ -325,8 +325,8 @@ export function CreateEmbeddingSetDialog({
   const validateCreateInputs = (submittedFormData: CreateEmbeddingSetFormData): boolean => {
     if (!(repository && selectedModelInfo)) {
       toast({
-        title: 'Error',
         description: 'Invalid configuration',
+        title: 'Error',
         variant: 'destructive',
       });
       return false;
@@ -334,8 +334,8 @@ export function CreateEmbeddingSetDialog({
 
     if (!submittedFormData.name.trim()) {
       toast({
-        title: 'Validation Error',
         description: 'Please provide a name for the embedding set',
+        title: 'Validation Error',
         variant: 'destructive',
       });
       return false;
@@ -352,8 +352,8 @@ export function CreateEmbeddingSetDialog({
     const selectedModel = resolveSelectedEmbeddingModel(selectedModelInfo);
     if (!selectedModel) {
       toast({
-        title: 'Error',
         description: 'Selected model metadata is invalid',
+        title: 'Error',
         variant: 'destructive',
       });
       return;
@@ -361,7 +361,7 @@ export function CreateEmbeddingSetDialog({
     const { modelKey, modelId, dimensions } = selectedModel;
     const distance = 'cosine'; // Default for now
 
-    dispatch({ type: 'set_creating', creating: true });
+    dispatch({ creating: true, type: 'set_creating' });
     let createdSet: EmbeddingSet | null = null;
     try {
       const metadata = buildMetadata(submittedFormData);
@@ -378,40 +378,40 @@ export function CreateEmbeddingSetDialog({
       setActiveEmbeddingSetId(newSet.id);
 
       dispatchEmbeddingSetUpdated({
-        id: newSet.id,
-        reason: 'created',
         collection: {
-          id: newSet.id,
-          modelKey: newSet.modelKey,
-          modelId: newSet.modelId,
+          category: newSet.category ?? null,
+          chunkCount: 0,
+          createdAt: newSet.createdAt,
+          description: newSet.description ?? null,
           dimensions: newSet.dimensions,
           distance: newSet.distance,
-          createdAt: newSet.createdAt,
-          name: newSet.name ?? null,
-          description: newSet.description ?? null,
-          tags: newSet.tags ?? null,
-          category: newSet.category ?? null,
-          fileCount: 0,
-          chunkCount: 0,
           embeddingCount: 0,
+          fileCount: 0,
+          id: newSet.id,
+          modelId: newSet.modelId,
+          modelKey: newSet.modelKey,
+          name: newSet.name ?? null,
           statsAvailable: false,
           statsLastRefreshedAt: null,
+          tags: newSet.tags ?? null,
         },
+        id: newSet.id,
+        reason: 'created',
       });
 
       toast({
-        title: 'Success',
         description: `Created embedding set: ${metadata.name}`,
+        title: 'Success',
       });
 
       dispatch({ type: 'reset' });
       handleOpenChange(false);
     } catch (error) {
-      dispatch({ type: 'set_creating', creating: false });
+      dispatch({ creating: false, type: 'set_creating' });
       logger.error('Failed to create embedding set', { error });
       toast({
-        title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to create collection',
+        title: 'Error',
         variant: 'destructive',
       });
       return;
@@ -473,7 +473,7 @@ export function CreateEmbeddingSetDialog({
                   // preserve whatever the user typed.
                   const autoName =
                     !nameDirty && picked ? generateUniqueName(picked.name, existingNames) : null;
-                  dispatch({ type: 'select_model', modelId: modelKey, autoName });
+                  dispatch({ autoName, modelId: modelKey, type: 'select_model' });
                 }}
                 placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
                 providers={providers}
@@ -518,7 +518,7 @@ export function CreateEmbeddingSetDialog({
                 id="description"
                 name="description"
                 onChange={(e) =>
-                  dispatch({ type: 'set_field', field: 'description', value: e.target.value })
+                  dispatch({ field: 'description', type: 'set_field', value: e.target.value })
                 }
                 placeholder="What this collection is for"
                 value={formData.description}
@@ -535,7 +535,7 @@ export function CreateEmbeddingSetDialog({
                   id="tags"
                   name="tags"
                   onChange={(e) =>
-                    dispatch({ type: 'set_field', field: 'tags', value: e.target.value })
+                    dispatch({ field: 'tags', type: 'set_field', value: e.target.value })
                   }
                   placeholder="code, docs, analysis"
                   value={formData.tags}
@@ -554,7 +554,7 @@ export function CreateEmbeddingSetDialog({
                   id="category"
                   name="category"
                   onChange={(e) =>
-                    dispatch({ type: 'set_field', field: 'category', value: e.target.value })
+                    dispatch({ field: 'category', type: 'set_field', value: e.target.value })
                   }
                   placeholder="e.g., development"
                   value={formData.category}

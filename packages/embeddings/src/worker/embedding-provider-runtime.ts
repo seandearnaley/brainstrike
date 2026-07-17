@@ -53,10 +53,6 @@ export interface EmbeddingServiceInitializationOptions {
   streamingWorkerUrl?: string;
 }
 
-export interface EmbeddingProviderExecutionOptions {
-  distance?: 'cosine' | 'l2' | 'ip';
-}
-
 function createSimpleEmbeddingServiceOptions(
   options: Pick<EmbeddingServiceInitializationOptions, 'streamBatchSize' | 'streamingWorkerUrl'>
 ): SimpleEmbeddingServiceOptions | undefined {
@@ -87,16 +83,16 @@ export function resolveWorkerModel(fromOptions?: string): WorkerModelResolution 
 
   if (parsed) {
     return {
-      provider: parsed.provider,
-      modelId: parsed.modelId,
       compositeKey: formatProviderModelKey(parsed.provider, parsed.modelId),
+      modelId: parsed.modelId,
+      provider: parsed.provider,
     };
   }
 
   return {
-    provider: 'local',
-    modelId: candidate,
     compositeKey: formatProviderModelKey('local', candidate),
+    modelId: candidate,
+    provider: 'local',
   };
 }
 
@@ -145,11 +141,10 @@ export function readBooleanEnv(key: string): boolean | undefined {
     if (['0', 'false', 'no', 'off'].includes(normalized)) {
       return false;
     }
-    return;
   } catch (error) {
-    runtimeLogger.debug('Failed to read boolean env flag', { key, error });
-    return;
+    runtimeLogger.debug('Failed to read boolean env flag', { error, key });
   }
+  return;
 }
 
 export function ensureLocalRuntime(modelResolution: { provider: EmbeddingProviderType }): void {
@@ -218,31 +213,31 @@ export function buildHostedProviderConfig(
   switch (provider) {
     case 'openai':
       return {
-        runtime: 'hosted',
-        provider: 'openai',
-        modelId,
         dimensions: expectedDimension,
+        modelId,
+        provider: 'openai',
+        runtime: 'hosted',
       };
     case 'google':
       return {
-        runtime: 'hosted',
-        provider: 'google',
         modelId,
         outputDimensionality: expectedDimension,
+        provider: 'google',
+        runtime: 'hosted',
       };
     case 'ollama':
       return {
-        runtime: 'hosted',
-        provider: 'ollama',
-        modelId,
         dimensions: expectedDimension,
+        modelId,
+        provider: 'ollama',
+        runtime: 'hosted',
       };
     case 'lmstudio':
       return {
-        runtime: 'hosted',
-        provider: 'lmstudio',
-        modelId,
         dimensions: expectedDimension,
+        modelId,
+        provider: 'lmstudio',
+        runtime: 'hosted',
       };
     default:
       throw new Error(`Hosted provider "${provider}" is not supported yet.`);
@@ -323,31 +318,31 @@ export async function initializeEmbeddingService(
 
   runtimeLogger.info('initializeEmbeddingService: querying DB for model', {
     modelKey,
-    registryModelKey,
     parsedProvider: parsedForRegistry?.provider,
+    registryModelKey,
   });
 
   let modelConfig = await getModelConfigFromDb(options.db, registryModelKey);
 
   runtimeLogger.info('initializeEmbeddingService: DB query complete', {
-    registryModelKey,
-    foundConfig: !!modelConfig,
-    configName: modelConfig?.name,
     configDimensions: modelConfig?.dimensions,
+    configName: modelConfig?.name,
+    foundConfig: !!modelConfig,
+    registryModelKey,
   });
 
   if (!modelConfig && options.service) {
     const serviceConfig = service.getConfig();
     const testEmbedding = await service.generateEmbedding('test');
     modelConfig = {
+      description: 'Custom embedding service model',
+      dimensions: testEmbedding.embedding.length,
       id: serviceConfig.modelId || 'custom-model',
       name: 'Custom Service Model',
-      dimensions: testEmbedding.embedding.length,
-      quantized: false,
-      description: 'Custom embedding service model',
-      tags: ['custom'],
       origin: 'custom',
+      quantized: false,
       size: 'unknown',
+      tags: ['custom'],
     };
   }
 
@@ -380,7 +375,7 @@ export async function initializeEmbeddingService(
     }
   }
 
-  return { service, modelConfig };
+  return { modelConfig, service };
 }
 
 export function ensureModelDimension(
@@ -392,17 +387,17 @@ export function ensureModelDimension(
   if (!Number.isFinite(dimensions) || dimensions <= 0) {
     const errorMsg = `Model '${modelKey}' reported an invalid embedding dimension (${modelConfig.dimensions}).`;
     log('worker_model_dimension_invalid', {
-      modelKey,
       dimensions: modelConfig.dimensions,
+      modelKey,
     });
     throw new Error(errorMsg);
   }
 
   if (dimensions > MAX_EMBEDDING_DIMENSION) {
     log('worker_model_dimension_warning', {
-      modelKey,
       dimensions,
       message: `pgvector supports up to ${MAX_EMBEDDING_DIMENSION} dimensions; verify provider settings.`,
+      modelKey,
     });
     throw new Error(
       `Model '${modelKey}' exceeds the supported embedding dimension limit (${MAX_EMBEDDING_DIMENSION}). Received ${dimensions}.`
@@ -411,9 +406,9 @@ export function ensureModelDimension(
 
   if (dimensions !== DEFAULT_EMBEDDING_DIMENSION) {
     log('worker_model_dimension_notice', {
-      modelKey,
-      dimensions,
       default: DEFAULT_EMBEDDING_DIMENSION,
+      dimensions,
+      modelKey,
     });
   }
 

@@ -1,4 +1,6 @@
+import type { AssistantTaskItem } from './assistant-task-list.js';
 import type { RuntimeAssistantMemorySettings } from './memory-settings.js';
+import type { SkillsContextRequest } from './skills.js';
 
 export type RuntimeJsonObject = Record<string, unknown>;
 
@@ -7,12 +9,26 @@ export interface RuntimeAgentLoopSettings {
   maxSteps?: number;
 }
 
-export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type OpenAiReasoningEffort =
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 
 export interface OpenAiProviderOptions extends RuntimeJsonObject {
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
+}
+
+export interface OpenRouterProviderOptions extends RuntimeJsonObject {
+  reasoning?: {
+    effort?: OpenAiReasoningEffort;
+    summary?: OpenAiReasoningSummary;
+  };
 }
 
 export type AnthropicEffort = 'low' | 'medium' | 'high';
@@ -44,7 +60,11 @@ export interface LocalRuntimeProviderOptions extends RuntimeJsonObject {
 }
 
 export interface RuntimeModelSettings {
+  frequencyPenalty?: number;
   maxOutputTokens?: number;
+  presencePenalty?: number;
+  temperature?: number;
+  topP?: number;
 }
 
 export type RuntimeProviderOptions = RuntimeJsonObject & {
@@ -54,6 +74,7 @@ export type RuntimeProviderOptions = RuntimeJsonObject & {
   local?: LocalProviderOptions;
   ollama?: LocalRuntimeProviderOptions;
   openai?: OpenAiProviderOptions;
+  openrouter?: OpenRouterProviderOptions;
 };
 
 export interface RuntimeWorkspaceContextRangeMetadata {
@@ -97,7 +118,6 @@ export interface RuntimeWorkspaceContextMetadata {
   selectedOutputApproxTokens?: number | null;
   selectedSourceApproxTokens?: number | null;
   tokenBudget?: number;
-  useTapestryRanges?: boolean;
 }
 
 export type RuntimeWorkspaceIndexStatusState =
@@ -122,6 +142,40 @@ export interface RuntimeWorkspaceIndexQueueProgress {
 }
 
 export type RuntimeMemoryOptions = RuntimeJsonObject;
+
+/**
+ * Renderer-supplied preference for auto-injecting a mounted root's workspace
+ * instructions file (`AGENTS.md`/`AGENT.md`/`CLAUDE.md`) into the assistant's
+ * system context (see docs/agents/workspace-context.md "WORKSPACE INSTRUCTIONS CONTEXT"). Mirrors the
+ * persisted `workspace-instructions-preferences-store` slice as plain JSON.
+ *
+ * Threshold-hybrid policy: a file that FITS the per-file char budget is injected
+ * whole by default; an OVERSIZED file is injected (truncated) only for a root
+ * whose id is `true` in `oversizedOptInByRootId`. Absent/`undefined` =>
+ * master-enabled default (feature on), no oversized opt-ins.
+ */
+export interface WorkspaceInstructionsContextRequest {
+  /** Master opt-out. Absent is treated as ON (the store default). */
+  masterEnabled?: boolean;
+  /**
+   * Per-root opt-in to inject an OVERSIZED context file (truncated). Keyed by the
+   * durable DB `roots.id`; only `true` entries are meaningful.
+   */
+  oversizedOptInByRootId?: Record<string, boolean>;
+}
+
+/**
+ * Renderer preference for subagent persona availability (see the
+ * subagent-personas preferences store). Presence-means-non-default: the
+ * renderer attaches it only when something diverges from "delegation on,
+ * nothing disabled".
+ */
+export interface SubagentPersonasAvailabilityRequest {
+  /** Master switch. Absent is treated as ON (the store default). */
+  delegationEnabled?: boolean;
+  /** Persona ids (built-in or user) the user toggled OFF. */
+  disabledPersonaIds?: readonly string[];
+}
 
 export interface RuntimeMemoryContext {
   memoryOptions?: RuntimeMemoryOptions;
@@ -148,6 +202,15 @@ export interface RuntimeData {
   memory?: RuntimeMemoryContext;
   model?: string;
   modelSettings?: RuntimeModelSettings;
+  /**
+   * Plan mode (opt-in, per-request). When `true`, the agent runtime constrains
+   * the tool map to read-only + `submitPlan`/`askUser` (edit/execute tools are
+   * omitted) and prepends a PLAN-MODE instruction block, so the model
+   * investigates and proposes a plan for approval before any changes. Sent over
+   * the wire ONLY when `true` (presence-means-on, like `permissionPolicyRequest`).
+   * Excluded for the built-in local provider. Agent-only enforcement.
+   */
+  planMode?: boolean;
   projectId?: string;
   provider?: 'anthropic' | 'google' | 'local' | 'openai' | 'openrouter' | string;
   providerOptions?: RuntimeProviderOptions;
@@ -163,6 +226,29 @@ export interface RuntimeData {
   selectionFolderId?: string;
   selectionSnapshotId?: string;
   signal?: AbortSignal;
+  /**
+   * Renderer-supplied Agent Skills preference (from the skills preferences
+   * store). A preference, not a security boundary — it can only REDUCE the
+   * skill set (master off / per-skill disable), never inject skills. Absent =>
+   * master enabled, nothing disabled. The desktop server resolves it into the
+   * TRUSTED `workspaceSkills` engine (agent-side field); a client-supplied
+   * engine is stripped.
+   */
+  skillsPreference?: SkillsContextRequest;
+  /**
+   * Renderer-supplied subagent persona availability (from the subagent-personas
+   * preferences store). A preference, not a security boundary — it can only
+   * REDUCE the persona set (disable delegation or individual personas), never
+   * inject personas or credentials. Absent => delegation on, nothing disabled.
+   */
+  subagentPersonasRequest?: SubagentPersonasAvailabilityRequest;
+  /**
+   * The current per-thread assistant task list, read server-side at request
+   * start and re-serialized into the system instructions every turn (see the
+   * `<current-task-list>` block in the agent runtime). Populated server-side
+   * only — the client never sends it.
+   */
+  taskList?: readonly AssistantTaskItem[];
   tokenBudget?: number | null;
   workspaceContext?: RuntimeWorkspaceContextMetadata;
   workspaceIndexBlockedReason?: string | null;
@@ -173,6 +259,12 @@ export interface RuntimeData {
   workspaceIndexLastError?: string | null;
   workspaceIndexQueueProgress?: RuntimeWorkspaceIndexQueueProgress | null;
   workspaceIndexStatusState?: RuntimeWorkspaceIndexStatusState;
+  /**
+   * Renderer-supplied preference for auto-injecting a root's workspace
+   * instructions file into the system context. A preference, not a security
+   * boundary — the server reads it directly. Absent => master-enabled default.
+   */
+  workspaceInstructionsPreference?: WorkspaceInstructionsContextRequest;
   workspaceRootPath?: string;
   /**
    * Active workspace roots (multi-root). Resolved server-side from the DB

@@ -49,12 +49,12 @@ async function ensureAgentSidebarVisible(page: Page): Promise<Locator> {
   const sidebarPanel = page.locator('#agent-workspace-explorer-panel');
   const showSidebarButton = page
     .locator('[data-testid="show-threads-panel"]')
-    .or(page.getByRole('button', { name: 'Show agent panel' }))
-    .or(page.locator('button[aria-label="Show agent panel"]'));
+    .or(page.getByRole('button', { name: 'Show library panel' }))
+    .or(page.locator('button[aria-label="Show library panel"]'));
   const hideSidebarButton = page
     .locator('[data-testid="hide-threads-panel"]')
-    .or(page.getByRole('button', { name: 'Hide agent panel' }))
-    .or(page.locator('button[aria-label="Hide agent panel"]'));
+    .or(page.getByRole('button', { name: 'Hide library panel' }))
+    .or(page.locator('button[aria-label="Hide library panel"]'));
 
   const panelBox = await sidebarPanel.boundingBox().catch(() => null);
   const sidebarVisible = Boolean(panelBox && panelBox.width > 5 && panelBox.height > 5);
@@ -68,12 +68,12 @@ async function ensureAgentSidebarVisible(page: Page): Promise<Locator> {
       await hideSidebarButton.first().click();
       await showSidebarButton.first().click();
     } else {
-      console.warn('⚠️ Agent sidebar controls not found; waiting for panel to appear.');
+      console.warn('⚠️ Library panel controls not found; waiting for panel to appear.');
     }
   }
 
   await sidebarPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
-    console.warn('⚠️ Agent sidebar did not become visible after request.');
+    console.warn('⚠️ Library panel did not become visible after request.');
   });
 
   return sidebarPanel;
@@ -135,7 +135,7 @@ export async function showDatabaseDemoPanel(
 
     const databaseTabTrigger = activePage
       .getByTestId('database-tab-trigger')
-      .or(activePage.getByRole('tab', { name: 'Database' }));
+      .or(activePage.getByRole('tab', { name: 'Collections' }));
     await databaseTabTrigger.waitFor({ state: 'visible', timeout: tabTimeoutMs });
     await databaseTabTrigger.click();
 
@@ -392,10 +392,10 @@ export async function resolveRefreshButton(
   };
 
   try {
-    return { page: activePage, button: await waitForButton() };
+    return { button: await waitForButton(), page: activePage };
   } catch {
     if (await errorPanel.isVisible().catch(() => false)) {
-      return { page: activePage, button: resolveButton() };
+      return { button: resolveButton(), page: activePage };
     }
 
     try {
@@ -415,14 +415,14 @@ export async function resolveRefreshButton(
     }
 
     try {
-      return { page: activePage, button: await waitForButton() };
+      return { button: await waitForButton(), page: activePage };
     } catch {
       console.warn('⚠️ Refresh button not visible, reopening database panel...');
       const reopened = await showDatabaseDemoPanel(activePage);
       activePage = await waitForDatabaseReady(reopened);
       const refreshButton = activePage.locator('button:has-text("Refresh")').first();
       await refreshButton.waitFor({ state: 'visible', timeout: timeoutMs });
-      return { page: activePage, button: refreshButton };
+      return { button: refreshButton, page: activePage };
     }
   }
 }
@@ -448,7 +448,7 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
         if (typeof window !== 'undefined' && (window as any).electronAPI?.db?.clearAll) {
           return await (window as any).electronAPI.db.clearAll('CONFIRM_CLEAR_DATABASE');
         }
-        return { success: false, message: 'Bulk delete API not available' };
+        return { message: 'Bulk delete API not available', success: false };
       });
 
       if (result.success) {
@@ -663,17 +663,17 @@ function sleep(ms: number): Promise<void> {
  */
 export function getDatabasePanelElements(page: Page) {
   return {
-    panel: page.locator('[data-testid="database-demo-panel"]'),
-    importButton: page.locator('button:has-text("Import")'),
-    refreshButton: page.locator('button:has-text("Refresh")'),
-    tableRows: page.locator('tbody tr'),
-    deleteButtons: page.locator('tbody tr button[title="Remove record"]'),
     connectionStatus: page
       .locator('[data-testid="status-bar-db-connected"]')
       .or(page.locator('[data-testid="status-bar-db-disconnected"]'))
       .or(page.locator('[data-testid="status-bar-db-loading"]'))
       .first(),
+    deleteButtons: page.locator('tbody tr button[title="Remove record"]'),
+    importButton: page.locator('button:has-text("Import")'),
+    panel: page.locator('[data-testid="database-demo-panel"]'),
+    refreshButton: page.locator('button:has-text("Refresh")'),
     storageInfo: page.locator('text=NodeFS:').or(page.locator('text=IndexedDB')),
+    tableRows: page.locator('tbody tr'),
   };
 }
 

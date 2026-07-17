@@ -114,17 +114,17 @@ export function createQueueTelemetryAggregator(windowMs = 60_000, maxEvents = 50
     const errorCount = windowEvents.filter((event) => event.event === 'error').length;
 
     return {
-      events: windowEvents,
-      throughputPerMinute,
       averageLatencyMs: averageLatency,
+      errorCount,
+      events: windowEvents,
       latencyP50Ms: latencyP50,
       latencyP95Ms: latencyP95,
-      errorCount,
+      throughputPerMinute,
     };
   };
 
   return {
-    snapshot,
     dispose: unsubscribe,
+    snapshot,
   };
 }

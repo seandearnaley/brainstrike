@@ -115,11 +115,11 @@ async function seedRetrievalDataset(
 
   for (const file of dataset.files) {
     await fileRepo.create({
+      createdAt: NOW,
       id: file.id,
       name: file.name,
       path: file.path,
       size: file.name.length,
-      createdAt: NOW,
       updatedAt: NOW,
     });
     filePathById.set(file.id, file.path);
@@ -129,19 +129,19 @@ async function seedRetrievalDataset(
   for (const file of dataset.files) {
     file.chunks.forEach((chunk, index) => {
       chunkInserts.push({
-        id: chunk.id,
-        fileRecordId: file.id,
         chunkIndex: index,
+        chunkSize: chunk.content.length,
+        chunkType: 'text',
         content: chunk.content,
         contentHash: `hash-${chunk.id}`,
-        tokenCount: countEstimatedTokens(chunk.content),
-        chunkType: 'text',
-        chunkSize: chunk.content.length,
+        createdAt: NOW,
         embedding: chunk.embedding,
+        embeddingHash: `embed-${chunk.id}`,
         embeddingSetId: embeddingSet.id,
         embeddingUpdatedAt: NOW,
-        embeddingHash: `embed-${chunk.id}`,
-        createdAt: NOW,
+        fileRecordId: file.id,
+        id: chunk.id,
+        tokenCount: countEstimatedTokens(chunk.content),
         updatedAt: NOW,
       });
     });
@@ -185,19 +185,19 @@ export async function runRetrievalEvaluation(
 
     for (const query of dataset.queries) {
       const results = await chunkRepo.searchSimilar(query.embedding, {
+        embeddingSetId,
         limit: DEFAULT_LIMIT,
         threshold: DEFAULT_THRESHOLD,
-        embeddingSetId,
       });
       const topFiles = buildTopFilePaths(results, filePathById, DEFAULT_LIMIT);
       const precisionAt1 = precisionAtK(topFiles.slice(0, 1), new Set(query.expectedFilePaths), 1);
       queryResults.push({
-        id: query.id,
-        query: query.text,
         expectedFilePaths: query.expectedFilePaths,
-        topFiles,
-        precisionAt1,
+        id: query.id,
         passed: precisionAt1 >= thresholds.minQueryPrecisionAt1,
+        precisionAt1,
+        query: query.text,
+        topFiles,
       });
     }
 
@@ -211,18 +211,18 @@ export async function runRetrievalEvaluation(
 
     return {
       dataset: { name: dataset.name, version: dataset.version },
-      timestamp: new Date().toISOString(),
-      thresholds,
+      failures,
+      passed: failures.length === 0,
+      queries: queryResults,
       summary: {
-        totalQueries: queryResults.length,
-        passedQueries: passedQueryCount,
         failedQueries: queryResults.length - passedQueryCount,
         failureCount: failures.length,
         meanPrecisionAt1,
+        passedQueries: passedQueryCount,
+        totalQueries: queryResults.length,
       },
-      queries: queryResults,
-      failures,
-      passed: failures.length === 0,
+      thresholds,
+      timestamp: new Date().toISOString(),
     };
   } finally {
     await db.close();

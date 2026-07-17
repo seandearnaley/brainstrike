@@ -11,6 +11,8 @@ import { resolveWorkspaceRoot } from './workspace-roots';
 export const EXECUTE_COMMAND_TOOL_ID = 'brainstrike.executeCommand' as const;
 
 const logger = createLogger('ExecuteCommandTool');
+const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;
+const REDACTED_CWD_LOG_VALUE = { redacted: true } as const;
 
 /** Default per-command timeout when the model does not specify one. */
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -25,11 +27,41 @@ const MAX_TIMEOUT_MS = 600_000;
  */
 const MAX_CAPTURED_OUTPUT_BYTES = 1_000_000;
 /**
+ * Hard ceiling on RAW bytes STREAMED incrementally to the caller (and onward to
+ * the model/UI) across BOTH streams combined. Independent of and smaller than
+ * {@link MAX_CAPTURED_OUTPUT_BYTES}: a runaway process must not flood the live
+ * data stream even though the final captured result is separately budget-fitted.
+ * Once hit we emit ONE truncation notice, stop streaming, and keep draining the
+ * pipes for the (still-bounded) final result.
+ */
+const MAX_STREAMED_OUTPUT_BYTES = 256_000;
+/** Visible notice appended to the live stream once the streaming cap is hit. */
+const STREAM_TRUNCATION_NOTICE =
+  '\n[output truncated — live streaming stopped; the final result keeps the most recent lines]\n';
+/**
  * Grace period between the polite SIGTERM and the forceful SIGKILL when tearing
  * down a process tree. A well-behaved child exits on SIGTERM; a wedged one is
  * reaped by the follow-up SIGKILL.
  */
 const KILL_GRACE_MS = 2000;
+
+/** One incremental slice of live subprocess output. */
+export interface ShellOutputStreamPart {
+  /** The incremental text (ANSI stripped, same as the final captured result). */
+  readonly chunk: string;
+  /** Which pipe the slice came from. */
+  readonly stream: 'stdout' | 'stderr';
+  /** True only on the single terminal notice emitted when the cap is hit. */
+  readonly truncated?: boolean;
+}
+
+/**
+ * Sink for live, incremental subprocess output. Invoked in emission order as the
+ * child writes; the LAST call (when the streaming cap is hit) carries
+ * `truncated: true`. Streaming is best-effort observability — a throwing sink
+ * must never break command execution, so the caller wraps it defensively.
+ */
+export type ShellOutputStreamer = (part: ShellOutputStreamPart) => void;
 
 /**
  * Resolve the shell + argument convention for the current platform.
@@ -49,10 +81,10 @@ export function resolveShellInvocation(
 ): { shell: string; args: string[] } {
   if (platform === 'win32') {
     const shell = process.env['ComSpec'] || 'cmd.exe';
-    return { shell, args: ['/d', '/s', '/c', command] };
+    return { args: ['/d', '/s', '/c', command], shell };
   }
   const shell = process.env['SHELL'] || '/bin/sh';
-  return { shell, args: ['-c', command] };
+  return { args: ['-c', command], shell };
 }
 
 export interface ExecuteCommandToolResult {
@@ -120,9 +152,9 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
     // ESRCH = the group is already gone (normal once the child has exited).
     if (code !== 'ESRCH') {
       logger.warn('Process-group kill failed; falling back to tree-kill', {
+        code,
         pid,
         signal,
-        code,
       });
     }
   }
@@ -132,7 +164,7 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
     // Only log when the group kill ALSO did not land and the failure is not the
     // expected "already dead" race after a successful kill (no-silent-fallbacks).
     if (!groupKilled && error && !/no such process/i.test(error.message)) {
-      logger.warn('tree-kill failed', { pid, signal, error: error.message });
+      logger.warn('tree-kill failed', { error: error.message, pid, signal });
     }
   });
 }
@@ -210,6 +242,53 @@ interface SpawnOutcome {
 }
 
 /**
+ * Build a stateful emitter that forwards ANSI-stripped output slices to the live
+ * {@link ShellOutputStreamer}, honoring the COMBINED streaming cap
+ * ({@link MAX_STREAMED_OUTPUT_BYTES}). Once the cap is hit it emits exactly one
+ * truncation notice and stops (capture continues independently, so the final
+ * result is unaffected). A throwing sink disables streaming but never breaks
+ * command execution. Returns a no-op when there is no streamer.
+ */
+function createBoundedShellStreamer(
+  streamer: ShellOutputStreamer | undefined
+): (kind: 'stdout' | 'stderr', text: string) => void {
+  if (!streamer) {
+    return () => {
+      // No live consumer: streaming is skipped, the command still runs.
+    };
+  }
+  let streamedBytes = 0;
+  let truncated = false;
+  return (kind, text) => {
+    if (truncated || text.length === 0) {
+      return;
+    }
+    const cleaned = stripAnsi(text);
+    if (cleaned.length === 0) {
+      return;
+    }
+    const remaining = MAX_STREAMED_OUTPUT_BYTES - streamedBytes;
+    const emitted =
+      cleaned.length <= remaining ? cleaned : cleaned.slice(0, Math.max(0, remaining));
+    try {
+      if (emitted.length > 0) {
+        streamer({ chunk: emitted, stream: kind });
+      }
+      if (cleaned.length > remaining) {
+        truncated = true;
+        streamer({ chunk: STREAM_TRUNCATION_NOTICE, stream: kind, truncated: true });
+      }
+    } catch (error) {
+      truncated = true;
+      logger.warn('Shell output streamer threw; disabling live streaming', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    streamedBytes += emitted.length;
+  };
+}
+
+/**
  * Spawn the user's platform shell (see {@link resolveShellInvocation}), detached
  * so the child leads its own process group. Captures stdout/stderr up to
  * {@link MAX_CAPTURED_OUTPUT_BYTES}. On timeout OR abort, the WHOLE process tree
@@ -222,8 +301,9 @@ function runShellCommand(args: {
   cwd: string;
   timeoutMs: number;
   signal: AbortSignal | undefined;
+  streamer: ShellOutputStreamer | undefined;
 }): Promise<SpawnOutcome> {
-  const { command, cwd, timeoutMs, signal } = args;
+  const { command, cwd, timeoutMs, signal, streamer } = args;
   const { shell, args: shellArgs } = resolveShellInvocation(command);
 
   return new Promise<SpawnOutcome>((resolve, reject) => {
@@ -240,13 +320,13 @@ function runShellCommand(args: {
       child = spawn(shell, shellArgs, {
         cwd,
         detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
           // Discourage interactive prompts that would hang a non-interactive run.
           // biome-ignore lint/style/useNamingConvention: CI is a standard env var name (must be uppercase).
           CI: 'true',
         },
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {
       // Spawn failure (e.g. shell missing) is REPORTED, never swallowed.
@@ -270,8 +350,11 @@ function runShellCommand(args: {
     let tornDown = false;
     let killTimer: NodeJS.Timeout | undefined;
 
+    const emitStream = createBoundedShellStreamer(streamer);
+
     const appendBounded = (kind: 'stdout' | 'stderr', chunk: Buffer): void => {
       const text = chunk.toString('utf8');
+      emitStream(kind, text);
       if (kind === 'stdout') {
         if (stdoutBytes < MAX_CAPTURED_OUTPUT_BYTES) {
           stdout += text;
@@ -359,8 +442,8 @@ function runShellCommand(args: {
       resolve({
         exitCode: code,
         signal: closeSignal,
-        stdout,
         stderr,
+        stdout,
         timedOut,
       });
     });
@@ -467,9 +550,9 @@ function buildResult(args: {
     durationMs,
     exitCode: outcome.exitCode,
     signal: outcome.signal,
-    timedOut: outcome.timedOut,
-    stdout: fittedStdout.text,
     stderr: fittedStderr.text,
+    stdout: fittedStdout.text,
+    timedOut: outcome.timedOut,
     truncated,
     ...(truncated
       ? {
@@ -493,7 +576,7 @@ function buildResult(args: {
 export async function runExecuteCommand(
   input: ExecuteCommandInput,
   runtimeData: RuntimeData | undefined,
-  options?: { signal?: AbortSignal | undefined }
+  options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
 ): Promise<ExecuteCommandToolResult> {
   const cwd = await resolveCommandCwd(runtimeData, input.root, input.cwd);
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
@@ -502,22 +585,23 @@ export async function runExecuteCommand(
   const outcome = await runShellCommand({
     command: input.command,
     cwd,
-    timeoutMs,
     signal: options?.signal,
+    streamer: options?.stream,
+    timeoutMs,
   });
   const durationMs = Date.now() - startedAt;
 
   if (outcome.timedOut) {
     logger.warn('Command timed out and its process tree was killed', {
-      command: input.command,
-      cwd,
-      timeoutMs,
+      command: REDACTED_COMMAND_LOG_VALUE,
+      cwd: REDACTED_CWD_LOG_VALUE,
       durationMs,
+      timeoutMs,
     });
   } else if (outcome.exitCode !== 0) {
     logger.info('Command exited non-zero', {
-      command: input.command,
-      cwd,
+      command: REDACTED_COMMAND_LOG_VALUE,
+      cwd: REDACTED_CWD_LOG_VALUE,
       exitCode: outcome.exitCode,
       signal: outcome.signal,
     });

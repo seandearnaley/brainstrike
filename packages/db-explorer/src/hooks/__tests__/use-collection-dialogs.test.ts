@@ -4,19 +4,19 @@ import type { CollectionPickerCollection } from '../../components';
 import { useCollectionDialogs } from '../use-collection-dialogs';
 
 const mockCollection: CollectionPickerCollection = {
-  id: '1',
-  modelKey: 'openai::text-embedding-3-small',
-  modelId: 'text-embedding-3-small',
+  category: null,
+  chunkCount: 100,
+  createdAt: new Date().toISOString(),
+  description: 'Description 1',
   dimensions: 1536,
   distance: 'cosine',
-  createdAt: new Date().toISOString(),
-  name: 'Collection 1',
-  description: 'Description 1',
-  tags: null,
-  category: null,
-  fileCount: 10,
-  chunkCount: 100,
   embeddingCount: 100,
+  fileCount: 10,
+  id: '1',
+  modelId: 'text-embedding-3-small',
+  modelKey: 'openai::text-embedding-3-small',
+  name: 'Collection 1',
+  tags: null,
 };
 
 describe('useCollectionDialogs', () => {

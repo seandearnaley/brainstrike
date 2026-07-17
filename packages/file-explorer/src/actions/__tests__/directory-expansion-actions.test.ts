@@ -1,44 +1,84 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { createEmptySelectionModel, DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDirectoryExpansionActions } from '../directory-expansion-actions';
 
 // Helper to create a full mock state with required properties and stubbed actions
 const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplorerState => ({
+  activeRootIds: [],
+  addActiveRoot: vi.fn(),
+  addMultipleSelectedFiles: vi.fn(),
+  addMultipleSelectedFilesChunked: vi.fn(),
+  addSelectedFile: vi.fn(),
+  clearAllFileContents: vi.fn(),
+  clearDisabledFilters: vi.fn(),
+  clearFileContents: vi.fn(),
+  clearQuickFilter: vi.fn(),
+  clearSelectedFiles: vi.fn(),
+  clearSelectionRules: vi.fn(),
+  collapseAllDirectories: vi.fn(),
+  commitRulesToExplicit: vi.fn(),
   currentFolderId: null,
-  folderStates: {},
-  selectedFilePaths: new Set<string>(),
-  expandedDirectoryPaths: new Set<string>(),
-  includeFilters: [],
+  devInlineFixtureEnabled: false,
+  disabledExcludeFilters: new Set<string>(),
+  disabledIncludeFilters: new Set<string>(),
+  evictOldFileContents: vi.fn(),
   excludeFilters: [],
-  useRegex: false,
-  includeProjectTree: true,
-  folderSummaryThreshold: 100,
-  maxSelectionCount: 100,
-  lastActiveTab: 'files',
+  expandAllDirectories: vi.fn(),
+  expandedDirectoryPaths: new Set<string>(),
   fileContents: {},
   folderAccessOrder: [],
-  setCurrentFolderId: vi.fn(),
+  folderStates: {},
+  folderSummaryThreshold: 100,
+  getFileContent: vi.fn(),
+  getFileContentCacheStats: vi.fn(),
   hydrateFolderState: vi.fn(),
-  setSelectedFiles: vi.fn(),
-  addSelectedFile: vi.fn(),
-  removeSelectedFile: vi.fn(),
-  toggleSelectedFile: vi.fn(),
-  clearSelectedFiles: vi.fn(),
-  addMultipleSelectedFiles: vi.fn(),
+  includeFilters: [],
+  includeProjectTree: true,
+  isAccessLoading: false,
+  isFilterChipsVisible: true,
+  isFiltersExpanded: true,
+  lastActiveTab: 'files',
+  maxSelectionCount: 100,
+  querySelectionManifest: null,
+  quickFilter: '',
+  removeActiveRoot: vi.fn(),
   removeMultipleSelectedFiles: vi.fn(),
+  removeSelectedFile: vi.fn(),
+  rootDescriptors: {},
+  selectedFilePaths: new Set<string>(),
+  selectionModel: createEmptySelectionModel(),
+  selectionVersion: 0,
+  setActiveRoots: vi.fn(),
+  setCurrentFolderId: vi.fn(),
+  setDevInlineFixtureEnabled: vi.fn(),
   setExpandedPaths: vi.fn(),
-  toggleDirectoryExpansion: vi.fn(),
-  setFilters: vi.fn(),
-  setUseRegex: vi.fn(),
-  setIncludeProjectTree: vi.fn(),
-  setFolderSummaryThreshold: vi.fn(),
-  setMaxSelectionCount: vi.fn(),
-  setLastActiveTab: vi.fn(),
-  expandAllDirectories: vi.fn(),
-  collapseAllDirectories: vi.fn(),
   setFileContent: vi.fn(),
-  clearFileContents: vi.fn(),
-  clearAllFileContents: vi.fn(),
+  setFilterChipsVisible: vi.fn(),
+  setFilters: vi.fn(),
+  setFiltersExpanded: vi.fn(),
+  setFolderSelection: vi.fn(),
+  setFolderSummaryThreshold: vi.fn(),
+  setIncludeProjectTree: vi.fn(),
+  setIsAccessLoading: vi.fn(),
+  setLastActiveTab: vi.fn(),
+  setMaterializedPaths: vi.fn(),
+  setMaxSelectionCount: vi.fn(),
+  setQuerySelection: vi.fn(),
+  setQuerySelectionManifest: vi.fn(),
+  setQuickFilter: vi.fn(),
+  setSelectedFiles: vi.fn(),
+  setSelectionMode: vi.fn(),
+  setSelectionRules: vi.fn(),
+  setTokenBudget: vi.fn(),
+  setUseRegex: vi.fn(),
+  setViewFilterPresetId: vi.fn(),
+  toggleDirectoryExpansion: vi.fn(),
+  toggleFilterEnabled: vi.fn(),
+  toggleSelectedFile: vi.fn(),
+  tokenBudget: DEFAULT_TOKEN_BUDGET,
+  useRegex: false,
+  viewFilterPresetId: null,
   ...overrides,
 });
 
@@ -90,34 +130,34 @@ describe('directory-expansion-actions', () => {
   it('expandAllDirectories should add all directory paths', () => {
     const fileTree: IFileNode[] = [
       {
-        name: 'src',
-        path: 'src',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 0,
-        selectionState: 'unchecked',
-        rootFolderId: 'root',
         children: [
           {
+            depth: 1,
+            handle: {} as FileSystemFileHandle,
             name: 'index.ts',
             path: 'src/index.ts',
-            type: 'file',
-            handle: {} as FileSystemFileHandle,
-            depth: 1,
-            selectionState: 'unchecked',
             rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'file',
           },
           {
+            children: [],
+            depth: 1,
+            handle: {} as FileSystemDirectoryHandle,
             name: 'sub',
             path: 'src/sub',
-            type: 'directory',
-            handle: {} as FileSystemDirectoryHandle,
-            depth: 1,
-            selectionState: 'unchecked',
             rootFolderId: 'root',
-            children: [],
+            selectionState: 'unchecked',
+            type: 'directory',
           },
         ],
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        name: 'src',
+        path: 'src',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
       },
     ];
     const state = createMockState({ expandedDirectoryPaths: new Set(['existing']) });
@@ -158,17 +198,19 @@ describe('directory-expansion-actions', () => {
       currentFolderId: 'myFolder',
       folderStates: {
         myFolder: {
-          selectedFilePaths: new Set(),
-          expandedDirectoryPaths: new Set(),
-          includeFilters: [],
           excludeFilters: [],
-          useRegex: false,
-          includeProjectTree: true,
-          tokenBudget: 100,
+          expandedDirectoryPaths: new Set(),
           folderSummaryThreshold: 100,
-          maxSelectionCount: 100,
-          lastActiveTab: 'files',
+          includeFilters: [],
+          includeProjectTree: true,
           lastAccessed: Date.now(),
+          lastActiveTab: 'files',
+          maxSelectionCount: 100,
+          selectedFilePaths: new Set(),
+          selectionModel: createEmptySelectionModel(),
+          tokenBudget: 100,
+          useRegex: false,
+          viewFilterPresetId: null,
         },
       },
     });
@@ -188,8 +230,8 @@ describe('directory-expansion-actions', () => {
     expect(updated.expandedDirectoryPaths?.has('b')).toBe(true);
 
     // Folder state should also be updated for persistence
-    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.has('a')).toBe(true);
-    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.has('b')).toBe(true);
+    expect(updated.folderStates?.['myFolder']?.expandedDirectoryPaths?.has('a')).toBe(true);
+    expect(updated.folderStates?.['myFolder']?.expandedDirectoryPaths?.has('b')).toBe(true);
   });
 
   it('toggleDirectoryExpansion should update both global and folder state when folder exists', () => {
@@ -198,17 +240,19 @@ describe('directory-expansion-actions', () => {
       expandedDirectoryPaths: new Set(['existing']),
       folderStates: {
         myFolder: {
-          selectedFilePaths: new Set(),
-          expandedDirectoryPaths: new Set(['existing']),
-          includeFilters: [],
           excludeFilters: [],
-          useRegex: false,
-          includeProjectTree: true,
-          tokenBudget: 100,
+          expandedDirectoryPaths: new Set(['existing']),
           folderSummaryThreshold: 100,
-          maxSelectionCount: 100,
-          lastActiveTab: 'files',
+          includeFilters: [],
+          includeProjectTree: true,
           lastAccessed: Date.now(),
+          lastActiveTab: 'files',
+          maxSelectionCount: 100,
+          selectedFilePaths: new Set(),
+          selectionModel: createEmptySelectionModel(),
+          tokenBudget: 100,
+          useRegex: false,
+          viewFilterPresetId: null,
         },
       },
     });
@@ -230,9 +274,9 @@ describe('directory-expansion-actions', () => {
     expect(updated.expandedDirectoryPaths?.size).toBe(2);
 
     // Folder state should also be updated for persistence
-    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.has('existing')).toBe(true);
-    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.has('newPath')).toBe(true);
-    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.size).toBe(2);
+    expect(updated.folderStates?.['myFolder']?.expandedDirectoryPaths?.has('existing')).toBe(true);
+    expect(updated.folderStates?.['myFolder']?.expandedDirectoryPaths?.has('newPath')).toBe(true);
+    expect(updated.folderStates?.['myFolder']?.expandedDirectoryPaths?.size).toBe(2);
   });
 
   it('toggleDirectoryExpansion should NOT update folder state when folder does not exist', () => {

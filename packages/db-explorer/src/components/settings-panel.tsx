@@ -60,65 +60,65 @@ type ChunkingPresetDefinition = ReturnType<typeof getChunkingPresetDefinitions>[
 
 const STRATEGY_OPTIONS: StrategyOption[] = [
   {
-    value: 'auto',
-    label: 'Auto',
     description: 'Selects the best splitter from file type and document shape.',
+    label: 'Auto',
+    value: 'auto',
   },
   {
-    value: 'semantic-markdown',
-    label: 'Semantic Markdown',
     description: 'Keeps related heading families together for guides and docs.',
+    label: 'Semantic Markdown',
+    value: 'semantic-markdown',
   },
   {
-    value: 'markdown',
-    label: 'Markdown',
     description: 'Markdown-aware splitting with heading and block boundaries.',
+    label: 'Markdown',
+    value: 'markdown',
   },
   {
-    value: 'recursive',
-    label: 'Recursive',
     description: 'Code and structure aware splitting with boundary-first recursion.',
+    label: 'Recursive',
+    value: 'recursive',
   },
   {
-    value: 'sentence',
-    label: 'Sentence',
     description: 'General text splitting that favors natural sentence boundaries.',
+    label: 'Sentence',
+    value: 'sentence',
   },
   {
-    value: 'token',
-    label: 'Token',
     description: 'Token-budget-oriented splits for large-context retrieval.',
+    label: 'Token',
+    value: 'token',
   },
   {
-    value: 'character',
-    label: 'Character',
     description: 'Fixed-width splitting when uniform chunk size matters most.',
+    label: 'Character',
+    value: 'character',
   },
   {
-    value: 'html',
-    label: 'HTML / XML',
     description: 'Structure-aware splitting across block and tag boundaries.',
+    label: 'HTML / XML',
+    value: 'html',
   },
   {
-    value: 'json',
-    label: 'JSON',
     description: 'Chunk structured payloads around arrays, objects, and entries.',
+    label: 'JSON',
+    value: 'json',
   },
   {
-    value: 'latex',
-    label: 'LaTeX',
     description: 'Favors chapter, section, and environment boundaries.',
+    label: 'LaTeX',
+    value: 'latex',
   },
 ];
 
 const PRESET_ICONS: Record<string, typeof Gauge> = {
+  'api-reference': ScanSearch,
   balanced: Gauge,
   codebase: FileCode2,
-  'strict-code': FileCode2,
   docs: ScrollText,
-  'api-reference': ScanSearch,
-  'structured-data': Database,
   'large-context': Files,
+  'strict-code': FileCode2,
+  'structured-data': Database,
 };
 
 function PresetIcon({ presetId, className }: { presetId: string; className?: string }) {
@@ -607,7 +607,7 @@ export function SettingsPanel({
               variant="destructive"
             >
               <Trash2 className="h-3 w-3" />
-              {clearDatabaseProps.countsPending ? 'Counts pending' : 'Clear Database'}
+              {clearDatabaseProps.countsPending ? 'Counts pending' : 'Clear All Collections'}
             </Button>
           )}
         </footer>

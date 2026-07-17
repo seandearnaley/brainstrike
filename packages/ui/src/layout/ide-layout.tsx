@@ -16,10 +16,25 @@ import { DEFAULT_PANEL_SIZES, MIN_PANEL_SIZE_THRESHOLD } from '../lib/panel-cons
 import { cn } from '../lib/utils';
 import { usePanelLayout } from '../providers/panel-layout-provider';
 
+/** Options for {@link FileEditorContextValue.openFileInTab}. */
+export interface OpenFileInTabOptions {
+  /** 1-based line to scroll into view on first render of the opened tab. */
+  line?: number;
+  /**
+   * Inclusive, 1-based line range to select (and scroll to) on first render of
+   * the opened tab — e.g. a search chunk the user opened so the block is
+   * highlighted and ready to copy. Wins over {@link OpenFileInTabOptions.line}.
+   */
+  selection?: { startLine: number; endLine: number };
+}
+
+/** Opens (or focuses) the file tab for a compositeKey, optionally line-targeted. */
+export type OpenFileInTab = (compositeKey: string, options?: OpenFileInTabOptions) => void;
+
 // Context for sharing file editor functionality between main content and console
 interface FileEditorContextValue {
-  openFileInTab: ((compositeKey: string) => void) | undefined;
-  registerOpenFileInTab: (fn: (compositeKey: string) => void) => void;
+  openFileInTab: OpenFileInTab | undefined;
+  registerOpenFileInTab: (fn: OpenFileInTab) => void;
 }
 
 const IdeFileEditorContext = createContext<FileEditorContextValue>({
@@ -94,9 +109,13 @@ function buildHorizontalSaveArgs(
   const rawExplorerSize = layout[config.layoutIds.explorerPanel];
   const rawToolsSize = layout[config.layoutIds.toolsPanel];
   const explorerSize =
-    rawExplorerSize != null && rawExplorerSize > 0 ? rawExplorerSize : (config.safeLeftSize ?? 25);
+    rawExplorerSize !== null && rawExplorerSize !== undefined && rawExplorerSize > 0
+      ? rawExplorerSize
+      : (config.safeLeftSize ?? 25);
   const toolsSize =
-    rawToolsSize != null && rawToolsSize > 0 ? rawToolsSize : (config.safeRightSize ?? 20);
+    rawToolsSize !== null && rawToolsSize !== undefined && rawToolsSize > 0
+      ? rawToolsSize
+      : (config.safeRightSize ?? 20);
   return [
     [explorerSize, toolsSize, config.safeConsoleSize ?? 20],
     !!config.showConsole,
@@ -112,7 +131,9 @@ function buildVerticalSaveArgs(
 ): SaveLayoutArgs {
   const rawConsoleSize = layout[config.layoutIds.consolePanel];
   const consoleSize =
-    rawConsoleSize != null && rawConsoleSize > 0 ? rawConsoleSize : (config.safeConsoleSize ?? 20);
+    rawConsoleSize !== null && rawConsoleSize !== undefined && rawConsoleSize > 0
+      ? rawConsoleSize
+      : (config.safeConsoleSize ?? 20);
   return [
     [config.safeLeftSize ?? 25, config.safeRightSize ?? 20, consoleSize],
     !!config.showConsole,
@@ -144,18 +165,18 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
   const stableConfig = useMemo<LayoutHandlerConfig>(
     () =>
       buildLayoutHandlerConfig({
-        leftPanelContent,
-        layoutIds,
-        rightPanelContent,
         consoleContent,
-        showLeftPanel,
-        showRightPanel,
-        showConsole,
+        isInitialRenderRef,
+        layoutIds,
+        leftPanelContent,
+        rightPanelContent,
+        safeConsoleSize,
         safeLeftSize,
         safeRightSize,
-        safeConsoleSize,
         saveLayout,
-        isInitialRenderRef,
+        showConsole,
+        showLeftPanel,
+        showRightPanel,
       }),
     [
       leftPanelContent,
@@ -297,7 +318,7 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
     [stableConfig, scheduleCommit]
   );
 
-  return { handleHorizontalLayout, handleVerticalLayout, handleSeparatorPointerDown };
+  return { handleHorizontalLayout, handleSeparatorPointerDown, handleVerticalLayout };
 }
 
 // Configuration for initial layout application
@@ -533,11 +554,11 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
       if (isDevEnv() && !hasLoggedMissingRefs.current) {
         hasLoggedMissingRefs.current = true;
         logger.warn('Panel refs not ready for layout initialization', {
+          console: !!consolePanelRef.current,
           horizontal: !!horizontalGroupRef.current,
-          vertical: !!verticalGroupRef.current,
           left: !!leftPanelRef.current,
           right: !!rightPanelRef.current,
-          console: !!consolePanelRef.current,
+          vertical: !!verticalGroupRef.current,
         });
       }
       return;
@@ -546,23 +567,23 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
     // Wait for refs and DOM to stabilize
     const timeoutId = setTimeout(() => {
       applyInitialLayout({
+        consolePanelRef,
+        hasAppliedInitialLayout,
+        hasConsole,
+        hasExplorer,
+        hasTools,
         horizontalGroupRef: horizontalGroupRef.current,
-        verticalGroupRef: verticalGroupRef.current,
+        isInitialRenderRef,
         layoutIds,
         leftPanelRef,
         rightPanelRef,
-        consolePanelRef,
-        hasAppliedInitialLayout,
-        isInitialRenderRef,
-        hasExplorer,
-        hasTools,
-        hasConsole,
-        showLeftPanel,
-        showRightPanel,
-        showConsole,
+        safeConsoleSize,
         safeLeftSize,
         safeRightSize,
-        safeConsoleSize,
+        showConsole,
+        showLeftPanel,
+        showRightPanel,
+        verticalGroupRef: verticalGroupRef.current,
       });
     }, LAYOUT_INITIALIZATION_DELAY_MS); // Wait for DOM to stabilize
 
@@ -590,11 +611,9 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
 
 // Custom hook for managing file editor context
 function useFileEditorContext() {
-  const [openFileInTabFn, setOpenFileInTabFn] = React.useState<
-    ((compositeKey: string) => void) | null
-  >(null);
+  const [openFileInTabFn, setOpenFileInTabFn] = React.useState<OpenFileInTab | null>(null);
 
-  const registerOpenFileInTab = useCallback((fn: (compositeKey: string) => void) => {
+  const registerOpenFileInTab = useCallback((fn: OpenFileInTab) => {
     setOpenFileInTabFn(() => fn);
   }, []);
 
@@ -618,9 +637,9 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
 
   const noopAdapter: PanelPersistenceAdapter = useMemo(
     () => ({
+      flush: async () => {},
       load: async () => null,
       save: async () => {},
-      flush: async () => {},
     }),
     []
   );
@@ -644,27 +663,27 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
       sRight?: boolean
     ) =>
       ctx.setState({
-        sizes: newSizes,
         showConsole: sConsole ?? showConsole,
         showLeftPanel: sLeft ?? showLeftPanel,
         showRightPanel: sRight ?? showRightPanel,
+        sizes: newSizes,
       });
 
     const toggleField = (field: 'showConsole' | 'showLeftPanel' | 'showRightPanel') =>
       ctx.setState({
-        sizes,
         showConsole,
         showLeftPanel,
         showRightPanel,
+        sizes,
         [field]: !ctx[field],
       });
 
     return {
-      sizes,
+      saveLayout,
       showConsole,
       showLeftPanel,
       showRightPanel,
-      saveLayout,
+      sizes,
       toggleConsole: () => toggleField('showConsole'),
       toggleLeftPanel: () => toggleField('showLeftPanel'),
       toggleRightPanel: () => toggleField('showRightPanel'),
@@ -933,15 +952,15 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
   );
 
   return {
-    handleShowLeftPanel,
-    handleHideLeftPanel,
-    handleShowRightPanel,
-    handleHideRightPanel,
-    handleShowConsole,
+    handleConsolePanelCollapse,
     handleHideConsole,
+    handleHideLeftPanel,
+    handleHideRightPanel,
     handleLeftPanelCollapse,
     handleRightPanelCollapse,
-    handleConsolePanelCollapse,
+    handleShowConsole,
+    handleShowLeftPanel,
+    handleShowRightPanel,
   };
 }
 
@@ -968,29 +987,29 @@ export interface IdeLayoutPanelConstraints {
 }
 
 const DEFAULT_LEFT_PANEL_CHROME: PanelChromeConfig = {
-  title: 'Explorer',
-  showButtonLabel: 'Show explorer panel',
-  showButtonTestId: 'show-explorer-panel',
   hideButtonLabel: 'Hide explorer panel',
   hideButtonTestId: 'hide-explorer-panel',
   icon: PanelLeft,
+  showButtonLabel: 'Show explorer panel',
+  showButtonTestId: 'show-explorer-panel',
+  title: 'Explorer',
 };
 
 const DEFAULT_RIGHT_PANEL_CHROME: PanelChromeConfig = {
-  title: 'Tools',
-  showButtonLabel: 'Show tools panel',
-  showButtonTestId: 'show-tools-panel',
   hideButtonLabel: 'Hide tools panel',
   hideButtonTestId: 'hide-tools-panel',
   icon: PanelRight,
+  showButtonLabel: 'Show tools panel',
+  showButtonTestId: 'show-tools-panel',
+  title: 'Tools',
 };
 
 const DEFAULT_PANEL_CONSTRAINTS: IdeLayoutPanelConstraints = {
+  consolePanelMaxSize: '80%',
+  consolePanelMinSize: '15%',
   leftPanelMaxSize: '50%',
   leftPanelMinSize: '15%',
   mainContentMinSize: '30%',
-  consolePanelMaxSize: '80%',
-  consolePanelMinSize: '15%',
   rightPanelMaxSize: '60%',
   rightPanelMinSize: '15%',
 };
@@ -1045,11 +1064,11 @@ export const IdeLayout = React.memo(function IdeLayout({
   const layoutIds = useMemo<LayoutIds>(() => {
     const prefix = panelIdPrefix ? `${panelIdPrefix}-` : '';
     return {
+      consolePanel: `${prefix}console-panel`,
       explorerPanel: `${prefix}explorer-panel`,
+      mainContentPanel: `${prefix}main-content-panel`,
       middlePanel: `${prefix}middle-panel`,
       toolsPanel: `${prefix}tools-panel`,
-      mainContentPanel: `${prefix}main-content-panel`,
-      consolePanel: `${prefix}console-panel`,
     };
   }, [panelIdPrefix]);
 
@@ -1079,23 +1098,23 @@ export const IdeLayout = React.memo(function IdeLayout({
   // v4 CRITICAL: Apply initial layout imperatively after mount
   // defaultLayout only works on first render - we need setLayout() for dynamic control
   useInitialLayoutEffect({
-    horizontalGroupRef,
-    verticalGroupRef,
-    leftPanelRef,
-    rightPanelRef,
     consolePanelRef,
-    layoutIds,
     hasAppliedInitialLayout,
-    isInitialRenderRef,
+    hasConsole,
     hasExplorer,
     hasTools,
-    hasConsole,
-    showLeftPanel,
-    showRightPanel,
-    showConsole,
+    horizontalGroupRef,
+    isInitialRenderRef,
+    layoutIds,
+    leftPanelRef,
+    rightPanelRef,
+    safeConsoleSize,
     safeLeftSize,
     safeRightSize,
-    safeConsoleSize,
+    showConsole,
+    showLeftPanel,
+    showRightPanel,
+    verticalGroupRef,
   });
 
   // Sync panel visibility with imperative API (for user interactions after mount)
@@ -1148,36 +1167,36 @@ export const IdeLayout = React.memo(function IdeLayout({
     handleRightPanelCollapse,
     handleConsolePanelCollapse,
   } = usePanelToggleHandlers({
+    hideConsoleButtonRef,
+    hideExplorerButtonRef,
+    hideToolsPanelButtonRef,
+    isInitialRenderRef,
+    safeConsoleSize,
     safeLeftSize,
     safeRightSize,
-    safeConsoleSize,
+    saveLayout,
     showConsole,
     showLeftPanel,
     showRightPanel,
-    saveLayout,
     toggleConsole,
     toggleLeftPanel,
     toggleRightPanel,
-    isInitialRenderRef,
-    hideExplorerButtonRef,
-    hideToolsPanelButtonRef,
-    hideConsoleButtonRef,
   });
 
   // Layout handlers
   const layoutConfig: LayoutHandlerConfig = {
+    consoleContent,
+    isInitialRenderRef,
+    layoutIds,
     leftPanelContent,
     rightPanelContent,
-    consoleContent,
-    layoutIds,
-    showLeftPanel,
-    showRightPanel,
-    showConsole,
+    safeConsoleSize,
     safeLeftSize,
     safeRightSize,
-    safeConsoleSize,
     saveLayout,
-    isInitialRenderRef,
+    showConsole,
+    showLeftPanel,
+    showRightPanel,
   };
 
   const { handleHorizontalLayout, handleVerticalLayout, handleSeparatorPointerDown } =
@@ -1292,7 +1311,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                 panelRef={leftPanelRef}
               >
                 <div className="flex h-full flex-col overflow-hidden [contain:layout_paint_style]">
-                  <div className="flex items-center justify-between border-border border-b bg-muted/30 px-2 py-2">
+                  <div
+                    className="flex h-12 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                    data-testid="left-panel-header"
+                  >
                     <div className="flex items-center gap-2">
                       <LeftPanelIcon className="h-4 w-4" />
                       <span className="font-medium text-sm">{resolvedLeftPanelChrome.title}</span>
@@ -1315,8 +1337,9 @@ export const IdeLayout = React.memo(function IdeLayout({
                 </div>
               </Panel>
               <Separator
+                aria-label={`Resize ${resolvedLeftPanelChrome.title} panel`}
                 className={cn(
-                  'z-10 w-1',
+                  'z-10 w-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   showLeftPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
                 )}
                 onPointerDown={handleSeparatorPointerDown}
@@ -1363,8 +1386,9 @@ export const IdeLayout = React.memo(function IdeLayout({
               {hasConsole && (
                 <>
                   <Separator
+                    aria-label="Resize File Editor panel"
                     className={cn(
-                      'z-10 h-1',
+                      'z-10 h-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       showConsole ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
                     )}
                     onPointerDown={handleSeparatorPointerDown}
@@ -1386,7 +1410,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                     panelRef={consolePanelRef}
                   >
                     <div className="flex h-full flex-col [contain:layout_paint_style]">
-                      <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+                      <div
+                        className="flex h-12 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                        data-testid="console-panel-header"
+                      >
                         <div className="flex items-center gap-2">
                           <Terminal className="h-4 w-4" />
                           <span className="font-medium text-sm">File Editor</span>
@@ -1416,8 +1443,9 @@ export const IdeLayout = React.memo(function IdeLayout({
           {hasTools && (
             <>
               <Separator
+                aria-label={`Resize ${resolvedRightPanelChrome.title} panel`}
                 className={cn(
-                  'z-10 w-1',
+                  'z-10 w-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   showRightPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
                 )}
                 onPointerDown={handleSeparatorPointerDown}
@@ -1439,7 +1467,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                 panelRef={rightPanelRef}
               >
                 <div className="flex h-full flex-col [contain:layout_paint_style]">
-                  <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+                  <div
+                    className="flex h-12 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                    data-testid="right-panel-header"
+                  >
                     <div className="flex items-center gap-2">
                       <RightPanelIcon className="h-4 w-4" />
                       <span className="font-medium text-sm">{resolvedRightPanelChrome.title}</span>

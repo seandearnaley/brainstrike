@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { LogLevel, type LogRecord } from '@brainstrike/utils';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LogViewer } from '../log-viewer';
 
 // Mock ResizeObserver
@@ -17,18 +17,18 @@ vi.mock('@tanstack/react-virtual', async () => {
   return {
     ...actual,
     useVirtualizer: ({ count }: any) => ({
+      getTotalSize: () => count * 30,
       getVirtualItems: () =>
         Array.from({ length: count }).map((_, i) => ({
-          index: i,
-          start: i * 30,
-          size: 30,
           end: (i + 1) * 30,
+          index: i,
           key: i,
           measureElement: () => {},
+          size: 30,
+          start: i * 30,
         })),
-      getTotalSize: () => count * 30,
-      scrollToIndex: () => {},
       measureElement: () => {},
+      scrollToIndex: () => {},
     }),
   };
 });
@@ -36,17 +36,21 @@ vi.mock('@tanstack/react-virtual', async () => {
 const mockToast = vi.fn();
 
 const createMockLogRecord = (overrides: Partial<LogRecord> = {}): LogRecord => ({
-  timestamp: Date.now(),
-  level: LogLevel.INFO,
-  message: 'Test log message',
   args: [],
   bindings: {},
+  level: LogLevel.INFO,
+  message: 'Test log message',
+  timestamp: Date.now(),
   ...overrides,
 });
 
 describe('LogViewer', () => {
   beforeEach(() => {
     mockToast.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders nothing without a log source', () => {
@@ -143,6 +147,77 @@ describe('LogViewer', () => {
     unmount();
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes unchanged records only once across incremental notifications', () => {
+    vi.useFakeTimers();
+    let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;
+    let firstBindingsSerializations = 0;
+    const firstRecord = createMockLogRecord({
+      bindings: {
+        runtime: 'electron-renderer',
+        toJSON: () => {
+          firstBindingsSerializations += 1;
+          return { runtime: 'electron-renderer' };
+        },
+      },
+      message: 'First record',
+      timestamp: 1,
+    });
+    const secondRecord = createMockLogRecord({ message: 'Second record', timestamp: 2 });
+    const logSource = {
+      subscribe: (handler: (records: readonly LogRecord[]) => void) => {
+        subscribedHandler = handler;
+        return () => {};
+      },
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+    act(() => {
+      subscribedHandler?.([firstRecord]);
+      vi.advanceTimersByTime(100);
+    });
+    expect(screen.getByText('First record')).toBeInTheDocument();
+    expect(firstBindingsSerializations).toBe(1);
+
+    act(() => {
+      subscribedHandler?.([firstRecord, secondRecord]);
+      vi.advanceTimersByTime(100);
+    });
+    expect(screen.getByText('Second record')).toBeInTheDocument();
+    expect(firstBindingsSerializations).toBe(1);
+  });
+
+  it('coalesces subscription bursts into one trailing snapshot', () => {
+    vi.useFakeTimers();
+    let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;
+    const records = [
+      createMockLogRecord({ message: 'Burst one', timestamp: 1 }),
+      createMockLogRecord({ message: 'Burst two', timestamp: 2 }),
+      createMockLogRecord({ message: 'Burst three', timestamp: 3 }),
+    ];
+    const logSource = {
+      subscribe: (handler: (records: readonly LogRecord[]) => void) => {
+        subscribedHandler = handler;
+        return () => {};
+      },
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+    act(() => {
+      subscribedHandler?.(records.slice(0, 1));
+      subscribedHandler?.(records.slice(0, 2));
+      subscribedHandler?.(records);
+      vi.advanceTimersByTime(99);
+    });
+    expect(screen.queryByText('Burst one')).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.getByText('Burst one')).toBeInTheDocument();
+    expect(screen.getByText('Burst two')).toBeInTheDocument();
+    expect(screen.getByText('Burst three')).toBeInTheDocument();
   });
 
   it('renders logs from source', async () => {
@@ -264,6 +339,11 @@ describe('LogViewer', () => {
     await waitFor(() => expect(screen.getByText('Apple')).toBeInTheDocument());
 
     const searchInput = screen.getByPlaceholderText('Search logs...');
+    expect(searchInput).toHaveClass('pl-10');
+    expect(searchInput).toHaveStyle({ paddingLeft: '2.5rem' });
+    expect(
+      searchInput.parentElement?.querySelector('[data-slot="settings-search-icon"]')
+    ).toHaveStyle({ left: '0.75rem' });
     fireEvent.change(searchInput, { target: { value: 'Apple' } });
 
     await waitFor(() => {

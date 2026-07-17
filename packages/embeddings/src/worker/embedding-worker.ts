@@ -256,12 +256,12 @@ export async function startEmbeddingWorker(
   options: EmbeddingWorkerOptions
 ): Promise<EmbeddingWorkerController> {
   workerLogger.info('startEmbeddingWorker: START', {
-    hasDb: !!options.db,
-    modelKey: options.modelKey,
     claimBatchSize: options.claimBatchSize,
     concurrency: options.concurrency,
     device: options.device,
+    hasDb: !!options.db,
     interBatchDelayMs: options.interBatchDelayMs,
+    modelKey: options.modelKey,
   });
 
   const log =
@@ -492,9 +492,9 @@ export async function startEmbeddingWorker(
 
   // Lightweight metrics for observability
   const metrics = {
-    startedAt: Date.now(),
-    jobsProcessed: 0,
     jobsFailed: 0,
+    jobsProcessed: 0,
+    startedAt: Date.now(),
     totalDurationMs: 0,
   };
 
@@ -681,9 +681,9 @@ export async function startEmbeddingWorker(
       `Local embedding model initialization failed for '${targetCompositeKey}': ${message}`
     );
     localModelInitializationFailure = {
-      modelId: targetModelId,
       compositeKey: targetCompositeKey,
       message,
+      modelId: targetModelId,
     };
     triggerFatalLocalWorkerError(wrappedError);
     return options.stopOnFatalLocalError
@@ -722,9 +722,9 @@ export async function startEmbeddingWorker(
       `Local embedding execution failed for '${targetCompositeKey}': ${message}`
     );
     localModelExecutionFailure = {
-      modelId: targetModelId,
       compositeKey: targetCompositeKey,
       message,
+      modelId: targetModelId,
     };
     triggerFatalLocalWorkerError(wrappedError);
     return options.stopOnFatalLocalError
@@ -748,11 +748,11 @@ export async function startEmbeddingWorker(
     }
 
     workerLogger.debug('ensureLocalModel check', {
-      targetModelId,
       activeModelId,
-      shouldReinitialize,
-      shouldInitializeCurrentModel,
       forceReinit,
+      shouldInitializeCurrentModel,
+      shouldReinitialize,
+      targetModelId,
     });
 
     assertLocalModelSwitchAllowed(targetModelId);
@@ -853,8 +853,8 @@ export async function startEmbeddingWorker(
 
     // Casting to allow array input which we added support for
     const embedResult = await providerInstance.embed({
-      text: texts,
       modelId,
+      text: texts,
     });
 
     if (!embedResult.ok) {
@@ -886,9 +886,9 @@ export async function startEmbeddingWorker(
     if (payload.expectedDimension !== setDimension) {
       log('worker_expected_dimension_mismatch', {
         chunkId: payload.chunkId,
-        payload: payload.expectedDimension,
-        embeddingSetId: targetSetId,
         embeddingSetDimension: setDimension,
+        embeddingSetId: targetSetId,
+        payload: payload.expectedDimension,
       });
       throw new Error(
         `Embedding dimension mismatch for set '${targetSetId}': payload=${payload.expectedDimension}, set=${setDimension}.`
@@ -905,9 +905,9 @@ export async function startEmbeddingWorker(
   async function handleBatchFailure(jobs: ClaimedJob[], error: unknown) {
     // LOG THE ERROR so we can see what's happening
     workerLogger.error('handleBatchFailure: Job(s) failed', {
+      error: error instanceof Error ? error.message : String(error),
       jobCount: jobs.length,
       jobIds: jobs.map((j) => j.id).slice(0, 5), // First 5 job IDs
-      error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
 
@@ -915,8 +915,8 @@ export async function startEmbeddingWorker(
 
     // Fail all jobs in one batched call (2-3 queries instead of 2N)
     await jq.failBatch({
-      jobs: jobs.map((j) => ({ id: j.id, leaseToken: j.lease_token })),
       error: truncated,
+      jobs: jobs.map((j) => ({ id: j.id, leaseToken: j.lease_token })),
       terminal: isTerminal,
       ...(backoffMs === undefined ? {} : { backoffMs }),
     });
@@ -1290,8 +1290,8 @@ export async function startEmbeddingWorker(
           log('embedding_pipeline_timing', {
             completeJobsMs: Math.round(completionFinishedAt - completionStartedAt),
             completionWaitMs: Math.round(completionStartedAt - acceptedAt),
-            device: latestRuntimeMetadata?.device ?? null,
             dbWriteMs: Math.round(completionFinishedAt - completionStartedAt),
+            device: latestRuntimeMetadata?.device ?? null,
             dtype: latestRuntimeMetadata?.dtype ?? null,
             inferenceMs: Math.round(enqueueOptions?.inferenceMs ?? 0),
             pendingCompletionBatches: pendingBatches,
@@ -1494,7 +1494,7 @@ export async function startEmbeddingWorker(
     const { toProcess, completed, orphanCount } = await loadAndFilterChunks(jobs, jobModel, {
       db: options.db,
       failOrphanJobs: async (orphanJobs, error) => {
-        await jq.failBatch({ jobs: orphanJobs, error, terminal: true });
+        await jq.failBatch({ error, jobs: orphanJobs, terminal: true });
       },
       fileChunkIdType,
       hashExpectedEmbedding: sha256Hex,
@@ -1699,9 +1699,9 @@ export async function startEmbeddingWorker(
       } catch (err) {
         // If we can't parse job/model, fail it immediately
         jq.fail({
+          error: err instanceof Error ? err.message : String(err),
           id: job.id,
           leaseToken: job.lease_token,
-          error: err instanceof Error ? err.message : String(err),
         }).catch((e: unknown) => workerLogger.error('Failed to fail job', { error: e }));
         metrics.jobsFailed += 1;
       }
@@ -1789,10 +1789,10 @@ export async function startEmbeddingWorker(
       }
       // Claim a batch of jobs
       const jobs = (await jq.claimMany({
-        queue: queueName,
         leaseMs,
-        workerId,
         limit: effectiveClaimBatchSize,
+        queue: queueName,
+        workerId,
       })) as ClaimedJob[];
 
       if (jobs.length === 0) {
@@ -1840,17 +1840,17 @@ export async function startEmbeddingWorker(
       const uptimeMs = Date.now() - metrics.startedAt;
       const avgMs = metrics.jobsProcessed > 0 ? metrics.totalDurationMs / metrics.jobsProcessed : 0;
       log('worker_metrics', {
-        uptimeMs,
-        processed: metrics.jobsProcessed,
-        failed: metrics.jobsFailed,
         avgDurationMs: Math.round(avgMs),
-        concurrency,
         claimBatchSize,
+        concurrency,
         effectiveClaimBatchSize: lastClaimBatchSize,
         effectiveClaimBatchSizeError: lastClaimBatchSizeError,
+        failed: metrics.jobsFailed,
         interBatchDelayMs,
-        queue: queueName,
         modelKey: activeCompositeKey,
+        processed: metrics.jobsProcessed,
+        queue: queueName,
+        uptimeMs,
       });
     },
     Math.max(5000, metricsInterval)

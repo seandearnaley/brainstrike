@@ -27,13 +27,13 @@ describe('inspector-view-store', () => {
     const ctx = 'root:/b.ts';
     useInspectorViewStore.getState().setFields(ctx, {
       includeInReport: false,
-      summaryLevel: 3,
       note: 'Test note',
+      summaryLevel: 3,
     });
     expect(useInspectorViewStore.getState().getFields(ctx)).toEqual({
       includeInReport: false,
-      summaryLevel: 3,
       note: 'Test note',
+      summaryLevel: 3,
     });
     useInspectorViewStore.getState().clear(ctx);
     expect(useInspectorViewStore.getState().getFields(ctx)).toBeDefined();

@@ -1,17 +1,17 @@
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  dialect: 'postgresql',
-  schema: './src/schema/index.ts',
-  out: './drizzle',
-  driver: 'pglite',
   dbCredentials: {
     url: './data/postgres',
   },
+  dialect: 'postgresql',
+  driver: 'pglite',
   migrations: {
-    table: '__drizzle_migrations',
     schema: 'public',
+    table: '__drizzle_migrations',
   },
+  out: './drizzle',
+  schema: './src/schema/index.ts',
   strict: true,
   verbose: true,
 });

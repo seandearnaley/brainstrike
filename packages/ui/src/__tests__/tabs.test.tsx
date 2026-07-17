@@ -107,4 +107,20 @@ describe('Tabs', () => {
 
     expect(screen.getByTestId('tabs-content')).toBeInTheDocument();
   });
+
+  it('uses explicit transition properties on TabsTrigger instead of transition-all', () => {
+    render(
+      <Tabs>
+        <TabsList>
+          <TabsTrigger value="tab1">Tab 1</TabsTrigger>
+        </TabsList>
+      </Tabs>
+    );
+
+    const trigger = screen.getByRole('tab');
+    expect(trigger.className).toContain(
+      'transition-[color,background-color,border-color,box-shadow,opacity,transform]'
+    );
+    expect(trigger.className).not.toContain('transition-all');
+  });
 });

@@ -17,7 +17,7 @@ describe('useFileLoadingManager', () => {
     const fileContents: Record<string, string> = {};
 
     const { result } = renderHook(() =>
-      useFileLoadingManager({ selectedFilePaths, fileContents, loadFileContent })
+      useFileLoadingManager({ fileContents, loadFileContent, selectedFilePaths })
     );
 
     await act(async () => {
@@ -40,7 +40,7 @@ describe('useFileLoadingManager', () => {
     const selectedFilePaths = new Set<string>(['/loaded.txt']);
     const fileContents = { '/loaded.txt': 'content' };
 
-    renderHook(() => useFileLoadingManager({ selectedFilePaths, fileContents, loadFileContent }));
+    renderHook(() => useFileLoadingManager({ fileContents, loadFileContent, selectedFilePaths }));
 
     await act(async () => {
       await Promise.resolve();
@@ -55,7 +55,7 @@ describe('useFileLoadingManager', () => {
     const fileContents: Record<string, string> = {};
 
     const { rerender } = renderHook(() =>
-      useFileLoadingManager({ selectedFilePaths, fileContents, loadFileContent })
+      useFileLoadingManager({ fileContents, loadFileContent, selectedFilePaths })
     );
 
     await act(async () => {

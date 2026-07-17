@@ -13,15 +13,15 @@ describe('formatRetrievalCoverageNote', () => {
 
   it('summarizes missing source-range skips with re-index guidance', () => {
     const note = formatRetrievalCoverageNote({
+      affectedFilePaths: new Map([
+        ['f1', '/src/a.ts'],
+        ['f2', '/src/b.ts'],
+      ]),
       skippedForMissingSourceRange: 2,
       skippedSourceRangeChunks: [
         { chunkId: 'c1', chunkIndex: 0, fileRecordId: 'f1' },
         { chunkId: 'c2', chunkIndex: 1, fileRecordId: 'f2' },
       ],
-      affectedFilePaths: new Map([
-        ['f1', '/src/a.ts'],
-        ['f2', '/src/b.ts'],
-      ]),
     });
 
     expect(note).toContain('[Retrieval coverage]');
@@ -43,6 +43,12 @@ describe('formatRetrievalCoverageNote', () => {
 
   it('caps affected file listing for token-aware output', () => {
     const note = formatRetrievalCoverageNote({
+      affectedFilePaths: new Map([
+        ['f1', 'a.ts'],
+        ['f2', 'b.ts'],
+        ['f3', 'c.ts'],
+        ['f4', 'd.ts'],
+      ]),
       skippedForMissingSourceRange: 5,
       skippedSourceRangeChunks: [
         { chunkId: 'c1', chunkIndex: 0, fileRecordId: 'f1' },
@@ -50,12 +56,6 @@ describe('formatRetrievalCoverageNote', () => {
         { chunkId: 'c3', chunkIndex: 0, fileRecordId: 'f3' },
         { chunkId: 'c4', chunkIndex: 0, fileRecordId: 'f4' },
       ],
-      affectedFilePaths: new Map([
-        ['f1', 'a.ts'],
-        ['f2', 'b.ts'],
-        ['f3', 'c.ts'],
-        ['f4', 'd.ts'],
-      ]),
     });
 
     expect(note).toContain('(+1 more)');

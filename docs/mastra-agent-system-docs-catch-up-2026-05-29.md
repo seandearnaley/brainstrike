@@ -104,12 +104,12 @@ Evidence:
 - `packages/agent/src/mastra/default-instructions.ts`
 - `packages/agent/src/stream/data-stream-mapper.ts`
 - `packages/ui/src/assistant-ui-panel/assistant-run-timeline.tsx`
-- `packages/ui/src/prompt-management/store.ts`
-- `packages/ui/src/prompt-management/components/prompt-editor.tsx`
+- `packages/app-shell/src/connected-prompt-manager.tsx`
+- `packages/app-shell/src/prompt-workbench-panel.tsx`
 - Mastra docs: https://mastra.ai/docs/workflows/overview
 - Mastra docs: https://mastra.ai/docs/editor/overview
 
-The Prompt Library appears to overlap with Mastra Editor's versioned prompts/agent overrides, and one local restore control appears incomplete. That should be evaluated before adding more custom prompt state.
+The original localStorage Prompt Library was later retired in favor of the PGlite-backed Prompt Workbench. Its overlap with Mastra Editor's versioned prompts/agent overrides should still be evaluated before adding more custom prompt state.
 
 ### Streaming and MCP
 

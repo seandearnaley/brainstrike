@@ -84,9 +84,15 @@ async function readWebE2eDbPath(page: Page): Promise<string> {
   });
 }
 
+// Assistant threads persist under the workspace-global resource id (see
+// WORKSPACE_MEMORY_RESOURCE_ID in packages/app-shell/src/assistant-memory-resource.ts —
+// not exported from the package barrel, hence the literal), not the focused
+// root name, since #1214 made threads workspace-global.
+const WORKSPACE_MEMORY_RESOURCE_ID = 'brainstrike:workspace';
+
 async function readFirstAssistantThreadMetadata(
   page: Page,
-  resourceId = ASSISTANT_UI_PANEL_ROOT_NAME
+  resourceId = WORKSPACE_MEMORY_RESOURCE_ID
 ): Promise<unknown> {
   return await page.evaluate(async (targetResourceId) => {
     const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
@@ -178,12 +184,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       const emitProgress = (requestId: string, payload: MockProgressPayloadInput) => {
         for (const listener of progressListeners) {
           const event: MockProgressEvent = {
-            type: 'progress',
-            requestId,
             payload: {
               clientRequestId: requestId,
               ...payload,
             },
+            requestId,
+            type: 'progress',
           };
           listener(event);
         }
@@ -193,11 +199,6 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
       // @ts-expect-error local runtime host mock for e2e
       window.llmHost = {
-        warmup: async () => undefined,
-        onProgress(callback: (event: MockProgressEvent) => void) {
-          progressListeners.add(callback);
-          return () => progressListeners.delete(callback);
-        },
         async generate({ requestId, messages }: MockLlmGenerateRequest) {
           const latestUserMessage = [...messages]
             .reverse()
@@ -216,20 +217,20 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
             });
             await delay(STREAM_STEP_DELAY_MS);
             return {
-              text: '',
-              reasoningText: 'Inspect whether a tool is needed.',
               finishReason: 'tool_calls',
+              reasoningText: 'Inspect whether a tool is needed.',
+              text: '',
               toolCalls: [
                 {
+                  function: {
+                    arguments: JSON.stringify({ text: 'hello from mock' }),
+                    name: 'web.echo',
+                  },
                   id: 'tool-call-1',
                   type: 'function',
-                  function: {
-                    name: 'web.echo',
-                    arguments: JSON.stringify({ text: 'hello from mock' }),
-                  },
                 },
               ] satisfies MockToolCall[],
-              usage: { promptTokens: 12, completionTokens: 10, totalTokens: 22 },
+              usage: { completionTokens: 10, promptTokens: 12, totalTokens: 22 },
             };
           }
 
@@ -247,25 +248,30 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
           });
           await delay(STREAM_STEP_DELAY_MS);
           return {
-            text: 'Assistant: Mock response from tests.',
-            reasoningText: hasToolResponse ? 'Summarize the tool result.' : 'Plan a short reply.',
             finishReason: 'stop',
-            usage: { promptTokens: 12, completionTokens: 24, totalTokens: 36 },
+            reasoningText: hasToolResponse ? 'Summarize the tool result.' : 'Plan a short reply.',
+            text: 'Assistant: Mock response from tests.',
+            usage: { completionTokens: 24, promptTokens: 12, totalTokens: 36 },
           };
         },
+        onProgress(callback: (event: MockProgressEvent) => void) {
+          progressListeners.add(callback);
+          return () => progressListeners.delete(callback);
+        },
+        warmup: async () => undefined,
       };
 
       // @ts-expect-error tool bridge mock for local-runtime tool execution
       window.tools = {
         async execute(toolId: string, input: unknown) {
           return {
-            success: true,
             durationMs: 5,
             result: {
-              toolId,
-              input,
               echoed: 'hello from mock',
+              input,
+              toolId,
             },
+            success: true,
           };
         },
       };
@@ -317,7 +323,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
     await expect
       .poll(async () => await readFirstAssistantThreadMetadata(page))
-      .toMatchObject({ icon: 'bug', color: 'rose' });
+      .toMatchObject({ color: 'rose', icon: 'bug' });
     await page.waitForFunction(() =>
       Boolean(
         (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
@@ -343,7 +349,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       .toBe(dbPathBeforeReload);
     await expect
       .poll(async () => await readFirstAssistantThreadMetadata(page))
-      .toMatchObject({ icon: 'bug', color: 'rose' });
+      .toMatchObject({ color: 'rose', icon: 'bug' });
     const reloadedThreadRow = page.getByTestId('thread-row').first();
     await expect(reloadedThreadRow).toBeVisible();
     await expect(reloadedThreadRow.getByTestId('thread-icon-bug')).toBeVisible();
@@ -415,8 +421,16 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await page.locator('#assistant-input').fill('echo hidden tool details');
     await page.getByRole('button', { name: 'Send' }).click();
 
-    // Tool calls render directly in the thread even when the model also emits
-    // collapsed reasoning; tool details stay hidden until explicitly expanded.
+    // Since #1237/#1240 a turn's tool cards live inside a per-turn Activity
+    // group that auto-collapses when the turn finishes (the card stays in the
+    // DOM but hidden). Deterministically wait out the auto-collapse, then
+    // expand the group — the per-card details below must STILL be collapsed
+    // until explicitly expanded (the behavior this test exists to pin).
+    const activitySummary = viewport.getByTestId('assistant-activity-summary');
+    await expect(activitySummary).toBeVisible({ timeout: 10_000 });
+    await expect(activitySummary).toHaveAttribute('aria-expanded', 'false', { timeout: 10_000 });
+    await activitySummary.click();
+
     const toolCard = viewport.getByTestId('tool-fallback');
     await expect(toolCard).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('local-reasoning-part')).toHaveCount(0);

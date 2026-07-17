@@ -17,51 +17,51 @@ vi.mock('../tree-table/tree-table', () => ({
 }));
 
 const TEST_DATA: CollectionTreeInput = {
+  chunks: [
+    {
+      chunkIndex: 0,
+      content: 'alpha',
+      embedding: [0.1, 0.2],
+      fileRecordId: 'file-a',
+      id: 'chunk-a',
+      tokenCount: 8,
+    },
+    {
+      chunkIndex: 0,
+      content: 'beta',
+      embedding: [0.1, 0.2],
+      fileRecordId: 'file-b',
+      id: 'chunk-b',
+      tokenCount: 8,
+    },
+  ],
   files: [
     {
+      chunksCount: 1,
       id: 'file-a',
       name: 'a.ts',
       path: '/a.ts',
       size: 120,
-      chunksCount: 1,
     },
     {
+      chunksCount: 1,
       id: 'file-b',
       name: 'b.ts',
       path: '/b.ts',
       size: 160,
-      chunksCount: 1,
-    },
-  ],
-  chunks: [
-    {
-      id: 'chunk-a',
-      fileRecordId: 'file-a',
-      chunkIndex: 0,
-      content: 'alpha',
-      tokenCount: 8,
-      embedding: [0.1, 0.2],
-    },
-    {
-      id: 'chunk-b',
-      fileRecordId: 'file-b',
-      chunkIndex: 0,
-      content: 'beta',
-      tokenCount: 8,
-      embedding: [0.1, 0.2],
     },
   ],
 };
 
 const SEMANTIC_RESULTS: SemanticSearchResult[] = [
   {
-    nodeId: 'chunk-chunk-a',
     chunkId: 'chunk-a',
-    fileRecordId: 'file-a',
-    similarity: 0.93,
     content: 'alpha',
     fileName: 'a.ts',
     filePath: '/a.ts',
+    fileRecordId: 'file-a',
+    nodeId: 'chunk-chunk-a',
+    similarity: 0.93,
   },
 ];
 
@@ -100,8 +100,8 @@ describe('CollectionBrowser windowing configuration', () => {
     expect(treeTableProps.windowingStrategy).toBe('auto');
     expect(treeTableProps.autoWindowingContext).toBe('search');
     expect(treeTableProps.pagination).toMatchObject({
-      pageSizeOptions: [25, 50, 100, 250],
       pageInfo: 'semantic results',
+      pageSizeOptions: [25, 50, 100, 250],
       showControls: true,
       showItemRange: true,
     });

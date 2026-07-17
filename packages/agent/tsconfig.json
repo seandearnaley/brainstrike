@@ -11,10 +11,10 @@
     "emitDeclarationOnly": true,
     "paths": {
       "@brainstrike/assistant-contract": [
-        "../../assistant-contract/src/index.ts"
+        "../assistant-contract/dist/index.d.ts"
       ],
       "@brainstrike/assistant-contract/*": [
-        "../../assistant-contract/src/*"
+        "../assistant-contract/dist/*.d.ts"
       ]
     },
     "strictNullChecks": true

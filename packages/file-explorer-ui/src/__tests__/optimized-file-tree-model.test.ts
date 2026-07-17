@@ -2,6 +2,7 @@ import type { FlattenedNode } from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
+import { memoizedFileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyDirectorySelectionMutation,
@@ -9,14 +10,22 @@ import {
   buildFileTreeRows,
   buildRowsFromNormalizedTree,
   buildRowsFromWorkerNodes,
+  computeNodeSelectionState,
+  type DirectorySelectionTraversalContext,
   getNormalizedImmediateChildren,
   getSelectedDescendantPathsForDirectory,
   hasNormalizedUnloadedDirectoryChildren,
+  hasUnloadedDirectoryChildren,
   indexFileNodesByPath,
   resolveDirectorySelectionMutation,
   shouldLoadDirectoryRecursively,
 } from '../tree/optimized-file-tree-model';
-import { createNormalizedFileTreeState } from '../utils/normalized-file-tree';
+import {
+  createNormalizedFileTreeState,
+  getNormalizedDescendantFileCount,
+  hasNormalizedIncompleteDescendants,
+  type NormalizedFileTreeState,
+} from '../utils/normalized-file-tree';
 
 const defaultRowsOptions = {
   expandedDirectoryPaths: new Set<string>(),
@@ -29,14 +38,14 @@ const workspaceSelectionModel: FileExplorerState['selectionModel'] = createEmpty
 function createFileNode(path: string, overrides: Partial<IFileNode> = {}): IFileNode {
   const name = path.split('/').at(-1) ?? path;
   return {
+    depth: 0,
+    handle: {} as FileSystemFileHandle,
+    isVisible: true,
     name,
     path,
-    type: 'file',
-    isVisible: true,
-    handle: {} as FileSystemFileHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'file',
     ...overrides,
   };
 }
@@ -48,16 +57,16 @@ function createDirectoryNode(
 ): IFileNode {
   const name = path.split('/').at(-1) ?? path;
   return {
+    children,
+    depth: 0,
+    handle: {} as FileSystemDirectoryHandle,
+    isVisible: true,
+    loadState: 'loaded',
     name,
     path,
-    type: 'directory',
-    isVisible: true,
-    handle: {} as FileSystemDirectoryHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
-    loadState: 'loaded',
-    children,
+    selectionState: 'unchecked',
+    type: 'directory',
     ...overrides,
   };
 }
@@ -88,7 +97,7 @@ describe('optimized file tree model mutations', () => {
         selectedCount: 0,
         selectedFilePaths: new Set<string>(),
       })
-    ).toEqual({ action: 'none', paths: [] });
+    ).toEqual({ action: 'none', limitTruncated: false, paths: [] });
 
     expect(
       resolveDirectorySelectionMutation({
@@ -103,8 +112,10 @@ describe('optimized file tree model mutations', () => {
           encodeFileSelection('root', '/src/b.ts'),
         ]),
       })
-    ).toEqual({ action: 'remove', paths: ['/src/a.ts', '/src/b.ts'] });
+    ).toEqual({ action: 'remove', limitTruncated: false, paths: ['/src/a.ts', '/src/b.ts'] });
 
+    // Zero slots left: blocked entirely BY THE LIMIT — callers must be able
+    // to tell this apart from "nothing to select" to surface honest feedback.
     expect(
       resolveDirectorySelectionMutation({
         allFilePaths: ['/src/a.ts'],
@@ -115,7 +126,7 @@ describe('optimized file tree model mutations', () => {
         selectedCount: 0,
         selectedFilePaths: new Set<string>(),
       })
-    ).toEqual({ action: 'none', paths: [] });
+    ).toEqual({ action: 'none', limitTruncated: true, paths: [] });
 
     expect(
       resolveDirectorySelectionMutation({
@@ -127,7 +138,21 @@ describe('optimized file tree model mutations', () => {
         selectedCount: 1,
         selectedFilePaths: new Set([encodeFileSelection('root', '/src/a.ts')]),
       })
-    ).toEqual({ action: 'add', paths: ['/src/b.ts', '/src/c.ts'] });
+    ).toEqual({ action: 'add', limitTruncated: false, paths: ['/src/b.ts', '/src/c.ts'] });
+
+    // Partial fill: only one slot left for two unselected files (decision D3:
+    // fill to the cap rather than reject, and report the truncation).
+    expect(
+      resolveDirectorySelectionMutation({
+        allFilePaths: ['/src/a.ts', '/src/b.ts', '/src/c.ts'],
+        currentSelectionSize: 1,
+        directoryTotalFiles: 3,
+        folderId: 'root',
+        maxSelectionCount: 2,
+        selectedCount: 1,
+        selectedFilePaths: new Set([encodeFileSelection('root', '/src/a.ts')]),
+      })
+    ).toEqual({ action: 'add', limitTruncated: true, paths: ['/src/b.ts'] });
   });
 
   it('dispatches directory and file selection mutations without extra store calls', () => {
@@ -138,7 +163,7 @@ describe('optimized file tree model mutations', () => {
     applyDirectorySelectionMutation({
       addMultipleSelectedFiles,
       folderId: 'root',
-      mutation: { action: 'remove', paths: ['/src/a.ts'] },
+      mutation: { action: 'remove', limitTruncated: false, paths: ['/src/a.ts'] },
       removeMultipleSelectedFiles,
     });
     expect(removeMultipleSelectedFiles).toHaveBeenCalledWith('root', ['/src/a.ts']);
@@ -146,7 +171,7 @@ describe('optimized file tree model mutations', () => {
     applyDirectorySelectionMutation({
       addMultipleSelectedFiles,
       folderId: 'root',
-      mutation: { action: 'add', paths: ['/src/b.ts'] },
+      mutation: { action: 'add', limitTruncated: false, paths: ['/src/b.ts'] },
       removeMultipleSelectedFiles,
     });
     expect(addMultipleSelectedFiles).toHaveBeenCalledWith('root', ['/src/b.ts']);
@@ -154,7 +179,7 @@ describe('optimized file tree model mutations', () => {
     applyDirectorySelectionMutation({
       addMultipleSelectedFiles,
       folderId: 'root',
-      mutation: { action: 'none', paths: [] },
+      mutation: { action: 'none', limitTruncated: false, paths: [] },
       removeMultipleSelectedFiles,
     });
     expect(addMultipleSelectedFiles).toHaveBeenCalledTimes(1);
@@ -221,24 +246,24 @@ describe('optimized file tree model selected descendant resolution', () => {
 
   it('uses ready query manifests and restored materialized paths for query selections', () => {
     const queryDescriptor: NonNullable<FileExplorerState['selectionModel']['queryDescriptor']> = {
-      kind: 'recursive-folder',
-      folderId: 'root',
-      rootPath: '/src',
       coveredDirectoryPaths: ['/src'],
-      includeFilters: [],
-      excludeFilters: [],
-      includedPaths: [],
       excludedPaths: [],
+      excludeFilters: [],
+      folderId: 'root',
+      includedPaths: [],
+      includeFilters: [],
+      kind: 'recursive-folder',
       manifestFingerprint: 'fp-src',
       manifestSnapshotId: 'snap-src',
+      rootPath: '/src',
       totalSelectedCount: 2,
       useRegex: false,
     };
     const selectionModel: FileExplorerState['selectionModel'] = {
       ...createEmptySelectionModel(),
+      materializedPaths: new Set(['/src/restored.ts', '/docs/restored.md']),
       mode: 'query',
       queryDescriptor,
-      materializedPaths: new Set(['/src/restored.ts', '/docs/restored.md']),
     };
 
     expect(
@@ -246,13 +271,13 @@ describe('optimized file tree model selected descendant resolution', () => {
         directoryPath: '/src',
         folderId: 'root',
         querySelectionManifest: {
-          filePaths: ['/src/a.ts', '/docs/readme.md'],
-          pathSet: new Set(['/src/a.ts', '/docs/readme.md']),
           directoryCounts: new Map([['/src', 1]]),
+          errorMessage: null,
+          filePaths: ['/src/a.ts', '/docs/readme.md'],
           fingerprint: 'fp-src',
+          pathSet: new Set(['/src/a.ts', '/docs/readme.md']),
           snapshotId: 'snap-src',
           status: 'ready',
-          errorMessage: null,
         },
         selectedFilePaths: new Set<string>(),
         selectionModel,
@@ -364,5 +389,194 @@ describe('optimized file tree model row builders', () => {
       ['/src/lazy', '/src', false],
       ['/src/index.ts', '/src', false],
     ]);
+  });
+});
+
+describe('directory tri-state derivation with unloaded descendants', () => {
+  const maxSelectionCount = 1000;
+
+  function createFallbackTraversalContext(): DirectorySelectionTraversalContext {
+    return {
+      getDirectoryMetadata: (node: IFileNode) => {
+        if (node.type !== 'directory') {
+          return {
+            directoryTotalFiles: 0,
+            hasIncompleteDescendants: false,
+            hasUnloadedDirectoryChildren: false,
+            immediateChildren: [],
+          };
+        }
+        const folderFileCount = memoizedFileExplorer.getFolderFileCount(node);
+        return {
+          directoryTotalFiles: folderFileCount.count,
+          hasIncompleteDescendants: !folderFileCount.isComplete,
+          hasUnloadedDirectoryChildren: hasUnloadedDirectoryChildren(node),
+          immediateChildren: node.children ?? [],
+        };
+      },
+    };
+  }
+
+  function createNormalizedTraversalContext(
+    normalizedTree: NormalizedFileTreeState
+  ): DirectorySelectionTraversalContext {
+    return {
+      getDirectoryMetadata: (node: IFileNode) =>
+        node.type === 'directory'
+          ? {
+              directoryTotalFiles: getNormalizedDescendantFileCount(normalizedTree, node.path),
+              hasIncompleteDescendants: hasNormalizedIncompleteDescendants(
+                normalizedTree,
+                node.path
+              ),
+              hasUnloadedDirectoryChildren: hasNormalizedUnloadedDirectoryChildren(
+                normalizedTree,
+                node.path,
+                null
+              ),
+              immediateChildren: getNormalizedImmediateChildren(normalizedTree, node.path, null),
+            }
+          : {
+              directoryTotalFiles: 0,
+              hasIncompleteDescendants: false,
+              hasUnloadedDirectoryChildren: false,
+              immediateChildren: [],
+            },
+    };
+  }
+
+  function computeStateForRow(
+    rows: ReturnType<typeof buildFileTreeRows>,
+    rowId: string,
+    traversalContext: DirectorySelectionTraversalContext,
+    selectedFilePaths: Set<string>,
+    selectedDirectoryCounts: Map<string, number>
+  ) {
+    const row = rows.find((candidate) => candidate.id === rowId);
+    if (!row) {
+      throw new Error(`row not found: ${rowId}`);
+    }
+    return computeNodeSelectionState(
+      row.data,
+      traversalContext,
+      'root',
+      null,
+      workspaceSelectionModel,
+      selectedFilePaths,
+      selectedDirectoryCounts,
+      selectedFilePaths.size,
+      maxSelectionCount
+    );
+  }
+
+  it('renders a folder indeterminate, not checked, when its only loaded file is selected but an unloaded subdirectory remains', () => {
+    const src = createDirectoryNode('/src', [
+      createFileNode('/src/a.ts', { depth: 1 }),
+      createDirectoryNode('/src/lazy', [], { depth: 1, loadState: 'unloaded' }),
+    ]);
+    const rows = buildFileTreeRows([src], defaultRowsOptions);
+    const selectedFilePaths = new Set([encodeFileSelection('root', '/src/a.ts')]);
+    const selectedDirectoryCounts = new Map([['/src', 1]]);
+
+    const state = computeStateForRow(
+      rows,
+      '/src',
+      createFallbackTraversalContext(),
+      selectedFilePaths,
+      selectedDirectoryCounts
+    );
+
+    expect(state.checkboxState).toBe('indeterminate');
+  });
+
+  it('renders ancestors indeterminate when the unloaded directory is nested below a loaded child', () => {
+    const src = createDirectoryNode('/src', [
+      createDirectoryNode(
+        '/src/sub',
+        [
+          createFileNode('/src/sub/b.ts', { depth: 2 }),
+          createDirectoryNode('/src/sub/lazy', [], { depth: 2, loadState: 'unloaded' }),
+        ],
+        { depth: 1 }
+      ),
+    ]);
+    const rows = buildFileTreeRows([src], {
+      ...defaultRowsOptions,
+      expandedDirectoryPaths: new Set(['/src']),
+    });
+    const selectedFilePaths = new Set([encodeFileSelection('root', '/src/sub/b.ts')]);
+    const selectedDirectoryCounts = new Map([
+      ['/src', 1],
+      ['/src/sub', 1],
+    ]);
+    const traversalContext = createFallbackTraversalContext();
+
+    expect(
+      computeStateForRow(rows, '/src', traversalContext, selectedFilePaths, selectedDirectoryCounts)
+        .checkboxState
+    ).toBe('indeterminate');
+    expect(
+      computeStateForRow(
+        rows,
+        '/src/sub',
+        traversalContext,
+        selectedFilePaths,
+        selectedDirectoryCounts
+      ).checkboxState
+    ).toBe('indeterminate');
+  });
+
+  it('still renders a fully loaded, fully selected folder checked', () => {
+    const src = createDirectoryNode('/src', [
+      createFileNode('/src/a.ts', { depth: 1 }),
+      createDirectoryNode('/src/sub', [createFileNode('/src/sub/b.ts', { depth: 2 })], {
+        depth: 1,
+      }),
+    ]);
+    const rows = buildFileTreeRows([src], defaultRowsOptions);
+    const selectedFilePaths = new Set([
+      encodeFileSelection('root', '/src/a.ts'),
+      encodeFileSelection('root', '/src/sub/b.ts'),
+    ]);
+    const selectedDirectoryCounts = new Map([
+      ['/src', 2],
+      ['/src/sub', 1],
+    ]);
+
+    const state = computeStateForRow(
+      rows,
+      '/src',
+      createFallbackTraversalContext(),
+      selectedFilePaths,
+      selectedDirectoryCounts
+    );
+
+    expect(state.checkboxState).toBe(true);
+  });
+
+  it('renders a normalized-tree folder indeterminate when an unloaded subdirectory remains', () => {
+    const src = createDirectoryNode('/src', [
+      createFileNode('/src/a.ts', { depth: 1 }),
+      createDirectoryNode('/src/lazy', [], { depth: 1, loadState: 'unloaded' }),
+    ]);
+    const normalizedTree = createNormalizedFileTreeState([src]);
+    const rows = buildRowsFromNormalizedTree(
+      normalizedTree,
+      defaultRowsOptions,
+      (path) => getNormalizedDescendantFileCount(normalizedTree, path),
+      null
+    );
+    const selectedFilePaths = new Set([encodeFileSelection('root', '/src/a.ts')]);
+    const selectedDirectoryCounts = new Map([['/src', 1]]);
+
+    const state = computeStateForRow(
+      rows,
+      '/src',
+      createNormalizedTraversalContext(normalizedTree),
+      selectedFilePaths,
+      selectedDirectoryCounts
+    );
+
+    expect(state.checkboxState).toBe('indeterminate');
   });
 });

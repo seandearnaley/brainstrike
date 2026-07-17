@@ -24,7 +24,9 @@ export function useAssistantAvailabilityWithLocal(
   fetcher?: AssistantStatusFetcher
 ): AssistantAvailabilityStatus {
   const serverStatus = useAssistantAvailability(fetcher);
-  const { models, hasLoaded, error } = useModelRegistryStore();
+  const models = useModelRegistryStore((state) => state.models);
+  const hasLoaded = useModelRegistryStore((state) => state.hasLoaded);
+  const error = useModelRegistryStore((state) => state.error);
 
   const hasLocalModels = useMemo(() => hasEnabledLocalLlmModels(models), [models]);
   const canRunLocalGemma = useMemo(() => getBestBuiltInLocalLlmDevice() === 'webgpu', []);

@@ -12,6 +12,14 @@ import {
 import type { AgentMessage } from '../types';
 
 describe('assistant request helpers', () => {
+  it('pins the default body limit with headroom for image attachments', () => {
+    // Sized against the attachment contract: the combined per-message
+    // attachment cap (10MB raw) base64-encodes to ~13.4MB, leaving ~2.6MB of
+    // prompt/history headroom inside 16MB. Env-overridable via
+    // BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES; overflow stays loud.
+    expect(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES).toBe(16 * 1024 * 1024);
+  });
+
   it('uses the default request body byte limit when no override is configured', () => {
     expect(resolveAssistantRequestBodyLimitBytes(undefined)).toBe(
       DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES
@@ -110,12 +118,14 @@ describe('assistant request helpers', () => {
     const payload = parseAssistantRequestPayloadText(
       JSON.stringify({
         data: { memory: { resourceId: 'workspace', threadId: 'thread' } },
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+        messages: [{ content: [{ text: 'hello', type: 'text' }], role: 'user' }],
         runConfig: { maxTokens: 128 },
+        unstable_assistantMessageId: 'assistant-client-id',
       })
     );
 
     expect(payload).toMatchObject({
+      assistantMessageId: 'assistant-client-id',
       data: { memory: { resourceId: 'workspace', threadId: 'thread' } },
       rawMessages: [{ role: 'user' }],
       runConfig: { maxTokens: 128 },
@@ -145,16 +155,19 @@ describe('assistant request helpers', () => {
 
   it('detects whether the latest assistant prompt has non-empty text', () => {
     const emptyPrompt: AgentMessage = {
+      id: 'prompt-empty',
+      parts: [{ text: '   ', type: 'text' }],
       role: 'user',
-      parts: [{ type: 'text', text: '   ' }],
     };
     const nonTextPrompt: AgentMessage = {
+      id: 'prompt-non-text',
+      parts: [{ data: 'abc', mediaType: 'text/plain', type: 'file' }],
       role: 'user',
-      parts: [{ type: 'file', data: 'abc', mediaType: 'text/plain' }],
-    } as AgentMessage;
+    };
     const nonEmptyPrompt: AgentMessage = {
+      id: 'prompt-non-empty',
+      parts: [{ text: '  summarize this  ', type: 'text' }],
       role: 'user',
-      parts: [{ type: 'text', text: '  summarize this  ' }],
     };
 
     expect(hasNonEmptyAssistantPrompt([])).toBe(false);

@@ -20,18 +20,19 @@
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/workers": "workspace:*",
     "drizzle-orm": "0.45.2",
-    "react-hotkeys-hook": "^5.2.4"
+    "react-hotkeys-hook": "^5.3.3"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^25.6.0",
-    "@types/react": "^19.2.14",
-    "@vitejs/plugin-react": "^6.0.1",
-    "jsdom": "29.0.2",
-    "lucide-react": "^1.8.0"
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "^6.0.3",
+    "jsdom": "catalog:",
+    "lucide-react": "^1.23.0"
   },
   "engines": {
     "node": ">=22"
@@ -53,6 +54,10 @@
       "types": "./dist/preview/index.d.ts",
       "import": "./dist/preview/index.js"
     },
+    "./workspace-context-curation-store": {
+      "types": "./dist/workspace-context-curation-store.d.ts",
+      "import": "./dist/workspace-context-curation-store.js"
+    },
     "./shell": {
       "types": "./dist/shell/index.d.ts",
       "import": "./dist/shell/index.js"
@@ -71,6 +76,7 @@
   "module": "dist/index.js",
   "peerDependencies": {
     "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "zustand": "^5"
   },
   "private": true,
@@ -79,7 +85,8 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
-    "test": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run",
+    "test": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run --exclude \"**/*.integration.test.*\"",
+    "test:integration": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run --config vitest.integration.config.mts",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"

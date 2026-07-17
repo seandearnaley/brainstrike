@@ -20,15 +20,16 @@ function wrap(ui: ReactElement) {
 
 describe('ToolFallback', () => {
   const mockBaseProps = {
-    type: 'tool-call' as const,
-    toolCallId: 'test-call-id',
-    toolName: 'testTool',
+    addResult: () => {},
     args: { input: 'test' },
     argsText: '{"input":"test"}',
     part: {},
-    status: { type: 'complete' as const },
-    addResult: () => {},
+    respondToApproval: () => {},
     resume: () => {},
+    status: { type: 'complete' as const },
+    toolCallId: 'test-call-id',
+    toolName: 'testTool',
+    type: 'tool-call' as const,
   };
 
   describe('Running State', () => {
@@ -114,9 +115,9 @@ describe('ToolFallback', () => {
         <ToolFallback
           {...mockBaseProps}
           status={{
-            type: 'incomplete',
-            reason: 'error',
             error: 'Connection failed',
+            reason: 'error',
+            type: 'incomplete',
           }}
         />
       );
@@ -130,9 +131,9 @@ describe('ToolFallback', () => {
         <ToolFallback
           {...mockBaseProps}
           status={{
-            type: 'incomplete',
-            reason: 'error',
             error: 'Not connected',
+            reason: 'error',
+            type: 'incomplete',
           }}
         />
       );
@@ -161,9 +162,9 @@ describe('ToolFallback', () => {
           {...mockBaseProps}
           result="Database connection failed"
           status={{
-            type: 'incomplete',
-            reason: 'error',
             error: { code: 500 },
+            reason: 'error',
+            type: 'incomplete',
           }}
         />
       );
@@ -178,8 +179,8 @@ describe('ToolFallback', () => {
         <ToolFallback
           {...mockBaseProps}
           status={{
-            type: 'incomplete',
             reason: 'other',
+            type: 'incomplete',
           }}
         />
       );
@@ -192,9 +193,9 @@ describe('ToolFallback', () => {
         <ToolFallback
           {...mockBaseProps}
           status={{
-            type: 'incomplete',
-            reason: 'error',
             error: 'Test error',
+            reason: 'error',
+            type: 'incomplete',
           }}
         />
       );
@@ -211,9 +212,9 @@ describe('ToolFallback', () => {
           {...mockBaseProps}
           argsText='{"param":"value"}'
           status={{
-            type: 'incomplete',
-            reason: 'error',
             error: 'Failed to execute',
+            reason: 'error',
+            type: 'incomplete',
           }}
         />
       );

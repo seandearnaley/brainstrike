@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { createLogger } from '@brainstrike/utils';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import babel from '@rolldown/plugin-babel';
@@ -11,7 +12,7 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
-import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
+import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -37,59 +38,18 @@ const {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
-  resolveAssistantVendorChunk,
+  isContextActionSystemModule,
 } = await import('@brainstrike/build-utils');
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
-function resolveVendorChunk(id: string): string | undefined {
-  if (!id.includes('node_modules')) {
-    return;
-  }
-
-  const assistantChunk = resolveAssistantVendorChunk(id);
-  if (assistantChunk) {
-    return assistantChunk;
-  }
-
-  return 'vendor';
-}
-
-/**
- * Co-locate the whole context-action / command system into ONE chunk.
- *
- * `defineContextAction` (packages/context-actions) and `defineCommand`
- * (packages/commands) are pure identity helpers, but the feature
- * `*​/context-actions` modules CALL them at MODULE-INIT to build their action
- * arrays (e.g. `const actions = [defineContextAction({ id: 'file.copy-name' })]`).
- * Rolldown's default chunking hoists the shared helper into its own chunk,
- * separate from its eager callers; the caller chunk then runs `helper(...)` at
- * init before the helper chunk has initialized → a circular chunk-init TDZ
- * ("k is not a function") that leaves the BUILT renderer with an empty #root on
- * startup. Dev is unaffected (Vite serves unbundled ESM, native init order); the
- * DESKTOP renderer is unaffected (its bundle already co-locates them). Forcing a
- * single chunk here removes the cross-chunk init-order hazard on web. Source
- * aliasing alone (below) does NOT fix it — rolldown still splits the shared
- * helper out for dedup. Do NOT remove without re-verifying the built web app
- * mounts (apps/web/e2e @web-smoke).
- */
-function isContextActionSystemModule(id: string): boolean {
-  if (id.includes('node_modules')) {
-    return false;
-  }
-  // Matches the core package (…/context-actions/src/…), every feature
-  // …/src/context-actions/… module that calls defineContextAction at init, and
-  // the commands registry that shares the same define-at-init pattern.
-  return /[\\/]context-actions[\\/]/.test(id) || /[\\/]packages[\\/]commands[\\/]/.test(id);
-}
-
 const WORKER_PROCESS_EXIT_CODE_BINDING = '__brainstrikeWorkerProcessExitCode';
 
 function browserWorkerProcessExitCodePlugin() {
   return {
-    name: 'brainstrike-browser-worker-process-exit-code',
     enforce: 'post' as const,
+    name: 'brainstrike-browser-worker-process-exit-code',
     transform(code: string) {
       if (!code.includes('process.exitCode')) {
         return null;
@@ -107,82 +67,12 @@ function browserWorkerProcessExitCodePlugin() {
 }
 
 export default defineConfig({
-  cacheDir: path.resolve(__dirname, '.vite'),
-  server: {
-    port: 8080,
-    host: true,
-    headers: {
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Content-Security-Policy': getDevCSP(),
-    },
-    // HuggingFace proxy is handled by devHfProxyPlugin() below instead of
-    // Vite's built-in http-proxy (which cannot follow 307 redirects from HF CDN).
-  },
-  define: {
-    'process.env': {},
-    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(
-      process.env['EMBED_QUEUE_ENABLED'] ?? 'false'
-    ),
-    'process.env.LOCAL_FIRST_DB': JSON.stringify(
-      process.env['LOCAL_FIRST_DB'] ?? process.env['EMBED_QUEUE_ENABLED'] ?? 'false'
-    ),
-    'process.browser': true,
-    // Browser-only shim that tracks the repo Node target for dependencies probing process.version.
-    'process.version': '"v24.0.0"',
-    'process.platform': '"browser"',
-  },
-  plugins: [
-    fullReloadOnCompilerHotspots(),
-    wasm(),
-    topLevelAwait(),
-    react({
-      // Ensure consistent development transforms for React Compiler
-      jsxRuntime: 'automatic',
-    }),
-    babel({
-      exclude: [/[\\/]\.vite[\\/]/, /[\\/]node_modules[\\/]/],
-      presets: [reactCompilerBabelPreset],
-    }),
-    tailwindcss(), // Automatically finds and uses the root tailwind.config.js
-    viteStaticCopy({
-      targets: [
-        // PGlite WASM (existing). Conditionally included via spread so the
-        // build doesn't fail when pglite isn't yet built.
-        ...(wasmPath ? [{ src: wasmPath, dest: 'assets' }] : []),
-        // Tree-sitter grammar files (Phase 4 of #998). Vendored under
-        // packages/chunking-worker/grammars/, copied to dist/assets/grammars/.
-        // The chunking worker fetches them at runtime via
-        // `fetch('/assets/grammars/<lang>.wasm')`.
-        ...getTreeSitterGrammarCopyTargets(__dirname),
-      ],
-    }),
-    // Conditionally configure Codecov plugin
-    ...(process.env['CODECOV_TOKEN']
-      ? [
-          codecovVitePlugin({
-            enableBundleAnalysis: true,
-            bundleName: 'brainstrike-web-bundle',
-            uploadToken: process.env['CODECOV_TOKEN'],
-          }),
-        ]
-      : []), // If no token, don't include the plugin config
-    // Dev/preview middleware for /api/chat to support E2E and local dev
-    devChatApiPlugin(),
-    devHfProxyPlugin(),
-  ],
   assetsInclude: ['**/*.png'],
   build: {
-    minify: 'terser', // Use terser for better minification
-    terserOptions: {
-      // biome-ignore lint/style/useNamingConvention: required for terser drop_console target
-      compress: { drop_console: false },
-    },
-    outDir: 'dist', // Output directory for the build - cache bust
     assetsDir: 'assets', // Directory for static assets within the build output
-    sourcemap: false, // Disable sourcemaps for production build
-    target: 'es2020',
     assetsInlineLimit: 0,
+    minify: 'terser', // Use terser for better minification
+    outDir: 'dist', // Output directory for the build - cache bust
     rolldownOptions: {
       external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
@@ -190,187 +80,49 @@ export default defineConfig({
           groups: [
             {
               name(moduleId: string): string | null {
-                // Co-locate the context-action/command system first (prevents the
-                // circular chunk-init TDZ that blanks #root in the built renderer),
-                // then fall back to vendor chunking for node_modules.
-                if (isContextActionSystemModule(moduleId)) {
-                  return 'context-action-system';
-                }
-                return resolveVendorChunk(moduleId) ?? null;
+                // Co-locate the context-action/command system (prevents the
+                // circular chunk-init TDZ that blanks #root in the built
+                // renderer — see isContextActionSystemModule in build-utils).
+                // Everything else uses rolldown's default reachability-based
+                // splitting so dynamically-imported vendors (mermaid, shiki,
+                // katex, codemirror, …) stay OFF the startup critical path.
+                return isContextActionSystemModule(moduleId) ? 'context-action-system' : null;
               },
             },
           ],
         },
       },
     },
-  },
-  resolve: {
-    dedupe: ['react', 'react-dom'],
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      src: path.resolve(__dirname, './src'),
-      // NOTE: @brainstrike/file-explorer must alias to DIST (not src) so the worker-storage.worker.js
-      // file is properly bundled. Aliasing to src causes the .ts worker file to be emitted without
-      // transformation, which browsers cannot execute.
-      // The web:dev script has a predev step that ensures file-explorer is built first.
-      '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/dist'),
-      // Map stylesheet imports to source files for consistent theme loading
-      '@brainstrike/app-shell/styles.css': path.resolve(
-        __dirname,
-        '../../packages/app-shell/styles.css'
-      ),
-      '@brainstrike/file-explorer-ui/styles.css': path.resolve(
-        __dirname,
-        '../../packages/file-explorer-ui/styles.css'
-      ),
-      '@brainstrike/vector-management/styles.css': path.resolve(
-        __dirname,
-        '../../packages/vector-management/styles.css'
-      ),
-      '@brainstrike/ui/styles.css': path.resolve(__dirname, '../../packages/ui/styles.css'),
-      '@brainstrike/ui/globals.css': path.resolve(__dirname, '../../packages/ui/src/globals.css'),
-      // Source alias to ensure consistent React Compiler transforms and HMR
-      '@brainstrike/file-explorer-ui': path.resolve(
-        __dirname,
-        '../../packages/file-explorer-ui/src'
-      ),
-      // NOTE: Do NOT alias @brainstrike/agent to source - server-side routes need the
-      // full package which has Node.js dependencies. Only the /client subpath is browser-safe.
-      // '@brainstrike/agent': path.resolve(__dirname, '../../packages/agent/src'),
-      // Resolve dev/runtime imports from source so Vite never depends on workspace dist churn.
-      '@brainstrike/file-tree-worker': path.resolve(
-        __dirname,
-        '../../packages/file-tree-worker/src/vite.ts'
-      ),
-      '@brainstrike/token-cache/cache-runtime': path.resolve(
-        __dirname,
-        '../../packages/token-cache/src/cache-runtime.ts'
-      ),
-      '@brainstrike/token-cache/background-indexer': path.resolve(
-        __dirname,
-        '../../packages/token-cache/src/background-indexer.ts'
-      ),
-      '@brainstrike/selection-rules': path.resolve(
-        __dirname,
-        '../../packages/selection-rules/src/index.ts'
-      ),
-      // Ensure hooks resolve to source once to avoid duplicates
-      '@brainstrike/file-explorer-hooks': path.resolve(
-        __dirname,
-        '../../packages/file-explorer-hooks/src'
-      ),
-      '@brainstrike/app-shell': path.resolve(__dirname, '../../packages/app-shell/src'),
-      // Source-alias like every other @brainstrike package. Resolving these to
-      // their built `dist` lands `defineContextAction` in a separate chunk from
-      // the source feature `*/context-actions` that call it at module-init →
-      // circular chunk-init TDZ ("t is not a function") that hangs the BUILT
-      // renderer on startup (dev is unaffected). See the vite-alias coverage test.
-      '@brainstrike/commands': path.resolve(__dirname, '../../packages/commands/src'),
-      '@brainstrike/context-actions': path.resolve(__dirname, '../../packages/context-actions/src'),
-      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
-      '@brainstrike/db-explorer': path.resolve(__dirname, '../../packages/db-explorer/src'),
-      '@brainstrike/embeddings/runtime-config': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/runtime-config.ts'
-      ),
-      '@brainstrike/embeddings/provider-core': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/provider-core.ts'
-      ),
-      '@brainstrike/embeddings/backend': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/backend-entry.ts'
-      ),
-      '@brainstrike/embeddings/factory': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/factory-entry.ts'
-      ),
-      '@brainstrike/embeddings/service': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/service-entry.ts'
-      ),
-      '@brainstrike/embeddings/worker': path.resolve(
-        __dirname,
-        '../../packages/embeddings/src/worker-entry.ts'
-      ),
-      '@brainstrike/embeddings': path.resolve(__dirname, '../../packages/embeddings/src'),
-      '@brainstrike/embedding-worker': path.resolve(
-        __dirname,
-        '../../packages/embedding-worker/src'
-      ),
-      '@brainstrike/queue/browser': path.resolve(__dirname, '../../packages/queue/src/browser.ts'),
-      '@brainstrike/queue': path.resolve(__dirname, '../../packages/queue/src'),
-      '@brainstrike/worker-runtime': path.resolve(__dirname, '../../packages/worker-runtime/src'),
-      '@brainstrike/file-import/browser-queue-port': path.resolve(
-        __dirname,
-        '../../packages/file-import/src/browser-queue-port.ts'
-      ),
-      '@brainstrike/file-import/chunking-worker-context': path.resolve(
-        __dirname,
-        '../../packages/file-import/src/chunking-worker-context.tsx'
-      ),
-      '@brainstrike/file-import/enhanced-import': path.resolve(
-        __dirname,
-        '../../packages/file-import/src/enhanced-import.ts'
-      ),
-      '@brainstrike/file-import': path.resolve(__dirname, '../../packages/file-import/src'),
-      '@brainstrike/chunking-worker': path.resolve(__dirname, '../../packages/chunking-worker/src'),
-      '@brainstrike/preferences': path.resolve(__dirname, '../../packages/preferences/src'),
-      '@brainstrike/platform-utils': path.resolve(__dirname, '../../packages/platform-utils/src'),
-      '@brainstrike/text-splitter/chunking-core': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/chunking-core.ts'
-      ),
-      '@brainstrike/text-splitter/token-counting-heuristics': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/token-counting-heuristics.ts'
-      ),
-      '@brainstrike/text-splitter/token-constants': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/token-constants.ts'
-      ),
-      '@brainstrike/text-splitter/token-utils-accurate-lite': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
-      ),
-      '@brainstrike/text-splitter': path.resolve(
-        __dirname,
-        '../../packages/text-splitter/src/index.ts'
-      ),
-      '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
-      '@brainstrike/ui': path.resolve(__dirname, '../../packages/ui/src'),
-      '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
-      '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
-      '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
-      '@brainstrike/vector-management': path.resolve(
-        __dirname,
-        '../../packages/vector-management/src'
-      ),
-      '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
-      ...workerpoolBrowserStubAliases,
-      // Force pino to browser build to avoid dynamic require of node libs
-      pino: pinoBrowserPath,
-      'pino/browser.js': pinoBrowserPath,
-      // Agent browser-safe subpath exports (no Mastra dependencies)
-      ...createAgentBrowserSafeAliasMap(path.resolve(__dirname, '../../packages/agent')),
-      // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports
-      '@electric-sql/pglite/dist/fs/nodefs.js': '@electric-sql/pglite/dist/fs/opfs-ahp.js',
-      './fs/nodefs.js': './fs/opfs-ahp.js',
-      // remove duplicate hooks alias
+    sourcemap: false, // Disable sourcemaps for production build
+    target: 'es2020',
+    terserOptions: {
+      // biome-ignore lint/style/useNamingConvention: required for terser drop_console target
+      compress: { drop_console: false },
     },
   },
-  worker: {
-    format: 'es',
-    plugins: () => [browserWorkerProcessExitCodePlugin()],
+  cacheDir: path.resolve(__dirname, '.vite'),
+  define: {
+    'process.browser': true,
+    'process.env': {},
+    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(
+      process.env['EMBED_QUEUE_ENABLED'] ?? 'false'
+    ),
+    'process.env.LOCAL_FIRST_DB': JSON.stringify(
+      process.env['LOCAL_FIRST_DB'] ?? process.env['EMBED_QUEUE_ENABLED'] ?? 'false'
+    ),
+    'process.platform': '"browser"',
+    // Browser-only shim that tracks the repo Node target for dependencies probing process.version.
+    'process.version': '"v24.0.0"',
   },
   optimizeDeps: {
     entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],
     exclude: [
       ...getHeavyRuntimeOptimizeDepsExclude(),
       '@electric-sql/pglite', // Official PGlite requirement
-      // Split pgvector package ships its WASM/tar via import.meta.url; prebundling
-      // into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
+      // Split pgvector/pg_textsearch packages ship their WASM/tar via import.meta.url;
+      // prebundling into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
       '@electric-sql/pglite-pgvector',
+      '@electric-sql/pglite-pg_textsearch',
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',
@@ -404,16 +156,165 @@ export default defineConfig({
       },
     },
   },
-  test: {
-    globals: true,
-    environment: 'happy-dom',
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    include: [
-      'src/**/__tests__/**/*.test.{ts,tsx}',
-      'src/**/*.test.{ts,tsx}',
-      // E2E utility unit tests use .vitest.ts extension to avoid Playwright extension conflict
-      'e2e/utils/__tests__/**/*.vitest.ts',
+  plugins: [
+    fullReloadOnCompilerHotspots(),
+    wasm(),
+    topLevelAwait(),
+    react({
+      // Ensure consistent development transforms for React Compiler
+      jsxRuntime: 'automatic',
+    }),
+    babel({
+      exclude: [/[\\/]\.vite[\\/]/, /[\\/]node_modules[\\/]/],
+      presets: [reactCompilerBabelPreset],
+    }),
+    tailwindcss(), // Automatically finds and uses the root tailwind.config.js
+    viteStaticCopy({
+      targets: [
+        // PGlite WASM (existing). Conditionally included via spread so the
+        // build doesn't fail when pglite isn't yet built.
+        ...(wasmPath ? [{ dest: 'assets', src: wasmPath }] : []),
+        // Tree-sitter grammar files (Phase 4 of #998). Vendored under
+        // packages/chunking-worker/grammars/, copied to dist/assets/grammars/.
+        // The chunking worker fetches them at runtime via
+        // `fetch('/assets/grammars/<lang>.wasm')`.
+        ...getTreeSitterGrammarCopyTargets(__dirname),
+      ],
+    }),
+    // Conditionally configure Codecov plugin
+    ...(process.env['CODECOV_TOKEN']
+      ? [
+          codecovVitePlugin({
+            bundleName: 'brainstrike-web-bundle',
+            enableBundleAnalysis: true,
+            uploadToken: process.env['CODECOV_TOKEN'],
+          }),
+        ]
+      : []), // If no token, don't include the plugin config
+    // Dev/preview middleware for /api/chat to support E2E and local dev
+    devChatApiPlugin(),
+    devHfProxyPlugin(),
+  ],
+  resolve: {
+    // Array form: first match wins, so deliberate overrides/exceptions come
+    // BEFORE the shared registry spread (mirrors apps/desktop/vite.config.mts
+    // and the vitest configs' B3/B4 convention, #1651/#1658). Every root/
+    // subpath alias the registry emits is an EXACT specifier match (derived
+    // from each package's own `exports` map), so — unlike the old object-form
+    // map's blanket string-prefix roots — subpath vs. root ordering can no
+    // longer shadow anything; only the exceptions below need to precede it.
+    alias: [
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      // Stylesheet/asset imports: the registry deliberately excludes non-code
+      // exports (css/json/icons), so these stay explicit.
+      {
+        find: '@brainstrike/app-shell/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/app-shell/styles.css'),
+      },
+      {
+        find: '@brainstrike/workspace-search/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/workspace-search/styles.css'),
+      },
+      {
+        find: '@brainstrike/db-explorer/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/db-explorer/styles.css'),
+      },
+      {
+        find: '@brainstrike/file-explorer-ui/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
+      },
+      {
+        find: '@brainstrike/vector-management/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/vector-management/styles.css'),
+      },
+      {
+        find: '@brainstrike/ui/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/ui/styles.css'),
+      },
+      {
+        find: '@brainstrike/ui/globals.css',
+        replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
+      },
+      // NOTE: @brainstrike/file-explorer must alias to DIST (not src) so the worker-storage.worker.js
+      // file is properly bundled. Aliasing to src causes the .ts worker file to be emitted without
+      // transformation, which browsers cannot execute.
+      // The web:dev script has a predev step that ensures file-explorer is built first.
+      {
+        find: '@brainstrike/file-explorer',
+        replacement: path.resolve(__dirname, '../../packages/file-explorer/dist'),
+      },
+      // @brainstrike/file-tree-worker's root `exports['.']` targets a
+      // Node-worker_threads entry (dist/index.js); the registry would derive
+      // that same Node-targeted src/index.ts. vite.ts is the deliberate
+      // browser-adapted implementation (Vite Worker URL syntax) this app
+      // needs instead, so it must precede the spread.
+      {
+        find: '@brainstrike/file-tree-worker',
+        replacement: path.resolve(__dirname, '../../packages/file-tree-worker/src/vite.ts'),
+      },
+      // @brainstrike/workers has no `src/` dir (worker files live at the
+      // package root), so the registry skips it — alias explicitly.
+      {
+        find: '@brainstrike/workers',
+        replacement: path.resolve(__dirname, '../../packages/workers'),
+      },
+      // NOTE: Do NOT alias @brainstrike/agent to source - server-side routes need the
+      // full package which has Node.js dependencies. Only the /client subpath is browser-safe.
+      // The registry EXCLUDES @brainstrike/agent's root by default (DEFAULT_SRC_ALIAS_EXCLUSIONS),
+      // so no override is needed here to preserve that — only the browser-safe subpaths below.
+      // Agent browser-safe subpath exports (no Mastra dependencies)
+      ...createAgentBrowserSafeAliasEntries(path.resolve(__dirname, '../../packages/agent')),
+      { find: 'src', replacement: path.resolve(__dirname, './src') },
+      ...Object.entries(workerpoolBrowserStubAliases).map(([find, replacement]) => ({
+        find,
+        replacement,
+      })),
+      // Force pino to browser build to avoid dynamic require of node libs
+      { find: 'pino', replacement: pinoBrowserPath },
+      { find: 'pino/browser.js', replacement: pinoBrowserPath },
+      { find: './fs/nodefs.js', replacement: './fs/opfs-ahp.js' },
+      // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports
+      {
+        find: '@electric-sql/pglite/dist/fs/nodefs.js',
+        replacement: '@electric-sql/pglite/dist/fs/opfs-ahp.js',
+      },
+      // B3/B4: shared workspace source-alias registry (#1651/#1658). Replaces
+      // the hand-maintained map this file used to carry — every entry it
+      // listed besides the exceptions above (including the chunk-init-TDZ
+      // motivated commands/context-actions entries and the renamed
+      // db-explorer/embedding-models subpath) is an exact match for what this
+      // registry derives from each package's own `exports` map.
+      ...workspaceSrcAliases(path.resolve(__dirname, '../../packages')),
     ],
+    dedupe: ['react', 'react-dom'],
+  },
+  server: {
+    headers: {
+      'Content-Security-Policy': getDevCSP(),
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+    },
+    host: true,
+    port: 8080,
+    // HuggingFace proxy is handled by devHfProxyPlugin() below instead of
+    // Vite's built-in http-proxy (which cannot follow 307 redirects from HF CDN).
+  },
+  test: {
+    coverage: {
+      exclude: [
+        '**/*.test.*',
+        '**/__tests__/**',
+        '**/dist/**',
+        '**/node_modules/**',
+        '**/e2e/**',
+        '**/*.{config,config.*}',
+      ],
+      include: ['src/**/*.{ts,tsx}'],
+      provider: 'v8',
+      reporter: ['text', 'lcov', 'json'],
+      reportsDirectory: './coverage',
+    },
+    environment: 'happy-dom',
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
@@ -423,30 +324,22 @@ export default defineConfig({
       '**/cypress/**',
       '**/.{idea,git,cache,output,temp}/**',
     ],
-    coverage: {
-      provider: 'v8',
-      include: ['src/**/*.{ts,tsx}'],
-      exclude: [
-        '**/*.test.*',
-        '**/__tests__/**',
-        '**/dist/**',
-        '**/node_modules/**',
-        '**/e2e/**',
-        '**/*.{config,config.*}',
-      ],
-      reporter: ['text', 'lcov', 'json'],
-      reportsDirectory: './coverage',
-    },
-    reporters: ['default', 'hanging-process'],
-    silent: true,
+    globals: true,
+    include: [
+      'src/**/__tests__/**/*.test.{ts,tsx}',
+      'src/**/*.test.{ts,tsx}',
+      // E2E utility unit tests use .vitest.ts extension to avoid Playwright extension conflict
+      'e2e/utils/__tests__/**/*.vitest.ts',
+    ],
+    // Coverage consolidated at root vitest.config.mts
+    mockReset: true,
     onConsoleLog: (log: string, type: 'stdout' | 'stderr') => {
       if (type === 'stderr' && log.includes('ERROR') && !log.includes('Error: Not implemented')) {
         return true;
       }
       return false;
     },
-    // Coverage consolidated at root vitest.config.mts
-    mockReset: true,
+    reporters: ['default', 'hanging-process'],
     // Vitest 4: deps.inline moved to server.deps.inline
     server: {
       deps: {
@@ -458,19 +351,25 @@ export default defineConfig({
         ],
       },
     },
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    silent: true,
+  },
+  worker: {
+    format: 'es',
+    plugins: () => [browserWorkerProcessExitCodePlugin()],
   },
 });
 
 // Minimal dev/preview plugin to serve /api/chat using our agent
 function devChatApiPlugin() {
   return {
-    name: 'dev-chat-api',
-    async configureServer(server: import('vite').ViteDevServer) {
-      server.middlewares.use(await createApiMiddleware('dev'));
-    },
     async configurePreviewServer(server: import('vite').ViteDevServer) {
       server.middlewares.use(await createApiMiddleware('preview'));
     },
+    async configureServer(server: import('vite').ViteDevServer) {
+      server.middlewares.use(await createApiMiddleware('dev'));
+    },
+    name: 'dev-chat-api',
   };
 }
 
@@ -479,7 +378,6 @@ function devChatApiPlugin() {
 // causing SPA fallback to serve index.html instead of model files).
 function devHfProxyPlugin() {
   return {
-    name: 'dev-hf-proxy',
     async configureServer(server: import('vite').ViteDevServer) {
       const { handleHfProxyRequest } = await import('./src/hf-dev-proxy.ts');
       server.middlewares.use(
@@ -502,6 +400,7 @@ function devHfProxyPlugin() {
         }
       );
     },
+    name: 'dev-hf-proxy',
   };
 }
 

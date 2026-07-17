@@ -1,3 +1,4 @@
+import { resetLogger } from '@brainstrike/utils';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
@@ -36,9 +37,9 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
     return { rows: [] };
   });
   return {
-    query: baseQuery,
-    exec: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
+    exec: vi.fn(async () => {}),
+    query: baseQuery,
     ...overrides,
   };
 }
@@ -49,8 +50,10 @@ function wrapper({ children }: { children: React.ReactNode }) {
 
 describe('DbProvider initializing state', () => {
   beforeEach(() => {
-    // Reset logger configuration to defaults
-    const { resetLogger } = require('@brainstrike/utils');
+    // Reset logger configuration to defaults. Use the ESM import — a bare CJS
+    // require() bypasses vite aliases (native node resolution) and resets the
+    // DIST logger copy instead of the src instance under test (incident #1066
+    // class; surfaced by the threads-pool mutation lane).
     resetLogger();
   });
 
@@ -231,7 +234,7 @@ describe('DbProvider initializing state', () => {
         const fileRecordRepo = useFileRecordRepository();
         const chunkRepo = useFileChunkRepository();
         const db = usePGliteDatabase();
-        return { initializing, fileRecordRepo, chunkRepo, db };
+        return { chunkRepo, db, fileRecordRepo, initializing };
       },
       { wrapper }
     );
@@ -291,7 +294,7 @@ describe('DbProvider initializing state', () => {
         const chunkRepo = useFileChunkRepository();
         const db = usePGliteDatabase();
         const initializing = useDbInitializing();
-        return { fileRecordRepo, chunkRepo, db, initializing };
+        return { chunkRepo, db, fileRecordRepo, initializing };
       },
       { wrapper }
     );

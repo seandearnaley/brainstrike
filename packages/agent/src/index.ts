@@ -1,24 +1,80 @@
 // Types — all inline type definitions live in types.ts
 
 export {
+  ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
+  ASSISTANT_EDIT_CHECKPOINT_OPS,
+  ASSISTANT_EDIT_CHECKPOINT_REVERTIBLE_STATUSES,
+  ASSISTANT_TASK_STATUSES,
+  type AssistantCheckpointRevertResult,
+  type AssistantCheckpointRevertRunResult,
+  type AssistantEditCheckpointCaptureStatus,
+  type AssistantEditCheckpointOp,
+  type AssistantEditCheckpointRecord,
+  type AssistantTaskItem,
+  type AssistantTaskItemInput,
+  type AssistantTaskListSummary,
+  type AssistantTaskStatus,
+  assignTaskIds,
   decodeFileMentionId,
   encodeFileMentionId,
   FILE_MENTION_DIRECTIVE_TYPE,
   type FileMentionDirective,
+  isRevertibleCaptureStatus,
+  type ManageTaskListResult,
   type ParsedFileMention,
   parseFileMentionDirectives,
   serializeFileMentionDirective,
+  summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
+export type {
+  HookTrustApproval,
+  HookTrustRequest,
+} from '@brainstrike/assistant-contract/hook-trust-request';
+export {
+  type AssistantPersonaDefinition,
+  type AssistantPersonaId,
+  type AssistantPersonaModelPin,
+  assertReadOnlyPersona,
+  BUILT_IN_PERSONAS,
+  delegationToolNameForPersona,
+  PersonaToolRiskViolationError,
+  SUBAGENT_DELEGATION_TOOL_PREFIX,
+} from '@brainstrike/assistant-contract/personas';
 export {
   type AssistantToolApprovalAction,
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
   isAssistantToolApprovalAction,
+  isRediscoveredToolApproval,
+  type RediscoveredToolApproval,
   readToolApprovalRunConfigAction,
+  type SuspendedApprovalsResponse,
   TOOL_APPROVAL_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
   type ToolApprovalRunConfigActionReadResult,
 } from '@brainstrike/assistant-contract/tool-approval';
+export {
+  buildNativeToolRiskMap,
+  WEB_EXTRACT_TOOL_ID,
+} from '@brainstrike/assistant-contract/tool-metadata';
+export {
+  type AskUserAnswer,
+  type AskUserOption,
+  type AskUserPayload,
+  type AskUserSelectionMode,
+  type AssistantToolResumeAction,
+  type AssistantToolSuspendRequest,
+  isAssistantToolResumeAction,
+  readToolResumeRunConfigAction,
+  type SubmitPlanDecision,
+  type SubmitPlanPayload,
+  type SubmitPlanStep,
+  TOOL_SUSPEND_DATA_NAME,
+  TOOL_SUSPEND_RUN_CONFIG_KEY,
+  type ToolResumeRunConfigActionReadResult,
+} from '@brainstrike/assistant-contract/tool-suspend';
+export type { WorkspaceSkills } from '@mastra/core/skills';
+export { formatSkillActivation } from '@mastra/core/workspace';
 export type { AssistantRequestPayload } from './assistant-request';
 export {
   ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR,
@@ -31,6 +87,16 @@ export {
   readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes,
 } from './assistant-request';
+export {
+  type AssistantResilienceConfig,
+  DEFAULT_APPROVAL_STALE_MS,
+  DEFAULT_STREAM_INACTIVITY_MS,
+  DEFAULT_TOOL_TIMEOUT_MS,
+  resolveApprovalStaleMs,
+  resolveAssistantResilienceConfig,
+  resolveStreamInactivityMs,
+  resolveToolTimeoutMs,
+} from './config/resilience-config';
 export {
   ContextPacker,
   type ContextPackerChunk,
@@ -69,11 +135,19 @@ export {
 export {
   convertMessagesToMastra,
   createMastraAgentRuntime,
+  type DiscoveredSuspendedApproval,
+  type ListSuspendedApprovalsResult,
+  listSuspendedMastraRuns,
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
   streamMastraAgent,
   streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
 } from './mastra/agent-runtime';
+export {
+  buildPersonaSubAgents,
+  type PersonaSubAgentBuildResult,
+} from './mastra/build-persona-subagents';
 export {
   createMastraAgentError,
   isMastraAgentError,
@@ -85,6 +159,18 @@ export {
   isAssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from './mastra/permission-policy-request';
+export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
+export {
+  SHELL_OUTPUT_STREAM_PART_TYPE,
+  type ShellOutputWriter,
+  writeShellOutputChunk,
+} from './mastra/shell-output-stream';
+export {
+  createDelegationConfig,
+  MAX_CONCURRENT_DELEGATIONS,
+  MAX_DELEGATIONS_PER_RUN,
+  shouldEnablePersonas,
+} from './mastra/subagent-delegation';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
@@ -174,6 +260,13 @@ export {
   type LocalRuntimeNormalizedModel,
   type LocalRuntimeNotApplicableDimensionsState,
 } from './providers/local-runtime-model-catalog';
+export {
+  applyProviderNativeWebSearch,
+  createProviderNativeWebSearchTool,
+  type NativeWebSearchProvider,
+  providerSupportsNativeWebSearch,
+  WEB_SEARCH_TOOL_ID,
+} from './providers/native-web-search';
 export { createEmbeddingProvider, createProvider } from './providers/provider-factory';
 // Provider models and utilities (no Mastra dependencies - safe for client-side)
 export {
@@ -187,55 +280,22 @@ export {
   PROVIDER_MODELS,
   type SupportedProvider,
 } from './providers/types';
-// Unified tool registry and loading
+// Tool metadata (categories / native defaults; Mastra owns live tool assembly)
 export {
-  // Token budget management
-  type BudgetAllocation,
-  type BudgetUtilizationReport,
-  COMMON_CONTEXT_WINDOWS,
   compareByLoadPriority,
-  createBudgetManagerForTier,
-  createTokenBudgetManager,
-  createToolLoader,
-  createUnifiedToolRegistry,
-  DEFAULT_BUDGET_ALLOCATION,
-  DEFAULT_SELECTION_PRIORITY,
   getCategoryInfo,
   getNativeToolDefaults,
   getTierInfo,
   isNativeTool,
-  loadToolsForAgent,
-  type McpToolRegistrationOptions,
   NATIVE_TOOL_DEFAULTS,
   type NativeToolDefaultMetadata,
-  type NativeToolRegistrationOptions,
-  type OnDemandLoadOptions,
-  type OnDemandLoadResult,
   TOOL_CATEGORIES,
   TOOL_LOADING_TIERS,
-  TokenBudgetManager,
-  type TokenBudgetManagerOptions,
-  // Categories
   type ToolCategory,
   type ToolCategoryInfo,
-  type ToolFilterConfig,
-  ToolLoader,
-  type ToolLoadingOptions,
-  // Tool loader
-  type ToolLoadingResult,
   type ToolLoadingTier,
   type ToolLoadingTierInfo,
-  type ToolRegistryListener,
-  type ToolRegistryStats,
-  type ToolSelectionPriority,
-  type ToolSelectionResult,
   type ToolSource,
-  type ToolsByCategory,
-  type ToolsBySource,
-  // Unified registry
-  type UnifiedToolMetadata,
-  UnifiedToolRegistry,
-  unifiedToolRegistry,
 } from './registry';
 export {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -246,8 +306,42 @@ export {
   type AssistantRunEventKind,
   type AssistantRunEventMetadata,
   type AssistantRunEventStatus,
+  createAssistantRunEvent,
   sanitizeAssistantRunEventMetadata,
 } from './run-events';
+// Agent Skills: the scan + WorkspaceSkills engine + tools (desktop wires these
+// over its SecureRoot fs adapter; web never constructs them). The Mastra
+// activation formatter and engine interface are re-exported so the desktop app
+// needs no direct @mastra/core dependency.
+export {
+  createScannedWorkspaceSkills,
+  MAX_SKILL_ASSET_BYTES,
+  MAX_SKILL_CONTENT_FILE_CHARS,
+  type ScannedWorkspaceSkillsConfig,
+  type SkillContentDeps,
+} from './skills/scanned-workspace-skills';
+export {
+  __resetSkillScanWarningsForTests,
+  MAX_SKILL_DIR_ENTRIES,
+  MAX_SKILL_FILE_BYTES,
+  MAX_SKILL_FILE_CHARS,
+  MAX_SKILLS,
+  type ScannedSkill,
+  type SkillDirEntry,
+  type SkillReadResult,
+  type SkillScanDeps,
+  type SkillScanEntry,
+  type SkillScanInput,
+  type SkillScanResult,
+  type SkillScanRoot,
+  scanSkills,
+} from './skills/skill-scan';
+export {
+  createAssistantSkillTools,
+  SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
+  SKILL_TOOL_IDS,
+} from './skills/skill-tools';
+export { SKILL_LIMITS, validateSkillMetadata } from './skills/skill-validation';
 export {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,
@@ -276,6 +370,8 @@ export {
   type ToolRegistry,
   type ToolRegistryEntry,
 } from './stream/tool-registry';
+// Suspending tools (plan mode + ask-user)
+export { ASK_USER_TOOL_ID, createAskUserTool, formatAskUserAnswer } from './tools/ask-user-tool';
 // System diagnostics tool factory (Tier 3)
 export {
   buildToolsWithDiagnostics,
@@ -317,6 +413,13 @@ export {
   type ListEmbeddingSetsToolResult,
   SAFE_EMBEDDING_SETS_ERRORS,
 } from './tools/embedding-sets-tool';
+export {
+  FILE_READ_STATE_MAX_ENTRIES,
+  forgetKnownFile,
+  getKnownFileMtime,
+  recordKnownFileMtime,
+  resetFileReadState,
+} from './tools/file-read-state';
 // File tree tool factory (Tier 2)
 export {
   buildToolsWithFileTree,
@@ -329,6 +432,13 @@ export {
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
 export { withFileLock } from './tools/file-write-lock';
+export {
+  type AgentHookRunner,
+  HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
+  type HookBlockedToolError,
+  type HookToolGateResult,
+} from './tools/hook-runner';
+export { applyToolHooks } from './tools/hook-tool-wrap';
 // Hybrid search tool factory
 export {
   buildToolsWithHybridSearch,
@@ -374,6 +484,10 @@ export {
   type SkippedSourceRangeChunk,
 } from './tools/retrieval-tool';
 export {
+  type AskUserInput,
+  AskUserInputSchema,
+  type DeleteWorkspaceFileInput,
+  DeleteWorkspaceFileInputSchema,
   type ExecuteCommandInput,
   ExecuteCommandInputSchema,
   type FindWorkspaceSymbolInput,
@@ -386,6 +500,8 @@ export {
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
+  type ManageTaskListInput,
+  ManageTaskListInputSchema,
   type QueryEmbeddingSpaceInput,
   QueryEmbeddingSpaceInputSchema,
   type ReadWorkspaceContextInput,
@@ -394,12 +510,16 @@ export {
   ReadWorkspaceDirectoryInputSchema,
   type ReadWorkspaceFileInput,
   ReadWorkspaceFileInputSchema,
+  type RenameWorkspaceFileInput,
+  RenameWorkspaceFileInputSchema,
   type RetrievalContextInput,
   RetrievalContextInputSchema,
   type SelectRootTreeFilesInput,
   SelectRootTreeFilesInputSchema,
   type StringReplaceWorkspaceFileInput,
   StringReplaceWorkspaceFileInputSchema,
+  type SubmitPlanInput,
+  SubmitPlanInputSchema,
   type UpdatePreviewContextFilesInput,
   UpdatePreviewContextFilesInputSchema,
   type UpdateWorkspaceContextSelectionInput,
@@ -407,6 +527,8 @@ export {
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
   validateToolInput,
+  type WebExtractInput,
+  WebExtractInputSchema,
   type WebSearchInput,
   WebSearchInputSchema,
   type WriteWorkspaceFileInput,
@@ -419,6 +541,7 @@ export {
   type StringReplaceMatchType,
   type StringReplaceResult,
 } from './tools/string-replace';
+export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool';
 export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,
@@ -446,6 +569,7 @@ export type {
   OpenAiProviderOptions,
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
+  OpenRouterProviderOptions,
   RuntimeData,
   RuntimeModelSettings,
   RuntimeProviderOptions,

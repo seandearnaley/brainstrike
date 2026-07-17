@@ -1,6 +1,5 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
-import type { MCPClient } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
 import {
   isAnyToolIdEnabledByFilterConfig,
@@ -8,6 +7,7 @@ import {
 } from '../mcp/tool-registry';
 import { boundToolOutputForModel } from '../stream/tool-output-limits';
 import { createMastraAgentError } from './mastra-agent-error';
+import type { McpRuntimeClient, McpToolsetsWithErrors } from './mcp-runtime-client';
 import { sanitizeTools } from './tool-sanitizer';
 
 const logger = createLogger('MastraAgentMcpTools');
@@ -15,7 +15,7 @@ const logger = createLogger('MastraAgentMcpTools');
 const DEFAULT_MCP_TIMEOUT_MS = 5000;
 
 export interface CollectCombinedToolsOptions {
-  mcpClient: MCPClient | undefined;
+  mcpClient: McpRuntimeClient | undefined;
   mcpConfig: McpConfig | undefined;
   sanitizedLocalTools: ToolsInput | undefined;
   timeoutOverrideMs: number | undefined;
@@ -24,7 +24,6 @@ export interface CollectCombinedToolsOptions {
 
 type McpServerConfig = NonNullable<McpConfig['servers']>[number];
 type McpToolsets = Record<string, ToolsInput>;
-type McpToolsetsWithErrors = Awaited<ReturnType<MCPClient['listToolsetsWithErrors']>>;
 
 export async function collectCombinedTools({
   sanitizedLocalTools,
@@ -304,7 +303,7 @@ function resolveMcpTimeoutMs(value: number | undefined): number {
 }
 
 async function fetchMcpToolsetsWithTimeout(
-  mcpClient: MCPClient,
+  mcpClient: McpRuntimeClient,
   timeoutMs: number
 ): Promise<McpToolsetsWithErrors | undefined> {
   try {
@@ -330,8 +329,8 @@ async function fetchMcpToolsetsWithTimeout(
       reason,
       timeoutMs,
     });
-    return;
   }
+  return;
 }
 
 function logMcpToolsetErrors(errors: Record<string, string>, timeoutMs: number): void {

@@ -31,14 +31,13 @@ const toContextGenerationOverrides = (
 
   return {
     projectTreeUsesViewFilters: options.projectTreeUsesViewFilters,
-    useTapestryRanges: options.useTapestryRanges,
     selectedLineRangesByFile: Object.fromEntries(
       Object.entries(options.selectedLineRangesByFile).map(([fileKey, ranges]) => [
         fileKey,
         ranges.map((range) => ({
-          startLine: range.startLine,
           endLine: range.endLine,
           isActive: range.isActive,
+          startLine: range.startLine,
         })),
       ])
     ),
@@ -73,25 +72,25 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
 
   const generation = useReportGeneration({
     createReportGenerator: createReportGenerationWorker,
-    selectedFiles: input.selectedFiles,
-    fileContents: input.fileContents,
-    rootDirectoryHandle: rootDirectoryHandleForGeneration,
-    fileSystemAdapter,
-    includeFilters: input.includeFilters,
     excludeFilters: input.excludeFilters,
-    useRegex: input.useRegex,
-    includeProjectTree: input.includeProjectTree,
-    projectTreeUsesViewFilters: input.projectTreeUsesViewFilters ?? false,
+    fileContents: input.fileContents,
+    fileSystemAdapter,
     folderSummaryThreshold: input.folderSummaryThreshold,
-    loadMissingContent: input.loadMultipleFileContents,
     getFileContents,
     getRootDisplayInfoById,
+    includeFilters: input.includeFilters,
+    includeProjectTree: input.includeProjectTree,
+    loadMissingContent: input.loadMultipleFileContents,
+    projectTreeUsesViewFilters: input.projectTreeUsesViewFilters ?? false,
+    rootDirectoryHandle: rootDirectoryHandleForGeneration,
+    selectedFiles: input.selectedFiles,
+    useRegex: input.useRegex,
   });
   const generateContextWithContent = generation.generateContextWithContent;
 
   const manager = useReportManager({
-    rootDirectoryHandle: input.rootDirectoryHandle,
     generateContextWithContent,
+    rootDirectoryHandle: input.rootDirectoryHandle,
     toast,
   });
 
@@ -111,7 +110,7 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
   );
 
   return {
-    handleDownloadContext: handleDownloadContextWithOptions,
     handleCopyContext: handleCopyContextWithOptions,
+    handleDownloadContext: handleDownloadContextWithOptions,
   };
 }

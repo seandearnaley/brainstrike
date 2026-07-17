@@ -10,49 +10,27 @@ import { ToolsFilterBar } from '../tools-filter-bar';
 // Mock @brainstrike/assistant-contract/tool-metadata
 vi.mock('@brainstrike/assistant-contract/tool-metadata', () => ({
   TOOL_CATEGORIES: {
-    retrieval: { id: 'retrieval', label: 'Retrieval' },
     action: { id: 'action', label: 'Actions' },
     analysis: { id: 'analysis', label: 'Analysis' },
     configuration: { id: 'configuration', label: 'Configuration' },
+    retrieval: { id: 'retrieval', label: 'Retrieval' },
     validation: { id: 'validation', label: 'Validation' },
   },
   TOOL_LOADING_TIERS: {
-    critical: { id: 'critical', label: 'Critical' },
     conditional: { id: 'conditional', label: 'Conditional' },
+    critical: { id: 'critical', label: 'Critical' },
     deferred: { id: 'deferred', label: 'Deferred' },
   },
 }));
 
 // Mock lucide-react
 vi.mock('lucide-react', () => ({
-  Search: () => <svg data-testid="search-icon" />,
   RotateCcw: () => <svg data-testid="rotate-icon" />,
+  Search: (props: React.SVGProps<SVGSVGElement>) => <svg data-testid="search-icon" {...props} />,
 }));
 
 // Mock @brainstrike/ui
 vi.mock('@brainstrike/ui', () => ({
-  Input: ({
-    value,
-    onChange,
-    placeholder,
-    'data-testid': testId,
-    className,
-  }: {
-    value: string;
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    placeholder?: string;
-    'data-testid'?: string;
-    className?: string;
-  }) => (
-    <input
-      className={className}
-      data-testid={testId}
-      onChange={onChange}
-      placeholder={placeholder}
-      type="text"
-      value={value}
-    />
-  ),
   Button: ({
     children,
     onClick,
@@ -68,6 +46,31 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </button>
   ),
+  Input: ({
+    value,
+    onChange,
+    placeholder,
+    'data-testid': testId,
+    className,
+    style,
+  }: {
+    value: string;
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    placeholder?: string;
+    'data-testid'?: string;
+    className?: string;
+    style?: React.CSSProperties;
+  }) => (
+    <input
+      className={className}
+      data-testid={testId}
+      onChange={onChange}
+      placeholder={placeholder}
+      style={style}
+      type="text"
+      value={value}
+    />
+  ),
   Select: ({
     children,
     value,
@@ -81,6 +84,10 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </button>
   ),
+  SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => (
+    <div data-value={value}>{children}</div>
+  ),
   SelectTrigger: ({
     children,
     'data-testid': testId,
@@ -88,12 +95,11 @@ vi.mock('@brainstrike/ui', () => ({
     children: React.ReactNode;
     'data-testid'?: string;
   }) => <div data-testid={testId}>{children}</div>,
-  SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => (
-    <div data-value={value}>{children}</div>
-  ),
   SelectValue: ({ placeholder }: { placeholder?: string }) => <span>{placeholder}</span>,
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="tooltip-content">{children}</div>
+  ),
   TooltipTrigger: ({
     children,
     asChild: _asChild,
@@ -101,9 +107,6 @@ vi.mock('@brainstrike/ui', () => ({
     children: React.ReactNode;
     asChild?: boolean;
   }) => <>{children}</>,
-  TooltipContent: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="tooltip-content">{children}</div>
-  ),
 }));
 
 describe('ToolsFilterBar', () => {
@@ -113,13 +116,13 @@ describe('ToolsFilterBar', () => {
   const mockOnReset = vi.fn();
 
   const defaultProps = {
-    searchQuery: '',
-    onSearchChange: mockOnSearchChange,
     categoryFilter: 'all' as const,
     onCategoryChange: mockOnCategoryChange,
-    tierFilter: 'all' as const,
-    onTierChange: mockOnTierChange,
     onReset: mockOnReset,
+    onSearchChange: mockOnSearchChange,
+    onTierChange: mockOnTierChange,
+    searchQuery: '',
+    tierFilter: 'all' as const,
   };
 
   beforeEach(() => {
@@ -188,6 +191,11 @@ describe('ToolsFilterBar', () => {
 
       const input = screen.getByTestId('search-input');
       expect(input).toHaveAttribute('placeholder', 'Search tools...');
+      expect(input).toHaveClass('pl-10');
+      expect(input).toHaveStyle({ paddingLeft: '2.5rem' });
+      expect(input.parentElement?.querySelector('[data-slot="settings-search-icon"]')).toHaveStyle({
+        left: '0.75rem',
+      });
     });
   });
 

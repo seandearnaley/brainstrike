@@ -80,8 +80,8 @@ export function normalizeDirectoryReadOptions(options?: DirectoryReadOptions) {
   const concurrency = Number.isFinite(rawConcurrency) ? Math.floor(rawConcurrency) : Number.NaN;
   const limiter = createLimiter(concurrency);
   return {
-    includeMetadata,
     concurrency,
+    includeMetadata,
     limiter,
   };
 }

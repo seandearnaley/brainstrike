@@ -89,7 +89,7 @@ export function createDesktopFactoryResetHandler({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error('Failed to reset desktop application data:', error);
-      return { success: false, message };
+      return { message, success: false };
     }
 
     return { success: true };

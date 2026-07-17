@@ -19,11 +19,11 @@ const showToastMock = vi.fn();
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     storageAdapter: {
-      getItem: vi.fn(),
-      setItem: vi.fn(async () => undefined),
-      removeItem: vi.fn(),
       clear: vi.fn(),
       getAllKeys: vi.fn(),
+      getItem: vi.fn(),
+      removeItem: vi.fn(),
+      setItem: vi.fn(async () => undefined),
     },
   }),
   useToastManager: () => ({ showToast: showToastMock }),
@@ -50,9 +50,9 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
     ...actual,
     createLogger: () => ({
       debug: vi.fn(),
+      error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
     }),
   };
 });
@@ -61,15 +61,15 @@ function createFileNode(
   overrides: Partial<IFileNode> & { name: string; path: string; type: 'file' | 'directory' }
 ): IFileNode {
   return {
+    depth: 0,
     handle:
       overrides.type === 'directory'
         ? ({} as FileSystemDirectoryHandle)
         : ({} as FileSystemFileHandle),
-    depth: 0,
-    selectionState: 'unchecked',
-    rootFolderId: 'folder-1',
-    loadState: 'loaded',
     isVisible: true,
+    loadState: 'loaded',
+    rootFolderId: 'folder-1',
+    selectionState: 'unchecked',
     ...overrides,
   };
 }
@@ -78,23 +78,23 @@ function createMockAdapter(directoryMap: Record<string, IFileNode[]>): FileSyste
   const readDirectory = vi.fn(async (handle: DirectoryHandle) => directoryMap[handle.path] ?? []);
 
   return {
-    requestDirectoryAccess: vi.fn(),
+    exists: vi.fn(),
     readDirectory,
     readFile: vi.fn(),
-    exists: vi.fn(),
+    requestDirectoryAccess: vi.fn(),
   } as unknown as FileSystemAdapter;
 }
 
 function createLoadedTree(): IFileNode[] {
   return [
     createFileNode({
+      children: [
+        createFileNode({ depth: 1, name: 'index.ts', path: '/src/index.ts', type: 'file' }),
+        createFileNode({ depth: 1, name: 'utils.ts', path: '/src/utils.ts', type: 'file' }),
+      ],
       name: 'src',
       path: '/src',
       type: 'directory',
-      children: [
-        createFileNode({ name: 'index.ts', path: '/src/index.ts', type: 'file', depth: 1 }),
-        createFileNode({ name: 'utils.ts', path: '/src/utils.ts', type: 'file', depth: 1 }),
-      ],
     }),
     createFileNode({ name: 'README.md', path: '/README.md', type: 'file' }),
   ];
@@ -103,11 +103,11 @@ function createLoadedTree(): IFileNode[] {
 function createPartiallyLoadedTree(): IFileNode[] {
   return [
     createFileNode({
+      children: [],
+      loadState: 'unloaded',
       name: 'src',
       path: '/src',
       type: 'directory',
-      loadState: 'unloaded',
-      children: [],
     }),
     createFileNode({
       name: 'notes.md',
@@ -135,17 +135,17 @@ describe('useRecursiveSelectAll', () => {
     const fileSystemAdapter = createMockAdapter({});
     const setQuerySelection = vi.fn();
     mockStoreState = {
-      setQuerySelection,
-      includeFilters: ['**/*.ts'],
       excludeFilters: [],
+      includeFilters: ['**/*.ts'],
+      setQuerySelection,
     };
 
     const { result } = renderHook(() =>
       useRecursiveSelectAll({
         fileSystemAdapter,
         getCurrentTree: () => currentTree,
-        onTreeUpdate,
         onError,
+        onTreeUpdate,
       })
     );
 
@@ -170,18 +170,18 @@ describe('useRecursiveSelectAll', () => {
     const fileSystemAdapter = createMockAdapter({});
     const setQuerySelection = vi.fn();
     mockStoreState = {
-      setQuerySelection,
       currentFolderId: 'other-root',
-      selectionModel: { mode: 'explicit' },
       selectedFilePaths: new Set<string>(),
+      selectionModel: { mode: 'explicit' },
+      setQuerySelection,
     };
 
     const { result } = renderHook(() =>
       useRecursiveSelectAll({
         fileSystemAdapter,
         getCurrentTree: () => currentTree,
-        onTreeUpdate,
         onError,
+        onTreeUpdate,
       })
     );
 
@@ -206,8 +206,8 @@ describe('useRecursiveSelectAll', () => {
       useRecursiveSelectAll({
         fileSystemAdapter,
         getCurrentTree: () => currentTree,
-        onTreeUpdate,
         onError,
+        onTreeUpdate,
       })
     );
 
@@ -270,9 +270,9 @@ describe('useRecursiveSelectAll', () => {
 
   it('respects visibility and maxSelectionCount in the canonical query path', async () => {
     const currentTree: IFileNode[] = [
-      createFileNode({ name: 'a.ts', path: '/a.ts', type: 'file', isVisible: true }),
-      createFileNode({ name: 'b.ts', path: '/b.ts', type: 'file', isVisible: false }),
-      createFileNode({ name: 'c.ts', path: '/c.ts', type: 'file', isVisible: true }),
+      createFileNode({ isVisible: true, name: 'a.ts', path: '/a.ts', type: 'file' }),
+      createFileNode({ isVisible: false, name: 'b.ts', path: '/b.ts', type: 'file' }),
+      createFileNode({ isVisible: true, name: 'c.ts', path: '/c.ts', type: 'file' }),
     ];
 
     const { result } = renderHook(() =>
@@ -295,22 +295,22 @@ describe('useRecursiveSelectAll', () => {
     const currentTree = createPartiallyLoadedTree();
     const fileSystemAdapter = createMockAdapter({
       '/src': [
-        createFileNode({ name: 'main.ts', path: '/src/main.ts', type: 'file', depth: 1 }),
+        createFileNode({ depth: 1, name: 'main.ts', path: '/src/main.ts', type: 'file' }),
         createFileNode({
+          children: [],
+          depth: 1,
+          loadState: 'unloaded',
           name: 'nested',
           path: '/src/nested',
           type: 'directory',
-          depth: 1,
-          loadState: 'unloaded',
-          children: [],
         }),
       ],
       '/src/nested': [
         createFileNode({
+          depth: 2,
           name: 'deep.ts',
           path: '/src/nested/deep.ts',
           type: 'file',
-          depth: 2,
         }),
       ],
     });
@@ -340,22 +340,22 @@ describe('useRecursiveSelectAll', () => {
     };
     const fileSystemAdapter = createMockAdapter({
       '/src': [
-        createFileNode({ name: 'main.ts', path: '/src/main.ts', type: 'file', depth: 1 }),
+        createFileNode({ depth: 1, name: 'main.ts', path: '/src/main.ts', type: 'file' }),
         createFileNode({
+          children: [],
+          depth: 1,
+          loadState: 'unloaded',
           name: 'nested',
           path: '/src/nested',
           type: 'directory',
-          depth: 1,
-          loadState: 'unloaded',
-          children: [],
         }),
       ],
       '/src/nested': [
         createFileNode({
+          depth: 2,
           name: 'deep.ts',
           path: '/src/nested/deep.ts',
           type: 'file',
-          depth: 2,
         }),
       ],
     });
@@ -376,17 +376,17 @@ describe('useRecursiveSelectAll', () => {
     expect(selectionResult.filePaths).toEqual(['/notes.md', '/src/main.ts', '/src/nested/deep.ts']);
     expect(setQuerySelection).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: 'recursive-select-all',
-        folderId: 'folder-1',
-        rootPath: null,
         coveredDirectoryPaths: ['/src', '/src/nested'],
-        includeFilters: [],
-        excludeFilters: [],
-        includedPaths: [],
         excludedPaths: [],
+        excludeFilters: [],
+        folderId: 'folder-1',
+        includedPaths: [],
+        includeFilters: [],
+        kind: 'recursive-select-all',
         manifestSnapshotId: null,
-        useRegex: false,
+        rootPath: null,
         totalSelectedCount: 3,
+        useRegex: false,
       }),
       expect.objectContaining({
         filePaths: ['/notes.md', '/src/main.ts', '/src/nested/deep.ts'],
@@ -402,23 +402,23 @@ describe('useRecursiveSelectAll', () => {
     const currentTree = createPartiallyLoadedTree();
     const fileSystemAdapter = createMockAdapter({
       '/src': [
-        createFileNode({ name: 'a.ts', path: '/src/a.ts', type: 'file', depth: 1 }),
-        createFileNode({ name: 'b.ts', path: '/src/b.ts', type: 'file', depth: 1 }),
+        createFileNode({ depth: 1, name: 'a.ts', path: '/src/a.ts', type: 'file' }),
+        createFileNode({ depth: 1, name: 'b.ts', path: '/src/b.ts', type: 'file' }),
         createFileNode({
+          children: [],
+          depth: 1,
+          loadState: 'unloaded',
           name: 'nested',
           path: '/src/nested',
           type: 'directory',
-          depth: 1,
-          loadState: 'unloaded',
-          children: [],
         }),
       ],
       '/src/nested': [
         createFileNode({
+          depth: 2,
           name: 'deep.ts',
           path: '/src/nested/deep.ts',
           type: 'file',
-          depth: 2,
         }),
       ],
     });
@@ -443,8 +443,8 @@ describe('useRecursiveSelectAll', () => {
     const currentTree = createPartiallyLoadedTree();
     const fileSystemAdapter = createMockAdapter({
       '/src': [
-        createFileNode({ name: 'keep.ts', path: '/src/keep.ts', type: 'file', depth: 1 }),
-        createFileNode({ name: 'skip.md', path: '/src/skip.md', type: 'file', depth: 1 }),
+        createFileNode({ depth: 1, name: 'keep.ts', path: '/src/keep.ts', type: 'file' }),
+        createFileNode({ depth: 1, name: 'skip.md', path: '/src/skip.md', type: 'file' }),
       ],
     });
 
@@ -473,19 +473,19 @@ describe('useRecursiveSelectAll', () => {
     const currentTree = createPartiallyLoadedTree();
     let resolveRead: (() => void) | null = null;
     const fileSystemAdapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(
         () =>
           new Promise<IFileNode[]>((resolve) => {
             resolveRead = () => {
               resolve([
-                createFileNode({ name: 'done.ts', path: '/src/done.ts', type: 'file', depth: 1 }),
+                createFileNode({ depth: 1, name: 'done.ts', path: '/src/done.ts', type: 'file' }),
               ]);
             };
           })
       ),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() =>
@@ -510,9 +510,9 @@ describe('useRecursiveSelectAll', () => {
     );
 
     expect(secondResult).toEqual({
-      success: false,
-      filePaths: [],
       error: 'Operation already in progress',
+      filePaths: [],
+      success: false,
     });
 
     act(() => {
@@ -524,19 +524,19 @@ describe('useRecursiveSelectAll', () => {
     const currentTree = createPartiallyLoadedTree();
     let resolveRead: (() => void) | null = null;
     const fileSystemAdapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(
         () =>
           new Promise<IFileNode[]>((resolve) => {
             resolveRead = () => {
               resolve([
-                createFileNode({ name: 'done.ts', path: '/src/done.ts', type: 'file', depth: 1 }),
+                createFileNode({ depth: 1, name: 'done.ts', path: '/src/done.ts', type: 'file' }),
               ]);
             };
           })
       ),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
     const cancelLoadOperations = vi.fn();
 
@@ -582,12 +582,12 @@ describe('useRecursiveSelectAll', () => {
   it('surfaces adapter errors through onError', async () => {
     const currentTree = createPartiallyLoadedTree();
     const fileSystemAdapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(async () => {
         throw new Error('Load failed');
       }),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() =>
@@ -616,12 +616,12 @@ describe('useRecursiveSelectAll', () => {
     const fileSystemAdapter = createMockAdapter({});
     const setQuerySelection = vi.fn();
     mockStoreState = {
-      setQuerySelection,
-      currentFolderId: 'folder-1',
       activeRootIds: ['folder-1', 'root-b'],
-      selectionModel: { mode: 'explicit' },
-      selectedFilePaths: new Set<string>(),
+      currentFolderId: 'folder-1',
       folderStates: {},
+      selectedFilePaths: new Set<string>(),
+      selectionModel: { mode: 'explicit' },
+      setQuerySelection,
     };
 
     const { result } = renderHook(() =>
@@ -652,14 +652,14 @@ describe('useRecursiveSelectAll', () => {
     const currentTree = createLoadedTree();
     const fileSystemAdapter = createMockAdapter({});
     mockStoreState = {
-      setQuerySelection: vi.fn(),
-      currentFolderId: 'folder-1',
       activeRootIds: ['folder-1', 'root-b'],
-      selectionModel: { mode: 'explicit' },
-      selectedFilePaths: new Set(['folder-1|@|old.ts']),
+      currentFolderId: 'folder-1',
       folderStates: {
         'root-b': { selectedFilePaths: new Set(['root-b|@|x.ts', 'root-b|@|y.ts']) },
       },
+      selectedFilePaths: new Set(['folder-1|@|old.ts']),
+      selectionModel: { mode: 'explicit' },
+      setQuerySelection: vi.fn(),
     };
 
     const { result } = renderHook(() =>
@@ -686,14 +686,14 @@ describe('useRecursiveSelectAll', () => {
     const currentTree = createLoadedTree();
     const fileSystemAdapter = createMockAdapter({});
     mockStoreState = {
-      setQuerySelection: vi.fn(),
-      currentFolderId: 'other-root',
       activeRootIds: ['other-root', 'folder-1', 'root-b'],
-      selectionModel: { mode: 'explicit' },
-      selectedFilePaths: new Set(['other-root|@|a.ts', 'other-root|@|b.ts']),
+      currentFolderId: 'other-root',
       folderStates: {
         'root-b': { selectedFilePaths: new Set(['root-b|@|x.ts']) },
       },
+      selectedFilePaths: new Set(['other-root|@|a.ts', 'other-root|@|b.ts']),
+      selectionModel: { mode: 'explicit' },
+      setQuerySelection: vi.fn(),
     };
 
     const { result } = renderHook(() =>
@@ -716,14 +716,14 @@ describe('useRecursiveSelectAll', () => {
     const currentTree = createLoadedTree();
     const fileSystemAdapter = createMockAdapter({});
     mockStoreState = {
-      setQuerySelection: vi.fn(),
-      currentFolderId: 'folder-1',
       activeRootIds: ['folder-1', 'root-b'],
-      selectionModel: { mode: 'explicit' },
-      selectedFilePaths: new Set<string>(),
+      currentFolderId: 'folder-1',
       folderStates: {
         'root-b': { selectedFilePaths: new Set(['root-b|@|x.ts', 'root-b|@|y.ts']) },
       },
+      selectedFilePaths: new Set<string>(),
+      selectionModel: { mode: 'explicit' },
+      setQuerySelection: vi.fn(),
     };
 
     const { result } = renderHook(() =>
@@ -739,9 +739,9 @@ describe('useRecursiveSelectAll', () => {
     );
 
     expect(selectionResult).toEqual({
-      success: true,
       filePaths: [],
       limitReached: true,
+      success: true,
       totalAvailable: 0,
     });
     expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
@@ -755,8 +755,8 @@ describe('useRecursiveSelectAll', () => {
     const currentTree = createPartiallyLoadedTree();
     const fileSystemAdapter = createMockAdapter({
       '/src': [
-        createFileNode({ name: 'index.ts', path: '/src/index.ts', type: 'file', depth: 1 }),
-        createFileNode({ name: 'utils.ts', path: '/src/utils.ts', type: 'file', depth: 1 }),
+        createFileNode({ depth: 1, name: 'index.ts', path: '/src/index.ts', type: 'file' }),
+        createFileNode({ depth: 1, name: 'utils.ts', path: '/src/utils.ts', type: 'file' }),
       ],
     });
 
@@ -773,13 +773,13 @@ describe('useRecursiveSelectAll', () => {
     );
 
     expect(selectionResult).toMatchObject({
-      success: true,
-      limitReached: true,
       filePaths: ['/notes.md', '/src/index.ts'],
+      limitReached: true,
+      success: true,
     });
     expect(showToastMock).toHaveBeenCalledWith({
-      title: 'Selection limit reached (2)',
       description: 'Selected 2 files before hitting the limit. Raise the limit to select more.',
+      title: 'Selection limit reached (2)',
       variant: 'destructive',
     });
   });
@@ -799,9 +799,9 @@ describe('useRecursiveSelectAll', () => {
     );
 
     expect(selectionResult).toEqual({
-      success: false,
-      filePaths: [],
       error: 'No files in tree',
+      filePaths: [],
+      success: false,
     });
     expect(fileSystemAdapter.readDirectory).not.toHaveBeenCalled();
   });

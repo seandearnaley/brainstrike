@@ -98,52 +98,52 @@ export interface ProgressAggregator {
   /**
    * Mark the pipeline as complete.
    */
-  complete(): void;
+  complete: () => void;
 
   /**
    * Mark the pipeline as failed.
    */
-  fail(error: string): void;
+  fail: (error: string) => void;
 
   /**
    * Force emit the current progress (bypasses throttle).
    */
-  flush(): void;
+  flush: () => void;
 
   /**
    * Get the current progress snapshot.
    */
-  getSnapshot(): PipelineProgress;
+  getSnapshot: () => PipelineProgress;
 
   /**
    * Report progress from the chunking stage.
    */
-  reportChunkingProgress(update: StageUpdate): void;
+  reportChunkingProgress: (update: StageUpdate) => void;
 
   /**
    * Report progress from the embedding stage.
    */
-  reportEmbeddingProgress(update: StageUpdate): void;
+  reportEmbeddingProgress: (update: StageUpdate) => void;
 
   /**
    * Report an error from any stage.
    */
-  reportError(stage: PipelineError['stage'], item: string, error: string): void;
+  reportError: (stage: PipelineError['stage'], item: string, error: string) => void;
 
   /**
    * Report progress from the import stage.
    */
-  reportImportProgress(update: StageUpdate): void;
+  reportImportProgress: (update: StageUpdate) => void;
 
   /**
    * Reset the aggregator for a new run.
    */
-  reset(): void;
+  reset: () => void;
   /**
    * Set initial totals for the pipeline run.
    * Can be called multiple times as totals become known.
    */
-  setTotals(totals: Partial<PipelineTotals>): void;
+  setTotals: (totals: Partial<PipelineTotals>) => void;
 }
 
 // =============================================================================
@@ -188,9 +188,9 @@ export function createProgressAggregator(
   let lastEmitTime = 0;
 
   const stages: Record<'import' | 'chunking' | 'embedding', MutableStageProgress> = {
-    import: createEmptyMutableStage(),
     chunking: createEmptyMutableStage(),
     embedding: createEmptyMutableStage(),
+    import: createEmptyMutableStage(),
   };
 
   const recentErrors: PipelineError[] = [];
@@ -201,20 +201,20 @@ export function createProgressAggregator(
 
   function createEmptyMutableStage(): MutableStageProgress {
     return {
-      total: 0,
       completed: 0,
-      inProgress: 0,
-      failed: 0,
       currentItem: undefined,
+      failed: 0,
+      inProgress: 0,
+      total: 0,
     };
   }
 
   function toStageProgress(mutable: MutableStageProgress): StageProgress {
     const result: StageProgress = {
-      total: mutable.total,
       completed: mutable.completed,
-      inProgress: mutable.inProgress,
       failed: mutable.failed,
+      inProgress: mutable.inProgress,
+      total: mutable.total,
     };
     if (mutable.currentItem !== undefined) {
       result.currentItem = mutable.currentItem;
@@ -275,12 +275,12 @@ export function createProgressAggregator(
 
   function buildSnapshot(): PipelineProgress {
     const snapshot: PipelineProgress = {
-      phase,
-      import: toStageProgress(stages.import),
       chunking: toStageProgress(stages.chunking),
       embedding: toStageProgress(stages.embedding),
-      startedAt,
+      import: toStageProgress(stages.import),
+      phase,
       recentErrors: [...recentErrors],
+      startedAt,
     };
 
     // Conditionally add optional properties
@@ -347,9 +347,9 @@ export function createProgressAggregator(
 
   function reportError(stage: PipelineError['stage'], item: string, error: string): void {
     const entry: PipelineError = {
-      stage,
-      item,
       error,
+      item,
+      stage,
       timestamp: new Date().toISOString(),
     };
 
@@ -378,9 +378,9 @@ export function createProgressAggregator(
 
     // Add the final error
     recentErrors.push({
-      stage: detectActiveStage(),
-      item: 'pipeline',
       error,
+      item: 'pipeline',
+      stage: detectActiveStage(),
       timestamp: completedAt,
     });
 
@@ -421,16 +421,16 @@ export function createProgressAggregator(
   }
 
   return {
-    setTotals,
-    reportImportProgress,
+    complete,
+    fail,
+    flush,
+    getSnapshot,
     reportChunkingProgress,
     reportEmbeddingProgress,
     reportError,
-    complete,
-    fail,
-    getSnapshot,
+    reportImportProgress,
     reset,
-    flush,
+    setTotals,
   };
 }
 
@@ -449,7 +449,7 @@ export function calculateOverallPercentage(progress: PipelineProgress): number {
 
   // Weight each stage equally for simplicity
   // In practice, embedding is often the longest stage
-  const weights = { import: 0.2, chunking: 0.3, embedding: 0.5 };
+  const weights = { chunking: 0.3, embedding: 0.5, import: 0.2 };
 
   const importPct = imp.total > 0 ? (imp.completed / imp.total) * 100 : 0;
   const chunkingPct = chunking.total > 0 ? (chunking.completed / chunking.total) * 100 : 0;
@@ -487,10 +487,10 @@ export function getTotalCounts(progress: PipelineProgress): {
   const { import: imp, chunking, embedding } = progress;
 
   return {
-    total: imp.total + chunking.total + embedding.total,
     completed: imp.completed + chunking.completed + embedding.completed,
     failed: imp.failed + chunking.failed + embedding.failed,
     inProgress: imp.inProgress + chunking.inProgress + embedding.inProgress,
+    total: imp.total + chunking.total + embedding.total,
   };
 }
 

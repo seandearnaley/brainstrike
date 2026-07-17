@@ -19,9 +19,13 @@
  * is the DB `roots.id` (the same id `file_records.root_id` references and the
  * desktop tools resolve against) and `path` is the workspace-relative path. We
  * split on the FIRST `::` only, so a path that itself contains `:` or `::`
- * survives the round-trip, and the path's `{`/`}`/`%` are percent-encoded inside
- * the id so a path containing `}` cannot truncate the directive's `{name=…}`
- * attribute at parse time (see {@link encodeFileMentionPathSegment}).
+ * survives the round-trip. Paths that contain `{`/`}`/`%` are version-marked and
+ * percent-encoded inside the id so a path containing `}` cannot truncate the
+ * directive's `{name=…}` attribute at parse time (see
+ * {@link encodeFileMentionPathSegment}) while legacy unmarked percent sequences
+ * remain raw path text. A short-lived pre-marker encoding existed for these
+ * characters; the parser recognizes it only when the directive label proves the
+ * decoded basename, never by guessing.
  */
 
 /** The mention `type` for a file reference directive (`:file[…]{…}`). */
@@ -31,26 +35,88 @@ export const FILE_MENTION_DIRECTIVE_TYPE = 'file' as const;
 const FILE_MENTION_ID_SEPARATOR = '::';
 
 /**
+ * Version marker for encoded path segments. It starts with `/`, which is not a
+ * valid prefix for workspace-relative paths, so legacy raw ids cannot collide.
+ */
+const FILE_MENTION_ENCODED_PATH_PREFIX = '/.brainstrike-file-path-v1/';
+
+/** Characters that need an encoded path segment inside the directive id. */
+const FILE_MENTION_PATH_ESCAPE_RE = /[{}%]/;
+
+/** Percent sequences emitted by the pre-marker encoder from PR #1303. */
+const PRE_MARKER_FILE_MENTION_ESCAPE_RE = /%(?:25|7B|7D)/;
+
+/**
  * Percent-encode the characters that would otherwise corrupt a mention id inside
  * the directive's `{name=…}` attribute. A literal `}` ends the attribute early at
  * parse time ({@link DIRECTIVE_RE}'s `[^}]+`), truncating the id; we also encode
  * `{` so the encoded id is brace-free, and `%` so the encoding is reversible (a
  * path literally containing `%7D` must not decode to `}`). `%` is escaped FIRST
- * so already-present `%` sequences are not conflated with our escapes.
+ * so already-present `%` sequences are not conflated with our escapes. The
+ * marker gates decoding so legacy unmarked `%7D` remains literal path text.
  */
 function encodeFileMentionPathSegment(path: string): string {
-  return path.replaceAll('%', '%25').replaceAll('{', '%7B').replaceAll('}', '%7D');
+  const shouldEncodePath =
+    FILE_MENTION_PATH_ESCAPE_RE.test(path) || path.startsWith(FILE_MENTION_ENCODED_PATH_PREFIX);
+  if (!shouldEncodePath) {
+    return path;
+  }
+  return `${FILE_MENTION_ENCODED_PATH_PREFIX}${path
+    .replaceAll('%', '%25')
+    .replaceAll('{', '%7B')
+    .replaceAll('}', '%7D')}`;
 }
 
 /**
- * Reverse {@link encodeFileMentionPathSegment}. Braces are decoded before `%25`
- * is restored to `%`: because every literal `%` was encoded to `%25`, a bare `%`
- * in the encoded text only ever begins one of our escapes, so the brace passes
- * can never consume an escaped percent and the final `%25`→`%` pass can never
- * forge a new brace escape. The result equals a single left-to-right decode.
+ * Reverse {@link encodeFileMentionPathSegment} only when the encoded-path marker
+ * is present. Unmarked ids are legacy raw path text. For marked ids, braces are
+ * decoded before `%25` is restored to `%`: because every literal `%` was encoded
+ * to `%25`, a bare `%` in the encoded text only ever begins one of our escapes,
+ * so the brace passes can never consume an escaped percent and the final
+ * `%25`→`%` pass can never forge a new brace escape. The result equals a single
+ * left-to-right decode.
  */
 function decodeFileMentionPathSegment(encodedPath: string): string {
+  if (!encodedPath.startsWith(FILE_MENTION_ENCODED_PATH_PREFIX)) {
+    return encodedPath;
+  }
+  return encodedPath
+    .slice(FILE_MENTION_ENCODED_PATH_PREFIX.length)
+    .replaceAll('%7B', '{')
+    .replaceAll('%7D', '}')
+    .replaceAll('%25', '%');
+}
+
+/** Decode only the uppercase escapes emitted by the short-lived pre-marker encoder. */
+function decodePreMarkerFileMentionPathSegment(encodedPath: string): string {
   return encodedPath.replaceAll('%7B', '{').replaceAll('%7D', '}').replaceAll('%25', '%');
+}
+
+function getWorkspacePathBasename(path: string): string {
+  const slashIndex = path.lastIndexOf('/');
+  return slashIndex === -1 ? path : path.slice(slashIndex + 1);
+}
+
+/**
+ * Parse-time compatibility for ids produced by the short-lived unmarked encoder.
+ *
+ * Pre-marker encoded ids and old raw ids are wire-ambiguous: `src/a%7Db.ts`
+ * could mean a literal `%7D` filename or an encoded `}`. The directive label is
+ * the selected file basename, so use it as proof only when it distinguishes the
+ * two forms. If the label does not prove the decoded form, preserve the raw path
+ * rather than guessing and risking wrong-file injection.
+ */
+function decodeFileMentionPathSegmentForLabel(encodedPath: string, label: string): string {
+  if (
+    encodedPath.startsWith(FILE_MENTION_ENCODED_PATH_PREFIX) ||
+    !PRE_MARKER_FILE_MENTION_ESCAPE_RE.test(encodedPath)
+  ) {
+    return decodeFileMentionPathSegment(encodedPath);
+  }
+  const rawBasename = getWorkspacePathBasename(encodedPath);
+  const preMarkerDecodedPath = decodePreMarkerFileMentionPathSegment(encodedPath);
+  const decodedBasename = getWorkspacePathBasename(preMarkerDecodedPath);
+  return rawBasename !== label && decodedBasename === label ? preMarkerDecodedPath : encodedPath;
 }
 
 /**
@@ -110,7 +176,23 @@ export function decodeFileMentionId(id: string): { rootId: string; path: string 
   if (!(rootId && encodedPath)) {
     return null;
   }
-  return { rootId, path: decodeFileMentionPathSegment(encodedPath) };
+  return { path: decodeFileMentionPathSegment(encodedPath), rootId };
+}
+
+function decodeFileMentionIdForLabel(
+  id: string,
+  label: string
+): { rootId: string; path: string } | null {
+  const separatorIndex = id.indexOf(FILE_MENTION_ID_SEPARATOR);
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  const rootId = id.slice(0, separatorIndex);
+  const encodedPath = id.slice(separatorIndex + FILE_MENTION_ID_SEPARATOR.length);
+  if (!(rootId && encodedPath)) {
+    return null;
+  }
+  return { path: decodeFileMentionPathSegmentForLabel(encodedPath, label), rootId };
 }
 
 /**
@@ -144,10 +226,10 @@ export function parseFileMentionDirectives(text: string): ParsedFileMention[] {
     const label = match[2] ?? '';
     const id = match[3] ?? label;
     if (type === FILE_MENTION_DIRECTIVE_TYPE && !seen.has(id)) {
-      const decoded = decodeFileMentionId(id);
+      const decoded = decodeFileMentionIdForLabel(id, label);
       if (decoded) {
         seen.add(id);
-        mentions.push({ label, id, rootId: decoded.rootId, path: decoded.path });
+        mentions.push({ id, label, path: decoded.path, rootId: decoded.rootId });
       }
     }
     match = DIRECTIVE_RE.exec(text);

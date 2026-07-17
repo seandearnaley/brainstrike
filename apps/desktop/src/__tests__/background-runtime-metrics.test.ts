@@ -46,14 +46,14 @@ describe('collectBackgroundRuntimeMetrics', () => {
   it('maps tracked renderer windows onto Electron app metrics by runtime role', async () => {
     getAppMetricsMock.mockReturnValue([
       {
+        cpu: { idleWakeupsPerSecond: 3.5, percentCPUUsage: 14.25 },
+        memory: { privateBytes: 1024, sharedBytes: 512, workingSetSize: 2048 },
         pid: 101,
-        cpu: { percentCPUUsage: 14.25, idleWakeupsPerSecond: 3.5 },
-        memory: { workingSetSize: 2048, privateBytes: 1024, sharedBytes: 512 },
       },
       {
+        cpu: { idleWakeupsPerSecond: 7.25, percentCPUUsage: 41.1 },
+        memory: { privateBytes: 2048, sharedBytes: 1024, workingSetSize: 4096 },
         pid: 202,
-        cpu: { percentCPUUsage: 41.1, idleWakeupsPerSecond: 7.25 },
-        memory: { workingSetSize: 4096, privateBytes: 2048, sharedBytes: 1024 },
       },
     ]);
 
@@ -61,22 +61,22 @@ describe('collectBackgroundRuntimeMetrics', () => {
 
     expect(collectBackgroundRuntimeMetrics()).toEqual([
       {
-        runtimeKind: 'visible-ui',
-        osProcessId: 101,
         cpuPercent: '14.3',
         idleWakeupsPerSecond: '3.5',
-        workingSetKb: '2048',
+        osProcessId: 101,
         privateKb: '1024',
+        runtimeKind: 'visible-ui',
         sharedKb: '512',
+        workingSetKb: '2048',
       },
       {
-        runtimeKind: 'embedding-host',
-        osProcessId: 202,
         cpuPercent: '41.1',
         idleWakeupsPerSecond: '7.3',
-        workingSetKb: '4096',
+        osProcessId: 202,
         privateKb: '2048',
+        runtimeKind: 'embedding-host',
         sharedKb: '1024',
+        workingSetKb: '4096',
       },
     ]);
   });
@@ -113,24 +113,24 @@ describe('collectBackgroundRuntimeMetrics', () => {
 
     expect(collectBackgroundRuntimeMetrics()).toEqual([
       {
-        runtimeKind: 'visible-ui',
-        osProcessId: null,
-        unavailableReason: 'missing-os-process-id',
         cpuPercent: null,
         idleWakeupsPerSecond: null,
-        workingSetKb: null,
+        osProcessId: null,
         privateKb: null,
+        runtimeKind: 'visible-ui',
         sharedKb: null,
+        unavailableReason: 'missing-os-process-id',
+        workingSetKb: null,
       },
       {
-        runtimeKind: 'embedding-host',
-        osProcessId: 303,
-        unavailableReason: 'missing-app-metric',
         cpuPercent: null,
         idleWakeupsPerSecond: null,
-        workingSetKb: null,
+        osProcessId: 303,
         privateKb: null,
+        runtimeKind: 'embedding-host',
         sharedKb: null,
+        unavailableReason: 'missing-app-metric',
+        workingSetKb: null,
       },
     ]);
   });

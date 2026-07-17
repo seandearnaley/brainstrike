@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const logger = vi.hoisted(() => ({
+  debug: vi.fn(),
   error: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
-  debug: vi.fn(),
 }));
 
 const mockGetAgentProviderEnvKeys = vi.hoisted(() => vi.fn());
@@ -93,8 +93,8 @@ describe('provider-api-key', () => {
     process.env['OPENAI_KEY'] = 'env-openai';
 
     const secrets = {
-      listProviders: vi.fn().mockResolvedValue(['anthropic', 'unknown']),
       getKey: vi.fn().mockResolvedValue(' secret '),
+      listProviders: vi.fn().mockResolvedValue(['anthropic', 'unknown']),
     };
     mockGetSecretsService.mockReturnValue(secrets);
 

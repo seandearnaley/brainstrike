@@ -54,11 +54,15 @@ describe('QueueHud', () => {
     queued: number;
     running: number;
     succeeded: number;
+    succeededLifetime?: number;
   }) => {
     useVectorStatusUIStore.setState({
       durableQueueStats: {
         ...stats,
         nextRunnableAt: stats.nextRunnableAt ?? null,
+        // Default the lifetime total to the live count so existing single-value
+        // assertions still hold; tests that care about the distinction set both.
+        succeededLifetime: stats.succeededLifetime ?? stats.succeeded,
       },
     });
   };
@@ -83,11 +87,11 @@ describe('QueueHud', () => {
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
     setStoreStats({
+      failed: 1,
+      nextRunnableAt: '2025-01-01T00:00:00Z',
       queued: 5,
       running: 2,
-      failed: 1,
       succeeded: 10,
-      nextRunnableAt: '2025-01-01T00:00:00Z',
     });
 
     render(<QueueHud />);
@@ -103,6 +107,51 @@ describe('QueueHud', () => {
     expect(screen.getByText('Success')).toBeInTheDocument();
     expect(screen.getByText('10')).toBeInTheDocument();
     expect(screen.getByText(/2025-01-01T00:00:00Z/)).toBeInTheDocument();
+  });
+
+  it('shows the durable lifetime total, not the live succeeded count, as Success', () => {
+    const mockDb = {} as never;
+    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
+
+    // Live succeeded rows get pruned during long backfills, so the card must
+    // show the cumulative lifetime total instead of the transient live count.
+    setStoreStats({
+      failed: 0,
+      queued: 0,
+      running: 0,
+      succeeded: 2,
+      succeededLifetime: 177_355,
+    });
+
+    render(<QueueHud />);
+
+    expect(screen.getByText('Success')).toBeInTheDocument();
+    expect(screen.getByText('177355')).toBeInTheDocument();
+    expect(screen.queryByText('2')).not.toBeInTheDocument();
+  });
+
+  it('shows the lifetime total in the status-bar OK slot and tooltip', async () => {
+    const user = userEvent.setup();
+    const mockDb = {} as never;
+    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
+
+    setStoreStats({
+      failed: 0,
+      queued: 0,
+      running: 0,
+      succeeded: 2,
+      succeededLifetime: 4242,
+    });
+
+    renderStatusBar();
+
+    const status = screen.getByRole('status', { name: /embedding queue/i });
+    expect(within(status).getByText('4242')).toBeInTheDocument();
+
+    await user.hover(status);
+    await waitFor(() => {
+      expect(screen.getAllByText('Success: 4242').length).toBeGreaterThan(0);
+    });
   });
 
   it('displays zero counts when store has no stats', () => {
@@ -121,7 +170,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
+    setStoreStats({ failed: 3, queued: 0, running: 0, succeeded: 0 });
 
     render(<QueueHud />);
 
@@ -140,7 +189,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 0, succeeded: 5 });
+    setStoreStats({ failed: 0, queued: 0, running: 0, succeeded: 5 });
 
     render(<QueueHud />);
 
@@ -162,7 +211,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
+    setStoreStats({ failed: 3, queued: 0, running: 0, succeeded: 0 });
 
     let resolveRequeue!: (value: number) => void;
     const requeuePromise = new Promise<number>((resolve) => {
@@ -196,7 +245,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 0, succeeded: 0 });
+    setStoreStats({ failed: 0, queued: 0, running: 0, succeeded: 0 });
 
     render(<QueueHud />);
 
@@ -207,7 +256,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 2, running: 1, failed: 3, succeeded: 4 });
+    setStoreStats({ failed: 3, queued: 2, running: 1, succeeded: 4 });
 
     renderStatusBar();
 
@@ -231,11 +280,11 @@ describe('QueueHud', () => {
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
     setStoreStats({
+      failed: 0,
+      nextRunnableAt: '2025-01-01T00:00:00Z',
       queued: 2,
       running: 1,
-      failed: 0,
       succeeded: 4,
-      nextRunnableAt: '2025-01-01T00:00:00Z',
     });
 
     renderStatusBar();
@@ -259,7 +308,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 2, succeeded: 0 });
+    setStoreStats({ failed: 2, queued: 0, running: 0, succeeded: 0 });
 
     renderStatusBar();
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildNativeToolRiskMap,
+  denormalizeNativeToolName,
   NATIVE_TOOL_DEFAULTS,
   type NativeToolDefaultMetadata,
 } from '../tool-categories';
@@ -102,6 +103,8 @@ describe('resolveToolRiskCategory', () => {
         'brainstrike.updateWorkspaceTapestrySelections',
         'brainstrike.writeWorkspaceFile',
         'brainstrike.stringReplaceWorkspaceFile',
+        'brainstrike.deleteWorkspaceFile',
+        'brainstrike.renameWorkspaceFile',
         // The shell tool is the first 'execute'-risk native tool.
         'brainstrike.executeCommand',
       ]);
@@ -124,6 +127,8 @@ describe('buildNativeToolRiskMap', () => {
     'brainstrike.updateWorkspaceTapestrySelections',
     'brainstrike.writeWorkspaceFile',
     'brainstrike.stringReplaceWorkspaceFile',
+    'brainstrike.deleteWorkspaceFile',
+    'brainstrike.renameWorkspaceFile',
   ];
 
   it('maps every native tool id to its resolved risk category', () => {
@@ -163,5 +168,36 @@ describe('buildNativeToolRiskMap', () => {
     const second = buildNativeToolRiskMap();
     expect(first).not.toBe(second);
     expect(first).toEqual(second);
+  });
+
+  it("classifies manageTaskList as 'read' so plan updates never suspend for approval", () => {
+    // It is category:'action' (UI/load taxonomy) but mutates only the assistant's
+    // own ephemeral todo list, so its risk bucket must stay 'read'.
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageTaskList']?.category).toBe('action');
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageTaskList']?.requiresApproval).toBe(false);
+    expect(buildNativeToolRiskMap()['brainstrike.manageTaskList']).toBe('read');
+  });
+});
+
+describe('denormalizeNativeToolName (D3)', () => {
+  it('maps a sanitized native id back to its dotted display form', () => {
+    expect(denormalizeNativeToolName('brainstrike_grepSearch')).toBe('brainstrike.grepSearch');
+    expect(denormalizeNativeToolName('brainstrike_writeWorkspaceFile')).toBe(
+      'brainstrike.writeWorkspaceFile'
+    );
+  });
+
+  it('round-trips every native tool id from its sanitized form', () => {
+    for (const dotted of Object.keys(NATIVE_TOOL_DEFAULTS)) {
+      const sanitized = dotted.replace(/[^a-zA-Z0-9_-]/g, '_');
+      expect(denormalizeNativeToolName(sanitized)).toBe(dotted);
+    }
+  });
+
+  it('passes through already-dotted, unknown, and non-native names unchanged', () => {
+    expect(denormalizeNativeToolName('brainstrike.grepSearch')).toBe('brainstrike.grepSearch');
+    expect(denormalizeNativeToolName('filesystem.search_files')).toBe('filesystem.search_files');
+    expect(denormalizeNativeToolName('agent-explore')).toBe('agent-explore');
+    expect(denormalizeNativeToolName('totally_unknown_tool')).toBe('totally_unknown_tool');
   });
 });

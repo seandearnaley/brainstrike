@@ -11,15 +11,15 @@ import type { ToolDisplayMetadata, ToolExecutionResult } from '../types';
 // Mock @brainstrike/assistant-contract/tool-metadata
 vi.mock('@brainstrike/assistant-contract/tool-metadata', () => ({
   TOOL_CATEGORIES: {
-    retrieval: { label: 'Retrieval' },
     action: { label: 'Actions' },
     analysis: { label: 'Analysis' },
     configuration: { label: 'Configuration' },
+    retrieval: { label: 'Retrieval' },
     validation: { label: 'Validation' },
   },
   TOOL_LOADING_TIERS: {
-    critical: { label: 'Critical' },
     conditional: { label: 'Conditional' },
+    critical: { label: 'Critical' },
     deferred: { label: 'Deferred' },
   },
 }));
@@ -61,14 +61,14 @@ vi.mock('../tool-playground', () => ({
 
 describe('ToolCard', () => {
   const mockTool: ToolDisplayMetadata = {
-    id: 'brainstrike.hybridSearch',
-    source: 'native',
     category: 'retrieval',
-    loadingTier: 'critical',
     description: 'Search across documents using hybrid semantic and keyword search',
     enabled: true,
     estimatedTokens: 150,
+    id: 'brainstrike.hybridSearch',
+    loadingTier: 'critical',
     requiresApproval: false,
+    source: 'native',
   };
 
   const mockOnToggle = vi.fn();
@@ -249,8 +249,8 @@ describe('ToolCard', () => {
       const mcpTool: ToolDisplayMetadata = {
         ...mockTool,
         id: 'mcp__github__search_code',
-        source: 'mcp',
         serverName: 'github',
+        source: 'mcp',
       };
       render(<ToolCard onToggle={mockOnToggle} tool={mcpTool} />);
 

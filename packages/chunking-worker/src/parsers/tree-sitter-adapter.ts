@@ -87,9 +87,9 @@ function getOrCompileQuery(language: TreeSitterLanguage, lang: Language): Query 
  */
 function toAstNode(node: TsNode): AstNode {
   return {
-    type: node.type,
-    start: node.startIndex,
     end: node.endIndex,
+    start: node.startIndex,
+    type: node.type,
   };
 }
 
@@ -139,10 +139,10 @@ export function treeSitterAdapter(language: TreeSitterLanguage): ParserAdapter {
         }
 
         return {
-          type: ROOT_TYPES[language],
-          start: 0,
-          end: content.length,
           children,
+          end: content.length,
+          start: 0,
+          type: ROOT_TYPES[language],
         };
       } finally {
         // Parser holds native resources; delete frees them. Language and

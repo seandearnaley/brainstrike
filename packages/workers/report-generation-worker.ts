@@ -13,17 +13,16 @@ export interface ReportGenerationRequest {
   includeFilters: string[];
   includeProjectTree: boolean;
   projectTreeUsesViewFilters?: boolean;
+  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
   /**
    * RootId UUID → display metadata (storage v5) so `<file path>` attributes
    * render human-readable paths instead of composite selection keys.
    * Plain data — the request must stay structured-cloneable.
    */
   rootDisplayInfoById?: Record<string, RootDisplayInfo>;
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
   selectedFiles: Set<string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
   useRegex: boolean;
-  useTapestryRanges?: boolean;
 }
 
 export interface ProgressEvent {
@@ -56,13 +55,11 @@ export function createReportGenerationWorker({
       folderSummaryThreshold,
       rootDisplayInfoById,
       selectedLineRangesByFile,
-      useTapestryRanges = false,
     } = request;
     const generationOptions = {
       projectTreeUsesViewFilters: projectTreeUsesViewFilters ?? false,
       ...(rootDisplayInfoById ? { rootDisplayInfoById } : {}),
       ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
-      useTapestryRanges,
     };
 
     const context =

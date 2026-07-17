@@ -9,19 +9,40 @@ import { isCompilerHotspot } from './compiler-hotspots';
 const isDev = process.env.NODE_ENV === 'development';
 const logger = createBuildLogger('PGliteLocator');
 
-const ASSISTANT_MARKDOWN_VENDOR_MATCHERS = [
-  '/@assistant-ui/react-markdown/',
-  '/react-shiki/',
-  '/@shikijs/',
-  '/shiki/',
-  '/remark-gfm/',
-] as const;
-
-const ASSISTANT_VENDOR_MATCHERS = [
-  '/@assistant-ui/react-data-stream/',
-  '/@assistant-ui/react/',
-  '/@assistant-ui/styles/',
-] as const;
+/**
+ * Co-locate the whole context-action / command system into ONE chunk.
+ *
+ * `defineContextAction` (packages/context-actions) and `defineCommand`
+ * (packages/commands) are pure identity helpers, but the feature
+ * `*​/context-actions` modules CALL them at MODULE-INIT to build their action
+ * arrays (e.g. `const actions = [defineContextAction({ id: 'file.copy-name' })]`).
+ * Rolldown's default chunking hoists the shared helper into its own chunk,
+ * separate from its eager callers; the caller chunk then runs `helper(...)` at
+ * init before the helper chunk has initialized → a circular chunk-init TDZ
+ * ("k is not a function") that leaves the BUILT renderer with an empty #root on
+ * startup. Dev is unaffected (Vite serves unbundled ESM, native init order).
+ * Forcing a single chunk removes the cross-chunk init-order hazard. Source
+ * aliasing alone does NOT fix it — rolldown still splits the shared helper out
+ * for dedup. Do NOT remove without re-verifying the built apps mount
+ * (apps/web/e2e @web-smoke + desktop e2e smoke).
+ *
+ * This is intentionally the ONLY manual code-splitting group. A previous
+ * blanket `node_modules → vendor` group (plus assistant vendor groups) merged
+ * lazily-imported libraries (mermaid, d3, katex, codemirror, shiki, lodash-es)
+ * into eagerly-loaded chunks — rolldown group chunks absorb matched modules'
+ * shared dependencies, so react itself ended up inside the "markdown vendor"
+ * chunk and the entry statically imported all of it. Default reachability-based
+ * splitting keeps dynamic-import-only code off the startup critical path.
+ */
+export function isContextActionSystemModule(id: string): boolean {
+  if (id.includes('node_modules')) {
+    return false;
+  }
+  // Matches the core package (…/context-actions/src/…), every feature
+  // …/src/context-actions/… module that calls defineContextAction at init, and
+  // the commands registry that shares the same define-at-init pattern.
+  return /[\\/]context-actions[\\/]/.test(id) || /[\\/]packages[\\/]commands[\\/]/.test(id);
+}
 
 const CORE_APP_OPTIMIZE_DEPS_INCLUDE = [
   'idb',
@@ -84,20 +105,6 @@ const moduleDir =
 const appShellDir = path.resolve(moduleDir, '..', '..', 'app-shell', 'src');
 const uiDir = path.resolve(moduleDir, '..', '..', 'ui', 'src');
 const dbExplorerDir = path.resolve(moduleDir, '..', '..', 'db-explorer', 'src');
-
-export function resolveAssistantVendorChunk(
-  id: string
-): 'assistant-markdown-vendor' | 'assistant-vendor' | undefined {
-  if (ASSISTANT_MARKDOWN_VENDOR_MATCHERS.some((matcher) => id.includes(matcher))) {
-    return 'assistant-markdown-vendor';
-  }
-
-  if (ASSISTANT_VENDOR_MATCHERS.some((matcher) => id.includes(matcher))) {
-    return 'assistant-vendor';
-  }
-
-  return;
-}
 
 export function getAssistantOptimizeDepsInclude(): readonly string[] {
   return ASSISTANT_OPTIMIZE_DEPS_INCLUDE;
@@ -198,11 +205,11 @@ const VENDORED_TREE_SITTER_GRAMMARS = ['python'] as const;
  */
 export function getTreeSitterGrammarCopyTargets(baseDir: string): TreeSitterGrammarCopyTarget[] {
   return VENDORED_TREE_SITTER_GRAMMARS.map((language) => ({
+    dest: 'assets/grammars',
+    rename: { stripBase: true },
     src: toVitePath(
       path.resolve(baseDir, '../../packages/chunking-worker/grammars', `${language}.wasm`)
     ),
-    dest: 'assets/grammars',
-    rename: { stripBase: true },
   }));
 }
 
@@ -251,7 +258,6 @@ export function findPGliteWasm(baseDir: string): string | null {
 
 export function fullReloadOnCompilerHotspots(): Plugin {
   return {
-    name: 'full-reload-on-compiler-hotspots',
     handleHotUpdate(ctx: HmrContext) {
       if (isCompilerHotspot(ctx.file)) {
         ctx.server.ws.send({ type: 'full-reload' });
@@ -259,5 +265,6 @@ export function fullReloadOnCompilerHotspots(): Plugin {
       }
       return;
     },
+    name: 'full-reload-on-compiler-hotspots',
   };
 }

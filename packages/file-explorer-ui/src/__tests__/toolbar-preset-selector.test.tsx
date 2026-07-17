@@ -6,30 +6,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock the hooks and dependencies
 const mockPresets: ViewFilterPreset[] = [
   {
-    id: 'preset-1',
-    name: 'Source Files',
-    description: 'TypeScript and JavaScript files',
-    icon: 'file-code',
-    includes: ['*.ts', '*.tsx'],
-    excludes: ['node_modules'],
-    useRegex: false,
-    isDefault: true,
-    sortOrder: 0,
     createdAt: new Date(),
+    description: 'TypeScript and JavaScript files',
+    excludes: ['node_modules'],
+    icon: 'file-code',
+    id: 'preset-1',
+    includes: ['*.ts', '*.tsx'],
+    isDefault: true,
+    name: 'Source Files',
+    sortOrder: 0,
     updatedAt: new Date(),
+    useRegex: false,
   },
   {
-    id: 'preset-2',
-    name: 'Documentation',
-    description: 'Markdown files',
-    icon: 'file-text',
-    includes: ['*.md'],
-    excludes: [],
-    useRegex: false,
-    isDefault: false,
-    sortOrder: 1,
     createdAt: new Date(),
+    description: 'Markdown files',
+    excludes: [],
+    icon: 'file-text',
+    id: 'preset-2',
+    includes: ['*.md'],
+    isDefault: false,
+    name: 'Documentation',
+    sortOrder: 1,
     updatedAt: new Date(),
+    useRegex: false,
   },
 ];
 
@@ -43,21 +43,23 @@ const mockSetFilters = vi.fn((includes: string[], excludes: string[]) => {
 const mockSetUseRegex = vi.fn((value: boolean) => {
   mockStoreState.useRegex = value;
 });
+const mockClearDisabledFilters = vi.fn();
 const mockCreatePreset = vi.fn();
 const mockUpdatePreset = vi.fn();
 const mockDeletePreset = vi.fn();
 const defaultMockViewFilterPresetsResult = () => ({
-  presets: mockPresets,
-  loading: false,
-  error: null,
   createPreset: mockCreatePreset,
-  updatePreset: mockUpdatePreset,
   deletePreset: mockDeletePreset,
-  refresh: vi.fn(),
+  error: null,
   getPreset: vi.fn(),
+  loading: false,
+  presets: mockPresets,
+  refresh: vi.fn(),
+  updatePreset: mockUpdatePreset,
 });
 
 interface MockStoreState {
+  clearDisabledFilters: typeof mockClearDisabledFilters;
   currentFolderId: string | null;
   excludeFilters: string[];
   folderStates: Record<
@@ -84,28 +86,29 @@ interface MockStoreState {
 }
 
 const defaultMockStoreState = (): MockStoreState => ({
+  clearDisabledFilters: mockClearDisabledFilters,
   currentFolderId: 'mock-root',
-  includeFilters: ['*.ts', '*.tsx'],
   excludeFilters: ['node_modules'],
   folderStates: {
     'mock-root': {
-      selectedFilePaths: new Set<string>(),
+      excludeFilters: ['node_modules'],
       expandedDirectoryPaths: new Set<string>(),
       includeFilters: ['*.ts', '*.tsx'],
-      excludeFilters: ['node_modules'],
-      useRegex: false,
-      tokenBudget: 100_000,
-      maxSelectionCount: 10,
-      lastActiveTab: 'files',
       lastAccessed: Date.now(),
+      lastActiveTab: 'files',
+      maxSelectionCount: 10,
+      selectedFilePaths: new Set<string>(),
+      tokenBudget: 100_000,
+      useRegex: false,
       viewFilterPresetId: 'preset-1',
     },
   },
-  useRegex: false,
-  viewFilterPresetId: 'preset-1',
-  setViewFilterPresetId: mockSetViewFilterPresetId,
+  includeFilters: ['*.ts', '*.tsx'],
   setFilters: mockSetFilters,
   setUseRegex: mockSetUseRegex,
+  setViewFilterPresetId: mockSetViewFilterPresetId,
+  useRegex: false,
+  viewFilterPresetId: 'preset-1',
 });
 
 let mockStoreState: MockStoreState = defaultMockStoreState();
@@ -113,11 +116,11 @@ let mockStoreState: MockStoreState = defaultMockStoreState();
 // Canonical-writer capture: persistFileExplorerStateImmediately writes the
 // whole store snapshot through the ADAPTERS storage adapter.
 const mockAdapterStorage = {
-  getItem: vi.fn(async () => null),
-  setItem: vi.fn(async () => undefined),
-  removeItem: vi.fn(async () => undefined),
   clear: vi.fn(async () => undefined),
   getAllKeys: vi.fn(async () => []),
+  getItem: vi.fn(async () => null),
+  removeItem: vi.fn(async () => undefined),
+  setItem: vi.fn(async () => undefined),
 };
 
 // Hydration controls: false simulates the pre-rehydration boot window.
@@ -144,8 +147,8 @@ vi.mock('../shell/file-explorer-provider', () => ({
     storeFn.persist = {
       getOptions: () => ({
         name: 'file-explorer-storage-v4',
-        version: 1,
         partialize: (state: unknown) => state,
+        version: 1,
       }),
       hasHydrated: () => mockHasHydrated,
       onFinishHydration: (callback: () => void) => {
@@ -172,9 +175,9 @@ vi.mock('../hooks/use-view-filter-presets', () => ({
 vi.mock('@brainstrike/utils', () => ({
   createLogger: vi.fn(() => ({
     debug: vi.fn(),
+    error: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn(),
   })),
   isDevEnv: vi.fn(() => false),
 }));
@@ -233,6 +236,8 @@ describe('ToolbarPresetSelector', () => {
       expect(mockSetViewFilterPresetId).toHaveBeenCalledWith('preset-2');
     });
     expect(mockSetFilters).toHaveBeenCalledWith(['*.md'], []);
+    // Spike B9: stale disable toggles must not survive a preset switch.
+    expect(mockClearDisabledFilters).toHaveBeenCalledTimes(1);
     expect(mockSetUseRegex).toHaveBeenCalledWith(false);
     expect(mockSetFilters.mock.invocationCallOrder[0]).toBeLessThan(
       mockSetViewFilterPresetId.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
@@ -328,14 +333,14 @@ describe('ToolbarPresetSelector', () => {
   it('handles loading state', async () => {
     const { useViewFilterPresets } = await import('../hooks/use-view-filter-presets');
     vi.mocked(useViewFilterPresets).mockReturnValueOnce({
-      presets: [],
-      loading: true,
-      error: null,
       createPreset: mockCreatePreset,
-      updatePreset: mockUpdatePreset,
       deletePreset: mockDeletePreset,
-      refresh: vi.fn(),
+      error: null,
       getPreset: vi.fn(),
+      loading: true,
+      presets: [],
+      refresh: vi.fn(),
+      updatePreset: mockUpdatePreset,
     });
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
@@ -350,8 +355,8 @@ describe('ToolbarPresetSelector', () => {
     mockStoreState.excludeFilters = [];
     vi.mocked(useViewFilterPresets).mockReturnValueOnce({
       ...defaultMockViewFilterPresetsResult(),
-      presets: [],
       loading: true,
+      presets: [],
     });
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
@@ -433,8 +438,8 @@ describe('ToolbarPresetSelector', () => {
     mockStoreState.excludeFilters = [];
     vi.mocked(useViewFilterPresets).mockReturnValueOnce({
       ...defaultMockViewFilterPresetsResult(),
-      presets: [],
       error: new Error('Preset fetch failed'),
+      presets: [],
     });
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);

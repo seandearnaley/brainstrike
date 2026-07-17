@@ -8,17 +8,26 @@ import {
 
 const {
   backgroundDbState,
+  createEmbeddingCacheRepositoryMock,
   createPriorityDbHandleMock,
+  embeddingCacheRepositoryState,
   getRegisteredEmbeddingRuntimeConfigMock,
   startEmbeddingWorkerMock,
-} = vi.hoisted(() => ({
-  backgroundDbState: {
-    current: { query: vi.fn(async () => ({ rows: [] })) },
-  },
-  createPriorityDbHandleMock: vi.fn(() => backgroundDbState.current),
-  getRegisteredEmbeddingRuntimeConfigMock: vi.fn(),
-  startEmbeddingWorkerMock: vi.fn(),
-}));
+} = vi.hoisted(() => {
+  const embeddingCacheRepositoryState = {
+    current: { kind: 'embedding-cache-repository-mock' },
+  };
+  return {
+    backgroundDbState: {
+      current: { query: vi.fn(async () => ({ rows: [] })) },
+    },
+    createEmbeddingCacheRepositoryMock: vi.fn(() => embeddingCacheRepositoryState.current),
+    createPriorityDbHandleMock: vi.fn(() => backgroundDbState.current),
+    embeddingCacheRepositoryState,
+    getRegisteredEmbeddingRuntimeConfigMock: vi.fn(),
+    startEmbeddingWorkerMock: vi.fn(),
+  };
+});
 
 const {
   cancelBackfillMock,
@@ -32,8 +41,8 @@ const {
   resetMock,
   stopMock,
 } = vi.hoisted(() => ({
-  cancelBackfillMock: vi.fn(async () => {}),
   cancelAllBackfillsMock: vi.fn(async () => {}),
+  cancelBackfillMock: vi.fn(async () => {}),
   enqueueBackfillMock: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
   ensureStartedMock: vi.fn(),
   getBackfillsInFlightMock: vi.fn(async () => []),
@@ -57,6 +66,7 @@ vi.mock('@brainstrike/embeddings/worker', () => ({
 }));
 
 vi.mock('@brainstrike/db', () => ({
+  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
   createPriorityDbHandle: createPriorityDbHandleMock,
 }));
 
@@ -69,11 +79,11 @@ describe('useEmbeddingRuntimeController', () => {
     });
 
     const runningStatus = {
-      runtimeKind: 'embedding-host' as const,
-      runtimeId: 'embedding-host:test-runtime',
-      state: 'running' as const,
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host:test-runtime',
+      runtimeKind: 'embedding-host' as const,
+      state: 'running' as const,
     };
 
     getStatusMock.mockResolvedValue(runningStatus);
@@ -95,8 +105,8 @@ describe('useEmbeddingRuntimeController', () => {
     Object.defineProperty(window, 'embeddingHost', {
       configurable: true,
       value: {
-        cancelBackfill: cancelBackfillMock,
         cancelAllBackfills: cancelAllBackfillsMock,
+        cancelBackfill: cancelBackfillMock,
         enqueueBackfill: enqueueBackfillMock,
         ensureStarted: ensureStartedMock,
         getBackfillsInFlight: getBackfillsInFlightMock,
@@ -175,15 +185,15 @@ describe('useEmbeddingRuntimeController', () => {
     const inFlightMock = vi.fn(async () => [
       {
         embeddingSetId: 'set-1',
-        requestId: 'background-indexing-backfill:test',
         progress: { current: 2, total: 4 },
+        requestId: 'background-indexing-backfill:test',
       },
     ]);
     Object.defineProperty(window, 'embeddingHost', {
       configurable: true,
       value: {
-        cancelBackfill: cancelBackfillMock,
         cancelAllBackfills: cancelAllBackfillsMock,
+        cancelBackfill: cancelBackfillMock,
         enqueueBackfill: enqueueBackfillMock,
         ensureStarted: ensureStartedMock,
         getBackfillsInFlight: inFlightMock,
@@ -207,8 +217,8 @@ describe('useEmbeddingRuntimeController', () => {
     await expect(result.current.getBackfillsInFlight()).resolves.toEqual([
       {
         embeddingSetId: 'set-1',
-        requestId: 'background-indexing-backfill:test',
         progress: { current: 2, total: 4 },
+        requestId: 'background-indexing-backfill:test',
       },
     ]);
   });
@@ -277,18 +287,18 @@ describe('useEmbeddingRuntimeController', () => {
 
     await act(async () => {
       statusEmitter({
-        runtimeKind: 'embedding-host',
-        runtimeId: 'embedding-host:running',
-        state: 'running',
         active: true,
         lastError: null,
+        runtimeId: 'embedding-host:running',
+        runtimeKind: 'embedding-host',
+        state: 'running',
       });
       backfillProgressEmitter({
+        current: 2,
         embeddingSetId: 'set-1',
         requestId: 'background-indexing-backfill:1',
         source: 'background-indexing',
         stage: 'backfill',
-        current: 2,
         total: 5,
       });
     });
@@ -318,11 +328,11 @@ describe('useEmbeddingRuntimeController', () => {
 
   it('resets the desktop host bridge and stores the returned status', async () => {
     resetMock.mockResolvedValueOnce({
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host:reset',
-      state: 'running',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host:reset',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     });
 
     const { result } = renderHook(() =>
@@ -450,6 +460,33 @@ describe('useEmbeddingRuntimeController', () => {
       })
     );
     expect(createPriorityDbHandleMock).toHaveBeenCalledWith(db, 'background');
+  });
+
+  it('wires the embedding cache repository over the background handle when starting the local web worker', async () => {
+    clearDesktopHostBridge();
+
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const backgroundDb = { query: vi.fn(async () => ({ rows: [] })) };
+    backgroundDbState.current = backgroundDb;
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(createEmbeddingCacheRepositoryMock).toHaveBeenCalledWith(backgroundDb);
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embeddingCache: embeddingCacheRepositoryState.current,
+      })
+    );
   });
 
   it('returns the current local status when the web worker is already running', async () => {
@@ -809,15 +846,15 @@ describe('useEmbeddingRuntimeController', () => {
 
     expect(progressListener).toHaveBeenCalledWith(
       expect.objectContaining({
-        embeddingSetId: 'set-1',
         current: 2,
+        embeddingSetId: 'set-1',
         total: 4,
       })
     );
     expect(progressListener).toHaveBeenCalledWith(
       expect.objectContaining({
-        embeddingSetId: 'set-2',
         current: 2,
+        embeddingSetId: 'set-2',
         total: 6,
       })
     );

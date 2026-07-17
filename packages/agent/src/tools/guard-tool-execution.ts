@@ -1,30 +1,12 @@
+import type { GuardedToolError } from '@brainstrike/assistant-contract';
 import type { ToolLogger } from './types';
 
-export interface GuardedToolError {
-  error: {
-    code: 'tool_timeout' | 'tool_failed';
-    message: string;
-    toolName: string;
-  };
-  ok: false;
-}
+export type { GuardedToolError } from '@brainstrike/assistant-contract';
+export { isGuardedToolError } from '@brainstrike/assistant-contract';
 
 const GUARDED_TOOL_ERROR_MESSAGE = 'The tool did not complete successfully. Try another approach.';
 const GUARDED_TOOL_TIMEOUT_MESSAGE =
   'The tool timed out before returning a result. Try a smaller request or another approach.';
-
-export function isGuardedToolError(value: unknown): value is GuardedToolError {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const candidate = value as { ok?: unknown; error?: { code?: unknown } };
-  return (
-    candidate.ok === false &&
-    typeof candidate.error === 'object' &&
-    candidate.error !== null &&
-    (candidate.error.code === 'tool_timeout' || candidate.error.code === 'tool_failed')
-  );
-}
 
 interface ExecutableLike {
   execute: (...args: unknown[]) => unknown;
@@ -59,14 +41,14 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<GuardedToolError>((resolve) => {
       timer = setTimeout(() => {
-        logger?.error('Tool execution timed out', { toolName, timeoutMs });
+        logger?.error('Tool execution timed out', { timeoutMs, toolName });
         resolve({
-          ok: false,
           error: {
             code: 'tool_timeout',
             message: GUARDED_TOOL_TIMEOUT_MESSAGE,
             toolName,
           },
+          ok: false,
         });
       }, timeoutMs);
       (timer as { unref?: () => void }).unref?.();
@@ -81,10 +63,10 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     try {
       return await Promise.race([run, timeout]);
     } catch (error) {
-      logger?.error('Tool execution failed', { toolName, error });
+      logger?.error('Tool execution failed', { error, toolName });
       return {
-        ok: false,
         error: { code: 'tool_failed', message: GUARDED_TOOL_ERROR_MESSAGE, toolName },
+        ok: false,
       };
     } finally {
       if (timer) {
@@ -109,8 +91,8 @@ export function applyToolGuards<TMap extends Record<string, unknown>>(
   const guarded: Record<string, unknown> = {};
   for (const [toolId, tool] of Object.entries(tools)) {
     guarded[toolId] = guardToolExecution(tool, {
-      toolName: toolId,
       timeoutMs: options.timeoutMs,
+      toolName: toolId,
       ...(options.logger ? { logger: options.logger } : {}),
     });
   }

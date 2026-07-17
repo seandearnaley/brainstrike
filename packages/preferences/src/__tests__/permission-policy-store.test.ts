@@ -35,7 +35,7 @@ describe('permission-policy-store', () => {
     const state = usePermissionPolicyStore.getState();
     // enforce-on-by-default (P1 fix): read/mcp run free; edit/execute prompt.
     expect(state.enforce).toBe(true);
-    expect(state.policies).toEqual({ read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' });
+    expect(state.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
     expect(state.yolo).toBe(false);
     expect(state.sessionGrants.size).toBe(0);
     expect(state.perToolOverrides).toEqual({});
@@ -67,10 +67,10 @@ describe('permission-policy-store', () => {
     expect(state.sessionGrants.has('edit')).toBe(true);
     expect(
       resolvePermissionDecision({
-        riskCategory: 'edit',
         policies: state.policies,
-        yolo: state.yolo,
+        riskCategory: 'edit',
         sessionGrants: state.sessionGrants,
+        yolo: state.yolo,
       })
     ).toBe('allow');
   });
@@ -88,6 +88,22 @@ describe('permission-policy-store', () => {
     usePermissionPolicyStore.getState().grantSessionCategory('mcp');
     usePermissionPolicyStore.getState().clearSessionGrants();
     expect(usePermissionPolicyStore.getState().sessionGrants.size).toBe(0);
+  });
+
+  it('revokeSessionCategory removes only the named grant', () => {
+    usePermissionPolicyStore.getState().grantSessionCategory('edit');
+    usePermissionPolicyStore.getState().grantSessionCategory('mcp');
+    usePermissionPolicyStore.getState().revokeSessionCategory('edit');
+    const grants = usePermissionPolicyStore.getState().sessionGrants;
+    expect(grants.has('edit')).toBe(false);
+    expect(grants.has('mcp')).toBe(true);
+  });
+
+  it('revokeSessionCategory is a no-op when the grant is absent (same set identity guard)', () => {
+    usePermissionPolicyStore.getState().grantSessionCategory('mcp');
+    const first = usePermissionPolicyStore.getState().sessionGrants;
+    usePermissionPolicyStore.getState().revokeSessionCategory('edit');
+    expect(usePermissionPolicyStore.getState().sessionGrants).toBe(first);
   });
 
   it('setToolOverride sets and clears a per-tool override', () => {
@@ -129,9 +145,9 @@ describe('permission-policy-store', () => {
 
     const migrated = options.migrate(
       {
-        policies: { read: 'allow', edit: 'prompt', bogus: 'allow' },
+        perToolOverrides: { 'brainstrike.bad': 'maybe', 'brainstrike.ok': 'deny' },
+        policies: { bogus: 'allow', edit: 'prompt', read: 'allow' },
         yolo: 'yes',
-        perToolOverrides: { 'brainstrike.ok': 'deny', 'brainstrike.bad': 'maybe' },
       },
       0
     ) as {
@@ -143,7 +159,7 @@ describe('permission-policy-store', () => {
     };
 
     // edit:'prompt' is invalid -> default 'ask'; bogus dropped; mcp/execute defaulted.
-    expect(migrated.policies).toEqual({ read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' });
+    expect(migrated.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
     // enforce absent from the legacy slice -> adopts the new secure default (ON).
     expect(migrated.enforce).toBe(true);
     // yolo:'yes' is not a boolean -> false.
@@ -167,17 +183,17 @@ describe('permission-policy-store', () => {
     expect(state.enforce).toBe(true);
     expect(state.yolo).toBe(false);
     expect(state.sessionGrants.size).toBe(0);
-    expect(state.policies).toEqual({ read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' });
+    expect(state.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
     // clearStorage() wipes the prior slice; the subsequent default setState
     // re-persists the DEFAULT posture (not the customized one).
     const persisted = readPersistedState();
     expect(persisted.enforce).toBe(true);
     expect(persisted.yolo).toBe(false);
     expect(persisted.policies).toEqual({
-      read: 'allow',
       edit: 'ask',
       execute: 'ask',
       mcp: 'allow',
+      read: 'allow',
     });
     expect(persisted.perToolOverrides).toEqual({});
   });
@@ -190,7 +206,7 @@ describe('permission-policy-store', () => {
     // Under v1, `false` was the OLD DEFAULT (always written), indistinguishable
     // from an opt-out — a security fix adopts the secure default for pre-v2.
     const migrated = options.migrate(
-      { enforce: false, policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' } },
+      { enforce: false, policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' } },
       1
     ) as { enforce: boolean };
     expect(migrated.enforce).toBe(true);
@@ -204,7 +220,7 @@ describe('permission-policy-store', () => {
     // A v2 slice with enforce:false is a real opt-out made AFTER enforce went on
     // by default, so it is honored verbatim.
     const migrated = options.migrate(
-      { enforce: false, policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' } },
+      { enforce: false, policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' } },
       2
     ) as { enforce: boolean };
     expect(migrated.enforce).toBe(false);
@@ -226,10 +242,10 @@ describe('buildPermissionToolGateSnapshotInput / getPermissionToolGateSnapshotIn
 
     expect(input.enforce).toBe(true);
     expect(input.policies).toEqual({
-      read: 'allow',
       edit: 'deny',
       execute: 'ask',
       mcp: 'allow',
+      read: 'allow',
     });
     expect(input.yolo).toBe(false);
     // Set -> serializable array.
