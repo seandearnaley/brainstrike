@@ -39,7 +39,9 @@ Windowing and performance:
   shallowest-first with selected/query parents prioritized; excess persisted
   paths are collapsed and surfaced through both the restoration progress card
   and a toast. Keep this bound visible—never silently attempt an unbounded
-  restore that can monopolize the renderer.
+  restore that can monopolize the renderer. Post-restoration selection changes
+  use the same root scoping, separator-normalized shallowest-first ordering, and
+  100-directory cap before issuing worker I/O.
 - Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):
   row-facing handlers are identity-stable (`useEventCallback`), the keyboard
   `actions` object and the virtualizer measure adapter are memoized, and the

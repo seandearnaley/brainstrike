@@ -27,6 +27,7 @@ import {
   resolveFilteredVectorSearchRoute,
   type UpdateBuilder,
   validateEmbeddingDimensions,
+  validateFtsRankNormalization,
 } from './_shared.js';
 import type { ElectronDbAPI } from './electron-file-record-repository';
 
@@ -626,6 +627,7 @@ export class ElectronFileChunkRepository {
       includeEmbedding = false,
       includeHeadline = true,
     } = options;
+    const normalizedRankNormalization = validateFtsRankNormalization(rankNormalization);
 
     // Validate query
     const trimmedQuery = query.trim();
@@ -644,8 +646,8 @@ export class ElectronFileChunkRepository {
 
     // Build tsquery using the appropriate function based on query mode
     const tsqueryFunc = this.getTsqueryFunction(queryMode);
-    const params: unknown[] = [language, trimmedQuery];
-    let paramIndex = 3;
+    const params: unknown[] = [language, trimmedQuery, normalizedRankNormalization];
+    let paramIndex = 4;
 
     // Build WHERE clause
     const whereParts = [
@@ -692,14 +694,14 @@ export class ElectronFileChunkRepository {
     const result = await this.db.query(
       `SELECT
         ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
-        ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
+        ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), $3::integer) as fts_rank,
         ${
           includeHeadline
             ? `ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
             : ''
         }
-        ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) DESC, id) as position
+        ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), $3::integer) DESC, id) as position
       FROM file_chunks
       WHERE ${whereParts.join(' AND ')}
       ORDER BY fts_rank DESC, id

@@ -159,7 +159,8 @@ export interface FTSSearchOptions {
    * - 8: Divide by number of unique words
    * - 16: Divide by 1 + log(unique words)
    * - 32: Divide by itself + 1
-   * Can be combined with | (e.g., 1|2 for both normalizations)
+   * Can be combined with | (e.g., 1|2 for both normalizations). Runtime
+   * callers must supply an integer bitmask from 0 through 63.
    */
   rankNormalization?: number;
   /** Optional multi-root workspace scope (file_records.root_id ∈ rootIds). Empty array matches nothing. */

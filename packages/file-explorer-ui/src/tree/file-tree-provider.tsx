@@ -249,6 +249,7 @@ export function FileTreeProvider({
   });
   useExpandSelectedFileParentDirectories({
     currentRootFolderId: restorationFolderId,
+    currentRootPath,
     isRestorationSettled: restorationState.isRestorationSettled,
     loadSpecificPaths: fileTreeState.loadSpecificPaths,
     selectionVersion,

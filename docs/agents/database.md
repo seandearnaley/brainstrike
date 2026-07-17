@@ -56,9 +56,11 @@ extension control file" error on that path only:
   writes begin. pg_textsearch 1.3.1 produced persisted invalid memtable page
   chains during real `file_chunks` updates, so runtime use is quarantined.
   Lexical ranking uses built-in `ts_rank` over migration 034's generated
-  tsvector + GIN index. Do not restore the BM25 index until an upstream fix is
-  available and a sustained concurrent insert/update/VACUUM stress test proves
-  reopen-safe on-disk integrity.
+  tsvector + GIN index. Its `rankNormalization` option is an integer PostgreSQL
+  bitmask from 0 through 63; every repository path validates it at runtime and
+  binds it as a query parameter. Do not restore the BM25 index until an upstream
+  fix is available and a sustained concurrent insert/update/VACUUM stress test
+  proves reopen-safe on-disk integrity.
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
 Construction sites (keep in sync when adding extensions or new sites):

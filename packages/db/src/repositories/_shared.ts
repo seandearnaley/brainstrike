@@ -17,6 +17,20 @@ export interface Queryable {
 export const MAX_INLINE_FILE_PATHS = 500;
 
 /**
+ * PostgreSQL `ts_rank` accepts a bitmask composed from 1, 2, 4, 8, 16, and 32.
+ * Validate at the repository boundary because desktop IPC and plain JavaScript
+ * callers are not protected by the TypeScript option type.
+ */
+export function validateFtsRankNormalization(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 63) {
+    throw new Error(
+      `Invalid FTS rankNormalization (${String(value)}). Expected an integer bitmask from 0 to 63.`
+    );
+  }
+  return value;
+}
+
+/**
  * Maximum number of embedding dimension entries to cache.
  * Prevents unbounded memory growth in long-running processes.
  */

@@ -36,6 +36,7 @@ import {
   MAX_INLINE_FILE_PATHS,
   resolveEmbeddingDimensions,
   resolveFilteredVectorSearchRoute,
+  validateFtsRankNormalization,
 } from '../_shared.js';
 
 type DrizzleDb = PgliteDatabase;
@@ -537,6 +538,7 @@ export class DrizzleFileChunkRepository {
       includeEmbedding = false,
       includeHeadline = true,
     } = options;
+    const normalizedRankNormalization = validateFtsRankNormalization(rankNormalization);
 
     // Validate query
     const trimmedQuery = query.trim();
@@ -568,7 +570,7 @@ export class DrizzleFileChunkRepository {
     // Rank with PostgreSQL's built-in FTS implementation. Keeping matching and
     // ranking on the same generated tsvector avoids a second write-maintained
     // index and preserves the caller's language + normalization settings.
-    const ftsRank = sql`ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization})`;
+    const ftsRank = sql`ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${normalizedRankNormalization}::integer)`;
     let baseQuery = sql`
       SELECT
         ${sql.raw(ftsColumns)},

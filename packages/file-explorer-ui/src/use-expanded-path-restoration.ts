@@ -683,6 +683,7 @@ export function useExpandedPathRestoration(
 
 export interface UseExpandSelectedFileParentDirectoriesArgs {
   currentRootFolderId: string | null;
+  currentRootPath?: string | null;
   disabled?: boolean;
   isRestorationSettled: boolean;
   loadSpecificPaths: (
@@ -703,6 +704,7 @@ export function useExpandSelectedFileParentDirectories(
 ): void {
   const {
     currentRootFolderId,
+    currentRootPath,
     disabled = false,
     isRestorationSettled,
     loadSpecificPaths,
@@ -721,7 +723,11 @@ export function useExpandSelectedFileParentDirectories(
     }
 
     const storeState = store.getState();
-    const parentDirectories = getDirectoriesForCurrentSelection(storeState, currentRootFolderId);
+    const parentDirectories = new Set(
+      [...getDirectoriesForCurrentSelection(storeState, currentRootFolderId)].filter((path) =>
+        isPathWithinRoot(path, currentRootPath)
+      )
+    );
     if (parentDirectories.size === 0) {
       return;
     }
@@ -732,9 +738,7 @@ export function useExpandSelectedFileParentDirectories(
       return;
     }
 
-    const sortedParents = missingParents.sort(
-      (left, right) => getPathDepth(left) - getPathDepth(right)
-    );
+    const sortedParents = sortRestorationPaths(missingParents);
     const boundedParents = sortedParents.slice(0, MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS);
     const omittedParentCount = sortedParents.length - boundedParents.length;
     if (omittedParentCount > 0) {
@@ -759,6 +763,7 @@ export function useExpandSelectedFileParentDirectories(
       });
   }, [
     currentRootFolderId,
+    currentRootPath,
     disabled,
     isRestorationSettled,
     loadSpecificPaths,

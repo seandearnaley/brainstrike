@@ -659,6 +659,74 @@ describe('useExpandSelectedFileParentDirectories', () => {
     });
   });
 
+  it('scopes and depth-sorts Windows parents before applying the post-restoration cap', async () => {
+    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+    const setExpandedPaths = vi.fn();
+    const outOfRootSelections = Array.from(
+      { length: MAX_AUTOMATIC_RESTORED_DIRECTORY_PATHS + 25 },
+      (_, index) => `/workspace|@|D:\\other\\branch-${index.toString().padStart(4, '0')}\\File.ts`
+    );
+    const expectedScopedParents = [
+      'C:\\repo',
+      'C:\\repo\\src',
+      'C:\\repo\\zzz',
+      'C:\\repo\\aaa\\deep',
+      'C:\\repo\\src\\components',
+    ];
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set<string>(),
+          selectedFilePaths: new Set([
+            ...outOfRootSelections,
+            '/workspace|@|C:\\repo\\src\\components\\Button.tsx',
+          ]),
+          selectionModel: {
+            explicitPaths: new Set<string>(),
+            materializedAt: null,
+            materializedPaths: null,
+            mode: 'query',
+            queryDescriptor: {
+              coveredDirectoryPaths: ['C:\\repo\\aaa\\deep', 'C:\\repo\\zzz', 'D:\\outside\\stale'],
+              excludedPaths: [],
+              excludeFilters: [],
+              folderId: '/workspace',
+              includedPaths: [],
+              includeFilters: [],
+              kind: 'recursive-select-all',
+              manifestFingerprint: 'query-fingerprint',
+              manifestSnapshotId: 'snapshot-1',
+              rootPath: null,
+              totalSelectedCount: outOfRootSelections.length + 1,
+              useRegex: false,
+            },
+            ruleSetJson: null,
+          },
+        })
+      ),
+    };
+
+    renderHook(() =>
+      useExpandSelectedFileParentDirectories({
+        currentRootFolderId: '/workspace',
+        currentRootPath: 'C:\\repo',
+        isRestorationSettled: true,
+        loadSpecificPaths,
+        selectionVersion: 3,
+        setExpandedPaths,
+        store,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadSpecificPaths).toHaveBeenCalledWith(expectedScopedParents);
+    });
+
+    await waitFor(() => {
+      expect(setExpandedPaths).toHaveBeenCalledWith(new Set(expectedScopedParents));
+    });
+  });
+
   it('does not apply stale expansion work from an earlier selection version', async () => {
     let resolveFirstLoad: (() => void) | undefined;
     const loadSpecificPaths = vi
