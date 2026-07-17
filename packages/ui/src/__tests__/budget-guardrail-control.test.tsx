@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { render, renderHook, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type BudgetGuardrailContextValue,
@@ -143,16 +144,13 @@ describe('BudgetGuardrailControl', () => {
 
   it('useBudgetGuardrailContext returns the provided binding', () => {
     const value = makeContext();
-    let seen: BudgetGuardrailContextValue | null = null;
-    function ContextProbe() {
-      seen = useBudgetGuardrailContext();
-      return null;
-    }
-    render(
-      <BudgetGuardrailProvider value={value}>
-        <ContextProbe />
-      </BudgetGuardrailProvider>
-    );
-    expect(seen).toBe(value);
+    // Capture via renderHook instead of reassigning an outer variable from a
+    // probe component's render (react-doctor react-hooks-js/globals).
+    const { result } = renderHook(() => useBudgetGuardrailContext(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <BudgetGuardrailProvider value={value}>{children}</BudgetGuardrailProvider>
+      ),
+    });
+    expect(result.current).toBe(value);
   });
 });
