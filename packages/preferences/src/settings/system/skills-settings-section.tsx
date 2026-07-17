@@ -140,13 +140,16 @@ export function SkillsSettingsSection(): React.JSX.Element {
   );
   const [scanGeneration, setScanGeneration] = useState(0);
 
+  // The effect only performs the async fetch (state updates happen in the
+  // promise callbacks); the initial 'loading' comes from the useState
+  // initializer and retry() sets it from the event handler — no synchronous
+  // setState inside the effect body (React Compiler / react-doctor rule).
   useEffect(() => {
     const bridge = getSkillsBridge();
     if (!bridge) {
       return;
     }
     let cancelled = false;
-    setScanState({ kind: 'loading' });
     bridge
       .scan()
       .then((result) => {
@@ -169,7 +172,10 @@ export function SkillsSettingsSection(): React.JSX.Element {
     };
   }, [scanGeneration]);
 
-  const retry = useCallback(() => setScanGeneration((generation) => generation + 1), []);
+  const retry = useCallback(() => {
+    setScanState({ kind: 'loading' });
+    setScanGeneration((generation) => generation + 1);
+  }, []);
 
   const groups = useMemo(() => {
     if (scanState.kind !== 'ready') {

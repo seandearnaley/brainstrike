@@ -125,13 +125,23 @@ export const skillsPreferencesSelectors = {
   masterEnabled: (store: SkillsPreferencesStore): boolean => store.masterEnabled,
 };
 
-/** Derive the serializable request snapshot (`runtimeData.skillsPreference`). */
+/**
+ * Derive the serializable request snapshot (`runtimeData.skillsPreference`).
+ * Defensive against corrupted persisted state (zustand's `migrate` runs only
+ * on VERSION mismatches, so a hand-mangled same-version slice can rehydrate
+ * malformed): a non-object disable map derives as empty rather than throwing
+ * in a render path. The server-side strict parse remains the honest gate.
+ */
 export function buildSkillsContextRequest(
   state: Pick<SkillsPreferencesStore, 'disabledSkillKeys' | 'masterEnabled'>
 ): SkillsContextRequest {
+  const disabled = state.disabledSkillKeys;
   return {
-    disabledSkillKeys: Object.keys(state.disabledSkillKeys),
-    masterEnabled: state.masterEnabled,
+    disabledSkillKeys:
+      disabled && typeof disabled === 'object' && !Array.isArray(disabled)
+        ? Object.keys(disabled)
+        : [],
+    masterEnabled: state.masterEnabled === true,
   };
 }
 

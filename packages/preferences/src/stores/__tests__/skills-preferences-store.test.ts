@@ -53,6 +53,17 @@ describe('skills preferences store', () => {
     });
   });
 
+  it('derives defensively from corrupted persisted state (never throws in a render path)', () => {
+    // zustand's migrate only runs on VERSION mismatches, so a hand-mangled
+    // same-version localStorage slice can rehydrate malformed shapes.
+    expect(
+      buildSkillsContextRequest({
+        disabledSkillKeys: null as unknown as Record<string, boolean>,
+        masterEnabled: 'yes' as unknown as boolean,
+      })
+    ).toEqual({ disabledSkillKeys: [], masterEnabled: false });
+  });
+
   it('factory reset restores defaults', () => {
     const { setMasterEnabled, setSkillDisabled } = useSkillsPreferencesStore.getState();
     setSkillDisabled('global:x', true);

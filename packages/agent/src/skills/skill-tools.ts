@@ -29,6 +29,32 @@ const APPROX_CHARS_PER_TOKEN = 4;
 
 type AnyToolExecute = (input: unknown, context: unknown) => Promise<unknown>;
 
+/**
+ * The transport guard measures JSON-SERIALIZED length (quotes + escaped
+ * newlines/quotes inflate a raw string), so self-bounding must fit the
+ * SERIALIZED form under the budget or a "truncated" result would still trip
+ * the backstop. Binary-search the largest content prefix whose serialized
+ * `content + note` fits.
+ */
+function fitToSerializedBudget(content: string, note: string, maxSerializedChars: number): string {
+  const fits = (candidate: string): boolean =>
+    JSON.stringify(candidate + note).length <= maxSerializedChars;
+  let low = 0;
+  let high = content.length;
+  let best = '';
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = sliceCodePoints(content, mid);
+    if (fits(candidate)) {
+      best = candidate;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best + note;
+}
+
 function withBoundedStringOutput<TTool extends object>(
   tool: TTool,
   maxTokens: number,
@@ -38,14 +64,13 @@ function withBoundedStringOutput<TTool extends object>(
   if (!originalExecute) {
     return tool;
   }
-  const maxChars = maxTokens * APPROX_CHARS_PER_TOKEN;
+  const maxSerializedChars = maxTokens * APPROX_CHARS_PER_TOKEN;
   const boundedExecute: AnyToolExecute = async (input, context) => {
     const output = await originalExecute(input, context);
-    if (typeof output !== 'string' || output.length <= maxChars) {
+    if (typeof output !== 'string' || JSON.stringify(output).length <= maxSerializedChars) {
       return output;
     }
-    const note = buildNote(output.length);
-    return sliceCodePoints(output, Math.max(0, maxChars - note.length)) + note;
+    return fitToSerializedBudget(output, buildNote(output.length), maxSerializedChars);
   };
   return { ...tool, execute: boundedExecute } as TTool;
 }

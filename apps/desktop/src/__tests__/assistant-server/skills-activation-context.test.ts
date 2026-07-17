@@ -23,6 +23,7 @@ import { describe, expect, it } from 'vitest';
 import {
   injectActivatedSkillsContext,
   MAX_SKILL_ACTIVATION_CHARS_PER_SKILL,
+  MAX_SKILL_ACTIVATION_TOTAL_CHARS,
 } from '../../assistant-server/skills-activation-context';
 
 interface MemoryFs {
@@ -165,6 +166,21 @@ describe('injectActivatedSkillsContext', () => {
     const text = systemTextOf(result);
     expect(text.length).toBeLessThanOrEqual(MAX_SKILL_ACTIVATION_CHARS_PER_SKILL + 2000);
     expect(text).toMatch(/truncated/i);
+  });
+
+  it('enforces the aggregate budget as a HARD ceiling with an honest omission note', async () => {
+    // Three ~20K-char skills: two fit under the 48K aggregate, the third must
+    // be OMITTED (named in the note) — never crammed past the ceiling.
+    const big = 'word '.repeat(4000);
+    const engine = makeEngine(
+      mergeFs(skillFixture('big-a', big), skillFixture('big-b', big), skillFixture('big-c', big))
+    );
+    const messages = [userMessage(':skill[big-a] :skill[big-b] :skill[big-c]')];
+    const result = await injectActivatedSkillsContext(messages, engine);
+    const text = systemTextOf(result);
+    expect(text.length).toBeLessThanOrEqual(MAX_SKILL_ACTIVATION_TOTAL_CHARS + 2000);
+    expect(text).toMatch(/omitted/i);
+    expect(text).toContain('big-c');
   });
 
   it('caps the number of activations per message with an honest omission note', async () => {

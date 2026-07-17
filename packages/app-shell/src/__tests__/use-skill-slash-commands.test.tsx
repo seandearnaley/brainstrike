@@ -139,6 +139,39 @@ describe('useSkillSlashCommands', () => {
     expect(queued?.text).not.toContain('/skill:pdf-processing');
   });
 
+  it('replaces a mid-draft trigger IN PLACE, preserving trailing text', async () => {
+    setBridge({ entries: [okEntry('pdf-processing')] });
+    useAssistantComposerCommandStore
+      .getState()
+      .recordDraft(THREAD, 'review /skill:pdf-processing then summarize the findings');
+
+    const { result } = renderHook(() => useSkillSlashCommands(THREAD));
+    await waitFor(() => expect(result.current).toHaveLength(1));
+
+    act(() => {
+      result.current[0]?.execute();
+    });
+
+    const queued = useAssistantComposerCommandStore.getState().commandsByThreadId[THREAD]?.[0];
+    expect(queued?.text).toBe('review :skill[pdf-processing] then summarize the findings');
+  });
+
+  it('replaces a PARTIAL typed trigger (popover fuzzy match before the id is complete)', async () => {
+    setBridge({ entries: [okEntry('pdf-processing')] });
+    useAssistantComposerCommandStore.getState().recordDraft(THREAD, 'please /skill:pd');
+
+    const { result } = renderHook(() => useSkillSlashCommands(THREAD));
+    await waitFor(() => expect(result.current).toHaveLength(1));
+
+    act(() => {
+      result.current[0]?.execute();
+    });
+
+    const queued = useAssistantComposerCommandStore.getState().commandsByThreadId[THREAD]?.[0];
+    expect(queued?.text).toContain(':skill[pdf-processing]');
+    expect(queued?.text).not.toContain('/skill:pd');
+  });
+
   it('surfaces a visible toast when there is no active thread', async () => {
     setBridge({ entries: [okEntry('pdf-processing')] });
     const { result } = renderHook(() => useSkillSlashCommands(undefined));

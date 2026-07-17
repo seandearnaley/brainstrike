@@ -56,7 +56,13 @@ export interface SkillContentDeps {
   ) =>
     | { readonly content: Uint8Array; readonly ok: true }
     | { readonly ok: false; readonly reason: 'oversized' | 'unreadable' };
-  readonly readFileText: (absFile: string) => SkillReadResult;
+  /**
+   * Bounded text read. `maxBytes` is the caller's PRE-READ ceiling (the
+   * desktop adapter enforces it before pulling bytes into main-process
+   * memory); a file above it reports `oversized`. Callers still apply their
+   * own authoritative character caps on the returned content.
+   */
+  readonly readFileText: (absFile: string, maxBytes?: number) => SkillReadResult;
 }
 
 export interface ScannedWorkspaceSkillsConfig {
@@ -246,9 +252,12 @@ export function createScannedWorkspaceSkills(
     };
   }
 
+  // Content paths are SKILL-ROOT-relative (e.g. "references/forms.md",
+  // "scripts/run.sh") — the convention Mastra's own WorkspaceSkillsImpl uses
+  // and its skill_read tool passes (it joins the tool-supplied path directly
+  // onto skill.path). Containment-checked; never escapes the skill dir.
   function resolveContentPath(
     skillIdentifier: string,
-    subdir: SkillSubdir,
     relPath: string
   ): { absFile: string; skill: ScannedSkill } | null {
     const skill = resolveSkill(skillIdentifier);
@@ -260,23 +269,18 @@ export function createScannedWorkspaceSkills(
       logger.warn('Refused skill content path (containment)', {
         path: relPath,
         skill: skill.name,
-        subdir,
       });
       return null;
     }
-    return { absFile: joinPath(skill.dirAbsPath, [subdir, ...segments]), skill };
+    return { absFile: joinPath(skill.dirAbsPath, [...segments]), skill };
   }
 
-  function readTextContent(
-    skillIdentifier: string,
-    subdir: SkillSubdir,
-    relPath: string
-  ): string | null {
-    const resolved = resolveContentPath(skillIdentifier, subdir, relPath);
+  function readTextContent(skillIdentifier: string, relPath: string): string | null {
+    const resolved = resolveContentPath(skillIdentifier, relPath);
     if (!resolved) {
       return null;
     }
-    const read = deps.readFileText(resolved.absFile);
+    const read = deps.readFileText(resolved.absFile, MAX_SKILL_CONTENT_FILE_CHARS * 4);
     if (!read.ok) {
       if (read.reason === 'oversized') {
         logger.warn('Skill content file exceeds the read cap; not served', {
@@ -307,7 +311,7 @@ export function createScannedWorkspaceSkills(
       return;
     }
     for (const reference of listings(skill).references) {
-      const content = readTextContent(skill.name, 'references', reference);
+      const content = readTextContent(skill.name, `references/${reference}`);
       if (content !== null) {
         appendLineMatches({
           results,
@@ -333,7 +337,10 @@ export function createScannedWorkspaceSkills(
     }
     const includeReferences = options?.includeReferences !== false;
     const nameFilter = options?.skillNames ? new Set(options.skillNames) : null;
-    const topK = Math.min(options?.topK ?? DEFAULT_SEARCH_TOP_K, MAX_SEARCH_TOP_K);
+    const topK = Math.min(
+      Math.max(Math.floor(options?.topK ?? DEFAULT_SEARCH_TOP_K), 1),
+      MAX_SEARCH_TOP_K
+    );
     const results: SkillSearchResult[] = [];
 
     for (const skill of enabledSkills()) {
@@ -358,7 +365,7 @@ export function createScannedWorkspaceSkills(
       return skill ? toSkill(skill) : null;
     },
     async getAsset(skillName: string, assetPath: string): Promise<Buffer | null> {
-      const resolved = resolveContentPath(skillName, 'assets', assetPath);
+      const resolved = resolveContentPath(skillName, assetPath);
       if (!resolved) {
         return null;
       }
@@ -382,10 +389,10 @@ export function createScannedWorkspaceSkills(
       return Buffer.from(read.content);
     },
     async getReference(skillName: string, referencePath: string): Promise<string | null> {
-      return readTextContent(skillName, 'references', referencePath);
+      return readTextContent(skillName, referencePath);
     },
     async getScript(skillName: string, scriptPath: string): Promise<string | null> {
-      return readTextContent(skillName, 'scripts', scriptPath);
+      return readTextContent(skillName, scriptPath);
     },
     async has(name: string): Promise<boolean> {
       return resolveSkill(name) !== null;

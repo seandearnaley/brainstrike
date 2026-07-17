@@ -10,6 +10,7 @@
  * re-scans while `maybeRefresh()` only triggers the initial lazy scan.
  */
 
+import { createSkillTools } from '@mastra/core/workspace';
 import { describe, expect, it } from 'vitest';
 import {
   createScannedWorkspaceSkills,
@@ -167,18 +168,23 @@ describe('ScannedWorkspaceSkills preference filtering', () => {
 });
 
 describe('ScannedWorkspaceSkills reference/script/asset access', () => {
-  it('reads a reference file (by skill name and by skill path)', async () => {
+  // Content paths are SKILL-ROOT-relative ("references/forms.md") — the exact
+  // convention Mastra's skill_read tool passes (it joins the tool path onto
+  // skill.path); see the tool-convention regression in skill-tools.spec.
+  it('reads a reference file by its skill-root-relative path (by name and by skill path)', async () => {
     const { engine } = makeEngine(fixtureFs());
-    expect(await engine.getReference('pdf-processing', 'forms.md')).toContain('AcroForm');
-    expect(await engine.getReference(`${SKILLS_DIR}/pdf-processing`, 'guides/deep.md')).toContain(
-      'Nested guide'
+    expect(await engine.getReference('pdf-processing', 'references/forms.md')).toContain(
+      'AcroForm'
     );
+    expect(
+      await engine.getReference(`${SKILLS_DIR}/pdf-processing`, 'references/guides/deep.md')
+    ).toContain('Nested guide');
   });
 
   it('reads scripts as text and assets as bytes', async () => {
     const { engine } = makeEngine(fixtureFs());
-    expect(await engine.getScript('pdf-processing', 'fill.py')).toBe('print("fill")');
-    expect(await engine.getAsset('pdf-processing', 'missing.png')).toBeNull();
+    expect(await engine.getScript('pdf-processing', 'scripts/fill.py')).toBe('print("fill")');
+    expect(await engine.getAsset('pdf-processing', 'assets/missing.png')).toBeNull();
   });
 
   it('refuses path traversal and absolute paths (containment, never escapes the skill dir)', async () => {
@@ -226,10 +232,48 @@ describe('ScannedWorkspaceSkills search', () => {
     expect(noRefs).toEqual([]);
   });
 
-  it('honors topK', async () => {
+  it('honors topK and clamps hostile values (negative/zero/fractional)', async () => {
     const { engine } = makeEngine(fixtureFs());
     const results = await engine.search('the', { topK: 1 });
     expect(results.length).toBeLessThanOrEqual(1);
+    // Negative/zero topK must clamp to 1, never slice(0, -1) the full corpus.
+    const negative = await engine.search('text', { topK: -1 });
+    expect(negative.length).toBeLessThanOrEqual(1);
+    const zero = await engine.search('text', { topK: 0 });
+    expect(zero.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('ScannedWorkspaceSkills serves Mastra skill tools (convention regression)', () => {
+  async function executeTool(tool: unknown, input: unknown): Promise<unknown> {
+    return await (
+      tool as { execute: (input: unknown, context: unknown) => Promise<unknown> }
+    ).execute(input, {});
+  }
+
+  it("resolves skill_read's skill-root-relative paths (references, scripts) over the scanned engine", async () => {
+    const { engine } = makeEngine(fixtureFs());
+    const tools = createSkillTools(engine);
+    const reference = String(
+      await executeTool(tools.skill_read, {
+        path: 'references/forms.md',
+        skillName: 'pdf-processing',
+      })
+    );
+    expect(reference).toContain('AcroForm');
+    const script = String(
+      await executeTool(tools.skill_read, { path: 'scripts/fill.py', skillName: 'pdf-processing' })
+    );
+    expect(script).toContain('print("fill")');
+  });
+
+  it('activates a scanned skill through the real skill tool with its file listings', async () => {
+    const { engine } = makeEngine(fixtureFs());
+    const tools = createSkillTools(engine);
+    const output = String(await executeTool(tools.skill, { name: 'pdf-processing' }));
+    expect(output).toContain('Use pdfplumber');
+    expect(output).toContain('references/forms.md');
+    expect(output).toContain('scripts/fill.py');
   });
 });
 

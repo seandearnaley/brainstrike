@@ -99,13 +99,13 @@ export function createSecureSkillsFs(candidateRoots: readonly string[]): SkillCo
       }
       return { content: new Uint8Array(read.content), ok: true };
     },
-    readFileText: (absFile) => {
+    readFileText: (absFile, maxBytes = MAX_SKILL_TEXT_READ_BYTES) => {
       const resolved = resolveContainment(path.normalize(absFile));
       if (!resolved) {
         return { ok: false, reason: 'unreadable' };
       }
       const read = withSecureRoot(resolved.root, (root) =>
-        root.readFile(resolved.relative, MAX_SKILL_TEXT_READ_BYTES)
+        root.readFile(resolved.relative, Math.min(maxBytes, MAX_SKILL_TEXT_READ_BYTES))
       );
       if (!read) {
         return { ok: false, reason: 'unreadable' };

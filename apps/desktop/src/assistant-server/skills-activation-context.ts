@@ -90,10 +90,6 @@ export async function injectActivatedSkillsContext(
   let injectedChars = 0;
 
   for (const name of withinCap) {
-    if (injectedChars >= MAX_SKILL_ACTIVATION_TOTAL_CHARS) {
-      omitted.push(name);
-      continue;
-    }
     const skill = await workspaceSkills.get(name);
     if (!skill) {
       logger.warn('Activated skill is not available', { name });
@@ -108,8 +104,16 @@ export async function injectActivatedSkillsContext(
       activation = sliceCodePoints(activation, MAX_SKILL_ACTIVATION_CHARS_PER_SKILL);
       suffix = `\n[Truncated to the first ${MAX_SKILL_ACTIVATION_CHARS_PER_SKILL.toLocaleString()} characters — the full skill exceeds the activation budget.]`;
     }
-    injectedChars += activation.length;
-    sections.push(`### Skill: ${skill.name}\n${activation}${suffix}`);
+    const section = `### Skill: ${skill.name}\n${activation}${suffix}`;
+    // HARD aggregate ceiling: an activation that would overshoot is OMITTED
+    // (named in the note below), never partially crammed in — the total
+    // injected content can never exceed the budget.
+    if (injectedChars + section.length > MAX_SKILL_ACTIVATION_TOTAL_CHARS) {
+      omitted.push(name);
+      continue;
+    }
+    injectedChars += section.length;
+    sections.push(section);
   }
 
   if (omitted.length > 0) {

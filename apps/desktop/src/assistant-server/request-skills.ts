@@ -22,7 +22,7 @@ import type {
   SkillScanRoot,
   WorkspaceSkills,
 } from '@brainstrike/agent';
-import { createScannedWorkspaceSkills, scanSkills } from '@brainstrike/agent';
+import { createScannedWorkspaceSkills, MAX_SKILL_FILE_BYTES, scanSkills } from '@brainstrike/agent';
 import type { SkillsContextRequest } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 
@@ -88,7 +88,13 @@ export function prepareRequestSkills(params: PrepareRequestSkillsParams): Prepar
     .filter((root) => Boolean(root.path))
     .map((root) => ({ absPath: root.path, displayName: root.displayName, id: root.rootId }));
   const homeDir = homedir();
-  const scanDeps: SkillScanDeps = { listDir: fs.listDir, readFile: fs.readFileText };
+  // SKILL.md scan reads pre-bound at the tight scan ceiling (4x the 64K char
+  // cap) so an oversized file is rejected BEFORE its bytes enter main-process
+  // memory; reference/asset reads keep the larger content ceilings.
+  const scanDeps: SkillScanDeps = {
+    listDir: fs.listDir,
+    readFile: (absFile) => fs.readFileText(absFile, MAX_SKILL_FILE_BYTES),
+  };
   const workspaceSkills = createScannedWorkspaceSkills({
     deps: fs,
     isEnabled: (skill) => !disabledKeys.has(skill.preferenceKey),

@@ -15,7 +15,7 @@
 
 import { homedir } from 'node:os';
 import type { SkillContentDeps, SkillScanEntry } from '@brainstrike/agent';
-import { scanSkills } from '@brainstrike/agent';
+import { MAX_SKILL_FILE_BYTES, scanSkills } from '@brainstrike/agent';
 import type {
   SkillScanEntrySummary,
   SkillsScanResultSummary,
@@ -71,7 +71,10 @@ export async function scanSkillsForRenderer(
   const roots = await resolveScanRoots(deps.getDatabase);
   const result = scanSkills(
     { homeDir: deps.homedir(), roots },
-    { listDir: deps.fs.listDir, readFile: deps.fs.readFileText }
+    {
+      listDir: deps.fs.listDir,
+      readFile: (absFile) => deps.fs.readFileText(absFile, MAX_SKILL_FILE_BYTES),
+    }
   );
   return { entries: result.entries.map(toSummary) };
 }
@@ -91,7 +94,10 @@ export function createSkillsScanHandler(): () => Promise<SkillsScanResultSummary
     const filesystem = createSecureSkillsFs([...roots.map((root) => root.absPath), homedir()]);
     const result = scanSkills(
       { homeDir: homedir(), roots },
-      { listDir: filesystem.listDir, readFile: filesystem.readFileText }
+      {
+        listDir: filesystem.listDir,
+        readFile: (absFile) => filesystem.readFileText(absFile, MAX_SKILL_FILE_BYTES),
+      }
     );
     return { entries: result.entries.map(toSummary) };
   };

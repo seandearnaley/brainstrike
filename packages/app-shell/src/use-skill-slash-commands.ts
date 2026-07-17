@@ -54,15 +54,40 @@ function resolveSkillsBridge(): SkillsBridge | null {
   return bridge.scan;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Replace the typed trigger with the directive IN PLACE, preserving all
+ * surrounding draft text (the popover can be invoked mid-draft, so consuming
+ * to end-of-string would silently delete trailing words). The trigger may be
+ * the full `/skill:<name>` token or the partial prefix the user had typed
+ * when the popover matched; with no trigger found, the directive appends.
+ */
+function replaceTriggerWithDirective(
+  draftText: string,
+  commandId: string,
+  directive: string
+): string {
+  const fullTrigger = `/${commandId}`;
+  const fullIndex = draftText.lastIndexOf(fullTrigger);
+  if (fullIndex >= 0) {
+    const after = draftText.slice(fullIndex + fullTrigger.length);
+    return `${draftText.slice(0, fullIndex)}${directive}${after.length > 0 ? after : ' '}`;
+  }
+  // Partial trigger (`/skill:pd`): the popover matched by fuzzy search before
+  // the id was fully typed. Replace the LAST `/skill:<partial>` token.
+  const partialMatch = /\/skill:\S*(?!.*\/skill:)/.exec(draftText);
+  if (partialMatch) {
+    const after = draftText.slice(partialMatch.index + partialMatch[0].length);
+    return `${draftText.slice(0, partialMatch.index)}${directive}${after.length > 0 ? after : ' '}`;
+  }
+  const base = draftText.trimEnd();
+  return base.length > 0 ? `${base} ${directive} ` : `${directive} `;
 }
 
 /**
- * Stage the activation directive: strip the typed `/skill:<name>` trigger from
- * the LIVE draft (the app-shell mirror of assistant-ui's composer state),
- * append the `:skill[name]` directive, and write the result back — never
- * auto-send (the user edits/removes it before sending).
+ * Stage the activation directive: swap the typed `/skill:<name>` trigger in
+ * the LIVE draft (the app-shell mirror of assistant-ui's composer state) for
+ * the `:skill[name]` directive and write the result back — never auto-send
+ * (the user edits/removes it before sending).
  */
 function applySkillCommand(
   entry: SkillScanEntrySummary,
@@ -85,11 +110,7 @@ function applySkillCommand(
   }
   const store = useAssistantComposerCommandStore.getState();
   const draftText = store.draftTextByThreadId[threadId] ?? '';
-  const withoutTrigger = draftText
-    .replace(new RegExp(`/${escapeRegExp(commandId)}(?:\\s+[\\s\\S]*)?$`), '')
-    .trimEnd();
-  const directive = serializeSkillDirective(name);
-  const text = withoutTrigger.length > 0 ? `${withoutTrigger} ${directive} ` : `${directive} `;
+  const text = replaceTriggerWithDirective(draftText, commandId, serializeSkillDirective(name));
   store.enqueue({ mode: 'replace', text, threadId });
 }
 

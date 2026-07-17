@@ -53,11 +53,18 @@ describe('createAssistantSkillTools', () => {
   });
 
   it('self-bounds an oversized activation with an honest truncation note (never an error)', async () => {
-    const hugeInstructions = 'word '.repeat(40_000);
+    // Markdown with newlines: JSON serialization escapes them, so the bound
+    // must hold on the SERIALIZED form the transport guard measures — a
+    // raw-length bound would still trip tool_result_too_large downstream.
+    const hugeInstructions = 'word line\n'.repeat(20_000);
     const tools = createAssistantSkillTools(inlineEngine(hugeInstructions));
     const output = String(await executeTool(tools.skill, { name: 'test-skill' }));
-    expect(output.length).toBeLessThanOrEqual(SKILL_ACTIVATION_RESULT_TOKEN_BUDGET * 4);
+    expect(JSON.stringify(output).length).toBeLessThanOrEqual(
+      SKILL_ACTIVATION_RESULT_TOKEN_BUDGET * 4
+    );
     expect(output).toMatch(/truncated/i);
+    // The backstop must accept the self-bounded result verbatim.
+    expect(boundToolOutputForModel('skill', output).errorText).toBeUndefined();
   });
 
   it('reports an unknown skill with the available list (Mastra message, passed through)', async () => {
