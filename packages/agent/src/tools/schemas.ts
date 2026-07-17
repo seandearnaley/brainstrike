@@ -22,9 +22,11 @@ export const HybridSearchInputSchema = z
       .describe('Embedding set ID for vector search; omit to use the Workspace Index'),
     filePaths: z
       .array(z.string().min(1))
-      .max(1000)
+      // Matches the repositories' MAX_INLINE_FILE_PATHS: both search arms throw
+      // above 500 inline paths, so the schema refuses them up front.
+      .max(500)
       .optional()
-      .describe('Filter to specific file paths'),
+      .describe('Filter to specific file paths (max 500)'),
     ftsWeight: z
       .number()
       .min(0)

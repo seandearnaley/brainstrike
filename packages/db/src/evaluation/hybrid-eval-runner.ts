@@ -76,20 +76,14 @@ const DEFAULT_THRESHOLDS: HybridEvaluationThresholds = {
   minMeanReciprocalRank: 1,
 };
 
-async function seedHybridDataset(
-  db: PGlite,
-  dataset: HybridGoldenDataset
-): Promise<{ chunkRepo: FileChunkRepository; embeddingSetId: string }> {
-  await migrate(db);
-  const chunkRepo = new FileChunkRepository(db);
-  const fileRepo = new FileRecordRepository(db);
-  const setRepo = new EmbeddingSetsRepository(db);
-
-  const { modelKey, modelId, dimensions, distance } = dataset.embeddingSet;
-  const embeddingSet = await setRepo.getOrCreateSet(modelKey, modelId, dimensions, distance);
-
+async function seedGoldenFiles(
+  chunkRepo: FileChunkRepository,
+  fileRepo: FileRecordRepository,
+  files: readonly HybridGoldenDataset['files'][number][],
+  embeddingSetId: string
+): Promise<void> {
   const chunkInserts: FileChunkInsert[] = [];
-  for (const goldenFile of dataset.files) {
+  for (const goldenFile of files) {
     await fileRepo.create({
       createdAt: NOW,
       id: goldenFile.id,
@@ -108,7 +102,7 @@ async function seedHybridDataset(
         createdAt: NOW,
         embedding: chunk.embedding,
         embeddingHash: `embed-${chunk.id}`,
-        embeddingSetId: embeddingSet.id,
+        embeddingSetId,
         embeddingUpdatedAt: NOW,
         fileRecordId: goldenFile.id,
         id: chunk.id,
@@ -117,9 +111,36 @@ async function seedHybridDataset(
       });
     });
   }
-
   await chunkRepo.insertMany(chunkInserts);
-  return { chunkRepo, embeddingSetId: embeddingSet.id };
+}
+
+async function seedHybridDataset(
+  db: PGlite,
+  dataset: HybridGoldenDataset
+): Promise<{ chunkRepo: FileChunkRepository; embeddingSetId: string; foreignChunkIds: string[] }> {
+  await migrate(db);
+  const chunkRepo = new FileChunkRepository(db);
+  const fileRepo = new FileRecordRepository(db);
+  const setRepo = new EmbeddingSetsRepository(db);
+
+  const { modelKey, modelId, dimensions, distance } = dataset.embeddingSet;
+  const embeddingSet = await setRepo.getOrCreateSet(modelKey, modelId, dimensions, distance);
+  await seedGoldenFiles(chunkRepo, fileRepo, dataset.files, embeddingSet.id);
+
+  // Seed the foreign-set decoys under a SEPARATE embedding set: an unscoped
+  // keyword arm would fuse them in (they top BM25 for every query).
+  const foreignSet = await setRepo.getOrCreateSet(
+    `${modelKey}-foreign`,
+    `${modelId}-foreign`,
+    dimensions,
+    distance
+  );
+  await seedGoldenFiles(chunkRepo, fileRepo, dataset.foreignSetFiles, foreignSet.id);
+  const foreignChunkIds = dataset.foreignSetFiles.flatMap((goldenFile) =>
+    goldenFile.chunks.map((chunk) => chunk.id)
+  );
+
+  return { chunkRepo, embeddingSetId: embeddingSet.id, foreignChunkIds };
 }
 
 function scoreRank(
@@ -160,9 +181,22 @@ function meanArmScore(
 function buildFailures(
   queryResults: HybridEvaluationQueryResult[],
   arms: HybridEvaluationReport['arms'],
-  thresholds: HybridEvaluationThresholds
+  thresholds: HybridEvaluationThresholds,
+  foreignChunkIds: readonly string[]
 ): string[] {
   const failures: string[] = [];
+  // Embedding-set scoping guard: the foreign-set decoys top BM25 for every
+  // query, so any appearance in a fused list means the keyword arm ran
+  // unscoped — fail loudly.
+  const foreignSet = new Set(foreignChunkIds);
+  for (const result of queryResults) {
+    const leaked = result.hybridTopChunkIds.filter((id) => foreignSet.has(id));
+    if (leaked.length > 0) {
+      failures.push(
+        `${result.id} fused chunk(s) from another embedding set: [${leaked.join(', ')}]`
+      );
+    }
+  }
   for (const result of queryResults) {
     if (!result.passed) {
       failures.push(
@@ -204,7 +238,7 @@ export async function runHybridEvaluation(
   const db = await wasmLoader.createPGlite(`memory://hybrid-eval-${crypto.randomUUID()}`);
 
   try {
-    const { chunkRepo, embeddingSetId } = await seedHybridDataset(db, dataset);
+    const { chunkRepo, embeddingSetId, foreignChunkIds } = await seedHybridDataset(db, dataset);
     const hybridService = new HybridSearchService(chunkRepo);
     const queryResults: HybridEvaluationQueryResult[] = [];
 
@@ -221,7 +255,10 @@ export async function runHybridEvaluation(
           limit: DEFAULT_LIMIT,
           threshold: VECTOR_THRESHOLD,
         }),
+        // Scoped like the hybrid's keyword arm so the baseline comparison is
+        // apples-to-apples within the same embedding set.
         chunkRepo.fullTextSearch(query.text, {
+          embeddingSetId,
           includeHeadline: false,
           limit: DEFAULT_LIMIT,
         }),
@@ -247,7 +284,7 @@ export async function runHybridEvaluation(
       lexicalOnly: meanArmScore(queryResults, (result) => result.lexicalOnlyTopChunkIds),
       vectorOnly: meanArmScore(queryResults, (result) => result.vectorOnlyTopChunkIds),
     };
-    const failures = buildFailures(queryResults, arms, thresholds);
+    const failures = buildFailures(queryResults, arms, thresholds, foreignChunkIds);
     const passedQueryCount = queryResults.filter((result) => result.passed).length;
 
     return {

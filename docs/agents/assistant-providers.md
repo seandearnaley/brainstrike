@@ -157,8 +157,15 @@ The assistant's search verbs, in the order the default instructions present them
    SAME `HybridSearchService` as the UI (desktop wiring in
    apps/desktop/src/assistant-server/hybrid-search-tool.ts, which reuses the retrieval
    tool's exported embedding-set/embedding helpers so scoping — explicit
-   `embeddingSetId` or Workspace Index, optional `root` → `rootIds`, `filePaths` —
-   matches `queryEmbeddingSpace` exactly). Best default when a query mixes conceptual
+   `embeddingSetId` or Workspace Index, optional `root` → `rootIds`, explicit input
+   `filePaths` (max 500, matching the repos' inline cap) — matches
+   `queryEmbeddingSpace`'s explicit-input semantics: like that tool, it does NOT
+   inherit the implicit UI selection (`omitImplicitContextRuntimeData` parity), and
+   it takes no selectionSnapshotId input. The keyword arm is embedding-set-scoped in
+   the repos (coverage-identity predicate: chunk set, or NULL chunk set + file-record
+   set), so fusion can never surface BM25-only chunks from another embedding space;
+   both source pools grow with the requested limit (min 50), mirroring the UI
+   executor). Best default when a query mixes conceptual
    intent with distinctive exact terms. NO SILENT FALLBACK: a failing keyword arm
    (e.g. missing BM25 index) fails the call visibly, never degrades to vector-only.
    Gated by the hybrid RRF eval (packages/db/src/evaluation/hybrid-eval-runner.ts +

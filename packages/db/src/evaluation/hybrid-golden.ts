@@ -49,6 +49,13 @@ export interface HybridGoldenDataset {
     modelKey: string;
   };
   files: HybridGoldenFile[];
+  /**
+   * Files seeded into a DIFFERENT embedding set. They are term-stuffed to top
+   * BM25 for every query, so an UNSCOPED keyword arm would fuse them in; the
+   * runner fails if any of their chunks ever appears in a fused result list
+   * (embedding-set scoping regression guard).
+   */
+  foreignSetFiles: HybridGoldenFile[];
   name: string;
   queries: HybridGoldenQuery[];
   version: string;
@@ -136,6 +143,16 @@ const QUERIES: HybridGoldenQuery[] = [
   },
 ];
 
+const FOREIGN_SET_FILES: HybridGoldenFile[] = [
+  file('hyb-file-foreign', 'foreign-set-stuffed.md', {
+    content:
+      'tapestry annealing renderer lease fencing scheduler checkpoint journal revert ' +
+      'tapestry annealing renderer lease fencing scheduler checkpoint journal revert',
+    embedding: [0.6, 0.6, 0.6],
+    id: 'hyb-chunk-foreign',
+  }),
+];
+
 export const hybridGoldenDataset: HybridGoldenDataset = {
   embeddingSet: {
     dimensions: 3,
@@ -144,7 +161,8 @@ export const hybridGoldenDataset: HybridGoldenDataset = {
     modelKey: 'test::hybrid',
   },
   files: FILES,
+  foreignSetFiles: FOREIGN_SET_FILES,
   name: 'hybrid-golden',
   queries: QUERIES,
-  version: '1',
+  version: '2',
 };

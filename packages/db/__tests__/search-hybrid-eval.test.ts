@@ -43,4 +43,20 @@ describe('hybrid retrieval evaluation (RRF fusion)', () => {
     },
     EVAL_TIMEOUT_MS
   );
+
+  it(
+    'never fuses chunks from another embedding set (keyword arm is set-scoped)',
+    async () => {
+      const report = await runHybridEvaluation();
+
+      // The foreign-set decoy tops BM25 for every query; an unscoped keyword
+      // arm would fuse it in (and the runner itself would report a failure).
+      for (const query of report.queries) {
+        expect(query.hybridTopChunkIds).not.toContain('hyb-chunk-foreign');
+        expect(query.lexicalOnlyTopChunkIds).not.toContain('hyb-chunk-foreign');
+      }
+      expect(report.failures).toEqual([]);
+    },
+    EVAL_TIMEOUT_MS
+  );
 });

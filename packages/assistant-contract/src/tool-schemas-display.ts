@@ -386,7 +386,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
       {
         arrayItemType: 'string',
         description: 'Optional workspace-relative file paths to constrain the search',
-        max: 1000,
+        max: 500,
         name: 'filePaths',
         required: false,
         type: 'array',

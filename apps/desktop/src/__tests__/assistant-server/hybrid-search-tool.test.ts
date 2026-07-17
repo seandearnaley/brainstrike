@@ -182,7 +182,12 @@ describe('desktop hybrid search tool', () => {
     });
     expect(fullTextSearchMock).toHaveBeenCalledTimes(1);
     expect(fullTextSearchMock.mock.calls[0]?.[0]).toBe('lease fencing scheduler');
-    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ rootIds: ['root-1'] });
+    // The keyword arm is scoped to the SAME embedding set as the vector arm —
+    // hybrid must never fuse BM25-only chunks from another embedding space.
+    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({
+      embeddingSetId: 'ws-set',
+      rootIds: ['root-1'],
+    });
 
     // RRF fusion: the chunk found by BOTH arms outranks each single-arm leader.
     expect(result.embeddingSetId).toBe('ws-set');
@@ -209,6 +214,23 @@ describe('desktop hybrid search tool', () => {
 
     expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ filePaths: ['/repo/a.ts'] });
     expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ filePaths: ['/repo/a.ts'] });
+  });
+
+  it('grows BOTH source pools to a requested limit above the 50 default (mirrors the UI path)', async () => {
+    await runHybridSearch({ limit: 80, query: 'lease' }, workspaceIndexRuntime);
+
+    // Repo-level `limit` IS the per-arm source pool size (service maps
+    // vectorLimit/ftsLimit onto it). RRF reranks best from pools at least as
+    // large as the final cut.
+    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ limit: 80 });
+    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ limit: 80 });
+  });
+
+  it('never shrinks the source pools below the 50 default for small limits', async () => {
+    await runHybridSearch({ limit: 5, query: 'lease' }, workspaceIndexRuntime);
+
+    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ limit: 50 });
+    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ limit: 50 });
   });
 
   it('throws when no embedding set is resolvable (no silent fallback)', async () => {

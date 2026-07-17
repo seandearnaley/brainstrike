@@ -15,7 +15,12 @@
 
 import type { HybridSearchInput, RuntimeData } from '@brainstrike/agent';
 import { fitItemsToCharBudget, normalizeOptionalText } from '@brainstrike/agent';
-import { FileChunkRepository, FileRecordRepository, HybridSearchService } from '@brainstrike/db';
+import {
+  DEFAULT_HYBRID_SOURCE_LIMIT,
+  FileChunkRepository,
+  FileRecordRepository,
+  HybridSearchService,
+} from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getDatabase } from '../db-main';
 import {
@@ -160,12 +165,18 @@ export async function runHybridSearch(
     const ftsWeight = input.ftsWeight ?? DEFAULT_FTS_WEIGHT;
     const chunkRepository = new FileChunkRepository(db);
     const service = new HybridSearchService(chunkRepository);
+    // Grow BOTH source pools with the requested limit (never shrink below the
+    // 50 default) so RRF reranks from pools at least as large as the final
+    // cut — mirrors the UI search paths (workspace-search-executor).
+    const sourcePoolLimit = Math.max(DEFAULT_HYBRID_SOURCE_LIMIT, limit);
     const { results, metadata } = await service.search(query, embedding, {
       embeddingSetId,
+      ftsLimit: sourcePoolLimit,
       ftsWeight,
       // The model never renders the per-candidate headline pool; keep the cheap path.
       includeHeadline: false,
       limit,
+      vectorLimit: sourcePoolLimit,
       vectorThreshold: input.vectorThreshold ?? DEFAULT_VECTOR_THRESHOLD,
       vectorWeight,
       ...(input.chunkType === undefined ? {} : { chunkType: input.chunkType }),
