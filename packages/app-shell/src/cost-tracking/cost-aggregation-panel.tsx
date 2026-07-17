@@ -1,27 +1,10 @@
-import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { listProviderLlmModels } from '@brainstrike/assistant-contract/provider-registry';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import { formatTokenCount, formatUsdCost } from '@brainstrike/utils/token-counting-heuristics';
 import { Coins, Loader2 } from 'lucide-react';
 import { useMemo } from 'react';
-import {
-  type CrossRootCostRow,
-  type ModelPricingResolver,
-  resolveCrossRootCostRows,
-} from '../assistant-cross-root-cost';
+import { type CrossRootCostRow, resolveCrossRootCostRows } from '../assistant-cross-root-cost';
+import { resolveModelPricing } from './model-pricing';
 import { type CrossRootCostState, useCrossRootCost } from './use-cross-root-cost';
-
-/**
- * Resolve a model's list price from the static provider registry. Returns
- * undefined for unknown providers/models (keyless/local) — `computeCost` then
- * reports `unpriced_model` and the row renders "cost unavailable", never $0.
- */
-const resolveModelPricing: ModelPricingResolver = (provider, model) => {
-  if (!isSupportedProvider(provider)) {
-    return;
-  }
-  return listProviderLlmModels(provider).find((candidate) => candidate.id === model)?.pricing;
-};
 
 function costLabel(row: CrossRootCostRow): string {
   // No silent $0: an unavailable price is its own state, distinct from "free".

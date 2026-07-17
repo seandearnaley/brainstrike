@@ -1,12 +1,21 @@
 import { Coins, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { CostAggregationPanel } from './cost-aggregation-panel';
+import { TaskLedgerPanel } from './task-ledger-panel';
 
 export {
   CostAggregationPanel,
   CostAggregationPanelView,
 } from './cost-aggregation-panel';
+export {
+  type TaskLedgerAnalyticsViewState,
+  TaskLedgerPanel,
+  TaskLedgerPanelView,
+  type TaskLedgerRunsViewState,
+} from './task-ledger-panel';
 export { type CrossRootCostState, useCrossRootCost } from './use-cross-root-cost';
+export { type LedgerAnalyticsState, useLedgerAnalytics } from './use-ledger-analytics';
+export { type RunLedgerState, TASK_LEDGER_RUN_LIMIT, useRunLedger } from './use-run-ledger';
 
 /**
  * A settings category projection. Structurally compatible with the preferences
@@ -31,11 +40,28 @@ interface CostTrackingSettingsCategory {
  */
 export function createCostTrackingSettingsCategory(): CostTrackingSettingsCategory {
   return {
-    content: <CostAggregationPanel />,
-    description: 'Review durable token usage and estimated cost per workspace root.',
+    content: (
+      <div className="space-y-4">
+        <CostAggregationPanel />
+        <TaskLedgerPanel />
+      </div>
+    ),
+    description: 'Review durable token usage, per-run cost and outcomes, and model comparisons.',
     icon: Coins,
     id: 'cost-tracking',
-    keywords: ['cost', 'tracking', 'usage', 'tokens', 'spend', 'billing', 'price'],
+    keywords: [
+      'cost',
+      'tracking',
+      'usage',
+      'tokens',
+      'spend',
+      'billing',
+      'price',
+      'ledger',
+      'runs',
+      'outcomes',
+      'models',
+    ],
     title: 'Cost Tracking',
   };
 }
