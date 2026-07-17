@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { bootstrapFileExplorer } from './utils/file-explorer-setup';
 import { getFileTree } from './utils/file-tree-locators';
-import type { FileTree } from './utils/mock-fs';
+import { addMockRoot, type FileTree } from './utils/mock-fs';
 
 /**
  * Forest identity invariant (forest-workspace hardening spec, Phase 3a).
@@ -18,10 +18,10 @@ import type { FileTree } from './utils/mock-fs';
  * This @web-smoke guard runs on EVERY PR so that class of regression fails fast
  * here, not only in the (historically fragile) nightly full-regression lane.
  *
- * Coverage note: this asserts the single-root count (one root → one tree). The
- * two-granted-roots / same-named-roots restore scenario (also Phase 3a) needs a
- * multi-root e2e fixture harness that does not exist yet; it is tracked as a
- * follow-up so this guard can ship now rather than wait on that harness.
+ * Coverage note: the first test asserts the single-root count (one root → one
+ * tree). The second uses the multi-root fixture harness
+ * (__BRAINSTRIKE_ADD_FIXTURE_ROOT__ via addMockRoot) to pin the forest count:
+ * two roots → exactly two trees, never a duplicate per root.
  */
 const tree: FileTree = {
   'index.ts': null,
@@ -40,5 +40,20 @@ test.describe('Forest treegrid-count invariant', { tag: '@web-smoke' }, () => {
     await explorer.selectRoot();
 
     await expect(getFileTree(page)).toHaveCount(1);
+  });
+
+  test('renders exactly one file tree PER ROOT in forest mode (two roots → two trees)', async ({
+    page,
+  }) => {
+    const explorer = await bootstrapFileExplorer(page, { tree });
+    await explorer.selectRoot();
+    await expect(getFileTree(page)).toHaveCount(1);
+
+    await addMockRoot(page, 'second-root', {
+      'other.ts': null,
+    });
+
+    // Forest identity: each root renders its own section tree, exactly once.
+    await expect(getFileTree(page)).toHaveCount(2);
   });
 });

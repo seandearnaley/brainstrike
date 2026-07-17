@@ -557,6 +557,60 @@ describe('useFileSystem context hook', () => {
       expect(result.current.fs.rootDirectoryHandle).toBeNull();
     });
   });
+
+  it("appends an additional root from the inject event's 'add' mode (multi-root fixture harness)", async () => {
+    const primaryHandle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'fixture-root',
+      path: 'fixture-root',
+      platform: 'web',
+      rootId: 'fixture-root-id',
+    } as DirectoryHandle;
+    const secondHandle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'second-root',
+      path: 'second-root',
+      platform: 'web',
+      rootId: 'second-root-id',
+    } as DirectoryHandle;
+
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(INJECT_ROOT_HANDLE_EVENT, { detail: { handle: primaryHandle } })
+      );
+    });
+    await waitFor(() => {
+      expect(result.current.fs.rootDirectoryHandle).toMatchObject(primaryHandle);
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(INJECT_ROOT_HANDLE_EVENT, {
+          detail: { handle: secondHandle, mode: 'add' },
+        })
+      );
+    });
+
+    await waitFor(() => {
+      // BOTH roots are active (forest), the added one focused, and
+      // currentFolderId moved to its durable RootId.
+      expect(result.current.fs.rootDirectoryHandles).toHaveLength(2);
+      expect(result.current.fs.rootDirectoryHandle).toMatchObject(secondHandle);
+      expect(result.current.store.getState().currentFolderId).toBe('second-root-id');
+    });
+
+    // Reset like the sibling inject test: the store persists currentFolderId
+    // across tests in this file, and a leaked focus would bleed into the
+    // watcher-debounce suite's rootId resolution.
+    act(() => {
+      window.dispatchEvent(new CustomEvent(INJECT_ROOT_HANDLE_EVENT, { detail: { handle: null } }));
+    });
+    await waitFor(() => {
+      expect(result.current.fs.rootDirectoryHandle).toBeNull();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

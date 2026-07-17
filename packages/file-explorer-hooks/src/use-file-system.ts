@@ -530,6 +530,24 @@ export function useFileSystem({
   );
 
   /**
+   * Append (or focus) an externally-built handle as an ADDITIONAL workspace
+   * root without any picker or persistence — the multi-root fixture-harness
+   * path (dev/e2e). Mirrors addRootDirectory's non-persisted branch: the
+   * handle joins rootDirectoryHandles, becomes focused, and currentFolderId
+   * moves to its RootId; addActiveRoot is deliberately NOT called, so a
+   * fixture root never leaks into the persistent restore flow.
+   */
+  const addExternalRootHandle = useCallback(
+    (handle: DirectoryHandle): void => {
+      const rootId = handle.rootId ?? crypto.randomUUID();
+      dispatch({ handle, rootId, type: 'addOrFocusHandle' });
+      // Write rootId (not path) to the store so folderStates keys by RootId (storage v5).
+      updateCurrentFolderId(rootId);
+    },
+    [updateCurrentFolderId]
+  );
+
+  /**
    * Switch focus to an already-loaded root by its canonical identity.
    * Resolves by rootKey (the durable RootId stamped onto the handle) so
    * same-named roots are disambiguated. Callers MUST pass the RootId, not the
@@ -789,6 +807,7 @@ export function useFileSystem({
 
   return useMemo(
     () => ({
+      addExternalRootHandle,
       addRootDirectory,
       clearRootDirectory,
       isAccessLoading,
@@ -808,6 +827,7 @@ export function useFileSystem({
       rootDirectoryHandles,
       rootIdByPath,
       isAccessLoading,
+      addExternalRootHandle,
       addRootDirectory,
       registerRestoredHandles,
       removeRootDirectory,

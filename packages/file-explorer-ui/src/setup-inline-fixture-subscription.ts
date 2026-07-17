@@ -72,6 +72,15 @@ interface IndexingDebugWindowBridges {
 
 declare global {
   interface Window {
+    /**
+     * Add an ADDITIONAL fixture root alongside the loaded inline fixture
+     * (multi-root harness). Requires __BRAINSTRIKE_LOAD_FIXTURE__ first;
+     * throws otherwise. The added root is never persisted.
+     */
+    // biome-ignore lint/style/useNamingConvention: Global test API uses double underscores for clarity
+    __BRAINSTRIKE_ADD_FIXTURE_ROOT__?:
+      | ((fixture: FixtureDefinition) => Promise<DirectoryHandle>)
+      | undefined;
     /** Clear the dev fixture and reset the file explorer */
     // biome-ignore lint/style/useNamingConvention: Global test API uses double underscores for clarity
     __BRAINSTRIKE_CLEAR_FIXTURE__?: (() => void | Promise<void>) | undefined;
@@ -308,10 +317,20 @@ export function setupInlineFixtureSubscription(
         store.getState().setDevInlineFixtureEnabled(false);
         await applyFixtureState(false);
       };
+      window.__BRAINSTRIKE_ADD_FIXTURE_ROOT__ = async (fixture: FixtureDefinition) => {
+        // Multi-root harness: the adapter appends the fixture state (throws
+        // without a primary fixture / on duplicates — no half-activation) and
+        // the inject 'add' path appends the handle as an additional root.
+        const handle = await adapter.addInlineFixtureRoot(fixture);
+        dispatchInjectRootHandle(handle, 'add');
+        logger.info('Inline fixture root added', { name: fixture.name });
+        return handle;
+      };
       window.__BRAINSTRIKE_INDEXING_DEBUG__ = createIndexingDebugApi();
     } else {
       window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
       window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
+      window.__BRAINSTRIKE_ADD_FIXTURE_ROOT__ = undefined;
       window.__BRAINSTRIKE_INDEXING_DEBUG__ = undefined;
     }
   }
@@ -321,6 +340,7 @@ export function setupInlineFixtureSubscription(
     if (typeof window !== 'undefined') {
       window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
       window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
+      window.__BRAINSTRIKE_ADD_FIXTURE_ROOT__ = undefined;
       window.__BRAINSTRIKE_INDEXING_DEBUG__ = undefined;
     }
   };
