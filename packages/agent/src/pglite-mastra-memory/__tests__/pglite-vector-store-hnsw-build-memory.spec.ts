@@ -115,6 +115,36 @@ describe('PgliteVectorStore HNSW build maintenance_work_mem tuning', () => {
     ).toBe(true);
   });
 
+  it('serializes concurrent builds for different dimension keys (no SET/RESET interleaving)', async () => {
+    // maintenance_work_mem is session-global on PGlite's single shared
+    // connection: if two builds interleave, one build's RESET can land between
+    // the other's SET and CREATE INDEX, silently dropping that build back to
+    // the slow 64MB default.
+    const { database, statements } = createScriptedDatabase({ rowCount: 250_000 });
+    const store = new PgliteVectorStore({ database });
+
+    await Promise.all([
+      store.createIndex({ dimension: 1024, indexName: 'memory_messages', metric: 'cosine' }),
+      store.createIndex({ dimension: 1536, indexName: 'observational_memory', metric: 'cosine' }),
+    ]);
+
+    const tuningFlow = statements
+      .map((sql) => {
+        if (SET_WORK_MEM_RE.test(sql)) {
+          return 'SET';
+        }
+        if (sql === RESET_WORK_MEM) {
+          return 'RESET';
+        }
+        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_mastra_vectors_emb_hnsw_')) {
+          return 'CREATE';
+        }
+        return null;
+      })
+      .filter((step): step is string => step !== null);
+    expect(tuningFlow).toEqual(['SET', 'CREATE', 'RESET', 'SET', 'CREATE', 'RESET']);
+  });
+
   it('rejects when RESET fails after a successful build (leaked setting must be loud)', async () => {
     const { database, statements } = createScriptedDatabase({ failReset: true, rowCount: 250_000 });
 

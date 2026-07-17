@@ -279,6 +279,14 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
   private readonly runId: string | undefined;
   private initPromise: Promise<void> | null = null;
   private readonly dimensionIndexPromises = new Map<string, Promise<void>>();
+  // Builds SERIALIZE across (dimension, metric) keys: maintenance_work_mem is
+  // session-global on PGlite's single shared connection, so with concurrent
+  // per-key builds one build's RESET could land between another's SET and its
+  // CREATE INDEX, silently dropping that build back to the slow 64MB default.
+  // Mirrors the file_chunks deferred builder's chain in @brainstrike/db; the
+  // connection can only execute one CREATE INDEX at a time anyway, so chaining
+  // costs nothing. The chain never rejects (failures surface via `created`).
+  private dimensionIndexBuildChain: Promise<void> = Promise.resolve();
 
   constructor(options: PgliteVectorStoreOptions) {
     super({ id: options.id ?? 'brainstrike-pglite-vector' });
@@ -607,7 +615,9 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
       await pending;
       return;
     }
+    const previousBuild = this.dimensionIndexBuildChain;
     const created = (async () => {
+      await previousBuild;
       if (dimension > MAX_HNSW_DIMENSION) {
         logger.warn('Skipping HNSW index for dimension above halfvec ceiling', {
           code: 'mastra_vector_dimension_index_skipped',
@@ -622,18 +632,19 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
       // on file_chunks); the shared helper raises the setting for the build
       // only and resets it loudly afterwards.
       const rowCount = await estimateMastraVectorRowCount(this.database);
-      await withIndexBuildMaintenanceWorkMem(this.database, { dimension, rowCount }, () =>
-        this.database.query(
+      await withIndexBuildMaintenanceWorkMem(this.database, { dimension, rowCount }, async () => {
+        await this.database.query(
           `CREATE INDEX IF NOT EXISTS ${dimensionIndexName(dimension, metric)}
              ON ${MASTRA_VECTOR_TABLE}
              USING hnsw ((embedding::halfvec(${dimension})) ${HNSW_OPCLASSES[metric]})
              WHERE vector_dims(embedding) = ${dimension}`
-        )
-      );
+        );
+      });
     })().catch((error: unknown) => {
       this.dimensionIndexPromises.delete(key);
       throw error;
     });
+    this.dimensionIndexBuildChain = created.catch(() => undefined);
     this.dimensionIndexPromises.set(key, created);
     await created;
   }
