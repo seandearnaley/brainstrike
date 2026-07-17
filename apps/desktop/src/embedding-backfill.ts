@@ -653,11 +653,14 @@ async function vacuumBackfillTables(
   const startedAt = now();
   let vacuumTable: 'file_chunks' | 'job_queue' = 'file_chunks';
   try {
-    await db.query('VACUUM file_chunks');
+    // VACUUM (ANALYZE): PGlite has no autovacuum launcher, so a 0→100k ingest
+    // leaves the planner holding empty-table statistics unless ANALYZE runs
+    // here; plain VACUUM does not rebuild column histograms.
+    await db.query('VACUUM (ANALYZE) file_chunks');
     vacuumTable = 'job_queue';
-    await db.query('VACUUM job_queue');
+    await db.query('VACUUM (ANALYZE) job_queue');
     logState.consecutiveVacuumFailures = 0;
-    logger.info('Post-drain VACUUM after backfill completed', {
+    logger.info('Post-drain VACUUM (ANALYZE) after backfill completed', {
       durationMs: now() - startedAt,
       tables: ['file_chunks', 'job_queue'],
     });
