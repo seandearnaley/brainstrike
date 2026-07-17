@@ -1,5 +1,11 @@
 import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
+import {
+  PANEL_TAB_TRIGGER_CLASS_NAME,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@brainstrike/ui';
 import { Database, LibraryBig, MessagesSquare } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { preloadDatabaseTab } from './database-tab';
@@ -15,8 +21,6 @@ type AgentSidebarTab = 'database' | 'prompts' | 'threads';
 
 const AGENT_SIDEBAR_TAB_STORAGE_KEY = 'brainstrike.agent-sidebar-tab.v1';
 const LEGACY_TOOLS_PANEL_STORAGE_KEY = 'tools-panel.v1';
-const LIBRARY_TAB_TRIGGER_CLASS_NAME =
-  'min-w-0 gap-1 px-1.5 text-xs data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none dark:data-[state=active]:bg-primary/15';
 const agentSidebarTabStorage = createSafeJsonStorageAdapter();
 
 function isAgentSidebarTab(value: string): value is AgentSidebarTab {
@@ -141,36 +145,36 @@ export function AgentSidebarPanel({
       onValueChange={handleValueChange}
       value={activeTab}
     >
-      <div className="flex h-12 shrink-0 items-center border-border border-b px-2">
+      <div className="@container/library-tabs flex h-12 shrink-0 items-center border-border border-b px-2">
         <TabsList
           aria-label="Library tabs"
           className="grid h-8 w-full grid-cols-3"
           data-testid="agent-sidebar-tabs"
         >
           <TabsTrigger
-            className={LIBRARY_TAB_TRIGGER_CLASS_NAME}
+            className={PANEL_TAB_TRIGGER_CLASS_NAME}
             data-testid="threads-tab-trigger"
             value="threads"
           >
-            <MessagesSquare className="size-3.5" />
+            <MessagesSquare className="@max-[300px]/library-tabs:hidden size-3.5" />
             <span className="truncate">Threads</span>
           </TabsTrigger>
           <TabsTrigger
-            className={LIBRARY_TAB_TRIGGER_CLASS_NAME}
+            className={PANEL_TAB_TRIGGER_CLASS_NAME}
             data-testid="database-tab-trigger"
             onFocus={requestDatabaseTabPrefetch}
             onPointerEnter={requestDatabaseTabPrefetch}
             value="database"
           >
-            <Database className="size-3.5" />
-            <span className="truncate">Database</span>
+            <Database className="@max-[300px]/library-tabs:hidden size-3.5" />
+            <span className="truncate">Collections</span>
           </TabsTrigger>
           <TabsTrigger
-            className={LIBRARY_TAB_TRIGGER_CLASS_NAME}
+            className={PANEL_TAB_TRIGGER_CLASS_NAME}
             data-testid="prompts-tab-trigger"
             value="prompts"
           >
-            <LibraryBig className="size-3.5" />
+            <LibraryBig className="@max-[300px]/library-tabs:hidden size-3.5" />
             <span className="truncate">Prompts</span>
           </TabsTrigger>
         </TabsList>

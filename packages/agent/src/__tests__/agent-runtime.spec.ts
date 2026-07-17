@@ -513,7 +513,10 @@ describe('agent-runtime edge cases', () => {
         },
       });
 
-      const instructions = runtime.agent.getInstructions();
+      const instructions = await runtime.agent.getInstructions();
+      if (typeof instructions !== 'string') {
+        throw new Error('expected string agent instructions');
+      }
       expect(instructions.indexOf('Context budget:')).toBeLessThan(
         instructions.indexOf('<current-task-list')
       );

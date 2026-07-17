@@ -116,6 +116,47 @@ describe('AssistantUiPanelWrapper', () => {
     }
   });
 
+  test('enables composer attachments for hosted providers on the in-renderer transport (web gate)', async () => {
+    // localChatTransport describes the LOCAL provider's transport and must
+    // not gate hosted providers on web — the /api/assistant route shares the
+    // desktop server's image-aware conversion (#1685 review fix).
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
+          '"state":"enabled"'
+        );
+      })
+    );
+  });
+
+  test('gates composer attachments on the selected model vision capability', async () => {
+    testEnabledModels.add('qwen/qwen3-coder-next');
+    try {
+      await renderAssistantPanel(['openrouter'], async () => {
+        // Auto-selection lands on the first enabled openrouter route, the
+        // text-only coder model: visibly disabled with a model-naming reason.
+        await waitFor(() => {
+          expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
+            '"state":"disabled"'
+          );
+        });
+        expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
+          'Qwen3 Coder Next (OpenRouter)'
+        );
+
+        // Switching to a vision-capable route enables the affordance.
+        await userEvent.selectOptions(screen.getByTestId('model-select'), 'openai/gpt-5.2');
+        await waitFor(() => {
+          expect(screen.getByTestId('attachments-availability')).toHaveTextContent(
+            '"state":"enabled"'
+          );
+        });
+      });
+    } finally {
+      testEnabledModels.delete('qwen/qwen3-coder-next');
+    }
+  });
+
   test('keeps the in-renderer local transport for web llm-host test doubles', async () => {
     hasDesktopLlmHostMock.mockReturnValue(true);
     try {
@@ -221,7 +262,7 @@ describe('AssistantUiPanelWrapper', () => {
           freshness: 'live',
           models: [
             {
-              capabilities: { embeddings: 'supported', llm: true },
+              capabilities: { embeddings: 'supported', llm: true, vision: 'unknown' },
               capabilitySource: 'inferred',
               dimensionsKnown: { endpoint: '', state: 'known', values: [768], verifiedAt: 10 },
               displayName: 'Nomic Embed Text',
@@ -309,7 +350,7 @@ describe('AssistantUiPanelWrapper', () => {
           freshness: 'live',
           models: [
             {
-              capabilities: { embeddings: 'unsupported', llm: true },
+              capabilities: { embeddings: 'unsupported', llm: true, vision: 'unknown' },
               capabilitySource: 'inferred',
               dimensionsKnown: { state: 'not_applicable' },
               displayName: 'Qwen3',
@@ -322,7 +363,7 @@ describe('AssistantUiPanelWrapper', () => {
               source: 'openai_v1_models',
             },
             {
-              capabilities: { embeddings: 'supported', llm: false },
+              capabilities: { embeddings: 'supported', llm: false, vision: 'unknown' },
               capabilitySource: 'inferred',
               dimensionsKnown: { endpoint: '', state: 'known', values: [768], verifiedAt: 20 },
               displayName: 'Nomic Embed Text',

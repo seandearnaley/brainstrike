@@ -5,6 +5,11 @@ export interface ModelPickerModel {
     type: 'llm' | 'embedding';
     streaming?: boolean;
     defaultDimension?: number;
+    /**
+     * Image-input support (LLM models). 'unknown' only occurs for
+     * dynamically discovered local-runtime models with no capability signal.
+     */
+    vision?: 'supported' | 'unsupported' | 'unknown';
     [key: string]: unknown; // extensible
   };
   // Extended metadata (optional, for future)

@@ -48,10 +48,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
     const runDimensionMaintenance = vi.fn();
     const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
       getDatabase: vi.fn(async () => ({ query: vi.fn() })),
-      getDimensionIndexStrategy: () => ({
-        reason: 'concurrent-index-build-unmeasured',
-        strategy: 'regular',
-      }),
+      getDimensionIndexStrategy: () => 'regular',
       getPowerSnapshot: idleAcSnapshot,
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts({ foreground: 1 }),
@@ -74,10 +71,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
     const runScheduledWork = vi.fn();
     const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
       getDatabase: vi.fn(async () => ({ query: vi.fn() })),
-      getDimensionIndexStrategy: () => ({
-        reason: 'concurrent-index-build-unmeasured',
-        strategy: 'regular',
-      }),
+      getDimensionIndexStrategy: () => 'regular',
       getPowerSnapshot: () => ({
         ...idleAcSnapshot(),
         idleState: 'active',
@@ -96,6 +90,25 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
     expect(runScheduledWork).not.toHaveBeenCalled();
   });
 
+  it('skips when the startup capability probe has not produced a strategy', async () => {
+    const runScheduledWork = vi.fn();
+    const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
+      getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+      getDimensionIndexStrategy: () => null,
+      getPowerSnapshot: idleAcSnapshot,
+      getSchedulerSnapshot: idleSchedulerSnapshot,
+      logger: createLogger(),
+      runDimensionMaintenance: vi.fn(),
+      runScheduledWork,
+    });
+
+    await expect(scheduler.runOnce()).resolves.toMatchObject({
+      reason: 'strategy-unavailable',
+      status: 'skipped',
+    });
+    expect(runScheduledWork).not.toHaveBeenCalled();
+  });
+
   it('runs one maintenance unit through the background DB lane using maintenance exec', async () => {
     let capturedOptions: DatabaseWorkRunOptions | null = null;
     const maintenanceExec = vi.fn(async () => undefined);
@@ -109,6 +122,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       }
     );
     const runDimensionMaintenance = vi.fn(async (_db, options) => {
+      expect(options.strategy).toBe('regular');
       await options.createIndex({ dimension: 384, strategy: 'regular' });
       return {
         dimension: 384,
@@ -120,10 +134,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
 
     const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
       getDatabase: vi.fn(async () => ({ maintenance: { exec: maintenanceExec }, query: vi.fn() })),
-      getDimensionIndexStrategy: () => ({
-        reason: 'concurrent-index-build-unmeasured',
-        strategy: 'regular',
-      }),
+      getDimensionIndexStrategy: () => 'regular',
       getPowerSnapshot: idleAcSnapshot,
       getSchedulerSnapshot: idleSchedulerSnapshot,
       logger: createLogger(),
@@ -140,30 +151,26 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       priority: 'background',
     });
     expect(maintenanceExec).toHaveBeenCalledWith(expect.stringContaining('CREATE INDEX'), []);
-    expect(maintenanceExec).not.toHaveBeenCalledWith(
-      expect.stringContaining('CREATE INDEX CONCURRENTLY'),
-      []
-    );
+    for (const call of maintenanceExec.mock.calls) {
+      expect(call[0]).not.toContain('CONCURRENTLY');
+    }
   });
 
-  it('passes concurrent strategy only when capability selection chose concurrent', async () => {
+  it('rejects a claimed concurrent request instead of emitting CONCURRENTLY', async () => {
     const maintenanceExec = vi.fn(async () => undefined);
     const runDimensionMaintenance = vi.fn(async (_db, options) => {
-      await options.createIndex({ dimension: 384, strategy: options.strategy });
+      await options.createIndex({ dimension: 384, strategy: 'concurrent' });
       return {
         dimension: 384,
         durationMs: 123,
         status: 'completed',
-        strategy: options.strategy,
+        strategy: 'concurrent',
       } satisfies RunDimensionIndexMaintenanceResult;
     });
 
     const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
       getDatabase: vi.fn(async () => ({ maintenance: { exec: maintenanceExec }, query: vi.fn() })),
-      getDimensionIndexStrategy: () => ({
-        reason: 'concurrent-index-build-supported-and-responsive',
-        strategy: 'concurrent',
-      }),
+      getDimensionIndexStrategy: () => 'regular',
       getPowerSnapshot: idleAcSnapshot,
       getSchedulerSnapshot: idleSchedulerSnapshot,
       logger: createLogger(),
@@ -171,14 +178,9 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
       runScheduledWork: vi.fn(async (_options, work) => await work()),
     });
 
-    await expect(scheduler.runOnce()).resolves.toMatchObject({
-      dimension: 384,
-      status: 'completed',
-      strategy: 'concurrent',
-    });
-    expect(maintenanceExec).toHaveBeenCalledWith(
-      expect.stringContaining('CREATE INDEX CONCURRENTLY'),
-      []
+    await expect(scheduler.runOnce()).rejects.toThrow(
+      'Dimension index maintenance no longer supports the concurrent strategy.'
     );
+    expect(maintenanceExec).not.toHaveBeenCalled();
   });
 });

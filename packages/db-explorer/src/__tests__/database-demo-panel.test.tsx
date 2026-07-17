@@ -540,6 +540,11 @@ describe('DatabaseDemoPanel', () => {
 
       expect(screen.getByRole('alert')).toHaveTextContent('Database failed to initialize');
       expect(screen.getByTestId('db-init-error')).toHaveTextContent('Error');
+      // The surface is named Collections (matching its Library tab); only the
+      // engine-level error copy still speaks about the database itself.
+      expect(screen.getByTestId('database-panel-loading-label')).toHaveTextContent(
+        'Collections unavailable'
+      );
     });
 
     it('preserves one split-panel shell while the database repository initializes', async () => {
@@ -557,6 +562,7 @@ describe('DatabaseDemoPanel', () => {
         '@[360px]:inline',
         'hidden'
       );
+      expect(screen.getByTestId('database-panel-loading-label')).toHaveTextContent('Collections');
       expect(screen.getByTestId('database-panel-loading-settings')).toHaveClass(
         '@[360px]:w-20',
         'w-7'

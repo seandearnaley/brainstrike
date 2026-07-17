@@ -10,6 +10,7 @@ import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contra
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
+import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { AssistantPermissionPolicyRequest } from './mastra/permission-policy-request';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
@@ -42,7 +43,18 @@ export interface AgentMessagePartTool {
   state: 'input-available' | 'input-streaming' | 'output-available' | 'output-error';
   type: `tool-${string}`;
 }
-export type AgentMessagePart = AgentMessagePartText | AgentMessagePartTool;
+/**
+ * An inline file carried by a USER message (v1: validated image attachments
+ * only — see `@brainstrike/assistant-contract` assistant-attachments). `data`
+ * is a base64 `data:` URL; it must NEVER be flattened into prompt text.
+ */
+export interface AgentMessagePartFile {
+  data: string;
+  filename?: string | undefined;
+  mediaType: string;
+  type: 'file';
+}
+export type AgentMessagePart = AgentMessagePartText | AgentMessagePartTool | AgentMessagePartFile;
 
 export interface AgentMessage {
   id: string;
@@ -181,6 +193,16 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * Do NOT move this to assistant-contract.
    */
   providerOptions?: RuntimeProviderOptions;
+  /**
+   * Server-injected Agent Skills engine (desktop). When present (and the
+   * provider is not the built-in local model), the runtime folds Mastra's
+   * `skill`/`skill_read`/`skill_search` tools into the local tool map BEFORE
+   * guards/hooks/plan-mode/permission, and composes a `SkillsProcessor` into
+   * the per-call input processors so available-skills metadata reaches the
+   * system context. Never serialized over IPC/HTTP (an in-process object over
+   * the main-process skills scan). Agent-only — mirrors `hookRunner`.
+   */
+  workspaceSkills?: WorkspaceSkills;
 }
 
 export interface RuntimeMemoryContext {

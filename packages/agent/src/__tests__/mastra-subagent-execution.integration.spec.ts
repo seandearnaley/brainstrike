@@ -8,7 +8,6 @@
  * BOTH levels, discriminated by `options.tools`: when the tool set contains the
  * `agent-explore` delegation tool it is the PARENT; otherwise it is the CHILD.
  */
-import { ReadableStream } from 'node:stream/web';
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
@@ -242,7 +241,7 @@ async function collect(iterator: AsyncIterable<StreamChunk>): Promise<CollectedS
   return { delegationToolEvents, finalText, runEvents, toolEventNames };
 }
 
-function makeChildTool(spy: ReturnType<typeof vi.fn>) {
+function makeChildTool(spy: (inputData: { pattern: string }) => Promise<{ matches: string[] }>) {
   return createTool({
     description: 'Search the workspace for a pattern.',
     execute: spy,
@@ -259,7 +258,9 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
 
   it('delegates to a real child agent whose tool executes, and surfaces subagent.* run events', async () => {
     const childCallId = 'child-call-1';
-    const executeSpy = vi.fn(() => Promise.resolve({ matches: ['found FLAG-42'] }));
+    const executeSpy = vi.fn((_inputData: { pattern: string }) =>
+      Promise.resolve({ matches: ['found FLAG-42'] })
+    );
     modelHolder.current = createSupervisorModel(childCallId);
 
     const iterator = await streamMastraAgent(
@@ -295,11 +296,11 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
       'subagent.finished',
     ]);
     for (const event of subagentEvents) {
-      expect(event.metadata?.parentToolCallId).toBe('delegation-call-1');
-      expect(event.metadata?.personaId).toBe('explore');
+      expect(event.metadata?.['parentToolCallId']).toBe('delegation-call-1');
+      expect(event.metadata?.['personaId']).toBe('explore');
     }
     const toolStarted = subagentEvents.find((event) => event.kind === 'subagent.tool.started');
-    expect(toolStarted?.metadata?.toolCallId).toBe(childCallId);
+    expect(toolStarted?.metadata?.['toolCallId']).toBe(childCallId);
 
     // The delegation tool-result carries the raw subAgentToolResults with the
     // child's toolCallId (available to the UI / hydration).
@@ -351,7 +352,6 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     const runtime = await createMastraAgentRuntime({
       personas: [testPersona],
       runtime: { apiKey: 'test-key', planMode: true, provider: 'openai' },
-      storage: undefined,
       tools: { 'brainstrike.grepSearch': makeChildTool(vi.fn()) },
     });
     expect(runtime.delegationToolPersonas.size).toBe(0);

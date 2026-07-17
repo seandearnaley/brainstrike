@@ -42,6 +42,7 @@ export async function hydrateOllamaModelCapabilities(
         capabilities: {
           embeddings: resolved.embedding ? 'supported' : 'unsupported',
           llm: resolved.llm,
+          vision: resolved.vision ? 'supported' : 'unsupported',
         },
         capabilitySource: 'provider_reported',
         dimensionsKnown: {

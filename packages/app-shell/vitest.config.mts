@@ -153,6 +153,17 @@ export default defineConfig({
           '../ui/src/assistant-ui-panel/context-usage-store.ts'
         ),
       },
+      // Explicit subpath entry BEFORE the '@brainstrike/ui/assistant-ui-panel'
+      // string alias below: string aliases match by prefix, so without this the
+      // store specifier resolves to `.../index.ts/follow-up-queue-store` (the
+      // workspace-src-alias guard flags exactly that).
+      {
+        find: '@brainstrike/ui/assistant-ui-panel/follow-up-queue-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../ui/src/assistant-ui-panel/follow-up-queue-store.ts'
+        ),
+      },
       {
         find: '@brainstrike/ui/assistant-ui-panel',
         replacement: path.resolve(import.meta.dirname, '../ui/src/assistant-ui-panel/index.ts'),

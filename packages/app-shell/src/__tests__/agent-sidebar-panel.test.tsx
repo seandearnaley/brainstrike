@@ -27,7 +27,7 @@ describe('AgentSidebarPanel', () => {
 
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       'Threads',
-      'Database',
+      'Collections',
       'Prompts',
     ]);
     expect(screen.getByRole('tablist', { name: 'Library tabs' })).toBeInTheDocument();
@@ -36,7 +36,7 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByText('Threads content')).toBeVisible();
     expect(screen.queryByText('Database content')).not.toBeInTheDocument();
 
-    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    const databaseTab = screen.getByRole('tab', { name: 'Collections' });
     fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
 
     await waitFor(() => {
@@ -45,7 +45,7 @@ describe('AgentSidebarPanel', () => {
     expect(await screen.findByText('Database content')).toBeVisible();
   });
 
-  it('uses a restrained primary tint for whichever Library tab is active', async () => {
+  it('uses the shared segmented tab treatment for whichever Library tab is active', async () => {
     render(
       <AgentSidebarPanel
         databaseContent={<div>Database content</div>}
@@ -55,10 +55,16 @@ describe('AgentSidebarPanel', () => {
     );
 
     const threadsTab = screen.getByRole('tab', { name: 'Threads' });
-    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    const collectionsTab = screen.getByRole('tab', { name: 'Collections' });
     const promptsTab = screen.getByRole('tab', { name: 'Prompts' });
-    for (const tab of [threadsTab, databaseTab, promptsTab]) {
-      expect(tab).toHaveClass(
+    for (const tab of [threadsTab, collectionsTab, promptsTab]) {
+      // Stock shadcn active treatment from the shared TabsTrigger — the local
+      // primary-tint override is gone so Library matches Explorer|Search.
+      expect(tab).toHaveClass('data-[state=active]:bg-background');
+      // Triggers must fill the list's padded slot exactly; an intrinsic-height
+      // trigger overflows the 24px slot and hangs off the list's bottom edge.
+      expect(tab).toHaveClass('h-full');
+      expect(tab).not.toHaveClass(
         'data-[state=active]:bg-primary/10',
         'data-[state=active]:text-primary'
       );
@@ -95,7 +101,7 @@ describe('AgentSidebarPanel', () => {
       />
     );
 
-    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    const databaseTab = screen.getByRole('tab', { name: 'Collections' });
 
     fireEvent.pointerEnter(databaseTab);
     fireEvent.focus(databaseTab);
@@ -118,7 +124,7 @@ describe('AgentSidebarPanel', () => {
       />
     );
 
-    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    const databaseTab = screen.getByRole('tab', { name: 'Collections' });
 
     fireEvent.pointerEnter(databaseTab);
     await waitFor(() => {
@@ -173,7 +179,7 @@ describe('AgentSidebarPanel', () => {
       />
     );
 
-    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    const databaseTab = screen.getByRole('tab', { name: 'Collections' });
     fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
 
     const searchField = await screen.findByRole('textbox', { name: 'Database search' });
@@ -278,7 +284,10 @@ describe('AgentSidebarPanel', () => {
       />
     );
 
-    expect(screen.getByRole('tab', { name: 'Database' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByRole('tab', { name: 'Collections' })).toHaveAttribute(
+      'data-state',
+      'active'
+    );
     expect(window.localStorage.getItem('tools-panel.v1')).toBeNull();
     expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBe(
       JSON.stringify('database')

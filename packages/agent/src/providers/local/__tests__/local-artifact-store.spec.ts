@@ -26,7 +26,7 @@ describe('local-artifact-store', () => {
         origin: 'http://localhost:8080',
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     expect(resolveLocalArtifactRemoteHost()).toBe('http://localhost:8080/api/hf/');
     expect(
@@ -46,7 +46,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window & { electronAPI: Record<string, never> };
+    } as unknown as Window & typeof globalThis;
 
     expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
     expect(buildLocalArtifactUrl('onnx-community/gemma-4-E2B-it-ONNX', 'main', 'config.json')).toBe(
@@ -62,7 +62,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'file:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
     expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
   });
 
@@ -71,7 +71,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'app:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
   });
@@ -94,7 +94,7 @@ describe('local-artifact-store', () => {
         origin: 'http://localhost:8080',
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const environment: {
       allowRemoteModels?: boolean;
@@ -115,7 +115,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window & { electronAPI: Record<string, never> };
+    } as unknown as Window & typeof globalThis;
 
     const environment: {
       allowRemoteModels?: boolean;
@@ -135,7 +135,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const cache = {
       match: vi.fn().mockResolvedValue(undefined),
@@ -167,19 +167,19 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const cache = {
-      match: vi.fn().mockImplementation(async (url: string) => {
-        if (url.endsWith('/config.json')) {
-          return new Response('cached', {
-            headers: {
-              'content-length': String(3900 * 1024 * 1024),
-            },
-            status: 200,
-          });
-        }
-      }),
+      match: vi.fn().mockImplementation(async (url: string) =>
+        url.endsWith('/config.json')
+          ? new Response('cached', {
+              headers: {
+                'content-length': String(3900 * 1024 * 1024),
+              },
+              status: 200,
+            })
+          : undefined
+      ),
       put: vi.fn(),
     } as unknown as Cache;
     vi.stubGlobal('caches', {
@@ -211,19 +211,19 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const cache = {
-      match: vi.fn().mockImplementation(async (url: string) => {
-        if (url.endsWith('/large.onnx')) {
-          return new Response('cached-large', {
-            headers: {
-              'content-length': '900',
-            },
-            status: 200,
-          });
-        }
-      }),
+      match: vi.fn().mockImplementation(async (url: string) =>
+        url.endsWith('/large.onnx')
+          ? new Response('cached-large', {
+              headers: {
+                'content-length': '900',
+              },
+              status: 200,
+            })
+          : undefined
+      ),
       put: vi.fn(async (_url: string, response: Response) => {
         await response.arrayBuffer();
       }),
@@ -284,7 +284,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const cache = {
       match: vi.fn().mockResolvedValue(undefined),
@@ -346,7 +346,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const cache = {
       match: vi.fn().mockResolvedValue(undefined),
@@ -403,7 +403,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const blobSpy = vi.fn(async () => new Blob(['cached']));
     const cache = {
@@ -446,7 +446,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const cache = {
       match: vi.fn().mockResolvedValue(undefined),
@@ -485,7 +485,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const cache = {
       match: vi.fn().mockResolvedValue(undefined),
@@ -524,7 +524,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const cache = {
       match: vi.fn().mockResolvedValue(undefined),
@@ -578,7 +578,7 @@ describe('local-artifact-store', () => {
       location: {
         protocol: 'http:',
       },
-    } as Window;
+    } as unknown as Window & typeof globalThis;
 
     const cache = {
       match: vi
